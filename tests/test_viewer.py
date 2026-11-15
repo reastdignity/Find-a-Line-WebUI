@@ -1075,6 +1075,33 @@ out.liftCount = [[model.liftCount(1, false), model.liftCount(0.5, true)],
                   objects.filter((l) => { const v = m.liftNeed(l, true); return v === null || v <= 0.5 + 1e-9; }).length]];
 out.liftRange = model.ranges.lift;
 out.found = [model.count, model.total, model.nClean + model.nOver];
+// Another run in another coordinate system (Compare): grouped with this run's in a local plane around this run, as
+// others.inLocalPlane did before (its arithmetic here), the groups holding each run's own lines; removed and shown
+// again, the same groups
+const other = {crs: "EPSG:other", area: data.area, terrain: null, ends: data.ends,
+               lines: data.lines.slice(0, 400).map((r) => { const s = r.slice(0, -1); s[1] += 0.00001; s[3] += 0.00001; return s; })};
+const info = {id: "other", name: "Other", created: "", description: ""};
+const runKey = (l) => (l.run ? l.run.info.id : "this") + "|" + key(l);
+const referenceGroups = () => {
+  const run = {info, color: "#000"}, theirs = other.lines.map((r) => m.toLine(r, run, null, other.ends));
+  const all = objects.concat(theirs), [lat0, lon0] = data.center;
+  const k = Math.PI / 180 * 6371008.8, c = Math.cos(lat0 * Math.PI / 180);
+  const planar = all.map((l) => ({...l, x1: (l.lon1 - lon0) * k * c, y1: (l.lat1 - lat0) * k,
+                                  x2: (l.lon2 - lon0) * k * c, y2: (l.lat2 - lat0) * k}));
+  const back = new Map(planar.map((p, i) => [p, all[i]]));
+  return m.groupLines(planar, data.distance, data.by).map((g) => [g.rep, ...g.members].map((x) => runKey(back.get(x))));
+};
+const groupsNow = () => model.groups.map((g) => [g.rep, ...g.members].map(runKey));
+model.addRun(info, other);
+const wanted = JSON.stringify(referenceGroups()), first = JSON.stringify(groupsNow());
+out.otherCrs = {same: first === wanted, total: model.total, spots: model.groups.length,
+                mixed: model.groups.some((g) => g.members.some((l) => l.run) && g.members.some((l) => !l.run))};
+model.removeRun("other");
+out.removed = {total: model.total, others: model.others.size,
+               same: JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)))
+                 === JSON.stringify(m.groupLines(objects, data.distance, data.by).map((g) => [g.rep, ...g.members].map(runKey)))};
+model.addRun(info, other);
+out.again = {same: JSON.stringify(groupsNow()) === wanted, start: model.others.get("other").start};
 console.log(JSON.stringify(out));
 """
 
@@ -1109,6 +1136,55 @@ def test_model_from_columns_as_from_rows(tmp_path, clip_data):
     assert out["liftCount"][0] == out["liftCount"][1]
     assert out["liftRange"] == {"lift": 2, "zone": 5, "needed": 3.0, "noZone": 4.5}
     assert out["found"] == [len(lines), len(lines), len(lines)]
+    assert out["otherCrs"]["same"] and out["otherCrs"]["total"] == len(lines) + 400 and out["otherCrs"]["mixed"]
+    assert out["removed"] == {"total": len(lines), "others": 0, "same": True}
+    assert out["again"] == {"same": True, "start": len(lines) + 400}  # an index is never given twice
+
+
+PRUNE_SCRIPT = r"""
+// 60 000 made-up lines in a few clusters: without grouping every line is a spot and gets its Line; grouped again,
+// the Lines nothing shows are dropped (prune), and the chosen and selected line stays the same object
+const rows = [], n = 60000;
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+for (let i = 0; i < n; i++) {
+  const cx = (i % 6) * 500, x1 = cx + rnd() * 30, y1 = rnd() * 30, x2 = x1 + 100 + rnd() * 30, y2 = y1 + rnd() * 30;
+  const ll = (x, y) => [Number((50 + y / 111000).toFixed(7)), Number((19 + x / 71000).toFixed(7))];
+  const [lat1, lon1] = ll(x1, y1), [lat2, lon2] = ll(x2, y2);
+  rows.push([lat1, lon1, lat2, lon2, x1, y1, x2, y2, Math.hypot(x2 - x1, y2 - y1), rnd() * 20, null, 300, 301, i % 7 === 0,
+             0, 0, 20, Math.round(rnd() * 2000) / 100, 50, 10, 10, null, null, null, null, null]);
+}
+const data = {run: {id: "r", name: "r", created: "", description: ""}, center: [50, 19], area: null, crs: "EPSG:2180",
+              ortho: null, distance: 20, by: "clearance", model: "sag", rigging: {}, slope: 0, leash_fall: 0, high_above: 20,
+              max_zoom: 19, lines: rows};
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const out = {spots: model.groups.length, madeGrouped: model.madeLines};
+model.setState({...model.state, group: false});
+out.ungrouped = {spots: model.groups.length, kept: model.made.size};
+const group = model.rows[3].group, line = model.lineAt(group.repAt + 0);
+model.setState({...model.state, group: true});
+const spot = model.groupOf(line), other = model.membersOf(spot).find((l) => l !== model.shownOf(spot));
+model.select(other);  // chosen in its spot, and selected
+const before = {chosen: model.selected.line === other};
+model.setState({...model.state, group: false});
+model.setState({...model.state, group: true});
+out.regrouped = {kept: model.made.size, spots: model.groups.length, selected: model.selected && model.selected.line === other,
+                 shown: model.shownOf(model.groupOf(other)) === other, before};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_made_lines_dropped_after_regrouping(tmp_path):
+    """ResultModel's Lines: 60 000 lines without grouping get one each (every line is a spot); grouped again, those
+    nothing shows are dropped (prune: over PRUNE_MIN and more than twice the rows), while the chosen and selected
+    line stays the same object, shown in its spot."""
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), PRUNE_SCRIPT)
+    assert out["madeGrouped"] == out["spots"] < 1000
+    assert out["ungrouped"] == {"spots": 60000, "kept": 60000}
+    regrouped = out["regrouped"]
+    assert regrouped["before"] == {"chosen": True} and regrouped["selected"] and regrouped["shown"]
+    assert regrouped["spots"] == out["spots"] and regrouped["kept"] <= 2 * out["spots"] + 2
 
 
 TOO_LARGE_SCRIPT = r"""

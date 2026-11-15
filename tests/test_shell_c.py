@@ -543,6 +543,55 @@ def test_shell_c_link_outside_the_run(data, tmp_path):
     assert r["csp"] == []
 
 
+# Chromium hands the text of an XHR over its longest string (about 537 M characters) as "" with no error: data.js
+# answered so here (the real download goes on, its bytes counted), and every script loading a data.js recorded
+TOO_LARGE_STUBS = C_STUBS + r"""
+window.DATA_SCRIPTS = [];
+new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => {
+  if (n.tagName === "SCRIPT" && /data\.js/.test(n.src || "")) DATA_SCRIPTS.push(n.src);
+}))).observe(document.documentElement, {childList: true, subtree: true});
+const realOpen = XMLHttpRequest.prototype.open;
+const realResponse = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "response");
+XMLHttpRequest.prototype.open = function (method, url) { this.dataJs = /data\.js$/.test(String(url)); return realOpen.apply(this, arguments); };
+Object.defineProperty(XMLHttpRequest.prototype, "response",
+                      {configurable: true, get() { return this.dataJs ? "" : realResponse.get.call(this); }});
+"""
+
+TOO_LARGE_SCRIPT = """
+run({
+  shown(next) { wait(() => text(".c-result-wait .c-error"), () => {
+    result.text = text(".c-result-wait .c-error");
+    later(() => { result.scripts = DATA_SCRIPTS.slice(); result.model = !!window.FINDALINE_RESULT; next(); }, 1000);
+  }); },
+});
+"""
+
+
+def test_shell_c_too_large(data, tmp_path):
+    """A run whose data.js arrives as an empty text over http (Chromium's string limit; result/load.ts TooLarge):
+    the app's result page and the run's map.html show "This result is too large for this browser." and load no
+    data.js by a script (which crashed the tab); no CSP violations."""
+    import mapping
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.too_large"]
+    page = stub_page(data, "ctoolarge", TOO_LARGE_SCRIPT, TOO_LARGE_STUBS)
+    folder = data / "runs" / SMALL  # its own map.html, the stubs first
+    mapping.install_viewer(str(data / "runs"))
+    (folder / "toolarge_stubs.js").write_text(TOO_LARGE_STUBS, encoding="utf-8")
+    (folder / "toolarge_test.js").write_text(HELPERS + TOO_LARGE_SCRIPT, encoding="utf-8")
+    html = (folder / "map.html").read_text(encoding="utf-8")
+    (folder / "toolarge.html").write_text(
+        html.replace("<head>", '<head><script src="toolarge_stubs.js"></script>')
+            .replace("</body>", '<script src="toolarge_test.js"></script></body>'), encoding="utf-8")
+    with _server(data) as port:
+        app = _edge(port, page + "?ui=c#run=" + SMALL, tmp_path / "edge-app")
+        own = _edge(port, f"runs/{SMALL}/toolarge.html", tmp_path / "edge-map")
+    for r in (app, own):
+        assert "timeout" not in r and "error" not in r, json.dumps(r)
+        assert r["text"] == words and r["scripts"] == [] and r["model"] is False, r
+        assert r["csp"] == []
+
+
 def add_credits(data_dir, run_id: str):
     """The run's data.js with the credits of a source (a run of an elevation file has none)."""
     path = os.path.join(str(data_dir), "runs", run_id, "data.js")

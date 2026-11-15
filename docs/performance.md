@@ -3333,10 +3333,13 @@ The phases:
 How these were found: the heap profiler's sampling, by the function that allocated what is still live.
 
 ### What it means
-- **T5, heap under 500 MB at BAH: met for what the page keeps.** The page keeps 227 MB at 2 M lines: about
-  113 B a line of columns, plus 9 MB of objects.
-  - Right after the load the heap still reads about 1.7 GB, until V8 collects the downloaded text and the parsed rows.
-  - The page's own `gc()` 50 ms later left 569 MB.
+- **T5, heap under 500 MB at BAH: the answer depends on when the heap is read.**
+  - *Two frames after the first picture* (the spec's method): 1.7 GB, against 2.1 GB on main. Not met.
+  - *After the page's own `gc()` and 50 ms:* 569 MB, against 1.6 GB on main. Not met.
+  - *After the profiler's full collection, 2 s after the first picture* (one round, shared lane): 227 MB, against
+    1454 MB on main. Met. Of the 227 MB, 218 MB are the columns (about 113 B a line) and 9 MB objects.
+  - What makes up the difference is not measured. The downloaded text and the parsed rows are the likely part, held
+    until V8 collects them.
 - **T5, first picture within 3 s: not met.** It was 5.6-6.8 s at 2 M lines (main: 7.8-8.5 s).
   - The download and JSON.parse of a 449 MB text take about 3 s alone.
   - The grouping takes about 1.7 s.
