@@ -1103,7 +1103,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   Madeira (own mirror copy) and Valle d'Aosta (own copy of the one 9.85 GB ASC, the DSM later by hand). Batch 6:
   Wallonia and Hong Kong as own copies at their native 0.5 m. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
   Valle d'Aosta, DLS.
-- **Wave 1, done 2026-11-15** (branch `new-sources-5`, R66-R73; every existing regression entry unchanged):
+- **Wave 1, done 2026-11-15** (in main as one commit, its commits under tag `history/new-sources-5-w1`; R66-R73;
+  every existing regression entry unchanged):
   - *French overseas* (`france_guadeloupe` with Saint-Barthélemy and Saint-Martin, `france_martinique`, `france_guiana`,
     `france_spm`): IGN's RGE ALTI 1 m by WMS-R, one layer each in its native CRS, chosen by bbox (Nominatim says "fr"
     in every territory). Guadeloupe's, Martinique's and SPM's pixel centres lie on whole metres (`origin` 0.5), French
@@ -1133,15 +1134,16 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     none at 2.5 m).
 - **Open from wave 1**:
   - basisdata.nl (Caribbean Netherlands' files) stopped answering this PC on 2026-11-15 after about 18 parallel
-    window reads per island at 4 connections (now 2): the islands' `check_source`, probe and a retry wait; a mail to
-    Het Waterschapshuis if it stays so.
+    window reads per island at 4 connections (now 2): the islands' `check_source`, probe and R70's re-run wait (the
+    sources stay in main, the user's choice); mail 31 to Het Waterschapshuis drafted.
   - The six-neighbour cap of the country cube (`countcube.PARTNERS`) kept TINITALY from Austria and France and the
-    Netherlands from Lower Saxony: their border strips fill from 30 m data. Raising it changes the cube's format.
+    Netherlands from Lower Saxony: their border strips fill from 30 m data. Raising it changes the cube's format: a
+    task of its own later (the user, 2026-11-15).
   - Réunion and Mayotte (RGE ALTI layers exist), the overseas DSM (MNS Correl only resampled), AHN5 and AHN6 (licence
     and URL pattern: a mail to info@ahn.nl), filling the AHN DTM's wall gaps from its own DSM instead of 30 m data,
     TINITALY's surface gaps (South Tyrol's and Trento's surface gaps in Italy take TINITALY's terrain, no trees).
-  - The VPS's OSM extracts grow by italy (2.25 GB), australia, netherlands and others: choose which go into
-    `OSM_EXTRACTS_SKIP`. docs/images/coverage-* not re-rendered (`tools/coverage_media.py readme`).
+  - The VPS downloads every new OSM extract (italy 2.25 GB, isole, australia, netherlands, ...: the user kept them all,
+    2026-11-15; `OSM_EXTRACTS_SKIP` unchanged). docs/images/coverage-* not re-rendered (`tools/coverage_media.py readme`).
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
