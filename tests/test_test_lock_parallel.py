@@ -166,9 +166,13 @@ def test_xdist_found_in_the_commands_python(tmp_path):
 
 
 def test_the_wrapper_runs_a_full_pytest_in_parallel(tmp_path):
-    """A full pytest of a small project under the lock: its line, `-n MODE_WORKERS["shared"] --dist loadfile`
-    in the run's history (kind pytest-all-xdist), WORKER_THREADS threads in each worker; `-n 0` serial."""
+    """A full pytest of a small project under the lock, on simulated machines (FINDALINE_TEST_MEMORY: the same on
+    every PC and runner). With no history the RAM guard expects MEMORY_BASE_GB + MEMORY_PER_WORKER_GB a worker: on
+    a CI runner's 15.6 GB that does not fit, so it waits for memory, saying so, and gives up without starting; on
+    64 GB it runs: its line, `-n MODE_WORKERS["shared"] --dist loadfile` in the run's history (kind
+    pytest-all-xdist), WORKER_THREADS threads in each worker; `-n 0` serial."""
     workers = tl.MODE_WORKERS["shared"]
+    need = tl.MEMORY_BASE_GB + tl.MEMORY_PER_WORKER_GB * workers
     project = tmp_path / "project"
     (project / "tests").mkdir(parents=True)
     (project / "pytest.ini").write_text("[pytest]\ntestpaths = tests\n", encoding="utf-8")
@@ -184,11 +188,24 @@ def test_the_wrapper_runs_a_full_pytest_in_parallel(tmp_path):
                OUT=str(out))
     for name in ("PYTEST_ADDOPTS", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"):  # not this run's own,
         env.pop(name, None)                                                               # when it is a worker
-    command = [sys.executable, TOOL, "run", "--expect", "60", "--", sys.executable, "-m", "pytest", "-q",
-               "-p", "no:cacheprovider"]
+    pytest_command = ["--", sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    command = [sys.executable, TOOL, "run", "--expect", "60", *pytest_command]
+    # The runner first: once a run is in the history its own (small) peak is the estimate
+    runner = (12.4, 15.6)   # GiB available, total: 3.2 GB used, as on windows-latest and ubuntu-latest
+    budget = tl.memory_limit((int(runner[0] * G), int(runner[1] * G)))
+    assert budget < need * G
+    result = subprocess.run([sys.executable, TOOL, "run", "--expect", "60", "--wait", "5", *pytest_command],
+                            cwd=project, env=dict(env, FINDALINE_TEST_MEMORY="%s/%s" % runner), capture_output=True,
+                            text=True, encoding="utf-8", timeout=300)
+    assert result.returncode == 75, result.stdout + result.stderr
+    assert (f"test lock: shared waits for memory: needs ~{need:.1f} GB, {budget / G:.1f} GB free for it"
+            in result.stderr and "test lock: gave up after " in result.stderr), result.stderr
+    assert os.listdir(out) == [] and "in parallel" not in result.stderr   # never started
+    env["FINDALINE_TEST_MEMORY"] = "48/64"
     result = subprocess.run(command, cwd=project, env=env, capture_output=True, text=True, encoding="utf-8",
                             timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "waits for memory" not in result.stderr
     assert f"test lock: the full pytest runs in parallel: {workers} workers x 3 threads" in result.stderr
     assert sorted(os.listdir(out)) == sorted(f"gw{k}.txt" for k in range(workers))
     assert {(out / name).read_text() for name in os.listdir(out)} == {str(tl.WORKER_THREADS)}
