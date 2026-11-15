@@ -55,6 +55,7 @@ class Fake:
         self.headers = []         # (path, the request's headers) of every request
         self.action_base = ""     # the form's action before its path ("" = this server, relative)
         self.down = 0             # the next n requests: the connection closed without an answer (an outage)
+        self.repeat_paging = False  # every page is the first one again, with the same next token
         self.stall_form = 0       # the next n login pages: headers, then nothing for a second
         self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
         self.active = self.most = 0
@@ -265,7 +266,7 @@ class Fake:
             chosen = [i for i in chosen if i[1] in body["ids"]]
         chosen.sort(key=lambda i: i[1], reverse=True)
         start = 0
-        if body.get("token"):
+        if body.get("token") and not self.repeat_paging:
             last = body["token"].split(":", 2)[2]
             start = [i[1] for i in chosen].index(last) + 1
         page = chosen[start:start + body.get("limit", 10)]
@@ -402,6 +403,21 @@ def test_every_search_is_paced(fake, tmp_path, monkeypatch):
     assert len(fake.searches) == 3 and len(fake.waits) == 2 and all(4 < w <= 5 for w in fake.waits)
 
 
+def test_a_collection_named_twice_gives_one_row_per_item(fake, tmp_path):
+    mainland(fake, 3)
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm", "MDT-50cm") == 0
+    rows = [json.loads(line) for line in open(tmp_path / "portugal" / "manifest.jsonl", encoding="utf-8")]
+    assert len(rows) == 3 == len({r["id"] for r in rows})
+
+
+def test_paging_that_repeats_ends_the_plan(fake, tmp_path, capsys):
+    mainland(fake, 5)
+    fake.repeat_paging = True
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm") == cf.EXIT_ERROR
+    assert len(fake.searches) == 2 and "repeats" in capsys.readouterr().err
+    assert not os.path.exists(tmp_path / "portugal" / "manifest.jsonl")
+
+
 def test_sheet_of_the_id_forms():
     assert cf.sheet_of("MDT-50cm", "MDT-50cm-090203-07-2024", "03")[1:] == ("090", 3, 2024)
     assert cf.sheet_of("ACORES-MDS-1", "2024_SMG_PDL_27-1-4-5_01_MDS", None)[1:] == ("SMG", 1, 2024)
@@ -439,6 +455,43 @@ def test_fetch_resumes_and_records_every_file(fake, tmp_path):
     assert len([p for _, p, _ in fake.log if p.startswith("/store/")]) == downloads
     status = json.load(open(tmp_path / "portugal" / "status.json", encoding="utf-8"))
     assert status["groups"]["MDT-50cm"]["done"] == 4 and status["state"] == "finished"
+
+
+def test_a_duplicate_manifest_row_is_fetched_once(fake, tmp_path):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    manifest = tmp_path / "portugal" / "manifest.jsonl"
+    rows = manifest.read_text(encoding="utf-8")
+    manifest.write_text(rows + rows, encoding="utf-8")
+    assert fetch(tmp_path) == 0
+    assert len([p for _, p, _ in fake.log if p.startswith("/store/")]) == 2 and len(done_rows(tmp_path)) == 2
+
+
+def test_a_second_fetch_on_one_folder_stops_and_touches_nothing(fake, tmp_path, capsys):
+    import subprocess
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    area = tmp_path / "portugal"
+    holder = subprocess.Popen(
+        [sys.executable, "-I", "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); import cdd_fetch as cf; "
+         "held = cf._lock(sys.argv[2]); print('locked', flush=True); time.sleep(60)", os.path.join(REPO, "tools"),
+         str(area)], stdout=subprocess.PIPE, text=True,
+        env={k: v for k, v in os.environ.items() if not k.startswith("CDD_")})
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        part = area / "MDT-50cm" / "090" / "MDT-50cm-090200-07-2024.tif.part"
+        part.parent.mkdir(parents=True)
+        part.write_bytes(b"II*\x00live")  # the first process's file under way
+        before = sorted(os.listdir(area))
+        requests = len(fake.log)
+        assert fetch(tmp_path) == cf.EXIT_LOCKED
+        assert part.exists() and sorted(os.listdir(area)) == before and len(fake.log) == requests
+        assert "another fetch holds" in capsys.readouterr().err
+    finally:
+        holder.kill()
+        holder.wait(30)
+        holder.stdout.close()
+    assert fetch(tmp_path) == 0 and len(done_rows(tmp_path)) == 2  # the system freed the lock of the dead process
 
 
 def test_addresses_are_resolved_in_batches(fake, tmp_path, monkeypatch):

@@ -98,6 +98,7 @@ FIELDS = {"include": ["id", "collection", "properties.version", "properties.file
                       "assets"],
           "exclude": ["properties.proj:wkt2", "properties.eo:bands", "geometry", "links"]}
 PAGE = 1000            # items per search page while planning
+MAX_PAGES = 10_000     # pages of one collection at most (92 on 2026-11-15)
 RESOLVE_BATCH = 20     # ids per search resolving download addresses
 ADDRESS_SECONDS = 900  # a resolved address is used within this time, else resolved again
 REQUEST_PAUSE = 1.5    # seconds between two requests to one host (redirects and sign-in steps included)
@@ -118,7 +119,7 @@ RATE = 16e6 / 2.1      # bytes per second of one CDD download, measured by the c
 TIFF_MAGIC = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 ZIP_MAGIC = (b"PK\x03\x04",)
 
-EXIT_OK, EXIT_ERROR, EXIT_CREDENTIALS, EXIT_SIGNINS, EXIT_FAILURES, EXIT_DISK = 0, 1, 2, 3, 4, 5
+EXIT_OK, EXIT_ERROR, EXIT_CREDENTIALS, EXIT_SIGNINS, EXIT_FAILURES, EXIT_DISK, EXIT_LOCKED = 0, 1, 2, 3, 4, 5, 6
 
 _WALLONIA = "https://geoservices.wallonie.be/geotraitement/spwdatadownload/results/"
 _MNT = _WALLONIA + "a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50CM_2021_2022_GEOTIFF_3812_PROV_"
@@ -422,10 +423,14 @@ def walk(http, collection, bbox, log):
     body = {"collections": [collection], "limit": PAGE, "fields": FIELDS}
     if bbox:
         body.update(_bbox_filter(bbox))
-    items, matched, pages = {}, None, 0
+    items, matched, pages, asked = {}, None, 0, set()
     while body is not None:
         if STOP.is_set():
             raise Stopped()
+        key = json.dumps(body, sort_keys=True)
+        if key in asked or pages >= MAX_PAGES:
+            raise BadFile("%s: the search's paging repeats a page or never ends (page %d)" % (collection, pages))
+        asked.add(key)
         answer = http.json(SITE + SEARCH, body)
         pages += 1
         matched = (answer.get("context") or {}).get("matched", matched)
@@ -447,7 +452,7 @@ def plan(args, scrub, log):
     log.path = os.path.join(area, "plan.log")
     http = Http(scrub)
     rows, summary = [], {"made": now(), "bbox": args.bbox, "collections": {}}
-    for collection in args.collections:
+    for collection in dict.fromkeys(args.collections):  # each once, in the order given
         items, matched = walk(http, collection, args.bbox, log)
         newest, skipped = {}, 0
         for item_id, feature in items.items():
@@ -471,6 +476,8 @@ def plan(args, scrub, log):
             if key not in newest or order > newest[key][0]:
                 newest[key] = (order, row)
         kept = sorted((row for _, row in newest.values()), key=lambda r: (r["folder"], r["id"]))
+        listed = {r["id"] for r in rows}
+        kept = [r for r in kept if r["id"] not in listed]  # one row per item
         rows += kept
         size = sum(r["size"] or 0 for r in kept)
         summary["collections"][collection] = {
@@ -1013,16 +1020,67 @@ def _check_disk(area, need):
     return shutil.disk_usage(area).free >= need
 
 
+class Locked(Exception):
+    pass
+
+
+def _lock(area):
+    """<area>/fetch.lock, locked for this process's life (the system frees it when the process ends, killed
+    or not); Locked when another process holds it. The open file, to pass to _unlock."""
+    os.makedirs(area, exist_ok=True)
+    f = open(os.path.join(area, "fetch.lock"), "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        raise Locked() from None
+    return f
+
+
+def _unlock(f):
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    f.close()
+
+
+def _locked_run(area, log, run):
+    """run() while holding the area's lock; a second fetch on the same folder stops at once, touching nothing."""
+    try:
+        lock = _lock(area)
+    except Locked:
+        log("another fetch holds %s: this one stops and changes nothing" % os.path.join(area, "fetch.lock"),
+            error=True)
+        return EXIT_LOCKED
+    try:
+        log.path = os.path.join(area, "fetch.log")
+        return run()
+    finally:
+        _unlock(lock)
+
+
 def _portugal_items(area, collections):
     path = os.path.join(area, "manifest.jsonl")
     if not os.path.exists(path):
         return None
-    items = []
+    items, seen = [], set()
     for row in _read_jsonl(path):
-        if collections and row["collection"] not in collections:
+        if not isinstance(row, dict) or row.get("id") in seen or (collections and row.get("collection") not in
+                                                                   collections):
             continue
-        if not SAFE_ID.fullmatch(row["id"]) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", row["folder"]):
+        if not SAFE_ID.fullmatch(str(row.get("id"))) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(row.get("folder"))):
             continue
+        seen.add(row["id"])
         items.append({"id": row["id"], "group": row["collection"], "collection": row["collection"],
                       "path": "%s/%s/%s.tif" % (row["collection"], row["folder"], row["id"]),
                       "size": row.get("size"), "asset": row.get("asset") or "data"})
@@ -1066,7 +1124,6 @@ def fetch(args, scrub, log):
     if items is None:
         log("no manifest in %s: run `plan` first" % area, error=True)
         return EXIT_ERROR
-    log.path = os.path.join(area, "fetch.log")
     if not user or not password:
         log("CDD_USER and CDD_PASSWORD must be set in the environment", error=True)
         return EXIT_CREDENTIALS
@@ -1074,16 +1131,18 @@ def fetch(args, scrub, log):
         log("CDD_USER and CDD_PASSWORD must have 3 characters at least (a shorter value could not be masked in "
             "the output)", error=True)
         return EXIT_CREDENTIALS
-    return fetch_run(CddJob(area, items, user, password, args.max_signins_per_hour), args, Http(scrub), log)
+    job = CddJob(area, items, user, password, args.max_signins_per_hour)
+    return _locked_run(area, log, lambda: fetch_run(job, args, Http(scrub), log))
 
 
 def fetch_list(args, scrub, log):
     spec = LISTS[args.name]
     area = os.path.join(args.out, spec["folder"])
-    os.makedirs(area, exist_ok=True)
-    log.path = os.path.join(area, "fetch.log")
-    log("list %s (addresses and sizes read %s)" % (args.name, spec["read"]))
-    return fetch_run(Job(area, _list_items(args.name), spec["magic"]), args, Http(scrub), log)
+
+    def run():
+        log("list %s (addresses and sizes read %s)" % (args.name, spec["read"]))
+        return fetch_run(Job(area, _list_items(args.name), spec["magic"]), args, Http(scrub), log)
+    return _locked_run(area, log, run)
 
 
 # Status
