@@ -51,7 +51,8 @@ no data), every listed tile's sha256 with its file, and finds every file in the 
 list; it writes verify.json beside the index.
 
 In a container of the project's image (Linux; the image holds no tools/, so the clone's is mounted; it runs as uid
-10001 unless --user says otherwise, which the mounted folders must allow):
+10001 unless --user says otherwise: the mounted folders must be writable by that user, and every run of one work
+folder takes the same user, or the next cannot write the state another wrote):
 
     docker build -t findaline .
     docker run --rm --user "$(id -u):$(id -g)" --entrypoint python \\
@@ -269,10 +270,10 @@ DATASETS: Dict[str, Union[Dict, Dataset]] = {
     "porto-santo": _island("porto-santo", "Porto Santo", "PortoSanto_5m.tif", "EPSG:3061",
                            "Porto Santo 1995 / UTM zone 28N, EPSG:3061", (), 0.0,
                            "Porto Santo and its islets; the sea written as 0 there"),
-    "desertas": _island("desertas", "the Desertas", "Desertas_5m.tif", "EPSG:5016",
+    "desertas": _island("desertas", "Desertas", "Desertas_5m.tif", "EPSG:5016",
                         "PTRA08 / UTM zone 28N, EPSG:5016; the file is labelled EPSG:3061", (-32768.0, -999.0), None,
                         "Deserta Grande, Bugio and Ilhéu Chão"),
-    "selvagens": _island("selvagens", "the Selvagens", "Selvagens_5m.tif", "EPSG:5016",
+    "selvagens": _island("selvagens", "Selvagens", "Selvagens_5m.tif", "EPSG:5016",
                          "PTRA08 / UTM zone 28N, EPSG:5016", (-32768.0, -999.0), None,
                          "Selvagem Grande, Selvagem Pequena and Ilhéu de Fora"),
 }
@@ -1287,7 +1288,8 @@ def card_text(ds: Dataset) -> str:
                      if len(product.inputs) > 1 or any(isinstance(s, Folder) or (not isinstance(s, Folder) and
                                                                                  len(s.members) > 1)
                                                         for s in product.inputs) else "")
-                  + f"; {', '.join(masks)} made no data; stored with LERC compression with a maximum error of "
+                  + f"; {', '.join(masks[:-1]) + ' and ' + masks[-1] if len(masks) > 1 else masks[0]} made no "
+                  "data; stored with LERC compression with a maximum error of "
                   f"5 mm. Heights {product.heights}; values are not otherwise changed.", ""]
     lines += [f"Layout: `<product>/<res>m/<i//10>_<j//10>/<i>_<j>.tif`; `<product>/<res>m/index.json` lists every "
               "tile of the extent with its sha256 (null: no data). Made for Find-a-Line (a highline finder); not "

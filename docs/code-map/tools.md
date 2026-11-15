@@ -45,17 +45,34 @@ mod T and S) read once; it stops if a centroid's cell does not carry its sheet's
 
 ## `tools/mirror_tiles.py`
 
-Run by hand under the test lock with `--resource data`: own copies of elevation models published only as one big
-file, for the local mirror (`DATASETS`: `madeira`, DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's
-DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII grid with decimal commas). Steps `download` (one GET through the
+Run by hand under the test lock with `--resource data` (or in a container of the project's image on another
+machine: the docstring's example mounts the clone's `tools/`, which `.dockerignore` keeps out of the image): own
+copies of elevation models that cannot be read in parts from their provider, for the mirror. `DATASETS` holds
+`Dataset` records (a folder of products `<dataset>/<product>/<res>m`, names in `[a-z0-9_-]+`, each `Product` with its
+CRS, `origin`, inputs, masks and overlap rule) and two dicts of before that `dataset()` makes records of (`madeira`,
+DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII
+grid with decimal commas: their index keys and published cards `MADEIRA_CARD`/`AOSTA_CARD` stay; a fixed card covers
+one product). Madeira's 5 m ZIP gives three datasets: `porto-santo` (EPSG:3061, the sea 0), `desertas` (EPSG:5016
+over the file's EPSG:3061 label), `selvagens`. Inputs: `Url` (one GET at a time under a lock in `--work`, through the
 app's headers, rate and counting; a resume by `Range: bytes=N-` only below `resume_below`: Aosta's firewall answers
 500 beyond about 1e8 bytes; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`),
-`extract` (zipfile for Deflate, 7-Zip `7z e -so` for Deflate64, CRC checked, the `.part` removed on failure),
-`cut` (2 km bands from the top, tiles from the dataset's `origin` (its pixel edges modulo 2 km) in tools/sk_tiles.py's
-layout and encoding, whose `_write`, `_sha256`, `_mark_partial` and `tile_name` it reuses; `index.json` with sha256,
-null for no data, "partial" while unfinished; a dataset card), `all`. Replacing a file on the mirror's network share
-is tried again for 60 s (`_replace`: Windows refused one replace on Z:). The `origin` must equal the catalogue
-layer's `GridTiles(origin=)` (`tests/test_mirror_tiles.py`).
+`Placed` (one file matching a glob in `--inputs`; `.part`/`.crdownload` never), `Folder` (many rasters, each checked
+once against `done.jsonl`'s sha256, `done_digests`; complete at `expected` files), each Url or Placed ZIP with its
+raster `members` (fnmatch). Steps `download`, `extract` (zipfile for Deflate, 7-Zip `7z e -so` for Deflate64, CRC
+checked, the `.part` removed on failure; an ASCII grid, and full-width strips whose row of tiles would not fit half of
+GDAL's cache, copied into a tiled GeoTIFF in `--work/tiled`), `cut` (tile by tile, rows from the top: `assemble`
+reads every raster covering a tile, masks it (`mask`: files' nodata, `nodata`, `sea`, `floor`) and joins them by
+`overlap` "first" or "agree" (`Overlap` names the tile); `--threads` writers and GDAL's cache within
+`--max-memory-gb`, `_workers`; tools/sk_tiles.py's layout and encoding, whose `_write`, `_sha256`, `_mark_partial` and
+`tile_name` it reuses; `index.json` with sha256, null for no data, "partial" while an input is missing or a tile is
+left; the work's `State` (SQLite in `--work/state`) keeps footprints, checked files and the rasters that fed each tile,
+so a tile is cut again when more rasters cover it, and a tile without data is null only once every input is
+complete; the dataset card `card_text` written whole), `verify` (every sha256, files the index does not list, seeded
+sample tiles against the inputs within 5 mm with the same no data: `verify.json` beside the index), `status`, `clean`
+(the product's unpacked and copied rasters; never an input or a download), `all` (download, extract, cut, verify,
+clean). Replacing a file on the mirror's network share is tried again for 60 s (`_replace`: Windows refused one
+replace on Z:). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its
+source's default resolution a whole multiple of its pixel and at least 1 m (`tests/test_mirror_tiles.py`).
 
 ## `tools/source_docs.py`
 
