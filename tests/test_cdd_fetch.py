@@ -300,6 +300,23 @@ class Fake:
                 h.wfile.write(body[i:i + 100])
                 h.wfile.flush()
                 time.sleep(0.01)
+        elif action == "close":  # no answer at all (a plain file's server down)
+            h.close_connection = True
+        elif action == "slowreset":  # headers, half the body slowly (the tests' clock runs), then a reset
+            self.slow = True
+            h.send_response(200)
+            h.send_header("Content-Length", str(len(body)))
+            h.end_headers()
+            for i in range(0, len(body) // 2, 100):
+                h.wfile.write(body[i:i + 100])
+                h.wfile.flush()
+                time.sleep(0.01)
+            h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            h.close_connection = True
+            try:
+                h.connection.close()
+            except OSError:
+                pass
         elif action == "reset":  # headers and half the body, then a reset
             h.send_response(200)
             h.send_header("Content-Length", str(len(body)))
@@ -1108,25 +1125,6 @@ def test_resets_within_a_long_file_count_as_its_failures_not_an_outage(fake, pla
     assert len([p for _, p, _ in fake.log if p == "/wal/A_MNT.zip"]) == 3
 
 
-def test_an_outage_of_a_host_ends_when_it_answers(fake, tmp_path, monkeypatch):
-    """The download's host (here the site, which also answers the address search) answers between the errors:
-    each error starts its outage anew and the waits restart at 30 s."""
-    mainland(fake, 2)
-    planned(fake, tmp_path)
-    clock = [0.0]
-    monkeypatch.setattr(cf, "_clock", lambda: clock[0])
-    monkeypatch.setattr(cf, "_wait", lambda s: (fake.waits.append(s), clock.__setitem__(0, clock[0] + s)))
-    fake.actions["MDT-50cm-090200-07-2024"] = ["close"] * 3  # 3 x 30 s: 90 s of errors in all, never 36 in a row
-    assert fetch(tmp_path, "--outage-hours", "0.01") == 0
-    assert len(done_rows(tmp_path)) == 2 and not _failed(tmp_path)
-    assert [w for w in fake.waits if w] == [30.0, 30.0, 30.0]
-    fake.actions["MDT-50cm-090300-07-2024"] = ["close"] * 3
-    fake.add("MDT-50cm", "MDT-50cm-090300-07-2024")
-    planned(fake, tmp_path)
-    fake.down = 1000  # nothing answers: the same limit stops the run
-    assert fetch(tmp_path, "--outage-hours", "0.01") == cf.EXIT_FAILURES and not _failed(tmp_path)
-
-
 def test_a_malformed_redirect_fails_that_file_only(fake, tmp_path):
     mainland(fake, 2)
     fake.actions["MDT-50cm-090200-07-2024"] = ["badloc"] * 3
@@ -1376,15 +1374,58 @@ def test_a_tls_failure_at_the_store_is_its_outage(fake, tmp_path, monkeypatch, c
     assert not os.path.exists(tmp_path / "portugal" / "done.jsonl")
 
 
-def test_when_the_failing_host_answers_its_waits_restart(fake, tmp_path, monkeypatch):
+def test_when_the_failing_step_comes_through_its_waits_restart(fake, tmp_path, monkeypatch):
     mainland(fake, 1)
     planned(fake, tmp_path)
     _fake_clock(monkeypatch, fake)
     fake.store_base = fake.other
     fake.actions["MDT-50cm-090200-07-2024"] = ["storedown", "storedown", "reset", "storedown"]
     assert fetch(tmp_path) == 0
-    # the store's outage: 30, 60; its answer (a body broken after the headers: 30) ends it; the next error 30 again
+    # the download's outage: 30, 60; its headers (a body broken after them: 30) end it; the next error 30 again
     assert [w for w in fake.waits if w] == [30.0, 60.0, 30.0, 30.0] and len(done_rows(tmp_path)) == 1
+
+
+def test_a_download_endpoint_down_while_the_search_answers_is_its_outage(fake, tmp_path, monkeypatch, capsys):
+    """The address search and the download's GET share the site's host: the search answering every time does
+    not end the download's outage."""
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["close"] * 100  # the site's /download/ never answers
+    searches = len(fake.searches)
+    assert fetch(tmp_path, "--outage-hours", "1") == cf.EXIT_FAILURES
+    assert [w for w in fake.waits if w] == DOUBLING and len(fake.searches) - searches == 9
+    assert not _failed(tmp_path) and "(download)" in capsys.readouterr().err
+    assert not [p for _, p, _ in fake.log if p.startswith("/store/")]
+
+
+def test_a_realm_whose_form_target_never_answers(fake, tmp_path, monkeypatch):
+    """The realm's page answers, the credentials' POST never does: the sign-in step never comes through. Every
+    POST counts towards three sign-ins in a row, so that rule ends the run before the outage limit."""
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    fake.post_down = 100
+    assert fetch(tmp_path, "--outage-hours", "1") == cf.EXIT_SIGNINS
+    assert fake.posts == 3 and not _failed(tmp_path)
+    # the sign-in's outage doubles (whole seconds; the 60 s gaps between POSTs are measured on the wall clock)
+    assert [w for w in fake.waits if w and w == int(w)] == [30.0, 60.0, 120.0]
+
+
+def test_a_long_file_between_two_outages_is_not_one_outage(fake, plain, tmp_path, monkeypatch):
+    """A network error, then hours of a body (fake time), a body failure, another network error: the download
+    came through in between, so the outage limit is not reached."""
+    clock = [0.0]
+
+    def tick():  # the body moves the clock a thousand seconds a look
+        clock[0] += 1000.0 if fake.slow else 0.0
+        return clock[0]
+    monkeypatch.setattr(cf, "_clock", tick)
+    monkeypatch.setattr(cf, "_wait", lambda s: (fake.waits.append(s), clock.__setitem__(0, clock[0] + max(s, 0))))
+    fake.actions["A_MNT.zip"] = ["close", "slowreset", "close"]
+    assert run(tmp_path, "fetch-list", "wallonia", "--pause", "0", "--outage-hours", "1", "--min-rate-kb", "0") == 0
+    assert clock[0] > 3 * 3600 and [w for w in fake.waits if w] == [30.0, 30.0, 30.0]
+    assert not _failed(tmp_path, "wallonia") and len(cf._read_jsonl(str(tmp_path / "wallonia" / "done.jsonl"))) == 2
 
 
 def test_credentials_sent_without_an_answer_count_towards_three(fake, tmp_path):

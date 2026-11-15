@@ -42,9 +42,11 @@ login page, a 401/403 or an HTML page means: sign in again and retry the file on
 one retry; three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no loop
 against the login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file; status.json:
 "waiting: server asked to wait"). A network error before an answer's headers (no route, DNS, a reset, a TLS failure,
-a timeout) is an outage of that host: it fails no file; the waits double with each such error (30 s to 15 min) and
-go back to 30 s only when the failing host has answered or a file completed; only an answer from that host ends its
-outage; when one host's outage has lasted --outage-hours the run stops (exit 4, the message names the host). A body
+a timeout) is an outage of the step that failed (the sign-in, the address search or the download with its
+redirects): it fails no file; only that same step coming through ends its outage (the sign-in or the search
+returned, the download got its headers), another request to the same host does not; the waits double with each such
+error (30 s to 15 min) and go back to 30 s only when the failing step has come through or a file completed; when one
+step's outage has lasted --outage-hours the run stops (exit 4, the message names the host and the step). A body
 failure is not an outage, so hours of a good transfer never count (status.json: "waiting: network"). An error after
 the headers (the body stalls, is reset or cut short) is that file's attempt: tried again after 30 s and 60 s, the
 third time it counts as failed (not again in this run). A malformed answer (a bad redirect, a broken status line)
@@ -378,12 +380,7 @@ class _Gate(urllib.request.BaseHandler):
         self.owner.before(request.full_url)
         return request
 
-    def http_response(self, request, response):  # every answer, a redirect's too: its host has answered
-        self.owner.heard(request.full_url)
-        return response
-
     https_request = http_request
-    https_response = http_response
 
 
 class _Redirects(urllib.request.HTTPRedirectHandler):
@@ -416,9 +413,8 @@ class Http:
     """One opener with a cookie jar kept in memory only and only the handlers it needs (http, https, cookies,
     redirects, errors: no ftp, file or data); one request at a time, at least REQUEST_PAUSE after the previous one
     to the same host, none after a stop; only SCHEMES; while `guard` is set (a sign-in) a request elsewhere raises
-    UnsafeLogin before it is sent; every cookie value is masked. `answers`: when each host last answered (any
-    headers); `asking`: the host of the request under way (a NetworkDown names it). No proxy: the tool connects
-    directly."""
+    UnsafeLogin before it is sent; every cookie value is masked. `asking`: the host of the request under way (a
+    NetworkDown names it). No proxy: the tool connects directly."""
 
     def __init__(self, scrub):
         self.scrub = scrub
@@ -432,7 +428,6 @@ class Http:
         self.opener.addheaders = [("User-Agent", AGENT)]
         self.last = {}     # host -> when it was last asked
         self.guard = None  # the (scheme, host) pairs a sign-in may reach
-        self.answers = {}  # host -> when it last answered
         self.asking = None
 
     def check(self, url):
@@ -455,9 +450,6 @@ class Http:
             if STOP.is_set():
                 raise Stopped()
         self.last[host] = _clock()
-
-    def heard(self, url):
-        self.answers[_host(url)[1]] = _clock()
 
     def open(self, url, data=None, headers=None):
         """The answer (an HTTPError is an answer too); no answer (a connection, DNS, a reset or a timeout before
@@ -1064,7 +1056,8 @@ def _fetch_loop(job, args, http, log, run):
     run.save()
     attempts, bodies, code = {}, {}, EXIT_OK  # bodies: body failures per file in this run
     failed_in_row = signins = net_waits = 0
-    signed_in, outages, last_error = False, {}, None  # outages: host -> when its outage began
+    signed_in, outages, last_error = False, {}, None  # outages: step -> when its outage began
+    came = {}  # step -> when it last came through: "sign-in" returned, "address" returned, "download" answered
     min_free = args.min_free_gb * 1e9
 
     def fetch_one(item, path):
@@ -1072,22 +1065,39 @@ def _fetch_loop(job, args, http, log, run):
         session_renewed = stale_renewed = False
         throttled = 0
         while True:
+            step = None
             try:
                 if job.signin_needed and not signed_in:
                     if signins >= MAX_SIGNINS:
                         raise TooManySignins()
                     signins += 1
                     sent = getattr(job, "sent", 0)
+                    step = "sign-in"
                     try:
                         job.signin(http, log)
                     except BadFile:  # counted only when the credentials were sent, answered or not
                         if getattr(job, "sent", 0) == sent:
                             signins -= 1
                         raise
-                    signed_in = True
+                    signed_in, came[step] = True, _clock()
+                step = "address"
                 url = job.address(http, item, pending)
-                return download(http, url, path + ".part", item["size"], job.magic, min_free, job.signin_needed,
-                                lambda n, i=item["id"]: run.save(current=(i, n)), args.min_rate_kb * 1000)
+                came[step] = _clock()
+                step = "download"
+                try:
+                    done = download(http, url, path + ".part", item["size"], job.magic, min_free,
+                                    job.signin_needed, lambda n, i=item["id"]: run.save(current=(i, n)),
+                                    args.min_rate_kb * 1000)
+                except (NetworkDown, Stopped):
+                    raise
+                except Exception:  # the download's headers came: the step came through, whatever followed
+                    came[step] = _clock()
+                    raise
+                came[step] = _clock()
+                return done
+            except NetworkDown as e:
+                e.step = step  # the step whose outage it is
+                raise
             except Throttled as t:
                 throttled += 1
                 if throttled >= THROTTLE_TRIES:
@@ -1133,18 +1143,18 @@ def _fetch_loop(job, args, http, log, run):
                 try:
                     size, sha = fetch_one(item, path)
                     break
-                except NetworkDown as e:  # the host's outage: growing waits, no failed file until it lasts too long
+                except NetworkDown as e:  # the step's outage: growing waits, no failed file until it lasts too long
                     job.forget(item)
-                    host, clock = e.host or "?", _clock()
-                    heard = http.answers.get(host, -1e18)  # only an answer from the failing host itself counts
-                    if host not in outages or heard >= outages[host]:
-                        outages[host] = clock
-                    if last_error is not None and heard >= last_error:
-                        net_waits = 0  # the failing host answered since the previous error: the waits restart
+                    step, clock = getattr(e, "step", None) or "download", _clock()
+                    through = came.get(step, -1e18)  # only that same step coming through ends its outage
+                    if step not in outages or through >= outages[step]:
+                        outages[step] = clock
+                    if last_error is not None and through >= last_error:
+                        net_waits = 0  # the failing step came through since the previous error: the waits restart
                     last_error = clock
-                    if clock - outages[host] >= args.outage_hours * 3600:
-                        log("no answer from %s for %.1f h: stopping (%s)" % (
-                            host, (clock - outages[host]) / 3600, e), error=True)
+                    if clock - outages[step] >= args.outage_hours * 3600:
+                        log("no answer from %s for %.1f h (%s): stopping (%s)" % (
+                            e.host or "?", (clock - outages[step]) / 3600, step, e), error=True)
                         code = EXIT_FAILURES
                         raise Stopped() from None
                     seconds = min(NET_WAIT_BASE * 2 ** net_waits, NET_WAIT_MAX)

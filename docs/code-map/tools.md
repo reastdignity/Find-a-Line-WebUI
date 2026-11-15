@@ -67,8 +67,8 @@ each sheet; no address stored: a search mints a new one each time), `fetch` sign
 across restarts in `signins.json`), resolves addresses 20 ids per search and fetches one file at a time, 1.5 s
 between requests to a host, https only, none after a stop (TIFF magic and stated size, sha256 into `done.jsonl`; a
 session lost means one sign-in and one retry, three credential sendings without a file stop; 429/503 wait; an error
-before an answer's headers is an outage of that host (waits doubling, up to `--outage-hours`, ended only by an
-answer from that host), one after them that file's attempt (three, then failed); no proxy; five failures in a row, low disk or SIGTERM stop cleanly; `fetch.lock`: one fetch per
+before an answer's headers is an outage of the step that failed (sign-in, address search, download; waits
+doubling, up to `--outage-hours`, ended only by that step coming through), one after them that file's attempt (three, then failed); no proxy; five failures in a row, low disk or SIGTERM stop cleanly; `fetch.lock`: one fetch per
 folder, `--no-lock` for a filesystem without locks), `fetch-list wallonia` the embedded list of SPW's ten province
 ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked in every output (`Scrub`);
 `tests/test_cdd_fetch.py` runs it against a fake CDD.
