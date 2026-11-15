@@ -1871,6 +1871,8 @@ PATHS = [
      (1.0, 970, 6301)),
     ("france_guadeloupe", "nmt", (1.0, 642, 1774),
      "france/rgealti-1m-glp/live/epsg32620-1m-1000px-tif-o0.5_0.5/642_1774.tif", (1.0, 642, 1774)),
+    ("france_martinique", "nmt", (1.0, 704, 1626),
+     "france/rgealti-1m-mtq/live/epsg32620-1m-1000px-tif-o0.5_0.5/704_1626.tif", (1.0, 704, 1626)),
     ("france_guiana", "nmt", (1.0, 360, 539), "france/rgealti-1m-guf/live/epsg2972-1m-1000px-tif/360_539.tif",
      (1.0, 360, 539)),
     ("france_spm", "nmt", (1.0, 561, 5181),

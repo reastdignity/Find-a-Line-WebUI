@@ -69,16 +69,39 @@ def test_the_overseas_layers():
     assert src.SOURCES["france_guadeloupe"].map_areas() == ("fr-gp", "bl", "mf")
 
 
-def test_the_antilles_pixel_edges_lie_on_half_metres(service):
-    """The 1 m answer on half-metre edges is the stored pixels: at 0.5 m on the same box the server repeats each of
-    them in a 2 x 2 block (nearest), which starts on the half metres."""
-    one, transform = _answer(1)
-    half, _ = _answer(2)
-    assert (transform.c, transform.f) == (SOUFRIERE[0], SOUFRIERE[1] + 32)
-    assert np.isfinite(one).all() and np.isfinite(half).all()
+# Per layer the recorded 32 m box on its declared pixel edges: (source, the answer at 1 m, at 0.5 m, its corner)
+ALIGNMENT = [("france_guadeloupe", 1, 2, SOUFRIERE), ("france_martinique", 4, 5, (704544.5, 1626528.5)),
+             ("france_guiana", 6, 7, (359168.0, 539520.0)), ("france_spm", 8, 9, (562592.5, 5181024.5))]
+
+
+def test_the_alignment_recordings_are_the_layers_requests():
+    """Each recording is the GetMap its layer writes for that box (the BBOX on the declared origin)."""
+    with open(os.path.join(RECORDED, "requests.json"), encoding="utf-8") as f:
+        urls = {a["body"]: a["url"] for a in json.load(f)["answers"]}
+    from sources.readers.wmsr import MapRequest
+    from urllib.parse import parse_qsl
+    for sid, one, half, (x, y) in ALIGNMENT:
+        layer = src.SOURCES[sid].nmt
+        assert ((x - layer.origin[0]) % 32, (y - layer.origin[1]) % 32) == (0, 0), sid
+        for n, px in ((one, 32), (half, 64)):
+            asked = dict(parse_qsl(urlsplit(urls[f"{n:03d}.tif"]).query, keep_blank_values=True))
+            assert asked == dict(layer.reader.getmap_params(MapRequest(x, y, x + 32, y + 32, px, px))), (sid, n)
+
+
+@pytest.mark.parametrize("sid, one, half, corner", ALIGNMENT)
+def test_the_declared_pixel_edges(sid, one, half, corner):
+    """The 1 m answer on the layer's declared edges (half metres in the Antilles and Saint-Pierre-et-Miquelon,
+    whole metres in French Guiana) is the stored pixels: at 0.5 m on the same box the server repeats each of them in
+    a 2 x 2 block (nearest), which starts on those edges. Declared half a metre off, the blocks would straddle the
+    0.5 m pixel pairs and differ from the 1 m answer."""
+    a, transform = _answer(one)
+    b, _ = _answer(half)
+    assert (transform.c, transform.f) == (corner[0], corner[1] + 32)
+    assert np.isfinite(a).all() and np.isfinite(b).all()
+    assert np.ptp(a) > 1  # relief: equal blocks are not flat ground
     for dy in (0, 1):
         for dx in (0, 1):
-            assert np.array_equal(half[dy::2, dx::2], one)
+            assert np.array_equal(b[dy::2, dx::2], a), (sid, dy, dx)
 
 
 def test_a_tile_on_the_half_metre_edges(service, tmp_path):
