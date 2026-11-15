@@ -275,7 +275,10 @@ Rows: `fr`, `mc`, `ad`, `pt`, `pt-20` (Azores), `pt-30` (Madeira). Scripts in `s
   - The CDD has ortho collections up to ORTOS-2025 (25 cm RGBN), as files.
   - The MapProxy WMS/WMTS `https://cartografia.dgterritorio.gov.pt/ortos2021/service` (layer `Ortos2021-RGB`, EPSG:3857 / 3763) answered 200 with **blank PNGs** (1 114 B) at three scales in both CRSs, and in WMTS (1 611 B).
   - `ortos2023`–`2025` gave 404.
-  - A working orthophoto service is still to be found.
+  - A working orthophoto service is still to be found. Found 2026-11-14: the WMS `https://geo.dgterritorio.gov.pt/wms/ortos2025`
+    (layers `Ortos2025-RGB`, `Ortos2025-IRG`; EPSG:3763, 3857, 4258, 4326; "no conditions apply"; real imagery at Sintra).
+  - Access rechecked 2026-11-14: the CDD's second version and its API are not out; downloads need a free account's
+    username and password through the Keycloak form (session cookie of about 30 min), no tokens.
 - **Quick tests** (2026-10-31): the collections (81 kB) and three searches (Sintra, Arrábida, Ponte de Lima) each gave 1 item per collection in 0.3–0.4 s. The download without a session gave 302. The orthophoto was blank (above).
 - **Fit**: a new `StacTiles`-like subclass for the CDD:
   - POST search with wrapped answers, cached per 0.25° like the other indexes;

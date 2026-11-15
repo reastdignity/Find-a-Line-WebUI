@@ -1093,6 +1093,56 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   (pines within the 2 px envelope of the walls; `tools/obstacle_study.py`): McIntyre Bluff goes into the places of
   the obstacles task (branch `obstacles-fine-grid`, its forest-edge case) before any change of the rule.
 
+### Batch 5 (started 2026-11-14)
+- **Plan** (the user, 2026-11-14/15; the list of what was left after batch 4, the licences of the doubtful rows
+  rechecked live on 2026-11-14): 17 sources chosen. Ireland was dropped at gate 0 (only Dalkey Quarry and Howth of 16
+  crags have tiles). Wave 1, existing parts: French overseas, Caribbean Netherlands, TINITALY, Sardinia, the
+  Netherlands, Faroe, Australia, Uruguay. Wave 2, new parts: an Esri LERC elevation-tile reader (Northern Ireland's 2021
+  coastal DTM at Fair Head and Rio de Janeiro's 5 m DTM), Mexico (INEGI's 5 m lidar DTM/DSM), Tuscany (all sheets,
+  credited per owner: MATTM's are CC BY-SA), Cyprus (the 2019 tiles reprojected by DLS: resampled twice), Estonia,
+  Madeira (own mirror copy) and Valle d'Aosta (own copy of the one 9.85 GB ASC, the DSM later by hand). Batch 6:
+  Wallonia and Hong Kong as own copies at their native 0.5 m. Mails drafted (local/mail-drafts.md 27-30): DAERA, IPP,
+  Valle d'Aosta, DLS.
+- **Wave 1, done 2026-11-15** (branch `new-sources-5`, R66-R73; every existing regression entry unchanged):
+  - *French overseas* (`france_guadeloupe` with Saint-Barthélemy and Saint-Martin, `france_martinique`, `france_guiana`,
+    `france_spm`): IGN's RGE ALTI 1 m by WMS-R, one layer each in its native CRS, chosen by bbox (Nominatim says "fr"
+    in every territory). Guadeloupe's, Martinique's and SPM's pixel centres lie on whole metres (`origin` 0.5), French
+    Guiana's edges (recorded answers pin each). Geofabrik's guadeloupe, martinique, guyane extracts by source; SPM's
+    is Canada's. R66: the gorge above the Grand Saut d'Eau (446 lines).
+  - *TINITALY* (`tinitaly`, INGV's 10 m WCS, CC BY 4.0): `--source auto` in Italy outside its regional sources (europe
+    before), and South Tyrol's and Trento's gap filler before `europe` (behaviour change: R30's grid margin is now
+    filled by TINITALY, so that run is credited to INGV and is CC BY; no entry's numbers changed). Neighbour of
+    swisstopo and slovenia only: austria and france already declare six (`countcube.PARTNERS`). R67: Gaeta (98
+    lines). *Sardinia* (`sardinia`, region it-88): the coastal lidar DTM/DSM 1 m 2008 through a GeoServer WFS of tile
+    ZIPs (`WfsFeatures`, `WfsFeatureTiles`), gaps from tinitaly then europe; France's Corsica box starts at 41.32 (La
+    Maddalena to Sardinia). R68: Cala Gonone (21 846 lines in 624 spots).
+  - *The Netherlands* (`netherlands`, PDOK's AHN4 WCS, CC0) and *Caribbean Netherlands* (`saba`, `sint_eustatius`,
+    `bonaire`: whole-island 0.5 m files naming only a LOCAL_CS, read with `FileBlocks(force_crs=True)` on a 2 m grid:
+    the DTM has pinholes under forest), all chosen by bbox (Nominatim says "nl" in the islands and in Sint Maarten,
+    which falls in no box). `netherlands` comes before `germany` in FAMILIES with 43 offline boxes that keep off German
+    and Belgian land (93 % of the European Netherlands; a strip along the German border still falls to Germany
+    offline). Neighbour of NRW only (Lower Saxony declares six). R69: the ENCI quarry (2 724 lines, most across the
+    quarry lake and the DTM's holes filled from FABDEM), R70: The Quill (299). *Faroe Islands* (`faroe_islands`): the
+    Environment Agency's 2 m DSM 2015 (an upsampled ArcticDEM) as terrain, gaps from copernicus; R71: Enniberg (1 039).
+  - *Australia* (`australia`, Geoscience Australia's 5 m lidar DEM by WCS 1.0.0 in EPSG:4283: `GeoPixelTiling`,
+    `GeoWcsReader`, `GeoWcsTiles`): about 3 % of the country, so a static mask of the cells with data
+    (`sources/catalogue/australia_dem5m_cells.npz`, `tools/au_coverage.py`, refreshed by hand when GA adds surveys)
+    gives `has_data_near` and `instead_without_data="europe"`; no neighbours (Queensland is CC BY-SA, never mixed with
+    FABDEM). R72: North Head (230 lines). *Uruguay* (`uruguay`, IDE's 2.5 m photogrammetric DTM, 6 597 sheets named
+    from their cell, whole-file downloads resampled per sheet): R73 Arequita (109 lines; Quebrada de los Cuervos gives
+    none at 2.5 m).
+- **Open from wave 1**:
+  - basisdata.nl (Caribbean Netherlands' files) stopped answering this PC on 2026-11-15 after about 18 parallel
+    window reads per island at 4 connections (now 2): the islands' `check_source`, probe and a retry wait; a mail to
+    Het Waterschapshuis if it stays so.
+  - The six-neighbour cap of the country cube (`countcube.PARTNERS`) kept TINITALY from Austria and France and the
+    Netherlands from Lower Saxony: their border strips fill from 30 m data. Raising it changes the cube's format.
+  - Réunion and Mayotte (RGE ALTI layers exist), the overseas DSM (MNS Correl only resampled), AHN5 and AHN6 (licence
+    and URL pattern: a mail to info@ahn.nl), filling the AHN DTM's wall gaps from its own DSM instead of 30 m data,
+    TINITALY's surface gaps (South Tyrol's and Trento's surface gaps in Italy take TINITALY's terrain, no trees).
+  - The VPS's OSM extracts grow by italy (2.25 GB), australia, netherlands and others: choose which go into
+    `OSM_EXTRACTS_SKIP`. docs/images/coverage-* not re-rendered (`tools/coverage_media.py readme`).
+
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
 - **Access**: no elevation WCS exists. swisstopo recommends its download service for offline use: the STAC API `https://data.geo.admin.ch/api/stac/v1` (collections `ch.swisstopo.swissalti3d`, `ch.swisstopo.swisssurface3d-raster`; items `swissalti3d_<year>_<E>-<N>`, bbox in WGS84, 100 items per page). Files on S3/CloudFront, about 40 MB/s, sha256 in the item (`file:checksum`). Fair use: no bulk bot traffic, exponential backoff with jitter.

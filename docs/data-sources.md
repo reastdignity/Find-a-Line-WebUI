@@ -156,6 +156,10 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 - **Window reads**: open a remote file with `rasterio.open("/vsicurl/<url>")` under `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`: CRS, transform (pixel edges on whole units?), block shapes, compression, nodata, and the time to read a 1 km window.
 - **Orthophoto**: one `GetMap` in EPSG:4326 (WMS 1.3.0 axis order lat, lon) and, for WMTS, one tile in EPSG:3857; look at the image (watermarks, blank tiles).
 - Then the data checks of docs/regression-tests.md, all of them one command once the source is declared: `uv run tools/check_source.py <id> --lat .. --lon .. --data-dir <scratch>` (shift against FABDEM / Copernicus, valid pixels at 1 and 5 m, cached tiles against the source files, the grid alignment, whole-metre heights, tiles without data).
+- **Alignment of a service's grid**: ask a GetMap or GetCoverage at half the resolution and see where the 2 × 2
+  blocks of equal values start (whole or half metres): IGN's overseas RGE ALTI layers differ from each other
+  (batch 5). **Coverage**: a share of valid pixels over Natural Earth outlines counts lagoons and coarse coasts
+  as land: look at a picture before calling a source partial.
 
 ## 4. After adding a source
 - The source's `listing` (its row of README's "Data sources", then `uv run tools/source_docs.py`), its `offline` boxes (the country without a lookup; with `neighbours`, also `border_boxes` where those stop short of a border: `uv run tools/border_study.py boxes` lists every declared direction, 97 % or more is the test) and its `sample` point (with data in every layer), and `tools/check_source.py` on its sample and a characteristic place, the numbers in docs/regression-tests.md.
