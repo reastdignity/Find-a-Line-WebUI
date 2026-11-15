@@ -44,6 +44,15 @@ export const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
+/** The signs inside the access mark's dots (access.tsx AccessMark; a grid of 16 × 16 with the dot's circle of
+ *  r 7.5 at its middle), by the mark's value (types.ts ACCESS_*): strokes carry the class `ac-s`, filled parts
+ *  `ac-d` (access.css gives both the sign's colour of the state). Static markup, as ICONS. */
+export const ACCESS_SIGNS: Record<number, string> = {
+  // cannot tell: "?"
+  1: '<path class="ac-s" stroke-width="1.7" d="M6.1 6.3a1.95 1.95 0 1 1 3 1.65c-.65.45-1.1.85-1.1 1.6"/>' +
+    '<circle class="ac-d" cx="8" cy="11.9" r="1.05"/>',
+};
+
 /** An icon; decorative (aria-hidden) unless it has a `title`. `fav` fills it (a marked star). */
 export function Icon({name, class: cls = "", title, fav}: {name: IconName; class?: string; title?: string; fav?: boolean}) {
   const markup = (title ? `<title>${title.replace(/[<&]/g, "")}</title>` : "") + ICONS[name];

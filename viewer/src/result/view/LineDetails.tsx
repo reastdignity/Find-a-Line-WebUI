@@ -1,5 +1,6 @@
 // The selected line of a result (model.selected): "Spot k of N" with ‹ › and × (ends the selection), its
-// numbers, the other lines of its spot, and its actions: favourite,
+// numbers, "Reaching the anchors" (the access mark of each anchor, for a line of a run made with it), the other
+// lines of its spot, and its actions: favourite,
 // copy link, zoom, the 3D view (where the shell gives it), and the profile again after it was closed.
 
 import { Fragment } from "preact";
@@ -17,6 +18,7 @@ import { clearanceText, isTight, tightLine } from "../../tight";
 import { day } from "../../time";
 import { t } from "../../i18n";
 import { shortMetres } from "../../endzone";
+import { AccessMark, AccessPair, accessState, accessWord, hasAccess, useAccessHelp } from "../../access";
 
 // The rank of a spot's first line, by "Show per spot" (model.state.by; texts ui.details.first_<by>)
 const BY_LABEL = ["mean", "clearance", "longest", "height"];
@@ -117,6 +119,23 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
   return facts;
 }
 
+/** "Reaching the anchors" of a line with the access mark: a row per anchor (the mark, "Anchor 1", the state's
+ *  words) and the "?" of the help, which opens under the rows. */
+function AccessBlock({line: l}: {line: Line}) {
+  const help = useAccessHelp();
+  return <div class="r-acc">
+    <div class="r-acc-h">{t("ui.access.title")}{help.button}</div>
+    {[l.access1, l.access2].map((value, k) => {
+      const state = accessState(value), name = t("ui.access.anchor", {n: k + 1});
+      return <div class="r-acc-row" key={k}>
+        {state === null ? <span /> : <AccessMark state={state} label={t("ui.access.anchor_state", {n: k + 1, state: accessWord(state)})} />}
+        <span class="r-acc-a">{name}</span><span>{state === null ? "–" : accessWord(state)}</span>
+      </div>;
+    })}
+    {help.panel}
+  </div>;
+}
+
 // The button pressed for ‹ ›: its details are drawn again under the next row (another component), which
 // gives the same button the focus; a button disabled at the end hands it to its pair
 let refocus: string | null = null;
@@ -161,7 +180,9 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
   const head = <div class="r-dhead">
     <div class="u-grow">
       <div class="r-eyebrow">{k >= 0 ? `Spot ${k + 1} of ${n}` : "Spot"}{size > 1 && ` · ${size} similar`}</div>
-      <div class="r-dtitle">{l.run && <Swatch color={l.run.color} />}{num(l.len)} m · {clearanceText(l.clr)} m clear</div>
+      <div class="r-dtitle">{l.run && <Swatch color={l.run.color} />}{num(l.len)} m · {clearanceText(l.clr)} m clear
+        {/* a phone's sheet shows only this head at first: the two marks stand in it */}
+        {part === "head" && hasAccess(l) && <AccessPair line={l} />}</div>
     </div>
     <div class="r-pager">
       <IconButton icon="back" label="Previous spot" disabled={k <= 0 && k !== -1} onClick={(e) => step(-1, e)} />
@@ -182,6 +203,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
     </Stats>
     {isTight(l.clr) && <p class="r-tight-line"><i class="r-tight" aria-hidden="true" />{tightLine(l.clr, lift)}</p>}
     {l.over && <p class="r-warn"><Icon name="warn" />Passes over trees or buildings: check it on the photo.</p>}
+    {hasAccess(l) && <AccessBlock line={l} />}
     {size > 1 && <div class="r-var">
       <IconButton icon="back" label="Previous line of the spot" plain disabled={at <= 0}
                   onClick={(e) => variant(at - 1, e)} />

@@ -4,10 +4,15 @@
 // variants thin, a hover highlight, the profile's hover marker and a measure mode. Everything is drawn
 // on one canvas, none of it interactive: a click takes the nearest line within a few pixels (more for a
 // finger), the mouse shows it before, and when several spots lie about as near the caller may let the
-// user choose (onChoose). No popups, no controls, no DOM outside the map: the shell's panels show the rest.
+// user choose (onChoose). One exception to the canvas: the selected line's anchors of a run made with the access
+// mark are the mark itself (access.tsx accessMarkSvg), two markers' icons that take no pointer events (a click on
+// one goes to the map as beside it). No popups, no controls, no DOM outside the map: the shell's panels show the
+// rest.
 
 import L from "leaflet";
 import { COLORS } from "../style";
+import { accessMarkSvg, accessState, accessWord, MAP_MARK } from "../access";
+import { t } from "../i18n";
 import type { Line } from "../types";
 import type { LineGroup, ResultModel } from "./model";
 
@@ -175,10 +180,19 @@ export class ResultMap {
                            dashArray: undefined, interactive: false}).addTo(this.topLayer);
       this.polyline(line, {weight: w + 2, opacity: 1}).addTo(this.topLayer);
       this.target(line, group, false);
-      for (const at of [[line.lat1, line.lon1], [line.lat2, line.lon2]] as [number, number][]) {
-        L.circleMarker(at, {radius: 5, color: "#000", weight: 2, fillColor: "#fff", fillOpacity: 1,
-                            interactive: false, renderer: this.renderer}).addTo(this.topLayer);
-      }
+      const ends: [number, number, number | null][] = [[line.lat1, line.lon1, accessState(line.access1)],
+                                                        [line.lat2, line.lon2, accessState(line.access2)]];
+      ends.forEach(([lat, lon, state], k) => {
+        if (state === null) {  // no access mark (a run made without it): the white dot of before
+          L.circleMarker([lat, lon], {radius: 5, color: "#000", weight: 2, fillColor: "#fff", fillOpacity: 1,
+                                      interactive: false, renderer: this.renderer}).addTo(this.topLayer);
+          return;
+        }
+        const label = t("ui.access.anchor_state", {n: k + 1, state: accessWord(state)});
+        L.marker([lat, lon], {interactive: false, keyboard: false, icon: L.divIcon({
+          className: "ac-map-icon", html: accessMarkSvg(state, label), iconSize: [MAP_MARK, MAP_MARK],
+          iconAnchor: [MAP_MARK / 2, MAP_MARK / 2]})}).addTo(this.topLayer);
+      });
     }
     // The line under the mouse may be gone (a filter)
     if (this.mapHovered && !this.targets.some((t) => t.line === this.mapHovered)) this.setMapHovered(null);

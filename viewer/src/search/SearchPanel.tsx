@@ -1,5 +1,5 @@
 // The search panel: the switch "Basic · Advanced" (docs/line-volume/spec-search.md 1.2). Basic (BasicPane.tsx):
-// the goals, Where, the rig in use. Advanced: Where, the run's name, the goals as cards with "Custom", the key
+// the goals, Where, "Reaching the anchors" (the access mark, on in Basic), the rig in use. Advanced: Where, the run's name, the goals as cards with "Custom", the key
 // fields and "More settings" by topic, a dot on every value that differs from Basic's ("reset" puts Basic's back)
 // and, in "Clearance model", the rigging saved as a rig. Where (Point · Area · Along cliffs · File) is one block
 // shown in either tab. The bar with the size word, the receipt and the start is a bar of its own (EstimateBar),
@@ -410,7 +410,9 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
                       aria-disabled={problem ? true : undefined} title={t("basic.receipt.toggle")}
                       onClick={() => { if (!problem) setOpen(!open); }}>
       <span class="u-grow">{problem || receiptShort(s.resolved, goal, s.rigs.inUse)}</span>
-      {!problem && <span aria-hidden="true">{unfolded ? "▴" : "▾"}</span>}</button>}
+      {/* the side panels' chevron (the tab's of ui/SidePanel.tsx, turned by search.css): it points where the receipt
+          goes: up while it is folded, down when it is unfolded above this line */}
+      {!problem && <Icon name="next" class="s-sum-mark" />}</button>}
     {/* On a phone the receipt may be folded away (display: none): what it says is read out from here */}
     {phone && <p class="u-sr" aria-live="polite">
       {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
@@ -424,7 +426,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
         <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
           <button type="button" data-field={p.field} title={t("basic.receipt.open")}
-                  onClick={() => s.toAdvanced(p.field)}>{p.text}</button></span>)}
+                  onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button></span>)}
     </p>
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>

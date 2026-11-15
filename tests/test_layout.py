@@ -32,7 +32,7 @@ def run_layout(tmp_path, script: str):
     return json.loads(result.stdout)
 
 
-DEFAULT = {"v": 1, "list": {"w": 340, "open": True}, "details": {"w": 380, "open": True},
+DEFAULT = {"v": 1, "list": {"w": 372, "open": True}, "details": {"w": 380, "open": True},
            "profile": {"h": 260, "folded": False, "l": 12, "r": 12}}
 
 
@@ -56,7 +56,7 @@ console.log(JSON.stringify({
     assert out["bad"] == [DEFAULT] * 7
     assert out["clamped"] == {"v": 1, "list": {"w": 560, "open": True}, "details": {"w": 380, "open": False},
                               "profile": {"h": 160, "folded": False, "l": 12, "r": 14}}
-    assert out["infinite"] == {"v": 1, "list": {"w": 340, "open": True}, "details": {"w": 300, "open": True},
+    assert out["infinite"] == {"v": 1, "list": {"w": 372, "open": True}, "details": {"w": 300, "open": True},
                                "profile": {"h": 2000, "folded": True, "l": 4000, "r": 12}}
     assert out["parts"] == DEFAULT
     assert out["kept"] == {"v": 1, "list": {"w": 400, "open": False}, "details": {"w": 500, "open": True},
@@ -110,18 +110,18 @@ console.log(JSON.stringify({
   unchanged: L,
 }));""")
     col = lambda open, width, forced=False: {"open": open, "width": width, "forced": forced}  # noqa: E731
-    assert out["w1400"] == {"list": col(True, 340), "details": col(True, 380)}
-    # 1000 px: 640 for both, 80 too much, each has 80 above its minimum: 40 off each
-    assert out["w1000"] == {"list": col(True, 300), "details": col(True, 340)}
-    # 900 px: 180 too much, 160 to shrink: the details collapse, the list fits beside its rail
-    assert out["w900"] == {"list": col(True, 340), "details": col(False, 380, True)}
+    assert out["w1400"] == {"list": col(True, 372), "details": col(True, 380)}
+    # 1000 px: 640 for both, 112 too much; the list has 112 above its minimum, the details 80: 65 1/3 and 46 2/3 off
+    assert out["w1000"] == {"list": col(True, 306), "details": col(True, 333)}
+    # 900 px: 212 too much, 192 to shrink: the details collapse, the list fits beside its rail
+    assert out["w900"] == {"list": col(True, 372), "details": col(False, 380, True)}
     # 700 px: the details collapse, the list shrinks to 700 - 360 - 36
     assert out["w700"] == {"list": col(True, 304), "details": col(False, 380, True)}
-    assert out["w600"] == {"list": col(False, 340, True), "details": col(False, 380, True)}
-    assert out["prefer"] == {"list": col(False, 340, True), "details": col(True, 380)}
+    assert out["w600"] == {"list": col(False, 372, True), "details": col(False, 380, True)}
+    assert out["prefer"] == {"list": col(False, 372, True), "details": col(True, 380)}
     assert out["preferList"] == out["w900"]
-    assert out["closed"] == {"list": col(True, 340), "details": col(False, 380)}
-    assert out["max"] == {"list1400": 560, "list1000": 300, "details1400": 600, "detailsRail": 600, "tiny": 260}
+    assert out["closed"] == {"list": col(True, 372), "details": col(False, 380)}
+    assert out["max"] == {"list1400": 560, "list1000": 307, "details1400": 600, "detailsRail": 600, "tiny": 260}
     assert out["unchanged"] == DEFAULT
 
 

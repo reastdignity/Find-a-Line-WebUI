@@ -12,7 +12,8 @@ export interface Layout {
   profile: {h: number; folded: boolean; l: number; r: number};
 }
 
-export const DEFAULT_LAYOUT: Layout = {v: 1, list: {w: 340, open: true}, details: {w: 380, open: true},
+// The list's 372 px: its rows with the column of the anchors' access marks (two dots of 20 px) beside the others
+export const DEFAULT_LAYOUT: Layout = {v: 1, list: {w: 372, open: true}, details: {w: 380, open: true},
                                        profile: {h: 260, folded: false, l: 12, r: 12}};
 
 /** list, details: the panels' widths; rail: a collapsed panel's width; map: the map's least width beside

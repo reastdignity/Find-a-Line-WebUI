@@ -23,6 +23,9 @@ export const STARTING_RIG: RigValues = {pretension: 2.5, stretch: 5, webbing_wei
                                         end_zone: 5, anchor_lift: 0};
 export const BASIC_SQUARE = 5;   // the square rule of every Basic search (same_line_square)
 export const BASIC_RADIUS = 500; // the radius a new search starts with, in both tabs (SearchParams.radius stays 1000)
+/** The access mark (SearchParams.access; the command line's default is off): on in every Basic search where the
+ *  site's schema has the field, and so in an Advanced filled from Basic (the web form's default, U-8). */
+export const BASIC_ACCESS = "access";
 export const FIRST_GOAL = "best";
 /** What every Basic request carries explicitly, also at the default: a stored request keeps its meaning when a
  *  default moves. */
@@ -51,10 +54,11 @@ export const rigOf = (values: Values): RigValues =>
   Object.fromEntries(RIG_FIELDS.map((k) => [k, values[k]])) as RigValues;
 export const sameRig = (a: RigValues, b: RigValues) => RIG_FIELDS.every((k) => same(a[k], b[k]));
 
-/** Basic's values: every field, at its default except the goal's eleven, the rig's seven, the sag model and the
- *  square rule of 5. */
+/** Basic's values: every field, at its default except the goal's eleven, the rig's seven, the sag model, the
+ *  square rule of 5 and the access mark on (where the site has the field: `defaults` are the schema's). */
 export function basicValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
-  return {...defaults, ...goalValues(goal, defaults), ...rig, model: "sag", same_line_square: BASIC_SQUARE};
+  return {...defaults, ...goalValues(goal, defaults), ...rig, model: "sag", same_line_square: BASIC_SQUARE,
+          ...(BASIC_ACCESS in defaults ? {[BASIC_ACCESS]: true} : {})};
 }
 
 /** The values that differ from the defaults (what the form keeps and an ordinary request sends). */
@@ -65,7 +69,9 @@ export function changedOf(values: Values, defaults: Values): Values {
 /** The parameters of a Basic request without the place, every one explicit, so a stored request keeps its meaning
  *  when a default moves: the goal's eleven fields (its value or the default; one without a value, a None default,
  *  stays out, as a field the site does not allow, which `defaults`, the schema's fields, leave out), the model, the
- *  rig's seven values and the square rule. */
+ *  rig's seven values and the square rule; and `access: true` where the site has the field (it differs from the
+ *  field's default, off, so it is sent as any changed value; a site whose limits leave the field out gets none
+ *  and Basic still starts). */
 export function basicRequestValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
   const all = basicValues(goal, rig, defaults);
   const goalFields = GOAL_FIELDS.filter((k) => k in defaults && all[k] != null);
@@ -259,15 +265,17 @@ export function valueText(field: Field, value: unknown): string {
 // ---- the line above Start (the receipt) and the phone's short line -----------------------------------
 
 /** A part of the receipt: its words and the field it opens in Advanced ("more": More settings, "name": the
- *  search's name); `wide`: shown on a desktop only. */
-export interface ReceiptPart { text: string; field: string; wide?: boolean }
+ *  search's name); `wide`: shown on a desktop only; `tail`: more words of the same part on a desktop only. */
+export interface ReceiptPart { text: string; field: string; wide?: boolean; tail?: string }
 
 /** The receipt of these values (every field resolved): lengths, anchors, trees, the goal's other limits, the
- *  rig, "+ N more settings" (other fields off the default, the square rule at Basic's 5 counting as covered) and
- *  the search's name. */
+ *  rig, "access marked" (on a desktop ", no line filtered out" after it) when the search marks the anchors'
+ *  access, "+ N more settings" (other fields off the default, the square rule at Basic's 5 counting as covered)
+ *  and the search's name. */
 export function receiptParts(values: Values, defaults: Values, inUse: Rig | null, name: string): ReceiptPart[] {
   const v = values;
-  const covered = new Set<string>(["min_length", "max_length", "max_anchor_diff_m", "nmpt", "model", ...RIG_FIELDS]);
+  const covered = new Set<string>(["min_length", "max_length", "max_anchor_diff_m", "nmpt", "model", ...RIG_FIELDS,
+                                   BASIC_ACCESS]);
   if (same(v.same_line_square, BASIC_SQUARE)) covered.add("same_line_square");
   const parts: ReceiptPart[] = [
     {text: t("basic.receipt.lengths", {min: num(v.min_length), max: num(v.max_length)}), field: "min_length"},
@@ -295,6 +303,9 @@ export function receiptParts(values: Values, defaults: Values, inUse: Rig | null
   const sag = v.model === "sag";
   parts.push({text: t("basic.receipt.rig", {name: rigNameOf(v, inUse), summary: rigSummary(rigOf(v), sag, ", ")}),
               field: sag ? "end_zone" : "model"});
+  if (v[BASIC_ACCESS] === true) {
+    parts.push({text: t("basic.receipt.access"), tail: t("basic.receipt.access_wide"), field: BASIC_ACCESS});
+  }
   const more = Object.keys(defaults).filter((k) => !covered.has(k) && !same(v[k], defaults[k])).length;
   if (more) parts.push({text: t("basic.receipt.more", {count: more}), field: "more"});
   if (name.trim()) parts.push({text: t("basic.receipt.named", {name: name.trim()}), field: "name"});

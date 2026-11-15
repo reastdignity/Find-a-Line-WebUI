@@ -186,14 +186,17 @@ def _form_schema():
 def test_basic_requests_of_every_goal_and_rig(tmp_path):
     """Each goal × the starting rig and a saved rig gives the request of spec-search 1.2 exactly, every value
     explicit (a stored request keeps its meaning when a default moves): the goal's eleven fields (its value or the
-    default; a field without a value, a None default, stays out), model "sag", the rig's seven values and
-    same_line_square 5; they resolve to the goal's values, every other field to its default, and the request
-    validates as SearchParams. 'Sea cliffs' sends no wall angle. A goal field the site does not allow (left out of
-    the schema) stays out; a field Basic must send that the site does not allow is Basic's problem (basicProblem),
-    in the server's words."""
+    default; a field without a value, a None default, stays out), model "sag", the rig's seven values,
+    same_line_square 5 and the access mark on (the web form's default; SearchParams' own stays off); they resolve
+    to the goal's values, every other field to its default, and the request validates as SearchParams. 'Sea
+    cliffs' sends no wall angle. A goal field the site does not allow (left out of the schema) stays out, and so
+    does the access mark (Basic still starts); a field Basic must send that the site does not allow is Basic's
+    problem (basicProblem), in the server's words."""
     presets, fields, defaults, pm = _form_schema()
     by_name = {f["name"]: f for f in fields}
     no_high = {k: v for k, v in defaults.items() if k != "high_above"}
+    no_access = {k: v for k, v in defaults.items() if k != "access"}  # a site whose limits leave the mark out
+    assert defaults["access"] is False and pm.SearchParams(lat=50.1, lon=19.7).access is False  # the command line's
     no_lift = {k: v for k, v in by_name.items() if k != "anchor_lift"}
     formula_only = {**by_name, "model": {**by_name["model"], "choices": ["formula"]}}
     no_mark = {**by_name, "nmpt": {**by_name["nmpt"], "choices": ["reject", "off"]}}  # a site forbidding nmpt=mark
@@ -204,6 +207,11 @@ for (const p of presets.filter((p) => p.values)) for (const [name, rig] of [["st
   out[p.id + "/" + name] = m.basicRequestValues(p, rig, defaults);
 out.fields = m.GOAL_FIELDS; out.rig = m.RIG_FIELDS; out.starting = m.STARTING_RIG;
 out.noHigh = m.basicRequestValues(presets[0], m.STARTING_RIG, {json.dumps(no_high)});
+out.noAccess = [m.basicRequestValues(presets[0], m.STARTING_RIG, {json.dumps(no_access)}),
+                m.basicProblem({json.dumps({k: v for k, v in by_name.items() if k != "access"})},
+                               m.basicRequestValues(presets[0], m.STARTING_RIG, {json.dumps(no_access)})),
+                m.basicValues(presets[0], m.STARTING_RIG, {json.dumps(no_access)}).access === undefined,
+                m.basicValues(presets[0], m.STARTING_RIG, defaults).access];
 out.problems = [m.basicProblem({json.dumps(by_name)}), m.basicProblem({json.dumps(no_lift)}), m.basicProblem({json.dumps(formula_only)})];
 const sent = (id) => m.basicRequestValues(presets.find((p) => p.id === id), m.STARTING_RIG, defaults);
 out.noMark = [m.basicProblem({json.dumps(no_mark)}, sent("best")), m.basicProblem({json.dumps(no_mark)}, sent("first")),
@@ -217,18 +225,21 @@ console.log(JSON.stringify(out));""")
         for name, rig in (("starting", STARTING_RIG), ("saved", SAVED_RIG)):
             request = found[f"{goal}/{name}"]
             expected = {**{k: v for k, v in pm.preset_values(goal).items() if v is not None}, "model": "sag", **rig,
-                        "same_line_square": 5}
+                        "same_line_square": 5, "access": True}
             assert request == expected, (goal, name)
             p = pm.SearchParams(lat=50.1, lon=19.7, **request)
             assert {k: getattr(p, k) for k in pm.GOAL_FIELDS} == pm.preset_values(goal), (goal, name)
-            others = set(defaults) - set(pm.GOAL_FIELDS) - set(pm.RIG_FIELDS) - {"model", "same_line_square"}
+            assert p.access is True, (goal, name)
+            others = set(defaults) - set(pm.GOAL_FIELDS) - set(pm.RIG_FIELDS) - {"model", "same_line_square", "access"}
             assert all(getattr(p, k) == defaults[k] for k in others), (goal, name)
     assert "max_wall_angle" not in found["sea/starting"] and found["sea/saved"]["min_drop"] == 30
     assert found["first/starting"]["nmpt"] == "reject" and set(found["everything/starting"]) == {
         "min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
-        "model", "same_line_square", *pm.RIG_FIELDS}
+        "model", "same_line_square", "access", *pm.RIG_FIELDS}
     assert found["best/starting"]["min_length"] == 30 and found["best/starting"]["nmpt"] == "mark"
     assert "high_above" not in found["noHigh"] and found["noHigh"]["max_anchor_diff"] == 5
+    assert "access" not in found["noAccess"][0] and found["noAccess"][0]["same_line_square"] == 5
+    assert found["noAccess"][1:] == ["", True, True]
     assert found["problems"] == ["", "A-frame height cannot be changed on this site.",
                                  'Clearance model: "Sag estimate" cannot be used on this site.']
     # a goal's default choice sent explicitly, which the site forbids: Basic's problem, Start disabled
@@ -238,7 +249,8 @@ console.log(JSON.stringify(out));""")
 def test_basic_match_goal_and_what_basic_cannot_show(tmp_path):
     """matchGoal (all eleven goal fields), notInBasic (every field against Basic's values of a goal and the rig),
     basicGoalOf and openingTab ("Edit & run again": Basic when a job's request fits a goal and the rig in use, else
-    Advanced; a job made before the form has no same_line_square), the dots and "reset" of Advanced."""
+    Advanced; a job made before the form has no same_line_square, a Basic job made before the access mark no
+    "access": Advanced, with a dot on the mark), the dots and "reset" of Advanced."""
     presets, fields, defaults, pm = _form_schema()
     found = run_ts(tmp_path, "search/basic", f"""
 const presets = {json.dumps(presets)}, defaults = {json.dumps(defaults)}, saved = {json.dumps(SAVED_RIG)};
@@ -264,6 +276,10 @@ out.oldGoalless = m.openingTab({{max_length: 150, max_anchor_diff_m: 10}}, prese
 out.anotherRig = m.openingTab(changed("sea", saved), presets, m.STARTING_RIG, defaults);
 out.withName = m.openingTab(changed("best", saved), presets, saved, defaults);
 out.extra = m.openingTab({{...changed("best", saved), group_by: "longest"}}, presets, saved, defaults);
+const older = {{...changed("first", saved)}};
+delete older.access;  // a Basic job stored before the access mark
+out.beforeAccess = [m.openingTab(older, presets, saved, defaults), m.notInBasic(resolved(older), goal("first"), saved, defaults),
+                    m.differing(resolved(older), m.basicValues(goal("first"), saved, defaults)), changed("first", saved).access];
 // Advanced's dots and "reset"
 const base = m.basicValues(goal("long"), saved, defaults);
 const adv = {{...changed("long", saved), pretension: 4, min_height: null, source: "eu-dem"}};
@@ -286,6 +302,7 @@ console.log(JSON.stringify(out));""")
     assert found["anotherRig"] == {"tab": "advanced", "goal": "sea"}  # the rig in use changed since
     assert found["withName"] == {"tab": "basic", "goal": "best"}
     assert found["extra"] == {"tab": "advanced", "goal": "best"}
+    assert found["beforeAccess"] == [{"tab": "advanced", "goal": "first"}, ["access"], ["access"], True]
     assert sorted(found["dots"]) == ["min_height", "pretension", "source"]
     assert found["reset"][1] == [] and found["reset"][2] is True
 
@@ -304,7 +321,8 @@ const byName = Object.fromEntries({json.dumps(fields)}.map((f) => [f.name, f])),
 const goal = (id) => presets.find((p) => p.id === id);
 const all = (id, rig, extra = {{}}) => ({{...m.basicValues(goal(id), rig, defaults), ...extra}});
 const mine = {{id: 7, name: "My rig", values: saved}};
-const texts = (values, inUse, name = "") => m.receiptParts(values, defaults, inUse, name).map((p) => p.text + (p.wide ? "*" : "") + "→" + p.field);
+const texts = (values, inUse, name = "") => m.receiptParts(values, defaults, inUse, name)
+  .map((p) => p.text + (p.tail ? "[" + p.tail + "]" : "") + (p.wide ? "*" : "") + "→" + p.field);
 const out = {{}};
 out.best = texts(all("best", m.STARTING_RIG), null);
 out.long = texts(all("long", saved), mine);
@@ -313,6 +331,7 @@ out.sea = texts(all("sea", saved), mine, "Il-Bahrija");
 out.forOne = texts(all("best", saved, {{pretension: 4}}), mine);
 out.more = texts(all("everything", m.STARTING_RIG, {{same_line_square: 7, source: "eu-dem", nmpt: "off"}}), null);
 out.formula = texts(all("best", m.STARTING_RIG, {{model: "formula"}}), null);
+out.unmarked = texts(all("best", m.STARTING_RIG, {{access: false}}), null);
 out.short = [m.receiptShort(all("long", saved), "Long and exposed", mine), m.receiptShort(all("best", saved, {{pretension: 4}}), null, mine)];
 const size = (values, km2) => {{ const s = m.sizeOf(values, km2); return [s.word, s.level, s.causes.join(", "), Object.keys(s).length]; }};
 out.size = [size(all("best", m.STARTING_RIG), 0.79), size(all("best", saved), 0.79), size(all("best", saved, {{model: "formula", end_zone: 0, anchor_lift: 0}}), 0.79),
@@ -352,18 +371,22 @@ out.where = [sea, m.whereForGoal("best", sea), m.whereForGoal("long", m.whereFor
              m.whereForGoal("best", w("file")), m.whereForGoal("best", m.whereForGoal("sea", area, view)),
              typedSea, m.whereForGoal("first", typedSea)];
 console.log(JSON.stringify(out));""")
+    # the mark's part: "access marked", on a desktop ", no line filtered out" after it (the part's tail)
+    marked = "access marked[, no line filtered out]→access"
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
-                             "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone"]
+                             "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
+    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
     assert found["long"] == ["100–600 m→min_length", "anchors within 30 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "30 m high or more→min_height",
                              "50 % of the line above 20 m→min_high_share",
-                             "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone"]
+                             "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
     assert found["first"][2] == "clear of trees→nmpt" and found["first"][0] == "15–60 m→min_length"
     assert found["sea"][3:] == ["30 m of drop below both anchors→min_drop",
-                                "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", "named “Il-Bahrija”→name"]
-    assert found["forOne"][-1] == "Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone"
-    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-1] == "+ 2 more settings→more"
-    assert found["formula"][-1] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
+                                "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked,
+                                "named “Il-Bahrija”→name"]
+    assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
+    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
+    assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
     assert found["size"] == [["Heavy", 2, "sag, no-fall zone 5 m", 3],
@@ -1808,7 +1831,8 @@ def test_result_map_in_edge(tmp_path, clip_data):
     folder.mkdir(parents=True)
     (folder / "data.js").write_text(f"window.FINDALINE_RUN = {text};\n", encoding="utf-8")
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/resultmap_page.ts'], "
-                                  "bundle: true, format: 'iife', target: 'es2020', loader: {'.png': 'dataurl'}, "
+                                  "bundle: true, format: 'iife', target: 'es2020', "
+                                  "loader: {'.png': 'dataurl', '.svg': 'text'}, "
                                   f"outdir: {json.dumps(str(folder))}}})"], cwd=VIEWER, check=True)
     (folder / "csp_stub.js").write_text(test_web.CSP_STUB, encoding="utf-8")
     (folder / "resultmap_test.html").write_text(
@@ -3022,3 +3046,178 @@ def test_profile_labels_do_not_overlap(tmp_path):
     wide = [c for c in found["out"] if c["W"] == 1100 and c["H"] >= 170]
     assert all(len(c["placed"]) == len(c["specs"]) for c in wide), wide
     assert [(q["id"], q["text"]) for q in found["crowd"]] == [("high", "bbbbbbbbbb"), ("short", "cc")]
+
+
+def _access_bundle(tmp_path):
+    """The store's bundle (_store_bundle) with the access mark's module (access.tsx), the favourites and the list's
+    table of the result page."""
+    entry = tmp_path / "access_entry.ts"
+    src = os.path.join(VIEWER, "src").replace("\\", "/")
+    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+                     f'export {{ lineCoords }} from "{src}/keys";\n'
+                     f'export {{ readStore }} from "{src}/result/load";\n'
+                     f'export * from "{src}/access";\n'
+                     f'export {{ favouriteData, favouriteLine }} from "{src}/favourites";\n'
+                     f'export {{ ACCESS_SIGNS }} from "{src}/ui/icons";\n'
+                     f'export {{ t }} from "{src}/i18n";\n', encoding="utf-8")
+    bundle = tmp_path / "access.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', loader: {'.svg': 'text'}, "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=VIEWER, check=True)
+    return bundle
+
+
+ACCESS_SCRIPT = r"""
+const fs = require("fs");
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+const script = (p) => { const window = {}; new Function("window", fs.readFileSync(p, "utf-8"))(window); return window.FINDALINE_RUN; };
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const out = {};
+const loaded = {};
+for (const [name, c] of Object.entries(cases)) {
+  const store = m.readStore(bytes(c.folder + "/lines.arrow"), bytes(c.folder + "/profiles.arrow"));
+  const data = script(c.folder + "/data.js"), rowCols = m.lineColumns(data.lines, data.terrain, data.ends);
+  loaded[name] = {store, data};
+  // each anchor's mark of every line: the store's, data.js's rows read into columns, toLine of the row, the cursor on
+  // both: all the value the search saved (c.access: [access1, access2] as lists; null: a run without the mark)
+  const bad = [], fromStore = new m.LineCursor(store.columns), fromRows = new m.LineCursor(rowCols);
+  data.lines.forEach((row, i) => {
+    const want = c.access ? [c.access[0][i], c.access[1][i]] : [null, null];
+    fromStore.i = fromRows.i = i;
+    const line = m.toLine(row, undefined, data.terrain, data.ends), a = m.lineAt(store.columns, i), b = m.lineAt(rowCols, i);
+    const got = {toLine: [line.access1, line.access2], store: [a.access1, a.access2], rows: [b.access1, b.access2],
+                 storeCursor: [fromStore.access1, fromStore.access2], rowsCursor: [fromRows.access1, fromRows.access2]};
+    for (const [k, v] of Object.entries(got)) if (v[0] !== want[0] || v[1] !== want[1]) bad.push([i, k, want, v]);
+    if (m.hasAccess(a) !== !!c.access) bad.push([i, "hasAccess"]);
+  });
+  const model = new m.ResultModel(store, {favourites: false, api}), plain = new m.ResultModel(data, {favourites: false, api});
+  out[name] = {bad: bad.slice(0, 10), n: data.lines.length, ends: data.ends ?? null, has: [model.hasAccess, plain.hasAccess],
+               types: [store.columns.access1.values.constructor.name, rowCols.access1.values.constructor.name]};
+}
+// Compare: a run without the mark with a marked one beside it, and the other way round: the list has the column
+// (hasAccess), the unmarked run's lines read null (the row's "–"), the marked run's their states; ticked off again,
+// the run alone
+const info = {id: "other", name: "other", created: "", description: ""};
+const states = (model, from, to) => { const seen = new Set(); for (let i = from; i < to; i++) { const l = model.lineAt(i); seen.add(String(l.access1)); seen.add(String(l.access2)); } return [...seen].sort(); };
+const n = loaded.plain.data.lines.length;
+const mixed = new m.ResultModel(loaded.plain.store, {favourites: false, api});
+const before = mixed.hasAccess;
+mixed.addRun(info, loaded.marked.store);
+out.compare = {before, with: mixed.hasAccess, own: states(mixed, 0, n), other: states(mixed, n, n + 200), total: mixed.total};
+mixed.removeRun("other");
+out.compare.after = mixed.hasAccess;
+const marked = new m.ResultModel(loaded.marked.data, {favourites: false, api});
+// its lines.js (the rows without their profiles, the head's "ends"): the other run as a page from disk loads it
+marked.addRun(info, {crs: loaded.plain.data.crs, area: loaded.plain.data.area, terrain: loaded.plain.data.terrain,
+                     ends: loaded.plain.data.ends, lines: loaded.plain.data.lines.map((r) => r.slice(0, -1))});
+out.compareMarked = {with: marked.hasAccess, own: states(marked, 0, 200), other: states(marked, n, n + 200)};
+// The mark's pieces: the states, their words (the catalogue), the pair of a row, the map's mark, the signs
+const line = (a1, a2) => ({access1: a1, access2: a2});
+const pair = (l) => { const v = m.AccessPair({line: l}); const kids = [].concat(v.props.children);
+  return {cls: v.props.class, text: typeof kids[0] === "string" ? kids[0] : null,
+          dots: kids.filter((k) => k && typeof k === "object").map((k) => k.props.state === undefined ? [k.props.class, [].concat(k.props.children)[0]]
+            : [k.props.state, k.props.label])}; };
+const mark = m.AccessMark({state: 2}), svg = m.accessMarkSvg(0, 'Anchor 2: hard "access" <b>');
+out.pieces = {
+  states: [m.ACCESS_HARD, m.ACCESS_CANNOT_TELL, m.ACCESS_EASY, m.ACCESS, m.ACCESS_STATES],
+  state: [0, 1, 2, 3, -1, null, undefined, NaN, 1.5].map((v) => m.accessState(v)),
+  words: [0, 1, 2].map((s) => m.accessWord(s)),
+  pairs: [pair(line(2, 0)), pair(line(null, null)), pair(line(undefined, undefined)), pair(line(1, null))],
+  mark: [mark.type, mark.props.class, mark.props.role, mark.props["aria-label"], mark.props.viewBox,
+         mark.props.dangerouslySetInnerHTML.__html.includes('class="ac-f"')],
+  svg, signs: Object.keys(m.ACCESS_SIGNS).map(Number).sort(),
+  noStyle: [svg, ...Object.values(m.ACCESS_SIGNS)].every((s) => !/style\s*=|<style|<script|\son\w+=/i.test(s)),
+  mapMark: m.MAP_MARK,
+};
+// A favourite of a marked line carries its marks (web.FavouriteLine's optional values); one of a line without them
+// sends none (the values of before)
+const fav = (data) => m.favouriteLine({run_id: "r", run_name: "", run_created: "", created: "", folder_id: null, line: "50.1,19.7,50.2,19.8", data});
+const first = m.lineAt(loaded.marked.store.columns, 0), bare = m.lineAt(loaded.plain.store.columns, 0);
+const sent = m.favouriteData({...first, access1: 2, access2: 0}), sentBare = m.favouriteData(bare);
+out.favourite = {sent: [sent.access1, sent.access2], back: [fav(sent).access1, fav(sent).access2],
+                 bareKeys: Object.keys(sentBare).filter((k) => k.startsWith("access")),
+                 bareBack: [fav(sentBare).access1, fav(sentBare).access2],
+                 unknown: Object.keys(m.favouriteData({...bare, access1: 7, access2: NaN})).filter((k) => k.startsWith("access")),
+                 data: sent};
+out.texts = Object.fromEntries(["ui.access.legend", "ui.access.title", "ui.access.about", "ui.access.easy", "ui.access.cannot_tell",
+  "ui.access.hard", "ui.access.easy_means", "ui.access.cannot_tell_means", "ui.access.hard_means", "ui.access.help",
+  "ui.access.none", "ui.list.col.anchors", "basic.access.label", "basic.access.note", "basic.receipt.access",
+  "basic.receipt.access_wide"].map((k) => [k, m.t(k)]).concat([["anchor", m.t("ui.access.anchor", {n: 2})],
+  ["anchor_state", m.t("ui.access.anchor_state", {n: 1, state: m.accessWord(1)})]]));
+console.log(JSON.stringify(out));
+"""
+
+
+def test_access_marks_from_rows_and_store(tmp_path):
+    """The access mark on the page (access.tsx, types.ts): each anchor's mark of a run made with --access reads the
+    same from data.js's rows (toLine, lineColumns) and from the store (readStore: its two uint8 columns as they are),
+    for the mark alone and with the A-frame heights and the square rule's count around it in "ends", and is the
+    value the search saved; a run without the columns reads null everywhere and its model has no column
+    (hasAccess), as before. Compare mixing both: the list has the column, the unmarked run's lines read null (the
+    row's "–"). The mark's pieces (the states, the row's pair, the map's mark without any style attribute), a
+    favourite carrying the marks as web.FavouriteLine takes them, and the catalogue's texts."""
+    import numpy as np
+    from test_linestore import _hard_lines, _profiles
+    rng = np.random.default_rng(11)
+    n, cases = 600, {}
+    for name, ends, square, access in (("marked", False, False, True), ("all", True, True, True),
+                                       ("plain", False, False, False)):
+        lines = _hard_lines(n, ends, square, rng, access=access)
+        lines.profiles = _profiles(n, rng)
+        head = _store_head(lines, ends, square)
+        if access:  # the heads' "ends" as mapping._ends gives them for a run with the mark
+            params = {**({"end_zone": 5, "anchor_lift": 2} if ends else {}), "access": True,
+                      **({"same_line_side": 5} if square else {})}
+            head = {**head, **mapping._ends({"params": params, "summary": {"found": head.get("found", 0)}})}
+        _store_and_script(tmp_path / name, lines, head)
+        cases[name] = {"folder": str(tmp_path / name).replace("\\", "/"),
+                       "access": [lines.columns[k].tolist() for k in ("access1", "access2")] if access else None}
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    out = _run_node(tmp_path, _access_bundle(tmp_path), ACCESS_SCRIPT, path)
+    import runs
+    for name, ends in (("marked", ["access1", "access2"]),
+                       ("all", ["lift_needed", "lift_no_zone", "access1", "access2", "stands_for"]), ("plain", None)):
+        case = out[name]
+        assert case["bad"] == [] and case["n"] == n, (name, case["bad"])
+        assert case["ends"] == ends, name
+        assert case["has"] == [name != "plain"] * 2, name
+    assert out["marked"]["types"] == ["Uint8Array", "Int8Array"]  # the store's own array; the rows' narrowest
+    assert set(sum(cases["marked"]["access"], [])) == {0, 1, 2}  # the three states are in the made-up run
+    # Compare
+    assert out["compare"] == {"before": False, "with": True, "own": ["null"], "other": ["0", "1", "2"],
+                              "total": 2 * n, "after": False}
+    assert out["compareMarked"] == {"with": True, "own": ["0", "1", "2"], "other": ["null"]}
+    # the pieces
+    pieces = out["pieces"]
+    assert pieces["states"] == [0, 1, 2, list(runs.ACCESS), [2, 1, 0]]
+    assert pieces["state"] == [0, 1, 2, None, None, None, None, None, None]
+    assert pieces["words"] == ["hard access", "cannot tell", "easy access"]
+    assert pieces["pairs"][0] == {"cls": "ac-pair", "text": None,
+                                  "dots": [[2, "Anchor 1: easy access"], [0, "Anchor 2: hard access"]]}
+    assert pieces["pairs"][1] == pieces["pairs"][2] == {"cls": "ac-none", "text": "–", "dots": []}
+    assert pieces["pairs"][3]["dots"] == [[1, "Anchor 1: cannot tell"], ["ac-none", "–"]]
+    assert pieces["mark"] == ["svg", "ac ac-2", "img", "easy access", "0 0 16 16", True]
+    assert 'class="ac-map ac-0"' in pieces["svg"] and 'width="24"' in pieces["svg"] and pieces["mapMark"] == 24
+    assert 'aria-label="Anchor 2: hard &quot;access&quot; &lt;b&gt;"' in pieces["svg"]
+    assert pieces["noStyle"] and 1 in pieces["signs"]
+    # a favourite
+    favourite = out["favourite"]
+    assert favourite["sent"] == favourite["back"] == [2, 0]
+    assert favourite["bareKeys"] == [] and favourite["bareBack"] == [None, None] and favourite["unknown"] == []
+    kept = web.FavouriteLine.model_validate(favourite["data"])
+    assert (kept.access1, kept.access2) == (2, 0)
+    # the texts: the three states' names, the mock-up's sentences (accepted 2026-11-15), "athlete" never "walker"
+    texts = out["texts"]
+    assert [texts[k] for k in ("ui.access.easy", "ui.access.cannot_tell", "ui.access.hard")] == [
+        "easy access", "cannot tell", "hard access"]
+    assert texts["ui.access.legend"] == texts["ui.list.col.anchors"] == "Anchors"
+    assert texts["ui.access.title"] == texts["basic.access.label"] == "Reaching the anchors"
+    assert texts["basic.access.note"] == "The result marks anchors you can walk to. No line is filtered out."
+    assert texts["basic.receipt.access"] + texts["basic.receipt.access_wide"] == "access marked, no line filtered out"
+    assert texts["ui.access.hard_means"].startswith("no walk reaches the anchor, even over steep ground.")
+    assert "paths, fences, private land or trees" in texts["ui.access.help"] and "amber mark" in texts["ui.access.help"]
+    assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
+    assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
+    assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue

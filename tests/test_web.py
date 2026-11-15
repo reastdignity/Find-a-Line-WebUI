@@ -2254,7 +2254,7 @@ def test_schema_has_labels_topics_and_presets(client):
 # What every Basic request carries explicitly with the starting rig (spec-search 1.2), and the goal's eleven fields
 # (those with a value) of "The best lines here" and "First highline"
 BASIC_RIG = {"model": "sag", "pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80, "fall_zone": 6,
-             "end_zone": 5, "anchor_lift": 0, "same_line_square": 5}
+             "end_zone": 5, "anchor_lift": 0, "same_line_square": 5, "access": True}
 BEST = {"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10, "max_anchor_diff": 5, "nmpt": "mark", "high_above": 20}
 FIRST = {**BEST, "min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"}
 
@@ -2534,7 +2534,7 @@ def _playwright() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
-STARTING_RIG = {k: v for k, v in BASIC_RIG.items() if k not in ("model", "same_line_square")}
+STARTING_RIG = {k: v for k, v in BASIC_RIG.items() if k not in ("model", "same_line_square", "access")}
 POINT_JS = "window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
 WAIT = 30000  # ms: the deadline of every wait for the page (an event, never a fixed pause)
 # A button by its whole text (a text= selector matches a sentence that holds the words first), in the open dialog
@@ -2729,18 +2729,21 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
     assert r["chosen"] == str(light), r
     assert r["ask"] == "Delete “Light”?" and r["deleted"] == ["Heavy"], r
-    assert r["receipt"] == "30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, A-frames 2 m", r
+    assert r["receipt"] == ("30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, "
+                            "A-frames 2 m · access marked, no line filtered out"), r
     assert r["size"] == ["Very heavy", False], r
     heavy_values = {**STARTING_RIG, "end_zone": 3, "anchor_lift": 2}
-    assert r["request"] == {**BEST, "model": "sag", **heavy_values, "same_line_square": 5, "lat": 50.1559508,
-                            "lon": 19.7562722, "radius": 500}, r
+    assert r["request"] == {**BEST, "model": "sag", **heavy_values, "same_line_square": 5, "access": True,
+                            "lat": 50.1559508, "lon": 19.7562722, "radius": 500}, r
     assert r["edit_basic"] == ["basic", "best"], r
     assert r["edit_old"][0] == "advanced", r
     # not filled from Basic: no "Filled from Basic" (the dots still compare with Basic's values)
-    assert r["edit_old"][1] == "3 values differ from Basic's: they have a dot. “reset” puts Basic's value back.", r
+    # (the job of before the form has no square rule, and no access mark, which Basic has on)
+    assert r["edit_old"][1] == "4 values differ from Basic's: they have a dot. “reset” puts Basic's value back.", r
     title, items, note, focused = r["dialog"]
-    assert title == "Basic cannot show 3 of your settings" and focused == "Stay in Advanced", r
-    assert sorted(items) == ["A-frame height 0 m", "No-fall zone at the ends 5 m", "One line per pair of anchor squares: off"], r
+    assert title == "Basic cannot show 4 of your settings" and focused == "Stay in Advanced", r
+    assert sorted(items) == ["A-frame height 0 m", "Mark the access to anchors: no", "No-fall zone at the ends 5 m",
+                             "One line per pair of anchor squares: off"], r
     assert note == ("Stay in Advanced to keep them. Or reset them to Basic's values: The best lines here; Heavy: sag, "
                     "no-fall zone 3 m, A-frames 2 m."), r
     assert r["stayed"] == ["advanced", "advanced"], r
@@ -3004,16 +3007,110 @@ def test_basic_form_on_a_phone(tmp_path):
             r = page.evaluate("""() => ({form: document.querySelector('.c-form').getBoundingClientRect().height,
                 bar: document.querySelector('.c-bar').getBoundingClientRect().height,
                 line: document.querySelector('.s-sum').textContent, receipt: getComputedStyle(document.querySelector('.s-receipt')).display,
+                mark: [document.querySelector('.s-sum svg.s-sum-mark path').getAttribute('d'),
+                       getComputedStyle(document.querySelector('.s-sum-mark')).transform,
+                       document.querySelector('.s-sum-mark').getBoundingClientRect().width,
+                       document.querySelector('.s-sum').getAttribute('aria-expanded')],
+                lefts: ['.s-sum', '.s-sum .u-grow', '.s-size', '.s-stat-area'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().left)),
                 scroll: document.documentElement.scrollWidth, width: innerWidth})""")
             page.click(".s-sum")
             page.wait_for_function("() => getComputedStyle(document.querySelector('.s-receipt')).display !== 'none'",
                                    timeout=WAIT)
             r["open"] = page.evaluate("() => [document.querySelector('.s-receipt').innerText, "
-                                      "document.querySelector('.s-stat-source')?.textContent]")
+                                      "document.querySelector('.s-stat-source')?.textContent, "
+                                      "getComputedStyle(document.querySelector('.s-sum-mark')).transform, "
+                                      "document.querySelector('.s-sum').getAttribute('aria-expanded')]")
         finally:
             browser.close()
     assert r["form"] >= 396 and r["bar"] < 110, r
-    assert r["line"].startswith("The best lines here · 30–300 m · Rig") and r["receipt"] == "none", r
+    assert r["line"] == "The best lines here · 30–300 m · Rig" and r["receipt"] == "none", r  # no "▴" or "▾" in it
+    # its fold mark is the side panels' chevron (icons.tsx "next", 14 px), turned: up while the receipt is folded (it
+    # opens above the line), down when it is unfolded
+    assert r["mark"] == ["M9 5l7 7-7 7", "matrix(0, -1, 1, 0, 0, 0)", 14, "false"], r
+    assert r["open"][2:] == ["matrix(0, 1, -1, 0, 0, 0)", "true"], r
+    # the row under the line (the size word, then the area) starts at the line's left edge
+    assert r["lefts"][0] == r["lefts"][1] == r["lefts"][2] < r["lefts"][3], r
     assert r["scroll"] <= r["width"], r
-    assert r["open"][0].startswith("30–300 m · anchors within 10 m of height · Rig: sag"), r  # no "trees marked" on a phone
+    # no "trees marked" on a phone, and "access marked" without its desktop tail
+    assert r["open"][0] == "30–300 m · anchors within 10 m of height · Rig: sag, no-fall zone 5 m, no A-frames · access marked", r
     assert r["open"][1] == "test-1" + "1 m grid", r
+
+
+def test_access_mark_off_on_the_command_line():
+    """The access mark's two defaults (the user's U-8 a): off for the command line and in the schema the form is
+    built from (a request without the field marks nothing), on in the web form, which sends it
+    (viewer/src/search/basic.ts basicValues: tests/test_viewer.py::test_basic_requests_of_every_goal_and_rig, and
+    test_access_mark_in_the_form below in a browser)."""
+    import params as pm
+    assert pm.SearchParams.model_fields["access"].default is False
+    assert pm.SearchParams(lat=50.1, lon=19.7).access is False
+    assert pm.parse_cli(["--lat", "50.1", "--lon", "19.7"])[0][0].access is False
+    assert pm.parse_cli(["--lat", "50.1", "--lon", "19.7", "--access"])[0][0].access is True
+    field = {f["name"]: f for f in web.schema()}["access"]
+    assert (field["default"], field["type"], field["topic"]) == (False, "boolean", "anchors")
+    # a request of before (no "access"), or one the form sent with the mark off: nothing is marked
+    assert web.checked_request({"params": {"lat": 50.1, "lon": 19.7}})[1].access is False
+    assert web.checked_request({"params": {"lat": 50.1, "lon": 19.7, "access": True}})[1].access is True
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_access_mark_in_the_form(tmp_path):
+    """The access mark in the web form (the accepted mock-up, step 1d-P): Basic's row "Reaching the anchors" with
+    its note and the "?" that opens the help in place (the key of the three states); the receipt ends with "access
+    marked, no line filtered out" and opens the field in Advanced; Advanced, filled from Basic, has the field
+    ticked without a dot; unticked it gets the dot, the receipt loses its part and the request no longer carries
+    the field; "reset" ticks it again. No CSP violations."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _basic_page(tmp_path, port, browser, viewport={"width": 1280, "height": 900})
+            page.evaluate(POINT_JS)
+            _ready(page)
+            r["row"] = page.evaluate("""() => { const row = document.querySelector('.s-access');
+                return [row.querySelector('.u-field-name').firstChild.textContent, row.querySelector('.s-note').textContent,
+                        row.querySelector('.ac-hint').getAttribute('aria-label'), row.querySelector('.ac-hint').getAttribute('aria-expanded'),
+                        !!row.querySelector('.ac-help'),
+                        row.compareDocumentPosition(document.querySelector('.s-rig')) & Node.DOCUMENT_POSITION_FOLLOWING]; }""")
+            page.click(".s-access .ac-hint")
+            page.wait_for_selector(".s-access .ac-help", timeout=WAIT)
+            r["help"] = page.evaluate("""() => { const help = document.querySelector('.s-access .ac-help');
+                return [[...help.querySelectorAll('.ac-key-row')].map((k) => [k.querySelector('svg').getAttribute('class'), k.querySelector('b').textContent]),
+                        help.querySelector('p').textContent, document.querySelector('.s-access .ac-hint').getAttribute('aria-expanded'),
+                        help.id === document.querySelector('.s-access .ac-hint').getAttribute('aria-controls')]; }""")
+            page.keyboard.press("Escape")  # the focus is on the "?": Esc closes its help
+            page.wait_for_selector(".s-access .ac-help", state="detached", timeout=WAIT)
+            r["receipt"] = page.evaluate("""() => [document.querySelector('.s-receipt').textContent,
+                window.FINDALINE_SEARCH.request.params.access, window.FINDALINE_SEARCH.values.access]""")
+            # the receipt's part opens the field in Advanced: ticked, no dot
+            page.click(".s-receipt button[data-field=access]")
+            page.wait_for_function("() => document.activeElement?.closest('[data-field=access]')", timeout=WAIT)
+            field = """() => { const box = document.querySelector('.s-pane [data-field=access]');
+                return [window.FINDALINE_SEARCH.tab, box.querySelector('input').checked, box.classList.contains('s-is-changed'),
+                        document.querySelector('.s-from').textContent.includes('Nothing differs from Basic yet.'),
+                        box.closest('[data-topic]').dataset.topic, document.querySelector('.s-receipt').textContent.includes('access marked'),
+                        window.FINDALINE_SEARCH.request.params.access ?? null]; }"""
+            r["advanced"] = page.evaluate(field)
+            page.click(".s-pane [data-field=access] input")
+            page.wait_for_function("() => document.querySelector('.s-pane [data-field=access].s-is-changed')", timeout=WAIT)
+            r["unticked"] = page.evaluate(field)
+            page.click(".s-pane [data-field=access] .s-reset")
+            page.wait_for_function("() => !document.querySelector('.s-pane [data-field=access].s-is-changed')", timeout=WAIT)
+            r["reset"] = page.evaluate(field)
+            r["csp"] = page.evaluate("() => window.CSP_VIOLATIONS")
+        finally:
+            browser.close()
+    assert r["row"] == ["Reaching the anchors", "The result marks anchors you can walk to. No line is filtered out.",
+                        "About reaching the anchors", "false", False, 4], r
+    keys, text, expanded, controls = r["help"]
+    assert keys == [["ac ac-2", "easy access:"], ["ac ac-1", "cannot tell:"], ["ac ac-0", "hard access:"]], r
+    assert text.startswith("The site judges from the terrain if you can walk to an anchor") and expanded == "true", r
+    assert controls is True, r
+    assert r["receipt"][0].endswith("Rig: sag, no-fall zone 5 m, no A-frames · access marked, no line filtered out"), r
+    assert r["receipt"][1:] == [True, True], r
+    assert r["advanced"] == ["advanced", True, False, True, "anchors", True, True], r
+    assert r["unticked"] == ["advanced", False, True, False, "anchors", False, None], r
+    assert r["reset"] == r["advanced"], r
+    assert r["csp"] == [], r
