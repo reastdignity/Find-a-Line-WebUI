@@ -131,7 +131,6 @@
 .ui .s-receipt button { border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left;
   text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 .ui .s-receipt button:hover { color: var(--accent); text-decoration-color: var(--accent); }
-.ui .s-heavy-line { margin: 0; flex-basis: 100%; order: -1; font-size: 13px; color: var(--ink-2); }
 /* The compact bar of a phone: one line that unfolds the receipt and the source */
 .ui .s-sum { display: none; }
 .ui .s-bar.s-compact { gap: 6px 10px; padding: 6px 12px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }

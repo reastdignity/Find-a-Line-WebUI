@@ -314,7 +314,7 @@ out.forOne = texts(all("best", saved, {{pretension: 4}}), mine);
 out.more = texts(all("everything", m.STARTING_RIG, {{same_line_square: 7, source: "eu-dem", nmpt: "off"}}), null);
 out.formula = texts(all("best", m.STARTING_RIG, {{model: "formula"}}), null);
 out.short = [m.receiptShort(all("long", saved), "Long and exposed", mine), m.receiptShort(all("best", saved, {{pretension: 4}}), null, mine)];
-const size = (values, km2) => {{ const s = m.sizeOf(values, km2); return [s.word, s.level, s.causes.join(", "), s.lighter]; }};
+const size = (values, km2) => {{ const s = m.sizeOf(values, km2); return [s.word, s.level, s.causes.join(", "), Object.keys(s).length]; }};
 out.size = [size(all("best", m.STARTING_RIG), 0.79), size(all("best", saved), 0.79), size(all("best", saved, {{model: "formula", end_zone: 0, anchor_lift: 0}}), 0.79),
             size(all("best", m.STARTING_RIG, {{end_zone: 0}}), 0.79), size(all("best", m.STARTING_RIG, {{end_zone: 0}}), 12.6),
             size(all("everything", m.STARTING_RIG), 50), size(all("best", m.STARTING_RIG, {{model: "formula"}}), 4), size(all("long", saved), null)];
@@ -365,14 +365,15 @@ console.log(JSON.stringify(out));""")
     assert found["more"][2] == "trees not checked→nmpt" and found["more"][-1] == "+ 2 more settings→more"
     assert found["formula"][-1] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
-    assert found["size"] == [["Heavy", 2, "sag, no-fall zone 5 m", False],
-                             ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", True],
-                             ["Light", 0, "", False],
-                             ["Heavier", 1, "sag", False],
-                             ["Heavy", 2, "sag, an area of 12.6 km²", False],
-                             ["Very heavy", 3, "sag, no-fall zone 5 m, lines up to 1000 m", True],
-                             ["Heavy", 2, "no-fall zone 5 m, an area of 4 km²", False],  # the formula: no sag step
-                             ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", True]]
+    # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
+    assert found["size"] == [["Heavy", 2, "sag, no-fall zone 5 m", 3],
+                             ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3],
+                             ["Light", 0, "", 3],
+                             ["Heavier", 1, "sag", 3],
+                             ["Heavy", 2, "sag, an area of 12.6 km²", 3],
+                             ["Very heavy", 3, "sag, no-fall zone 5 m, lines up to 1000 m", 3],
+                             ["Heavy", 2, "no-fall zone 5 m, an area of 4 km²", 3],  # the formula: no sag step
+                             ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3]]
     assert found["summary"] == ["sag · no-fall zone 5 m · no A-frames", "simple formula, no-fall zone 3 m, A-frames 2 m",
                                 "2.5 kN pretension, 5 % stretch at 10 kN, 70 g/m webbing, athlete 80 kg, 6 m leash fall space"]
     assert found["names"] == ["My rig", "Rig 3", "Rig 2", True, False, True, "a b"]

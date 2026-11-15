@@ -361,8 +361,8 @@ function AdvancedBottom({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) 
 
 // ---- the bar: the size word, the receipt and the start -----------------------------------------
 
-/** The size word with its "?": the causes, the measured factors, the example, "a rough guide"; on a phone also
- *  "Lighter" (the simple formula, in Advanced). */
+/** The size word with its "?": the causes, the measured factors (part M3: kept lines, a leash fall space of 6 m,
+ *  the square rule), the example, "a rough guide". */
 function SizeWord({s, phone}: {s: SearchState; phone?: boolean}) {
   const size = sizeOf(s.resolved, s.km2);
   const why = size.causes.length ? t("basic.size.why", {word: size.word, causes: size.causes.join(", ")})
@@ -373,9 +373,6 @@ function SizeWord({s, phone}: {s: SearchState; phone?: boolean}) {
       <span class="s-tip-p">{why}</span>
       <span class="s-tip-p">{t("basic.size.factors")}</span>
       <span class="s-tip-p">{t("basic.size.example")}</span>
-      {phone && size.lighter && <span class="s-tip-p">{t("basic.size.lighter")}{" "}
-        <button type="button" class="s-link" onClick={() => s.toAdvanced("model")}>{t("basic.size.lighter_link")}</button>.{" "}
-        {t("basic.size.lighter_more")}</span>}
       <span class="s-tip-p">{t("basic.size.rough")}</span>
     </Hint>
     {!phone && size.causes.length > 0 && <span class="s-size-why">{size.causes.join(", ")}</span>}
@@ -385,7 +382,7 @@ function SizeWord({s, phone}: {s: SearchState; phone?: boolean}) {
 /** The bottom bar (both tabs): the size word, km², the data source and grid of the estimate, the receipt (each part
  *  opens its field in Advanced; a Where problem or a refusal replaces it), the estimate's state when it is not
  *  simply ready, "Start search". On a phone (`phone`) the compact bar: one line "<goal or Custom> · <lengths> ·
- *  <rig>" that unfolds the receipt, the source and the grid; "Lighter" moves into the size word's "?". */
+ *  <rig>" that unfolds the receipt, the source and the grid. */
 export function EstimateBar({search: s, usage, phone}: {search: SearchState; usage?: Usage | null; phone?: boolean}) {
   const {status, estimate, message} = s.estimate;
   const [open, setOpen] = useState(false);
@@ -402,7 +399,6 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
   const warnings = estimate ? [...estimate.reasons,
     ...estimate.messages.filter(([kind]) => kind === "warning")
       .map(([, text, info]) => info ? errorText(info, text) : text)] : [];
-  const size = sizeOf(s.resolved, s.km2);
   const goal = s.tab === "basic" ? s.goalOf(s.goal)?.label ?? null
     : s.preset && s.preset !== "custom" ? s.goalOf(s.preset)?.label ?? null : null;
   const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name);
@@ -437,9 +433,6 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
           <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
       {s.busy ? "Starting…" : "Start search"}</Button>
-    {!phone && size.lighter && <p class="s-heavy-line">{t("basic.size.lighter")}{" "}
-      <button type="button" class="s-link" onClick={() => s.toAdvanced("model")}>{t("basic.size.lighter_link")}</button>.{" "}
-      {t("basic.size.lighter_more")}</p>}
   </div>;
 }
 

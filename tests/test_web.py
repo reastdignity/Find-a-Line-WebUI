@@ -2640,6 +2640,9 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             page.evaluate(POINT_JS)
             _ready(page)
             r["receipt"] = page.text_content(".s-receipt")
+            # "Very heavy" (sag, the zone, A-frames) without the "Lighter" hint (gone: the user's 2026-11-15 "2. ok c")
+            r["size"] = page.evaluate("() => [document.querySelector('.s-bar .sz').textContent, "
+                                      "document.querySelector('.s-bar').textContent.includes('Lighter')]")
             page.click(".s-start")
             page.wait_for_function("() => location.hash === '#home'", timeout=WAIT)
             started = [j for j in jobs.all() if j["id"] != old][0]["id"]
@@ -2722,6 +2725,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["chosen"] == str(light), r
     assert r["ask"] == "Delete “Light”?" and r["deleted"] == ["Heavy"], r
     assert r["receipt"] == "30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, A-frames 2 m", r
+    assert r["size"] == ["Very heavy", False], r
     heavy_values = {**STARTING_RIG, "end_zone": 3, "anchor_lift": 2}
     assert r["request"] == {**BEST, "model": "sag", **heavy_values, "same_line_square": 5, "lat": 50.1559508,
                             "lon": 19.7562722, "radius": 500}, r

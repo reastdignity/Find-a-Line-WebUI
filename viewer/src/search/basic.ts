@@ -312,18 +312,16 @@ export function receiptShort(values: Values, goalTitle: string | null, inUse: Ri
 export const SIZE_WORDS = ["basic.size.light", "basic.size.heavier", "basic.size.heavy", "basic.size.very"];
 
 /** The size word (spec-search 1.2, N-05): one step each for sag, a no-fall zone and A-frames, one for lines
- *  spanning 900 m or more, else for an area above 3.2 km²; at most "Very heavy". `causes` name the steps,
- *  `lighter`: at "Very heavy" with sag the simple formula is offered. */
-export function sizeOf(values: Values, km2: number | null): {level: number; word: string; causes: string[]; lighter: boolean} {
+ *  spanning 900 m or more, else for an area above 3.2 km²; at most "Very heavy". `causes` name the steps. */
+export function sizeOf(values: Values, km2: number | null): {level: number; word: string; causes: string[]} {
   const v = values, causes: string[] = [];
-  const sag = v.model === "sag";
-  if (sag) causes.push(t("basic.size.sag"));
+  if (v.model === "sag") causes.push(t("basic.size.sag"));
   if (Number(v.end_zone) > 0) causes.push(t("basic.size.zone", {value: num(v.end_zone)}));
   if (Number(v.anchor_lift) > 0) causes.push(t("basic.size.lift", {value: num(v.anchor_lift)}));
   if (Number(v.max_length) - Number(v.min_length) >= 900) causes.push(t("basic.size.long", {value: num(v.max_length)}));
   else if (km2 !== null && km2 > 3.2) causes.push(t("basic.size.area", {value: num(km2.toFixed(1))}));
   const level = Math.min(causes.length, 3);
-  return {level, word: t(SIZE_WORDS[level]), causes, lighter: level === 3 && sag};
+  return {level, word: t(SIZE_WORDS[level]), causes};
 }
 
 // ---- where "Sea cliffs" moves the search ------------------------------------------------------------------
