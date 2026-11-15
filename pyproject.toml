@@ -24,6 +24,7 @@ dependencies = [
     "pillow>=12",
     "prometheus-client>=0.26.0",
     "psutil>=7",
+    "pyarrow>=26.0.1",  # a run's store, lines.arrow and profiles.arrow (linestore.py); Apache-2.0, chosen 2026-11-15
     "pydantic>=2.11",
     "pydantic-settings>=2.16.1",
     "pyogrio>=0.13",  # the GML of the WFS sheet indexes (sources/indexes/listings.py)
