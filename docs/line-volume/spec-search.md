@@ -233,9 +233,10 @@ lines'), N-05 (yes: the word, 1.2).
   <the refusal advice>."
 - **Disagreement:** accepted but over the limit: today's early check refuses. Refused although under it: measured once
   in 390 at 2 %. Estimate and final count go to `job_funnel` to watch the rate.
-- **Square rule on** (every Basic search): not measured. The line limit counts kept lines (built in phase 4); the
-  sample predicts found lines, 24-65 times as many on average (G-03's evidence): it must not refuse on them. Until
-  5.5 b gives an estimator of kept lines, such a search is not sampled (U-6).
+- **Square rule on** (every Basic search): built as sampled squares, since the line limit counts kept lines: 2 % of
+  the rule's squares holding a useful anchor of the core, a pair of squares counted only from its first square, which
+  estimates the kept lines (part M2's candidate 1b: at 2 % worst x1.19 on the rows of 1 M kept or more, the band 0
+  wrong of 485; the user's "2%" of 2026-11-15, so U-6 needs neither of its options).
 - **Cost** (indicative, part P4): 1 % takes 4-11 s where the full count takes 8-181 s untiled; tiled, step 1
   dominates (GZ1 50 s with the sample against 93 s). 2 % untimed: between the 1 % and 5 % columns (0.1-16.7 s for
   steps 2-3; an estimate). An accepted search pays it on top.

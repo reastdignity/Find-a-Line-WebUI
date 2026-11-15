@@ -129,9 +129,11 @@ the square rule anchors, `_pair_search(first=)` with a counting sink, lines x N/
 distinct `samelines.square_keys` seen from their first square x M/k, the lines kept; Horvitz-Thompson variance;
 returns `(lines, variance, k, n)`), and `_estimate_check` decides: over `REFUSE_FACTOR` (1.25) times `lines_max`
 or the lines that fit into `Plan.memory` refused (`too_many_lines_estimate`, `too_many_lines_memory_estimate`,
-with the advice and the page's millions), from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note
-`estimate_lines`; the funnel's `estimate`; the full search's checks stay; `count_tile` without a sag table takes
-`_sag_table`'s of the process
+with the advice and the page's words, `_lines_text`/`_shown`: two digits, plain under a million, else millions),
+from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note `estimate_lines`; the funnel's `estimate`
+(a search refused for its lines: `jobs._write_refusal`'s rows); the full search's checks stay; the progress labels
+"Estimate · Step 3/5" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
+`jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process
 
 ## `area.py`
 

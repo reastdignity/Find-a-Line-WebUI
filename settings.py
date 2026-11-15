@@ -131,8 +131,9 @@ class Limits(BaseSettings):
     lines_max: Optional[int] = Field(None, gt=0, description="most lines of a search (all its tiles)")
     lines_early_stop: bool = Field(
         True, description="stop checking the pairs found as soon as the valid lines so far exceed lines_max or no "
-                          "longer fit into the memory (the search is refused anyway); false: refused after all "
-                          "of them are checked, with their exact number")
+                          "longer fit into the memory (the search is refused anyway), after an estimate of the "
+                          "lines from a sample before the pairs refused those far over them; false: neither, "
+                          "refused after all of them are checked, with their exact number")
     download_mb_max: Optional[float] = Field(None, gt=0, description="largest download of a search, MB (its estimate)")
     ortho_minutes: Optional[float] = Field(
         None, ge=0, description="orthophoto tiles of a run that would take longer to download than this many "

@@ -272,6 +272,19 @@ from the table to a mask of kept lines, registered with `rule` (`higher_wins`, `
 `mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
 lines as counts only; `tests/test_prune_study.py`
 
+## `tools/estimate_study.py`
+
+Run by hand: the size of a search estimated from a sample before its pairs (`search.sample_estimate`, the web
+worker's estimate, docs/line-volume/spec-search.md section 2) against the exact count, per case, fraction and seed,
+in both designs (anchors: the lines found, part P4; the square rule's squares: the lines kept, part M2), offline from
+the cache: `[--fractions F,..] [--seeds N] [--seed-rule study|search] [--owner USER] [--designs anchors,squares]
+[--square M] [--exact] [--limit N] [--name NAME] [--out F.json] -- <findaline.py options>`; step 1 once, each tile's
+window and anchors as the search's, one `sample_estimate` per design, fraction, seed and tile; seeds of the studies
+(`default_rng([1000 + s, tile])` anchors, `[2000 + s, tile]` squares) or the search's own (its hash, with the job's
+owner); `--exact` the lines found, kept after the join, kept per tile before it and the keys seen from their first
+square; `--limit` the band's verdict; JSON written whole then renamed, no coordinates; `study()` in Python;
+`tests/test_estimate_study.py`
+
 ## `tools/area_download.py`
 
 Run by hand: the elevation models of a whole area into a data folder's cache, nothing else (`country run` then finds
