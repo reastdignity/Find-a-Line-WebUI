@@ -54,6 +54,8 @@ class Fake:
         self.times = []           # (when, Host header) of every request
         self.headers = []         # (path, the request's headers) of every request
         self.action_base = ""     # the form's action before its path ("" = this server, relative)
+        self.down = 0             # the next n requests: the connection closed without an answer (an outage)
+        self.stall_form = 0       # the next n login pages: headers, then nothing for a second
         self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
         self.active = self.most = 0
         self.lock = threading.Lock()
@@ -102,6 +104,12 @@ class Fake:
             self.times.append((time.monotonic(), h.headers.get("Host")))
             self.headers.append((parts.path, {k.lower(): v for k, v in h.headers.items()}))
         try:
+            with self.lock:
+                down = self.down > 0
+                self.down -= down
+            if down:
+                h.close_connection = True
+                return
             self.route(h, method, parts)
         finally:
             with self.lock:
@@ -141,6 +149,16 @@ class Fake:
             self.form_fails -= 1
             h.rfile.read(int(h.headers.get("Content-Length") or 0))
             self.send(h, 500, b"down", {"Content-Type": "text/plain"})
+        elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth") and self.stall_form:
+            self.stall_form -= 1
+            page = self.form_page()
+            h.send_response(200)
+            h.send_header("Content-Length", str(len(page)))
+            h.end_headers()
+            h.wfile.write(page[:20])
+            h.wfile.flush()
+            time.sleep(1.0)
+            h.close_connection = True
         elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth"):
             self.send(h, 200, self.form_page(), {"Content-Type": "text/html",
                                                  "Set-Cookie": "AUTH_SESSION_ID=%s; Path=/" % self.secret("auth")})
@@ -473,7 +491,84 @@ def test_a_failed_sign_in_mid_run_is_that_files_failure(fake, tmp_path):
     assert fetch(tmp_path) == 0
     assert len(done_rows(tmp_path)) == 3 and fake.logins == 2
     failed = [json.loads(line) for line in open(tmp_path / "portugal" / "failed.jsonl", encoding="utf-8")]
-    assert [f["id"] for f in failed] == ["MDT-50cm-090201-07-2024"] and "sign-in failed" in failed[0]["error"]
+    assert [f["id"] for f in failed] == ["MDT-50cm-090201-07-2024"] and "sign-in answered" in failed[0]["error"]
+
+
+def test_a_stale_address_then_a_lost_session_on_one_file(fake, tmp_path):
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["404", "expire"]
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert len(done_rows(tmp_path)) == 2 and fake.logins == 2
+    assert not os.path.exists(tmp_path / "portugal" / "failed.jsonl")
+
+
+def test_an_outage_waits_longer_each_time_and_fails_no_file(fake, tmp_path, monkeypatch):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    states = []
+
+    def wait(seconds):
+        fake.waits.append(seconds)
+        states.append(json.load(open(tmp_path / "portugal" / "status.json", encoding="utf-8")))
+    monkeypatch.setattr(cf, "_wait", wait)
+    fake.down = 4  # the sign-in's first request and three tries after it
+    assert fetch(tmp_path) == 0
+    assert fake.waits[:4] == [30.0, 60.0, 120.0, 240.0] and len(done_rows(tmp_path)) == 3
+    assert not os.path.exists(tmp_path / "portugal" / "failed.jsonl")
+    assert states[0]["state"] == "waiting: network" and "seconds_since_last_good_file" in states[0]
+    fake.down = 0
+    fake.add("MDT-50cm", "MDT-50cm-090300-07-2024")
+    planned(fake, tmp_path)
+    fake.down, fake.waits[:] = 6, []
+    assert fetch(tmp_path) == 0
+    assert fake.waits == [30.0, 60.0, 120.0, 240.0, 480.0, 900.0]  # doubling up to 15 min
+
+
+def test_an_outage_longer_than_the_limit_stops(fake, tmp_path):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    fake.down = 1000
+    assert fetch(tmp_path, "--outage-hours", "0") == cf.EXIT_FAILURES
+    assert not os.path.exists(tmp_path / "portugal" / "failed.jsonl")
+    assert json.load(open(tmp_path / "portugal" / "status.json", encoding="utf-8"))["state"] == \
+        "stopped (exit code 4)"
+
+
+def test_a_stalled_login_page_is_an_outage(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "TIMEOUT", 0.3)
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    fake.stall_form = 1
+    assert fetch(tmp_path) == 0
+    assert fake.waits[:1] == [30.0] and len(done_rows(tmp_path)) == 2
+
+
+def test_an_unexpected_error_ends_the_run_with_its_state(fake, tmp_path, monkeypatch, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    real = cf._append_jsonl
+
+    def append(path, row):
+        if path.endswith("done.jsonl"):
+            raise PermissionError(13, "denied " + USER)
+        real(path, row)
+    monkeypatch.setattr(cf, "_append_jsonl", append)
+    assert fetch(tmp_path) == cf.EXIT_ERROR
+    status = json.load(open(tmp_path / "portugal" / "status.json", encoding="utf-8"))
+    assert status["state"] == "stopped: error (PermissionError)"
+    assert USER not in capsys.readouterr().err
+
+
+def test_files_that_failed_before_go_to_the_end(fake, tmp_path):
+    mainland(fake, 8)
+    bad = sorted(fake.bodies)[:5]
+    for item_id in bad:
+        fake.actions[item_id] = ["size"] * 10
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == cf.EXIT_FAILURES and not os.path.exists(tmp_path / "portugal" / "done.jsonl")
+    assert fetch(tmp_path) == cf.EXIT_FAILURES  # the three good files first, then the five bad ones in a row
+    assert sorted(r["id"] for r in done_rows(tmp_path)) == sorted(fake.bodies)[5:]
 
 
 def test_the_disk_is_checked_and_the_status_saved_within_a_long_file(fake, tmp_path, monkeypatch):

@@ -67,6 +67,7 @@ On a home server, the script in its own folder with an env file `cdd.env` beside
 import argparse
 import datetime
 import email.utils
+import errno
 import hashlib
 import html
 import http.client
@@ -110,6 +111,9 @@ MAX_FAILED_IN_ROW = 5
 THROTTLE_TRIES = 6     # 429/503 answers to one file before it counts as failed
 WAIT_BASE = 60.0       # the first wait after a 429/503 (doubled each time)
 WAIT_MAX = 1800.0
+NET_WAIT_BASE = 30.0   # the first wait after a network error (doubled each time) ...
+NET_WAIT_MAX = 900.0   # ... up to 15 min, until the outage lasts --outage-hours
+RATE_WINDOW = 300.0    # seconds over which --min-rate-kb is measured
 RATE = 16e6 / 2.1      # bytes per second of one CDD download, measured by the coordinator on 2026-11-15
 TIFF_MAGIC = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 ZIP_MAGIC = (b"PK\x03\x04",)
@@ -627,10 +631,11 @@ def _login_form(body):
     return html.unescape(action.group(1).decode()), hidden
 
 
-def download(http, url, part, size, magic, min_free, sign_aware, progress=None):
-    """One GET of url into part, checked: (bytes, sha256). Raises SessionLost, Throttled, Stale, BadFile,
-    DiskLow, Stopped; the .part is removed on any failure. Every DISK_EVERY bytes the free space is checked and
-    progress(bytes so far) called."""
+def download(http, url, part, size, magic, min_free, sign_aware, progress=None, min_rate=0):
+    """One GET of url into part, checked and synced to disk: (bytes, sha256). Raises SessionLost, Throttled,
+    Stale, BadFile (NetworkDown when the connection breaks or stalls), DiskLow, Stopped; the .part is removed on
+    any failure. Every DISK_EVERY bytes the free space is checked and progress(bytes so far) called; a file
+    coming slower than min_rate bytes/s over RATE_WINDOW seconds fails."""
     answer = http.open(url)
     with answer:
         status = answer.getcode()
@@ -643,10 +648,20 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None):
             raise Stale("HTTP %d" % status)
         if status != 200:
             raise BadFile("HTTP %d" % status)
-        try:
-            first = answer.read(8)
-        except (OSError, ValueError, HTTPException) as error:
-            raise BadFile("%s while reading" % type(error).__name__) from None
+        read = getattr(answer, "read1", answer.read)  # what has come, not a whole chunk: the rate is seen
+
+        def take(n):
+            try:
+                return read(n)
+            except (OSError, HTTPException) as error:
+                raise NetworkDown("network: %s while reading" % type(error).__name__) from None
+
+        first = b""
+        while len(first) < 8:
+            more = take(8 - len(first))
+            if not more:
+                break
+            first += more
         if sign_aware and _is_login(answer.geturl(), first, headers):
             raise SessionLost()
         if not any(first.startswith(m) for m in magic):
@@ -655,14 +670,14 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None):
         if size is not None and length is not None and length.isdigit() and int(length) != size:
             raise BadFile("the server's file has %s bytes, %d expected (the data has changed?)" % (length, size))
         digest, done, checked = hashlib.sha256(first), len(first), len(first)
+        window, window_bytes = time.monotonic(), done
         try:
             with open(part, "wb") as f:
                 f.write(first)
                 while True:
                     if STOP.is_set():
                         raise Stopped()
-                    cap = CHUNK if size is None else min(CHUNK, size - done + 1)
-                    chunk = answer.read(cap)
+                    chunk = take(CHUNK if size is None else min(CHUNK, size - done + 1))
                     if not chunk:
                         break
                     done += len(chunk)
@@ -676,12 +691,21 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None):
                             raise DiskLow()
                         if progress is not None:
                             progress(done)
+                    seconds = time.monotonic() - window
+                    if min_rate and seconds >= RATE_WINDOW:
+                        if (done - window_bytes) / seconds < min_rate:
+                            raise BadFile("slower than %g kB/s for %d s" % (min_rate / 1000, seconds))
+                        window, window_bytes = time.monotonic(), done
+                f.flush()
+                os.fsync(f.fileno())
             expected = size if size is not None else int(length) if length and length.isdigit() else None
             if expected is not None and done != expected:
                 raise BadFile("cut short: %d of %d bytes" % (done, expected))
-        except (OSError, ValueError, HTTPException) as error:
+        except OSError as error:  # writing: a full disk stops the run, anything else ends it with its state
             _remove(part)
-            raise BadFile("%s while reading" % type(error).__name__) from None
+            if error.errno == errno.ENOSPC:
+                raise DiskLow() from None
+            raise
         except BaseException:
             _remove(part)
             raise
@@ -692,6 +716,19 @@ def _remove(path):
     try:
         os.remove(path)
     except OSError:
+        pass
+
+
+def _repair(path):
+    """A line cut by a kill (no newline at its end) is closed, so the next row starts on its own line."""
+    try:
+        with open(path, "rb+") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell():
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    f.write(b"\n")
+    except FileNotFoundError:
         pass
 
 
@@ -715,19 +752,25 @@ def _sha256(path):
 class Run:
     """The state of one fetch run: done items, counters, status.json."""
 
-    def __init__(self, job, log, pause):
-        self.job, self.log, self.pause = job, log, pause
-        self.done = {row["id"]: row for row in _read_jsonl(os.path.join(job.area, "done.jsonl"))}
+    def __init__(self, job, log):
+        self.job, self.log = job, log
+        for name in ("done.jsonl", "failed.jsonl"):
+            _repair(os.path.join(job.area, name))
+        self.done = {row["id"]: row for row in _read_jsonl(os.path.join(job.area, "done.jsonl"))
+                     if isinstance(row, dict) and "id" in row}
+        self.failed_before = {row.get("id") for row in _read_jsonl(os.path.join(job.area, "failed.jsonl"))
+                              if isinstance(row, dict)}
         self.failed = {}
         self.last_error = None
-        self.started, self.files, self.bytes = time.monotonic(), 0, 0
+        self.started = self.last_good = time.monotonic()
+        self.files, self.bytes = 0, 0
         self.state = "running"
         old = os.path.join(job.area, "status.json")
         if os.path.exists(old):
             try:
                 with open(old, encoding="utf-8") as f:
                     self.last_error = json.load(f).get("last_error")
-            except (OSError, ValueError):
+            except (OSError, ValueError, AttributeError):
                 pass
 
     def record_done(self, item, size, sha):
@@ -760,6 +803,7 @@ class Run:
         left = sum(g["bytes_left"] for g in groups.values()) - (current[1] if current else 0)
         return {"updated": now(), "state": self.state, "groups": groups, "last_error": self.last_error,
                 "current": {"id": current[0], "bytes": current[1]} if current else None,
+                "seconds_since_last_good_file": round(time.monotonic() - self.last_good),
                 "this_run": {"files": self.files, "bytes": self.bytes, "seconds": round(elapsed),
                              "bytes_per_second": round(rate) if rate else None},
                 "seconds_left": round(left / rate) if rate else None}
@@ -768,13 +812,29 @@ class Run:
         _write_json(os.path.join(self.job.area, "status.json"), self.status(current))
 
 
-def _check_disk(area, need):
-    return shutil.disk_usage(area).free >= need
+class TooManySignins(Exception):
+    pass
 
 
 def fetch_run(job, args, http, log):
-    """Fetch every item of job not yet done (see the module's docstring); the exit code."""
-    run = Run(job, log, args.pause)
+    """Fetch every item of job not yet done (see the module's docstring); the exit code. Anything unexpected ends
+    the run with its state written ("stopped: error ..."), never left at "running"."""
+    run = Run(job, log)
+    try:
+        return _fetch_loop(job, args, http, log, run)
+    except Exception as error:
+        run.state = "stopped: error (%s)" % type(error).__name__
+        log("error: %s: %s" % (type(error).__name__, error), error=True)
+        try:
+            run.save()
+        except OSError:
+            pass
+        return EXIT_ERROR
+
+
+def _queue(job, run, args, log):
+    """The items to fetch: those that failed in an earlier run after the others (bad files at the head of the
+    manifest never hold the rest back), each id once."""
     skipped, present, paths = set(), set(), {item["path"] for item in job.items}
     for root, _, files in os.walk(job.area):  # one walk, not a look per item (a network share is slow)
         for name in files:
@@ -794,24 +854,74 @@ def fetch_run(job, args, http, log):
                 skipped.add(item["id"])
                 log(item["id"], ": a file on disk that does not check, left as it is (move it away to fetch it again)",
                     error=True)
-    pending = deque(item for item in job.items if item["id"] not in run.done and item["id"] not in skipped)
-    if args.limit is not None:
-        pending = deque(list(pending)[:args.limit])
+    seen, fresh, again = set(), [], []
+    for item in job.items:
+        if item["id"] in run.done or item["id"] in skipped or item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        (again if item["id"] in run.failed_before else fresh).append(item)
+    pending = fresh + again
+    return deque(pending[:args.limit] if args.limit is not None else pending)
+
+
+def _fetch_loop(job, args, http, log, run):
+    pending = _queue(job, run, args, log)
     log("%d files to fetch, %d done before" % (len(pending), len(run.done)))
     run.save()
-    attempts, failed_in_row, signins, code = {}, 0, 0, EXIT_OK
+    attempts, code = {}, EXIT_OK
+    failed_in_row = signins = net_waits = 0
+    signed_in, outage = False, None
     min_free = args.min_free_gb * 1e9
+
+    def fetch_one(item, path):
+        nonlocal signins, signed_in
+        session_renewed = stale_renewed = False
+        throttled = 0
+        while True:
+            try:
+                if job.signin_needed and not signed_in:
+                    if signins >= MAX_SIGNINS:
+                        raise TooManySignins()
+                    signins += 1
+                    try:
+                        job.signin(http, log)
+                    except NetworkDown:  # an outage, not a sign-in the server saw: the outage rule decides
+                        signins -= 1
+                        raise
+                    signed_in = True
+                url = job.address(http, item, pending)
+                return download(http, url, path + ".part", item["size"], job.magic, min_free, job.signin_needed,
+                                lambda n, i=item["id"]: run.save(current=(i, n)), args.min_rate_kb * 1000)
+            except Throttled as t:
+                throttled += 1
+                if throttled >= THROTTLE_TRIES:
+                    raise BadFile("HTTP 429/503 %d times" % throttled) from None
+                seconds = min(max(WAIT_BASE * 2 ** (throttled - 1), t.retry_after or 0), WAIT_MAX)
+                log(item["id"], ": the server asks to slow down (%s), waiting %d s" % (t, seconds))
+                _wait(seconds)
+                if STOP.is_set():
+                    raise Stopped() from None
+            except SessionLost:
+                if session_renewed:
+                    raise BadFile("the session ended again right after a sign-in") from None
+                session_renewed, signed_in = True, False
+                job.forget(item)
+                log(item["id"], ": the session has ended, signing in again")
+            except Stale as e:
+                if stale_renewed:
+                    raise BadFile(str(e)) from None
+                stale_renewed = True
+                job.forget(item)
+
     try:
-        if pending and job.signin_needed:
-            signins += 1
-            job.signin(http, log)
         first = True
         while pending and not STOP.is_set():
             item = pending.popleft()
+            if item["id"] in run.done:  # a second row of an item done in this run
+                continue
             if not first:
                 _wait(args.pause)
                 if STOP.is_set():
-                    pending.appendleft(item)
                     break
             first = False
             if not _check_disk(job.area, min_free + (item["size"] or 0)):
@@ -819,58 +929,41 @@ def fetch_run(job, args, http, log):
             attempts[item["id"]] = attempts.get(item["id"], 0) + 1
             path = os.path.join(job.area, item["path"])
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            renewed, throttled, error = False, 0, None
-            started = time.monotonic()
+            started, error = time.monotonic(), None
             while True:
                 try:
-                    url = job.address(http, item, pending)
-                    size, sha = download(http, url, path + ".part", item["size"], job.magic, min_free,
-                                         job.signin_needed, lambda n, i=item["id"]: run.save(current=(i, n)))
+                    size, sha = fetch_one(item, path)
                     break
-                except Throttled as t:
-                    throttled += 1
-                    if throttled >= THROTTLE_TRIES:
-                        error = "HTTP 429/503 %d times" % throttled
-                        break
-                    seconds = min(max(WAIT_BASE * 2 ** (throttled - 1), t.retry_after or 0), WAIT_MAX)
-                    log(item["id"], ": the server asks to slow down (%s), waiting %d s" % (t, seconds))
+                except NetworkDown as e:  # an outage: waits that grow, no failed file until it lasts too long
+                    job.forget(item)
+                    outage = outage if outage is not None else time.monotonic()
+                    if time.monotonic() - outage >= args.outage_hours * 3600:
+                        log("no network for %.1f h: stopping (%s)" % ((time.monotonic() - outage) / 3600, e),
+                            error=True)
+                        code = EXIT_FAILURES
+                        raise Stopped() from None
+                    seconds = min(NET_WAIT_BASE * 2 ** net_waits, NET_WAIT_MAX)
+                    net_waits += 1
+                    run.state = "waiting: network"
+                    run.save()
+                    log(item["id"], ": %s; waiting %d s" % (e, seconds))
                     _wait(seconds)
                     if STOP.is_set():
-                        raise Stopped()
-                except SessionLost:
-                    if renewed:
-                        error = "the session ended again right after a sign-in"
-                        break
-                    if signins >= MAX_SIGNINS:
-                        log("%d sign-ins in a row without a fetched file: stopping" % signins, error=True)
-                        code = EXIT_SIGNINS
-                        raise Stopped()
-                    log(item["id"], ": the session has ended, signing in again")
-                    renewed = True
-                    signins += 1
-                    try:
-                        job.signin(http, log)
-                    except BadFile as e:  # a network error: this file's failure, the rules above bound it
-                        error = "the sign-in failed: %s" % e
-                        break
-                except Stale as e:
-                    if renewed:
-                        error = str(e)
-                        break
-                    renewed = True
-                    job.forget(item)
+                        raise Stopped() from None
                 except BadFile as e:
                     error = str(e)
                     break
+            run.state = "running"
             if error is None:
                 os.replace(path + ".part", path)
                 run.record_done(item, size, sha)
                 run.files += 1
                 run.bytes += size
-                failed_in_row = signins = 0
-                seconds = time.monotonic() - started
+                run.last_good = time.monotonic()
+                failed_in_row = signins = net_waits = 0
+                outage = None
                 log("%s: %.1f MB in %.1f s; %d of %d done" % (
-                    item["id"], size / 1e6, seconds, len(run.done), len(job.items)))
+                    item["id"], size / 1e6, time.monotonic() - started, len(run.done), len(job.items)))
                 if run.files % STATUS_EVERY == 0:
                     run.save()
                 continue
@@ -898,15 +991,12 @@ def fetch_run(job, args, http, log):
         log("the sign-in would go to %s, outside the site and its realm or off https: not signing in" % e,
             error=True)
         code = EXIT_CREDENTIALS
+    except TooManySignins:
+        log("%d sign-ins in a row without a fetched file: stopping" % MAX_SIGNINS, error=True)
+        code = EXIT_SIGNINS
     except SigninCeiling:
         log("more than %d sign-ins within an hour: stopping" % getattr(job, "per_hour", 0), error=True)
         code = EXIT_SIGNINS
-    except Throttled as t:
-        log("the server refused the sign-in or a search for now (%s): run again later" % t, error=True)
-        code = EXIT_FAILURES
-    except BadFile as e:
-        log("the sign-in or a search failed: %s" % e, error=True)
-        code = EXIT_FAILURES
     left = sum(1 for item in job.items if item["id"] not in run.done)
     if STOP.is_set() and code == EXIT_OK:
         run.state = "stopped by a signal"
@@ -917,6 +1007,10 @@ def fetch_run(job, args, http, log):
     run.save()
     log("%s: %d files (%.2f GB) this run, %d left" % (run.state, run.files, run.bytes / 1e9, left))
     return code
+
+
+def _check_disk(area, need):
+    return shutil.disk_usage(area).free >= need
 
 
 def _portugal_items(area, collections):
@@ -1079,6 +1173,10 @@ def _parser():
         p.add_argument("--retries", type=int, default=2, help="tries of a failed file in this run after its first")
         p.add_argument("--min-free-gb", type=float, default=50.0, help="stop under this free space (default 50)")
         p.add_argument("--limit", type=int, help="at most this many files (a trial)")
+        p.add_argument("--outage-hours", type=float, default=6.0,
+                       help="network errors wait (30 s doubling to 15 min) until they last this long (default 6)")
+        p.add_argument("--min-rate-kb", type=float, default=20.0,
+                       help="a file slower than this (kB/s) for 5 minutes fails (default 20)")
     common(sub.add_parser("status", help="files and bytes done and left, the last error"))
     return parser
 
