@@ -2199,7 +2199,7 @@
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
   },
   "R83": {
-    "place": "as R16 with the access mark (--access): the access grid once on the area's whole grid, each tile its window, an anchor on data filled from FABDEM read as cannot tell; the marks of the line ends counted, and lines.csv without access1, access2 is R16's",
+    "place": "as R16 with the access mark (--access): the access grid once on the area's whole grid, each tile its window (sea, shore faces and gaps filled); the marks of the line ends counted, and lines.csv without access1, access2 is R16's",
     "extends": "R16",
     "args": "--access",
     "sets": [
@@ -2207,6 +2207,31 @@
       "search"
     ],
     "without_access_as": "R16",
-    "expected": {}
+    "expected": {
+      "anchors": 6409,
+      "open": 3669,
+      "checked": 10754,
+      "lines": 9337,
+      "spots": 240,
+      "csv_sha256": "6962c63dde9255af27c6e9b62929b8d651f13cab185a2d9fcab519a428a1d5fe",
+      "length_km": 1982.371,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.213,
+      "clearance_max": 29.57,
+      "over_trees": 0,
+      "coverage": 49.48,
+      "empty_tiles": 0,
+      "filled_km2": 2.58,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 6.08,
+      "water_lines": 9261,
+      "water_spots": 232,
+      "access_ends": [
+        7565,
+        3616,
+        7493
+      ]
+    },
+    "seconds": 10.6
   }
 }
