@@ -89,7 +89,8 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
   - same_line_square: the search used the square rule (grid.json's params same_line_square and
     same_line_side; samelines) and a pair that passes every test lies in the two squares of a found line:
     the rule kept that line, outside the tolerance, and dropped the pair's (the funnel's "square_kept"
-    counts such pairs; the best pair is the one of the highest clearance among them),
+    counts such pairs; the best pair is the one of the highest clearance among them; with min_prominence
+    set the note PROMINENCE_NOTE, as unexplained's: the pair may have lacked a strong anchor),
 - unexplained: a pair passes every test (the note "a_pair_passes"; with min_prominence set the strong
   anchors, which the capture does not hold, may explain it: the note says so), or no pixel lies
   between a pair's anchors (the note "no_pixel_between").
@@ -190,6 +191,7 @@ STRUCTURE_PX = 1      # pixels around an end's pixel looked at for a structure
 ZONES = (0.0, 5.0, 10.0, 20.0)  # metres: the end zones of a clearance miss's "zone_lift" (a ladder from 0)
 LIFTS = (0.0, 1.0, 2.0, 3.0)    # metres: its A-frame lifts; a smallest lift above the last is None
 ZONE_LIFT_REASONS = ("clearance_near_anchor", "clearance_mid")
+PROMINENCE_NOTE = "min_prominence set: the strong anchors are not in the capture"  # a pair passing every test
 DOUBTFUL_TOL_EDGES = (TOL_M, 100.0, 1000.0)  # metres: the report's bins of the matched doubtful lines' tolerances
 REPORT_TYPES = ("highline", "midline")    # always in the tables, other types when present
 PICTURE_PX = 1600     # pixels of a place's hillshade at most (a larger view is drawn every k-th pixel)
@@ -866,12 +868,13 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]], lengths: 
         counts["square_kept"] = int(dropped.sum())
         if dropped.any():
             k = int(rows[np.argmax(np.where(dropped, clearance, -np.inf))])
-            return counts, detail(k, "square"), "same_line_square", None, None
+            caveat = PROMINENCE_NOTE if p.get("min_prominence") is not None else None
+            return counts, detail(k, "square"), "same_line_square", caveat, None
     last = limits if limits.any() else wall
     k = int(rows[np.argmax(np.where(last, clearance, -np.inf))])
     note = "a_pair_passes" if limits.any() else "height_limits"
     if limits.any() and p.get("min_prominence") is not None:
-        note += "; min_prominence set: the strong anchors are not in the capture"
+        note += "; " + PROMINENCE_NOTE
     return counts, detail(k, "limits" if limits.any() else "wall"), "unexplained", note, None
 
 
