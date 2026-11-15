@@ -3333,13 +3333,14 @@ The phases:
 How these were found: the heap profiler's sampling, by the function that allocated what is still live.
 
 ### What it means
-- **T5, heap under 500 MB at BAH: the answer depends on when the heap is read.**
-  - *Two frames after the first picture* (the spec's method): 1.7 GB, against 2.1 GB on main. Not met.
-  - *After the page's own `gc()` and 50 ms:* 569 MB, against 1.6 GB on main. Not met.
+- **T5, heap under 500 MB at BAH: not met by wave 1.** The reading that counts is the peak after loading: two frames
+  after the first picture, the spec's method (the user, 2026-11-15). It is 1.7 GB, against 2.1 GB on main. It is
+  measured again once the page reads the binary store (step 2b-C). The other two readings:
+  - *After the page's own `gc()` and 50 ms:* 569 MB, against 1.6 GB on main.
   - *After the profiler's full collection, 2 s after the first picture* (one round, shared lane): 227 MB, against
-    1454 MB on main. Met. Of the 227 MB, 218 MB are the columns (about 113 B a line) and 9 MB objects.
-  - What makes up the difference is not measured. The downloaded text and the parsed rows are the likely part, held
-    until V8 collects them.
+    1454 MB on main. Of the 227 MB, 218 MB are the columns (about 113 B a line) and 9 MB objects.
+  - What makes up the difference between the readings is not measured. The downloaded text and the parsed rows are
+    the likely part, held until V8 collects them.
 - **T5, first picture within 3 s: not met.** It was 5.6-6.8 s at 2 M lines (main: 7.8-8.5 s).
   - The download and JSON.parse of a 449 MB text take about 3 s alone.
   - The grouping takes about 1.7 s.
@@ -3349,6 +3350,16 @@ How these were found: the heap profiler's sampling, by the function that allocat
   - The columns do not change the grouping's algorithm.
   - Part P5's 4-16 ms for a filter measured the filter pass alone, without the grouping.
   - The spec's later steps leave the grouping out of a filter change: the spots stored at saving, view B1.
+- **Grouping off** ("Group similar lines" cleared) on BAH-C4: every line is a spot, so every line is drawn and gets a
+  Line. One round in the shared lane, indicative.
+  - The change took 24.7 s and made 2 010 351 Lines.
+  - The heap two frames later was 4.2 GB, and 4.0 GB after a full collection, of which the columns are 225 MB.
+  - By the heap profiler, the largest parts are Leaflet's 2 M polylines (about 1.4 GB in the sampled sites of their
+    building and projection) and the Lines (717 MB).
+  - Nothing was changed for it: making no Line would leave the polylines, which draw each shown line. The spec's
+    result view draws at most 5 000 strokes (view B).
+  - On main the same probe got no answer: its renderer was gone after the change, and the probe waited until the
+    lock's timeout.
 - **The 2.29 M cut opens in 6.9 s** with 258 MB kept (main: 10.5 s, about 1.8 GB kept).
 - **The 2.5 M cut** crashed the renderer on main and now shows the text.
 - **Which numbers are indicative:** the seconds, from one exclusive pass of three rounds on this PC, desktop
