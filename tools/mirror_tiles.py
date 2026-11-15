@@ -221,8 +221,9 @@ def extracted(spec: Dict, work: str) -> str:
 
 
 def extract(name: str, work: str) -> str:
-    """The raster member of the ZIP beside it (through a .part): zipfile for stored and Deflate members (its CRC
-    checked), 7-Zip for the others (Deflate64; 7-Zip checks the CRC). Its path."""
+    """The raster member of the ZIP beside it (through a .part, removed when the unpacking fails: up to 9.85 GB):
+    zipfile for stored and Deflate members (its CRC checked), 7-Zip for the others (Deflate64; 7-Zip checks the CRC).
+    Its path."""
     spec = DATASETS[name]
     path = extracted(spec, work)
     with zipfile.ZipFile(zip_path(spec, work)) as archive:
@@ -231,13 +232,18 @@ def extract(name: str, work: str) -> str:
             print(f"{path}: already extracted ({info.file_size / 1e9:.2f} GB)")
             return path
         start, part = time.time(), path + ".part"
-        if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
-            with archive.open(info) as src, open(part, "wb") as dst:
-                shutil.copyfileobj(src, dst, 64 << 20)
-        else:
-            _seven_zip(zip_path(spec, work), spec["member"], part)
-    if os.path.getsize(part) != info.file_size:
-        raise RuntimeError(f"{part}: {os.path.getsize(part)} bytes, {info.file_size} expected")
+        try:
+            if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                with archive.open(info) as src, open(part, "wb") as dst:
+                    shutil.copyfileobj(src, dst, 64 << 20)
+            else:
+                _seven_zip(zip_path(spec, work), spec["member"], part)
+            if os.path.getsize(part) != info.file_size:
+                raise RuntimeError(f"{part}: {os.path.getsize(part)} bytes, {info.file_size} expected")
+        except BaseException:
+            if os.path.exists(part):
+                os.remove(part)
+            raise
     os.replace(part, path)
     print(f"{path}: {info.file_size / 1e9:.2f} GB in {(time.time() - start) / 60:.1f} min", flush=True)
     return path
