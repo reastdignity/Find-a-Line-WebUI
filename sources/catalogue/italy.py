@@ -132,14 +132,19 @@ VDA_CREDIT = Credit("DTM 2005/2008 2 m (Regione Autonoma Valle d'Aosta)",
 VDA_ORIGIN = (0.0, 1.0)  # x edges on even, y edges on odd metres (tools/mirror_tiles.py DATASETS["aosta"])
 # The tile's size measured over the mirror's tiles with data (tools/mirror_tiles.py cut, 2026-11-15)
 VDA_DTM = GridTiles("Valle d'Aosta DTM 2 m (terrain)", [], "EPSG:23032", "italy/aosta-dtm0508-2m/2008/epsg23032-2m-2km",
-                    2000, 2.0, 1.6e6, mirror="aosta/dtm/2m", origin=VDA_ORIGIN)
-# The region's offline boxes: the brief's box (45.46-45.99 N, 6.80-7.94 E) in bands whose west edges keep off
-# France (the westernmost Italian land in each band, as IT_BOXES' bands along the French border); north of 45.8 N
-# Switzerland's box comes first in SOURCES
-VDA_BOXES = (("it-23", (45.46, 45.55, 6.99, 7.94)), ("it-23", (45.55, 45.60, 6.97, 7.94)),
-             ("it-23", (45.60, 45.65, 6.92, 7.94)), ("it-23", (45.65, 45.70, 6.84, 7.94)),
-             ("it-23", (45.70, 45.85, 6.80, 7.94)), ("it-23", (45.85, 45.90, 6.94, 7.94)),
-             ("it-23", (45.90, 45.99, 7.00, 7.94)))
+                    2000, 2.0, 1.6e6, mirror="aosta/dtm/2m", origin=VDA_ORIGIN,
+                    tool="tools/mirror_tiles.py")
+# The region's offline boxes: bands of its outline (Nominatim's relation 45155, 2026-11-15), each from the region's
+# westernmost to its easternmost land in the band rounded outwards to 0.01 deg, 0.025 deg high along the southern edge
+# so that the Canavese (Ivrea, Valchiusella) stays out and Pont-Saint-Martin in: 100 % of the region, 0.067 deg2 of
+# its neighbours' land (France, Piedmont, Switzerland; Carema at the border is in). North of 45.8 N Switzerland's box
+# comes first in SOURCES
+VDA_BOXES = tuple(("it-23", box) for box in (
+    (45.46, 45.475, 7.04, 7.23), (45.475, 45.50, 7.00, 7.27), (45.50, 45.525, 6.99, 7.40),
+    (45.525, 45.55, 6.99, 7.44), (45.55, 45.575, 6.98, 7.79), (45.575, 45.60, 6.97, 7.91),
+    (45.60, 45.625, 6.98, 7.91), (45.625, 45.65, 6.92, 7.94), (45.65, 45.70, 6.84, 7.93),
+    (45.70, 45.75, 6.80, 7.94), (45.75, 45.80, 6.80, 7.90), (45.80, 45.85, 6.80, 7.88),
+    (45.85, 45.90, 6.94, 7.88), (45.90, 45.95, 7.00, 7.87), (45.95, 45.99, 7.47, 7.71)))
 
 
 # TINITALY 1.1 (INGV, 2023): a 10 m terrain model of all of Italy (with San Marino and the Vatican) made from a TIN of
@@ -266,8 +271,8 @@ SOURCES: List[Source] = [
         nmt=VDA_DTM, countries=("it",), regions=("it-23",), crs="EPSG:23032", default_resolution=2.0,
         grid_origin=VDA_ORIGIN, credits=(VDA_CREDIT,),
         # Gaps and the land beyond the region from TINITALY, then FABDEM / Copernicus. No neighbours: France
-        # declares six already (the country layer's cap); swisstopo five (one slot left, not taken: the user's
-        # choice, gate 1 "the neighbour cap later")
+        # declares six already (the country layer's cap); swisstopo declares five, and its one free slot is left
+        # unused pending the user's decision
         fallback="tinitaly", more_fallbacks=("europe",),
         listing=ReadmeRow("Valle d'Aosta (IT)", "Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar)",
                           "– (the DSM follows by hand later)", "– (no open orthophoto service)"),

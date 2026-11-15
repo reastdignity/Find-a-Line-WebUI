@@ -19,6 +19,9 @@ CABO_GIRAO = (32.655, -17.004)      # R80
 ARNAD = (45.648, 7.720)             # R81
 TIGNES = (45.47, 6.90)              # the Tarentaise, France: in the brief's box, not in the region's bands
 PORTO_SANTO = (33.07, -16.34)       # Madeira's region (pt-30), no 2 m data there
+PONT_SAINT_MARTIN = (45.597, 7.795)  # Valle d'Aosta's south-eastern tip
+IVREA = (45.467, 7.876)             # the Canavese, Piedmont: not Valle d'Aosta's
+VALCHIUSELLA = (45.50, 7.75)        # Piedmont
 ANSWERS = {CABO_GIRAO: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
            PORTO_SANTO: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
            ARNAD: {"country_code": "it", "ISO3166-2-lvl4": "IT-23"}}
@@ -51,6 +54,10 @@ def test_without_the_mirror(tmp_path, monkeypatch, online):
     the place: europe in Madeira (no other Portuguese source), TINITALY in Valle d'Aosta (not europe: TINITALY was
     Valle d'Aosta's source before)."""
     monkeypatch.delenv(src.MIRROR_ENV, raising=False)
+    # the tool that makes each mirror is named (Slovakia's its own)
+    for sid, tool in (("madeira", "tools/mirror_tiles.py"), ("aosta_valley", "tools/mirror_tiles.py"),
+                      ("slovakia", "tools/sk_tiles.py")):
+        assert f"(made by {tool})" in src.SOURCES[sid].nmt.unavailable(), sid
     source, why = src.choose_source("auto", *CABO_GIRAO, str(tmp_path))
     assert source.id == "europe" and why.startswith("the centre is in PT-30, but") and "FINDALINE_MIRROR" in why
     source, why = src.choose_source("auto", *ARNAD, str(tmp_path))
@@ -76,6 +83,9 @@ def test_offline_boxes(tmp_path, monkeypatch, offline):
     assert src.choose_source("auto", *CABO_GIRAO, str(tmp_path))[0].id == "madeira"
     assert src.choose_source("auto", *ARNAD, str(tmp_path))[0].id == "aosta_valley"
     assert src.choose_source("auto", *TIGNES, str(tmp_path))[0].id != "aosta_valley"
+    assert src.choose_source("auto", *PONT_SAINT_MARTIN, str(tmp_path))[0].id == "aosta_valley"
+    for point in (IVREA, VALCHIUSELLA):  # Piedmont: Italy's boxes, TINITALY
+        assert src.choose_source("auto", *point, str(tmp_path))[0].id == "tinitaly", point
     assert src.choose_source("auto", 45.93, 7.63, str(tmp_path))[0].id == "swisstopo"  # Cervinia
 
 
