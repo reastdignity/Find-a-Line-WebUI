@@ -111,15 +111,15 @@ def test_the_whole_list_by_continent_and_country(settings):
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
         assert groups == {
-            "group-europe": "Europe (46)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (13)",
+            "group-europe": "Europe (47)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (14)",
             "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
             "group-north-america": "North America (18)", "group-north-america-canada": "Canada (3)",
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
             "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
-            "group-asia": "Asia (1)"}   # no Africa: no row there yet
-        assert len(app.area_rows()) == 72
+            "group-asia": "Asia (1)", "group-africa": "Africa (1)"}   # Africa: La Réunion, France's only row there
+        assert len(app.area_rows()) == 74
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]
@@ -163,8 +163,7 @@ def test_a_continent_without_rows_has_no_group(settings):
     """Africa is in CONTINENTS before any row lies there: no group for it, until a row does, in its place."""
     assert "Africa" in ar.CONTINENTS
     settings.rows = {}
-    catalogue = ar.rows_of(settings)
-    assert not any(row.continent == "Africa" for row in catalogue)
+    catalogue = [row for row in ar.rows_of(settings) if row.continent != "Africa"]   # as before La Réunion
     app, _ = _app(settings, catalogue)
 
     async def none(pilot):

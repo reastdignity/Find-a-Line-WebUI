@@ -73,7 +73,8 @@ PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi
 # Where a region lies when that is not its country's continent: its outline in shapes.json has none (a region's has
 # none today; one that has wins). The Canary Islands, Madeira, Svalbard and Jan Mayen stay European by convention.
 REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf": "South America",
-                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America"}
+                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America",
+                     "fr-re": "Africa"}
 WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
 
 
