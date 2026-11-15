@@ -1215,8 +1215,9 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - Done 2026-11-15 (the user's gate 2): `aosta_valley` and `swisstopo` are neighbours both ways, swisstopo's sixth
     and last slot; in swisstopo's list before `tinitaly` (neighbours fill in turn and TINITALY's box holds Valle
     d'Aosta; no Switzerland cube exists, so no partner index moved). `tools/border_study.py boxes`: 100 % both ways.
-  - Tuscany: the share-alike notice's wording (the text in `TOS_MATTM_CREDIT`, for the user to confirm), the 2021
-    image-correlation DSM (EPSG:7791) as an option, and the noRT layer (the 2019-2021 lidar, for public bodies only).
+  - Tuscany: the share-alike notice's wording (`TOS_MATTM_CREDIT`) kept as it is (the user, 2026-11-15); open: the
+    2021 image-correlation DSM (EPSG:7791) as an option, and the noRT layer (the 2019-2021 lidar, for public bodies
+    only).
   - Mexico's DSM has crest spikes (1 259 px more than 30 m above the DTM at R76; 22 % of its lines marked over
     obstacles, median surface clearance -32 m). The user's decision (2026-11-15): search for a fix of the spikes
     (cleaning the DSM against the DTM, or another rule for this source); obstacles stay on until then. A new
