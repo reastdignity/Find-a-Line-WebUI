@@ -262,9 +262,9 @@ def profiles_table(lines) -> pa.Table:
                 ("min", pair(0, False), False), ("min_nmpt", pair(2, True), True), ("max_height", pair(4, False), False),
                 ("water_m", pa.array(small[:, 6], type=pa.float64()), False),
                 ("filled_m", pa.array(small[:, 7], type=pa.float64()), False)]
-    if has_zone.any():
-        columns += [("zone", pa.array(zone, type=pa.float64(), mask=~has_zone), True),
-                    ("lift", pa.array(lift, type=pa.float64(), mask=~has_zone), True)]
+    # The end zone's metres and the A-frames' lift: null where a profile has none (every profile of a run without them)
+    columns += [("zone", pa.array(zone, type=pa.float64(), mask=~has_zone), True),
+                ("lift", pa.array(lift, type=pa.float64(), mask=~has_zone), True)]
     schema = pa.schema([pa.field(name, array.type, nullable=nullable) for name, array, nullable in columns],
                        metadata=_metadata({"format": FORMAT}))
     return pa.Table.from_arrays([array for _, array, _ in columns], schema=schema)

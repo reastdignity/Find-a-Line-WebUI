@@ -25,7 +25,9 @@ What is compared (expected values in regression.json):
 Always checked, without expected values: the map data (data.js has every line, profiles
 for every line of a circle whose run.json says "profiles": "all", else for the line shown for
 each group, lines.js
-the same lines), and with "check_profiles" that profiles computed again from the cache
+the same lines), the store (lines.arrow a row per line, profiles.arrow a row per saved profile, and
+the CSV linestore.export makes from it equal to lines.csv byte for byte: its seconds are not the
+test's), and with "check_profiles" that profiles computed again from the cache
 (search.profile_of_line) equal the saved ones. A test more than twice as slow as its
 recorded time gets a warning. Tests of kind "osm" compare the theme tiles built from a
 Geofabrik extract with those from Overpass (network).

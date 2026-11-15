@@ -294,10 +294,13 @@ def test_store_schema(tmp_path):
     schema = pa.ipc.open_file(pa.OSFile(str(folder / linestore.LINES_FILE), "rb")).schema
     assert schema.names[-3:] == [*rn.END_COLUMNS, rn.STANDS_FOR] and schema.field(rn.STANDS_FOR).type == pa.uint32()
     assert schema.field("lift_needed").type == pa.int8() and schema.field("lift_no_zone").type == pa.int16()
-    names = pa.ipc.open_file(pa.OSFile(str(folder / linestore.PROFILES_FILE), "rb")).schema.names
-    assert "s" not in names and "zone" not in names and "lift" not in names
+    with pa.OSFile(str(folder / linestore.PROFILES_FILE), "rb") as f:
+        profiles = pa.ipc.open_file(f).read_all()
+    assert "s" not in profiles.schema.names  # absent without a surface model; zone and lift null where absent
+    assert profiles.column("zone").null_count == profiles.column("lift").null_count == profiles.num_rows == 20
     back, _ = linestore.read(str(folder))
     assert back.columns[rn.STANDS_FOR].dtype == np.int64 and back.profiles[0]["s"] is None
+    assert "zone" not in back.profiles[0] and back.profiles == {k: p.as_dict() for k, p in lines.profiles.items()}
 
     # No lines: one empty batch
     empty = tmp_path / "empty"
