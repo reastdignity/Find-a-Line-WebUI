@@ -205,7 +205,7 @@ PAGES = {
     "c-basic-ten": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "ten-rigs"),
     "c-basic-long": ("c", "#new", [POINT, READY, "[data-goal=long]", READY], "one-rig"),
     "c-basic-firstline": ("c", "#new", [POINT, READY, "[data-goal=first]", READY], "one-rig"),
-    "c-basic-sea": ("c", "#new", [POINT, READY, "[data-goal=sea]"], "one-rig"),
+    "c-basic-sea": ("c", "#new", [POINT, READY, "[data-goal=sea]", READY], "one-rig"),  # the limit: the map view
     "c-basic-everything": ("c", "#new", [POINT, READY, "[data-goal=everything]", READY], "one-rig"),
     "c-basic-window": ("c", "#new", [POINT, READY, ".s-rig-change0"]),
     "c-basic-window-edit": ("c", "#new", [POINT, READY, ".s-rig-change", ".s-rig-more > summary"], "three-rigs"),
