@@ -26,9 +26,22 @@ RD_NEW = "EPSG:28992"
 NL_WCS = "https://service.pdok.nl/rws/actueel-hoogtebestand-nederland/wcs/v1_0"
 NL_CREDIT = Credit("AHN4 DTM / DSM 0.5 m (PDOK, the Netherlands)",
                    "Actueel Hoogtebestand Nederland (AHN4), PDOK, CC0", *CC0)
-# The European Netherlands (the Wadden Islands to South Limburg); it reaches over Belgium's north and Germany's
-# border strip, whose sources (north_rhine_westphalia, lower_saxony) come first in SOURCES
+# The European Netherlands (the Wadden Islands to South Limburg): it chooses among the sources of country nl (whose
+# Caribbean islands have boxes of their own), so it may hold neighbours' land
 NL_BOX = (50.75, 53.56, 3.35, 7.23)
+# Its offline boxes (the country without a lookup) keep off Belgium (no source of its own: a centre there must not
+# get the Netherlands' layers with no data in them): north of 51.50 (Belgium reaches 51.505 at Baarle), Zeeland with
+# Zeeuws-Vlaanderen west of the Scheldt's Antwerp side, Noord-Brabant's south above Belgium's Kempen (Weert down to
+# 51.24), and Limburg east of the Meuse in three steps (Maaseik and Kinrooi west of 5.82 stay out; Lanaken and Maasmechelen's banks at
+# 5.64-5.73 do not). Slivers of Belgium remain (Assenede, Essen, the Baarle enclaves); Germany's border strip lies
+# in them too, where the sources of North Rhine-Westphalia and Lower Saxony, earlier in SOURCES, win: their boxes
+# (de-nw from 5.86 E, de-ni from 6.65 E) hold the eastern Netherlands too (Nijmegen, Enschede, Venlo, Heerlen), which
+# offline get them
+NL_OFFLINE = (("nl", (51.50, 53.56, 3.35, 7.23)), ("nl", (51.21, 51.50, 3.35, 4.25)),
+              ("nl", (51.42, 51.50, 4.25, 5.10)), ("nl", (51.30, 51.50, 5.10, 5.90)),
+              ("nl", (51.24, 51.30, 5.62, 5.90)), ("nl", (51.20, 51.50, 5.75, 6.25)),
+              ("nl", (51.00, 51.20, 5.82, 6.25)),
+              ("nl", (50.75, 51.00, 5.64, 6.25)))
 
 
 def _ahn4(coverage: str, description: str) -> WcsTiles:
@@ -139,7 +152,7 @@ SOURCES: List[Source] = [
         countries=("nl",), bbox=NL_BOX, crs=RD_NEW, ortho=NL_ORTHO, credits=(NL_CREDIT,),
         listing=ReadmeRow("Netherlands (European part)", "PDOK AHN4 DTM, 0.5 m (WCS)", "PDOK AHN4 DSM, 0.5 m (WCS)",
                           "PDOK aerial photo (Beeldmateriaal)"),
-        offline=(("nl", NL_BOX),), sample=(50.8258, 5.6866),  # the ENCI quarry at Maastricht (R69)
+        offline=NL_OFFLINE, sample=(50.8258, 5.6866),  # the ENCI quarry at Maastricht (R69)
         # North Rhine-Westphalia only: Lower Saxony declares six neighbours already, the most a country layer's
         # cube can name (countcube.PARTNERS); its border with the Netherlands is flat land (Groningen to Twente)
         neighbours=("north_rhine_westphalia",),
