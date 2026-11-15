@@ -3870,7 +3870,11 @@ island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill j
 
 - `ACCESS_AREA_BYTES` 8 -> **12**: the largest grid-wide pass measured, 9.5 B per pixel (the Gozo coast at 2 m), with a
   margin for a flat region over most of a grid (its heights gathered alone: 4 B per pixel of it, beside the masks and
-  labels). The strips' own temporaries (4 Mpx of rows at a time) are a constant of about 100 MB inside these figures.
+  labels). The strips' own temporaries (4 Mpx of rows at a time, with the gather's sorted keys and heights) peak
+  near 170 MB, a constant inside these figures (the third review's flat lowland at the default strips).
+- A known cost in time, not measured: `_spread_flat` reads the whole grid once per batch of flat regions, so flat
+  float ground split into many unsure regions under `GATHER_PX` costs about (their pixels / `GATHER_PX`) passes over
+  the labels and heights (about 100 on 600 Mpx of fragmented lowland), where the unbounded code made one.
   `ACCESS_WINDOW_BYTES` stays 50 (42.9 at once, 42.2 a window).
 
 - The constants (`search.py`): `ACCESS_WINDOW_BYTES` 50 per pixel of the grid at once or of a block's window (43.2

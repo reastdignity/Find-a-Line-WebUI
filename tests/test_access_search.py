@@ -516,6 +516,80 @@ def test_the_access_stage_after_the_estimate(tmp_path, offline, monkeypatch, til
     assert refused.value.code == "too_many_lines_estimate" and calls == []
 
 
+@pytest.mark.parametrize("tiled", [False, True], ids=["one-grid", "tiles"])
+def test_the_access_stage_has_its_own_step(tmp_path, offline, tiled):
+    """The bar "access to anchors" runs under its own step text, "Step 2/5: access to anchors", after the estimate's
+    (a search with limits), as one grid and as tiles, and jobs.StepClock books it to step 2 (the anchors)."""
+    import jobs
+    import settings
+    from progress import progress as bars
+    write_raster(tmp_path / "s.tif", scene(), LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "s.tif"), resolution=1, nmpt="off", water="off", fill_gaps="off",
+                  min_length=10, max_length=80, slope_threshold=60, prominence_span=10, drop_radius=10,
+                  ortho="never", name="step", access=True)
+    if tiled:
+        values.update(area=_square(tmp_path / "sq.geojson", LEFT + 20, TOP - SIZE + 20, LEFT + SIZE - 20, TOP - 20),
+                      tile_size=100)
+    else:
+        values.update(northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2, radius=135)
+    paths = search.Paths(str(tmp_path / "step"), str(tmp_path / "step" / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(SearchParams(**values), paths, lambda kind, text: None,
+                              limits=settings.Limits(lines_max=10 ** 7))  # with limits: the estimate runs first
+    plan.index_runs = False
+    states, keys, clock = [], [], jobs.StepClock()
+
+    def listener(state):
+        states.append(dict(state))
+        clock(state)
+        if state["stage"] == "access to anchors":
+            keys.append(clock.key)
+    bars.subscribe(listener)
+    try:
+        search.search_lines(plan)
+    finally:
+        bars.unsubscribe(listener)
+    access_states = [s for s in states if s["stage"] == "access to anchors"]
+    assert access_states and {s["step"] for s in access_states} == {"Step 2/5: access to anchors"}
+    assert set(keys) == {"2"}
+    first = states.index(access_states[0])
+    assert any("estimating the lines" in (s["step"] or "") for s in states[:first])  # the estimate came first
+
+
+def test_shore_faces_reach_the_measure_as_no_data(tmp_path, monkeypatch):
+    """Through the search with the water filled and a surface model: the shore faces the terrain model lacks, taken
+    from the surface model (Data.covered), reach the measure as no data for the walk (Data.filled_pixels), not only
+    the gaps (Data.filled): the search's access grid is access_grid's with them, which differs from the grid that
+    would walk on them (a shore whose lower part, a slope of 17 degrees down to the sea, only the surface model has:
+    open ground were it walked on)."""
+    import sources as src
+    rows = np.arange(SIZE)[:, None]
+    z = np.full((SIZE, SIZE), np.nan)
+    z[:, :150] = 30.25 + 0.02 * rows + np.zeros((1, 150))  # the land: a meadow to the terrain model's last data
+    surface = z.copy()
+    surface[:, 150:240] = 30.0 - 0.3 * np.arange(1, 91)[None, :] + 0.02 * rows  # the face, from the surface model
+    surface[:, 240:] = 0.0  # the sea's surface
+    write_raster(tmp_path / "nmt.tif", z.astype(np.float32), LEFT, TOP)
+    write_raster(tmp_path / "nmpt.tif", surface.astype(np.float32), LEFT, TOP)
+    water = np.zeros((SIZE, SIZE), np.uint8)
+    water[:, 160:] = src.OCEAN  # the coarse mask reaches over the shore: its zone holds the whole face
+    _water_and_fallback(tmp_path, monkeypatch, water, np.full((SIZE, SIZE), 30.0, np.float32), LEFT, TOP)
+    params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                          northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2, radius=135, resolution=1, water="fill",
+                          fill_gaps="off", coastline="copernicus", min_length=10, max_length=80, slope_threshold=60,
+                          prominence_span=10, drop_radius=10, ortho="never", name="faces", access=True)
+    paths = search.Paths(str(tmp_path / "faces"), str(tmp_path / "faces" / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    data = search.prepare_data(plan)
+    gaps = np.asarray(data.filled, bool) if data.filled is not None else np.zeros((1, 1), bool)
+    assert data.covered is not None and (np.asarray(data.covered, bool) & ~gaps).sum() > 1000  # faces, not gaps
+    got = np.array(search._access_grid(plan, data))
+    as_no_data = access.access_grid(data.elevation, data.water, 1.0, data.filled_pixels())
+    walked = access.access_grid(data.elevation, data.water, 1.0, data.filled)
+    assert np.array_equal(got, as_no_data) and (as_no_data != walked).sum() > 100
+
+
 def test_access_memory_refused_and_blocks_sized(tmp_path, offline):
     """With --access a search whose access grid cannot fit Plan.memory even in its smallest blocks is refused before
     step 1 (the coded error access_memory, its page text without option names); a search that fits keeps one block
