@@ -141,12 +141,10 @@ IT_BOXES = (("it", (45.45, 46.40, 7.06, 13.37)), ("it", (45.20, 45.45, 7.20, 13.
             ("it", (39.70, 41.90, 8.00, 18.60)), ("it", (36.60, 39.70, 11.90, 17.30)),
             ("it", (38.85, 41.32, 8.10, 9.85)), ("it", (35.45, 35.90, 12.30, 12.90)))
 
-# Italy's land along the French, Swiss, Austrian and Slovenian borders that the boxes above leave out (the Aosta
-# valley's and Piedmont's west, Ventimiglia, Val Formazza to Livigno north of 46.35 N, the Carnic Alps, the Slovenian
-# border down to Muggia), for the neighbours' border gaps only: they hold the neighbours' land too
-IT_BORDER = ((45.40, 46.00, 6.75, 7.30), (44.60, 45.45, 6.60, 7.30), (44.10, 44.70, 6.80, 7.45),
-             (43.75, 44.20, 7.40, 7.80), (46.35, 46.65, 8.35, 10.50), (46.35, 46.70, 12.25, 13.75),
-             (45.45, 46.55, 13.30, 13.95))
+# Italy's land along the Swiss and Slovenian borders that the boxes above leave out (the Aosta valley's west, Val
+# Formazza to Livigno north of 46.35 N, the Slovenian border down to Muggia), for the neighbours' border gaps only:
+# they hold the neighbours' land too
+IT_BORDER = ((45.40, 46.00, 6.75, 7.30), (46.35, 46.65, 8.35, 10.50), (45.45, 46.55, 13.30, 13.95))
 
 SOURCES: List[Source] = [
     Source(
@@ -214,8 +212,10 @@ SOURCES: List[Source] = [
         # a 10 m terrain would stand above every wall's smoothed foot; a regional source's surface gaps it fills
         # take its terrain (as RGE ALTI's for France's LiDAR HD)
         nmt=TINITALY_DEM, countries=("it", "sm", "va"), crs="EPSG:32632", credits=(TINITALY_CREDIT,),
-        # After the regional sources' own neighbours (South Tyrol's before it at Switzerland's and Austria's grids)
-        neighbours=("swisstopo", "austria", "france", "slovenia"),
+        # After the regional sources' own neighbours (South Tyrol's before it at Switzerland's grids). Not Austria
+        # nor France: each has six neighbours, the most the country layer's partner index holds (1-6); their
+        # borders with Italy keep FABDEM / Copernicus for the other side's gaps
+        neighbours=("swisstopo", "slovenia"),
         listing=ReadmeRow("Italy, San Marino, Vatican City (and the gaps of the Italian regional sources)",
                           "INGV TINITALY 1.1, 10 m (WCS)"),
         offline=IT_BOXES, border_boxes=IT_BORDER, sample=(42.4700, 13.5600),  # Corno Piccolo, Gran Sasso

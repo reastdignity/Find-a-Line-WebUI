@@ -224,9 +224,10 @@ def test_declared_neighbours():
     assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern", "czechia", "saxony",
                                                      "brandenburg")
     assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria",
-                                                    "slovenia", "tinitaly")
-    # TINITALY after the regional sources at the Italian border; their own chain ends in europe beyond Italy
-    assert src.SOURCES["tinitaly"].neighbours == ("swisstopo", "austria", "france", "slovenia")
+                                                    "slovenia")
+    # TINITALY after the regional sources at the Italian border (not Austria's nor France's: they have six, the
+    # country layer's most); the regional sources' own chain ends in europe beyond Italy
+    assert src.SOURCES["tinitaly"].neighbours == ("swisstopo", "slovenia")
     for sid in ("south_tyrol", "trento", "sardinia"):
         assert src.SOURCES[sid].fallbacks == ["tinitaly", "europe"], sid
     assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada", "british_columbia")
