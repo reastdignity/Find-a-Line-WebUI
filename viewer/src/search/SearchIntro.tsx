@@ -49,7 +49,8 @@ function names(): Record<string, string> {
     length: t("hint.length.label"), diff: label("max_anchor_diff_m"), prom: label("min_prominence"),
     span: label("prominence_span"), height: label("min_height"), share: label("min_high_share"),
     highAbove: label("high_above"), cliffs: t("intro.search.mode_cliffs"), coast: t("intro.search.coast"),
-    angle: label("max_wall_angle"), drop: label("min_drop"), preset: t("preset.first"), nmpt: label("nmpt"),
+    angle: label("max_wall_angle"), drop: label("min_drop"), preset: t("preset.first"), sea: t("preset.sea"),
+    nmpt: label("nmpt"),
     reject: t("choice.nmpt.reject"),
   };
 }

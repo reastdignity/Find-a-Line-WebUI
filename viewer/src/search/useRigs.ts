@@ -49,20 +49,26 @@ export function useRigs(): RigsState {
 
   const inUse = rigInUse(rigs, stored);
   const choose = (id: number) => { setStored(id); storeRigId(id); };
+  /** A change refused (a rig deleted on another device: "rig_missing", a name taken there): the list as the
+   *  server has it now, then the error for the caller to show. */
+  const refused = async (e: unknown): Promise<never> => {
+    await reload().catch(() => undefined);
+    throw e;
+  };
   return {
     rigs, max, loaded, error, inUse, values: inUse ? inUse.values : STARTING_RIG, choose,
     add: async (name, values) => {
-      const {id} = await api.addRig(name, values);
+      const {id} = await api.addRig(name, values).catch(refused);
       choose(id);
       const list = await reload();
       return list.find((r) => r.id === id) ?? {id, name, values};
     },
     change: async (id, change) => {
-      await api.changeRig(id, change);
+      await api.changeRig(id, change).catch(refused);
       await reload();
     },
     remove: async (id) => {
-      await api.deleteRig(id);
+      await api.deleteRig(id).catch(refused);
       const list = await reload();
       if (inUse?.id === id) {
         const first = list[0]?.id ?? null;

@@ -2246,9 +2246,12 @@ def test_schema_has_labels_topics_and_presets(client):
 
 
 
-# What every Basic request carries explicitly with the starting rig (spec-search 1.2)
+# What every Basic request carries explicitly with the starting rig (spec-search 1.2), and the goal's eleven fields
+# (those with a value) of "The best lines here" and "First highline"
 BASIC_RIG = {"model": "sag", "pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80, "fall_zone": 6,
              "end_zone": 5, "anchor_lift": 0, "same_line_square": 5}
+BEST = {"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10, "max_anchor_diff": 5, "nmpt": "mark", "high_above": 20}
+FIRST = {**BEST, "min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"}
 
 # The search panel's demo page (?ui=kit-search): no event stream; the estimates are answered here and
 # recorded (their bodies), RATE_LIMITED of them answered with 429 first, SLOW_FIRST delays the first one
@@ -2361,13 +2364,12 @@ def test_search_panel(tmp_path):
     point = r["point"]
     assert "50.15595, 19.75627" in point["centre"] and point["radius"] == "150 m", point
     assert point["calls"] == 1, point  # debounced: the click and the radius are one estimate
-    assert point["body"] == {"params": {"max_length": 300, "max_anchor_diff_m": 10, **BASIC_RIG, "lat": 50.1559508,
-                                        "lon": 19.7562722, "radius": 150}, "geometry": None}, point
+    assert point["body"] == {"params": {**BEST, **BASIC_RIG, "lat": 50.1559508, "lon": 19.7562722, "radius": 150},
+                             "geometry": None}, point
     assert "0.07 km²" in point["stats"] and "test-1" in point["stats"], point  # π × 150² for a circle
     assert r["preset"]["on"] == "First highline", r
     assert r["preset"]["receipt"].startswith("15–60 m · anchors within 3 m of height · clear of trees · Rig: sag"), r
-    assert r["again"]["body"] == {"min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject",
-                                  **BASIC_RIG, "lat": 50.1559508, "lon": 19.7562722, "radius": 150}, r
+    assert r["again"]["body"] == {**FIRST, **BASIC_RIG, "lat": 50.1559508, "lon": 19.7562722, "radius": 150}, r
     started = r["started"]
     assert started["id"] == started["job"] and "waiting" in started["card"], started
     assert started["meters"] == ["runs_gb", "jobs_day", "jobs_active"], started  # locally: no km² counted
@@ -2481,7 +2483,7 @@ def test_search_panel_modes(tmp_path):
     assert r["draw"] == {"tools": True, "buffer": "100 m"}, r
     assert r["area"]["areas"].startswith("2 separate areas (3 shapes") and r["area"]["features"] == 3, r
     assert r["area"]["buffer"] == 100, r
-    basic = {"max_length": 300, "max_anchor_diff_m": 10, **BASIC_RIG}  # Basic's "The best lines here"
+    basic = {**BEST, **BASIC_RIG}  # Basic's "The best lines here"
     assert r["osm"] == {"params": {**basic, "buffer": 100, "area": "osm:Gozo"}, "geometry": None}, r
     assert r["cliffs"]["line"] == messages.text("error.within_missing") and not r["cliffs"]["tools"], r
     within = r["within"]
@@ -2721,15 +2723,15 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["ask"] == "Delete “Light”?" and r["deleted"] == ["Heavy"], r
     assert r["receipt"] == "30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, A-frames 2 m", r
     heavy_values = {**STARTING_RIG, "end_zone": 3, "anchor_lift": 2}
-    assert r["request"] == {"max_length": 300, "max_anchor_diff_m": 10, "model": "sag", **heavy_values,
-                            "same_line_square": 5, "lat": 50.1559508, "lon": 19.7562722, "radius": 500}, r
+    assert r["request"] == {**BEST, "model": "sag", **heavy_values, "same_line_square": 5, "lat": 50.1559508,
+                            "lon": 19.7562722, "radius": 500}, r
     assert r["edit_basic"] == ["basic", "best"], r
     assert r["edit_old"][0] == "advanced", r
-    assert r["edit_old"][1] == ("Filled from Basic: The best lines here, Heavy. 3 values differ from Basic's: they have a "
-                                "dot. “reset” puts Basic's value back."), r
+    # not filled from Basic: no "Filled from Basic" (the dots still compare with Basic's values)
+    assert r["edit_old"][1] == "3 values differ from Basic's: they have a dot. “reset” puts Basic's value back.", r
     title, items, note, focused = r["dialog"]
     assert title == "Basic cannot show 3 of your settings" and focused == "Stay in Advanced", r
-    assert sorted(items) == ["A-frame height 0 m", "No-fall zone at the ends 5 m", "One line per pair of anchor squares 0 m"], r
+    assert sorted(items) == ["A-frame height 0 m", "No-fall zone at the ends 5 m", "One line per pair of anchor squares: off"], r
     assert note == ("Stay in Advanced to keep them. Or reset them to Basic's values: The best lines here; Heavy: sag, "
                     "no-fall zone 3 m, A-frames 2 m."), r
     assert r["stayed"] == ["advanced", "advanced"], r
@@ -2741,6 +2743,153 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["ten"] == ["10 rigs, the most you can keep", True,
                         "You have 10 rigs: the most you can keep. Delete one to add another.", 10], r
     assert r["rig_part"] == ["advanced", True] and r["ten_new"][-1] == ["Save as a new rig", True], r
+    assert r["csp"] == [], r
+
+
+QUEUE_FULL = {"detail": {"message": "The queue is full (50 searches). Try again later.", "code": "queue_full",
+                         "params": {"n": 50}}}
+PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+DESKTOP = {"viewport": {"width": 1280, "height": 900}}
+SHOWN_JS = "(sel) => { const e = document.querySelector(sel); return e ? [e.textContent.trim(), e.getClientRects().length > 0] : null; }"
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_basic_form_paths(tmp_path):
+    """More of the Basic form in Playwright's Edge (each wait an event with a deadline): a refused start shows its
+    error on a desktop and in the folded compact bar of a phone; a text selection let go over the backdrop leaves
+    the rig's window open; /api/rigs failing still opens Basic with the starting rig and says so; Advanced's goal
+    cards (their fields, Basic's goal, back to Basic silently, Custom); "Sea cliffs" moves Where to the coast and
+    another goal brings the area and its band back, a mode chosen by hand stays; "Save as my rig" and "Save as a new
+    rig" from Advanced; the place box keeps its text across a tab switch; the tabs' keys."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    jobs = Jobs(str(tmp_path))
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            # A refused start (409, a quota): its error shows, also in the folded compact bar of a phone
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = _basic_page(tmp_path, port, browser, **context)
+                page.route("**/api/jobs", lambda route: route.fulfill(status=409, content_type="application/json",
+                                                                      body=json.dumps(QUEUE_FULL))
+                           if route.request.method == "POST" else route.continue_())
+                page.evaluate(POINT_JS)
+                _ready(page)
+                page.click(".s-start")
+                page.wait_for_selector(".s-bar-error", timeout=WAIT)
+                r[f"refused_{kind}"] = page.evaluate(SHOWN_JS, ".s-bar-error")
+                page.close()
+            # A selection of the name's text let go over the backdrop: the window stays, with its draft
+            page = _basic_page(tmp_path, port, browser, **DESKTOP)
+            page.click(".s-rig-change0")
+            page.wait_for_selector("dialog[open] .s-rig-form", timeout=WAIT)
+            name = page.locator("dialog[open] input[type=text]")
+            name.fill("A draft name")
+            box, dialog = name.bounding_box(), page.locator("dialog[open]").bounding_box()
+            y = box["y"] + box["height"] / 2
+            page.mouse.move(box["x"] + box["width"] - 4, y)
+            page.mouse.down()
+            page.mouse.move(dialog["x"] - 30, y, steps=6)
+            page.mouse.up()  # its click (on the dialog) is handled before the next call reads the page
+            r["selected"] = [page.locator("dialog[open]").count(), name.input_value()]
+            page.keyboard.press("Escape")
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            # The place box keeps its text across a tab switch; the tabs' keys (←/→ move the focus, Enter chooses)
+            place = page.locator(".s-placebox input")
+            place.fill("Gozo")
+            page.focus(".s-tabs [data-tab=basic]")
+            page.keyboard.press("ArrowRight")
+            r["arrow"] = page.evaluate("() => [document.activeElement.dataset.tab, window.FINDALINE_SEARCH.tab, "
+                                       "document.activeElement.getAttribute('aria-controls') === "
+                                       "document.querySelector('[role=tabpanel]').id]")
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'advanced'", timeout=WAIT)
+            r["place"] = page.locator(".s-placebox input").input_value()
+            r["tabindex"] = page.evaluate("() => [...document.querySelectorAll('[role=tab]')].map((t) => t.tabIndex)")
+            # Advanced's goal cards: their fields, Basic's goal; back to Basic silently; Custom keeps the values
+            page.click(".s-pane .s-card[data-goal=long]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.goal === 'long'", timeout=WAIT)
+            r["long"] = page.evaluate("""() => [document.querySelector('.s-pane .s-card.u-on b').textContent,
+                document.querySelector('[data-field=min_length] .u-field-lab b').textContent.trim(),
+                window.FINDALINE_SEARCH.values.min_height, window.FINDALINE_SEARCH.values.min_high_share]""")
+            page.click(".s-pane .s-card[data-goal=custom]")
+            page.wait_for_function("() => document.querySelector('.s-pane .s-card.u-on')?.dataset.goal === 'custom'",
+                                   timeout=WAIT)
+            r["custom"] = page.evaluate("() => window.FINDALINE_SEARCH.values.min_length")
+            page.click(".s-tabs [data-tab=basic]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'basic'", timeout=WAIT)
+            r["back"] = page.evaluate("() => [document.querySelector('.s-card.u-on').dataset.goal, "
+                                      "document.querySelectorAll('dialog[open]').length]")
+            # "Sea cliffs": the area and its band come back with another goal; a mode chosen by hand stays
+            page.click(".s-where [role=radio]:has-text('Area')")
+            band = page.locator(".s-where input[type=range]")
+            band.evaluate("(e) => { e.value = '250'; e.dispatchEvent(new Event('input', {bubbles: true})); }")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.buffer === 250", timeout=WAIT)
+            page.click(".s-card[data-goal=sea]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'cliffs'", timeout=WAIT)
+            r["sea"] = page.evaluate("""() => [window.FINDALINE_SEARCH.coastKind, window.FINDALINE_SEARCH.buffer,
+                document.querySelector('.s-sea-hint').textContent]""")
+            page.click(".s-card[data-goal=best]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'area'", timeout=WAIT)
+            r["seaBack"] = page.evaluate("() => [window.FINDALINE_SEARCH.buffer, window.FINDALINE_SEARCH.seaBefore]")
+            page.click(".s-card[data-goal=sea]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'cliffs'", timeout=WAIT)
+            page.click(".s-where [role=radio]:has-text('Point')")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'point'", timeout=WAIT)
+            r["byHand"] = page.text_content(".s-sea-hint")
+            page.click(".s-card[data-goal=best]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.goal === 'best'", timeout=WAIT)
+            r["stays"] = page.evaluate("() => window.FINDALINE_SEARCH.mode")
+            # "Save as my rig" from Advanced (no rig yet): the window filled with Advanced's rigging, then a new one
+            page.click(".s-tabs [data-tab=advanced]")
+            page.click(".s-more-head")
+            page.click(".s-topic[data-topic=rigging] > summary")
+            field = page.locator(".s-setting[data-field=pretension] input")
+            field.fill("3")
+            field.dispatch_event("change")
+            page.click(BUTTON % "Save as my rig")
+            page.wait_for_selector("dialog[open] .s-rig-form", timeout=WAIT)
+            r["mine"] = [page.text_content("dialog[open] h2"),
+                         page.locator("dialog[open] [data-rig-field=pretension]").input_value(),
+                         page.locator("dialog[open] input[type=text]").input_value()]
+            page.click("dialog[open] button[type=submit]")
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement?.textContent === 'Save as a new rig'", timeout=WAIT)
+            r["saved"] = [(x["name"], x["values"]["pretension"]) for x in jobs.rigs(None)]
+            page.click(BUTTON % "Save as a new rig")
+            page.wait_for_selector("dialog[open] .s-rig-form", timeout=WAIT)
+            r["new"] = [page.text_content("dialog[open] h2"), page.locator("dialog[open] input[type=text]").input_value()]
+            page.click("dialog[open] button[type=submit]")
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            r["two"] = [x["name"] for x in jobs.rigs(None)]
+            page.close()
+            # /api/rigs failing: Basic opens with the starting rig and says the rigs could not be loaded
+            page = browser.new_page(**DESKTOP)
+            page.route("**/api/rigs", lambda route: route.fulfill(status=500, content_type="application/json",
+                                                                  body=json.dumps({"detail": "the database is locked"})))
+            page.goto(f"http://127.0.0.1:{port}/runs/basictest/index.html?ui=c#new")
+            page.wait_for_selector(".s-panel .s-rig-error", timeout=WAIT)
+            r["failed"] = page.evaluate("() => [!!document.querySelector('.s-rig-box'), "
+                                        "document.querySelector('.s-rig-error').textContent, window.FINDALINE_SEARCH.tab]")
+            r["csp"] = page.evaluate("() => window.CSP_VIOLATIONS")
+            page.close()
+        finally:
+            browser.close()
+    words = "The queue is full (50 searches). Try again later."
+    assert r["refused_desktop"] == [words, True] and r["refused_phone"] == [words, True], r
+    assert r["selected"] == [1, "A draft name"], r
+    assert r["arrow"] == ["advanced", "basic", True] and r["place"] == "Gozo" and r["tabindex"] == [-1, 0], r
+    assert r["long"] == ["Long and exposed", "100 – 600 m", 30, 50] and r["custom"] == 100, r
+    assert r["back"] == ["long", 0], r  # the values fit "Long and exposed" and the rig: back silently
+    assert r["sea"] == ["coast", 100, "Sea cliffs searches along the coast. Say where, under Where. Another goal "
+                                      "brings your place back."], r
+    assert r["seaBack"] == [250, None], r
+    assert r["byHand"] == "Sea cliffs is made for the coast: under Where choose Along cliffs, then Coast." and \
+        r["stays"] == "point", r
+    assert r["mine"] == ["My rig", "3", "My rig"] and r["saved"] == [("My rig", 3.0)], r
+    assert r["new"] == ["A new rig", "Rig 2"] and r["two"] == ["My rig", "Rig 2"], r
+    assert r["failed"] == [True, "Your saved rigs could not be loaded: the database is locked", "basic"], r
     assert r["csp"] == [], r
 
 

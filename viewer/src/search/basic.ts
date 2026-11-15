@@ -6,7 +6,7 @@
 
 import type { Field, Preset } from "../app/api";
 import { PLACE_FIELDS } from "../app/request";
-import { label, t } from "../i18n";
+import { label, quantity, t } from "../i18n";
 
 /** The fields a goal sets (params.GOAL_FIELDS): values "fit a goal" when all of them equal it. */
 export const GOAL_FIELDS = ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
@@ -62,11 +62,27 @@ export function changedOf(values: Values, defaults: Values): Values {
   return Object.fromEntries(Object.entries(values).filter(([k, v]) => k in defaults && !same(v, defaults[k])));
 }
 
-/** The parameters of a Basic request without the place: the goal's values that differ from the defaults, and the
- *  model, the rig's seven values and the square rule explicitly. */
+/** The parameters of a Basic request without the place, every one explicit, so a stored request keeps its meaning
+ *  when a default moves: the goal's eleven fields (its value or the default; one without a value, a None default,
+ *  stays out, as a field the site does not allow, which `defaults`, the schema's fields, leave out), the model, the
+ *  rig's seven values and the square rule. */
 export function basicRequestValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
   const all = basicValues(goal, rig, defaults);
-  return {...changedOf(all, defaults), ...Object.fromEntries(EXPLICIT.map((k) => [k, all[k]]))};
+  const goalFields = GOAL_FIELDS.filter((k) => k in defaults && all[k] != null);
+  return {...changedOf(all, defaults), ...Object.fromEntries([...goalFields, ...EXPLICIT].map((k) => [k, all[k]]))};
+}
+
+/** Why a site cannot take Basic's request (its limits leave out a field Basic must send, or the sag model), in the
+ *  words of the server's refusal, or "": the model, the rig's seven values and the square rule are sent always. */
+export function basicProblem(byName: Record<string, Field>): string {
+  for (const k of EXPLICIT) {
+    const field = byName[k];
+    if (!field) return t("error.not_allowed", {label: label(k)});
+    if (k === "model" && field.choices && !field.choices.includes("sag")) {
+      return t("error.not_allowed_value", {label: label(k), value: t("choice.model.sag")});
+    }
+  }
+  return "";
 }
 
 /** The goal whose eleven values these are (every field resolved), or null. */
@@ -186,8 +202,28 @@ export function nextRigName(rigs: Rig[]): string {
 }
 
 /** What is wrong with a rig's values, in the words of the search's own errors (params._check_rigging's order and
- *  bounds), or "". */
-export function rigProblem(rig: Record<string, number>): string {
+ *  bounds, then the site's bounds of the schema's fields `byName`, as web.rig_within refuses them), or "". */
+export function rigProblem(rig: Record<string, number>, byName?: Record<string, Field>): string {
+  const own = rigBounds(rig);
+  if (own) return own;
+  for (const k of RIG_FIELDS) {
+    const f = byName?.[k];
+    if (f?.max != null && rig[k] > f.max) return t("error.at_most", {label: label(k), max: quantity(k, f.max)});
+    if (f?.min != null && rig[k] < f.min) return t("error.at_least", {label: label(k), min: quantity(k, f.min)});
+  }
+  return "";
+}
+
+/** The highest value a rig's field may take: the site's (the schema's) or SearchParams' (end_zone 20 m,
+ *  anchor_lift 3 m); undefined for the others (no upper bound). */
+export function rigMax(k: RigField, byName?: Record<string, Field>): number | undefined {
+  const own = k === "end_zone" ? 20 : k === "anchor_lift" ? 3 : undefined;
+  const site = byName?.[k]?.max ?? undefined;
+  return own === undefined ? site : site === undefined ? own : Math.min(own, site);
+}
+
+/** params._check_rigging: SearchParams' bounds of the rig's values. */
+function rigBounds(rig: Record<string, number>): string {
   for (const k of RIG_FIELDS) {
     if (typeof rig[k] !== "number" || !Number.isFinite(rig[k])) return t("error.not_a_number", {label: label(k)});
   }
@@ -207,6 +243,7 @@ export function rigProblem(rig: Record<string, number>): string {
 export function valueText(field: Field, value: unknown): string {
   const name = field.label.replace(/, at (least|most)$/, "");
   if (field.type === "boolean") return `${field.label}: ${t(value ? "basic.value_yes" : "basic.value_no")}`;
+  if (field.name === "same_line_square" && value === 0) return `${name}: ${t("basic.value_off")}`;  // 0: the rule off
   if (value == null || value === "") return `${name}: ${t("basic.value_default")}`;
   if (field.type === "choice") {
     return `${field.label}: ${(field.choice_labels?.[String(value)] ?? String(value)).replace(/ \(.*\)$/, "")}`;
@@ -291,14 +328,16 @@ export type WhereMode = "point" | "area" | "cliffs" | "file";
 export type CoastKind = "cliffs" | "coast";
 /** Where's mode, the kind of Along cliffs, the band width and what "Sea cliffs" replaced (null: nothing). */
 export interface WhereState { mode: WhereMode; coastKind: CoastKind; buffer: number;
-                              before: {mode: WhereMode; coastKind: CoastKind} | null }
+                              before: {mode: WhereMode; coastKind: CoastKind; buffer: number} | null }
 
-/** "Sea cliffs" switches Where to Along cliffs → Coast with a band of 100 m and remembers the mode before;
- *  another goal puts that mode back (a mode chosen by hand meanwhile forgets it: the caller clears `before`). */
+/** "Sea cliffs" switches Where to Along cliffs → Coast with a band of 100 m and remembers the mode, the kind and
+ *  the band before; another goal puts them back (a mode chosen by hand meanwhile forgets them: the caller clears
+ *  `before`). */
 export function whereForGoal(goal: string, w: WhereState): WhereState {
   if (goal === "sea") {
-    const before = w.before ?? (w.mode === "cliffs" && w.coastKind === "coast" ? null : {mode: w.mode, coastKind: w.coastKind});
+    const before = w.before ?? (w.mode === "cliffs" && w.coastKind === "coast" ? null
+      : {mode: w.mode, coastKind: w.coastKind, buffer: w.buffer});
     return {mode: "cliffs", coastKind: "coast", buffer: 100, before};
   }
-  return w.before ? {...w, mode: w.before.mode, coastKind: w.before.coastKind, before: null} : w;
+  return w.before ? {mode: w.before.mode, coastKind: w.before.coastKind, buffer: w.before.buffer, before: null} : w;
 }

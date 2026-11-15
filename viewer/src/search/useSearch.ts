@@ -14,8 +14,8 @@ import type { Mode, PlaceMap } from "../app/PlaceMap";
 import { buildRequest, fromRequest, valueProblem, withValue, type AreaFile, type Place } from "../app/request";
 import { t } from "../i18n";
 import {
-  basicGoalOf, basicRequestValues, basicValues, BASIC_RADIUS, changedOf, defaultsOf, GOAL_FIELDS, matchGoal, notInBasic,
-  openingTab, same, whereForGoal, type CoastKind, type Tab, type Values, type WhereMode, type WhereState,
+  basicGoalOf, basicProblem, basicRequestValues, basicValues, BASIC_RADIUS, changedOf, defaultsOf, GOAL_FIELDS, matchGoal,
+  notInBasic, openingTab, same, whereForGoal, type CoastKind, type Tab, type Values, type WhereMode, type WhereState,
 } from "./basic";
 import type { RigsState } from "./useRigs";
 
@@ -186,6 +186,7 @@ export interface SearchState {
   schema: Schema;
   byName: Record<string, Field>;
   tab: Tab;
+  filled: boolean;                     // Advanced's values came from Basic ("Filled from Basic"), not from a request
   /** To Advanced, filled with Basic's values when it comes from Basic; `field`: open and focus it ("more": More
    *  settings, "name": the search's name). */
   toAdvanced(field?: string): void;
@@ -260,6 +261,7 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
             ...openingTab(initial ? found.values : null, presets, rigs.values, defaults)};
   }, []);
   const [tab, setTab] = useState<Tab>(start0.tab);
+  const [filled, setFilled] = useState(false);  // Advanced's values came from Basic (not a request opened there)
   const [goal, setGoal] = useState(start0.goal);
   const [focus, setFocus] = useState<{field: string; n: number} | null>(null);
   const [where, setWhere] = useState<WhereState>({
@@ -348,7 +350,7 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
   };
 
   const toAdvanced = (field?: string) => {
-    if (tab === "basic") { setAdvValues(basicChanged); setCustom(false); }
+    if (tab === "basic") { setAdvValues(basicChanged); setCustom(false); setFilled(true); }
     setTab("advanced");
     if (field) setFocus((f) => ({field, n: (f?.n ?? 0) + 1}));
   };
@@ -374,7 +376,10 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
     const placed: Place = {mode: mapMode(mode, areaKind), point, radius, buffer,
                            preset: mode === "area" ? "osm" : coastKind, osmName,
                            within: mode === "cliffs" ? within : "", name};
-    // Basic sends the model, the rig's seven values and the square rule also at their defaults
+    // Basic sends the goal's fields, the model, the rig's seven values and the square rule also at their defaults;
+    // a site whose limits leave one of the last out cannot take it
+    const blocked = tab === "basic" ? basicProblem(byName) : "";
+    if (blocked) return blocked;
     const sent = tab === "basic" ? basicRequestValues(goalOf(goal), rigs.values, defaults) : values;
     const built = buildRequest(placed, sent, drawnAreas, file);
     if (typeof built === "string") return built;
@@ -384,7 +389,7 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
     }
     return built;
   }, [mode, areaKind, coastKind, point, radius, buffer, osmName, within, name, values, drawnAreas, file, problems,
-      tab, goal, rigs.values, defaults]);
+      tab, goal, rigs.values, defaults, byName]);
 
   const estimate = useEstimate(request, place);
   const canStart = typeof request !== "string" && estimate.status !== "refused" && !busy;
@@ -430,8 +435,8 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
   };
 
   return {
-    place, schema, byName, tab, toAdvanced, toBasic, resetToBasic, focus, goal, goalOf, chooseGoal, rigs, defaults, base,
-    resolved,
+    place, schema, byName, tab, filled, toAdvanced, toBasic, resetToBasic, focus, goal, goalOf, chooseGoal, rigs, defaults,
+    base, resolved,
     differs: (key) => key in base && !same(resolved[key], base[key]),  // basic.differing, per field
     mode, setMode, seaBefore: where.before, areaKind, setAreaKind, coastKind, setCoastKind, point, radius, setRadius,
     buffer, setBuffer, osmName, setOsmName, within, setWithin, name, setName, file, fileKey, readFile, shapes, areas,

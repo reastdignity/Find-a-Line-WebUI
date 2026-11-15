@@ -184,26 +184,35 @@ def _form_schema():
 
 
 def test_basic_requests_of_every_goal_and_rig(tmp_path):
-    """Each goal × the starting rig and a saved rig gives the request of spec-search 1.2 exactly: the goal's values
-    that differ from the defaults, and model "sag", the rig's seven values and same_line_square 5 explicitly; all
-    eleven goal fields resolve to the goal's values, every other field to its default, and the request validates
-    as SearchParams. 'Sea cliffs' sends no wall angle."""
+    """Each goal × the starting rig and a saved rig gives the request of spec-search 1.2 exactly, every value
+    explicit (a stored request keeps its meaning when a default moves): the goal's eleven fields (its value or the
+    default; a field without a value, a None default, stays out), model "sag", the rig's seven values and
+    same_line_square 5; they resolve to the goal's values, every other field to its default, and the request
+    validates as SearchParams. 'Sea cliffs' sends no wall angle. A goal field the site does not allow (left out of
+    the schema) stays out; a field Basic must send that the site does not allow is Basic's problem (basicProblem),
+    in the server's words."""
     presets, fields, defaults, pm = _form_schema()
+    by_name = {f["name"]: f for f in fields}
+    no_high = {k: v for k, v in defaults.items() if k != "high_above"}
+    no_lift = {k: v for k, v in by_name.items() if k != "anchor_lift"}
+    formula_only = {**by_name, "model": {**by_name["model"], "choices": ["formula"]}}
     found = run_ts(tmp_path, "search/basic", f"""
 const presets = {json.dumps(presets)}, defaults = {json.dumps(defaults)};
 const out = {{}};
 for (const p of presets.filter((p) => p.values)) for (const [name, rig] of [["starting", m.STARTING_RIG], ["saved", {json.dumps(SAVED_RIG)}]])
   out[p.id + "/" + name] = m.basicRequestValues(p, rig, defaults);
 out.fields = m.GOAL_FIELDS; out.rig = m.RIG_FIELDS; out.starting = m.STARTING_RIG;
+out.noHigh = m.basicRequestValues(presets[0], m.STARTING_RIG, {json.dumps(no_high)});
+out.problems = [m.basicProblem({json.dumps(by_name)}), m.basicProblem({json.dumps(no_lift)}), m.basicProblem({json.dumps(formula_only)})];
 console.log(JSON.stringify(out));""")
     assert found["fields"] == list(pm.GOAL_FIELDS) and found["rig"] == list(pm.RIG_FIELDS)
     assert found["starting"] == STARTING_RIG
     goals = {g: v for g, v in pm.PRESETS.items() if v is not None}
-    assert len([k for k in found if "/" in k]) == 2 * len(goals) == 10
-    for goal, values in goals.items():
+    assert len([k for k in found if "/" in k and "noHigh" not in k]) == 2 * len(goals) == 10
+    for goal in goals:
         for name, rig in (("starting", STARTING_RIG), ("saved", SAVED_RIG)):
             request = found[f"{goal}/{name}"]
-            expected = {**{k: v for k, v in values.items() if v != defaults[k]}, "model": "sag", **rig,
+            expected = {**{k: v for k, v in pm.preset_values(goal).items() if v is not None}, "model": "sag", **rig,
                         "same_line_square": 5}
             assert request == expected, (goal, name)
             p = pm.SearchParams(lat=50.1, lon=19.7, **request)
@@ -212,7 +221,12 @@ console.log(JSON.stringify(out));""")
             assert all(getattr(p, k) == defaults[k] for k in others), (goal, name)
     assert "max_wall_angle" not in found["sea/starting"] and found["sea/saved"]["min_drop"] == 30
     assert found["first/starting"]["nmpt"] == "reject" and set(found["everything/starting"]) == {
+        "min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
         "model", "same_line_square", *pm.RIG_FIELDS}
+    assert found["best/starting"]["min_length"] == 30 and found["best/starting"]["nmpt"] == "mark"
+    assert "high_above" not in found["noHigh"] and found["noHigh"]["max_anchor_diff"] == 5
+    assert found["problems"] == ["", "A-frame height cannot be changed on this site.",
+                                 'Clearance model: "Sag estimate" cannot be used on this site.']
 
 
 def test_basic_match_goal_and_what_basic_cannot_show(tmp_path):
@@ -237,6 +251,7 @@ out.notInRig = m.notInBasic(resolved(basic("best", saved)), goal("best"), m.STAR
 // "Edit & run again": a Basic job's request (its values changed from the defaults, as fromRequest keeps them)
 out.newSearch = m.openingTab(null, presets, saved, defaults);
 out.basicJob = m.openingTab(changed("first", saved), presets, saved, defaults);
+out.explicitJob = m.openingTab(basic("first", saved), presets, saved, defaults);  // stored with its defaults too
 out.basicJobStarting = m.openingTab(changed("everything", m.STARTING_RIG), presets, m.STARTING_RIG, defaults);
 out.oldJob = m.openingTab({{max_length: 300, max_anchor_diff_m: 10, model: "sag", end_zone: 5}}, presets, m.STARTING_RIG, defaults);
 out.oldGoalless = m.openingTab({{max_length: 150, max_anchor_diff_m: 10}}, presets, m.STARTING_RIG, defaults);
@@ -258,7 +273,7 @@ console.log(JSON.stringify(out));""")
     assert sorted(found["notIn"]) == ["min_drop", "pretension", "source"]
     assert sorted(found["notInRig"]) == sorted(k for k in pm.RIG_FIELDS if SAVED_RIG[k] != STARTING_RIG[k])
     assert found["newSearch"] == {"tab": "basic", "goal": "best"}
-    assert found["basicJob"] == {"tab": "basic", "goal": "first"}
+    assert found["basicJob"] == found["explicitJob"] == {"tab": "basic", "goal": "first"}
     assert found["basicJobStarting"] == {"tab": "basic", "goal": "everything"}
     assert found["oldJob"] == {"tab": "advanced", "goal": "best"}  # the goal's values, but no square rule
     assert found["oldGoalless"] == {"tab": "advanced", "goal": "best"}  # no goal fits: the first
@@ -274,10 +289,12 @@ def test_basic_receipt_size_word_and_rigs(tmp_path):
     rig changed for one search, "+ N more settings" (the square rule at 5 covered), the name; the phone's short
     line; the size word of every state; the rig's words, names, checks; the rig in use kept per browser; where "Sea
     cliffs" moves Where and back."""
+    from settings import Limits
     presets, fields, defaults, pm = _form_schema()
+    public = {f["name"]: f for f in web.schema(Limits.load(public=True))}  # end_zone at most 5 m, anchor_lift 2 m
     found = run_ts(tmp_path, "search/basic", f"""
 const presets = {json.dumps(presets)}, defaults = {json.dumps(defaults)}, saved = {json.dumps(SAVED_RIG)};
-const byName = Object.fromEntries({json.dumps(fields)}.map((f) => [f.name, f]));
+const byName = Object.fromEntries({json.dumps(fields)}.map((f) => [f.name, f])), pub = {json.dumps(public)};
 const goal = (id) => presets.find((p) => p.id === id);
 const all = (id, rig, extra = {{}}) => ({{...m.basicValues(goal(id), rig, defaults), ...extra}});
 const mine = {{id: 7, name: "My rig", values: saved}};
@@ -302,7 +319,13 @@ out.names = [m.nextRigName([]), m.nextRigName(rigs), m.nextRigName(rigs.slice(0,
 out.problems = [m.rigProblem(saved), m.rigProblem({{...saved, end_zone: 21}}), m.rigProblem({{...saved, anchor_lift: -1}}),
                 m.rigProblem({{...saved, pretension: 0}}), m.rigProblem({{...saved, athlete_mass: -5}}), m.rigProblem({{...saved, fall_zone: NaN}})];
 out.words = [m.valueText(byName.pretension, 4), m.valueText(byName.min_drop, 50), m.valueText(byName.nmpt, "off"),
-             m.valueText(byName.min_height, null), m.valueText(byName.no_html, true), m.valueText(byName.max_wall_angle, 30)];
+             m.valueText(byName.min_height, null), m.valueText(byName.no_html, true), m.valueText(byName.max_wall_angle, 30),
+             m.valueText(byName.same_line_square, 0), m.valueText(byName.same_line_square, 7)];
+// the site's bounds of a rig (the public site: 5 m and 2 m) in the search's words; without them SearchParams'
+out.site = [m.rigProblem({{...saved, end_zone: 10}}, pub), m.rigProblem({{...saved, anchor_lift: 2.5}}, pub),
+            m.rigProblem({{...saved, end_zone: 10, anchor_lift: 3}}, byName), m.rigProblem({{...saved, end_zone: 21}}, pub),
+            m.rigMax("end_zone", pub), m.rigMax("anchor_lift", pub), m.rigMax("end_zone", byName), m.rigMax("anchor_lift"),
+            m.rigMax("pretension", pub) ?? null];
 const store = new Map();
 globalThis.localStorage = {{getItem: (k) => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)),
                             removeItem: (k) => store.delete(k)}};
@@ -314,8 +337,10 @@ m.storeRigId(3); kept.push(m.storedRigId());
 out.kept = kept;
 const w = (mode, coastKind = "cliffs", before = null) => ({{mode, coastKind, buffer: 40, before}});
 const sea = m.whereForGoal("sea", w("point"));
+const area = {{mode: "area", coastKind: "cliffs", buffer: 250, before: null}};
 out.where = [sea, m.whereForGoal("best", sea), m.whereForGoal("long", m.whereForGoal("sea", sea)), m.whereForGoal("sea", w("cliffs", "coast")),
-             m.whereForGoal("best", {{...sea, mode: "area", before: null}}), m.whereForGoal("best", w("file"))];
+             m.whereForGoal("best", {{...sea, mode: "area", before: null}}), m.whereForGoal("best", w("file")),
+             m.whereForGoal("best", m.whereForGoal("sea", area))];
 console.log(JSON.stringify(out));""")
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone"]
@@ -346,15 +371,22 @@ console.log(JSON.stringify(out));""")
                                  "Leash fall space: enter a number."]
     assert found["words"] == ["Pretension 4 kN", "Drop below both anchors 50 m", "Trees and buildings: Do not check",
                               "Highest point above the ground: default", "Skip the interactive map: yes",
-                              "Angle to the wall 30°"]
+                              "Angle to the wall 30°", "One line per pair of anchor squares: off",
+                              "One line per pair of anchor squares 7 m"]
+    assert found["site"] == ["No-fall zone at the ends: at most 5 m on this site.",
+                             "A-frame height: at most 2 m on this site.", "", "No-fall zone at the ends is 0 to 20 m.",
+                             5, 2, 20, 3, None]
     assert found["kept"] == [None, 5, 5, 1, None, None, 0, None]
-    sea = {"mode": "cliffs", "coastKind": "coast", "buffer": 100, "before": {"mode": "point", "coastKind": "cliffs"}}
+    sea = {"mode": "cliffs", "coastKind": "coast", "buffer": 100,
+           "before": {"mode": "point", "coastKind": "cliffs", "buffer": 40}}
     assert found["where"][0] == sea
-    assert found["where"][1] == {"mode": "point", "coastKind": "cliffs", "buffer": 100, "before": None}
-    assert found["where"][2] == {"mode": "point", "coastKind": "cliffs", "buffer": 100, "before": None}
+    # another goal brings the mode, the kind and the band back
+    assert found["where"][1] == {"mode": "point", "coastKind": "cliffs", "buffer": 40, "before": None}
+    assert found["where"][2] == {"mode": "point", "coastKind": "cliffs", "buffer": 40, "before": None}
     assert found["where"][3] == {"mode": "cliffs", "coastKind": "coast", "buffer": 100, "before": None}
     assert found["where"][4]["mode"] == "area"  # a mode chosen by hand: nothing to bring back
     assert found["where"][5] == {"mode": "file", "coastKind": "cliffs", "buffer": 40, "before": None}
+    assert found["where"][6] == {"mode": "area", "coastKind": "cliffs", "buffer": 250, "before": None}
 
 
 def test_favourites_export(tmp_path):

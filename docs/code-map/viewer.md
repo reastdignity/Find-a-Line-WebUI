@@ -69,8 +69,11 @@ rig in use, Advanced's values, Where's modes, the live estimate; `SearchPanel.ts
 cards, a dot and "reset" for a value that differs from Basic's, "Save into" / "Save as a new rig" in Clearance
 model) and `EstimateBar`, the bar of both tabs (the size word, the receipt, Start; a phone's compact bar);
 `BasicPane.tsx` the Basic tab, the rig's window and the dialog of going back to Basic; `basic.ts` the form's rules
-as pure functions (spec-search 1.2: `basicRequestValues`, `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`,
-`sizeOf`, the rig's words and checks, `findaline.rig` the rig in use per browser), tested in Node; `useRigs.ts` the
+as pure functions (spec-search 1.2: `basicRequestValues` (every value explicit), `basicProblem` (a site that leaves
+out a field Basic must send), `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`, `sizeOf`, the rig's words and
+checks with the site's bounds (`rigProblem`, `rigMax`), `whereForGoal`, `findaline.rig` the rig in use per browser),
+tested in Node; Where is one element kept between the tabs' own parts (`BasicTop`/`BasicBottom`, `AdvancedTop`/
+`AdvancedBottom`) in one tab panel (the WAI-ARIA tabs, manual activation); `useRigs.ts` the
 saved rigs, `/api/rigs`; `PlaceBox.tsx` the place-name box; `SearchIntro.tsx` "How a search works" with the user's
 limits from `/api/usage`; demo `?ui=kit-search`), `app/useJobs.ts`, `app/request.ts` (the search's request), `app/areas.ts` and `app/files.ts` (areas
 of drawn shapes, area files) shared by the shells, `app/BetaNotice.tsx` (the notice after a sign-in: the cookie

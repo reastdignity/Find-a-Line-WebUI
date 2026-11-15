@@ -88,6 +88,7 @@ ADVANCED = ".s-tabs [data-tab=advanced]"  # the search form's tab Advanced (a ne
 MORE = [ADVANCED, ".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 # The Basic search form (spec-search 1.6): the centre set at the clip's place, so the bar shows the receipt
 POINT = "js:window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
+READY = "wait:document.querySelector('.s-bar')?.dataset.estimate === 'ready'"  # the source and grid in the bar
 FORM_END = "scroll:.c-form"  # the rig's row at the end of Basic (phones)
 RETURN = ["js:(window.FINDALINE_SEARCH.setValue('pretension', 4), window.FINDALINE_SEARCH.setValue('min_drop', 50))",
           ".s-tabs [data-tab=basic]"]  # two values Basic cannot show, then back to Basic: its dialog
@@ -197,24 +198,24 @@ PAGES = {
     # The Basic search form (spec-search 1.6): the first visit (no rig saved: the starting rig), a saved rig, three
     # rigs, the rig chooser, ten rigs, each goal, the rig's window (the first, a change), Advanced, the dialog of going
     # back to Basic, the size word's "?", the phones' compact bar unfolded
-    "c-basic-first": ("c", "#new", [POINT]),
-    "c-basic-rig": ("c", "#new", [POINT], "one-rig"),
-    "c-basic-rigs": ("c", "#new", [POINT, FORM_END], "three-rigs"),
-    "c-basic-chooser": ("c", "#new", [POINT, ".s-rig-pick", FORM_END], "three-rigs"),
-    "c-basic-ten": ("c", "#new", [POINT, ".s-rig-pick", FORM_END], "ten-rigs"),
-    "c-basic-long": ("c", "#new", [POINT, "[data-goal=long]"], "one-rig"),
-    "c-basic-firstline": ("c", "#new", [POINT, "[data-goal=first]"], "one-rig"),
-    "c-basic-sea": ("c", "#new", [POINT, "[data-goal=sea]"], "one-rig"),
-    "c-basic-everything": ("c", "#new", [POINT, "[data-goal=everything]"], "one-rig"),
-    "c-basic-window": ("c", "#new", [POINT, ".s-rig-change0"]),
-    "c-basic-window-edit": ("c", "#new", [POINT, ".s-rig-change", ".s-rig-more > summary"], "three-rigs"),
-    "c-basic-advanced": ("c", "#new", [POINT, ADVANCED], "one-rig"),
-    "c-basic-advanced-rigging": ("c", "#new", [POINT, ADVANCED, ".s-more-head", ".s-topic[data-topic=rigging] > summary",
+    "c-basic-first": ("c", "#new", [POINT, READY]),
+    "c-basic-rig": ("c", "#new", [POINT, READY], "one-rig"),
+    "c-basic-rigs": ("c", "#new", [POINT, READY, FORM_END], "three-rigs"),
+    "c-basic-chooser": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "three-rigs"),
+    "c-basic-ten": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "ten-rigs"),
+    "c-basic-long": ("c", "#new", [POINT, READY, "[data-goal=long]"], "one-rig"),
+    "c-basic-firstline": ("c", "#new", [POINT, READY, "[data-goal=first]"], "one-rig"),
+    "c-basic-sea": ("c", "#new", [POINT, READY, "[data-goal=sea]"], "one-rig"),
+    "c-basic-everything": ("c", "#new", [POINT, READY, "[data-goal=everything]"], "one-rig"),
+    "c-basic-window": ("c", "#new", [POINT, READY, ".s-rig-change0"]),
+    "c-basic-window-edit": ("c", "#new", [POINT, READY, ".s-rig-change", ".s-rig-more > summary"], "three-rigs"),
+    "c-basic-advanced": ("c", "#new", [POINT, READY, ADVANCED], "one-rig"),
+    "c-basic-advanced-rigging": ("c", "#new", [POINT, READY, ADVANCED, ".s-more-head", ".s-topic[data-topic=rigging] > summary",
                                                "js:document.querySelector('.s-rig-save')?.scrollIntoView({block: 'center'})"],
                                  "one-rig"),
-    "c-basic-return": ("c", "#new", [POINT, ADVANCED] + RETURN, "one-rig"),
-    "c-basic-size": ("c", "#new", [POINT, ".s-size .u-hint"], "one-rig"),
-    "c-basic-compact": ("c", "#new", [POINT, ".s-sum"], "one-rig"),
+    "c-basic-return": ("c", "#new", [POINT, READY, ADVANCED] + RETURN, "one-rig"),
+    "c-basic-size": ("c", "#new", [POINT, READY, ".s-size .u-hint"], "one-rig"),
+    "c-basic-compact": ("c", "#new", [POINT, READY, ".s-sum"], "one-rig"),
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),

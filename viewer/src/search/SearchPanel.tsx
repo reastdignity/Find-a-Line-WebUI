@@ -6,7 +6,6 @@
 // which the page places under the panel (NewSearch's bottom bar). UsageMeters shows the user's quotas;
 // SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
 
-import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
 import { parseValue, withValue } from "../app/request";
@@ -15,7 +14,7 @@ import { Button, Field, Hint, Progress, Range, RangePair, Segmented, type Option
 import { Icon } from "../ui/icons";
 import { IntroLink, useIntro } from "../ui/Intro";
 import { differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
-import { BasicPane, GoalCards, ReturnDialog, RigWindow, type RigAsk } from "./BasicPane";
+import { BasicBottom, BasicTop, GoalCards, ReturnDialog, RigWindow, type RigAsk } from "./BasicPane";
 import { PlaceBox } from "./PlaceBox";
 import { SearchIntro } from "./SearchIntro";
 import { fmt, KEY_FIELDS, withinLimits, type ReturnAsk, type SearchMode, type SearchState } from "./useSearch";
@@ -243,17 +242,17 @@ function SaveRig({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const key = JSON.stringify(shown);
   useEffect(() => setMessage(""), [key, r.inUse?.id]);
   const into = async () => {
-    const problem = rigProblem(shown);
+    const problem = rigProblem(shown, s.byName);
     if (problem) { setMessage(problem); return; }
     try {
       await r.change(r.inUse!.id, {values: shown});
       setMessage(t("basic.saved_into", {name: r.inUse!.name}));
     } catch (e) {
-      setMessage((e as Error).message);
+      setMessage((e as Error).message);  // a coded answer: its text from the catalogue (ApiError, i18n.detailMessage)
     }
   };
   const asNew = () => {
-    const problem = rigProblem(shown);
+    const problem = rigProblem(shown, s.byName);
     if (problem) { setMessage(problem); return; }
     onRig({mode: r.inUse ? "new" : "first", values: shown, from: "advanced"});
   };
@@ -309,13 +308,20 @@ function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   </div>;
 }
 
-/** The Advanced tab. */
-function AdvancedPane({s, where, onRig}: {s: SearchState; where: ComponentChildren; onRig(ask: RigAsk): void}) {
-  const nameField = s.byName.name;
-  const nameId = useId("s-name");
+/** The Advanced tab above Where: "Filled from Basic: <goal>, <rig>." (only when its values came from Basic, not from
+ *  a request opened in Advanced) and how many values differ from Basic's. */
+function AdvancedTop({s}: {s: SearchState}) {
   const dots = differing(s.resolved, s.base).length;
   const goal = s.goalOf(s.goal);
   const rig = s.rigs.inUse ? s.rigs.inUse.name : t("basic.from_starting");
+  return <p class="s-from">{s.filled && <>{t("basic.from", {goal: goal?.label ?? s.goal, rig})}{" "}</>}
+    {dots ? t("basic.differ", {count: dots}) : t("basic.differ_none")}</p>;
+}
+
+/** The Advanced tab under Where: the run's name, the goal cards, the key fields, More settings. */
+function AdvancedBottom({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
+  const nameField = s.byName.name;
+  const nameId = useId("s-name");
   // A field asked for (the receipt, "Lighter"): MoreSettings and its Topic open it (their layout effects), then it
   // is focused once it is drawn (a few frames at most)
   useEffect(() => {
@@ -335,11 +341,7 @@ function AdvancedPane({s, where, onRig}: {s: SearchState; where: ComponentChildr
     timer = setTimeout(focus);
     return () => clearTimeout(timer);
   }, [s.focus?.n]);
-  return <div class="s-pane" role="tabpanel" aria-label={t("basic.tab.advanced")}>
-    <p class="s-from">{t("basic.from", {goal: goal?.label ?? s.goal, rig})}{" "}
-      {dots ? t("basic.differ", {count: dots}) : t("basic.differ_none")}</p>
-    <h2 class="u-h">{t("basic.where")}</h2>
-    {where}
+  return <>
     {nameField && <Field label={label("name")} htmlFor={nameId} hint={hintOf(nameField)}>
       <input id={nameId} class="u-input" type="text" value={s.name} placeholder="from OpenStreetMap"
              onInput={(e) => s.setName(e.currentTarget.value)} />
@@ -348,7 +350,7 @@ function AdvancedPane({s, where, onRig}: {s: SearchState; where: ComponentChildr
     <Field label={t("hint.presets.label")} hint={t("hint.presets.help")}><GoalCards s={s} /></Field>
     <KeyFields s={s} />
     <MoreSettings s={s} onRig={onRig} />
-  </div>;
+  </>;
 }
 
 // ---- the bar: the size word, the receipt and the start -----------------------------------------
@@ -399,27 +401,34 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
     : s.preset && s.preset !== "custom" ? s.goalOf(s.preset)?.label ?? null : null;
   const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name);
   const unfolded = open && !problem;
+  // Only the daily limit's "within" text may fold away on a phone; a warning, a refusal or an error always shows
+  const quiet = state === "ok" && !warnings.length;
   return <div class={cx("s-bar", `s-${state}`, phone && "s-compact", unfolded && "s-open")} data-estimate={status}>
     {phone && <button type="button" class={cx("s-sum", problem && "s-bad")} aria-expanded={unfolded}
-                      disabled={!!problem} title={t("basic.receipt.toggle")} onClick={() => setOpen(!open)}>
+                      aria-disabled={problem ? true : undefined} title={t("basic.receipt.toggle")}
+                      onClick={() => { if (!problem) setOpen(!open); }}>
       <span class="u-grow">{problem || receiptShort(s.resolved, goal, s.rigs.inUse)}</span>
       {!problem && <span aria-hidden="true">{unfolded ? "▴" : "▾"}</span>}</button>}
+    {/* On a phone the receipt may be folded away (display: none): what it says is read out from here */}
+    {phone && <p class="u-sr" aria-live="polite">
+      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
+    {s.error && <p class="s-problem s-bar-error" role="alert">{s.error}</p>}
     <SizeWord s={s} phone={phone} />
     {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>area</span>}</div>}
     {estimate && <div class="s-stat s-stat-source"><b>{estimate.source}</b><span>{estimate.resolution} m grid</span></div>}
     {estimating && <div class="s-stat s-stat-source s-estimating"><span>Estimating…</span></div>}
     {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b><span>tiles</span></div>}
-    <p class="s-receipt" aria-live="polite">
+    <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
         <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
           <button type="button" data-field={p.field} title={t("basic.receipt.open")}
                   onClick={() => s.toAdvanced(p.field)}>{p.text}</button></span>)}
     </p>
-    {(line || warnings.length > 0 || s.error) && <p class={cx("s-bar-line", state === "warn" && "s-warn")}>
-      {line}{warnings.length > 0 && `${line ? " · " : ""}${warnings.length} warning(s)`}
-      {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
-        <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}
-      {s.error && <span class="s-problem"> {s.error}</span>}</p>}
+    {(line || warnings.length > 0) &&
+      <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
+        {line}{warnings.length > 0 && `${line ? " · " : ""}${warnings.length} warning(s)`}
+        {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
+          <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
       {s.busy ? "Starting…" : "Start search"}</Button>
     {!phone && size.lighter && <p class="s-heavy-line">{t("basic.size.lighter")}{" "}
@@ -465,27 +474,50 @@ export interface SearchPanelProps {
   phone?: boolean;                 // shorter mode labels
 }
 
+const TABS = ["basic", "advanced"] as const;
+
 /** The panel of the state `search`. */
 export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
   const intro = useIntro("search");
   const [ask, setAsk] = useState<ReturnAsk | null>(null);
   const [rig, setRig] = useState<RigAsk | null>(null);
   const tabs = useRef<HTMLDivElement>(null);
+  const ids = useId("s-tab");
   const focusTab = (tab: string) => setTimeout(() => tabs.current?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus());
-  const toBasic = () => { const asked = s.toBasic(); if (asked) setAsk(asked); };
-  const where = <Where s={s} phone={phone} />;
+  const choose = (tab: typeof TABS[number]) => {
+    if (tab === s.tab) return;
+    if (tab === "advanced") s.toAdvanced();
+    else { const asked = s.toBasic(); if (asked) setAsk(asked); }
+  };
+  // The tabs as WAI-ARIA's (manual activation): ←/→ (Home/End) move the focus between them, Enter or Space (a click)
+  // chooses one; the tab not chosen is out of the Tab order
+  const key = (e: KeyboardEvent) => {
+    const at = TABS.indexOf((e.target as HTMLElement).dataset.tab as typeof TABS[number]);
+    const to = e.key === "ArrowRight" ? (at + 1) % TABS.length : e.key === "ArrowLeft" ? (at + TABS.length - 1) % TABS.length
+      : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : -1;
+    if (at < 0 || to < 0) return;
+    e.preventDefault();
+    tabs.current?.querySelector<HTMLElement>(`[data-tab="${TABS[to]}"]`)?.focus();
+  };
+  // One panel for both tabs: its first and last parts are the tab's own, Where between them is the same element in
+  // both (keyed), so a tab switch keeps the place box's text and the map's state
   return <div class="s-panel">
-    <div class="u-seg s-tabs" role="tablist" aria-label={t("basic.tabs")} ref={tabs}>
-      {(["basic", "advanced"] as const).map((tab) => <button type="button" key={tab} role="tab" data-tab={tab}
-                                                              aria-selected={s.tab === tab} class={s.tab === tab ? "u-on" : ""}
-                                                              onClick={() => tab === "basic" ? toBasic() : s.toAdvanced()}>
+    <div class="u-seg s-tabs" role="tablist" aria-label={t("basic.tabs")} ref={tabs} onKeyDown={key}>
+      {TABS.map((tab) => <button type="button" key={tab} role="tab" data-tab={tab} id={`${ids}-${tab}`}
+                                 aria-selected={s.tab === tab} aria-controls={`${ids}-panel`} tabIndex={s.tab === tab ? 0 : -1}
+                                 class={s.tab === tab ? "u-on" : ""} onClick={() => choose(tab)}>
         {t(`basic.tab.${tab}`)}</button>)}
     </div>
     <SearchIntro state={intro} usage={usage ?? null} />
     <p class="s-intro"><IntroLink state={intro}><Icon name="info" />{t("intro.search.link")}</IntroLink></p>
-    {s.tab === "basic"
-      ? <BasicPane s={s} where={where} onRig={setRig} onEvery={() => { s.toAdvanced(); focusTab("advanced"); }} />
-      : <AdvancedPane s={s} where={where} onRig={setRig} />}
+    <div class="s-pane" role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${s.tab}`} data-tab-panel={s.tab}>
+      {s.tab === "basic" ? <BasicTop key="basic-top" s={s} /> : <AdvancedTop key="advanced-top" s={s} />}
+      <h2 key="where-title" class={cx("u-h", s.tab === "basic" && "s-gap")}>{t("basic.where")}</h2>
+      <Where key="where" s={s} phone={phone} />
+      {s.tab === "basic"
+        ? <BasicBottom key="basic-bottom" s={s} onRig={setRig} onEvery={() => { s.toAdvanced(); focusTab("advanced"); }} />
+        : <AdvancedBottom key="advanced-bottom" s={s} onRig={setRig} />}
+    </div>
     {rig && <RigWindow s={s} ask={rig} onClose={() => setRig(null)} />}
     {ask && <ReturnDialog s={s} ask={ask} onClose={() => setAsk(null)} />}
   </div>;

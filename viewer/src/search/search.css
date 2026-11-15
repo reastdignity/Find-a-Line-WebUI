@@ -116,6 +116,7 @@
 .ui .s-stat span { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 .ui .s-bar-line { margin: 0; flex-basis: 100%; order: -1; font-size: 13px; color: var(--ink-2); }
 .ui .s-bar-line.s-warn { color: var(--warn); }
+.ui .s-bar-error { margin: 0; flex-basis: 100%; order: -1; font-size: 13px; }  /* the start's error: always shown */
 .ui .s-size { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; max-width: 240px; }
 .ui .sz { font: 600 12px/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px;
   white-space: nowrap; }
@@ -142,7 +143,7 @@
 .ui .s-bar.s-compact .s-size { max-width: none; }
 .ui .s-bar.s-compact .s-stat b { font-size: 14.5px; }
 .ui .s-bar.s-compact .s-receipt, .ui .s-bar.s-compact .s-stat-source,
-.ui .s-bar.s-compact .s-bar-line:not(.s-warn) { display: none; }
+.ui .s-bar.s-compact .s-bar-line.s-quiet { display: none; }
 .ui .s-bar.s-compact.s-open .s-receipt { display: block; flex: 1 1 100%; order: -3; }
 .ui .s-bar.s-compact.s-open .s-stat-source { display: flex; order: -2; }
 .ui .s-bar.s-compact.s-open .s-bar-line { display: block; order: -2; }

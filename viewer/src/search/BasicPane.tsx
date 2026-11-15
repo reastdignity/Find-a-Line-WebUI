@@ -1,6 +1,7 @@
 // The Basic tab of the search panel (docs/line-volume/spec-search.md 1.2, the accepted mock-up 1, version 3):
-// the goals, Where (the panel's), the rig in use with the list of the saved rigs, "Show every setting"; the rig's
-// window (RigWindow, also opened from Advanced's "Save as a new rig") and the dialog of going back to Basic
+// above Where (BasicTop: the goals, the sea hint) and under it (BasicBottom: the rig in use with the list of the
+// saved rigs, "Show every setting"; Where itself is the panel's, kept between the tabs); the rig's window
+// (RigWindow, also opened from Advanced's "Save as a new rig") and the dialog of going back to Basic
 // (ReturnDialog). Styles in search.css (s-*), the dialogs' look in app/notices.css (u-dialog).
 
 import type { ComponentChildren } from "preact";
@@ -9,8 +10,8 @@ import { ApiError, user } from "../app/api";
 import { errorText, label, t } from "../i18n";
 import { Button } from "../ui/components";
 import {
-  cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigProblem, rigSummary, STARTING_RIG, valueText,
-  type Rig, type RigValues,
+  cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG, valueText,
+  type Rig, type RigField, type RigValues,
 } from "./basic";
 import type { ReturnAsk, SearchState } from "./useSearch";
 
@@ -75,7 +76,9 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
       await r.add(t("rig.name.first"), STARTING_RIG);
       setTimeout(() => document.querySelector<HTMLButtonElement>(".s-rig-change")?.focus());
     } catch (e) {
-      setError((e as Error).message);
+      // the server's codes in the page's words (a list that failed to load hid a rig of that name)
+      setError(e instanceof ApiError && e.info?.code === "rig_name_taken"
+        ? t("rig.error.taken", {name: t("rig.name.first")}) : (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -109,22 +112,26 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
         <button type="button" class="u-btn s-rig-change0" onClick={() => onOpen({mode: "first", values: null})}>
           {t("basic.change")}</button></div>
     </div>}
-    {(error || r.error) && <p class="s-problem">{error || t("basic.rigs_error", {message: r.error})}</p>}
+    {(error || r.error) && <p class="s-problem s-rig-error" role="alert">
+      {error || t("basic.rigs_error", {message: r.error})}</p>}
   </div>;
 }
 
-/** The Basic tab. */
-export function BasicPane({s, where, onRig, onEvery}:
-                          {s: SearchState; where: ComponentChildren; onRig(ask: RigAsk): void; onEvery(): void}) {
-  return <div class="s-pane" role="tabpanel" aria-label={t("basic.tab.basic")}>
+/** The Basic tab above Where (the panel keeps Where itself between the tabs' parts, so a tab switch keeps it). */
+export function BasicTop({s}: {s: SearchState}) {
+  return <>
     <h2 class="u-h">{t("basic.goals")}</h2>
     <GoalCards s={s} basic />
     <SeaHint s={s} />
-    <h2 class="u-h s-gap">{t("basic.where")}</h2>
-    {where}
+  </>;
+}
+
+/** The Basic tab under Where: the rig in use, "Show every setting". */
+export function BasicBottom({s, onRig, onEvery}: {s: SearchState; onRig(ask: RigAsk): void; onEvery(): void}) {
+  return <>
     <RigRow s={s} onOpen={onRig} />
     <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")} ›</button></div>
-  </div>;
+  </>;
 }
 
 // ---- dialogs -----------------------------------------------------------------------------------------------
@@ -152,14 +159,18 @@ function Modal({onClose, label: labelledBy, class: cls, focusAfter, children}:
       setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) target?.focus(); });
     };
   }, []);
-  // A press outside: on the backdrop, which is the dialog's own box from outside its rectangle
-  const outside = (e: MouseEvent) => {
-    if (e.target !== e.currentTarget) return;
+  // A press outside: one that starts and ends on the backdrop (the dialog's own box, outside its rectangle); a
+  // selection of a field's text let go over the backdrop is a click on the dialog too, but it started inside
+  const onBackdrop = (e: MouseEvent | PointerEvent) => {
+    if (e.target !== e.currentTarget) return false;
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) onClose();
+    return e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom;
   };
+  const pressed = useRef(false);  // the last press started on the backdrop
   return <dialog ref={ref} class={cx("ui u-dialog s-dialog", cls)} aria-labelledby={labelledBy}
-                 onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={outside}>
+                 onCancel={(e) => { e.preventDefault(); onClose(); }}
+                 onPointerDown={(e) => { pressed.current = onBackdrop(e); }}
+                 onClick={(e) => { if (pressed.current && onBackdrop(e)) onClose(); pressed.current = false; }}>
     {children}
   </dialog>;
 }
@@ -171,7 +182,8 @@ const readNumber = (text: string) => text.trim() === "" ? NaN : Number(text);
  *  rig, delete) or "A new rig". Esc, Cancel or a press outside close it unsaved. */
 export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClose(): void}) {
   const r = s.rigs;
-  const editing: Rig | null = ask.mode === "edit" ? r.inUse : null;
+  // the rig being changed, as it was when the window opened (the list may change under it: a rig deleted elsewhere)
+  const [editing] = useState<Rig | null>(() => ask.mode === "edit" ? r.inUse : null);
   const from = ask.values ?? (editing ? editing.values : r.values);
   const titleId = useId("s-rig-title");
   const [name, setName] = useState(editing ? editing.name : nextRigName(r.rigs));
@@ -195,7 +207,7 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
     const clean = cleanName(name);
     const values = Object.fromEntries(RIG_FIELDS.map((k) => [k, draft[k]])) as RigValues;
     const own = editing && !copy ? editing.id : null;
-    let wrong = !clean ? t("rig.error.no_name") : rigProblem(values);
+    let wrong = !clean ? t("rig.error.no_name") : rigProblem(values, s.byName);
     if (!wrong && nameTaken(r.rigs, clean, own)) {
       wrong = copy ? t("rig.error.copy_taken", {name: clean}) : t("rig.error.taken", {name: clean});
     }
@@ -229,13 +241,15 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
     }
   };
 
-  const number = (k: string, unit: string, extra?: ComponentChildren, ref?: typeof zoneRef) => {
+  // the bounds on the inputs: 0 and the site's (or SearchParams') highest value, as the form's own fields
+  const number = (k: RigField, unit: string, extra?: ComponentChildren, ref?: typeof zoneRef) => {
     const id = `${titleId}-${k}`;
     return <>
       <label for={id}>{label(k)}{extra && <span class="s-fx">{extra}</span>}</label>
       <span class="s-unit-box" style={{"--s-unit": `${[...unit].length}ch`}}>
         <input id={id} ref={ref} class="u-input" type="number" step="any" inputmode="decimal" data-rig-field={k}
-               defaultValue={Number.isFinite(from[k as keyof RigValues]) ? String(from[k as keyof RigValues]) : ""}
+               min={0} max={rigMax(k, s.byName)}
+               defaultValue={Number.isFinite(from[k]) ? String(from[k]) : ""}
                onInput={set(k)} onChange={set(k)} />
         <span class="s-unit">{unit}</span></span>
     </>;
@@ -273,8 +287,10 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
       {(full || tenth) && <p class="u-small">{t(full ? "rig.limit_full" : "rig.limit_tenth", {max: r.max})}</p>}
       <p class="u-small">{t(user.local ? "rig.stored_local" : "rig.stored_account")}</p>
       {asking ? <div class="n-actions s-rig-foot">
-        <span class="u-grow s-note">{t(r.rigs.length === 1 ? "rig.delete_ask_last" : "rig.delete_ask", {name: editing!.name})}</span>
-        <button type="button" ref={keepRef} class="u-btn" onClick={() => { setAsking(false); setTimeout(() => deleteRef.current?.focus()); }}>
+        <span class="u-grow s-note" role="alert" id={`${titleId}-ask`}>
+          {t(r.rigs.length === 1 ? "rig.delete_ask_last" : "rig.delete_ask", {name: editing!.name})}</span>
+        <button type="button" ref={keepRef} class="u-btn" aria-describedby={`${titleId}-ask`}
+                onClick={() => { setAsking(false); setTimeout(() => deleteRef.current?.focus()); }}>
           {t("rig.keep")}</button>
         <Button kind="danger" disabled={busy} onClick={remove}>{t("rig.delete_yes")}</Button>
       </div> : <div class="n-actions s-rig-foot">
