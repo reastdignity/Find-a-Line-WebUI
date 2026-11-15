@@ -10,6 +10,7 @@ import numpy as np
 import rasterio as rio
 import rasterio.cache
 from affine import Affine
+from rasterio.vrt import WarpedVRT
 from rasterio.warp import Resampling, reproject
 from rasterio.windows import Window
 
@@ -75,10 +76,43 @@ def _local(crs: rio.crs.CRS) -> bool:
                                                                                         "ENGINEERINGCRS"))
 
 
-def _wrong_crs(src, crs: str, force_crs: bool) -> bool:
+def _wrong_crs(src, crs: str, force_crs: bool, warp: Optional[Resampling] = None) -> bool:
     """Whether an open file's CRS rules it out for a block in crs: another CRS (_same_crs), unless force_crs and the
-    file names only a local one (_local), which is then taken as crs; a file without a CRS is taken as it is."""
-    return src.crs is not None and not _same_crs(src.crs, crs) and not (force_crs and _local(src.crs))
+    file names only a local one (_local), which is then taken as crs, or warp and the file names a real one (it is
+    then warped onto the block: _values_on); a file without a CRS is taken as it is."""
+    if src.crs is None or _same_crs(src.crs, crs):
+        return False
+    if _local(src.crs):
+        return not force_crs
+    return warp is None
+
+
+def _warped(src, crs: str, warp: Optional[Resampling]) -> bool:
+    """Whether a file is read through the warper (_warp_window): warp set and the file in a real CRS other than the
+    block's (a local CRS with force_crs is taken as the block's, a file without a CRS as it is)."""
+    return warp is not None and src.crs is not None and not _local(src.crs) and not _same_crs(src.crs, crs)
+
+
+def _warp_window(src, crs: str, transform: Affine, shape: Tuple[int, int], warp: Resampling) -> np.ndarray:
+    """The values of an open raster in another CRS on the pixels of transform and shape in crs, NaN where it has
+    none: a WarpedVRT with the resampling warp (GDAL's warper reads only the file's window under the block; nodata
+    and values below VALID_MIN not valid, so an average is that of the valid pixels). rasterio makes the VRT under
+    nogil, which runs the scan of a remote file's directories, and the VRT's own mask flags never reach the file
+    (no HTTP request holding the GIL: tests/test_window_gil.py, check_source's reads); one thread (GDAL's warper
+    with threads: the pitfall of mosaic.WARP_KWARGS). Cyprus' tiles, kept by DLS in EPSG:4258, read onto blocks of
+    CGRS93 / Cyprus LTM."""
+    with WarpedVRT(src, crs=crs, transform=transform, width=shape[1], height=shape[0], resampling=warp) as vrt:
+        part = vrt.read(1, masked=True)
+    return _clean(part.astype(np.float32).filled(np.nan))
+
+
+def _values_on(src, crs: str, transform: Affine, shape: Tuple[int, int],
+               warp: Optional[Resampling] = None) -> np.ndarray:
+    """The values of an open raster on a block's pixels: warped from another CRS (_warped: _warp_window), else as
+    _read_window reads them."""
+    if _warped(src, crs, warp):
+        return _warp_window(src, crs, transform, shape, warp)
+    return _read_window(src, transform, shape)
 
 
 def _scan_directories(src, window: Window):
@@ -171,26 +205,50 @@ class WrongCrs(RuntimeError):
 
 
 def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], name: str,
-               what: str, force_crs: bool = False) -> np.ndarray:
-    """The values of one file on a block's pixels (_read_window). Raises WrongCrs when the file is in
-    another CRS (with force_crs, a file naming only a local CRS is taken in crs: _wrong_crs), Incomplete
-    when GDAL signalled an error while opening or reading it: values it could not fetch come back as
-    nodata or zeros without an exception (net.gdal_errors)."""
+               what: str, force_crs: bool = False, warp: Optional[Resampling] = None) -> np.ndarray:
+    """The values of one file on a block's pixels (_values_on). Raises WrongCrs when the file is in
+    another CRS (with force_crs, a file naming only a local CRS is taken in crs; with warp, a file in another
+    real CRS is warped: _wrong_crs), Incomplete when GDAL signalled an error while opening or reading it: values
+    it could not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
     with net.gdal_errors() as errors:
         src = rio.open(_remote(url))
     with src:
-        if _wrong_crs(src, crs, force_crs):
+        if _wrong_crs(src, crs, force_crs, warp):
             raise WrongCrs(what, name, src.crs.to_string(), crs)
         with net.gdal_errors() as reading:
-            values = _read_window(src, transform, shape)
+            values = _values_on(src, crs, transform, shape, warp)
     if errors or reading:
         raise Incomplete("; ".join(dict.fromkeys(errors + reading)))
     return values
 
 
+def _read_ranged(url: str, crs: str, transform: Affine, shape: Tuple[int, int], name: str, what: str,
+                 force_crs: bool = False, warp: Optional[Resampling] = None) -> Optional[np.ndarray]:
+    """The values of one remote file on a block's pixels read through our own range requests (ranges.open_remote,
+    the first bytes checked to be a TIFF's), never GDAL's /vsicurl/: a URL GDAL will not open as a .tif (Estonia's
+    PHP download address) or a server that answers its errors as a part of a file (HTTP 206 with an HTML page). None
+    when the file is not there (404); WrongCrs as _read_file. Every range is asked again by get_range itself
+    (net.RETRIES), so a failure here raises RuntimeError at once, never a block of what came."""
+    from . import ranges
+    try:
+        with net.gdal_errors() as errors, ranges.open_remote(url, tiff_only=True) as (src, file):
+            if not errors and file.error is None:
+                if _wrong_crs(src, crs, force_crs, warp):
+                    raise WrongCrs(what, name, src.crs.to_string(), crs)
+                values = _values_on(src, crs, transform, shape, warp)
+        problem = file.error or ("; ".join(dict.fromkeys(errors)) if errors else None)
+    except ranges.Missing:
+        return None
+    except (rio.errors.RasterioIOError, ranges.NotTiff) as e:
+        raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+    if problem:
+        raise RuntimeError(f"Could not read {what} {name} completely: {cache.clean_error(problem)}")
+    return values
+
+
 def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affine, shape: Tuple[int, int],
                 path: str, what: str, geoid: Optional[Geoid] = None, serial: bool = False,
-                force_crs: bool = False) -> Fetched:
+                force_crs: bool = False, warp: Optional[Resampling] = None, ranged: bool = False) -> Fetched:
     """Compose a block from windows of remote files (name, url, survey year), newest first:
     each file fills only the pixels still without data, and the next one is read only while
     some remain. Saved to path with the names and years of the files used (tags "sources",
@@ -205,7 +263,9 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     (tag "vertical": its name); N is computed first, so a missing grid (GeoidMissing) asks no file. serial: the
     ranges one after another through GDAL's cache of ranges (net._gdal_http). A file in another CRS is not
     used (said); when no file of the block could be read for that reason, the block raises (WrongCrs).
-    force_crs: a file naming only a local CRS is read in the block's CRS (_wrong_crs)."""
+    force_crs: a file naming only a local CRS is read in the block's CRS (_wrong_crs). warp: a file in another
+    real CRS is warped onto the block's pixels with that resampling (_warp_window). ranged: each remote file read
+    through our own range requests (_read_ranged), not GDAL's /vsicurl/."""
     undulation = geoid.undulation(crs, transform, shape) if geoid is not None and files else None
     block = np.full(shape, np.nan, dtype=np.float32)
     used, years = [], []
@@ -213,12 +273,23 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     read = 0  # files read for the block, in its CRS (with or without data there)
     with _gdal_http(serial):
         for name, url, year in files:
+            if ranged and re.match(r"https?://", url):
+                try:
+                    values = _read_ranged(url, crs, transform, shape, name, what, force_crs, warp)
+                    read += values is not None
+                except WrongCrs as e:
+                    print(f"{e}; not used")
+                    wrong.append(e)
+                    values = None
+                if _apply(block, values, used, years, name, year):
+                    break
+                continue
             for attempt in range(net.RETRIES):
                 # One request counted per file read for the block, every attempt (servicecounts;
                 # GDAL's own HTTP requests, their bytes and its retries are not seen)
                 with servicecounts.request(url) as counted:
                     try:
-                        values = _read_file(url, crs, transform, shape, name, what, force_crs)
+                        values = _read_file(url, crs, transform, shape, name, what, force_crs, warp)
                         read += 1
                         break
                     except WrongCrs as e:
@@ -334,16 +405,17 @@ def _read_strips(src, c1: int, r1: int, c2: int, r2: int, file=None) -> np.ma.Ma
     return np.ma.MaskedArray(data, mask)
 
 
-def _group_values(src, blocks: Sequence[BlockRequest], file=None) -> Iterator[Tuple[int, np.ndarray]]:
-    """The values of an open raster on the pixels of each block, as _read_window gives them, as (index, values) one
+def _group_values(src, blocks: Sequence[BlockRequest], file=None,
+                  warp: Optional[Resampling] = None) -> Iterator[Tuple[int, np.ndarray]]:
+    """The values of an open raster on the pixels of each block, as _values_on gives them, as (index, values) one
     block after another (so that the caller holds the window and one block's values, not every block's twice): the
     blocks on the file's own pixels from one window over all of them (read once, in strips, and sliced), the others
-    by _read_window."""
+    by _values_on (warped from another CRS with warp, else _read_window)."""
     at = {}
     for k, r in enumerate(blocks):
-        origin = _coincide(src, r.transform)
+        origin = None if _warped(src, r.crs, warp) else _coincide(src, r.transform)
         if origin is None:
-            yield k, _read_window(src, r.transform, r.shape)
+            yield k, _values_on(src, r.crs, r.transform, r.shape, warp)
         else:
             at[k] = origin
     if at:
@@ -364,7 +436,8 @@ def _group_values(src, blocks: Sequence[BlockRequest], file=None) -> Iterator[Tu
 
 
 def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid] = None,
-               force_crs: bool = False) -> List[Tuple[Optional[np.ndarray], Optional[Dict[str, str]]]]:
+               force_crs: bool = False, warp: Optional[Resampling] = None,
+               tiff_only: bool = False) -> List[Tuple[Optional[np.ndarray], Optional[Dict[str, str]]]]:
     """Compose blocks as _read_block composes each one (files newest first, each filling only the pixels still
     without data, the next one read only for the blocks with some left; tags "sources" and "years"; with geoid
     h - N), reading each file once for the blocks that need it: one window through our own range requests
@@ -372,7 +445,8 @@ def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid]
     those of one CRS. Returns (values, tags) per block, (None, None) where no file has data. A file of another
     CRS is not used (said) and a missing one (404) skipped, as there; a block none of whose files could be read
     for its CRS, and anything else, raises RuntimeError (the caller then reads the group's blocks one by one,
-    where such a block fails alone). force_crs: as _read_block's."""
+    where such a block fails alone). force_crs and warp: as _read_block's; tiff_only: a file whose first bytes
+    are not a TIFF's raises (ranges.NotTiff: a server's error page served as a part of the file)."""
     from . import ranges
     state = [[np.full(r.shape, np.nan, dtype=np.float32), [], [], None, not r.files] for r in blocks]
     for s, r in zip(state, blocks):
@@ -391,7 +465,7 @@ def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid]
                 if url not in opened:
                     try:
                         opened[url] = _open_for_group(stack, ranges, url, blocks[members[0]].crs, name, what,
-                                                      force_crs)
+                                                      force_crs, warp, tiff_only)
                     except WrongCrs as e:
                         print(f"{e}; not used")
                         wrong[url], opened[url] = e, None
@@ -400,7 +474,7 @@ def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid]
                 src, file = opened[url]
                 with net.gdal_errors() as errors:
                     try:  # each block's values applied as they come: an error below discards the whole group
-                        for m, v in _group_values(src, [blocks[b] for b in members], file):
+                        for m, v in _group_values(src, [blocks[b] for b in members], file, warp):
                             s = state[members[m]]
                             s[4] = _apply(s[0], v, s[1], s[2], name, year)
                             read[members[m]] = True
@@ -417,23 +491,23 @@ def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid]
 
 
 def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, name: str, what: str,
-                    force_crs: bool = False):
+                    force_crs: bool = False, warp: Optional[Resampling] = None, tiff_only: bool = False):
     """A file of a group opened through ranges.open_remote (a local path as it is), or None when it is missing;
-    WrongCrs when it is in another CRS (as _read_file raises it, force_crs too)."""
+    WrongCrs when it is in another CRS (as _read_file raises it, force_crs and warp too)."""
     try:
         with net.gdal_errors() as errors:
             if re.match(r"https?://", url):
-                src, file = stack.enter_context(ranges.open_remote(url))
+                src, file = stack.enter_context(ranges.open_remote(url, tiff_only=tiff_only))
             else:
                 src, file = stack.enter_context(rio.open(url)), None
     except ranges.Missing:
         return None
-    except rio.errors.RasterioIOError as e:
+    except (rio.errors.RasterioIOError, ranges.NotTiff) as e:
         raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
     if errors or (file is not None and file.error is not None):
         raise RuntimeError(f"Could not open {what} {name} completely: "
                            f"{cache.clean_error((file and file.error) or '; '.join(dict.fromkeys(errors)))}")
-    if _wrong_crs(src, crs, force_crs):
+    if _wrong_crs(src, crs, force_crs, warp):
         raise WrongCrs(what, name, src.crs.to_string(), crs)
     return src, file or _LocalFile()
 
@@ -457,20 +531,26 @@ class Windows(Reader):
     once: fewer bytes, more requests; chosen per source where that was faster too (docs/performance.md,
     "Window reads": Austria, Luxembourg, British Columbia). force_crs: files that name only a local CRS
     (LOCAL_CS: Caribbean Netherlands' AHN files) are read in their block's CRS; a file with a real CRS is
-    checked as ever."""
+    checked as ever. warp (a Resampling): a file in another real CRS is warped onto its block's pixels with it
+    (_warp_window: Cyprus' tiles in EPSG:4258 onto blocks of Cyprus LTM; nearest for its DTM of about 1 m,
+    average for its DSM of 0.5 m) instead of being refused (WrongCrs). ranged: every remote file is read through
+    our own range requests (_read_ranged, the first bytes checked to be a TIFF's), never GDAL's /vsicurl/:
+    Estonia's PHP download address, which GDAL does not open as a .tif and which answers its errors as HTTP 206
+    with an HTML page."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, geoid: Optional[Geoid] = None, serial: bool = False,
-                 force_crs: bool = False):
+                 force_crs: bool = False, warp: Optional[Resampling] = None, ranged: bool = False):
         self.description, self.geoid, self.serial, self.force_crs = description, geoid, serial, force_crs
+        self.warp, self.ranged = warp, ranged
 
     def url(self, request: BlockRequest) -> Optional[str]:
         return request.files[0][1] if request.files else None
 
     def fetch(self, request: BlockRequest, path: str) -> Fetched:
         return _read_block(request.files, request.crs, request.transform, request.shape, path, self.description,
-                           self.geoid, self.serial, self.force_crs)
+                           self.geoid, self.serial, self.force_crs, self.warp, self.ranged)
 
     def fetch_group(self, requests: Sequence[BlockRequest]) -> List[Tuple[Optional[np.ndarray], Optional[Dict]]]:
         """Several blocks of one CRS composed in memory, each file read once over them (read_group)."""
-        return read_group(requests, self.description, self.geoid, self.force_crs)
+        return read_group(requests, self.description, self.geoid, self.force_crs, self.warp, self.ranged)

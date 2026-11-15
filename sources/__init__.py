@@ -88,6 +88,7 @@ from .layers.wcs import GeoWcsTiles
 from .layers.geosheets import GeoSheetTiles
 from .layers.lidarbc import LidarBcBlocks
 from .layers.sheets import WfsFeatureTiles
+from .layers.metricsheets import MetricSheetTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -108,4 +109,4 @@ __all__ = ["SOURCES", "AREA_NAMES", "MIN_RESOLUTION", "Source", "Coverage", "Ort
            "shore_rows", "shore_segments",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
            "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing",
-           "ZipMemberTiles", "GeoWcsTiles", "GeoSheetTiles", "WfsFeatureTiles"]
+           "ZipMemberTiles", "GeoWcsTiles", "GeoSheetTiles", "WfsFeatureTiles", "MetricSheetTiles"]

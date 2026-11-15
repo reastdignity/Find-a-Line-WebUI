@@ -26,6 +26,7 @@ import cache
 import servicecounts
 
 from .. import net
+from . import TIFF_MAGIC
 
 CHUNK = 64 * 1024  # bytes asked at least by GDAL's plain reads (the header, the arrays of tile offsets)
 TIMEOUT = 120      # seconds, as GDAL_HTTP_TIMEOUT of net._gdal_http
@@ -38,11 +39,26 @@ class Missing(Exception):
     """The file is not there (HTTP 404)."""
 
 
+class NotTiff(RuntimeError):
+    """A file whose first bytes are not a TIFF's (RangeFile with tiff_only): a server's error page served as the
+    file, or as a part of it (Estonia's download address answers HTTP 206 with an HTML page and a Content-Range of
+    the page's own length)."""
+
+
+def page_text(data: bytes, limit: int = 200) -> str:
+    """The text of an answer that is not a file, its tags and runs of white space taken out, at most limit
+    characters (for messages)."""
+    text = re.sub(r"<[^>]*>", " ", data[:4096].decode("utf-8", "replace"))
+    return re.sub(r"\s+", " ", text).strip()[:limit]
+
+
 def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
     """Bytes first..last of url and the file's size, whole or not at all: HTTP 206 whose Content-Range starts at
     first and ends at last (or at the end of the file, when last lies beyond it) with as many bytes; anything else
     (an answer cut short, another range, a 5xx) asked again up to net.RETRIES times, a 429 or 503 after a longer
-    pause, then RuntimeError. Raises Missing for a 404."""
+    pause, then RuntimeError. Raises Missing for a 404. The answer is streamed and never read beyond the bytes asked:
+    a server answering 200 to the Range (the whole file) is closed unread, an answer longer than its range is cut
+    off there, and another status's text is read for its first ERROR_BYTES only."""
     last_error = None
     for attempt in range(net.RETRIES):
         slow_down = False
@@ -50,26 +66,51 @@ def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
             net.rate_turn(url)
             with servicecounts.request(url) as counted:
                 headers = dict(cache.http_headers(), Range=f"bytes={first}-{last}")
-                response = counted.got(net.session().get(url, headers=headers, timeout=TIMEOUT,
-                                                         verify=net.verify(url)))
-                if response.status_code == 404:
-                    raise Missing(url)
-                match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("content-range", ""))
-                if response.status_code == 206 and match:
-                    start, end, size = (int(g) for g in match.groups())
-                    if start == first and end == min(last, size - 1) and len(response.content) == end - start + 1:
-                        return response.content, size
-                if response.status_code == 206:
-                    counted.outcome = "connection"  # another range, or fewer bytes than it names
-                slow_down = response.status_code in (429, 503)
-                raise RuntimeError(f"HTTP {response.status_code} for bytes {first}-{last}: "
-                                   f"{response.headers.get('content-range') or response.text[:200]}")
+                with net.session().get(url, headers=headers, timeout=TIMEOUT, verify=net.verify(url),
+                                       stream=True) as response:
+                    counted.got(response, read=False)
+                    if response.status_code == 404:
+                        raise Missing(url)
+                    match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("content-range", ""))
+                    if response.status_code == 206 and match:
+                        start, end, size = (int(g) for g in match.groups())
+                        expected = end - start + 1
+                        body = _read_at_most(response, expected + 1, counted)
+                        if start == first and end == min(last, size - 1) and len(body) == expected:
+                            return body, size
+                        counted.outcome = "connection"  # another range, or fewer (more) bytes than it names
+                        raise RuntimeError(f"HTTP 206 for bytes {first}-{last}: {response.headers['content-range']}, "
+                                           f"{len(body)} bytes")
+                    slow_down = response.status_code in (429, 503)
+                    if response.status_code == 206:
+                        counted.outcome = "connection"  # a 206 without a single Content-Range
+                    if response.status_code == 200:  # the whole file: never read
+                        counted.outcome = "other"
+                        raise RuntimeError(f"HTTP 200 for bytes {first}-{last}: the server sent the whole file "
+                                           f"(not read)")
+                    text = _read_at_most(response, ERROR_BYTES, counted).decode("utf-8", "replace")
+                    raise RuntimeError(f"HTTP {response.status_code} for bytes {first}-{last}: "
+                                       f"{response.headers.get('content-range') or text[:200]}")
         except Missing:
             raise
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
             net._sleep(attempt + 3 if slow_down else attempt)
     raise RuntimeError(cache.clean_error(last_error))
+
+
+ERROR_BYTES = 4096  # read at most of an answer that is not the range asked (for its message)
+
+
+def _read_at_most(response, limit: int, counted) -> bytes:
+    """At most limit bytes of a streamed answer's body, counted as they come."""
+    body = bytearray()
+    for chunk in response.iter_content(CHUNK):
+        counted.add(len(chunk))
+        body += chunk
+        if len(body) >= limit:
+            break
+    return bytes(body[:limit])
 
 
 def runs(offsets: Sequence[int], sizes: Sequence[int], gap: int = MERGE_GAP) -> List[Tuple[int, int]]:
@@ -97,11 +138,13 @@ class RangeFile:
     (read) or zeros (get_byte_ranges), which GDAL may well decode, so the caller checks `error` after every open
     and read and drops what was read then."""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, tiff_only: bool = False):
         self.url, self.pos = url, 0
         self.chunks = {}
         self.error: Optional[BaseException] = None
         first, self.size = get_range(url, 0, CHUNK - 1)  # its size, and the header's first bytes
+        if tiff_only and first[:4] not in TIFF_MAGIC:
+            raise NotTiff(f"not a TIFF ({self.size} bytes): {page_text(first)}")
         self.chunks[0] = first
         self.received = len(first)
         self.runs: List[Tuple[int, bytes]] = []  # prefetched (offset, bytes), by offset
@@ -218,9 +261,10 @@ class _Opener(MultiByteRangeResourceContainer):
 
 
 @contextlib.contextmanager
-def open_remote(url: str) -> Iterator[Tuple[rio.io.DatasetReader, RangeFile]]:
-    """The dataset of a remote file read through RangeFile (raises Missing for a 404), and the RangeFile."""
-    file = RangeFile(url)
+def open_remote(url: str, tiff_only: bool = False) -> Iterator[Tuple[rio.io.DatasetReader, RangeFile]]:
+    """The dataset of a remote file read through RangeFile (raises Missing for a 404; with tiff_only NotTiff when its
+    first bytes are not a TIFF's, before GDAL sees them), and the RangeFile."""
+    file = RangeFile(url, tiff_only)
     name = os.path.basename(urlsplit(url).path) or "file.tif"
     key = f"{uuid.uuid4().hex}/{name}"
     with rio.Env(GDAL_NUM_THREADS="1", GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"):
