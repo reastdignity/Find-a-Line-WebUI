@@ -74,7 +74,7 @@ precompute CUBEs and (maybe) data downloaded for country precompute".
 | P7 | Where the limits live | inside the mirror's container, keyed on the address SWAG passes |
 | P8 | Refusals from the mirror | `net._get`'s existing longer back-off on 429/503 (three attempts), then the search fails; no extra pause mechanism |
 | P9 | The index on the client | in memory, never stored (follows from U7 and U8) |
-| P10 | Who asks whether the mirror answers | only the first planning of a search, an estimate, a country run's main process and the probe; later phases use the source the first one chose; a country run whose own source does not answer stops instead of falling back; a busy mirror (429, 503) counts as answering (C.3) |
+| P10 | Who asks whether the mirror answers | only the first planning of a search, an estimate, a country run's main process and the probe; later phases use the source the first one chose; a country run whose own source does not answer stops instead of falling back; a busy mirror (429) counts as answering (C.3) |
 | P11 | How long an answer is kept | an index 300 s; a "does not answer" 60 s, and only for the next start check (C.2, C.3) |
 | P12 | Averaged resolutions over HTTP | available whenever a remote base is set, as today; the publish tool guarantees them and a missing index is an error (C.5) |
 | P13 | How config reaches the container | an image built from the pinned base image with the config, the pages and the start script copied in (A.1) |
@@ -428,11 +428,13 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    base at all". The question "does the mirror answer" is a second one, `reach`, asked only where a caller
    passes `reach=True`; everywhere else the default is off, so nothing new can ask by accident.
    `reach` fetches the native resolution's `index.json` of each layer of the source that has a remote base:
-   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts. An index it gets is kept as in 2; a failure is remembered for
-   60 s, and only for later `reach` calls (so a quick lane that lives long neither repeats the wait at every
-   estimate nor keeps an outage). "Does not answer" is: no HTTP answer, a 5xx other than 503, or a 404 of the
-   index (the dataset is not published). A 429 or a 503 is an answer: the mirror is there and busy, the source
-   is used, and the download's own retries deal with it. A source that does not answer counts as unavailable
+   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts. An index it gets is kept as in 2; a
+   failure is remembered for 60 s, and only for later `reach` calls (so a quick lane that lives long neither
+   repeats the wait at every estimate nor keeps an outage). "Does not answer" is: no HTTP answer, any 5xx (a 503
+   too: the mirror itself refuses only with 429, so a 503 comes from the proxy in front and means the mirror
+   behind it is not reachable), or a 404 of the index (the dataset is not published). A 429 is an answer: the
+   mirror is there and busy, the source is used, and the download's own retries deal with it. A source that does
+   not answer counts as unavailable
    with "the data copy at <host> does not answer" (or its status), also when the cache holds every tile (U7):
    `--source auto` takes the next source as today, a source named by `--source` is an error as today.
    Who passes `reach=True`, and nobody else:
@@ -525,8 +527,8 @@ null and beyond-extent tiles make no request (the server's request list is asser
 error and leaves no row and no file; a tile, then an index, with a wrong hash; a swap between index and tile
 (old index, new tiles) heals by one refetch; the index 404 for a moment heals after the pause; `partial` goes to
 the next base; the server down at the first planning: unreachable with the reason within the timeouts (the
-test's clock is the timeout's value, never a wait), `auto` falls back, a named source raises; a 429 or 503 at
-the start check is "answers"; a remembered failure expires after 60 s and an index after 300 s of the patched
+test's clock is the timeout's value, never a wait), `auto` falls back, a named source raises; a 429 at the
+start check is "answers" and a 503 is "does not answer"; a remembered failure expires after 60 s and an index after 300 s of the patched
 clock; a later phase with the mirror down and the tiles cached completes on the first phase's source, with the
 search's hash and `run.json`'s `source` as the user gave it; a job that fell back in its first phase computes on
 the fall-back's source although the mirror is back; down in the middle: the phase's error, and a second run
@@ -691,7 +693,7 @@ V4's answers; no agent starts without the host name.
 Wave 1's three agents touch no common file. The publish tests are skipped in CI until wave 2 installs rclone
 there; the publish agent runs them on the PC. Effort: A medium, B medium, C high (the search's source choice
 across phases, results pinned), D medium. Every build passes the scope reviewer and the code reviewer (high for
-C). Milestones that come first in the briefs: B proves its four rclone commands on a throw-away SFTP server; C
+C). Milestones that come first in the briefs: B proves its rclone commands on a throw-away SFTP server; C
 traces the two phases in `jobs.py` and writes the later-phase test before the change.
 
 Two merges into `main`, each on the user's word: first this specification with `tools/mirror_sizes.py` (the
@@ -718,14 +720,23 @@ Follow-ups, not part of the build's definition of done:
 7. Batch 6 (planned in its own task, 2026-11-15) with the same tool when its tiles are cut: datasets at a native
    0.5 m (a "0.5m" folder: A.2's pattern serves it; tiles of an estimated 22 MB, about 6 s at a visitor's rate and
    still within the in-memory download), several products under one dataset folder with one card, folders with
-   a hyphen in their name. Wallonia can be published. Hong Kong cannot as far as its terms were read: it stays a
-   dataset of the local folder, and the site would have it only with a local copy on the VPS, an exception to U4
-   that the user decides then. Each new dataset needs its `PUBLISHABLE` row with the user's approval, and the
-   storage for it (Wallonia an estimated 90 GB per model).
+   a hyphen in their name. By that task's reading of the terms (2026-11-15): Wallonia, Valle d'Aosta's surface
+   model, Saint Vincent, South Australia and the Australian Capital Territory can be published on a licence;
+   Madeira's other islands rest on the same catalogue statement as Madeira; New South Wales cannot be published
+   until its owner answers; Hong Kong cannot, and is planned as an ordinary on-demand source, so it needs no
+   mirror dataset. A dataset that cannot be published and is kept as an own copy would reach the site only by a
+   local copy on the VPS, an exception to U4 that the user decides then. Each new dataset needs its
+   `PUBLISHABLE` row with the user's approval, and the storage for it (Wallonia an estimated 90 GB per model).
 
 ## 12. Definition of done
 
-The build is done when every line holds; each names its test or command.
+**The first merge** (this specification, `tools/mirror_sizes.py`, the roadmap's line) is done when:
+- [ ] `pytest tests/test_mirror_sizes.py tests/test_entry_points.py tests/test_instructions.py` green, and the
+      full pytest on the squash tree (with the viewer's packages installed in that tree, so its tests run);
+- [ ] `docs/code-map/tools.md` has the tool's section; the squash's message has the stored-data line ("none");
+- [ ] the scope review's and the builder's read's last rounds are answered in the text, and the user gave the word.
+
+The build is done when every line below holds; each names its test or command.
 
 **The mirror stack (A)**
 - [ ] `pytest tests/test_mirror_deploy.py` green.
