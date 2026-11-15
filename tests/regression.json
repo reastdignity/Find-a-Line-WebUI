@@ -322,6 +322,10 @@
       "water"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 2804,
       "open": 2407,
@@ -545,6 +549,10 @@
       "sk"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 62990,
       "open": 2556,
@@ -888,6 +896,10 @@
       "sk"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 313277,
       "open": 13200,
@@ -1950,6 +1962,9 @@
       "pt"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "madeira/dtm/2m"
+    ],
     "expected": {
       "anchors": 94845,
       "open": 31107,
@@ -1980,6 +1995,9 @@
       "it"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "aosta/dtm/2m"
+    ],
     "expected": {
       "anchors": 111409,
       "open": 9857,
