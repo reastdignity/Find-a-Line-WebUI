@@ -91,9 +91,10 @@ def test_the_whole_list_by_continent(settings):
 
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
-        assert groups == {"group-europe": "Europe (47)", "group-north-america": "North America (12)",
-                          "group-oceania": "Oceania (4)", "group-south-america": "South America (1)"}
-        assert len(app.area_rows()) == 64
+        assert groups == {"group-asia": "Asia (1)", "group-europe": "Europe (52)",
+                          "group-north-america": "North America (13)", "group-oceania": "Oceania (4)",
+                          "group-south-america": "South America (2)"}
+        assert len(app.area_rows()) == 72
     _drive(app, body)
 
 
