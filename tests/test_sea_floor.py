@@ -87,7 +87,7 @@ def test_the_default_of_a_layer():
     floored = {s.id: layer.nodata_below for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt)
                if layer is not None and layer.nodata_below is not None}
     assert floored == {"france_guadeloupe": -1.0, "france_martinique": -1.0, "france_guiana": -1.0,
-                       "france_spm": -1.0, "france_reunion_rgealti": -1.0}
+                       "france_spm": -1.0, "france_reunion_rgealti": -1.0, "france_mayotte": -1.0}
     assert src.WATER_MASK.nodata_below is None
     for layer in (france.FR_RGEALTI, france.FR_MNT, france.FR_MNS, france.REU_MNT, france.REU_MNS):
         assert layer.nodata_below is None
@@ -106,7 +106,7 @@ def _serve(server, layer, tile, values, nodata):
     server.add(f"/wms-r/wms?{urlencode(layer.reader.getmap_params(request))}", body, "image/geotiff")
 
 
-@pytest.mark.parametrize("sid", ["france_martinique", "france_guadeloupe"])
+@pytest.mark.parametrize("sid", ["france_martinique", "france_mayotte"])
 def test_the_catalogues_layers_fresh_and_cached(http_server, tmp_path, monkeypatch, sid):
     """A served answer with the sea floor in it, through the catalogue's own layer (only the service's address
     replaced): the tile is cached as it came (the floor is not written: a tile cached before it existed is the same

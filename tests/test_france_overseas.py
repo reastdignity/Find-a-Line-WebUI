@@ -29,7 +29,8 @@ SINT_MAARTEN = (493632.5, 1993504.5)
 OVERSEAS = {"france_guadeloupe": ("RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS", "EPSG:32620", (0.5, 0.5)),
             "france_martinique": ("RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS", "EPSG:32620", (0.5, 0.5)),
             "france_guiana": ("RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS", "EPSG:2972", (0.0, 0.0)),
-            "france_spm": ("RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS", "EPSG:4467", (0.5, 0.5))}
+            "france_spm": ("RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS", "EPSG:4467", (0.5, 0.5)),
+            "france_mayotte": ("RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS", "EPSG:4471", (0.5, 0.5))}
 
 
 @pytest.fixture
@@ -72,7 +73,8 @@ def test_the_overseas_layers():
 
 # Per layer the recorded 32 m box on its declared pixel edges: (source, the answer at 1 m, at 0.5 m, its corner)
 ALIGNMENT = [("france_guadeloupe", 1, 2, SOUFRIERE), ("france_martinique", 4, 5, (704544.5, 1626528.5)),
-             ("france_guiana", 6, 7, (359168.0, 539520.0)), ("france_spm", 8, 9, (562592.5, 5181024.5))]
+             ("france_guiana", 6, 7, (359168.0, 539520.0)), ("france_spm", 8, 9, (562592.5, 5181024.5)),
+             ("france_mayotte", 17, 18, (510848.5, 8596032.5))]
 
 
 def test_the_alignment_recordings_are_the_layers_requests():
@@ -294,6 +296,28 @@ def test_the_reunion_chain_in_action(http_server, tmp_path, monkeypatch):
     assert counts[0][1] + counts[1][1] == z.size and int(east.sum()) * grid.height <= counts[1][1]
 
 
+def test_mayottes_shore_floored(service, tmp_path, monkeypatch):
+    """A recorded answer of Mayotte's shore through the catalogue's own reader and its floor: the tile is written as it
+    came (the sea floor in it); read onto the grid, below -1 m is no data, -1 m and the water above it and the land are
+    kept (the floor of every overseas RGE ALTI layer, OVERSEAS_FLOOR)."""
+    from grid import make_grid
+    from sources.readers.wmsr import MapRequest
+    layer = src.SOURCES["france_mayotte"].nmt
+    assert layer.nodata_below == france.OVERSEAS_FLOOR == -1.0
+    monkeypatch.setattr(layer.reader, "service_url", service.url("/wms-r/wms"))
+    x, y = 525344.5, 8587552.5
+    path = str(tmp_path / "shore.tif")
+    assert layer.reader.fetch(MapRequest(x, y, x + 32, y + 32, 32, 32), path).received > 0
+    raw, _ = _answer(19)
+    with rio.open(path) as cached:
+        assert same_tile(cached.read(1, masked=True).astype(np.float32).filled(np.nan), raw)
+    grid = make_grid((x, y, x + 32, y + 32), 1.0, "EPSG:4471", (0.5, 0.5))
+    z = np.asarray(src.mosaic.build_mosaic([path], grid, str(tmp_path / "m.npy"), "t", below=layer.nodata_below))
+    assert ((raw < -1).sum(), (raw == -1).sum()) == (778, 1)
+    assert np.array_equal(np.isnan(z), raw < -1)
+    assert np.allclose(z[raw >= -1], raw[raw >= -1], atol=0.0051)
+
+
 def test_the_reunion_sources():
     """france_reunion: the island's LiDAR HD on a grid with edges on whole metres, gaps from its RGE ALTI, then
     FABDEM / Copernicus; the filler a source of its own, on its half-metre edges, with no coverage of its own."""
@@ -321,7 +345,7 @@ PLACES = [(16.044, -61.664, "fr", "france_guadeloupe"), (17.90, -62.83, "fr", "f
           (14.705, -61.100, "fr", "france_martinique"), (4.93, -52.33, "fr", "france_guiana"),
           (46.78, -56.18, "fr", "france_spm"), (47.05, -56.38, "fr", "france_spm"),
           (-21.11, 55.53, "fr", "france_reunion"), (-21.373, 55.715, "fr", "france_reunion"),  # Cap Méchant
-          (-12.78, 45.23, "fr", "europe"),  # Mayotte: not declared
+          (-12.78, 45.23, "fr", "france_mayotte"), (-12.70, 45.10, "fr", "france_mayotte"),  # Mayotte
           (43.7655, 6.3580, "fr", "france")]
 
 
@@ -331,7 +355,6 @@ def test_the_source_of_a_place(monkeypatch, tmp_path, lat, lon, code, expected):
     assert src.choose.choose_source("auto", lat, lon, str(tmp_path))[0].id == expected
 
 
-# Mayotte's "europe" offline is europe for want of any box, not of a lookup: every "fr" place but Mayotte
 @pytest.mark.parametrize("lat, lon, code, expected", [p for p in PLACES if p[2] == "fr" and p[3] != "europe"])
 def test_the_source_of_a_place_offline(monkeypatch, tmp_path, lat, lon, code, expected):
     def offline(*args, **kwargs):

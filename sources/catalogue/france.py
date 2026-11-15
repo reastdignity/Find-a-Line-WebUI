@@ -172,6 +172,13 @@ OVERSEAS: List[Source] = [
                                 "EPSG:4467", HALF_METRE), "EPSG:4467", HALF_METRE, (46.74, 47.15, -56.53, -56.11),
               ((46.74, 47.15, -56.53, -56.11),), (46.7800, -56.1800),  # Saint-Pierre
               ("pm",), "Saint-Pierre-et-Miquelon (France)"),
+    # Mayotte (Nominatim's zoom 3: "fr"): RGE ALTI 1 m in RGM04 / UTM 38S (EPSG:4471; the answers name EPSG:5629,
+    # "Moznet / UTM 38S", a wrong tag: forced), centimetres, the lagoon -99999; heights SHOM 1953, layer of 2015
+    _overseas("france_mayotte", "Mayotte", "Mayotte",
+              _rgealti_overseas("myt", "Mayotte", "RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS", "EPSG:4471",
+                                HALF_METRE), "EPSG:4471", HALF_METRE, (-13.02, -12.62, 44.96, 45.32),
+              ((-13.02, -12.62, 44.96, 45.32),), (-12.7000, 45.1000),
+              ("fr-yt",), "Mayotte (France)"),
 ]
 
 
