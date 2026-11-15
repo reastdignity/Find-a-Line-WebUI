@@ -351,10 +351,26 @@ def test_plan_walks_every_page_and_keeps_the_newest_version(fake, tmp_path):
     assert {ua for _, _, ua in fake.log} == {cf.AGENT}
 
 
+def test_every_search_is_paced(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "SEARCH_PAUSE", 5.0)
+    mainland(fake, 3)
+    fake.add("ACORES-MDE-1", "2024_SMG_PDL_31-2-3-4_01_MDE")
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm", "ACORES-MDE-1") == 0
+    assert len(fake.searches) == 3 and len(fake.waits) == 2 and all(4 < w <= 5 for w in fake.waits)
+
+
 def test_sheet_of_the_id_forms():
     assert cf.sheet_of("MDT-50cm", "MDT-50cm-090203-07-2024", "03")[1:] == ("090", 3, 2024)
     assert cf.sheet_of("ACORES-MDS-1", "2024_SMG_PDL_27-1-4-5_01_MDS", None)[1:] == ("SMG", 1, 2024)
     assert cf.sheet_of("X", "odd", "x") == (("X", "odd"), "other", 0, 0)
+    # a sheet over a municipal border names each municipality; some sheet names hold an underscore (2026-11-15)
+    assert cf.sheet_of("ACORES-MDE-1", "2024_SMG_LAG_RBG_VFC_33-1-4-1_02_MDE", None) == (
+        ("ACORES-MDE-1", "SMG", "33-1-4-1"), "SMG", 2, 2024)
+    assert cf.sheet_of("ACORES-MDE-1", "2024_GRA_SCG_21A-4_1-4_01_MDE", None)[0] == ("ACORES-MDE-1", "GRA", "21A-4_1-4")
+    assert cf.sheet_of("ACORES-MDS-1", "2024_TER_PRV_22A-4-5-3_01_MDS", None)[:2] == (
+        ("ACORES-MDS-1", "TER", "22A-4-5-3"), "TER")
+    assert cf.sheet_of("MDT-50cm", "MDT-50cm-213442-07-2025", "02")[0] != \
+        cf.sheet_of("MDT-50cm", "MDT-50cm-213442-09-2024", "02")[0]  # two blocks' surveys: both kept
 
 
 # fetch

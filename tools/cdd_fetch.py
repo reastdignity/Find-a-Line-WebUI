@@ -58,6 +58,7 @@ On a home server, the script in its own folder with an env file `cdd.env` beside
         command: python cdd_fetch.py fetch
         restart: "no"
         stop_grace_period: 60s
+        # user: "<uid>:<gid>"        # the folder's owner, if the files should not belong to root
 
 `plan` runs once before (`docker run --rm -v ...:/work -w /work python:3.12-slim python cdd_fetch.py plan`),
 `status` any time; `fetch-list wallonia` is the same service with that command.
@@ -281,6 +282,7 @@ class Http:
         self.jar = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.opener.addheaders = [("User-Agent", AGENT)]
+        self.searched = -1e9
 
     def open(self, url, data=None, headers=None):
         """The answer (an HTTPError is an answer too; a network error raises BadFile); the caller closes it."""
@@ -297,6 +299,11 @@ class Http:
         return answer
 
     def json(self, url, body):
+        """A search: at least SEARCH_PAUSE after the previous one."""
+        pause = SEARCH_PAUSE - (time.monotonic() - self.searched)
+        if pause > 0:
+            _wait(pause)
+        self.searched = time.monotonic()
         answer = self.open(url, json.dumps(body).encode(), {"Content-Type": "application/json",
                                                             "Accept": "application/json"})
         with answer:
@@ -318,8 +325,8 @@ class Http:
 # Planning
 
 MAINLAND = re.compile(r"(?P<product>MD[TS])-50cm-(?P<sheet>\d{6})-(?P<block>\d{2})-(?P<year>\d{4})")
-AZORES = re.compile(r"(?P<year>\d{4})_(?P<island>[A-Z]{3})_(?P<place>[A-Z]{3})_(?P<sheet>[\d-]+)_(?P<version>\d{2})"
-                    r"_(?P<product>MDE|MDS)")
+AZORES = re.compile(r"(?P<year>\d{4})_(?P<island>[A-Z]{3})_(?P<places>(?:[A-Z]{3}_){1,6})(?P<sheet>[0-9A-Z][0-9A-Z_-]*?)"
+                    r"_(?P<version>\d{2})_(?P<product>MDE|MDS)")
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,200}")
 
 
@@ -328,14 +335,16 @@ def sheet_of(collection, item_id, version):
     then version) is fetched. Mainland ids are MD?-50cm-<sheet>-<block>-<year> with the version in the item's
     properties ("01".."03"); the key holds the block: on 2026-11-15 nine sheets had two items, of two blocks and
     years (213437-213442: block 07 of 2025 and block 09 of 2024, of different sizes), both kept (the older may
-    cover what the newer lacks). Azores ids are <year>_<island>_<place>_<sheet>_<version>_<product>."""
+    cover what the newer lacks). Azores ids are <year>_<island>_<places>_<sheet>_<version>_<product>, with one to
+    four municipalities (a sheet over a border names each) and sheets like 31-2-3-4, 22A-4-5-3 or 21A-4_1-4; the key
+    is the island and the sheet (all 2024, version 01 on 2026-11-15)."""
     match = MAINLAND.fullmatch(item_id)
     if match:
         return ((collection, match["sheet"], match["block"]), match["sheet"][:3],
                 int(version) if (version or "").isdigit() else 0, int(match["year"]))
     match = AZORES.fullmatch(item_id)
     if match:
-        return ((collection, match["island"], match["place"], match["sheet"]), match["island"],
+        return ((collection, match["island"], match["sheet"]), match["island"],
                 int(match["version"]), int(match["year"]))
     return (collection, item_id), "other", int(version) if (version or "").isdigit() else 0, 0
 
@@ -357,8 +366,6 @@ def walk(http, collection, bbox, log):
     while body is not None:
         if STOP.is_set():
             raise Stopped()
-        if pages:
-            _wait(SEARCH_PAUSE)
         answer = http.json(SITE + SEARCH, body)
         pages += 1
         matched = (answer.get("context") or {}).get("matched", matched)
