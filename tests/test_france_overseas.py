@@ -219,6 +219,81 @@ def test_the_reunion_sea_is_missing(service, tmp_path, monkeypatch):
     assert not os.path.exists(path)
 
 
+@pytest.mark.parametrize("grid_res, fetched", [(0.5, 0.5), (1.0, 1.0), (2.0, 1.0), (5.0, 1.0), (10.0, 1.0)])
+def test_the_reunion_fetch_resolution(grid_res, fetched):
+    """LiDAR HD is fetched at 0.5 m only for a grid finer than 1 m; at 1, 2, 5 and 10 m the 1 m answers (the
+    service's 2 x 2 means) are cached and averaged further by the mosaic. The RGE ALTI only at 1 m."""
+    from grid import make_grid
+    grid = make_grid((339100, 7662100, 339900, 7662900), grid_res, "EPSG:2975")
+    for layer in (france.REU_MNT, france.REU_MNS):
+        assert layer.index.resolution(grid_res) == fetched
+        assert {t[0] for t in layer.tiles(grid)} == {fetched}
+    assert {t[0] for t in france.REU_RGEALTI.tiles(grid)} == {1.0}
+
+
+def _geotiff(values: np.ndarray, left: float, top: float, res: float, nodata: float) -> bytes:
+    """A GeoTIFF answer as IGN's WMS-R gives one: float32, its nodata, the CRS IGN names (EPSG:32740)."""
+    from rasterio.transform import from_origin
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=values.shape[1], height=values.shape[0], count=1, dtype="float32",
+                          crs="EPSG:32740", transform=from_origin(left, top, res, res), nodata=nodata) as dst:
+            dst.write(values.astype(np.float32), 1)
+        return memfile.read()
+
+
+def _serve_tile(server, layer, tile, values, nodata):
+    """The GetMap the catalogue's layer writes for tile, answered by values (the query matched exactly)."""
+    from urllib.parse import urlencode
+    request = layer.index.request(tile)
+    query = urlencode(layer.reader.getmap_params(request))
+    server.add(f"/wms-r/wms?{query}", _geotiff(values, request.left, request.top, (request.right - request.left)
+                                                / request.width, nodata), "image/geotiff")
+
+
+def test_the_reunion_chain_in_action(http_server, tmp_path, monkeypatch):
+    """The catalogue's own layers on served answers: LiDAR HD answers every pixel -9999 (no tile), so the whole grid
+    is a gap; the RGE ALTI filler (france_reunion_rgealti, the first of france_reunion's fallbacks) fills its west
+    half, its east half answered -99999 (no data, never a height); what is left goes to the next fallback (europe:
+    here a local stand-in, as FABDEM is not served)."""
+    from grid import make_grid
+    from test_italy import _File, _local
+    reunion = src.SOURCES["france_reunion"]
+    assert reunion.fallbacks == ["france_reunion_rgealti", "europe"]
+    filler = src.SOURCES[reunion.fallbacks[0]]
+    for layer in (france.REU_MNT, france.REU_MNS, france.REU_RGEALTI):
+        monkeypatch.setattr(layer.reader, "service_url", http_server.url("/wms-r/wms"))
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    grid = make_grid((339100, 7662100, 339900, 7662900), 10.0, reunion.crs, reunion.grid_origin)
+    lidar_tile, rge_tile = (1.0, 339, 7662), (1.0, 339, 7662)
+    assert france.REU_MNT.tiles(grid) == [lidar_tile] and france.REU_RGEALTI.tiles(grid) == [rge_tile]
+    for layer in (france.REU_MNT, france.REU_MNS):
+        _serve_tile(http_server, layer, lidar_tile, np.full((1000, 1000), -9999.0), -9999.0)
+    rge = np.full((1000, 1000), 800.0)
+    rge[:, 500:] = -99999.0
+    _serve_tile(http_server, france.REU_RGEALTI, rge_tile, rge, -99999.0)
+    cache_dir = str(tmp_path / "cache")
+    nmt = src.mosaic.prepare_layer(france.REU_MNT, grid, cache_dir, str(tmp_path / "nmt.npy"), "terrain")
+    assert np.isnan(np.load(nmt)).all()  # all -9999: missing, no tile
+    shape = (grid.height, grid.width)
+    europe = src.Source(id="europe_test", name="europe test", description="e", fallback=None,
+                        credits=(src.FABDEM_CREDIT,),
+                        nmt=_File("fabdem", _local(str(tmp_path / "fabdem.tif"), grid, np.full(shape, 500.0, np.float32))))
+    europe.nmt.credit = src.FABDEM_CREDIT
+    src.mosaic.used_data.clear()
+    try:
+        _, counts = src.filling.fill_gaps_chain(nmt, None, grid, [filler, europe], cache_dir, str(tmp_path / "gap.npy"))
+    finally:
+        src.mosaic.used_data.clear()
+    z = np.load(nmt)
+    assert counts[0][0] is filler and counts[0][1] > 0 and counts[1][1] > 0
+    assert not np.isnan(z).any()
+    # The RGE ALTI's west half (339000.5-339500.5 E): its height, never -99999; the east half from the next fallback
+    west = grid.left + (np.arange(grid.width) + 0.5) * grid.res < 339490
+    east = grid.left + (np.arange(grid.width) + 0.5) * grid.res > 339510
+    assert np.allclose(z[:, west], 800.0) and (z > 0).all()
+    assert counts[0][1] + counts[1][1] == z.size and int(east.sum()) * grid.height <= counts[1][1]
+
+
 def test_the_reunion_sources():
     """france_reunion: the island's LiDAR HD on a grid with edges on whole metres, gaps from its RGE ALTI, then
     FABDEM / Copernicus; the filler a source of its own, on its half-metre edges, with no coverage of its own."""
