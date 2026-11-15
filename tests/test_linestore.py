@@ -157,7 +157,7 @@ def test_store_round_trip(tmp_path, ends, square, by):
     """50 000 lines with the hard floats (halfway cases, NaN, nulls, -0.0 in every integer column, both end
     columns, stands_for): linestore.write, then read gives every value back (round(value, decimals) of the
     scaled ones) and the profiles as helpers.Profiles' dicts; export gives the bytes runs.save_results
-    writes from the LineTable itself, CSV and GeoJSON, with run.json's "store" left out of the GeoJSON."""
+    writes from the LineTable itself, CSV and GeoJSON (run.json's block "store" in its "findaline" part)."""
     rng = np.random.default_rng(5)
     n = 50_000
     lines = _hard_lines(n, ends, square, rng)
@@ -169,8 +169,9 @@ def test_store_round_trip(tmp_path, ends, square, by):
     store = linestore.write(str(folder), lines, head)
     sizes = sum((folder / name).stat().st_size for name in linestore.FILES)
     assert store["format"] == 1 and store["lines"] == n and store["bytes"] == sizes and len(store["sha256"]) == 16
+    meta["store"] = store
     with open(folder / "run.json", "w", encoding="utf-8") as f:
-        json.dump({**meta, "store": store}, f, ensure_ascii=False, indent=2)
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
     back, got_head = linestore.read(str(folder))
     assert json.dumps(got_head) == json.dumps(head)  # NaN as NaN
@@ -220,7 +221,7 @@ def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
                              "bytes": sum((folder / n).stat().st_size for n in linestore.FILES)}
     import hashlib
     assert meta["store"]["sha256"] == hashlib.sha256((folder / linestore.LINES_FILE).read_bytes()).hexdigest()[:16]
-    assert b'"store"' not in (folder / "lines.geojson").read_bytes()
+    assert b'"store": {"format": 1' in (folder / "lines.geojson").read_bytes()  # run.json's, as the export
 
 
 def test_store_schema(tmp_path):

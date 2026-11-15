@@ -417,14 +417,14 @@ EXPORTS = {"csv": "lines.csv", "geojson": "lines.geojson"}
 def export(run_path: str, fmt: str, out: str):
     """lines.csv (fmt "csv") or lines.geojson ("geojson") of a run made from its store into the file
     `out`: the lines grouped as the search grouped them (mapping.group_lines with run.json's distance
-    and value), written by runs.save_results with run.json without its "store" (the block the text
-    files never held), so the bytes are those the run's own text file holds."""
+    and value), written by runs.save_results with run.json's values (lines.geojson's "findaline", its
+    block "store" too, as search.save_run wrote it), so the bytes are those the run's own text file
+    holds."""
     import mapping as mp
     if fmt not in EXPORTS:
         raise ValueError(f"no export of the format {fmt!r}")
     with open(os.path.join(run_path, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
-    meta.pop("store", None)
     params = meta.get("params") or {}
     lines, _ = read(run_path, profiles=False)
     groups = mp.group_lines(lines, params["group_distance"], params.get("group_by", "clearance"))

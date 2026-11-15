@@ -311,7 +311,7 @@ rounds to -0.0). `write(run_path, lines, head)` → run.json's block `store` (fo
 2^53, a NaN where none may miss, a count beyond uint32) raises instead of being written wrong. `read(run_path,
 profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
-leaving run.json's `store` out: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow only at module
+with run.json's values (its `store` too): the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow only at module
 level (export imports `mapping`, which groups with numba): never imported by the web process
 (`tests/test_linestore.py`)
 
