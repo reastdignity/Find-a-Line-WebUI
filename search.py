@@ -1281,7 +1281,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     if found is None:  # a tile of a large area: nothing here
         return sh.LineTable.empty(), mp.Groups.each_alone(0)
     if core is None and _samples(plan):  # the size before the pairs (a tiled search's: search_lines)
-        progress.set_step(f"{plan.tile_label}Step 3/{STEPS}: estimating the lines")
+        progress.set_step(f"Estimate · Step 3/{STEPS}: estimating the lines")  # the page's phase (useJobs.ts)
         table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
         estimate, variance, _, _ = sample_estimate(plan, data, found, None, table, 0)
         _estimate_check(plan, estimate, math.sqrt(variance), grid.width * grid.height)
@@ -1883,9 +1883,21 @@ def sample_estimate(plan: Plan, data: Data, found: Anchors, core: Optional[tuple
     return counted[0] * (n / k), variance, k, n
 
 
-def _millions(n: int):
-    """A number of lines in millions as the estimate's texts show it: two significant digits (3.2, 24, 0.45)."""
-    return float(f"{n / 1e6:.2g}") if n > 0 else 0
+def _lines_text(n: int, unit: bool = True) -> str:
+    """A number of lines as the estimate's texts show it, to two significant digits: under a million a plain
+    number with a space between the thousands ("42 000", "870"), from a million in millions ("3.2 million",
+    "24 million"; the number alone with unit False). The page shows these strings as they are."""
+    rounded = int(float(f"{max(0, int(n)):.2g}"))
+    if rounded >= 1_000_000:
+        return f"{float(f'{rounded / 1e6:.2g}'):g}" + (" million" if unit else "")
+    return f"{rounded:,}".replace(",", " ")
+
+
+def _shown(n: int, lo: int, hi: int) -> Dict[str, object]:
+    """The parameters of an estimate in its texts: the numbers (n, lo, hi) and their words (about, low, high:
+    "About 3.2 million lines (2.6 to 3.9 million)", "About 42 000 lines (38 000 to 46 000)")."""
+    both = int(float(f"{max(0, lo):.2g}")) >= 1_000_000  # both ends in millions: the word once, after the second
+    return dict(n=n, lo=lo, hi=hi, about=_lines_text(n), low=_lines_text(lo, unit=not both), high=_lines_text(hi))
 
 
 def _estimate_check(plan: Plan, estimate: float, se: float, pixels: int):
@@ -1902,27 +1914,25 @@ def _estimate_check(plan: Plan, estimate: float, se: float, pixels: int):
     plan.funnel["estimate"] = n
     lines_max = plan.limits.lines_max if plan.limits else None
     fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES)) if plan.memory is not None else None
-    shown = dict(n=n, lo=lo, hi=hi, count=_millions(n), low=_millions(lo), high=_millions(hi))
+    shown = _shown(n, lo, hi)
     if lines_max and estimate > REFUSE_FACTOR * lines_max:
         advice = messages.line_advice(plan.params)
         raise SearchError(f"about {n} lines ({lo} to {hi}) estimated from a sample before the search's pairs, at "
                           f"most {lines_max} on this site; {messages.advice_cli(advice)}", "too_many_lines_estimate",
-                          **shown, max=lines_max, limit=_millions(lines_max), advice=advice)
+                          **shown, max=lines_max, limit=_lines_text(lines_max), advice=advice)
     if fits is not None and estimate > REFUSE_FACTOR * fits:
         advice = messages.line_advice(plan.params)
         raise SearchError(f"about {n} lines ({lo} to {hi}) estimated from a sample before the search's pairs, at "
                           f"most {fits} fit into the memory of this site; {messages.advice_cli(advice)}",
-                          "too_many_lines_memory_estimate", **shown, max=fits, limit=_millions(fits), advice=advice)
-    if n < 100_000:  # the text of fewer than 0.1 million lines (the plural form "_zero")
-        shown["count"] = 0
+                          "too_many_lines_memory_estimate", **shown, max=fits, limit=_lines_text(fits), advice=advice)
     plan.emit("info", messages.Note(f"About {n} lines ({lo} to {hi}) with these settings, estimated from a "
                                     f"sample before the search's pairs", "estimate_lines", **shown))
     close = [limit for limit in (lines_max, fits) if limit is not None and estimate >= ACCEPT_FACTOR * limit]
-    if close:
+    if close and estimate > 0:  # an estimate of no line is close to nothing (a limit of 0: the grids fill the memory)
         limit = min(close)
         plan.emit("warning", messages.Note(f"That is close to the limit of {limit} lines: the search goes on and "
                                            f"stops if it passes it", "estimate_close", max=limit,
-                                           limit=_millions(limit)))
+                                           limit=_lines_text(limit)))
 
 
 def _estimate_tiles(plan: Plan, area: Data):

@@ -145,11 +145,75 @@ def test_a_fraction_of_one_counts_every_line(tmp_path, offline, monkeypatch):
         if not square:
             assert estimate == len(lines.results) == plan.funnel["lines"], (name, estimate, len(lines.results))
         else:  # the kept lines (a tiled search's before their join: the funnel's "lines"); measured 18 577 of
-            # 18 593 in one grid, 6 364 of 6 405 in the tiles of 150 m, which cut many pairs of squares
+            # 18 593 in one grid, 6 364 of 6 405 (0.64 % under) in the tiles of 150 m: 1 % there, not the 0.1 % of
+            # one grid, because small tiles carry a larger share of squares cut by a core edge, whose keys a tile
+            # sees only from their second square (part M2 measured 0.013 % on GZ1, up to 0.69 % on DOL and 1.14 % on
+            # BEL with tiles of kilometres)
             kept = plan.funnel["lines"]
             assert share * kept <= estimate <= kept, (name, estimate, kept)
         del lines
         gc.collect()
+
+
+@pytest.mark.parametrize("square", [0, 5])
+def test_the_estimate_and_its_variance_against_every_unit(tmp_path, offline, square):
+    """sample_estimate's estimate, variance, k and n equal an independent computation from one pair search
+    from every useful anchor of the core (the code review's check): the lines (anchors) or the distinct keys
+    seen from their first square (squares) of each unit, the units drawn by the same generator, and
+    Horvitz-Thompson n² (1 - k/n) s² / k; one grid and a core that cuts squares and the circle."""
+    import contextlib
+    import io
+    import samelines
+    import search
+    plan = _plan(tmp_path, **POINT, **SAG, same_line_square=square)
+    data, found, table = _ready(plan)
+    grid, anchors = plan.grid, found.anchors
+    cx, cy = plan.center_xy
+    for core in (None, (cx - 150.3, cy - 120.7, cx + 130.1, cy + 140.9)):
+        useful = search._open_anchors(plan, data, found, table)
+        if core is not None:
+            x, y = grid.pixel_to_xy(anchors[useful, 0], anchors[useful, 1])
+            useful = useful[(core[0] <= x) & (x < core[2]) & (core[1] <= y) & (y < core[3])]
+        index = {(int(r), int(c)): i for i, (r, c) in enumerate(anchors)}
+        firsts, keys = [], set()
+
+        def sink(part):
+            a1, a2 = np.asarray(part.columns["a1"]), np.asarray(part.columns["a2"])
+            x1, y1 = grid.pixel_to_xy(a1[:, 0], a1[:, 1])
+            x2, y2 = grid.pixel_to_xy(a2[:, 0], a2[:, 1])
+            one = (x1 < x2) | ((x1 == x2) & (y1 <= y2))
+            firsts.extend(index[(int(r), int(c))] for r, c in np.where(one[:, None], a1, a2))
+            if square:
+                xa, ya = np.where(one, x1, x2), np.where(one, y1, y2)
+                ka, kb = samelines.square_keys(xa, ya, np.where(one, x2, x1), np.where(one, y2, y1), plan.square)
+                own = (np.floor(xa / plan.square).astype(np.int64) << 32) + np.floor(ya / plan.square).astype(np.int64)
+                keys.update((a, b) for a, b, m in zip(ka.tolist(), kb.tolist(), (ka == own).tolist()) if m)
+
+        mask = np.zeros(len(anchors), dtype=bool)
+        mask[useful] = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            search._pair_search(dataclasses.replace(plan, funnel={}), data, found, core, table, sink=sink, first=mask)
+        assert np.isin(firsts, useful).all() and len(firsts) > 1000
+        if square:
+            x, y = grid.pixel_to_xy(anchors[useful, 0], anchors[useful, 1])
+            units = np.unique((np.floor(x / plan.square).astype(np.int64) << 32)
+                              + np.floor(y / plan.square).astype(np.int64)).tolist()
+            per = dict.fromkeys(units, 0)
+            for a, _ in keys:
+                per[a] += 1
+            each = np.array([per[u] for u in units], dtype=np.float64)
+        else:
+            each = np.bincount(np.searchsorted(useful, firsts), minlength=len(useful)).astype(np.float64)
+        n, seed = len(each), int(search._search_hash(plan)[:8], 16)
+        for fraction in (0.02, 0.25):
+            k = max(1, int(round(fraction * n)))
+            drawn = each[np.random.default_rng([seed, 3]).permutation(n)[:k]]
+            expect, variance = drawn.sum() * n / k, n ** 2 * (1 - k / n) * drawn.var(ddof=1) / k
+            got = search.sample_estimate(plan, data, found, core, table, 3, fraction=fraction, seed=seed)
+            assert got[2:] == (k, n) and variance > 0, (got, k, n)
+            assert abs(got[0] - expect) <= 1e-6 * expect and abs(got[1] - variance) <= 1e-6 * variance, (got, expect, variance)
+    del data
+    gc.collect()
 
 
 @pytest.mark.parametrize("square", [0, 5])
@@ -249,45 +313,61 @@ def test_no_sample_without_limits_or_the_early_stop(tmp_path, offline, monkeypat
 def test_the_worker_tells_the_estimate(tmp_path, offline, monkeypatch):
     """The web worker (jobs.run_phase on the public site): a job far over the line limit fails with the
     estimate's refusal, its page's text and code; one under it gets the note of the estimate as an event in
-    the page's words, and the estimate beside the lines in the funnel (job_funnel)."""
+    the page's words, and the estimate beside the lines in the funnel (job_funnel). The estimate's two
+    disagreements can be counted: a job it refused keeps its estimate ("refused_estimate"), a job it let go on
+    that the early check refused keeps its estimate and the lines it stopped at ("refused_after_estimate",
+    "refused_lines"); neither writes the finished searches' FUNNEL_STEPS."""
     import sqlite3
     import jobs as jb
     import osm
     import progress
+    import search
     from settings import Limits
     monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase in this process: what it changes is put back
     monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
     monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
     monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
+    seen = _estimates(monkeypatch)
     jobs = jb.Jobs(str(tmp_path), public=True)
     request = {"params": {"elevation_file": CLIP, "water": "off", "fill_gaps": "off", "nmpt": "off", "ortho": "never",
                           **POINT}, "geometry": None}
     rows = {}
-    for name, lines_max in (("refused", 10), ("accepted", 1_000_000)):
+    for name, lines_max, factor in (("refused", 10, search.REFUSE_FACTOR), ("accepted", 1_000_000, search.REFUSE_FACTOR),
+                                    ("stopped", 10, float("inf"))):  # the estimate lets it go on: the early check stops it
+        monkeypatch.setattr(search, "REFUSE_FACTOR", factor)
         limits = Limits(lines_max=lines_max)
         job = jobs.add(request, name, user_id=7)
         jobs.claim("queued", "downloading", "w1")
         jb.run_phase(str(tmp_path), job, "download", limits, True)
         jobs.claim("ready", "computing", "w1")
         jb.run_phase(str(tmp_path), job, "compute", limits, True)
-        rows[name] = (jobs.get(job), [e["data"] for e in jobs.events(0, job) if e["kind"] in ("info", "warning")])
+        db = sqlite3.connect(tmp_path / "jobs.sqlite")
+        funnel = dict(db.execute("SELECT step, count FROM job_funnel WHERE job_id = ?", (job,)).fetchall())
+        db.close()
+        rows[name] = (jobs.get(job), [e["data"] for e in jobs.events(0, job) if e["kind"] in ("info", "warning")],
+                      funnel, int(round(seen[-1][0])))
         gc.collect()
-    row, said = rows["refused"]
+    row, said, funnel, estimate = rows["refused"]
     assert row["status"] == "failed" and json.loads(row["error_info"])["code"] == "too_many_lines_estimate", row
-    assert row["error"].startswith("About ") and "million on this site. To find fewer lines" in row["error"], row
-    row, said = rows["accepted"]
+    assert row["error"].startswith("About ") and "at most 10 on this site. To find fewer lines" in row["error"], row
+    assert funnel == {"refused_estimate": estimate} and estimate > 12, funnel
+    row, said, funnel, estimate = rows["stopped"]
+    info = json.loads(row["error_info"])
+    assert row["status"] == "failed" and info["code"] == "too_many_lines_early", row
+    assert funnel == {"refused_after_estimate": estimate, "refused_lines": info["params"]["n"]} and estimate > 12
+    assert info["params"]["n"] > 10, funnel
+    row, said, funnel, estimate = rows["accepted"]
     assert row["status"] == "done", row["error"]
-    estimate = [text for text in said if "lines with these settings." in text]
-    assert len(estimate) == 1 and "--" not in estimate[0] and "estimated" not in estimate[0], said
-    db = sqlite3.connect(tmp_path / "jobs.sqlite")
-    funnel = dict(db.execute("SELECT step, count FROM job_funnel WHERE job_id = ?", (row["id"],)).fetchall())
-    db.close()
-    assert funnel["estimate"] > 0 and funnel["lines"] > 0, funnel
+    notes = [text for text in said if text.startswith("About ") and text.endswith(" with these settings.")]
+    assert len(notes) == 1 and "--" not in notes[0] and "estimated" not in notes[0], said
+    assert notes[0] == f"About {search._lines_text(estimate)} lines (" + notes[0].split(" lines (")[1], notes
+    assert set(funnel) == set(jb.FUNNEL_STEPS) and funnel["estimate"] == estimate and funnel["lines"] > 0, funnel
 
 
 def test_the_estimates_texts(monkeypatch):
-    """The texts of the estimate (spec-search.md 2.2, "Seen"): the page's in millions of two digits, the
-    note of a search under 0.1 million, the warning that it is close, both refusals with the advice."""
+    """The texts of the estimate (spec-search.md 2.2, "Seen"): two significant digits, in millions from a
+    million, plain numbers below (never an exponent or a fraction of a million), the warning that it is close
+    (none for an estimate of no line), both refusals with the advice."""
     from types import SimpleNamespace
     import messages
     import params as pm
@@ -307,16 +387,22 @@ def test_the_estimates_texts(monkeypatch):
     assert [text.web_text() for _, text in events] == [
         "About 1.5 million lines (1.3 to 1.7 million) with these settings.",
         "That is close to this site's limit of 1.5 million: the search goes on and stops if it passes it."]
-    assert events[1][0] == "warning" and events[1][1].params == {"max": 1_500_000, "limit": 1.5}
-    events.clear()
-    search._estimate_check(plan, 42_000, 9_000, 0)
-    assert [text.web_text() for _, text in events] == ["Fewer than 0.1 million lines with these settings."]
+    assert events[1][0] == "warning" and events[1][1].params == {"max": 1_500_000, "limit": "1.5 million"}
+    shown = []
+    for estimate, se in ((42_312, 1_800), (870, 400), (987_000, 150_000), (0, 0)):
+        events.clear()
+        search._estimate_check(plan, estimate, se, 0)
+        shown += [text.web_text() for _, text in events]
+    assert shown == ["About 42 000 lines (39 000 to 46 000) with these settings.",
+                     "About 870 lines (70 to 1 700) with these settings.",
+                     "About 990 000 lines (690 000 to 1.3 million) with these settings.",
+                     "About 0 lines (0 to 0) with these settings."]
     with pytest.raises(search.SearchError) as error:
         search._estimate_check(plan, 24_300_000, 1_700_000, 0)
     advice = messages.line_advice(plan.params)
     assert error.value.code == "too_many_lines_estimate" and error.value.params == {
-        "n": 24_300_000, "lo": 20_900_000, "hi": 27_700_000, "count": 24, "low": 21, "high": 28, "max": 1_500_000,
-        "limit": 1.5, "advice": advice}
+        "n": 24_300_000, "lo": 20_900_000, "hi": 27_700_000, "about": "24 million", "low": "21", "high": "28 million",
+        "max": 1_500_000, "limit": "1.5 million", "advice": advice}
     assert error.value.web_text() == ("About 24 million lines (21 to 28 million) with these settings, at most "
                                       f"1.5 million on this site. {messages.advice_text(advice)}")
     assert "--same-line-square 5; --end-zone 0;" in str(error.value)
@@ -326,32 +412,94 @@ def test_the_estimates_texts(monkeypatch):
     assert error.value.code == "too_many_lines_memory_estimate" and error.value.params["max"] == 2_000_000
     assert error.value.web_text().startswith("About 2.6 million lines (2.4 to 2.8 million) with these settings, "
                                              "at most 2 million fit into the memory of this site. To find fewer")
+    # a small memory (the grids and 40 lines; then the grids alone): whole numbers, no limit of 0
+    texts = []
+    for lines, estimate in ((40, 120), (40, 35), (0, 0)):
+        events.clear()
+        plan.memory = int(search.memory_needed(1000, lines))
+        try:
+            search._estimate_check(plan, estimate, estimate / 4, 1000)
+        except search.SearchError as refused:
+            events.append(("error", refused))
+        texts += [text.web_text() for _, text in events]
+    assert texts == ["About 120 lines (60 to 180) with these settings, at most 40 fit into the memory of this site. "
+                     + messages.advice_text(advice),
+                     "About 35 lines (18 to 52) with these settings.",
+                     "That is close to this site's limit of 40: the search goes on and stops if it passes it.",
+                     "About 0 lines (0 to 0) with these settings."]
+    assert not [t for t in texts + shown if "e-" in t or "0 million" in t or "0." in t.split(" lines")[0]]
+
+
+def _node_ready() -> bool:
+    import shutil
+    return shutil.which("node") is not None and os.path.isdir(os.path.join(REPO, "viewer", "node_modules", "esbuild"))
 
 
 def test_the_estimates_texts_in_the_page(tmp_path):
     """The page renders the estimate's notes and refusals as the server writes them (viewer/src/i18n.ts
-    errorText, detailMessage): the millions, the plural form of fewer than 0.1 million, the advice."""
-    import shutil
+    errorText, detailMessage): the same words for the same values, in millions and below, with the advice."""
     from types import SimpleNamespace
     import messages
     import params as pm
     import search
     from settings import Limits
-    viewer = os.path.join(REPO, "viewer")
-    if shutil.which("node") is None or not os.path.isdir(os.path.join(viewer, "node_modules", "esbuild")):
+    if not _node_ready():
         pytest.skip("needs Node and `npm install` in viewer/")
     from test_viewer import run_ts
-    plan = SimpleNamespace(limits=Limits(lines_max=1_500_000), memory=None, funnel={}, emit=lambda kind, text: None,
+    infos = []
+    plan = SimpleNamespace(limits=Limits(lines_max=1_500_000), memory=None, funnel={},
+                           emit=lambda kind, text: infos.append(text.info()),
                            params=pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2))
+    for estimate, se in ((1_300_000, 150_000), (42_312, 1_800), (870, 400)):
+        search._estimate_check(plan, estimate, se, 0)
     with pytest.raises(search.SearchError) as error:
         search._estimate_check(plan, 24_300_000, 1_700_000, 0)
-    cases = [messages.Note("x", "estimate_lines", n=3_215_000, lo=2_575_000, hi=3_855_000, count=3.2, low=2.6,
-                           high=3.9).info(),
-             messages.Note("x", "estimate_lines", n=42_000, lo=24_000, hi=60_000, count=0, low=0.024,
-                           high=0.06).info(),
-             messages.Note("x", "estimate_close", max=1_500_000, limit=1.5).info(), error.value.detail()]
+    plan.limits, plan.memory = None, int(search.memory_needed(1000, 40))
+    with pytest.raises(search.SearchError) as memory:
+        search._estimate_check(plan, 120, 30, 1000)
+    cases = infos + [error.value.detail(), memory.value.detail()]
     found = run_ts(tmp_path, "i18n", f"""
 console.log(JSON.stringify({json.dumps(cases)}.map((d) => m.detailMessage(d, "fallback"))));""")
     python = [messages.text(f"error.{c['code']}", **messages.web_params(c["params"])) for c in cases]
-    assert found == python and found[1] == "Fewer than 0.1 million lines with these settings.", found
-    assert found[3] == error.value.web_text() and "1.5 million on this site. To find fewer lines" in found[3]
+    assert found == python, (found, python)
+    assert found[:4] == ["About 1.3 million lines (1 to 1.6 million) with these settings.",
+                         "That is close to this site's limit of 1.5 million: the search goes on and stops if it passes it.",
+                         "About 42 000 lines (39 000 to 46 000) with these settings.",
+                         "About 870 lines (70 to 1 700) with these settings."]
+    assert found[4] == error.value.web_text() and "1.5 million on this site. To find fewer lines" in found[4]
+    assert found[5].startswith("About 120 lines (60 to 180) with these settings, at most 40 fit into the memory")
+
+
+def test_the_page_shows_the_estimate_as_its_own_phase(tmp_path):
+    """The job page's bar (viewer/src/app/useJobs.ts jobProgress) runs from 0 to 1 over the estimate of a tiled
+    search ("Estimate, tile k/n · Step 2/5", "Step 3/5" of each tile) and of one grid ("Estimate · Step 3/5"),
+    never back within it, and the search's own tiles then start their own bar (a 9-tile search's first tile at
+    its step 2 is near 0, as before)."""
+    import subprocess
+    if not _node_ready():
+        pytest.skip("needs Node and `npm install` in viewer/")
+    viewer = os.path.join(REPO, "viewer")
+    bundle = tmp_path / "useJobs.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/app/useJobs.ts'], bundle: true, "
+                                  f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
+                   cwd=viewer, check=True)
+    steps = [f"Estimate, tile {t}/9 · Step {s}/5: {what}" for t in range(1, 10)
+             for s, what in ((2, "finding significant slopes"), (3, "estimating the lines"))]
+    states = [(step, share) for step in steps for share in (0.0, 0.5, 1.0)]
+    states += [("Estimate · Step 3/5: estimating the lines", share) for share in (0.0, 0.5, 1.0)]
+    states += [("Tile 1/9 · Step 2/5: finding significant slopes", 0.5), ("Step 1/5: preparing the data", 0.5)]
+    script = tmp_path / "progress.cjs"
+    script.write_text(f"""globalThis.document = {{querySelector: () => null}};  // api.ts reads the page's meta tags
+const m = require({json.dumps(str(bundle))});
+const job = (step, share) => ({{id: "j", created: "", status: "computing", title: "t", run_id: null, error: null,
+  finished: null, log: [], step, bars: {{Compute: {{bar: "Compute", stage: "x", count: share * 10, total: 10, unit: "",
+  extra: {{}}, done: false}}}}}});
+console.log(JSON.stringify({json.dumps(states)}.map(([step, share]) => m.jobProgress(job(step, share)).fraction)));
+""", encoding="utf-8")
+    result = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", check=True)
+    fractions = json.loads(result.stdout)
+    tiled, grid, after = fractions[:54], fractions[54:57], fractions[57:]
+    assert tiled[0] == 0 and tiled[-1] == 1 and all(b >= a for a, b in zip(tiled, tiled[1:])), tiled
+    assert abs(tiled[3 * 3 + 1] - (1 + 1.5 / 2) / 9) < 1e-9  # tile 2, step 3, half way: (1 + (1 + 0.5) / 2) / 9
+    assert grid == [0, 0.5, 1]
+    assert abs(after[0] - (1.5 / 5) / 9) < 1e-9 and abs(after[1] - 0.5 / 5) < 1e-9  # the search's own steps as before

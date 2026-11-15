@@ -187,6 +187,13 @@ STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator ta
 # (search._estimate_check: the web worker's; compared with "lines" to watch the estimate)
 FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
                 "left_out", "lines", "estimate")
+# The rows of job_funnel of a search refused for its lines (_write_refusal: a failed search writes none of
+# FUNNEL_STEPS, which stay the finished searches' and the metrics'): the estimate of one the estimate refused, or
+# of one it let go on and the lines the line checks then refused it at (spec-search.md 2.2, "Disagreement")
+REFUSED_STEPS = ("refused_estimate", "refused_after_estimate", "refused_lines")
+ESTIMATE_REFUSALS = ("too_many_lines_estimate", "too_many_lines_memory_estimate")  # search._estimate_check
+LINE_REFUSALS = ("too_many_lines_early", "too_many_lines_memory_early",  # search._early_check, _check_lines
+                 "too_many_lines", "too_many_lines_memory")
 
 
 def request_area(request: Dict):
@@ -1379,6 +1386,25 @@ def _write_statistics(jobs: Jobs, job_id: str, steps: StepClock, funnel: Dict[st
         print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
+def _write_refusal(jobs: Jobs, job_id: str, plan, error: Exception):
+    """The estimate of a search refused for its lines (a failed computing phase writes no FUNNEL_STEPS) into
+    job_funnel, so the estimate's two disagreements can be counted (spec-search.md 2.2): REFUSED_STEPS
+    "refused_estimate" for a search the estimate refused (its estimate), or "refused_after_estimate" and
+    "refused_lines" for one it let go on that the line checks then refused (its estimate, and the lines the
+    refusal counted: the early check's so far, or the exact count). Nothing without an estimate (the command
+    line's, a search refused before it) or for another error; never fails the job."""
+    estimate = plan.funnel.get("estimate") if plan is not None else None
+    code = getattr(error, "code", None)
+    if estimate is None or code not in ESTIMATE_REFUSALS + LINE_REFUSALS:
+        return
+    counts = {"refused_estimate": estimate} if code in ESTIMATE_REFUSALS else \
+        {"refused_after_estimate": estimate, "refused_lines": int(error.params.get("n", 0))}
+    try:
+        jobs.set_funnel(job_id, counts)
+    except Exception as e:  # statistics only
+        print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+
 def _orthophoto_after(jobs: Jobs, job_id: str, plan, spots: List[Dict], limits: Optional[Limits], on_event,
                       steps: StepClock):
     """The orthophoto step of a job done already (run_phase): search.download_orthophoto with the
@@ -1447,6 +1473,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
     paths = search.Paths(data_dir, os.path.join(jobs.folder(job_id), phase))  # removed with the job when killed
     os.makedirs(paths.work, exist_ok=True)
     failed = True
+    plan = None
     try:
         check_disk(data_dir, safeguards, "download" if phase == "download" else "computing")
         if "osm" in request:  # an OpenStreetMap extract: one phase only
@@ -1510,6 +1537,8 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         # ValueError: parameters; a UnicodeError is one too, but of our own texts and files, never the request's
         if isinstance(e, (search.SearchError, ValueError, RuntimeError, requests.RequestException)) \
                 and not isinstance(e, UnicodeError):
+            if isinstance(e, search.SearchError):
+                _write_refusal(jobs, job_id, plan, e)  # the estimate of a search refused for its lines
             jobs.set(job_id, "failed", when=working, error=e)  # the web text of a coded error (Jobs.set)
             failed = False
         else:  # anything else: keep the work folder to look at (not on the public site)
