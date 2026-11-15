@@ -343,7 +343,8 @@ else:
     os.makedirs(run)
     with open(os.path.join(run, "run.json"), "w", encoding="utf-8") as f:
         json.dump({"id": os.path.basename(run)}, f)
-    for file in ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "notes.txt"):
+    for file in ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "lines.arrow",
+                 "profiles.arrow", "notes.txt"):
         with open(os.path.join(run, file), "w", encoding="utf-8") as f:
             f.write(file)
     result = {"complete": True, "lines": 3, "error": None, "run": run}
@@ -754,7 +755,7 @@ def test_run_zabi_kon_clip(tmp_path, model):
     assert back == known
     runs = list((out / "data" / "runs").glob("*/run.json"))  # the saved runs of every place: one data folder
     assert len(runs) == 1 and state["run"] == "data/runs/" + runs[0].parent.name
-    assert not any((runs[0].parent / name).exists() for name in ts.RUN_FILES)  # run.json alone kept
+    assert os.listdir(runs[0].parent) == ["run.json"]  # run.json alone kept: RUN_FILES, the store too, deleted
     assert (out / "data" / "runs" / "runs.js").exists()
     assert not (out / "zk" / "data").exists() and (out / "data" / "runs" / "_viewer").is_dir()
     assert (out / "data" / "cache").is_dir() and not _is_link(out / "data" / "cache")  # --no-cache-link: its own
