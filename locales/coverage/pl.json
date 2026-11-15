@@ -42,6 +42,7 @@
   "note.mixed": "{{fine}} tylko tam, gdzie był nalot; gdzie indziej {{rest}}.",
   "note.old_survey": "Nalot z lat {{years}}: nowszych obrywów nie ma w danych.",
   "note.world": "Znajdzie tylko długie linie nad dużymi urwiskami.",
+  "note.city_only": "Pokryte jest tylko jedno miasto (zaznaczony obszar); poza nim dane mają 30 m.",
   "world.name": "Reszta świata",
   "partly.rest": "Reszta kraju: 30 m. Dokładne dane w:",
   "legend.title": "Dane wysokościowe",

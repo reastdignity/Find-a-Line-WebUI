@@ -11,6 +11,8 @@ which this module relies on:
   slope), the last row the south tile's first. A sample is a pixel centre: the tile's pixel grid starts half a
   resolution west and north of its corner, and the shared last row and column are dropped, so the cached tiles
   meet edge to edge (256 x 256 px, nothing resampled here; the mosaic resamples once onto the working grid).
+- Each sample lies within the service's lercError of its value (tileInfo: DAERA's 0.1 m, IPP's 0.05 m); shared
+  edge samples of two tiles may differ by up to twice that (0.2 m seen in Rio).
 - The LERC1 blob carries a validity mask: the sea and everything outside the survey are invalid samples (a tile
   without any valid sample is a 70-byte blob). GDAL gives invalid samples the value 0.0 unless the open option NDV
   names another, so the blob is decoded with NDV = NO_DATA and those become NaN; valid samples of 0.0 m exist (a

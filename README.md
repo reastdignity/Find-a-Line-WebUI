@@ -112,7 +112,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `mrdem30` | Canada | – | NRCan MRDEM-30 DTM, 30 m | NRCan MRDEM-30 DSM, 30 m | – (no national orthophoto service) | 30 m | – |
 | `slovenia` | Slovenia | SI | ARSO LiDAR DMR 1 m (2011-2015) | – | GURS DOF050 | 1 m | `austria`, `tinitaly` at the border, then `europe` |
 | `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `swisstopo`, `south_tyrol`, `slovakia`, `czechia`, `bavaria`, `slovenia` at the border, then `europe` |
-| `northern_ireland` | Northern Ireland (GB), its coast | GB | DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles) | – | DAERA 2021 coastal orthophoto | 1 m | `europe` |
+| `northern_ireland` | Northern Ireland (GB), its coast | GB | DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles) | – | – (no open orthophoto) | 1 m | `europe` |
 | `scotland` | Scotland (GB) | GB | Scottish LiDAR DTM 2023-2026, 0.5 m (about 10 % of Scotland) | Scottish LiDAR DSM, 0.5 m | – (no open orthophoto) | 1 m | `england` at the border, then `europe` |
 | `wales` | Wales (GB) | GB | Welsh Government LiDAR 2020-22 DTM, 1 m | Welsh Government LiDAR DSM, 1 m | – (no open orthophoto) | 1 m | `england` at the border, then `europe` |
 | `england` | England (GB) | GB | Environment Agency LIDAR Composite DTM 2022, 1 m | EA LIDAR Composite First Return DSM 2022, 1 m | – (no open orthophoto) | 1 m | `wales`, `scotland` at the border, then `europe` |

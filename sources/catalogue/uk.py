@@ -7,7 +7,7 @@ import os
 from typing import List
 
 from ..credit import Credit
-from ..source import Coverage, OrthoService, ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..indexes.osgrid import os_prefixes, os_tile_extent
 from ..layers.fileblocks import FileBlocks
 from ..layers.lerc import LercTiles
@@ -131,14 +131,11 @@ ITM = "EPSG:2157"
 NI_CREDIT = Credit("2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)",
                    "Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public sector "
                    "information licensed under the Open Government Licence v3.0", *OGL)
-# The survey's orthophoto (item 9c0fd3d15cfd446a9678cd6ea4d54dc7, "Lot1_Ortho_NI": 0.1 m, the coast only, PNG tiles
-# in Web Mercator to level 20, transparent beyond the survey; OGL v3.0, the same credit, read 2026-11-15)
-NI_ORTHO = OrthoService(
-    "DAERA 2021 coastal survey orthophoto", None, "", "northern_ireland/ortho/live",
-    "Orthophoto: Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public sector "
-    "information licensed under the Open Government Licence v3.0", attribution_url=OGL[1],
-    base_url="https://tiles-eu1.arcgis.com/kswen6BYexuc1SUk/arcgis/rest/services/Lot1_Ortho_NI/MapServer/tile"
-             "/{z}/{y}/{x}", base_max_zoom=20)
+# Northern Ireland and Rathlin west of 5.85 W, the Antrim coast south of 55.00 N with Islandmagee, Larne, the
+# Copelands and the Ards peninsula east of it: the Mull of Kintyre (55.31 N, 5.80 W), Southend and Sanda stay
+# Scotland's. Also holding Donegal's Inishowen and Ireland's border counties, which have no source of their own: gb
+# there offline, then nothing near in the coastal DTM
+NI_BOXES = (("gb-nir", (54.00, 55.32, -8.20, -5.85)), ("gb-nir", (54.00, 55.00, -5.85, -5.40)))
 
 
 def _sct_extent(stem: str):
@@ -155,14 +152,12 @@ SOURCES: List[Source] = [
         description="DAERA's 2021 NI 3D Coastal Survey: the bare-earth DTM of its lidar (0.25 m, the coast and about "
                     "200 m inland) from its elevation tile cache, reprojected onto Irish Transverse Mercator, "
                     "Belfast Lough datum; inland FABDEM",
-        nmt=NI_DTM, countries=("gb",), regions=("gb-nir",), crs=ITM, ortho=NI_ORTHO, credits=(NI_CREDIT,),
+        nmt=NI_DTM, countries=("gb",), regions=("gb-nir",), crs=ITM, credits=(NI_CREDIT,),
         listing=ReadmeRow("Northern Ireland (GB), its coast",
-                          "DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles)", "–",
-                          "DAERA 2021 coastal orthophoto"),
-        # Northern Ireland with Rathlin and the Copelands (also holding Donegal's Inishowen and Ireland's border
-        # counties, which have no source of their own: gb there offline, then europe as without data)
-        offline=(("gb-nir", (54.00, 55.32, -8.20, -5.40)),), sample=(55.2240, -6.1570),  # Fair Head (R74)
-        # Inland (Belfast's centre, the Mournes, Binevenagh) the DTM has nothing within 1 km: europe instead
+                          "DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles)", "–", NO_ORTHO),
+        offline=NI_BOXES, sample=(55.2240, -6.1570),  # Fair Head (R74)
+        # Inland (Belfast's centre, the Mournes, Binevenagh) the DTM's cells hold nothing within about 100 m (the
+        # cells are about 350 m on the ground, so 100-450 m): europe instead
         instead_without_data="europe",
         note="Data: DAERA, Bluesky, OGL v3.0. The 2021 coastal survey's DTM covers the coast only (the intertidal "
              "zone and about 200 m inland; Fair Head's crag and plateau): elsewhere FABDEM fills the search, and "

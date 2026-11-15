@@ -796,7 +796,7 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                  'default_resolution': 1.0,
                                  'instead_without_data': 'europe',
                                  'local_crs': 'utm_crs',
-                                 'ortho': 'northern_ireland/ortho/live',
+                                 'ortho': None,
                                  'credits': ['2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)'],
                                  'nmt': {'class': 'LercTiles',
                                          'description': 'DAERA 2021 coastal lidar DTM (terrain)',
@@ -2372,7 +2372,7 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),
          ("si", (45.85, 46.88, 15.65, 16.61)),
          ("at", (46.37, 49.02, 9.53, 17.17)),
-         ("gb-nir", (54.00, 55.32, -8.20, -5.40)),
+         ("gb-nir", (54.00, 55.32, -8.20, -5.85)), ("gb-nir", (54.00, 55.00, -5.85, -5.40)),
          ("gb-sct", (55.82, 60.86, -8.65, -0.73)), ("gb-sct", (55.35, 55.82, -8.65, -5.85)),
          ("gb-sct", (54.63, 55.82, -5.85, -3.6)),
          ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77)),
@@ -2695,9 +2695,6 @@ ORTHOS = {  # source: (attribution, attribution_url)
                    "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/"
                    "LatestStateProgram_AllUsers/ImageServer/info/iteminfo"),
     "svalbard": ("© Norwegian Polar Institute, CC BY 4.0", "https://www.npolar.no/"),
-    "northern_ireland": ("Orthophoto: Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; "
-                         "contains public sector information licensed under the Open Government Licence v3.0",
-                         "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"),
 }
 
 

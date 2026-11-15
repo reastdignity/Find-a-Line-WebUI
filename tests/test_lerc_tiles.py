@@ -204,7 +204,16 @@ def test_tiles_on_their_samples_and_stitched(http_server, tmp_path):
     assert np.abs(mosaic[covered & ~hole] - want[covered & ~hole]).max() < 0.01  # LERC 1 mm + our 5 mm
     with rio.open(layer.tile_path(cache_dir, (L, ROW, COL))) as cached:
         assert cached.shape == (256, 256) and cached.crs.to_string() == "EPSG:3857"
-        assert cached.transform.almost_equals(lerc.tile_transform(L, ROW, COL), precision=1e-6)
+        # Written out: tile 15/18531/12455's north-west corner (the slippy-map formula, in Web Mercator) less half a
+        # cell of 4.7773 m, so the first sample is the centre of the first pixel
+        n = 2 ** L
+        lon, lat = COL / n * 360 - 180, math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * ROW / n))))
+        (cx,), (cy,) = transform("EPSG:4326", "EPSG:3857", [lon], [lat])
+        assert (cx - 4.777314267822981 / 2, cy + 4.777314267822981 / 2) == pytest.approx(
+            (-4805139.734775916, -2625762.4069949463), abs=1e-3)
+        t = cached.transform
+        assert (t.a, t.e, t.c, t.f) == pytest.approx((4.777314267822981, -4.777314267822981, -4805139.734775916,
+                                                      -2625762.4069949463), abs=1e-6)
     states = cache.states(cache_dir, [layer.tile_path(cache_dir, t) for t in layer.tiles(grid)])
     assert states.count("missing") == 2 and states.count("ok") == 4
     asked = http_server.requests("/svc/")
@@ -436,9 +445,30 @@ def test_catalogue_layers():
     assert ni.nmt.rewrites and rj.nmt.rewrites and probe.strategy(ni.nmt) == "lerc"
     for source in (ni, rj):
         assert os.path.exists(source.nmt.cells) and source.instead_without_data == "europe"
-    # The offline box of Northern Ireland comes before England's and Scotland's (the Ards peninsula)
-    boxes = [code for code, _ in choose.OFFLINE_BOXES]
-    assert boxes.index("gb-nir") < boxes.index("gb-sct") and boxes.index("gb-nir") < boxes.index("gb-eng")
+
+
+@pytest.mark.parametrize("lat, lon, region", [
+    (55.2900, -6.2000, "gb-nir"),   # Rathlin
+    (54.8200, -5.7200, "gb-nir"),   # Islandmagee (England's and Scotland's boxes hold it too)
+    (54.8500, -5.8200, "gb-nir"),   # Larne
+    (54.6700, -5.5300, "gb-nir"),   # the Copeland Islands
+    (54.4790, -5.4400, "gb-nir"),   # Burr Point, the Ards peninsula
+    (55.3108, -5.8030, "gb-sct"),   # the Mull of Kintyre lighthouse
+    (55.3170, -5.6380, "gb-sct"),   # Southend, Kintyre
+    (55.2830, -5.5830, "gb-sct"),   # Sanda
+    (55.1000, -5.6000, "gb-sct"),   # the North Channel, once in Northern Ireland's box
+    (54.3000, -5.3000, "gb-eng"),   # the Irish Sea east of Northern Ireland's boxes (England's box)
+])
+def test_offline_regions_around_northern_ireland(monkeypatch, tmp_path, lat, lon, region):
+    """Offline, the first box holding a point names its region: Northern Ireland's two boxes keep off Kintyre."""
+    import osm
+    import requests
+
+    def offline(*args, **kwargs):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(osm, "reverse", offline)
+    assert choose.country_code(lat, lon, str(tmp_path)) == "gb"
+    assert choose.region_codes(lat, lon, str(tmp_path), "gb") == (region,)
 
 
 @pytest.mark.parametrize("lat, lon, near", [
@@ -500,3 +530,16 @@ def test_probe_reads_the_first_kb(monkeypatch):
     row = probe.probe_layer(rj, rj.nmt, "terrain", "unused", "unused", False)
     assert row.read == probe.FAILED and "HTTP 404" in row.notes[0]
     assert asked[-1][0] == f"{brazil.RJ_DTM_URL}/tile/15/18531/12450"
+
+
+def test_layer_without_a_mask_and_tile_bounds(http_server):
+    """Without cells has_data_near is unknown (None) and every tile is listed; bounds_wgs84 are the tile's pixels in
+    degrees (written out: tile 17/41315/63294 at Fair Head); check_source compares no file of a LercTiles layer."""
+    import check_source
+    layer = _layer(http_server.url("/svc"))
+    assert layer.has_data_near(55.224, -6.157, "unused") is None
+    assert len(layer.tiles(_mercator_grid(2, 2))) == 4
+    ni = src.SOURCES["northern_ireland"].nmt
+    assert ni.bounds_wgs84((17, 41315, 63294)) == pytest.approx(
+        (-6.157842278479856, 55.22276014781404, -6.155095696448606, 55.22432673256287), abs=1e-9)
+    assert check_source._sources_of(ni, (17, 41315, 63294)) is None

@@ -42,6 +42,7 @@
   "note.mixed": "{{fine}} only where there is a survey; elsewhere {{rest}}.",
   "note.old_survey": "Surveyed in {{years}}: newer rockfall is not in the data.",
   "note.world": "Only long lines over big cliffs can be found.",
+  "note.city_only": "Only one city is covered (the outlined area); elsewhere the data are 30 m.",
   "world.name": "Rest of the world",
   "partly.rest": "Rest of the country: 30 m. Detailed data in:",
   "legend.title": "Elevation data",

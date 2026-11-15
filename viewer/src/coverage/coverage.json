@@ -115,6 +115,9 @@
     },
     {
      "code": "smoothed"
+    },
+    {
+     "code": "city_only"
     }
    ],
    "partial": false,

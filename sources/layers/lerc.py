@@ -13,7 +13,8 @@ class LercTiles(ComposedLayer):
     the ground is the coarsest not coarser than the working grid's pixel, at most max_level: the finest level the
     data fill) read by LercTileReader (a tile of 256 x 256 px in EPSG:3857 on its own samples; NaN where the LERC
     mask says no data and below floor). The mosaic reprojects the tiles onto the working grid, the one resampling
-    of the data on our side (the provider's LERC tolerance, `lercError`, comes on top: say it in the source).
+    of the data on our side. The provider's LERC tolerance (tileInfo's `lercError`) comes on top: every sample within
+    it of the provider's value (DAERA's Northern Ireland coastal DTM 0.1 m, IPP's Rio de Janeiro DTM 0.05 m).
 
     native_res: the data's own resolution in metres (the source's default resolution); bytes_per_tile: an answer's
     size, for the estimates (LERC1: 8-60 kB in 2026-11, 70 bytes without data). extent: the service's

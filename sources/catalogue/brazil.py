@@ -53,5 +53,5 @@ SOURCES: List[Source] = [
              "the vertical datum is not stated. No surface model: trees and buildings are not in the data.",
         # On the map: Brazil's part of the city's box at 5 m, the rest of the country at 30 m
         coverage=Coverage(provider="Instituto Pereira Passos", added="2026-11-15", survey="2019",
-                          notes=("smoothed",), box=RJ_BOX)),
+                          notes=("smoothed", "city_only"), box=RJ_BOX)),
 ]
