@@ -1,0 +1,167 @@
+#!/bin/sh
+# The mirror's entry point (docs/mirror-hosting/spec.md, A.1, A.5, A.7, A.9), run as uid 101 on a
+# read-only root with /tmp a tmpfs; compose.yaml runs it under `init: true`, which reaps the
+# cleanup loop's children.
+#
+#   mirror-start serve   (the default) write what nginx includes into /tmp/mirror, start the
+#                        cleanup loop, then nginx in the foreground
+#   mirror-start check   the same files, then `nginx -t` (the settings checked without serving)
+#   mirror-start health  the healthcheck: robots.txt on the loopback and a fresh heartbeat
+#
+# Settings (compose.yaml passes them from .env):
+#   MIRROR_TRUSTED_ADDRESSES  at most four single IPv4 addresses, comma-separated (the site's
+#                             server); empty for none. Anything else (a network such as 0.0.0.0/0,
+#                             a fifth address, a word) refuses to start: a network would take
+#                             every visitor out of the visitors' total.
+#   MIRROR_SUBNET             the project's network; X-Real-IP is believed from it
+#   MIRROR_CONTACT            the contact for abuse and takedown, shown on the landing page
+#
+# The cleanup loop: every HEARTBEAT_SECONDS it touches the heartbeat the healthcheck reads (a dead
+# loop makes the container unhealthy); every CLEANUP_SECONDS (and at start) it deletes each log
+# file whose day is KEEP_DAYS or more days back. The day is UTC, as in nginx.conf's file names.
+set -eu
+
+RUN=/tmp/mirror
+LOGS=/var/log/mirror
+TEMPLATE=/usr/share/findaline-mirror/index.html.in
+KEEP_DAYS=14
+CLEANUP_SECONDS=3600
+HEARTBEAT_SECONDS=30
+HEARTBEAT_MAX_AGE=120
+MAX_TRUSTED=4
+
+die() {
+    echo "findaline-mirror: $*; not starting" >&2
+    exit 64
+}
+
+# A single IPv4 address in dotted decimal, no leading zeros
+is_ipv4() {
+    case $1 in
+        *[!0-9.]* | .* | *. | *..* | '') return 1 ;;
+    esac
+    _ifs=$IFS
+    IFS=.
+    # shellcheck disable=SC2086
+    set -- $1
+    IFS=$_ifs
+    [ $# -eq 4 ] || return 1
+    for _octet in "$@"; do
+        case $_octet in '' | 0?*) return 1 ;; esac
+        [ ${#_octet} -le 3 ] && [ "$_octet" -le 255 ] || return 1
+    done
+}
+
+trusted_conf() {
+    _list=$(printf '%s' "${MIRROR_TRUSTED_ADDRESSES:-}" | tr -d ' \t')
+    : > "$RUN/trusted.conf"
+    [ -n "$_list" ] || return 0
+    case $_list in
+        ,* | *, | *,,*) die "MIRROR_TRUSTED_ADDRESSES has an empty entry" ;;
+    esac
+    _count=0
+    _seen=,
+    _old=$IFS
+    IFS=,
+    for _address in $_list; do
+        IFS=$_old
+        is_ipv4 "$_address" || die "MIRROR_TRUSTED_ADDRESSES: '$_address' is not a single IPv4 address"
+        case $_seen in *",$_address,"*) die "MIRROR_TRUSTED_ADDRESSES names '$_address' twice" ;; esac
+        _seen="$_seen$_address,"
+        _count=$((_count + 1))
+        [ $_count -le $MAX_TRUSTED ] || die "MIRROR_TRUSTED_ADDRESSES: more than $MAX_TRUSTED addresses"
+        echo "$_address trusted;" >> "$RUN/trusted.conf"
+    done
+    IFS=$_old
+}
+
+realip_conf() {
+    _subnet=${MIRROR_SUBNET:-}
+    _address=${_subnet%/*}
+    _bits=${_subnet#*/}
+    [ "$_subnet" != "$_address" ] && is_ipv4 "$_address" || die "MIRROR_SUBNET: '$_subnet' is not an IPv4 network"
+    case $_bits in '' | *[!0-9]* | 0?*) die "MIRROR_SUBNET: '$_subnet' has no prefix length" ;; esac
+    # The project's own network: a /16 at most (Docker's pools), never the whole internet
+    [ "$_bits" -ge 16 ] && [ "$_bits" -le 29 ] || die "MIRROR_SUBNET: the prefix length must be 16 to 29"
+    echo "set_real_ip_from $_subnet;" > "$RUN/realip.conf"
+}
+
+landing_page() {
+    _contact=${MIRROR_CONTACT:-}
+    [ -n "$_contact" ] || die "MIRROR_CONTACT is empty: the landing page names a contact for abuse and takedown"
+    [ ${#_contact} -le 200 ] || die "MIRROR_CONTACT is longer than 200 characters"
+    _newline='
+'
+    case $_contact in *"$_newline"* | *"$(printf '\r')"*) die "MIRROR_CONTACT has a line break" ;; esac
+    # HTML-escaped, then escaped for sed's replacement
+    _html=$(printf '%s' "$_contact" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+        -e 's/"/\&quot;/g' -e "s/'/\&#39;/g")
+    _replacement=$(printf '%s' "$_html" | sed -e 's/[\\|&]/\\&/g')
+    mkdir -p "$RUN/site"
+    sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE" > "$RUN/site/index.html"
+}
+
+prepare() {
+    mkdir -p "$RUN"
+    trusted_conf
+    realip_conf
+    landing_page
+}
+
+# Deletes each access-YYYY-MM-DD.log whose day is KEEP_DAYS or more days back (UTC)
+cleanup() {
+    _now=$(date -u +%s)
+    _cutoff=$(date -u -d "@$((_now - KEEP_DAYS * 86400))" +%Y%m%d)
+    for _file in "$LOGS"/access-*.log; do
+        [ -f "$_file" ] || continue
+        _day=${_file##*/access-}
+        _day=${_day%.log}
+        case $_day in
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+            *) continue ;;
+        esac
+        if [ "$(printf '%s' "$_day" | tr -d -)" -le "$_cutoff" ]; then
+            rm -f -- "$_file"
+        fi
+    done
+}
+
+cleanup_loop() {
+    _last=0
+    while :; do
+        _now=$(date -u +%s)
+        if [ $((_now - _last)) -ge $CLEANUP_SECONDS ]; then
+            cleanup
+            _last=$_now
+        fi
+        touch "$RUN/heartbeat"
+        sleep $HEARTBEAT_SECONDS
+    done
+}
+
+health() {
+    wget -q -O /dev/null http://127.0.0.1:8080/robots.txt || return 1
+    _beat=$(stat -c %Y "$RUN/heartbeat" 2>/dev/null) || return 1
+    [ $(($(date -u +%s) - _beat)) -le $HEARTBEAT_MAX_AGE ]
+}
+
+case "${1:-serve}" in
+    serve)
+        prepare
+        cleanup_loop </dev/null >/dev/null &
+        echo $! > "$RUN/cleanup.pid"
+        echo "findaline-mirror: starting ($(wc -l < "$RUN/trusted.conf") trusted addresses)"
+        exec nginx -g 'daemon off;'
+        ;;
+    check)
+        prepare
+        exec nginx -t -q
+        ;;
+    health)
+        health
+        ;;
+    *)
+        echo "usage: mirror-start [serve|check|health]" >&2
+        exit 2
+        ;;
+esac

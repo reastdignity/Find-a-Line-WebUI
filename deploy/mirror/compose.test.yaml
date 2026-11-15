@@ -1,0 +1,50 @@
+# For tests and for a mirror on a PC: compose.yaml plus a stand-in for SWAG (plain nginx with SWAG's
+# proxy.conf and the mirror's own SWAG conf turned into plain HTTP: test/standin.sh), published on
+# 127.0.0.1 only. compose.yaml alone never publishes a port.
+#
+#   docker compose -p <name> -f compose.yaml -f compose.test.yaml up -d --build --wait
+#
+# The mirror is then http://127.0.0.1:${MIRROR_TEST_PORT} (default 8790; set MIRROR_TEST_PORT
+# in the environment or the env file to change it), serving ${MIRROR_ROOT}/public as on the home
+# server. Requests through it come from the stand-in's address on the project's network with
+# X-Real-IP set to the client's address as Docker shows it. tests/mirror_check.sh adds
+# test/compose.check.yaml on top (a fixture tree in volumes instead of MIRROR_ROOT).
+
+services:
+  proxy:
+    image: nginx/nginx-unprivileged:1.30.6-alpine3.24@sha256:6b0610b60dff09248d642643a29393543a92eb355b00bbd1d12c7af562ef94c4
+    read_only: true
+    user: "101:101"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/bin/sh", "/etc/standin/standin.sh"]
+    command: []
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 64
+    volumes:
+      - {type: bind, source: ./test/standin.sh, target: /etc/standin/standin.sh, read_only: true}
+      - {type: bind, source: ./test/standin.conf, target: /etc/standin/standin.conf, read_only: true}
+      - {type: bind, source: ./test/swag-proxy.conf, target: /etc/standin/swag-proxy.conf, read_only: true}
+      - type: bind
+        source: ./swag/findaline-mirror.subdomain.conf
+        target: /etc/standin/findaline-mirror.subdomain.conf
+        read_only: true
+      - type: tmpfs
+        target: /tmp
+        tmpfs: {size: 268435456}   # 256 MB: the proxy's temporary files if buffering were on
+    ports: ["127.0.0.1:${MIRROR_TEST_PORT:-8790}:8080"]
+    networks: [mirror, front]
+    depends_on:
+      files: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "1m", max-file: "3"}
+
+networks:
+  # The stand-in's side towards visitors: an ordinary network (Docker publishes ports only from one)
+  front:
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${MIRROR_TEST_FRONT_SUBNET:-172.29.43.0/24}

@@ -336,3 +336,24 @@ jobs:
       - name: Clean up
         if: always()
         run: $COMPOSE down --volumes
+
+  # The mirror stack (deploy/mirror, docs/mirror-hosting/spec.md, section 4): its compose files with
+  # example settings, then the image built and run behind a stand-in for SWAG with a fixture tree;
+  # tests/mirror_check.sh checks every behaviour (and its --live checks against the stand-in's
+  # port), then its self-test switches each behaviour off and expects its checks to fail
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Compose files
+        working-directory: deploy/mirror
+        run: |
+          printf 'MIRROR_ROOT=/srv/findaline-mirror\nMIRROR_CONTACT=abuse@example.org\n' > ci.env
+          docker compose --env-file ci.env config --quiet
+          docker compose --env-file ci.env -f compose.yaml -f compose.test.yaml config --quiet
+          test -z "$(docker compose --env-file ci.env config --format json | python3 -c 'import json,sys; print(*[n for n, s in json.load(sys.stdin)["services"].items() if s.get("ports")])')"
+
+      - name: The checks and their self-test
+        run: bash tests/mirror_check.sh --self-test
