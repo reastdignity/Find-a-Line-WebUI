@@ -413,3 +413,24 @@ def test_auto_takes_europe_without_sheets(monkeypatch, tmp_path):
     assert src.choose_source("auto", *POTRERO, str(tmp_path))[0].id == "mexico"
     assert src.choose_source("auto", 27.526, -107.821, str(tmp_path)) == (
         src.SOURCES["europe"], "the centre is in MX, but mexico has no terrain data near it")
+
+
+def test_check_source_reads_the_grid(http_server, tmp_path):
+    """tools/check_source.py compares a cached sheet with its ZIP's GRID, read on its own (zipfile, GDAL), cut to the
+    cell as the layer cuts it: equal values, the same pixels without data."""
+    import check_source
+    crs = "EPSG:4487"
+    name = "G14C15B2"
+    i, j = inegi.inegi_cell(name)
+    band, left, top = _fake_grid(name, crs, lambda x, y: 500 + (x % 100) / 10 + (y % 100) / 100)
+    http_server.add("/z/g_gr.zip", sheet_zip(name, band, left, top), "application/x-zip-compressed")
+    tile = inegi.InegiSheet(i, j, name, 2012, http_server.url("/z/g_gr.zip"), crs)
+    layer = _layer(http_server)
+    path = str(tmp_path / "t.tif")
+    layer.reader.fetch(tile, path)
+    with rio.open(path) as cached:
+        values = cached.read(1, masked=True).astype(np.float32).filled(np.nan)
+        profile = {"crs": cached.crs, "transform": cached.transform, "width": cached.width, "height": cached.height}
+    source = check_source._read_grid(layer, tile.url, tile, profile)
+    result = check_source.compare(values, source)
+    assert result["max_abs_m"] <= 0.0051 and result["same_nodata"] == 1.0 and np.isnan(values).any()

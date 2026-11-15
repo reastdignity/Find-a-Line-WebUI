@@ -1941,5 +1941,30 @@
     },
     "seconds": 1.9,
     "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
+  },
+  "R76": {
+    "place": "El Potrero Chico, Hidalgo, Nuevo León (MX): the limestone walls of the canyon's entrance, INEGI's 5 m lidar terrain and surface models (2007) from the sheets of G14C15, Mexico ITRF92 / UTM 14N",
+    "args": "--lat 25.9500 --lon -100.4730 --radius 1000 --min-length 30 --max-length 400",
+    "sets": [
+      "sources",
+      "mx"
+    ],
+    "expected": {
+      "anchors": 34863,
+      "open": 28644,
+      "checked": 263536,
+      "lines": 60375,
+      "spots": 3027,
+      "csv_sha256": "70df5e6adac5b40277022a47ee9ebc631eeabddded09f047cabc5298635f6b0c",
+      "length_km": 12680.649,
+      "clearance_min": 0.0,
+      "clearance_mean": 4.268,
+      "clearance_max": 41.06,
+      "over_trees": 13374,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 17.5,
+    "notes": "added 2026-11-15: --source auto picks mexico (MX); the circle lies within one sheet, G14C15B2 (terrain edition 2011, surface 2012, about 4 MB each, about 4 s a model on an empty cache), on its own pixels in EPSG:4487 (no resampling); the spots along the canyon's walls (25.946-25.951 N, 100.471-100.475 W); 13 374 lines are over obstacles: the surface model stands 10-40 m above the terrain along the walls' crests (1259 pixels over 30 m within 1 km, the most 138 m), where the terrain's mesh cuts the walls, and blocks lines across the canyon's entrance (their clearance over the surface model a median -32 m)"
   }
 }
