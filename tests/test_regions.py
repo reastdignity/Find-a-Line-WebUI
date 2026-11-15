@@ -73,7 +73,7 @@ def test_region_source_inside_its_region(tmp_path, recorded, regional):
     expected = {SNOWDONIA: ("wales", "the centre is in GB-WLS"), SEA: ("wales", "the centre is in GB-WLS"),
                 LAKES: ("gb_all", "the centre is in GB"), AURICH: ("niedersachsen", "the centre is in DE-NI"),
                 BROCKEN: ("europe", "no national source for DE"), ORTLER: ("bolzano", "the centre is in IT-BZ"),
-                TRENTO: ("europe", "no national source for IT")}
+                TRENTO: ("tinitaly", "the centre is in IT")}  # Italy's country-wide source (TINITALY)
     for (lat, lon), (sid, reason) in expected.items():
         recorded.clear()
         source, why = src.choose_source("auto", lat, lon, str(tmp_path))

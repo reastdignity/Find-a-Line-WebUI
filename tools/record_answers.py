@@ -49,6 +49,8 @@ RECIPES = {
     "wfs-geoportal-error": ("wfs", "geoportal-error", "geoportal", "nmt", 54.75, 18.5),
     # LidarBC (British Columbia): its FeatureServer (layers 6 and 5), then the bucket listed under the sheets it names
     "arcgis-lidarbc": ("arcgis", "lidarbc-dem", "british_columbia", "nmt", 48.25, -124.5),
+    # Sardinia: its WFS of the coastal lidar's tiles (GeoJSON, footprints in EPSG:32632) over Cala Gonone
+    "wfs-sardinia": ("wfs", "sardinia-dtm", "sardinia", "nmt", 40.25, 9.5),
 }
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
 YEARS = {"wfs-geoportal-error": ["gugik:SkorowidzNMT1900"]}
