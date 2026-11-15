@@ -26,32 +26,37 @@ version, size). A download address is minted anew by every search (two searches 
 2026-11-15), so none is stored: `fetch` resolves them from the signed-in search just before use, 20 ids per search.
 
 Every request, redirects included, comes at least 1.5 s after the previous one to the same host, one at a time,
-only over https (no ftp:, file: or data: handler; a redirect elsewhere fails that file) and none after a stop.
+only over https (no ftp:, file: or data: handler; a redirect elsewhere fails that file) and none after a stop. The
+tool connects directly: proxy variables of the environment (HTTP_PROXY, HTTPS_PROXY) are not used.
 
 `fetch` signs in through the site's Keycloak form (credentials only from the environment: CDD_USER, CDD_PASSWORD;
 each of 3 characters at least, as a shorter value could not be masked). The sign-in never leaves https and the
 site's and the realm's hosts (a redirect or a form action elsewhere stops the run before anything is sent there);
 the credentials are sent at most --max-signins-per-hour times an hour, 60 s apart at least, across restarts too
-(signins.json, written before they are sent; a time in the future counts as now). It then fetches every
-file of the manifest not yet done, a pause between files, into `<file>.part`, synced and renamed when it checks
-(TIFF magic, the item's stated size); its sha256 goes into done.jsonl. A download answered by the login page, a
-401/403 or an HTML page means: sign in again and retry the file once; a 404 means: a fresh address and one retry;
-three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no loop against the
-login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file; status.json: "waiting:
-server asked to wait"). A network error before an answer's headers (no route, DNS, a reset, a timeout) waits 30 s
-doubling to 15 min and fails no file until the outage has lasted --outage-hours (status.json: "waiting: network");
-any answer from a server ends the outage, so hours of a good transfer never count. An error after the headers (the
-body stalls, is reset or cut short) is that file's attempt: tried again after 30 s and 60 s, the third time it counts
-as failed (not again in this run). A malformed answer (a bad redirect, a broken status line) fails the file. A
-failed file is tried again at the end of the run (at most
-`--retries` times) and at the next run, after the others; five failed files in a row stop the run; a file slower
-than --min-rate-kb for 5 minutes fails. Free space under `--min-free-gb` (plus the next file) stops it. SIGTERM or
-Ctrl-C drops the current `.part` and exits 0 with the state saved; a second `fetch` continues where it stopped.
-`status.json` is rewritten every few files and every 1 GB of a long file; an unexpected error leaves it at "stopped:
-error (...)". A line of done.jsonl or failed.jsonl that is not UTF-8 or JSON is skipped with a log line. done.jsonl
-decides what is done: a file deleted by hand after it was recorded (cut into tiles) is not fetched again, nor an item
-a new plan lists with another version or size (fetch and status count them and say how to fetch them again: remove
-their lines from done.jsonl).
+(signins.json, written before they are sent; a time in the future counts as now; a file that is not a list of
+numbers stops the run before any request: remove it to start the count anew); a host is the same with or without its
+default port (:443). Every sending of the credentials counts towards three sign-ins in a row, answered or not. It
+then fetches every file of the manifest not yet done, a pause between files, into `<file>.part`, synced and renamed
+when it checks (TIFF magic, the item's stated size); its sha256 goes into done.jsonl. A download answered by the
+login page, a 401/403 or an HTML page means: sign in again and retry the file once; a 404 means: a fresh address and
+one retry; three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no loop
+against the login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file; status.json:
+"waiting: server asked to wait"). A network error before an answer's headers (no route, DNS, a reset, a TLS failure,
+a timeout) is an outage of that host: it fails no file; the waits double with each such error (30 s to 15 min) and
+go back to 30 s only when the failing host has answered or a file completed; only an answer from that host ends its
+outage; when one host's outage has lasted --outage-hours the run stops (exit 4, the message names the host). A body
+failure is not an outage, so hours of a good transfer never count (status.json: "waiting: network"). An error after
+the headers (the body stalls, is reset or cut short) is that file's attempt: tried again after 30 s and 60 s, the
+third time it counts as failed (not again in this run). A malformed answer (a bad redirect, a broken status line)
+fails the file. A failed file is tried again at the end of the run (at most `--retries` times) and at the next run,
+after the others; five failed files in a row stop the run; a file slower than --min-rate-kb for 5 minutes fails.
+Free space under `--min-free-gb` (plus the next file) stops it. SIGTERM or Ctrl-C drops the current `.part` and
+exits 0 with the state saved; a second `fetch` continues where it stopped. `status.json` is rewritten every few
+files and every 1 GB of a long file; an unexpected error leaves it at "stopped: error (...)". A line of done.jsonl
+or failed.jsonl that is not UTF-8 or JSON is skipped with a log line. done.jsonl decides what is done: a file
+deleted by hand after it was recorded (cut into tiles) is not fetched again, nor an item a new plan lists with
+another version or size (fetch and status count them and say how to fetch them again: remove their lines from
+done.jsonl).
 
 `fetch-list wallonia` fetches the embedded list (addresses and sizes read 2026-11-15) the same way without a login;
 that server ignores Range, so a broken file starts again from zero; the size must equal the list's (a different
@@ -292,7 +297,12 @@ class BadFile(Exception):
 
 
 class NetworkDown(BadFile):
-    """No answer: no route, a name not resolved, a reset or a timeout before an answer's headers came."""
+    """No answer from `host`: no route, a name not resolved, a reset, a TLS failure or a timeout before an answer's
+    headers came."""
+
+    def __init__(self, message, host=None):
+        super().__init__(message)
+        self.host = host
 
 
 class BodyFailed(BadFile):
@@ -333,9 +343,22 @@ def _retry_after(headers):
             return None
 
 
+DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
 def _host(url):
+    """(scheme, "host:port") with the scheme's default port filled in: https://a and https://a:443 are one host."""
     parts = urllib.parse.urlsplit(url)
-    return parts.scheme.lower(), parts.netloc.lower()
+    scheme = parts.scheme.lower()
+    return scheme, "%s:%s" % ((parts.hostname or "").lower(), parts.port or DEFAULT_PORTS.get(scheme, ""))
+
+
+def _where(url):
+    """scheme://host, with the port when it is not the scheme's default: for messages (never a path or query)."""
+    parts = urllib.parse.urlsplit(url)
+    scheme = parts.scheme.lower()
+    port = parts.port if parts.port and parts.port != DEFAULT_PORTS.get(scheme) else None
+    return "%s://%s%s" % (scheme, parts.hostname or "", ":%d" % port if port else "")
 
 
 def signin_hosts():
@@ -355,7 +378,12 @@ class _Gate(urllib.request.BaseHandler):
         self.owner.before(request.full_url)
         return request
 
+    def http_response(self, request, response):  # every answer, a redirect's too: its host has answered
+        self.owner.heard(request.full_url)
+        return response
+
     https_request = http_request
+    https_response = http_response
 
 
 class _Redirects(urllib.request.HTTPRedirectHandler):
@@ -388,7 +416,9 @@ class Http:
     """One opener with a cookie jar kept in memory only and only the handlers it needs (http, https, cookies,
     redirects, errors: no ftp, file or data); one request at a time, at least REQUEST_PAUSE after the previous one
     to the same host, none after a stop; only SCHEMES; while `guard` is set (a sign-in) a request elsewhere raises
-    UnsafeLogin before it is sent; every cookie value is masked. `answered`: when the last headers came."""
+    UnsafeLogin before it is sent; every cookie value is masked. `answers`: when each host last answered (any
+    headers); `asking`: the host of the request under way (a NetworkDown names it). No proxy: the tool connects
+    directly."""
 
     def __init__(self, scrub):
         self.scrub = scrub
@@ -402,13 +432,14 @@ class Http:
         self.opener.addheaders = [("User-Agent", AGENT)]
         self.last = {}     # host -> when it was last asked
         self.guard = None  # the (scheme, host) pairs a sign-in may reach
-        self.answered = -1e18
+        self.answers = {}  # host -> when it last answered
+        self.asking = None
 
     def check(self, url):
         """UnsafeLogin (during a sign-in) or BadFile for an address the tool must not ask."""
         scheme, host = _host(url)
         if scheme not in SCHEMES or (self.guard is not None and (scheme, host) not in self.guard):
-            where = "%s://%s" % (scheme, urllib.parse.urlsplit(url).hostname or "")
+            where = _where(url)
             if self.guard is not None:
                 raise UnsafeLogin(where)
             raise BadFile("an address on %s refused (only %s)" % (where, ", ".join(sorted(SCHEMES))))
@@ -417,7 +448,7 @@ class Http:
         if STOP.is_set():
             raise Stopped()
         self.check(url)
-        host = _host(url)[1]
+        host = self.asking = _host(url)[1]
         pause = REQUEST_PAUSE - (_clock() - self.last.get(host, -1e9))
         if pause > 0:
             _wait(pause)
@@ -425,27 +456,30 @@ class Http:
                 raise Stopped()
         self.last[host] = _clock()
 
+    def heard(self, url):
+        self.answers[_host(url)[1]] = _clock()
+
     def open(self, url, data=None, headers=None):
         """The answer (an HTTPError is an answer too); no answer (a connection, DNS, a reset or a timeout before
         the headers) raises NetworkDown, a malformed one BadFile; the caller closes it."""
-        self.check(url)
-        request = urllib.request.Request(url, data=data, headers=headers or {})
         try:
+            self.check(url)
+            request = urllib.request.Request(url, data=data, headers=headers or {})
+            self.asking = _host(url)[1]
             answer = self.opener.open(request, timeout=TIMEOUT)
         except urllib.error.HTTPError as error:
             answer = error
         except urllib.error.URLError as error:
             if isinstance(error.reason, OSError):
-                raise NetworkDown("network: %s" % type(error.reason).__name__) from None
+                raise NetworkDown("network: %s" % type(error.reason).__name__, self.asking) from None
             raise BadFile("refused: %s" % error.reason) from None
         except OSError as error:  # a reset or a timeout waiting for the status line
-            raise NetworkDown("network: %s" % type(error).__name__) from None
+            raise NetworkDown("network: %s" % type(error).__name__, self.asking) from None
         except (HTTPException, ValueError) as error:  # a malformed answer: this file's failure
             raise BadFile("a malformed answer: %s" % type(error).__name__) from None
         finally:
             for cookie in self.jar:
                 self.scrub.add(cookie.value)
-        self.answered = _clock()
         return answer
 
     def page(self, url, data=None, headers=None, cap=2_000_000):
@@ -628,6 +662,26 @@ class Job:
         pass
 
 
+class SigninsUnreadable(Exception):
+    pass
+
+
+def read_signins(path):
+    """The times in signins.json (none if it is missing); SigninsUnreadable when it is not a list of numbers: the
+    ceiling and the gap must never forget (fail closed)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            times = json.load(f)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as error:
+        raise SigninsUnreadable(type(error).__name__) from None
+    if not isinstance(times, list) or not all(isinstance(t, (int, float)) and not isinstance(t, bool)
+                                              for t in times):
+        raise SigninsUnreadable("not a list of numbers")
+    return [float(t) for t in times]
+
+
 class CddJob(Job):
     signin_needed = True
 
@@ -659,7 +713,7 @@ class CddJob(Job):
             target = urllib.parse.urljoin(page_url, action)
             for url in (page_url, target):
                 if _host(url) not in http.guard:
-                    raise UnsafeLogin("%s://%s" % (_host(url)[0], urllib.parse.urlsplit(url).hostname))
+                    raise UnsafeLogin(_where(url))
             self._turn()
             fields = dict(hidden)
             fields.update(username=self.user, password=self.password)
@@ -680,11 +734,7 @@ class CddJob(Job):
         (wall-clock times of the last hour, written before the credentials are sent): the gap and the ceiling hold
         across restarts; a time in the future (a clock set back) counts as now. SigninCeiling beyond per_hour."""
         path = os.path.join(self.area, "signins.json")
-        try:
-            with open(path, encoding="utf-8") as f:
-                times = [float(t) for t in json.load(f)]
-        except (OSError, ValueError, TypeError):
-            times = []
+        times = read_signins(path)
         clock = time.time()
         times = [min(t, clock) for t in times if clock - min(t, clock) <= 3600]
         if len(times) >= self.per_hour:
@@ -787,7 +837,7 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None, 
         if size is not None and length is not None and length.isdigit() and int(length) != size:
             raise BadFile("the server's file has %s bytes, %d expected (the data has changed?)" % (length, size))
         digest, done, checked = hashlib.sha256(first), len(first), len(first)
-        window, window_bytes = time.monotonic(), done
+        window, window_bytes = _clock(), done
         try:
             with open(part, "wb") as f:
                 f.write(first)
@@ -808,11 +858,11 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None, 
                             raise DiskLow()
                         if progress is not None:
                             progress(done)
-                    seconds = time.monotonic() - window
+                    seconds = _clock() - window
                     if min_rate and seconds >= RATE_WINDOW:
                         if (done - window_bytes) / seconds < min_rate:
                             raise BadFile("slower than %g kB/s for %d s" % (min_rate / 1000, seconds))
-                        window, window_bytes = time.monotonic(), done
+                        window, window_bytes = _clock(), done
                 f.flush()
                 os.fsync(f.fileno())
             expected = size if size is not None else int(length) if length and length.isdigit() else None
@@ -1014,7 +1064,7 @@ def _fetch_loop(job, args, http, log, run):
     run.save()
     attempts, bodies, code = {}, {}, EXIT_OK  # bodies: body failures per file in this run
     failed_in_row = signins = net_waits = 0
-    signed_in, outage = False, None
+    signed_in, outages, last_error = False, {}, None  # outages: host -> when its outage began
     min_free = args.min_free_gb * 1e9
 
     def fetch_one(item, path):
@@ -1027,10 +1077,12 @@ def _fetch_loop(job, args, http, log, run):
                     if signins >= MAX_SIGNINS:
                         raise TooManySignins()
                     signins += 1
+                    sent = getattr(job, "sent", 0)
                     try:
                         job.signin(http, log)
-                    except NetworkDown:  # an outage, not a sign-in the server saw: the outage rule decides
-                        signins -= 1
+                    except BadFile:  # counted only when the credentials were sent, answered or not
+                        if getattr(job, "sent", 0) == sent:
+                            signins -= 1
                         raise
                     signed_in = True
                 url = job.address(http, item, pending)
@@ -1081,13 +1133,18 @@ def _fetch_loop(job, args, http, log, run):
                 try:
                     size, sha = fetch_one(item, path)
                     break
-                except NetworkDown as e:  # an outage: waits that grow, no failed file until it lasts too long
+                except NetworkDown as e:  # the host's outage: growing waits, no failed file until it lasts too long
                     job.forget(item)
-                    if outage is None or http.answered >= outage:  # any answer since ends the outage before
-                        outage, net_waits = _clock(), 0
-                    if _clock() - outage >= args.outage_hours * 3600:
-                        log("no network for %.1f h: stopping (%s)" % ((_clock() - outage) / 3600, e),
-                            error=True)
+                    host, clock = e.host or "?", _clock()
+                    heard = http.answers.get(host, -1e18)  # only an answer from the failing host itself counts
+                    if host not in outages or heard >= outages[host]:
+                        outages[host] = clock
+                    if last_error is not None and heard >= last_error:
+                        net_waits = 0  # the failing host answered since the previous error: the waits restart
+                    last_error = clock
+                    if clock - outages[host] >= args.outage_hours * 3600:
+                        log("no answer from %s for %.1f h: stopping (%s)" % (
+                            host, (clock - outages[host]) / 3600, e), error=True)
                         code = EXIT_FAILURES
                         raise Stopped() from None
                     seconds = min(NET_WAIT_BASE * 2 ** net_waits, NET_WAIT_MAX)
@@ -1122,7 +1179,7 @@ def _fetch_loop(job, args, http, log, run):
                 run.bytes += size
                 run.last_good = time.monotonic()
                 failed_in_row = signins = net_waits = 0
-                outage = None
+                last_error = None
                 log("%s: %.1f MB in %.1f s; %d of %d done" % (
                     item["id"], size / 1e6, time.monotonic() - started, len(run.done), len(job.items)))
                 if run.files % STATUS_EVERY == 0:
@@ -1313,7 +1370,15 @@ def fetch(args, scrub, log):
             "the output)", error=True)
         return EXIT_CREDENTIALS
     job = CddJob(area, items, user, password, args.max_signins_per_hour)
-    return _locked_run(area, log, lambda: fetch_run(job, args, Http(scrub), log), args.no_lock)
+
+    def run():
+        try:  # before any request
+            read_signins(os.path.join(area, "signins.json"))
+        except SigninsUnreadable as e:
+            log("signins.json cannot be read (%s): remove it to start the count anew" % e, error=True)
+            return EXIT_ERROR
+        return fetch_run(job, args, Http(scrub), log)
+    return _locked_run(area, log, run, args.no_lock)
 
 
 def fetch_list(args, scrub, log):

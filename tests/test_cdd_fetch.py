@@ -63,6 +63,11 @@ class Fake:
         self.search_list = False  # searches answer a JSON list
         self.stop_at_root = False  # GET / sets the tool's stop (a SIGTERM during the sign-in)
         self.elsewhere = None     # where actions "ftp" and "file" redirect a download
+        self.store_base = None    # the host a download redirects to (None: this one; another name: another host)
+        self.post_down = 0        # the next n credential POSTs: no answer
+        self.realm_down = False   # the realm's login page: no answer
+        self.reset_form = 0       # the next n login pages: headers, part of the page, then a reset
+        self.slow = False
         self.marked = False       # set when a file of action "mark" starts coming
         self.stall_form = 0       # the next n login pages: headers, then nothing for a second
         self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
@@ -83,14 +88,20 @@ class Fake:
             def do_POST(self):
                 fake.handle(self, "POST")
 
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.httpd.daemon_threads = True
-        self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
-        threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        # two listeners of one fake: `base` (the site) and `other` (another host for a store or a realm; a name
+        # like localhost would cost a refused IPv6 try of about 2 s on Windows)
+        self.servers = []
+        for _ in range(2):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            server.daemon_threads = True
+            threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+            self.servers.append(server)
+        self.base, self.other = ("http://127.0.0.1:%d" % s.server_address[1] for s in self.servers)
 
     def close(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
+        for server in self.servers:
+            server.shutdown()
+            server.server_close()
 
     def add(self, collection, item_id, size=3000, version="01", sized=True, body=None):
         self.items.append((collection, item_id, {"version": version, "datetime": "2026-01-01T00:00:00Z",
@@ -114,6 +125,7 @@ class Fake:
             self.headers.append((parts.path, {k.lower(): v for k, v in h.headers.items()}))
         try:
             with self.lock:
+                self.slow = False  # a new request: an earlier slow file's thread no longer moves the clock
                 down = self.down > 0
                 self.down -= down
             if down:
@@ -157,6 +169,24 @@ class Fake:
                                                       "Set-Cookie": "site=%s; Path=/" % self.secret("site")})
         elif method == "GET" and path == "/auth/login":
             self.send(h, 302, headers={"Location": self.login_location})
+        elif method == "POST" and path.endswith("/authenticate") and self.post_down:
+            self.post_down -= 1
+            self.posts += 1  # it arrived: the credentials were sent, no answer comes back
+            h.rfile.read(int(h.headers.get("Content-Length") or 0))
+            h.close_connection = True
+        elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth") and self.realm_down:
+            h.close_connection = True  # the realm never answers
+        elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth") and self.reset_form:
+            self.reset_form -= 1
+            page = self.form_page()
+            h.send_response(200)
+            h.send_header("Content-Length", str(len(page)))
+            h.end_headers()
+            h.wfile.write(page[:20])
+            h.wfile.flush()
+            h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            h.close_connection = True
+            h.connection.close()
         elif method == "POST" and path.endswith("/authenticate") and self.form_fails:
             self.form_fails -= 1
             h.rfile.read(int(h.headers.get("Content-Length") or 0))
@@ -169,7 +199,7 @@ class Fake:
             h.end_headers()
             h.wfile.write(page[:20])
             h.wfile.flush()
-            time.sleep(1.0)
+            time.sleep(5.0)
             h.close_connection = True
         elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth"):
             self.send(h, 200, self.form_page(), {"Content-Type": "text/html",
@@ -217,6 +247,9 @@ class Fake:
                 self.send(h, int(action), b"who are you", {"Content-Type": "text/plain"})
             elif action == "close":  # the connection closed before any answer: the network, not the file
                 h.close_connection = True
+            elif action == "badstatus":  # not an HTTP answer at all
+                h.wfile.write(b"NOT-HTTP/1.1 nonsense\r\n\r\n")
+                h.close_connection = True
             elif action == "badloc":
                 self.send(h, 302, headers={"Location": "http://[bad/x"})
             elif action in ("ftp", "file"):
@@ -231,11 +264,14 @@ class Fake:
                 self.send(h, 200, b"<!DOCTYPE html><html>please sign in</html>", {"Content-Type": "text/html"})
             else:
                 signature = self.secret("sig")
-                self.send(h, 302, headers={"Location": "/store/%s?X-Amz-Signature=%s&a=%s" % (
-                    item_id, signature, action)})
+                self.send(h, 302, headers={"Location": "%s/store/%s?X-Amz-Signature=%s&a=%s" % (
+                    self.store_base or self.base, item_id, signature, action)})
         elif method == "GET" and path.startswith("/store/"):
             item_id = path.rsplit("/", 1)[-1]
             action = dict(urllib.parse.parse_qsl(parts.query)).get("a", "ok")
+            if action == "storedown":  # the store's connection closes before any answer
+                h.close_connection = True
+                return
             self.serve_file(h, self.bodies[item_id], action)
         elif method == "GET" and path.startswith("/wal/"):
             name = path.rsplit("/", 1)[-1]
@@ -256,26 +292,24 @@ class Fake:
             h.wfile.write(body + b"0123" if action == "nolength-more" else body[:len(body) // 2])
             h.close_connection = True
         elif action == "slow":
+            self.slow = True  # the tests' clock runs from here until the next request starts (handle)
             h.send_response(200)
             h.send_header("Content-Length", str(len(body)))
             h.end_headers()
             for i in range(0, len(body), 100):
                 h.wfile.write(body[i:i + 100])
                 h.wfile.flush()
-                time.sleep(0.05)
-        elif action in ("stall", "reset"):  # headers and half the body, then nothing for a while, or a reset
+                time.sleep(0.01)
+        elif action == "reset":  # headers and half the body, then a reset
             h.send_response(200)
             h.send_header("Content-Length", str(len(body)))
             h.end_headers()
             h.wfile.write(body[:len(body) // 2])
             h.wfile.flush()
-            if action == "stall":
-                time.sleep(0.6)
-            else:
-                h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
             h.close_connection = True
             try:
-                h.connection.shutdown(socket.SHUT_RDWR) if action == "stall" else h.connection.close()
+                h.connection.close()
             except OSError:
                 pass
         elif action == "mark":
@@ -654,13 +688,26 @@ def test_an_outage_longer_than_the_limit_stops(fake, tmp_path):
         "stopped (exit code 4)"
 
 
-def test_a_stalled_login_page_is_a_failed_attempt(fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(cf, "TIMEOUT", 0.3)
+def test_a_login_page_broken_after_its_headers_is_a_failed_attempt(fake, tmp_path):
+    """Not an outage: the file's body failures count (30 s, 60 s, then a failed row), the sign-in that never sent
+    the credentials does not count towards three in a row, and the next file signs in."""
     mainland(fake, 2)
     planned(fake, tmp_path)
-    fake.stall_form = 1
+    fake.reset_form = 3
     assert fetch(tmp_path) == 0
-    assert fake.waits[:1] == [30.0] and len(done_rows(tmp_path)) == 2
+    failed = _failed(tmp_path)
+    assert [f["id"] for f in failed] == ["MDT-50cm-090200-07-2024"] and "(3 times)" in failed[0]["error"]
+    assert [w for w in fake.waits if w] == [30.0, 60.0] and fake.posts == 1
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+
+
+def test_a_stalled_login_page_is_a_body_failure(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "TIMEOUT", 2.0)  # seconds of margin for every other answer on a loaded PC
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    fake.stall_form = 1  # the page's headers, then 5 s of nothing
+    assert fetch(tmp_path) == 0
+    assert [w for w in fake.waits if w] == [30.0] and len(done_rows(tmp_path)) == 1 and not _failed(tmp_path)
 
 
 def test_an_unexpected_error_ends_the_run_with_its_state(fake, tmp_path, monkeypatch, capsys):
@@ -757,6 +804,9 @@ def test_the_sign_in_stays_on_https_and_the_two_hosts(monkeypatch):
     client.guard = cf.signin_hosts()
     client.before("https://cdd.dgterritorio.gov.pt/auth/login")
     client.before("https://auth.cdd.dgterritorio.gov.pt/realms/dgterritorio/login-actions/authenticate?x=1")
+    client.before("https://auth.cdd.dgterritorio.gov.pt:443/realms/x")  # the default port written out: one host
+    with pytest.raises(cf.UnsafeLogin, match=":8443"):  # another port: refused, and the message names it
+        client.before("https://auth.cdd.dgterritorio.gov.pt:8443/realms/x")
     for url in ("http://auth.cdd.dgterritorio.gov.pt/realms/dgterritorio/login-actions/authenticate",  # http
                 "http://cdd.dgterritorio.gov.pt/auth/callback",  # a redirect from https down to http
                 "https://other.example/realms/x", "https://auth.cdd.dgterritorio.gov.pt.example/x"):
@@ -928,9 +978,15 @@ def test_the_size_is_checked_on_the_stream_without_a_content_length(fake, tmp_pa
 
 
 def test_a_file_that_trickles_fails(fake, tmp_path, monkeypatch):
-    # the slow file comes at about 2 kB/s for 1.5 s; the good one in one piece: only a stall of 0.5 s within its
-    # few milliseconds could fail it
-    monkeypatch.setattr(cf, "RATE_WINDOW", 0.5)
+    # the rate's clock moves one second per look only while the slow file comes: the good file sees no time pass,
+    # whatever the PC's load
+    clock = [0.0]
+
+    def tick():
+        clock[0] += 1.0 if fake.slow else 0.0
+        return clock[0]
+    monkeypatch.setattr(cf, "_clock", tick)
+    monkeypatch.setattr(cf, "RATE_WINDOW", 5.0)
     mainland(fake, 2)
     fake.actions["MDT-50cm-090200-07-2024"] = ["slow"] * 3
     planned(fake, tmp_path)
@@ -1021,10 +1077,9 @@ def _failed(tmp_path, area="portugal"):
     return [json.loads(line) for line in open(path, encoding="utf-8")] if path.exists() else []
 
 
-def test_a_file_whose_body_always_stalls_fails_and_the_rest_come(fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(cf, "TIMEOUT", 0.2)
+def test_a_file_whose_body_always_breaks_fails_and_the_rest_come(fake, tmp_path):
     mainland(fake, 3)
-    fake.actions["MDT-50cm-090200-07-2024"] = ["stall"] * 10
+    fake.actions["MDT-50cm-090200-07-2024"] = ["reset"] * 10  # headers, half the body, a reset: every time
     planned(fake, tmp_path)
     assert fetch(tmp_path) == 0
     assert sorted(r["id"] for r in done_rows(tmp_path)) == ["MDT-50cm-090201-07-2024", "MDT-50cm-090202-07-2024"]
@@ -1044,9 +1099,18 @@ def test_a_reset_within_a_long_file_is_tried_again(fake, plain, tmp_path):
     assert {r["id"]: r["sha256"] for r in rows} == {n: hashlib.sha256(b).hexdigest() for n, b in plain.items()}
 
 
-def test_an_outage_ends_at_any_answer(fake, tmp_path, monkeypatch):
-    """The outage clock starts at the first network error after the last answer: answers between the errors (the
-    address search answers, then the download's connection closes) keep the errors from adding up."""
+def test_resets_within_a_long_file_count_as_its_failures_not_an_outage(fake, plain, tmp_path):
+    fake.actions["A_MNT.zip"] = ["reset"] * 3
+    assert run(tmp_path, "fetch-list", "wallonia", "--pause", "0") == 0
+    failed = _failed(tmp_path, "wallonia")
+    assert [f["id"] for f in failed] == ["A_MNT.zip"] and "(3 times)" in failed[0]["error"]
+    assert [w for w in fake.waits if w] == [30.0, 60.0]  # an outage would wait 30, 60, 120 ... and fail nothing
+    assert len([p for _, p, _ in fake.log if p == "/wal/A_MNT.zip"]) == 3
+
+
+def test_an_outage_of_a_host_ends_when_it_answers(fake, tmp_path, monkeypatch):
+    """The download's host (here the site, which also answers the address search) answers between the errors:
+    each error starts its outage anew and the waits restart at 30 s."""
     mainland(fake, 2)
     planned(fake, tmp_path)
     clock = [0.0]
@@ -1263,6 +1327,92 @@ def test_a_walk_beyond_max_pages_ends_the_plan(fake, tmp_path, monkeypatch, caps
     assert len(fake.searches) == 2 and "never ends" in capsys.readouterr().err
 
 
+def _fake_clock(monkeypatch, fake):
+    """Pauses move a clock of their own: hours of outage in no time."""
+    clock = [0.0]
+    monkeypatch.setattr(cf, "_clock", lambda: clock[0])
+    monkeypatch.setattr(cf, "_wait", lambda s: (fake.waits.append(s), clock.__setitem__(0, clock[0] + max(s, 0))))
+    return clock
+
+
+DOUBLING = [30.0, 60.0, 120.0, 240.0, 480.0, 900.0, 900.0, 900.0]  # then 3630 s >= 1 h: exit 4 at the ninth error
+
+
+def test_a_store_that_never_answers_is_its_outage(fake, tmp_path, monkeypatch, capsys):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    fake.store_base = fake.other  # the store: another host than the site
+    fake.actions["MDT-50cm-090200-07-2024"] = ["storedown"] * 100
+    searches = len(fake.searches)
+    assert fetch(tmp_path, "--outage-hours", "1") == cf.EXIT_FAILURES
+    assert [w for w in fake.waits if w] == DOUBLING  # the site answers each search: the store's outage grows
+    assert len(fake.searches) - searches == 9  # one address search a try, bounded by the limit
+    assert not [p for _, p, _ in fake.log if p.startswith("/store/MDT-50cm-09020") and "090200" not in p]
+    assert "no answer from 127.0.0.1:%s" % fake.other.rsplit(":", 1)[1] in capsys.readouterr().err
+    assert not _failed(tmp_path)
+
+
+def test_a_realm_that_never_answers_is_its_outage(fake, tmp_path, monkeypatch):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    realm = fake.other
+    monkeypatch.setattr(cf, "AUTH_URL", realm + "/realms/dgterritorio/protocol/openid-connect/auth")
+    fake.login_location = realm + "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
+    fake.realm_down = True  # GET / answers, the realm's page never does
+    assert fetch(tmp_path, "--outage-hours", "1") == cf.EXIT_FAILURES
+    assert [w for w in fake.waits if w] == DOUBLING and fake.posts == 0
+
+
+def test_a_tls_failure_at_the_store_is_its_outage(fake, tmp_path, monkeypatch, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    fake.store_base = fake.other.replace("http://", "https://")  # TLS to a server without it
+    assert fetch(tmp_path, "--outage-hours", "1") == cf.EXIT_FAILURES
+    assert [w for w in fake.waits if w] == DOUBLING
+    assert "no answer from 127.0.0.1:%s" % fake.other.rsplit(":", 1)[1] in capsys.readouterr().err
+    assert not os.path.exists(tmp_path / "portugal" / "done.jsonl")
+
+
+def test_when_the_failing_host_answers_its_waits_restart(fake, tmp_path, monkeypatch):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    _fake_clock(monkeypatch, fake)
+    fake.store_base = fake.other
+    fake.actions["MDT-50cm-090200-07-2024"] = ["storedown", "storedown", "reset", "storedown"]
+    assert fetch(tmp_path) == 0
+    # the store's outage: 30, 60; its answer (a body broken after the headers: 30) ends it; the next error 30 again
+    assert [w for w in fake.waits if w] == [30.0, 60.0, 30.0, 30.0] and len(done_rows(tmp_path)) == 1
+
+
+def test_credentials_sent_without_an_answer_count_towards_three(fake, tmp_path):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    fake.post_down = 10
+    assert fetch(tmp_path) == cf.EXIT_SIGNINS and fake.posts == 3
+
+
+def test_a_broken_status_line_fails_that_file_only(fake, tmp_path):
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["badstatus"] * 3
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+    assert len(_failed(tmp_path)) == 3 and all("malformed" in f["error"] for f in _failed(tmp_path))
+
+
+@pytest.mark.parametrize("content", ["{}", '["x"]', "not json"])
+def test_a_signins_file_that_cannot_be_read_stops_before_any_request(fake, tmp_path, capsys, content):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    (tmp_path / "portugal" / "signins.json").write_text(content, encoding="utf-8")
+    asked = len(fake.log)
+    assert fetch(tmp_path) == cf.EXIT_ERROR and len(fake.log) == asked
+    assert "signins.json cannot be read" in capsys.readouterr().err
+
+
 # fetch-list
 
 @pytest.fixture
@@ -1321,11 +1471,22 @@ def test_no_secret_in_any_output(fake, plain, tmp_path, capsys, monkeypatch):
     fake.actions["MDT-50cm-090204-07-2024"] = ["short", "magic", "size"]
     planned(fake, tmp_path)
     assert fetch(tmp_path, "--retries", "1") == 0
-    fake.actions["MDT-50cm-090205-07-2024"] = ["expire"] * 5
-    fake.actions["MDT-50cm-090206-07-2024"] = ["expire"] * 5
-    fetch(tmp_path)
+    # each stop below in a folder of its own, so that it really runs (the POST counts keep it from going hollow)
+    three, ceiling, refused = tmp_path / "three", tmp_path / "ceiling", tmp_path / "refused"
+    for folder in (three, ceiling, refused):
+        planned(fake, folder)
+    for item_id in fake.bodies:
+        fake.actions[item_id] = ["expire"] * 5
+    posts = fake.posts
+    assert fetch(three) == cf.EXIT_SIGNINS and fake.posts - posts == 3
+    for item_id in fake.bodies:
+        fake.actions[item_id] = ["expire"] * 5
+    posts = fake.posts
+    assert fetch(ceiling, "--max-signins-per-hour", "1") == cf.EXIT_SIGNINS and fake.posts - posts == 1
+    fake.actions.clear()
     monkeypatch.setenv("CDD_PASSWORD", "wrong " + PASSWORD)
-    fetch(tmp_path)
+    posts = fake.posts
+    assert fetch(refused) == cf.EXIT_CREDENTIALS and fake.posts - posts == 1
     fake.actions["A_MNT.zip"] = ["500"]
     run(tmp_path, "fetch-list", "wallonia", "--pause", "0")
     run(tmp_path, "status")
@@ -1345,6 +1506,9 @@ def test_no_secret_in_any_output(fake, plain, tmp_path, capsys, monkeypatch):
                                       "plan.json")} <= set(texts)
     assert {"wallonia/fetch.log", "wallonia/done.jsonl", "wallonia/failed.jsonl"} <= set(texts)
     assert "boom" in captured.err and "failed" in texts["portugal/fetch.log"]
+    for message in ("sign-ins in a row without a fetched file", "the credentials were sent 1 times",
+                    "the sign-in was refused"):
+        assert message in captured.err, message
     secret_values = [USER, PASSWORD, urllib.parse.quote_plus(PASSWORD), "wrong " + PASSWORD] + fake.minted
     assert len(fake.minted) > 40
     for where, text in texts.items():
