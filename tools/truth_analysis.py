@@ -86,6 +86,11 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
     (helpers.downslope and wall_angles at the pair's pixels),
   - the other line limits (min_height, min_mean_height, min_high_share): no pair passes them gives
     "unexplained" with the note "height_limits",
+  - same_line_square: the search used the square rule (grid.json's params same_line_square and
+    same_line_side; samelines) and a pair that passes every test lies in the two squares of a found line:
+    the rule kept that line, outside the tolerance, and dropped the pair's (the funnel's "square_kept"
+    counts such pairs; the best pair is the one of the highest clearance among them; with min_prominence
+    set the note PROMINENCE_NOTE, as unexplained's: the pair may have lacked a strong anchor),
 - unexplained: a pair passes every test (the note "a_pair_passes"; with min_prominence set the strong
   anchors, which the capture does not hold, may explain it: the note says so), or no pixel lies
   between a pair's anchors (the note "no_pixel_between").
@@ -168,7 +173,7 @@ from slackmap_data import COARSE_DECIMALS, KnownLine  # noqa: E402
 
 REASONS = ("unverifiable", "outside_area", "no_data", "seam_pixel", "water_pixel", "structure_anchor",
            "no_steep_pixel", "anchor_filtered", "length_range", "height_difference", "clearance_near_anchor",
-           "clearance_mid", "surface_obstacle", "wall_angle", "unexplained")
+           "clearance_mid", "surface_obstacle", "wall_angle", "same_line_square", "unexplained")
 TOL_M = 10.0          # metres: the tolerance's floor
 TOL_SHARE = 0.10      # of the line's length
 QUANTUM_M = 1.11e5    # metres of one degree of latitude: a coarse anchor's quantum is QUANTUM_M * 10 ** -decimals
@@ -186,6 +191,7 @@ STRUCTURE_PX = 1      # pixels around an end's pixel looked at for a structure
 ZONES = (0.0, 5.0, 10.0, 20.0)  # metres: the end zones of a clearance miss's "zone_lift" (a ladder from 0)
 LIFTS = (0.0, 1.0, 2.0, 3.0)    # metres: its A-frame lifts; a smallest lift above the last is None
 ZONE_LIFT_REASONS = ("clearance_near_anchor", "clearance_mid")
+PROMINENCE_NOTE = "min_prominence set: the strong anchors are not in the capture"  # a pair passing every test
 DOUBTFUL_TOL_EDGES = (TOL_M, 100.0, 1000.0)  # metres: the report's bins of the matched doubtful lines' tolerances
 REPORT_TYPES = ("highline", "midline")    # always in the tables, other types when present
 PICTURE_PX = 1600     # pixels of a place's hillshade at most (a larger view is drawn every k-th pixel)
@@ -736,6 +742,46 @@ def _zone_lift(c: Capture, lo: np.ndarray, hi: np.ndarray, results: Sequence[tup
     return {"zones": list(ZONES), "lifts": list(LIFTS), "valid": valid, "lift": lift, "pairs": int(keep.sum())}
 
 
+def _square_side(c: Capture) -> Optional[float]:
+    """The side in metres of the square rule's squares of the run (run.json's same_line_side, else
+    samelines.side of its same_line_square), None when the search did not use the rule."""
+    p = c.params
+    if not p.get("same_line_square"):
+        return None
+    import samelines
+    return float(p.get("same_line_side") or samelines.side(p["same_line_square"], c.res))
+
+
+def _centres(c: Capture, xy: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """The centres (x, y) of the grid's pixels nearest to points (n, 2) of the grid's CRS (studylib.to_pixel's
+    pixel), as the search's squares take them (grid.pixel_to_xy)."""
+    g = c.grid
+    col = np.rint((xy[:, 0] - g["left"]) / g["res"] - 0.5)
+    row = np.rint((g["top"] - xy[:, 1]) / g["res"] - 0.5)
+    return g["left"] + (col + 0.5) * g["res"], g["top"] - (row + 0.5) * g["res"]
+
+
+def _square_kept(c: Capture, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """Per pair (lo, hi pixels): whether the search used the square rule (samelines) and kept a found line of
+    the pair's two squares (the key has no order): the pair's line, if valid, was dropped for that one. All
+    False without the rule."""
+    side = _square_side(c)
+    if side is None or not len(lo) or not len(c.found):
+        return np.zeros(len(lo), dtype=bool)
+    import samelines
+    if "square_keys" not in c._cache:  # the found lines' keys: their anchors' pixels (lines.npz holds WGS84)
+        (x1, y1), (x2, y2) = _centres(c, c.found.xy1), _centres(c, c.found.xy2)
+        ka, kb = samelines.square_keys(x1, y1, x2, y2, side)  # the squares in order
+        c._cache["square_keys"] = set(zip(ka.tolist(), kb.tolist()))
+    g = c.grid
+    lo, hi = np.asarray(lo, dtype=np.float64).reshape(-1, 2), np.asarray(hi, dtype=np.float64).reshape(-1, 2)
+    x1, y1 = g["left"] + (lo[:, 1] + 0.5) * g["res"], g["top"] - (lo[:, 0] + 0.5) * g["res"]
+    x2, y2 = g["left"] + (hi[:, 1] + 0.5) * g["res"], g["top"] - (hi[:, 0] + 0.5) * g["res"]
+    ka, kb = samelines.square_keys(x1, y1, x2, y2, side)  # the squares in order
+    kept = c._cache["square_keys"]
+    return np.array([key in kept for key in zip(ka.tolist(), kb.tolist())], dtype=bool)
+
+
 def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]], lengths: Sequence[float], tol: float
             ) -> Tuple[Dict, Optional[Dict], str, Optional[str], Optional[Dict]]:
     """The anchor pairs of the two ends with a length within tol of one of lengths (the known line's:
@@ -817,11 +863,18 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]], lengths: 
         return counts, detail(k, "wall"), "wall_angle", None, None
     limits = wall & np.array([_limits_pass(c, r) for r in results])
     counts["limits"] = int(limits.sum())
+    if _square_side(c) is not None:  # the square rule: kept another line of a passing pair's two squares?
+        dropped = limits & _square_kept(c, lo[rows], hi[rows])
+        counts["square_kept"] = int(dropped.sum())
+        if dropped.any():
+            k = int(rows[np.argmax(np.where(dropped, clearance, -np.inf))])
+            caveat = PROMINENCE_NOTE if p.get("min_prominence") is not None else None
+            return counts, detail(k, "square"), "same_line_square", caveat, None
     last = limits if limits.any() else wall
     k = int(rows[np.argmax(np.where(last, clearance, -np.inf))])
     note = "a_pair_passes" if limits.any() else "height_limits"
     if limits.any() and p.get("min_prominence") is not None:
-        note += "; min_prominence set: the strong anchors are not in the capture"
+        note += "; " + PROMINENCE_NOTE
     return counts, detail(k, "limits" if limits.any() else "wall"), "unexplained", note, None
 
 
