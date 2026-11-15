@@ -132,19 +132,38 @@ TINITALY_DEM = WcsTiles("TINITALY 1.1 10 m (terrain)", TINITALY_WCS, "TINItaly_1
 # Slovenia and Malta in SOURCES, Sardinia, South Tyrol and Trento before TINITALY): steps along the French border
 # that keep off Savoie, the Hautes-Alpes, the Alpes-Maritimes and Menton (east of 6.6 E France's own boxes stop at
 # 44.1 N and 7.4 E), the Adriatic off Istria and Dalmatia, Sicily east of Tunisia's Cap Bon (11.04 E), Sardinia,
-# the Tremiti islands, Lampedusa and Linosa
+# the Gargano and the Tremiti islands, Lampedusa and Linosa
 IT_BOXES = (("it", (45.45, 46.40, 7.06, 13.37)), ("it", (45.20, 45.45, 7.20, 13.37)),
             ("it", (45.00, 45.20, 7.10, 13.37)), ("it", (44.70, 45.00, 7.05, 13.37)),
             ("it", (44.30, 44.70, 7.10, 13.37)), ("it", (44.15, 44.30, 7.30, 13.37)),
             ("it", (43.95, 44.15, 7.75, 13.37)), ("it", (43.60, 43.95, 7.56, 15.00)),
-            ("it", (41.90, 43.60, 8.00, 15.40)), ("it", (42.05, 42.25, 15.40, 15.80)),
+            ("it", (41.90, 43.60, 8.00, 15.40)), ("it", (41.90, 42.25, 15.40, 16.25)),
             ("it", (39.70, 41.90, 8.00, 18.60)), ("it", (36.60, 39.70, 11.90, 17.30)),
-            ("it", (38.85, 41.32, 8.10, 9.85)), ("it", (35.45, 35.90, 12.30, 12.90)))
-
-# Italy's land along the Swiss and Slovenian borders that the boxes above leave out (the Aosta valley's west, Val
-# Formazza to Livigno north of 46.35 N, the Slovenian border down to Muggia), for the neighbours' border gaps only:
-# they hold the neighbours' land too
-IT_BORDER = ((45.40, 46.00, 6.75, 7.30), (46.35, 46.65, 8.35, 10.50), (45.45, 46.55, 13.30, 13.95))
+            ("it", (38.85, 41.32, 8.10, 9.85)), ("it", (35.45, 35.90, 12.30, 12.90)),
+            # Italy's land beyond the boxes above, which only TINITALY's coverage needs (coverage_boxes: an area
+            # download of Italy): north of 46.37 N and east of 13.37 E Switzerland's, Austria's and Slovenia's
+            # boxes come first and keep their land offline
+            ("it", (46.37, 47.10, 8.30, 13.712)), ("it", (45.45, 46.40, 13.37, 13.95)),
+            # Along the French border, bands of 0.05 deg from Italy's westernmost land in each (Nominatim's
+            # outlines of Italia and France, 2026-11-15; consecutive bands of one edge merged; east of the Roya
+            # valley and at Ventimiglia apart): France has no box there, so they hold about 800 km2 of its
+            # border strip too (offline only: an offline guess of Italy there gets TINITALY, no data, filled from
+            # europe, as before)
+            ("it", (44.15, 44.20, 7.17, 7.80)), ("it", (44.20, 44.25, 6.99, 7.80)), ("it", (44.25, 44.30, 6.95, 7.80)),
+            ("it", (44.30, 44.35, 6.92, 7.80)), ("it", (44.35, 44.40, 6.88, 7.80)), ("it", (44.40, 44.45, 6.89, 7.80)),
+            ("it", (44.45, 44.50, 6.86, 7.80)), ("it", (44.50, 44.55, 6.85, 7.80)), ("it", (44.55, 44.60, 6.87, 7.80)),
+            ("it", (44.60, 44.65, 6.93, 7.80)), ("it", (44.65, 44.70, 6.94, 7.80)), ("it", (44.70, 44.75, 7.02, 7.80)),
+            ("it", (44.75, 44.80, 6.99, 7.80)), ("it", (44.80, 44.85, 6.86, 7.80)), ("it", (44.85, 44.90, 6.77, 7.80)),
+            ("it", (44.90, 44.95, 6.74, 7.80)), ("it", (44.95, 45.00, 6.73, 7.80)), ("it", (45.00, 45.05, 6.66, 7.80)),
+            ("it", (45.05, 45.10, 6.63, 7.80)), ("it", (45.10, 45.15, 6.62, 7.80)), ("it", (45.15, 45.20, 6.75, 7.80)),
+            ("it", (45.20, 45.25, 6.96, 7.80)), ("it", (45.25, 45.30, 7.12, 7.80)), ("it", (45.30, 45.35, 7.10, 7.80)),
+            ("it", (45.35, 45.40, 7.13, 7.80)), ("it", (45.40, 45.45, 7.10, 7.80)), ("it", (45.45, 45.50, 7.00, 7.80)),
+            ("it", (45.50, 45.55, 6.99, 7.80)), ("it", (45.55, 45.60, 6.97, 7.80)), ("it", (45.60, 45.65, 6.92, 7.80)),
+            ("it", (45.65, 45.70, 6.84, 7.80)), ("it", (45.70, 45.85, 6.80, 7.80)), ("it", (45.85, 45.90, 6.94, 7.80)),
+            ("it", (45.90, 45.95, 7.00, 7.80)), ("it", (44.10, 44.15, 7.26, 7.45)), ("it", (43.85, 44.00, 7.59, 7.80)),
+            ("it", (44.00, 44.05, 7.66, 7.80)), ("it", (44.05, 44.10, 7.69, 7.80)), ("it", (43.75, 43.80, 7.52, 7.60)),
+            ("it", (43.80, 43.85, 7.51, 7.60)), ("it", (43.85, 43.92, 7.51, 7.60)), ("it", (43.72, 43.75, 7.53, 7.60)),
+            ("it", (44.10, 44.15, 7.66, 7.80)), ("it", (44.135, 44.15, 7.45, 7.66)))
 
 SOURCES: List[Source] = [
     Source(
@@ -218,7 +237,7 @@ SOURCES: List[Source] = [
         neighbours=("swisstopo", "slovenia"),
         listing=ReadmeRow("Italy, San Marino, Vatican City (and the gaps of the Italian regional sources)",
                           "INGV TINITALY 1.1, 10 m (WCS)"),
-        offline=IT_BOXES, border_boxes=IT_BORDER, sample=(42.4700, 13.5600),  # Corno Piccolo, Gran Sasso
+        offline=IT_BOXES, sample=(42.4700, 13.5600),  # Corno Piccolo, Gran Sasso
         note="Data: INGV, TINITALY 1.1, CC BY 4.0. TINITALY is a terrain model at 10 m interpolated from contour "
              "lines, spot heights and other surveys: walls come out less steep than they are, lines shorter than "
              "about 60 m are not reliable, and a line over a forest looks clear. The working grid is WGS 84 / UTM "

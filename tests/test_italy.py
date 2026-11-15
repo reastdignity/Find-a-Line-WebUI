@@ -196,9 +196,16 @@ def test_tinitaly_tiles(http_server, tmp_path, no_sleep):
             body = _tiff(np.zeros((px, px)), left, 4720000.0, None)
         return Answer(200, body, {"Content-Type": "image/tiff"})
     http_server.route("/wcs", answer)
-    layer = src.WcsTiles("TINITALY test", http_server.url("/wcs"), "TINItaly_1_1__tinitaly_dem", "EPSG:32632",
-                         "test_it/tinitaly", native_res=10.0, tile_px=1000, fetch_res=10.0, axes=("E", "N"),
-                         zero_is_nodata=True, bytes_per_px=3.4, params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
+    dem = italy.TINITALY_DEM  # the catalogue's layer, asked on the local server
+    assert dem.reader.zero_is_nodata and dem.params == (("GEOTIFF:COMPRESSION", "DEFLATE"),)
+    assert (dem.url, dem.coverage, dem.crs, dem.axes, dem.fmt) == (
+        "https://tinitaly.pi.ingv.it/TINItaly_1_1/wcs", "TINItaly_1_1__tinitaly_dem", "EPSG:32632", ("E", "N"),
+        "image/tiff")
+    assert (dem.native_res, dem.fetch_res, dem.tile_px, dem.origin, dem.edge_px) == (10.0, 10.0, 1000, (0.0, 0.0), 0)
+    layer = src.WcsTiles(dem.description, http_server.url("/wcs"), dem.coverage, dem.crs, "test_it/tinitaly",
+                         native_res=dem.native_res, tile_px=dem.tile_px, fmt=dem.fmt, axes=dem.axes,
+                         fetch_res=dem.fetch_res, zero_is_nodata=dem.reader.zero_is_nodata,
+                         bytes_per_px=dem.bytes_per_px, params=dem.params)
     grid = make_grid((879000.0, 4711000.0, 881000.0, 4713000.0), 10.0, "EPSG:32632")
     cache_dir = str(tmp_path / "cache")
     out = np.load(src.prepare_layer(layer, grid, cache_dir, str(tmp_path / "t.npy"), "terrain"))
@@ -206,6 +213,82 @@ def test_tinitaly_tiles(http_server, tmp_path, no_sleep):
     assert all(q["GEOTIFF:COMPRESSION"] == "DEFLATE" and q["COVERAGEID"] == "TINItaly_1_1__tinitaly_dem"
                for q in asked)
     assert not any("SCALESIZE" in q for q in asked)
+
+
+def _local(path: str, grid, band: np.ndarray) -> str:
+    with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1, dtype="float32",
+                  crs=grid.crs, nodata=-9999.0, transform=from_origin(grid.left, grid.top, grid.res, grid.res)) as dst:
+        dst.write(np.where(np.isnan(band), -9999.0, band).astype(np.float32), 1)
+    return path
+
+
+class _File(src.FileLayer):
+    """A local file that records its credit, as the cached layers do."""
+
+    def used(self, grid, cache_dir):
+        return {**super().used(grid, cache_dir), "credit": self.credit.as_dict()}
+
+
+@pytest.mark.parametrize("tinitaly_has_data", [True, False])
+def test_chain_credits_the_layers_that_filled(tmp_path, tinitaly_has_data):
+    """A regional source's chain [tinitaly, europe]: where TINITALY fills the gaps (its terrain also the surface's:
+    it has no surface model) the run credits INGV only, not FABDEM nor Copernicus; where it has no data there, FABDEM
+    and Copernicus fill and are credited, INGV is not (filling.fill_gaps drops a layer that filled no pixel)."""
+    import search
+    grid = make_grid((880000, 4700000, 881000, 4701000), 10, "EPSG:32632")
+    shape = (grid.height, grid.width)
+    terrain, surface = np.full(shape, 500.0, np.float32), np.full(shape, 505.0, np.float32)
+    terrain[40:60, 40:60] = np.nan
+    surface[40:60, 40:60] = np.nan
+    nmt, nmpt = str(tmp_path / "nmt.npy"), str(tmp_path / "nmpt.npy")
+    np.save(nmt, terrain)
+    np.save(nmpt, surface)
+
+    def layer(name, value, credit):
+        made = _File(name, _local(str(tmp_path / f"{name}.tif"), grid, np.full(shape, value, np.float32)))
+        made.credit = credit
+        return made
+    tin_credit = src.SOURCES["tinitaly"].credits[0]
+    copernicus = src.SOURCES["europe"].credits[1]
+    tin = src.Source(id="tinitaly_test", name="TINITALY test", description="t", credits=(tin_credit,),
+                     nmt=layer("tinitaly", 501.0 if tinitaly_has_data else np.nan, tin_credit))
+    europe = src.Source(id="europe_test", name="europe test", description="e", fallback=None,
+                        credits=(src.FABDEM_CREDIT, copernicus), nmt=layer("fabdem", 499.0, src.FABDEM_CREDIT),
+                        nmpt=layer("copernicus", 510.0, copernicus))
+    src.mosaic.used_data.clear()
+    try:
+        _, counts = src.filling.fill_gaps_chain(nmt, nmpt, grid, [tin, europe], str(tmp_path / "cache"),
+                                                str(tmp_path / "gap.npy"))
+
+        class _Plan:
+            area = None
+        credits = {c["data"] for c in search._credits(_Plan(), search._dated_data(search._merged_data(), 2026))}
+    finally:
+        src.mosaic.used_data.clear()
+    assert [n > 0 for _, n in counts] == ([True, False] if tinitaly_has_data else [False, True])
+    assert not np.isnan(np.load(nmt)).any() and not np.isnan(np.load(nmpt)).any()
+    if tinitaly_has_data:
+        assert tin_credit.data in credits and not credits & {src.FABDEM_CREDIT.data, copernicus.data}
+    else:
+        assert {src.FABDEM_CREDIT.data, copernicus.data} <= credits and tin_credit.data not in credits
+
+
+def test_probe_layer_dispatches_zipfile(http_server, tmp_path):
+    """probe_layer on a WfsFeatureTiles: the kind "zipfile", its index asked (OK) and the first tile's ZIP read by
+    its first KB (OK), no Range header sent."""
+    from pyproj import Transformer
+    from sources import probe
+    rng = np.random.default_rng(5)
+    http_server.add("/dl/500120_03.ZIP", _zip("500120_03", rng.uniform(0, 9, (ROWS, COLS))), "application/zip")
+    _serve_index(http_server, _collection([_feature("500120_03", X0, Y0, http_server.url("/dl/500120_03.ZIP"))]))
+    layer = _layer(http_server)
+    lon, lat = Transformer.from_crs("EPSG:32632", "EPSG:4326", always_xy=True).transform(X0 + 3, Y0 + 2)
+    source = src.Source(id="sar_test", name="sar test", description="s", nmt=layer, crs="EPSG:32632",
+                        grid_origin=italy.SAR_ORIGIN, sample=(lat, lon))
+    row = probe.probe_layer(source, layer, "terrain", str(tmp_path), str(tmp_path / "probe"), deep=False)
+    assert (row.index, row.read) == (probe.OK, probe.OK), row.notes
+    assert http_server.requests("/dl/500120_03.ZIP")
+    assert all("range" not in r.headers for r in http_server.requests("/dl/"))
 
 
 def test_sources():
@@ -240,8 +323,42 @@ def test_sources():
     (37.5300, 8.9300, None),      # La Galite, Tunisia
     (42.6400, 18.1100, None),     # Dubrovnik
     (45.2300, 13.6000, None),     # Poreč, Istria
+    # The Alps and Friuli: the neighbours' boxes come first (as before), Italy's hold the rest
+    (45.7915, 6.9733, "it"),      # Courmayeur
+    (45.0800, 6.7000, "it"),      # Bardonecchia
+    (44.9400, 6.7500, "it"),      # Claviere
+    (43.8700, 7.5400, "it"),      # Airole, the Roya below Breil
+    (46.5405, 12.1357, "at"),     # Cortina d'Ampezzo
+    (46.6000, 12.3000, "at"),     # Tre Cime, the Belluno side (Auronzo)
+    (46.5670, 12.6900, "at"),     # Sappada
+    (46.5050, 13.5780, "at"),     # Tarvisio
+    (46.4670, 10.3700, "ch"),     # Bormio
+    (46.5380, 10.1350, "ch"),     # Livigno
+    (46.3800, 8.4200, "ch"),      # Val Formazza
+    (45.6500, 13.7700, "si"),     # Trieste
+    (45.6200, 13.8800, "si"),     # Val Rosandra
+    # Just across the borders: never Italy's
+    (45.2000, 6.6700, None),      # Modane
+    (45.2850, 6.8750, None),      # Lanslebourg
+    (44.9000, 6.6400, None),      # Briançon
+    (44.3870, 6.6520, None),      # Barcelonnette
+    (44.0880, 7.5940, None),      # Tende
+    (45.9230, 6.8700, "ch"),      # Chamonix (Switzerland's box, as before)
+    (45.8350, 9.0300, "ch"),      # Chiasso
+    (45.9560, 13.6480, "si"),     # Nova Gorica
+    (46.4850, 13.7850, "at"),     # Kranjska Gora (Austria's box, as before)
 ])
 def test_offline_boxes(lat, lon, found):
     """Offline, the first box holding a point wins: Italy's keep off its neighbours without boxes of their own."""
     code = next((code for code, (s, n, w, e) in src.OFFLINE_BOXES if s <= lat <= n and w <= lon <= e), None)
     assert code == found
+
+
+@pytest.mark.parametrize("lat, lon", [
+    (45.7915, 6.9733), (46.5405, 12.1357), (46.6000, 12.3000), (46.5670, 12.6900), (46.4670, 10.3700),
+    (46.5380, 10.1350), (46.4300, 8.4300), (46.5050, 13.5780), (45.6500, 13.7700), (45.6200, 13.8800),
+    (45.0800, 6.7000), (43.8700, 7.5400), (41.9300, 16.0000), (44.1200, 7.7200), (43.7900, 7.5400)])
+def test_coverage_boxes_hold_italy(lat, lon):
+    """TINITALY's coverage (its offline boxes: an area download of Italy clips the outline to them) holds Italy's
+    Alps, Friuli, Trieste, the Gargano and the Ligurian border."""
+    assert any(s <= lat <= n and w <= lon <= e for s, n, w, e in src.SOURCES["tinitaly"].coverage_boxes())
