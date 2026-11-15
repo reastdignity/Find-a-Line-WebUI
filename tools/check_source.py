@@ -57,6 +57,7 @@ import cache  # noqa: E402
 import search  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
+from sources.readers import windows  # noqa: E402
 from sources.readers.zipmember import drop_below  # noqa: E402
 from params import SearchParams  # noqa: E402
 from progress import progress  # noqa: E402
@@ -204,7 +205,9 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     src.net.rate_turn(url)  # the file's read counts as one request where its host has a rate (net.HOST_RATES_OF)
     try:
         with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
-            kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
+            # ASCII grids name no CRS, Caribbean Netherlands' AHN files only a local one (the layer forces its own)
+            local = source.crs is None or windows._local(source.crs)
+            kwargs = {"src_crs": profile["crs"]} if local else {}
             with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
                            height=profile["height"], resampling=resampling, **kwargs) as vrt:
                 values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)

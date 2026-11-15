@@ -395,7 +395,7 @@ SOURCES: List[Source] = [
         countries=("de",), regions=("de-ni",), crs="EPSG:25832", ortho=LGLN_DOP,
         credits=(LGLN_CREDIT,),
         neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern", "north_rhine_westphalia", "brandenburg",
-                    "schleswig_holstein"),
+                    "schleswig_holstein", "netherlands"),
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
@@ -494,7 +494,7 @@ SOURCES: List[Source] = [
         nmpt=_nw("dom", "DOM1 (trees, buildings)", True, (("GEOTIFF:COMPRESSION", "DEFLATE"),)),
         countries=("de",), regions=("de-nw",), crs="EPSG:25832", ortho=NW_DOP,
         credits=(NW_CREDIT,),
-        neighbours=("hesse", "lower_saxony", "rhineland_palatinate"),
+        neighbours=("hesse", "lower_saxony", "rhineland_palatinate", "netherlands"),
         listing=ReadmeRow("North Rhine-Westphalia (DE)", "Geobasis NRW DGM1, 1 m (WCS)", "Geobasis NRW DOM1, 1 m (WCS)",
                           "Geobasis NRW DOP"),
         # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)

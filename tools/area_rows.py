@@ -58,7 +58,7 @@ COUNTRIES = {
     "de": "Germany", "dk": "Denmark", "es": "Spain", "fi": "Finland", "fr": "France", "gb": "United Kingdom",
     "gl": "Greenland", "is": "Iceland", "it": "Italy", "li": "Liechtenstein", "lu": "Luxembourg", "mt": "Malta",
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
-    "us": "United States", "vi": "U.S. Virgin Islands"}
+    "us": "United States", "vi": "U.S. Virgin Islands", "nl": "Netherlands", "fo": "Faroe Islands"}
 
 
 class SettingsError(ValueError):

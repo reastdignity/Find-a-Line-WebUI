@@ -405,6 +405,26 @@
    "survey": "",
    "trees": "no"
   },
+  "fo": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Umhvørvisstovan",
+   "res": [
+    2
+   ],
+   "source": "faroe_islands",
+   "survey": "2015",
+   "trees": "surface"
+  },
   "fr": {
    "added": "2026-11-02",
    "level": 1,
@@ -584,6 +604,58 @@
    ],
    "source": "malta",
    "survey": "2018",
+   "trees": "yes"
+  },
+  "nl": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "PDOK",
+   "res": [
+    1
+   ],
+   "source": "netherlands",
+   "survey": "2020–2022",
+   "trees": "yes"
+  },
+  "nl-bq1": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    1
+   ],
+   "source": "bonaire",
+   "survey": "2023–2024",
+   "trees": "yes"
+  },
+  "nl-bq2": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    1
+   ],
+   "source": "saba",
+   "survey": "2023–2024",
+   "trees": "yes"
+  },
+  "nl-bq3": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    1
+   ],
+   "source": "sint_eustatius",
+   "survey": "2023–2024",
    "trees": "yes"
   },
   "no": {
@@ -799,7 +871,7 @@
    "trees": "no"
   }
  },
- "countries": 23,
+ "countries": 25,
  "partly": {
   "au": [
    "au-qld",

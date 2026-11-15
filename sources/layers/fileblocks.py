@@ -21,19 +21,21 @@ class FileBlocks(ComposedLayer):
     With geoid (files of heights above the ellipsoid: ArcticDEM), the blocks are cached as heights
     above that geoid; the folder must name it (-<tag>, e.g. -egm08), and its grid is made ready
     (downloaded once into the cache) before the first block is read. serial: Windows(serial=True).
+    force_crs: files that name only a local CRS (LOCAL_CS: Caribbean Netherlands' AHN) are read as crs
+    (Windows(force_crs=True)); a file with a real CRS other than crs is still not used.
     """
 
     def __init__(self, description: str, folder: str, crs: str, res: float, block_m: float,
                  files: Union[str, Callable[[int, int], FileList]], origin: Tuple[float, float] = (0.0, 0.0),
                  extent: Optional[Tuple[float, float, float, float]] = None, year: int = 0,
                  bytes_per_tile: float = 3e6, credit: Optional[Credit] = None, geoid: Optional[Geoid] = None,
-                 serial: bool = False):
+                 serial: bool = False, force_crs: bool = False):
         if geoid is not None and f"-{geoid.tag}" not in folder:
             raise ValueError(f"{folder}: the folder of heights moved to {geoid.name} must name it (-{geoid.tag})")
         self.description, self.folder, self.crs, self.native_res = description, folder, crs, res
         self.block_m, self._bytes, self.credit, self.geoid = block_m, bytes_per_tile, credit, geoid
         self.index = FileBlockTiling(crs, folder, res, block_m, files, origin, extent, year)
-        self.reader = Windows(description, geoid, serial)
+        self.reader = Windows(description, geoid, serial, force_crs)
 
     def _download_and_record(self, tile, cache_dir: str, update: Optional[str] = None,
                              if_due: bool = False, role: str = "other") -> int:

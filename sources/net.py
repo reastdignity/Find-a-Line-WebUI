@@ -111,6 +111,18 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # published limit: a courtesy cap
     "data.slackmap.com": 2,
     "api.slackmap.com": 1,
+    # PDOK (the Netherlands' AHN4 WCS): no published limits (the WCS's Fees "NONE" and AccessConstraints CC0;
+    # https://www.pdok.nl/Serviceniveau, /how-to-faq1 (a limit of 1 000 features for its WFS only) and /copyright,
+    # read 2026-11-15); its MapServer refuses more than 4000 px a side: courtesy
+    "service.pdok.nl": 4,
+    # Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' whole-island AHN files, redirected to Hetzner's
+    # fsn1.your-objectstorage.com): no published limits (the dataroom page https://www.beeldmateriaal.nl/
+    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15): courtesy
+    "basisdata.nl": 4,
+    # Umhvørvisstovan's file server (the Faroe Islands' DSM): its terms (https://www.foroyakort.fo/um-foeroyakort/
+    # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
+    # continued provision of data": courtesy, two at once
+    "cdn.foroyakort.fo": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
