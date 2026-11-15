@@ -395,7 +395,7 @@ SOURCES: List[Source] = [
         countries=("de",), regions=("de-ni",), crs="EPSG:25832", ortho=LGLN_DOP,
         credits=(LGLN_CREDIT,),
         neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern", "north_rhine_westphalia", "brandenburg",
-                    "schleswig_holstein", "netherlands"),
+                    "schleswig_holstein"),
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),

@@ -34,7 +34,7 @@ def test_declarations():
     nl = src.SOURCES["netherlands"]
     assert nl.countries == ("nl",) and nl.bbox == netherlands.NL_BOX and nl.crs == "EPSG:28992"
     assert nl.default_resolution == 1.0 and nl.fallbacks == ["europe"]
-    assert set(nl.neighbours) == {"north_rhine_westphalia", "lower_saxony"}
+    assert nl.neighbours == ("north_rhine_westphalia",)  # Lower Saxony has six already (countcube.PARTNERS)
     for layer, coverage in ((nl.nmt, "dtm_05m"), (nl.nmpt, "dsm_05m")):
         assert (layer.coverage, layer.fetch_res, layer.tile_px, layer.crs) == (coverage, 0.5, 2000, "EPSG:28992")
         assert layer.url == netherlands.NL_WCS and layer.ttl_days is None

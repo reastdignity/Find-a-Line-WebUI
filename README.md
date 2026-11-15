@@ -114,7 +114,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `hesse` | Hesse (DE) | DE | HVBG DGM1, 1 m (WCS) | HVBG DOM1, 1 m (WCS) | HVBG DOP | 1 m | `lower_saxony`, `baden_wurttemberg`, `bavaria`, `rhineland_palatinate`, `north_rhine_westphalia` at the border, then `europe` |
 | `mecklenburg_vorpommern` | Mecklenburg-Vorpommern (DE) | DE | LAiV DGM1, 1 m (WCS) | LAiV DOM1, 1 m (WCS) | LAiV DOP | 1 m | `lower_saxony`, `geoportal`, `brandenburg`, `schleswig_holstein` at the border, then `europe` |
 | `saxony_anhalt` | Saxony-Anhalt (DE) | DE | LVermGeo DGM1, 1 m (WCS) | LVermGeo DOM1, 1 m (WCS) | LVermGeo DOP20 | 1 m | `lower_saxony`, `saxony`, `brandenburg` at the border, then `europe` |
-| `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `saxony_anhalt`, `hesse`, `mecklenburg_vorpommern`, `north_rhine_westphalia`, `brandenburg`, `schleswig_holstein`, `netherlands` at the border, then `europe` |
+| `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `saxony_anhalt`, `hesse`, `mecklenburg_vorpommern`, `north_rhine_westphalia`, `brandenburg`, `schleswig_holstein` at the border, then `europe` |
 | `saxony` | Saxony (DE) | DE | GeoSN DGM1, 1 m (2 km tiles) | GeoSN DOM1, 1 m (2 km tiles) | GeoSN DOP20 | 1 m | `geoportal`, `saxony_anhalt`, `czechia`, `bavaria`, `brandenburg` at the border, then `europe` |
 | `baden_wurttemberg` | Baden-Württemberg (DE) | DE | LGL DGM1, 1 m (2 km tiles) | LGL DOM1, 1 m (2 km tiles) | LGL DOP20 | 1 m | `hesse`, `swisstopo`, `france`, `bavaria`, `rhineland_palatinate` at the border, then `europe` |
 | `bavaria` | Bavaria (DE) | DE | LDBV DGM1, 1 m (1 km tiles) | LDBV DOM20 averaged to 1 m (image matching) | LDBV DOP20 | 1 m | `austria`, `hesse`, `saxony`, `baden_wurttemberg`, `czechia` at the border, then `europe` |
@@ -139,7 +139,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `saba` | Saba (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
 | `sint_eustatius` | Sint Eustatius (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
 | `bonaire` | Bonaire (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
-| `netherlands` | Netherlands (European part) | NL | PDOK AHN4 DTM, 0.5 m (WCS) | PDOK AHN4 DSM, 0.5 m (WCS) | PDOK aerial photo (Beeldmateriaal) | 1 m | `north_rhine_westphalia`, `lower_saxony` at the border, then `europe` |
+| `netherlands` | Netherlands (European part) | NL | PDOK AHN4 DTM, 0.5 m (WCS) | PDOK AHN4 DSM, 0.5 m (WCS) | PDOK aerial photo (Beeldmateriaal) | 1 m | `north_rhine_westphalia` at the border, then `europe` |
 | `faroe_islands` | Faroe Islands | FO | Umhvorvisstovan DSM 2015, 2 m (a surface model) | – | Umhvorvisstovan orthophoto | 2 m | `copernicus` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `copernicus` | anywhere (the gap filler of the Arctic sources) | – | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m (a surface model) | – | – | 30 m | – |
