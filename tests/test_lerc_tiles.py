@@ -543,3 +543,28 @@ def test_layer_without_a_mask_and_tile_bounds(http_server):
     assert ni.bounds_wgs84((17, 41315, 63294)) == pytest.approx(
         (-6.157842278479856, 55.22276014781404, -6.155095696448606, 55.22432673256287), abs=1e-9)
     assert check_source._sources_of(ni, (17, 41315, 63294)) is None
+
+
+def test_mosaic_resamples_web_mercator_by_its_ground_size():
+    """mosaic: an EPSG:3857 tile's pixel counts at its size on the ground (times the cosine of the grid centre's
+    latitude): Northern Ireland's level 17 (1.19 m, 0.68 m at 55.2° N) is averaged onto a 1 m grid, Rio's level 15
+    (4.78 m, 4.40 m at 23° S) interpolated onto 5 m as before; other CRSs keep their sizes (degrees as 111 320 m)."""
+    from types import SimpleNamespace
+    from rasterio.crs import CRS
+    from rasterio.enums import Resampling
+    from sources import mosaic
+
+    def grid_at(lat, lon, crs, res):
+        (x,), (y,) = transform("EPSG:4326", crs, [lon], [lat])
+        return make_grid((x - 500, y - 500, x + 500, y + 500), res, crs)
+
+    ni_grid, rj_grid = grid_at(55.224, -6.157, "EPSG:2157", 1.0), grid_at(-22.95, -43.16, "EPSG:31983", 5.0)
+    mercator = CRS.from_epsg(3857)
+    ni = mosaic.src_pixel_m(SimpleNamespace(res=(lerc.resolution(17),) * 2), mercator, ni_grid)
+    rj = mosaic.src_pixel_m(SimpleNamespace(res=(lerc.resolution(15),) * 2), mercator, rj_grid)
+    assert ni == pytest.approx(0.681, abs=0.002) and rj == pytest.approx(4.400, abs=0.005)
+    assert mosaic._resampling(ni, 1.0) == Resampling.average
+    assert mosaic._resampling(rj, 5.0) == Resampling.bilinear
+    assert mosaic.src_pixel_m(SimpleNamespace(res=(2.0, 2.0)), CRS.from_epsg(2157), ni_grid) == 2.0
+    assert mosaic.src_pixel_m(SimpleNamespace(res=(1 / 3600,) * 2), CRS.from_epsg(4326), ni_grid) == \
+        pytest.approx(111320 / 3600)

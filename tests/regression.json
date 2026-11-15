@@ -1950,25 +1950,25 @@
       "gb"
     ],
     "expected": {
-      "anchors": 44931,
-      "open": 6380,
-      "checked": 13162,
-      "lines": 2534,
-      "spots": 30,
-      "csv_sha256": "bfd3ab80d602df3f08d0768814b879edfb9d5246ee9ad29ee794f14cc36388d3",
-      "length_km": 255.884,
+      "anchors": 45171,
+      "open": 6363,
+      "checked": 13198,
+      "lines": 2522,
+      "spots": 31,
+      "csv_sha256": "7843e098158491ca5316000e98ee2ac101bc972978c6a853e0042a39bd551123",
+      "length_km": 254.81,
       "clearance_min": 0.0,
-      "clearance_mean": 1.711,
-      "clearance_max": 9.04,
+      "clearance_mean": 1.785,
+      "clearance_max": 8.66,
       "over_trees": 0,
-      "coverage": 31.78,
+      "coverage": 32.1,
       "empty_tiles": 57,
-      "filled_km2": 1.11,
+      "filled_km2": 1.1,
       "filled_from": "FABDEM + Copernicus DEM",
       "sea_km2": 1.34
     },
-    "seconds": 195.8,
-    "notes": "added 2026-11-15: --source auto picks northern_ireland (GB-NIR; the coastal DTM's cells hold data at the centre); LERC1 tiles of level 17 (0.68 m on the ground), only those within a cell of the cells mask asked, the rest of the grid's box never asked; 57 tiles without data (the sea and inland beyond the survey's strip of about 200 m: coverage 31.78 %), 1.11 km² of land filled from FABDEM (the plateau inland and the boulder field's gaps; no line over them); the spots along the crag's rim, 55.2207-55.2264 N, 6.1617-6.1498 W, anchors at 120-158 m; about 200 s on an empty cache at the rate of 54 tiles a minute"
+    "seconds": 213.3,
+    "notes": "added 2026-11-15: --source auto picks northern_ireland (GB-NIR; the coastal DTM's cells hold data at the centre); LERC1 tiles of level 17 (0.68 m on the ground), only those within a cell of the cells mask asked, the rest of the grid's box never asked; 57 tiles without data (the sea and inland beyond the survey's strip of about 200 m: coverage 32.1 %), 1.10 km² of land filled from FABDEM (the plateau inland and the boulder field's gaps; no line over them); the spots along the crag's rim, 55.2207-55.2264 N, 6.1617-6.1498 W, anchors at 120-158 m; about 200 s on an empty cache at the rate of 54 tiles a minute; re-baselined 2026-11-15: an EPSG:3857 tile now resampled by its ground size (0.68 m at 55° N: averaged onto the 1 m grid, was bilinear)"
   },
   "R75": {
     "place": "Pão de Açúcar and Morro da Urca, Rio de Janeiro (BR): their granite domes of about 220-390 m, Instituto Pereira Passos' 5 m lidar DTM from its Esri elevation tile cache (LERC1 tiles of level 15) reprojected onto SIRGAS 2000 / UTM 23S",
