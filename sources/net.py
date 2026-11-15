@@ -151,6 +151,9 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # ArcGIS Online's shared tile host (Rio de Janeiro's 5 m DTM, IPP's elevation tiles): no published limits (the
     # item 4dd8af31ff8f4486802613a8d1a22f33 and its service, read 2026-11-15): courtesy, two at once
     "tiles.arcgis.com": 2,
+    # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
+    # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
+    "admin.opendatani.gov.uk": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

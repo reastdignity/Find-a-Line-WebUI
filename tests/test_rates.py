@@ -386,7 +386,7 @@ def test_published_limits():
                                  "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
                                  "webgis.regione.sardegna.it": 2,
                                  "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
-                                 "tiles-eu1.arcgis.com": 2, "tiles.arcgis.com": 2}
+                                 "tiles-eu1.arcgis.com": 2, "tiles.arcgis.com": 2, "admin.opendatani.gov.uk": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

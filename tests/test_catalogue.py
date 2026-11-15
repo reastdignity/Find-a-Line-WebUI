@@ -16,7 +16,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
+       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "tinitaly", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "rio_de_janeiro", "europe", "copernicus", "nasadem"]
 
@@ -791,10 +791,10 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
             'northern_ireland': {'crs': 'EPSG:2157',
                                  'countries': ('gb',),
                                  'bbox': None,
-                                 'fallbacks': ['europe'],
+                                 'fallbacks': ['northern_ireland_10m', 'europe'],
                                  'grid_origin': (0.0, 0.0),
                                  'default_resolution': 1.0,
-                                 'instead_without_data': 'europe',
+                                 'instead_without_data': 'northern_ireland_10m',
                                  'local_crs': 'utm_crs',
                                  'ortho': None,
                                  'credits': ['2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)'],
@@ -814,6 +814,31 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                          'extent': (-815794.4751765616, 7171282.93937308, -600897.7231999885,
                                                     7424282.448916508)},
                                  'nmpt': None},
+            'northern_ireland_10m': {'crs': 'EPSG:29903',
+                                     'countries': ('gb',),
+                                     'bbox': None,
+                                     'fallbacks': ['europe'],
+                                     'grid_origin': (0.0, 0.0),
+                                     'default_resolution': 10.0,
+                                     'instead_without_data': None,
+                                     'local_crs': 'utm_crs',
+                                     'ortho': None,
+                                     'credits': ['OSNI Open Data 10m DTM (Land & Property Services, Ordnance Survey '
+                                                 'of Northern Ireland)'],
+                                     'nmt': {'class': 'ZipSheetTiles',
+                                             'description': 'OSNI 10 m DTM (terrain)',
+                                             'folder': 'northern_ireland/osni-dtm10m',
+                                             'prefix': None,
+                                             'native_res': 10.0,
+                                             'processing': 1,
+                                             'ttl_days': None,
+                                             'credit': 'OSNI Open Data 10m DTM (Land & Property Services, Ordnance '
+                                                       'Survey of Northern Ireland)',
+                                             'shift': (0.0, 0.0),
+                                             'crs': 'EPSG:29903',
+                                             'archives': 6,
+                                             'sheets': 293},
+                                     'nmpt': None},
             'scotland': {'crs': 'EPSG:27700',
                          'countries': ('gb',),
                          'bbox': None,
@@ -2086,6 +2111,8 @@ def _layer(layer):
         info.update(crs=layer.crs, cell=layer.index.cell, origin=layer.index.origin, within=layer.index.within)
     if isinstance(layer, src.LercTiles):
         info.update(url=layer.url, max_level=layer.max_level, floor=layer.floor, extent=layer.index.extent)
+    if isinstance(layer, src.ZipSheetTiles):
+        info.update(crs=layer.crs, archives=len(layer.archives), sheets=len(layer.index.sheets))
     return info
 
 
@@ -2239,6 +2266,7 @@ PATHS = [
     ("northern_ireland", "nmt", (17, 41315, 63294), "northern_ireland/coastal-dtm/live/17/41315/63294.tif",
      (17, 41315, 63294)),
     ("rio_de_janeiro", "nmt", (15, 18531, 12455), "brazil/rio-mdt5m/live/15/18531/12455.tif", (15, 18531, 12455)),
+    ("northern_ireland_10m", "nmt", "zipsheet", "northern_ireland/osni-dtm10m/046_0123abcd.tif", None),
 ]
 
 
@@ -2250,7 +2278,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd"),
             "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd"),
             "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd"),
-            "sar": lambda: src.Sheet(**SAR)}.get(tile, lambda: tile)()
+            "sar": lambda: src.Sheet(**SAR),
+            "zipsheet": lambda: src.zipsheets.ZipSheetTile(46, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -2660,6 +2689,7 @@ ATTRIBUTIONS = {
     "northern_ireland": "Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public "
                         "sector information licensed under the Open Government Licence v3.0",
     "rio_de_janeiro": "Instituto Pereira Passos (PCRJ)",
+    "northern_ireland_10m": "Contains public sector information licensed under the Open Government Licence v3.0",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),

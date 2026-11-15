@@ -3,6 +3,7 @@ LiDAR 2020-22, one national COG each), Scotland (the Scottish Remote Sensing Por
 open S3 bucket, composed newest first) and Northern Ireland's coast (DAERA's 2021 coastal survey DTM, an Esri
 elevation tile cache)."""
 
+import json
 import os
 from typing import List
 
@@ -11,6 +12,7 @@ from ..source import Coverage, ReadmeRow, Source
 from ..indexes.osgrid import os_prefixes, os_tile_extent
 from ..layers.fileblocks import FileBlocks
 from ..layers.lerc import LercTiles
+from ..layers.zipsheets import ZipSheetTiles
 from ..layers.s3blocks import S3Blocks
 from ..layers.wcs import WcsTiles
 
@@ -137,6 +139,41 @@ NI_CREDIT = Credit("2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; D
 # there offline, then nothing near in the coastal DTM
 NI_BOXES = (("gb-nir", (54.00, 55.32, -8.20, -5.85)), ("gb-nir", (54.00, 55.00, -5.85, -5.40)))
 
+# Northern Ireland, national: OSNI's "OSNI Open Data - 10M DTM" (Land & Property Services, OpenDataNI; "an
+# interpolated dataset from the OSNI Enhanced DTM from 2014-2016"), six ZIP archives of 41-51 members, one per
+# sheet of OSNI's 10k grid (Sheet<nnn>v<version>.txt; sheets 51-100 under a folder, one name with a space before
+# ".txt", sheet 11 also in a member "011a" that lies just west of the sheet's box; no member for sheets 287 and 290):
+# "x y z" lines of 10 m cell centres on x5 of the Irish Grid (pixel edges on multiples of 10 m: the grid copies the
+# sheets), heights in metres with four decimals above Belfast Lough datum (OSNI's), no points at sea. A member is
+# 0.03-4.7 MB deflated (up to 29 MB of text), read by one Range of its archive (sources/layers/zipsheets.py): one to
+# four sheets a search. The archives' stable links (CKAN's downloads) redirect to signed URLs of Cloudflare R2 valid
+# for 7 days, which answer GET with Range (206) but not HEAD (403): each read resolves the link again. OGL v3.0 (CKAN's
+# license_id uk-ogl; no attribution of its own is stated, so the OGL's default sentence). Limits: none published
+# (OpenDataNI's packages and terms, read 2026-11-15): two at once (net.HOST_SLOTS_OF). A re-upload changes a member's
+# CRC-32, so the cached sheet's name: the folder needs no date (the 51-100 archive was replaced on 2026-01-29).
+NI_10M_ARCHIVES = tuple(
+    f"https://admin.opendatani.gov.uk/dataset/{package}/resource/{resource}/download/osni_10m_dtm_sheets_{sheets}.zip"
+    for package, resource, sheets in (
+        ("bea57cd0-c9aa-45cd-b048-3b6d60b04fbe", "2974c9cb-0027-4ee4-9095-02c50b6b73a7", "1-50"),
+        ("260f5296-2469-4eea-959d-dbbca9c29c0f", "42604b59-22ca-45d0-9dfe-8b6e961e1961", "51-100"),
+        ("64ccceb5-c06c-484d-8b9c-699357fc6b13", "a48821ab-8388-48ef-a9aa-97b8158cbc9b", "101-150"),
+        ("adea7269-2a86-4953-94bd-7b4434baba26", "a6392f75-d45a-4d2b-a8e8-678d86419f7a", "151-200"),
+        ("e0e15a4a-32a4-4f43-8bb0-1233262fee06", "beddd617-b078-495f-a856-2f1b8d550d59", "201-250"),
+        ("93fb6a92-f6eb-4f38-b6db-9ba5b880c02b", "653b468d-f582-4bca-88a7-66a5a4f2b289", "251-293")))
+NI_10M_MEMBER = r"(?i)(?:^|/)Sheet(?P<sheet>\d{3})[a-z]?v\d+\s*\.txt$"
+# OSNI's 10k grid (its "Coverage Grid - 10K" GeoJSON, read 2026-11-15): the box of each of the 292 sheets, the union
+# of its quarters of 4.8 x 3.2 km (Irish Grid metres; edge sheets are halves or quarters), and sheet 293, which the
+# grid lacks: the box of its member's 49 points (a beach just west of sheet 1, read 2026-11-15)
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "northern_ireland_10k_sheets.json"),
+          encoding="utf-8") as _sheets_file:
+    NI_10K_SHEETS = {int(k): tuple(v) for k, v in json.load(_sheets_file).items()}
+# The Irish Grid on the 1975 Mapping Adjustment (TM75), OSNI's grid
+IRISH_GRID = "EPSG:29903"
+NI_10M = ZipSheetTiles("OSNI 10 m DTM (terrain)", NI_10M_ARCHIVES, NI_10M_MEMBER, NI_10K_SHEETS, IRISH_GRID,
+                       "northern_ireland/osni-dtm10m", "osni-dtm10m", 10.0, margin=1000.0, bytes_per_tile=3e6)
+NI_10M_CREDIT = Credit("OSNI Open Data 10m DTM (Land & Property Services, Ordnance Survey of Northern Ireland)",
+                       "Contains public sector information licensed under the Open Government Licence v3.0", *OGL)
+
 
 def _sct_extent(stem: str):
     """The 1 km square of a file (<tile>_50cm_...): None for any other name."""
@@ -156,15 +193,32 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Northern Ireland (GB), its coast",
                           "DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles)", "–", NO_ORTHO),
         offline=NI_BOXES, sample=(55.2240, -6.1570),  # Fair Head (R74)
+        # Its gaps (inland of the survey's strip) from OSNI's 10 m DTM, then FABDEM
+        fallback="northern_ireland_10m", more_fallbacks=("europe",),
         # Inland (Belfast's centre, the Mournes, Binevenagh) the DTM's cells hold nothing within about 100 m (the
-        # cells are about 350 m on the ground, so 100-450 m): europe instead
-        instead_without_data="europe",
-        note="Data: DAERA, Bluesky, OGL v3.0. The 2021 coastal survey's DTM covers the coast only (the intertidal "
-             "zone and about 200 m inland; Fair Head's crag and plateau): elsewhere FABDEM fills the search, and "
-             "a search centred inland uses FABDEM alone. Its tiles hold heights within 0.1 m of the survey's. No "
-             "surface model: trees and buildings are not in the data.",
-        # Partial: the coast only
-        coverage=Coverage(provider="DAERA", added="2026-11-15", partial=True, rest=(30.0,), survey="2021")),
+        # cells are about 350 m on the ground, so 100-450 m): OSNI's 10 m DTM instead
+        instead_without_data="northern_ireland_10m",
+        note="Data: DAERA, Bluesky, OGL v3.0; OSNI (Land & Property Services), OGL v3.0. The 2021 coastal survey's "
+             "DTM covers the coast only (the intertidal zone and about 200 m inland; Fair Head's crag and plateau): "
+             "elsewhere OSNI's 10 m DTM fills the search, and a search centred inland uses that alone. Its tiles "
+             "hold heights within 0.1 m of the survey's. No surface model: trees and buildings are not in the data.",
+        # Partial: the coast only, OSNI's 10 m DTM elsewhere
+        coverage=Coverage(provider="DAERA", added="2026-11-15", partial=True, rest=(10.0,), survey="2021")),
+    Source(
+        id="northern_ireland_10m", name="OSNI 10 m DTM (Northern Ireland)",
+        description="OSNI Open Data 10 m DTM (Land & Property Services; interpolated from OSNI's Enhanced DTM of "
+                    "2014-2016), sheets of OpenDataNI's archives read by Range, Irish Grid (TM75), Belfast Lough "
+                    "datum",
+        # Inland Northern Ireland (northern_ireland's instead_without_data) and that source's gaps; chosen by
+        # --source auto only through it (no offline boxes of its own: northern_ireland's come first)
+        nmt=NI_10M, countries=("gb",), regions=("gb-nir",), crs=IRISH_GRID, default_resolution=10.0,
+        credits=(NI_10M_CREDIT,),
+        listing=ReadmeRow("Northern Ireland (GB), inland and the coastal DTM's gaps",
+                          "OSNI Open Data 10 m DTM (interpolated from the Enhanced DTM 2014-2016)"),
+        sample=(55.1100, -6.9150),  # Binevenagh's escarpment (R82)
+        note="Data: OSNI (Land & Property Services), OGL v3.0. A 10 m terrain model interpolated from OSNI's "
+             "Enhanced DTM of 2014-2016: walls are smoothed and only long lines over big cliffs can be found; no "
+             "surface model: trees and buildings are not in the data."),
     Source(
         id="scotland", name="Scottish LiDAR (DTM / DSM 0.5 m)",
         description="Scottish Government LiDAR (Scottish Remote Sensing Portal): the National LiDAR Programme "

@@ -444,7 +444,8 @@ def test_catalogue_layers():
     assert ni.nmt.folder.endswith("/live") and rj.nmt.folder.endswith("/live")
     assert ni.nmt.rewrites and rj.nmt.rewrites and probe.strategy(ni.nmt) == "lerc"
     for source in (ni, rj):
-        assert os.path.exists(source.nmt.cells) and source.instead_without_data == "europe"
+        assert os.path.exists(source.nmt.cells)
+    assert ni.instead_without_data == "northern_ireland_10m" and rj.instead_without_data == "europe"
 
 
 @pytest.mark.parametrize("lat, lon, region", [
@@ -494,9 +495,9 @@ def test_rio_cells(lat, lon, near):
 
 
 def test_auto_choice_offline(monkeypatch, tmp_path):
-    """Offline (Nominatim unreachable): Fair Head takes northern_ireland, Belfast's centre europe (no data near),
-    the Ards peninsula northern_ireland (its box before England's and Scotland's); Pão de Açúcar rio_de_janeiro,
-    Niterói europe, São Paulo europe (no source)."""
+    """Offline (Nominatim unreachable): Fair Head takes northern_ireland, Belfast's centre northern_ireland_10m (no
+    coastal data near), the Ards peninsula northern_ireland (its box before England's and Scotland's); Pão de Açúcar
+    rio_de_janeiro, Niterói europe, São Paulo europe (no source)."""
     import osm
     import requests
 
@@ -504,7 +505,7 @@ def test_auto_choice_offline(monkeypatch, tmp_path):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
     cache_dir = str(tmp_path)
-    for (lat, lon), want in (((55.2240, -6.1570), "northern_ireland"), ((54.5966, -5.9301), "europe"),
+    for (lat, lon), want in (((55.2240, -6.1570), "northern_ireland"), ((54.5966, -5.9301), "northern_ireland_10m"),
                              ((54.4790, -5.4400), "northern_ireland"), ((-22.9505, -43.1600), "rio_de_janeiro"),
                              ((-22.8833, -43.1036), "europe"), ((-23.55, -46.63), "europe")):
         source, why = choose.choose_source("auto", lat, lon, cache_dir)

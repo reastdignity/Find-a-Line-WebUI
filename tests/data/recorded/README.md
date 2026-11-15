@@ -38,3 +38,10 @@ and a tile of the sea without a valid sample, 70 bytes; DAERA, Bluesky, [OGL v3.
 off Barra da Tijuca with the sea's artefacts down to -348 m; Instituto Pereira Passos (PCRJ),
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). `expected.json`: what each decoded to then (valid samples,
 valid zeros, minimum, maximum, a few samples).
+
+`zipsheets/osni-dtm10/`: OSNI's Open Data 10 m DTM of Northern Ireland as OpenDataNI served it on 2026-11-15, for
+`tests/test_zipsheets.py`: `directories.json`, the central directories of the six sheet archives (each member's name,
+method, flags, CRC-32, compressed and uncompressed sizes and local header's offset, as
+`sources/indexes/zipdir.py` read them by Range), and `Sheet011av2.txt.gz`, one member read whole (a beach west of
+sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
+[OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
