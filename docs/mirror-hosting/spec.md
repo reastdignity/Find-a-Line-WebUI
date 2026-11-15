@@ -13,8 +13,8 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U22 are the user's decisions, P1-P28 the planner's, S1-S17 the
-security rows, V1, V4, V5, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name (V4).
+**Names.** "A.5" is behaviour 5 of solution A. U1-U26 are the user's decisions, P1-P28 the planner's, S1-S17 the
+security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
 **Sources.** The user's decisions are quoted with their date; "(planner)" marks a decision taken without the
 user's own word, which the user can overturn. Facts about the code were read on `main` 47c5fa7. "(wave 0: ...)"
@@ -57,6 +57,10 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U20 | The publish transport | "b": rclone over SFTP |
 | U21 | The visitors' total, since 5 requests fit only two installations | "a": 8 requests at 4 MB/s each |
 | U22 | The log's status, request time and refusing limit against the privacy sentence | "a": kept, and named in the sentence |
+| U23 | The mirror's host name | "mirror.findaline.lukawski.org" |
+| U24 | A recut with other values: a new folder name, or always swap in place | "new folder" |
+| U25 | The site's server: 16 MB/s per request, 32 MB/s in practice | "ok" |
+| U26 | The rule "personal data never in a log": name the mirror's log as its one exception | "ok" |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -175,7 +179,7 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
 
    The visitors' numbers are U21 (four installations with two connections each fit; it replaced U19's 5 requests
    at 6 MB/s, which fitted two); the trusted class's numbers are the planner's reading of U19's "higher limit for
-   VPS" (V1). One address can take a whole dataset in a day (Slovakia in about 3.5 h at 16 MB/s): accepted, the
+   VPS", confirmed by U25. One address can take a whole dataset in a day (Slovakia in about 3.5 h at 16 MB/s): accepted, the
    data are open. Visitors and the site's server together can ask for more than the home uplink carries; the user
    chose it knowing that. Every refusal is a 429 with `Retry-After: 10` (P17).
    The trusted addresses come from `MIRROR_TRUSTED_ADDRESSES` in the project's `.env`: the start script accepts a
@@ -196,7 +200,7 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    "critical" level (P18; wave 0: server, a refused symlink wrote the full request at error level).
    This log holds addresses by design. The project's rule is "personal data never in a log"; what the user
    approved is the privacy text that says the server writes the address down, and its 14 days (U13, U14, U22).
-   The rule's wording in `CLAUDE.md` gets this one exception named, with the user's yes at the squash.
+   The rule's line in `CLAUDE.md` names this log as its one exception (U26).
 8. **What SWAG must do**, in the one file `deploy/mirror/swag/findaline-mirror.subdomain.conf`: answer `<host>`
    (an explicit `server_name`) with SWAG's certificate; pass every request to `files` with SWAG's standard
    `proxy.conf` (it sets `X-Real-IP` itself); refuse every method but `GET` and `HEAD` itself and accept a request
@@ -287,7 +291,7 @@ root, no capability, no published port, no route out, and no log file older than
   client's start check allows 30 s). The README says so.
 
 ### Needs the user's word
-V1 (the trusted class's numbers), V4 (the host name); M2's result (section 11, step 3).
+M2's result (section 11, step 3); E2 (the publishing account).
 
 ## 5. Solution B: the address contract and the publish tool
 
@@ -306,13 +310,14 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
 - `/v1/cubes/` and `/v1/cache/` are reserved and answer 404.
 - A later change of the layout gets `/v2/`; `/v1/` keeps answering as long as releases that know only it are in
   use, then 410.
-- A published dataset may be replaced as a whole (U8: "a recut swaps the dataset in place"); a client takes the
-  index again after a mismatch. **Open (V5)**: installations keep downloaded tiles in their cache for good, so
-  after a swap with other values every installation that already holds tiles of an area keeps the old ones, and
-  results differ between installations without a sign. The planner's proposal: a recut with other values gets a
-  new edition (a new folder name in the catalogue for the mirror path and for the cache, as the cache's folders
-  already carry the edition), and only a re-encoding with the same values is swapped in place. That goes beyond
-  the option the user chose, so it waits for the user's word; until then the text of U8 holds.
+- **A recut with other values gets a new edition** (U24, "new folder"): a new folder name in the catalogue for
+  the mirror path and for the cache, as the cache's folders already carry the edition. Installations keep
+  downloaded tiles in their cache for good, so a swap in place would leave every installation that already
+  holds tiles of an area with the old ones, and results would differ between installations without a sign. The
+  old edition stays published while releases that name it are in use. Only a re-encoding with the same values
+  is swapped in place (U8); a client then takes the index again after a mismatch. `publish` cannot tell the two
+  apart: it refuses to replace a published dataset unless `--same-values` is given, and the README says what
+  that promises.
 
 ### Behaviour: `tools/mirror_publish.py` (run on the PC)
 - `verify <folder or remote>`: for every `index.json` below it: every listed tile exists and has its sha256, no
@@ -596,7 +601,7 @@ U4, U13, U15, U16; P3, P26.
    `setup-for-regular-folk.md` (these sources work with no setup), `docs/data-sources.md`,
    `docs/monitoring.md` (the new rows), `docs/roadmap.md` (2.3 and the parked items of section 13 here),
    `docs/code-map/*`, the rules `deploy.md`, `providers.md`, `sources.md`, `metrics.md`, `web-app.md` (the new
-   pairs named in A, B, C and below), and `CLAUDE.md`'s line on personal data in logs (A.7), with the user's yes.
+   pairs named in A, B, C and below), and `CLAUDE.md`'s line on personal data in logs (A.7, U26).
 
 ### Privacy texts (approved by the user on 2026-11-15: U13 "yes", U22 "a"; used word for word)
 A visitor of the public site never reaches the mirror: the site's server asks it.
@@ -651,7 +656,7 @@ Nothing before the build.
 | S6 | Reading outside the data | only `<root>/public` served, read-only; A.2's patterns; symlinks, dot-files, `.part` refused; staging and trash outside the served tree | - |
 | S7 | The home network | no published port; an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9) |
 | S8 | A dataset without the right to redistribute | B's `PUBLISHABLE` with the user's approval is the only way in; cards and the landing page carry the credits; `unpublish` | a wrong row, reviewed like code; Madeira's weak basis (U11) |
-| S9 | Damaged, cut-short or mixed tiles | C.2: sha256 before any use; B: staging, verify, moves | stale tiles in caches after a recut with other values (V5) |
+| S9 | Damaged, cut-short or mixed tiles | C.2: sha256 before any use; B: staging, verify, moves | a re-encoding published with `--same-values` that does change values: the promise is the publisher's |
 | S10 | The home server taken over serves crafted tiles | U8: the mirror is trusted as every provider is; TLS; the worker on the VPS runs in its hardened container | every installation trusts the home server's files (the user's decision; pinning hashes in the repo was the alternative) |
 | S11 | Privacy of those who download | A.7's log; SWAG's access log off for the host; the texts of D | the operator can see live traffic; said in the text |
 | S12 | The site depends on a home server | U6, U7; later phases and finished runs work from the cache (C.3); D's alert | coarser results on mirrored ground while it is down |
@@ -665,9 +670,6 @@ Nothing before the build.
 
 | Id | What | Who | When |
 | --- | --- | --- | --- |
-| V1 | The trusted class: 16 MB/s per request and 4 requests at once, of which the client uses 2 for tiles (32 MB/s in use; the server would allow 64 MB/s, more than the line carries), is the planner's reading of "higher limit for VPS" | the user, other numbers if meant | before A is built |
-| V4 | The mirror's host name (under the project's domain, U10); it goes into `MIRROR_URL`, the SWAG conf and Telegraf's check | the user | before the build |
-| V5 | A recut with other values: a a new edition folder (the planner's proposal), b always in place as U8's option said, with stale caches (B, the address contract) | the user (asked 2026-11-15) | before B is built |
 | M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | measured at rollout step 3 | rollout |
 | E1 | The server's shell has `sha256sum` (inferred from its package list, not seen), and rclone's behaviour on a refused rename | checked at the first install; without `sha256sum` publishing runs with `--read-back` | rollout step 1 |
 | E2 | Which account the publishing key opens on the server, and what it can write (not established; some platforms give SSH to the administrator only). Ways: an account limited to `<root>`; a key restricted to SFTP inside `<root>`; a small SFTP container that mounts only `<root>` and listens on the LAN alone | the user, with the build's contract (the server agent's README then describes the chosen way) | before rollout step 1 |
@@ -680,8 +682,8 @@ total (U21), the log's keys (U22).
 
 ## 10. The order of building
 
-In a later session, under `docs/agent-workflow.md`. Before wave 1 the planner writes the contract with V1's and
-V4's answers; no agent starts without the host name.
+In a later session, under `docs/agent-workflow.md`. Before wave 1 the planner writes the contract; the server agent's README needs E2's answer (how the
+publishing key reaches only the mirror's folders), which the user is checking.
 
 | Wave | Agent | Builds | Owns |
 | --- | --- | --- | --- |
