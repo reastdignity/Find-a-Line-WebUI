@@ -47,8 +47,9 @@ class GridResolutions(Index):
     with the native tiles averaged by the mosaic; docs/performance.md, "The resampling of a
     neighbour's data"). A tile is (res, i, j), cached in the folder of its resolution."""
 
-    def __init__(self, crs: str, folders: Dict[float, str], tile_m: float, available: Callable[[float], bool]):
-        self.tilings = {res: MetricTiling(crs, folder, tile_m) for res, folder in folders.items()}
+    def __init__(self, crs: str, folders: Dict[float, str], tile_m: float, available: Callable[[float], bool],
+                 origin: Tuple[float, float] = (0.0, 0.0)):
+        self.tilings = {res: MetricTiling(crs, folder, tile_m, origin) for res, folder in folders.items()}
         self.native = min(self.tilings)
         self.available = available
         self.crs = crs
@@ -91,9 +92,11 @@ class ResolutionBases(Reader):
 
 
 class GridTiles(ComposedLayer):
-    """Square tiles on a fixed grid in a metric CRS, our own hosted tiles (tools/sk_tiles.py),
-    as <base>/<grid_tile_name>: a MetricTiling read by TileBases (the local mirror first,
-    then the URLs). Tile (res, i, j) covers [i, i + 1) x [j, j + 1) tile sizes in the CRS.
+    """Square tiles on a fixed grid in a metric CRS, our own hosted tiles (tools/sk_tiles.py,
+    tools/mirror_tiles.py), as <base>/<grid_tile_name>: a MetricTiling read by TileBases (the local
+    mirror first, then the URLs). Tile (res, i, j) covers [i, i + 1) x [j, j + 1) tile sizes in the
+    CRS from origin (x, y in metres: the data's pixel edges modulo tile_m, so a tile holds whole
+    pixels; (0, 0) for Slovakia, (1, 1) for Madeira's edges on odd metres).
 
     averaged: factors (2, 5) of the native resolution the tiles are also kept at, each the block
     mean of the valid native pixels (tools/sk_tiles.py average, the rule of Download(average=)),
@@ -109,8 +112,10 @@ class GridTiles(ComposedLayer):
 
     def __init__(self, description: str, urls: List[str], crs: str, folder: str, tile_m: float,
                  native_res: float, bytes_per_tile: float, mirror: Optional[str] = None,
-                 averaged: Sequence[int] = (), averaged_bytes: Sequence[float] = ()):
+                 averaged: Sequence[int] = (), averaged_bytes: Sequence[float] = (),
+                 origin: Tuple[float, float] = (0.0, 0.0)):
         self.description, self.urls, self.crs, self.folder = description, urls, crs, folder
+        self.origin = (float(origin[0]), float(origin[1]))
         self.tile_m, self.native_res, self._bytes, self.mirror = tile_m, native_res, bytes_per_tile, mirror
         self.averaged = tuple(averaged)
         if any(not isinstance(f, int) or f < 2 for f in self.averaged):
@@ -125,7 +130,7 @@ class GridTiles(ComposedLayer):
             folders[res] = at(folder)
             readers[res] = TileBases(description, [at(url) for url in urls], at(mirror) if mirror else None)
         self.readers = readers
-        self.index = GridResolutions(crs, folders, tile_m, lambda res: bool(readers[res].bases()))
+        self.index = GridResolutions(crs, folders, tile_m, lambda res: bool(readers[res].bases()), self.origin)
         self.reader = ResolutionBases(readers, native_res)
 
     def bases(self) -> List[str]:
