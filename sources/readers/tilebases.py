@@ -35,8 +35,10 @@ class TileBases(Reader):
     beyond its keys). Over HTTP a tile that the server does not have (404) is outside the
     data."""
 
-    def __init__(self, description: str, urls: List[str], mirror: Optional[str] = None):
+    def __init__(self, description: str, urls: List[str], mirror: Optional[str] = None,
+                 tool: str = "tools/sk_tiles.py"):
         self.description, self.urls, self.mirror = description, urls, mirror
+        self.tool = tool  # what makes the mirror's tiles, named when they are missing
         self._indexes: Dict[str, Dict] = {}
         self._extents: Dict[str, Optional[Tuple[int, int, int, int]]] = {}
 
@@ -51,7 +53,7 @@ class TileBases(Reader):
         if self.bases():
             return None
         where = (f"{os.environ[MIRROR_ENV]}/{self.mirror} does not exist" if os.environ.get(MIRROR_ENV)
-                 else f"set {MIRROR_ENV} to the folder holding {self.mirror} (made by tools/sk_tiles.py)")
+                 else f"set {MIRROR_ENV} to the folder holding {self.mirror} (made by {self.tool})")
         return f"{self.description}: no copy of the tiles is set up ({where})"
 
     def _index(self, base: str) -> Dict:

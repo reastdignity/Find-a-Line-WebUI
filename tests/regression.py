@@ -310,6 +310,18 @@ def number(n) -> str:
     return f"{n:,}".replace(",", " ")
 
 
+def unmet_needs(test: dict):
+    """Why a test cannot run here, or None: its needs_env not set, or a folder of its needs_path (below the folder
+    that variable names: our own tiles' mirror, e.g. "madeira/dtm/2m") missing there, as in a mirror with
+    Slovakia's tiles only (the VPS) or a process's stale value of the variable."""
+    env = test.get("needs_env")
+    if env and not os.environ.get(env):
+        return f"{env} not set"
+    missing = [p for p in test.get("needs_path", ())
+               if not os.path.isdir(os.path.join(os.environ.get(env, ""), *p.split("/")))]
+    return f"{env} has no {', '.join(missing)}" if missing else None
+
+
 def write_doc(tests: dict):
     rows = ["| ID | Place / what it covers | Arguments | Anchors | Open anchors / checked pairs | Lines / spots | Also check |",
             "| --- | --- | --- | --- | --- | --- | --- |"]
@@ -386,8 +398,9 @@ def main():
     failed, skipped, results = [], [], {}
     for test_id in ids:
         test = tests[test_id]
-        if test.get("needs_env") and not os.environ.get(test["needs_env"]):
-            print(f"{test_id}: skipped ({test['needs_env']} not set)")
+        unmet = unmet_needs(test)
+        if unmet:
+            print(f"{test_id}: skipped ({unmet})")
             skipped.append(test_id)
             continue
         start = time.time()

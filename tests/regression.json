@@ -322,6 +322,10 @@
       "water"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 2804,
       "open": 2407,
@@ -545,6 +549,10 @@
       "sk"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 62990,
       "open": 2556,
@@ -888,6 +896,10 @@
       "sk"
     ],
     "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "slovakia/dmr5/1m",
+      "slovakia/dmp1/1m"
+    ],
     "expected": {
       "anchors": 313277,
       "open": 13200,
@@ -2021,5 +2033,65 @@
     },
     "seconds": 29.2,
     "notes": "added 2026-11-15: --source auto picks estonia (EE); four DTM blocks of sheet 63801 read by range requests and nine DSM sheets of 1 km (three in the sea answered \"Map sheet not found.\": the empty tiles); the spots in the cliff's coves at the lighthouse (59.3884-59.3897 N, 24.0366-24.0393 E), walls of 70-86 degrees and about 20 m, 22 of the 23 lines over the sea. The brief's place, Rummu quarry (59.2270, 24.1900, radius 400 m, 15-80 m), gives 11 475 anchors and none with an open direction: the DTM holds the quarry lake's surface at about 20 m and walls of about 5 m above it (its high walls are under water); Türisalu, Valaste, Ontika's cliff top, Jägala and Väo gave no line or lines over trees only"
+  },
+  "R80": {
+    "place": "Cabo Girão, Madeira (sea cliffs of 580 m): DROTe's MDT 2 m (photogrammetry 2018-2019), our own 2 km tiles from the local mirror on the data's grid (edges on odd metres), PTRA08 / UTM 28N",
+    "args": "--lat 32.655 --lon -17.004 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "madeira/dtm/2m"
+    ],
+    "expected": {
+      "anchors": 94914,
+      "open": 31107,
+      "checked": 184368,
+      "lines": 10458,
+      "spots": 132,
+      "csv_sha256": "edc38af92ffae396c6c24cedc8b16980a7a2f7c0f36d7c73b5c404c5c35d048c",
+      "length_km": 1631.477,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.509,
+      "clearance_max": 12.9,
+      "over_trees": 0,
+      "coverage": 67.12,
+      "empty_tiles": 2,
+      "sea_km2": 1.84,
+      "water_lines": 2,
+      "water_spots": 1
+    },
+    "seconds": 52.0,
+    "notes": "skipped without FINDALINE_MIRROR/madeira/dtm/2m; the sea from OpenStreetMap's coastline (Overpass on an empty cache): with the Copernicus water mask instead (--coastline copernicus, or Overpass unavailable) the sea zone differs (1.81 km², 0.03 km² of the cliff foot filled from FABDEM, 94 845 anchors, sha256 67f2d8ae...); first run on an empty cache 52 s"
+  },
+  "R81": {
+    "place": "Arnad, the Machaby crags above the Dora Baltea, Valle d'Aosta, Italy: the region's DTM 2005/2008 2 m, our own 2 km tiles from the local mirror (x edges on even, y on odd metres), ED50 / UTM 32N",
+    "args": "--lat 45.648 --lon 7.720 --radius 1000 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "aosta/dtm/2m"
+    ],
+    "expected": {
+      "anchors": 111409,
+      "open": 9857,
+      "checked": 1925,
+      "lines": 123,
+      "spots": 29,
+      "csv_sha256": "b38b3ae79f2509f00a24aabe5f8f6a73171dee6ac6a7bc8fcba7692ef8993b55",
+      "length_km": 8.523,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.706,
+      "clearance_max": 3.35,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 6.6
   }
 }

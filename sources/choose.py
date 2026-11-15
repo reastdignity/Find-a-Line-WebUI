@@ -95,8 +95,10 @@ def choose_source(name: str, lat: float, lon: float, cache_dir: str, elevation_f
         source = found[0]
         where = next((r for r in regions if r in source.regions), code).upper()
         why = source_unavailable(source)
-        if why:  # e.g. our own Slovak tiles without a copy set up
-            return SOURCES["europe"], f"the centre is in {where}, but {why}"
+        if why:  # e.g. our own Slovak tiles without a copy set up: the next source of the place (Valle d'Aosta's
+            # without its mirror: TINITALY, the country's), else europe
+            after = next((s for s in found[1:] if not source_unavailable(s)), SOURCES["europe"])
+            return after, f"the centre is in {where}, but {why}"
         if source.instead_without_data and source.nmt.has_data_near(lat, lon, cache_dir) is False:
             return (SOURCES[source.instead_without_data],
                     f"the centre is in {where}, but {source.id} has no terrain data near it")

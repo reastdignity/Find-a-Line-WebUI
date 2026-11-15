@@ -321,7 +321,10 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      # Geofabrik's Norway holds Svalbard and Jan Mayen (its outline reaches 81° N and 11.4° W)
                      "no-21": "norway", "no-22": "norway",
                      # Geofabrik's Italy holds San Marino and the Vatican; its "isole" Sicily and Sardinia
-                     "sm": "italy", "va": "italy", "it-88": "isole"}
+                     "sm": "italy", "va": "italy", "it-88": "isole",
+                     # Valle d'Aosta lies in Geofabrik's "nord-ovest"; Madeira in its "portugal" (its outline
+                     # reaches 29.7 N, 15-17 W: Madeira and the Selvagens; checked 2026-11-15)
+                     "it-23": "nord-ovest", "pt-30": "portugal"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        # France's overseas territories (checked in Geofabrik's index, 2026-11-15): its "france"
