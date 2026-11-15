@@ -127,7 +127,7 @@ OVERSEAS: List[Source] = [
               _rgealti_overseas("glp", "Guadeloupe", "RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS", "EPSG:32620",
                                 HALF_METRE), "EPSG:32620", HALF_METRE, (15.80, 18.13, -63.16, -60.95),
               ((15.80, 16.55, -61.85, -60.95), (17.85, 17.98, -62.95, -62.77), (18.04, 18.13, -63.16, -62.95)),
-              (16.0440, -61.6640),  # the walls of the Soufrière (R66)
+              (16.0868, -61.6592),  # the gorge above the Grand Saut d'Eau (R66)
               ("fr-gp", "bl", "mf"), "Guadeloupe, Saint-Barthélemy, Saint-Martin (France)"),
     _overseas("france_martinique", "Martinique", "Martinique",
               _rgealti_overseas("mtq", "Martinique", "RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS", "EPSG:32620",

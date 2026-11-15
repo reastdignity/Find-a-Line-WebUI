@@ -1723,5 +1723,32 @@
     },
     "notes": "added 2026-11-14 with the square rule (--same-line-square, samelines.py): R3's search with the no-fall zone and A-frames finds 60 002 lines (run.json's summary.found), of which one per pair of 5 m anchor squares is kept: 3 491 lines in 121 spots, each with the lines it stands for (stands_for, the last column of lines.csv, in the checksum); every anchor has an open direction with the A-frames; a circle of this size keeps every kept line's profile",
     "seconds": 11.3
+  },
+  "R66": {
+    "place": "The gorge above the Grand Saut d'Eau (Capesterre-Belle-Eau) in the volcanic massif of Basse-Terre, 5 km north-east of the Soufriere, Guadeloupe (FR, Nominatim's fr-971): IGN's RGE ALTI 1 m by GetMap from the Geoplateforme's WMS-R (layer GLP, EPSG:32620, pixel edges on half metres), no surface model",
+    "args": "--lat 16.0868 --lon -61.6592 --radius 800 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 881320,
+      "open": 5868,
+      "checked": 5643,
+      "lines": 446,
+      "spots": 35,
+      "csv_sha256": "128633e0ad4e3e20b4aab12dd4bb2518b6a883d56b45f77e0ae01550ae832966",
+      "length_km": 44.822,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.42,
+      "clearance_max": 2.12,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.1,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "notes": "added 2026-11-15: 10 tiles of 1 km (about 2.4 MB each, 3 s); the centre moved from the research's point at the Soufriere (16.044, -61.664: 78 lines in one spot on the rim of the Gouffre Dupuy) onto the steepest 400 m cells of a 4 m slope map of the massif; the spots lie along both walls of the gorge, clearances up to 2.1 m over a model whose surface shows triangulation facets (no lidar here: smoother than LiDAR HD); the 0.10 km² filled from FABDEM lie in the grid's corners beyond the tiles of the circle",
+    "seconds": 3.0
   }
 }
