@@ -174,8 +174,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
     # LGV Hamburg's open-data downloads (the DGM1 and bDOM1 archives, read by Range: Hamburg): no published limits
-    # (the Transparenzportal's records gelaendemodelle-hamburg-dgm2 and digitales-hoehenmodell-hamburg-bdom8,
-    # dl-de/by-2.0, "is_free_to_use"; no robots.txt; read 2026-11-15): courtesy, two at once
+    # (the Transparenzportal's records https://suche.transparenz.hamburg.de/dataset/gelaendemodelle-hamburg-dgm2
+    # and https://suche.transparenz.hamburg.de/dataset/digitales-hoehenmodell-hamburg-bdom8, as CKAN's
+    # https://suche.transparenz.hamburg.de/api/3/action/package_show?id=<name>: dl-de/by-2.0, "is_free_to_use", no
+    # limits; https://www.daten-hamburg.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
     "www.daten-hamburg.de": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
