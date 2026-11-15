@@ -57,6 +57,20 @@ null for no data, "partial" while unfinished; a dataset card), `all`. Replacing 
 is tried again for 60 s (`_replace`: Windows refused one replace on Z:). The `origin` must equal the catalogue
 layer's `GridTiles(origin=)` (`tests/test_mirror_tiles.py`).
 
+## `tools/mirror_sizes.py`
+
+Run by hand (M1 of the mirror hosting; under the test lock with `--resource data` on the mirror; standard library
+only, so also on the mirror's server): read-only sizes of a mirror folder (`--mirror`, default `FINDALINE_MIRROR`)
+from its `index.json` files and one `os.scandir` per block folder, never opening a tile: per product folder the
+tiles with data and null, bytes, tile sizes (min, median, mean, p90, p99, max), files not listed and listed tiles
+missing; the tiles and MB a square search of 2, 5, 10, 20 km asks of the mirror over every placement on a `--step`
+lattice whose centre lies in data (`axis_groups` and summed-area tables; a square covers every tile it touches from
+the index's `origin`), per product and the products of a dataset together (products on different grids: a line
+saying they were left out); whole-dataset totals. A "partial" folder is listed and left out of the rest; so is one
+without index.json, with an unreadable one or one without "tiles", with a note, and the exit code is then 1. Table on
+stdout, `--json` (the mirror named `<mirror>`; refused inside the mirror by any spelling: `inside`, realpath and
+normcase); `tests/test_mirror_sizes.py` (a brute-force walk over the lattice, `weighted_rank` by hand)
+
 ## `tools/source_docs.py`
 
 Writes README's "Data sources" table and the ids of the `--source` row from `Source.listing` and the catalogue
