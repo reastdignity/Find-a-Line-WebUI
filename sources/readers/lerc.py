@@ -48,7 +48,7 @@ LEVEL0_RES = 2 * ORIGIN / CELLS
 # The largest answer read for one tile: 257 x 257 float32 samples are 264 kB uncompressed (the largest of the
 # tiles read in 2026-11 was 60 kB), so anything near this is not a tile; the read stops there
 TILE_BYTES_MAX = 1_000_000
-TIMEOUT = 120  # seconds
+TILE_TIMEOUT = 120  # seconds
 
 
 def resolution(level: int) -> float:
@@ -116,7 +116,7 @@ class LercTileReader(Reader):
         """(body, response) of one attempt; (None, response) for a 404. Raises RuntimeError or requests' errors."""
         net.rate_turn(url)
         with servicecounts.request(url) as counted, \
-                net.session().get(url, timeout=TIMEOUT, headers=cache.http_headers(), verify=net.verify(url),
+                net.session().get(url, timeout=TILE_TIMEOUT, headers=cache.http_headers(), verify=net.verify(url),
                                   stream=True) as response:
             counted.got(response, read=False)
             if response.status_code == 404:

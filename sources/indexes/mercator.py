@@ -16,17 +16,17 @@ from ..composed import Index
 from ..readers.lerc import CELLS, MERCATOR, ORIGIN, resolution
 from .tilings import _outline, cells_under, remembered
 
-Box = Tuple[float, float, float, float]  # (left, bottom, right, top) in EPSG:3857
+MercatorBox = Tuple[float, float, float, float]  # (left, bottom, right, top) in EPSG:3857
 
 
-def tile_box(level: int, row: int, col: int) -> Box:
+def tile_box(level: int, row: int, col: int) -> MercatorBox:
     """The cells of a tile in EPSG:3857 (its corners, the outer samples' positions)."""
     size = CELLS * resolution(level)
     left, top = -ORIGIN + col * size, ORIGIN - row * size
     return left, top - size, left + size, top
 
 
-def tile_pixels(level: int, row: int, col: int) -> Box:
+def tile_pixels(level: int, row: int, col: int) -> MercatorBox:
     """The pixels of a cached tile in EPSG:3857: its cells moved half a cell west and north (the samples are the
     pixel centres, the shared last row and column dropped: readers.lerc.tile_transform)."""
     half = resolution(level) / 2
@@ -66,7 +66,7 @@ class TileCells:
             self._loaded = (mask, cell, -ORIGIN + col0 * per_tile * cell, ORIGIN - row0 * per_tile * cell)
         return self._loaded
 
-    def any_within(self, box: Box) -> bool:
+    def any_within(self, box: MercatorBox) -> bool:
         """Whether a cell with data meets the box (EPSG:3857; a cell touching it counts)."""
         mask, cell, x0, y0 = self._load()
         left, bottom, right, top = box
@@ -94,7 +94,7 @@ class MercatorTiling(Index):
     coast of Northern Ireland, so a coastal search asks no tile of the open sea or inland), so a tile left out
     makes no request; the fallback fills its area as any missing tile's."""
 
-    def __init__(self, folder: str, max_level: int, extent: Optional[Box] = None,
+    def __init__(self, folder: str, max_level: int, extent: Optional[MercatorBox] = None,
                  cells: Optional[TileCells] = None):
         self.folder, self.max_level, self.extent, self.cells = folder, max_level, extent, cells
         self.crs = MERCATOR
