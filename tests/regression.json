@@ -2197,5 +2197,60 @@
     },
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
+  },
+  "R84": {
+    "place": "Okutama, Tokyo (JP-13): the rock walls of the Tama river's valley, the Tokyo Digital Twin's 0.5 m lidar grid (Tama, 2022-2023) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 35.8179 --lon 139.0875 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 128176,
+      "open": 322,
+      "checked": 195,
+      "lines": 9,
+      "spots": 5,
+      "csv_sha256": "795585da644638a3c962451f54fd84ed0710a3976eb7bf645cdc75854f0fe4a7",
+      "length_km": 0.52,
+      "clearance_min": 0.12,
+      "clearance_mean": 0.431,
+      "clearance_max": 0.82,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 30.2,
+    "notes": "added 2026-11-15: --source auto picks tokyo (JP-13); 25 sheets of 400 x 300 m (about 1.45 MB each) on an empty cache; the centre on the steep pixels of the 1 m mosaic (2 868 over 70 degrees within 400 m, their centroid 35 m E, 23 m N of it); terrain only (no surface model), so trees on the walls are not seen"
+  },
+  "R85": {
+    "place": "Jogasaki, Ito (JP-22): the lava sea cliffs of the Izu coast, VIRTUAL SHIZUOKA's LP grid 0.5 m (FY2019) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS VIII",
+    "args": "--lat 34.8925 --lon 139.1385 --radius 400 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 14181,
+      "open": 1390,
+      "checked": 825,
+      "lines": 158,
+      "spots": 14,
+      "csv_sha256": "29b3aa05b73c293351f6d2c25e4c8a0058e51960af18f84d1334cf993f06b26a",
+      "length_km": 3.457,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.009,
+      "clearance_max": 4.57,
+      "over_trees": 0,
+      "coverage": 55.95,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 1.22,
+      "water_lines": 48,
+      "water_spots": 10
+    },
+    "seconds": 7.9,
+    "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only"
   }
 }
