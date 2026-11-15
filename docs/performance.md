@@ -20,7 +20,8 @@ first out. What limits it when many people queue jobs?
 | `tools/perf_window_reads.py --out <dir> --source <id> --lat .. --lon .. --radius 800 --mode blocks --mode group=5000 ...` | The blocks of a layer read by windows of big remote files on an empty scratch cache, each mode in a child process: bytes and requests (GDAL's network statistics and our own range requests), seconds, peak memory, and what the files' internal tiles predict ("Window reads") |
 | `tools/perf_sqlite.py --out <dir> --jobs 1 4 8 16 --pages 30 [--burst]` | `jobs.sqlite` with the real `jobs.Jobs` under K phase processes, the worker, the quick lane and M open pages |
 | `tools/perf_profile.py ... --tracemalloc` | The same, with the peak of Python's heap per stage (numpy arrays included, memory-mapped grids not; several times slower) |
-| `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 (`search.LINE_BYTES`) |
+| `tools/perf_slot_memory.py --out <dir> --name <n> --cores 7 --memory 4947666090 --uss [--worker] [--remove-run] -- <findaline options> --data-dir <scratch>` | One search's whole process tree (the search's process and saving's children) sampled every 0.2 s: working sets, private bytes, unique sets, the machine's used memory; the peaks and their stages, and the unique sets plus saving's hand-over files once (`search.LINE_BYTES`: "The memory constant") |
+| `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line of one process at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 |
 | `tools/perf_lines_memory.py --tiles <run>/tiles --out <dir> [--repo <checkout> --legacy]` | The tiles of a tiled run joined as `search.search_lines` joins them, and (tile files written before wave 5, which still hold the pixel columns) their lines through steps 4 and 5 by the code of a checkout: bytes per line as found, at the peak of step 4, held, at the peak of step 5 |
 
 The searches ran on cached data (a scratch data folder whose `cache` is a junction to the real one)
@@ -3365,6 +3366,75 @@ How these were found: the heap profiler's sampling, by the function that allocat
 - **Which numbers are indicative:** the seconds, from one exclusive pass of three rounds on this PC, desktop
   Chromium only; no phone and no WebKit. The heap and the retained sizes are measured.
 
+### From the store (2026-11-15, tag `history/store-reader`, step 2b-C)
+
+The page now reads a run with a store from `lines.arrow` and `profiles.arrow` (apache-arrow 21.2.0) into the same
+columns, without a copy. T5 and T6 were measured again, as the user asked: "before" is `main` 47c5fa7 (the page reads
+`data.js`), "after" is 1275215 (it reads the store).
+- **Runs:** C1's three runs above. Each got the store the search would write: `linestore.write` of the run's own
+  `data.js` rows. Those rows are already round(value, decimals), and the store keeps them so. BAH-C4's store exported
+  its `lines.csv` byte for byte (the cuts have no `lines.csv`). Each store has as many rows as its `data.js`.
+- **Method:** C1's `t56.py` with three additions. It records the run's files the page asked for: `data.js` before,
+  `lines.arrow` and `profiles.arrow` after, in every round. It forces a full collection after the changes
+  (`HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`). It can open a run on the iPhone 13 profile (WebKit).
+- **Heap readings:** `usedJSHeapSize` counts the ArrayBuffers' backing stores. After the full collection it equals
+  the V8 heap plus the backing stores, in every round (the full collection's reading is alike in every round; the
+  page's own `gc()` reading is not: BAH's first round from the store gave 228 MB, the next two 447 MB). So before and after are counted alike, although the store's
+  columns are views of the downloaded bytes.
+- **Pass:** one exclusive pass on this PC, three rounds each, headless Chromium 156; the 2.5 M cut's rounds 2 and 3
+  from the store in a second short exclusive pass (from `data.js` it shows the text, so once).
+  `perf_run_load.py` was not run: its scratch folder then held a run's `data.js`, `run.json` and `ATTRIBUTION.txt`
+  and no `runs.js`, so the page found no store there and read `data.js` without a sign of it. Since the fix round it
+  copies the store, writes `runs.js` and names the file read ("read").
+
+| run | code | round | first picture s | heap MB | heap after gc MB | filter change s | grouping change s |
+|---|---|---|---|---|---|---|---|
+| BAH-C4 | data.js | 1 / 2 / 3 | 6.49 / 6.07 / 5.91 | 1732 / 1733 / 1733 | 584 / 584 / 584 | 1.20 / 1.22 / 1.13 | 1.60 / 1.52 / 1.52 |
+| BAH-C4 | store | 1 / 2 / 3 | 3.37 / 3.06 / 3.11 | 447 / 473 / 474 | 228 / 447 / 447 | 1.19 / 1.17 / 1.16 | 1.54 / 1.54 / 1.54 |
+| 2.29 M cut | data.js | 1 / 2 / 3 | 7.17 / 7.08 / 7.11 | 2007 / 2010 / 2009 | 661 / 661 / 661 | 1.77 / 1.73 / 1.65 | 1.91 / 1.83 / 1.80 |
+| 2.29 M cut | store | 1 / 2 / 3 | 3.76 / 3.83 / 3.69 | 538 / 538 / 538 | 521 / 521 / 521 | 1.81 / 1.78 / 1.76 | 1.74 / 1.78 / 1.78 |
+| 2.5 M cut | data.js | 1 | "This result is too large for this browser." | | | | |
+| 2.5 M cut | store | 1 / 2 / 3 | 4.43 / 4.55 / 4.25 | 313 / 291 / 601 | 290 / 290 / 565 | 1.84 / 1.91 / 1.69 | 2.08 / 2.25 / 2.10 |
+
+**The load's phases** (medians, s; *parse*: reading the files' tables, *lines*: the columns and percentile ranks):
+
+| run | code | download | parse | lines | group | ranges | rows |
+|---|---|---|---|---|---|---|---|
+| BAH-C4 | data.js | 1.45 | 1.74 | 0.46 | 1.78 | 0.32 | 0.09 |
+| BAH-C4 | store | 0.64 | 0.00 | 0.06 | 1.78 | 0.30 | 0.09 |
+| 2.29 M cut | data.js | 1.60 | 2.13 | 0.55 | 2.17 | 0.36 | 0.09 |
+| 2.29 M cut | store | 0.72 | 0.00 | 0.11 | 2.25 | 0.36 | 0.10 |
+
+**After the full collection** (MB, every round alike): BAH-C4 235 before and 236 after, of them 225 and 226 backing
+stores. The 2.29 M cut: 267 both, 259 backing stores. The 2.5 M cut, store: 290, of them 282 backing stores. The
+store keeps its files (BAH: 207.8 MB) where `data.js`'s columns took about as much.
+
+**Bytes** (MB; gzip level 5 is nginx's `gzip_comp_level`):
+
+| run | `data.js` | gzipped | store (`lines.arrow` + `profiles.arrow`) | gzipped |
+|---|---|---|---|---|
+| BAH-C4 | 448.8 | 143.9 | 207.8 | 89.5 |
+| 2.29 M cut | 530.4 | 183.3 | 237.5 | 108.2 |
+| 2.5 M cut | 579.3 | 200.5 | 259.2 | 118.4 |
+
+nginx gzips by `gzip_types` (`deploy/nginx/findaline.conf`). The measurement found `application/vnd.apache.arrow.file`
+missing there, so the store went out as it is (207.8 MB at BAH against 143.9 MB of gzipped `data.js`). The fix round
+of this step added the type (`docs/deployment.md`; `tests/nginx_check.sh` checks it): the public site now sends BAH's
+store gzipped, 89.5 MB, until wave 6 sends brotli.
+
+**What it means:**
+- **T5, heap under 500 MB at BAH: met by the user's reading.** The peak two frames after the first picture is
+  447-474 MB, against 1.7 GB from `data.js`. The 2.29 M cut is at 538 MB.
+- **T5, first picture within 3 s: not met by a little.** It is 3.06-3.37 s at BAH, against 5.9-6.5 s. The download
+  over loopback takes 0.6 s and reading the files almost nothing. The rest is the grouping, 1.8 s.
+- **T6: not changed.** A filter change takes 1.2 s and a grouping change 1.5 s at BAH, as before: both are the greedy
+  grouping, which view B1's stored spots take out of a filter change.
+- **The 2.5 M cut now opens** in desktop Chromium (4.3-4.6 s, 291-601 MB: the garbage of the load is collected
+  before that frame or not) and on the iPhone 13 profile (WebKit, desktop
+  machine): the result showed after 10.6 s of wall time. C1 saw it neither open nor refuse there from `data.js`.
+- **Indicative:** the seconds (one exclusive pass, loopback, this PC) and WebKit on Windows (not a phone). The heap
+  readings are measured.
+
 ## The resampling of a neighbour's data (2026-11-05, tag `history/partner-resampling`)
 
 Step 0 of the cube v2 contract (docs/country-precompute/contract.md, section 6). At a border a grid
@@ -3823,3 +3893,104 @@ island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill j
 - Earlier, before the blocks (24ac397, the grid at once on every search): the Gozo coast's stage 30.0 s at 44.0 B/px
   above the process's start (5 319 MB), the Tatras' 14.9 s at 35.5 B/px; the lines.csv of both without the access
   columns equal to the runs without the option byte for byte.
+
+## The memory constant (2026-11-15, tag `history/memory-constant`)
+
+The line-volume work's part 5.1 (docs/line-volume/spec-search.md). `search.LINE_BYTES` went from 450 to 900 B a line
+(the user's choice "a", 2026-11-15). It is the per-line term of `memory_needed`: the memory check of a compute slot
+(`_check_lines`, `_early_check`, `_estimate_check`), `memory_warning` at the worker's start, and the "fits" counts of
+their texts. No result changes.
+
+### How it was measured
+- **Machine and lock:** this PC (Windows, 24 logical cores), under `tools/test_lock.py run --exclusive`, one search
+  at a time, the code of `main` 47c5fa7 (the Arrow store written) and, for the store's share, 47c5fa7~1.
+- **Shape of a slot:** `tools/perf_profile.py --cores 7` (the VPS worker's CPUs, so saving takes 4 children) and
+  `--memory 4947666090` (a compute slot of three in 17 GiB free: the areas' tiles of a slot). The square rule's runs
+  marked "w" were planned as the web worker plans them (the public limits and that budget: the early check and the
+  2 % sample run). Every run was one grid.
+- **What was sampled:** the process tree every 0.2 s (the search's process and saving's children): the working sets
+  (rss), the unique sets (USS: the pages no other process maps), and the folder `saving.hand_over` writes. Hooks in
+  the search's process recorded the stages, `saving.save`, `linestore.write` and the square rule's
+  `BestPerSquarePair.counts()` (`peak_rows`). The tool: `tools/perf_slot_memory.py` (one search a run;
+  `uv run tools/perf_slot_memory.py --out <folder> --name <name> --cores 7 --memory 4947666090 --uss [--worker]
+  --remove-run -- <findaline.py options, with --data-dir>`; its `uss_plus_handover_mb` is the measure below: the
+  larger of its value at the working sets' peak and its largest over the run, which in the runs below differ by at
+  most 4 MiB; the tool's own run of KOB C2 gave 668 MiB against the scripts' 665). The batches, the cases and the tables are in the task's private folder (`F7\p2`): 35 measured
+  searches (and 6 dry runs before them, on the shared lane), 0.7-3.5 million lines; P4's nine case × configuration
+  pairs (round 1) again, and four goals with the square rule (M1's cases).
+- Windows' numbers: a container on Linux was not measured. MB, MiB and B a line below are of 2^20 bytes.
+
+### What the peak is
+Every search of a million lines or more peaks in step 5, while saving's children write the text files. The children
+memory-map the same hand-over files (every column of the lines, the groups, the profiles' arrays: about 220 B a line,
+250-275 B a kept line with the square rule), so the working sets summed count those pages once per child: the
+children's working sets grow 841 B a line while their private bytes stay flat (+2 B a line). A container on Linux
+should charge such a shared page once (inferred, not measured). So the constant counts the unique sets plus the
+hand-over files once. The machine's used memory rose more: on MGp C4 (the run with `typeperf`) by 4 509 MiB, of which
+the modified page list (the text files written and not yet on disk) 2 518 MiB; the rest, 1 991 MiB, near the unique
+sets plus the hand-over, 1 863 MiB.
+
+| Measure (without the square rule, 47c5fa7) | Fit over 0.7-3.5 M lines |
+|---|---|
+| Working sets summed (part P4's measure; P4 before the store: 558 MiB + 1 082 B) | 595 MiB + 1 063 B a line (9 runs, residuals −45 to +59 MiB; repeats within 4 %) |
+| Unique sets (USS) at their own peak | 314 MiB + 304 B a line (7 runs; MGp C4's peak is the store's write; without its two runs 360 + 263) |
+| USS + the hand-over files once, at the working sets' peak | 399 MiB + 440 B a line (the same 7 runs) |
+
+The slope between two runs (USS + hand-over), on one grid or across the range:
+
+| From | To | Lines | B a line | Working sets' slope |
+|---|---|---|---:|---:|
+| KOB C2 | MGp C4 (no rule) | 0.70 → 3.53 M | 445 | 1 069 |
+| BAH C2 | BAH C3 (no rule) | 1.68 → 2.84 M | 470 | 1 098 |
+| STR C1 | MG0 C1 (no rule) | 0.73 → 1.53 M | 438 | 991 |
+| STR 'Long lines' | STR 'Everything' (square rule 5) | 0.83 → 1.71 M kept | 649 | 1 216 |
+| SCH 'Long lines' | SCH 'Everything' (square rule 5) | 0.83 → 1.24 M kept | 762 | 1 392 |
+
+A kept line costs more than a plain one: its hand-over is larger and, the kept lines being spread out, more of them
+are their spot's representative with a profile (an estimate of the cause, not measured apart; the two goals of a pair
+differ in their settings too). So 900 B: the largest slope, 762 B, and 18 %.
+
+### The store's share
+The same searches before the store (47c5fa7~1) and with it:
+
+| Case | Lines | Working sets' peak before | With the store |
+|---|---:|---:|---:|
+| KOB C2 | 696 319 | 1 273 MiB | 1 270-1 279 MiB |
+| BAH C3 | 2 843 776 | 3 550 MiB | 3 518-3 537 MiB |
+| MGp C4 | 3 525 979 | 4 205 MiB | 4 136-4 166 MiB |
+
+`linestore.write` runs after the children, in the search's process alone, and is that process's own highest point now
+(MGp C4: 1 518 MiB against step 4's 1 214, +90 B a line; USS 1 369 MiB against 1 129 before the store, +71 B a
+line), below step 5's. When the text files end (store wave 4), the children and their hand-over go, and the store's
+write becomes the peak: 324 B a line above step 2 there ((1 369 − 278) MiB over 3.53 M lines, MGp C4; an
+estimate of that future peak).
+
+### The square rule's step 3
+The reducer's rows held in step 3: the step's peak above step 2's, over its `peak_rows`, on runs of 1.05-2.4 million
+rows: 181-287 B a row (216 B counted from the dtypes in phase 4). The rows held were 1.105-1.275 times the kept
+lines with the early check (the web worker's way) and 1.053-1.133 without it (the command line), so step 3 holds at
+most about 370 B a kept line and never sets the peak.
+
+### What it changes
+The verdicts of M1's 110 searches with the square rule and P1's 15 reference cases in the target rig without it
+(18 GiB worker, 3 compute slots, a slot's budget 4.61 GiB, the public limits; the memory threshold recomputed from
+their stored pixels, equal to their stored one at 450 within 0.17 %):
+
+| `LINE_BYTES` | With the public line limit (1.5 M) | Without limits (the memory check alone) | `memory_warning` (1.5 M lines, 64 Mpx, 4.61 GiB) |
+|---|---|---|---|
+| 450 | – | – | none (3.61 GiB) |
+| 900 | no verdict changes (the tightest admitted search, V2 'Best lines', at 3.7 times its lines' threshold) | STR C4 (9.83 M lines) refused, admitted at 450 | none (4.24 GiB) |
+| 1 200 | no verdict changes | also MG0 'Everything' (4.65 M kept) and V1 'Everything' | none; from 1 165 B a warning |
+
+By the fit, STR C4 would need about 4.4 GiB (extrapolated beyond the 3.5 M lines measured). The "fits" counts the
+refusals and the warning name are half of those at 450. `tools/perf_country.py`'s copy of the constant
+(`lines_gb_today`) follows it.
+
+### Not measured
+- A container on Linux (whether it charges a shared mapped page once, as inferred above; its page cache, the
+  writeback of the text files), the VPS's real slots (4.61 GiB is part E1's estimate).
+- A tiled search's held lines and the join of its tiles, a grid near 64 Mpx, searches above 3.5 M lines.
+- The fixed part (the process and its imports, about 0.4 GB in the fits) is not in `memory_needed` and
+  `slot_memory` does not reserve it (left as it is, the user's choice).
+- `tools/perf_lines_memory.py` was not used: it traces the heap of one process, without saving's children, the store
+  or the square rule.

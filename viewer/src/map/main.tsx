@@ -1,16 +1,18 @@
 // A run's own map (map.html, from disk, from the app's server or a share link): the result as the app
 // shows it by default (result/view/ResultColumns: C's columns, on phones a map with a sheet). map.html
 // loads this bundle after the list of runs (../runs.js: window.FINDALINE_RUNS, none on a share link); the
-// bundle loads the run's data.js beside it (result/load.ts: fetched with a progress bar from a server, a
-// script from disk), or takes window.FINDALINE_RUN of a map.html written before 2026-11-04, which loaded
-// data.js by a tag before it. The lines of other runs come from their lines.js (Compare). The selected line
-// is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
+// bundle loads the run's store or data.js beside it (result/load.ts: fetched with a progress bar from a server,
+// data.js as a script from disk), or takes window.FINDALINE_RUN of a map.html written before 2026-11-04, which
+// loaded data.js by a tag before it. The lines of other runs come from their store or lines.js (Compare). The
+// load's failures are shown in their own words (too large, a newer store, a store or data.js not loaded). The
+// selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
 
 import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
-import { columnsOf, loadRunFrom, TooLarge, type LoadProgress } from "../result/load";
+import { t } from "../i18n";
+import { columnsOf, loadRunFrom, NewerStore, StoreFailed, TooLarge, type LoadProgress } from "../result/load";
 import type { ResultModel } from "../result/model";
 import { ResultColumns, type BackAction } from "../result/view/ResultColumns";
 import { RunLoading } from "../result/view/RunLoading";
@@ -42,8 +44,10 @@ function RunMap({data}: {data: RunData}) {
     addEventListener("hashchange", changed);
     return () => removeEventListener("hashchange", changed);
   }, []);
-  // Compare needs other runs with lines in the list of runs, which a share link has none of
-  const others = (window.FINDALINE_RUNS || []).some((r) => r.id !== data.run.id && r.has_lines);
+  // Compare needs another run it can show (RunActions: one with a map; others.listOthers: with lines and a box) in the
+  // list of runs, which a share link has none of
+  const others = (window.FINDALINE_RUNS || []).some((r) => r.id !== data.run.id && r.has_lines && r.has_map !== false
+                                                         && r.bbox);
   const show = others ? undefined : (["measure", "share", "download"] as const).slice();
   return <Screen theme={storedTheme()}>
     <ResultColumns data={data} runId={data.run.id} line={route.line} nav={route.nav} wide={wide} back={backOf(data.run.id)}
@@ -65,7 +69,8 @@ function LoadedMap() {
   useEffect(() => {
     if (data) return;
     loadRunFrom("data.js", "map", setProgress)
-      .then(setData, (e) => setError(e instanceof TooLarge ? e.message : "The run's data (data.js) could not be loaded."));
+      .then(setData, (e) => setError(e instanceof TooLarge || e instanceof NewerStore ? e.message
+        : e instanceof StoreFailed ? t("ui.result.store_failed") : "The run's data (data.js) could not be loaded."));
   }, []);
   if (data) return <RunMap data={data} />;
   return <Screen theme={storedTheme()}><RunLoading progress={progress} error={error} /></Screen>;

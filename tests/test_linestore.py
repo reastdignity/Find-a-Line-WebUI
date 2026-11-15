@@ -487,7 +487,7 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
         for file in remove:
             os.remove(data / "runs" / name / file)
     listed = {r["id"]: r["has_lines"] for r in runs.list_runs(str(data / "runs"))}
-    assert listed == {run_id: True, "old": True, "bare": False, "store": False}  # lines.js (until 2b-C)
+    assert listed == {run_id: True, "old": True, "bare": False, "store": True}  # lines.arrow or lines.js (2b-C)
     code = (f"import json, sys; sys.path.insert(0, {REPO!r}); import web\n"
             "from fastapi.testclient import TestClient\n"
             f"c = TestClient(web.create_app({str(data)!r}, token='t', start_scheduler=False), "

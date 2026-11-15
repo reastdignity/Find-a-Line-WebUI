@@ -13,7 +13,10 @@ written before 2026-11-04 loads it by a tag first, which it still takes), `#line
 2026-10-30), `types.ts` the run data's types and a run's lines as columns (`lineColumns` from data.js's or lines.js's rows: a
 `NumberColumn` per value, the grouping's values as `Float64Array`, the others as the narrowest integers that give back
 the very double (null, NaN and -0 kept), else doubles; `lineAt` a Line of a row, `LineCursor` its values without one;
-`toLine` the reader of one row they must equal: tests/test_viewer.py `test_columns_give_the_rows_values`),
+`toLine` the reader of one row they must equal: tests/test_viewer.py `test_columns_give_the_rows_values`;
+`storedColumns` the same columns over a store's own arrays, `NumberColumn.stored` with Arrow's validity bits instead of
+codes, a missing value null or NaN as data.js shows it (`NULL_WHEN_MISSING`); `LineColumns.profiles` a `ProfileSource`;
+`RunInfo.store` run.json's block `store`),
 `grouping.ts` the grouping (`groupIndices` on typed arrays, `groupLines` over objects: the 3D view's fan, the tests),
 `filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
 options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept), `tight.ts`
@@ -56,7 +59,16 @@ and drops them (`RunData.columns`; store wave 1, docs/performance.md "Columns in
 empty although its bytes came (Chromium's longest string, about 537 M characters) fails as `TooLarge`, whose message
 `ui.result.too_large` the page shows, and is never tried as a script (that crashed the tab); `LoadProgress` to
 `RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`),
-`orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
+over http(s) a run whose entry in runs.js holds run.json's block `store` (`storeOf`: the page's list, else
+`../runs.js` beside the run's folder, read afresh when the run is not in it; none on a share link) is read from its
+store instead (store wave 2,
+docs/line-volume/spec-store.md 1.2): `lines.arrow` and `profiles.arrow` downloaded together as bytes, `readStore`
+(apache-arrow `RecordBatchReader`: one record batch; the head from the schema's metadata `findaline`, `parseLoose` for
+its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied into doubles; a higher `format` than
+`STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a store's file answering 404 falls back to data.js;
+another failure is `StoreFailed`, `ui.result.store_failed` on map.html; a null body `TooLarge`), `storedProfiles` a
+profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its `lines.arrow` (or its
+lines.js: no store, or the file missing); `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
 selection, next/previous spot, favourites, on columns: the runs shown are `Table`s of `types.ts` `LineColumns` (this
 run's from index 0, each other run's from its own `start`, never given twice), a line is its index; the filters
 (`filters.passes` through a `LineCursor`), the ranges (one pass, `filters.Ranger`), the counts and the grouping
