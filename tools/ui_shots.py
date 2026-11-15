@@ -89,6 +89,8 @@ MORE = [ADVANCED, ".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More s
 # The Basic search form (spec-search 1.6): the centre set at the clip's place, so the bar shows the receipt
 POINT = "js:window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
 READY = "wait:document.querySelector('.s-bar')?.dataset.estimate === 'ready'"  # the source and grid in the bar
+SEA_VIEW = "js:(window.FINDALINE_PLACE.map.setView([36.055, 14.20], 14, {animate: false}), " + \
+           "new Promise((done) => setTimeout(done, 1500)))"  # a coast in view (Gozo, Dwejra)
 FORM_END = "scroll:.c-form"  # the rig's row at the end of Basic (phones)
 RETURN = ["js:(window.FINDALINE_SEARCH.setValue('pretension', 4), window.FINDALINE_SEARCH.setValue('min_drop', 50))",
           ".s-tabs [data-tab=basic]"]  # two values Basic cannot show, then back to Basic: its dialog
@@ -205,7 +207,8 @@ PAGES = {
     "c-basic-ten": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "ten-rigs"),
     "c-basic-long": ("c", "#new", [POINT, READY, "[data-goal=long]", READY], "one-rig"),
     "c-basic-firstline": ("c", "#new", [POINT, READY, "[data-goal=first]", READY], "one-rig"),
-    "c-basic-sea": ("c", "#new", [POINT, READY, "[data-goal=sea]", READY], "one-rig"),  # the limit: the map view
+    # the map moved to a coast (Gozo's west) first: "Sea cliffs" takes the view as its limit (the clip's place has none)
+    "c-basic-sea": ("c", "#new", [POINT, READY, SEA_VIEW, "[data-goal=sea]", READY], "one-rig"),
     "c-basic-everything": ("c", "#new", [POINT, READY, "[data-goal=everything]", READY], "one-rig"),
     "c-basic-window": ("c", "#new", [POINT, READY, ".s-rig-change0"]),
     "c-basic-window-edit": ("c", "#new", [POINT, READY, ".s-rig-change", ".s-rig-more > summary"], "three-rigs"),
