@@ -2,16 +2,22 @@
 no index gives: a WMS GetFeatureInfo (HTML) at a point of the survey's own part of the sheet names it, kept in a small
 JSON file per survey (both models' URLs at once) and asked again after a 404 of the file. The file is a Deflate ZIP of
 an ARC/INFO ASCII grid without a CRS (EPSG:3003 imposed) and the licence of its owner (licenza_dati_Lidar.pdf), which
-decides the owner written into the cached tile (OWNER_TAG): the run's credits follow it."""
+decides the owner written into the cached tile (OWNER_TAG): the run's credits follow it. Every answer is read in a
+stream up to a cap (capped_get), never held whole beyond it."""
 
 import io
 import json
 import os
 import re
+import threading
+import time
 import zipfile
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
+
+import requests
 
 import cache
+import servicecounts
 
 from .. import net
 from ..composed import Reader
@@ -34,13 +40,77 @@ DOWNLOADS = "https://www502.regione.toscana.it/geoscopio/download/altimetria/lid
 LINK = re.compile(r"href=[\"']?(https?://[^\s\"'>]+?/(dtm|dsm)/([0-9a-z_]+?)_([0-9a-f]{32})\.zip)", re.IGNORECASE)
 GFI_OWNER = re.compile(r"Proprieta'\s*:\s*<b>\s*([A-Z]+)\s*</b>")
 GFI_HALF_M = 50  # the GetFeatureInfo's box: 100 m around the point, 101 x 101 px (the point at its middle pixel)
+GFI_BYTES = 2_000_000  # the most a GetFeatureInfo's answer may have (about 3.7 kB each, 2026-11-15)
+# Tries to save the URLs' file when another process holds it open (Windows refuses os.replace then), a second apart
+SAVE_TRIES = 5
+
+
+class SheetUnresolved(RuntimeError):
+    """No GetFeatureInfo names a survey's file: an error of this search (the sheet left out, nothing cached)."""
+
+
+class _TooLarge(Exception):
+    """An answer longer than its cap."""
+
+
+def capped_get(url: str, limit: int, params=None, binary_types: Sequence[str] = ("octet",),
+               timeout: int = 300) -> Tuple[Optional[bytes], Optional[requests.Response]]:
+    """GET as net._get (its retries and backoff, the app's headers, a turn of the host's rate, counted), the body read
+    in a stream and never beyond limit bytes: more is an error at once (not tried again). (None, response) for a
+    404; RuntimeError for any other failure. The response comes back closed, for its headers."""
+    last: Optional[Exception] = None
+    for attempt in range(net.RETRIES):
+        slow_down = False
+        try:
+            net.rate_turn(url)
+            with servicecounts.request(url) as counted:
+                response = counted.got(net.session().get(url, params=params, timeout=timeout, stream=True,
+                                                         headers=cache.http_headers(), verify=net.verify(url)),
+                                       read=False)
+                try:
+                    if response.status_code == 404:
+                        return None, response
+                    kind = response.headers.get("content-type", "")
+                    if response.status_code != 200 or not any(t in kind for t in binary_types):
+                        if response.status_code == 200:
+                            counted.outcome = "other"
+                        slow_down = response.status_code in (429, 503)
+                        start = next(response.iter_content(300), b"").decode("utf-8", "replace")
+                        raise RuntimeError(f"HTTP {response.status_code}: {start}")
+                    chunks, size = [], 0
+                    for chunk in response.iter_content(65536):
+                        size += len(chunk)
+                        if size > limit:
+                            raise _TooLarge(f"the answer has more than {limit} bytes")
+                        chunks.append(chunk)
+                    counted.add(size)
+                    return b"".join(chunks), response
+                finally:
+                    response.close()
+        except _TooLarge as e:
+            raise RuntimeError(str(e)) from None
+        except (requests.RequestException, RuntimeError) as e:
+            last = e
+            net._sleep(attempt + 3 if slow_down else attempt)
+    raise RuntimeError(cache.clean_error(last))
+
+
+_LOCKS: Dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _urls_lock(path: str) -> threading.Lock:
+    """The lock of one survey's URLs file in this process (the DTM's and the DSM's downloads share the file)."""
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(os.path.normcase(os.path.abspath(path)), threading.Lock())
 
 
 class CartotecaFile(Reader):
     """A survey's file of one model (kind "dtm" or "dsm") of the cartoteca's lidar, written as a float32 GeoTIFF in
-    EPSG:3003 with its owner (OWNER_TAG). A survey a GetFeatureInfo does not name at any of its points has no data
-    (missing); a GetFeatureInfo that fails is an error (nothing cached). At most max_bytes downloaded, at most
-    member_bytes unpacked."""
+    EPSG:3003 with its owner (OWNER_TAG). A survey no GetFeatureInfo names at any of its points (also when asked
+    again after a 404) raises SheetUnresolved: the layer leaves it out of the search, nothing cached; a file that
+    answers 404 after a fresh GetFeatureInfo has no data (missing); any other failure is an error (nothing cached).
+    At most max_bytes downloaded, GFI_BYTES of a GetFeatureInfo, member_bytes unpacked per member."""
     rewrites = True  # the cached tile is written by _write_tile (its tags kept by reencode)
 
     def __init__(self, description: str, wms_url: str, layer: str, kind: str, base: str = DOWNLOADS,
@@ -52,8 +122,21 @@ class CartotecaFile(Reader):
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # none yet, or another process replacing it now
             return None
+
+    def _save_urls(self, path: str, urls: Dict):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = net._part(path)
+        with open(tmp, "w", encoding="utf-8") as out:
+            json.dump(urls, out)
+        for _ in range(SAVE_TRIES):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:  # Windows: another process reads it this moment
+                time.sleep(1)
+        os.remove(tmp)  # used for this download only; the next search asks again
 
     def url(self, request) -> Optional[str]:
         """The file's resolved URL if known, else the GetFeatureInfo's service (the same host: its slot)."""
@@ -61,18 +144,19 @@ class CartotecaFile(Reader):
         return urls.get(self.kind) or self.wms_url
 
     def gfi(self, x: float, y: float) -> str:
-        """The GetFeatureInfo's HTML at a point (EPSG:3003)."""
+        """The GetFeatureInfo's HTML at a point (EPSG:3003), at most GFI_BYTES."""
         h = GFI_HALF_M
         params = {"SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetFeatureInfo", "LAYERS": self.layer,
                   "QUERY_LAYERS": self.layer, "STYLES": "", "CRS": "EPSG:3003",
                   "BBOX": f"{x - h:.1f},{y - h:.1f},{x + h:.1f},{y + h:.1f}", "WIDTH": "101", "HEIGHT": "101",
                   "I": "50", "J": "50", "INFO_FORMAT": "text/html", "FEATURE_COUNT": "20"}
-        response = net._get(self.wms_url, params=params, timeout=120, binary_types=("html",))
-        if response is None:
+        try:
+            body, _ = capped_get(self.wms_url, GFI_BYTES, params, ("html",), timeout=120)
+        except RuntimeError as e:
+            raise RuntimeError(f"GetFeatureInfo: {e}") from None
+        if body is None:
             raise RuntimeError("the GetFeatureInfo answered 404")
-        if len(response.content) > 2_000_000:
-            raise RuntimeError(f"the GetFeatureInfo's answer has {len(response.content)} bytes")
-        return response.content.decode("utf-8", "replace")
+        return body.decode("utf-8", "replace")
 
     def resolve(self, request) -> Optional[Dict]:
         """The survey's URLs ({"dtm", "dsm", "owner"}) from a GetFeatureInfo at its points, the first whose answer
@@ -88,38 +172,45 @@ class CartotecaFile(Reader):
             if found.get(self.kind):
                 owner = GFI_OWNER.search(html)
                 urls = {**found, "owner": owner.group(1) if owner else None, "asked_at": cache.now_iso()}
-                os.makedirs(os.path.dirname(request.urls), exist_ok=True)
-                tmp = net._part(request.urls)
-                with open(tmp, "w", encoding="utf-8") as out:
-                    json.dump(urls, out)
-                os.replace(tmp, request.urls)
+                self._save_urls(request.urls, urls)
                 return urls
         return None
 
+    def _urls(self, request, again: bool = False) -> Tuple[Dict, bool]:
+        """The survey's URLs and whether they were asked now (again: after a 404, asked whatever is saved), under
+        the survey's lock; SheetUnresolved when no GetFeatureInfo names the file."""
+        with _urls_lock(request.urls):
+            urls = None if again else self._read_urls(request.urls)
+            fresh = False
+            if not (urls or {}).get(self.kind):
+                urls, fresh = self.resolve(request), True
+        if not (urls or {}).get(self.kind):
+            raise SheetUnresolved(f"no GetFeatureInfo names {request.name} (sheet {request.godlo}, "
+                                  f"{request.sheet.version})")
+        return urls, fresh
+
+    def _download(self, url: str, where: str) -> Tuple[Optional[bytes], Optional[requests.Response]]:
+        try:
+            return capped_get(url, self.max_bytes, binary_types=("zip", "octet"))
+        except RuntimeError as e:
+            raise RuntimeError(f"Could not download {where}: {e}") from None
+
     def fetch(self, request, path: str) -> Fetched:
         where = f"{self.description} sheet {request.godlo} ({request.sheet.version})"
-        urls, fresh = self._read_urls(request.urls), False
-        if not (urls or {}).get(self.kind):
-            urls, fresh = self.resolve(request), True
-        if not (urls or {}).get(self.kind):
-            print(f"{where}: no GetFeatureInfo names its file; no data")
-            return Fetched(0, self.wms_url)
+        urls, fresh = self._urls(request)
         url = urls[self.kind]
-        try:
-            response = net._get(url, binary_types=("zip", "octet"))
-            if response is None and not fresh:  # its link changed: asked again
-                urls = self.resolve(request) or {}
-                if urls.get(self.kind) and urls[self.kind] != url:
-                    url = urls[self.kind]
-                    response = net._get(url, binary_types=("zip", "octet"))
-        except RuntimeError as e:
-            raise RuntimeError(f"Could not download {where}: {e}")
-        if response is None:
+        data, response = self._download(url, where)
+        if data is None and not fresh:  # its link changed: asked again
+            urls, _ = self._urls(request, again=True)
+            if urls[self.kind] != url:
+                url = urls[self.kind]
+                data, response = self._download(url, where)
+        if data is None:
             print(f"{where}: the file answers 404; no data")
             return Fetched(0, url)
-        band, transform, owner = self.read(response.content, request, where, (urls or {}).get("owner"))
+        band, transform, owner = self.read(data, request, where, urls.get("owner"))
         _write_tile(path, _clean(band), request.crs, transform, tags={OWNER_TAG: owner})
-        return Fetched.of(response, url)
+        return Fetched(len(data), url, response.headers.get("ETag"), response.headers.get("Last-Modified"))
 
     def read(self, data: bytes, request, where: str, gfi_owner: Optional[str]) -> Tuple:
         """The grid of a survey's ZIP and its owner (the licence in the ZIP, else the GetFeatureInfo's, else MATTM:

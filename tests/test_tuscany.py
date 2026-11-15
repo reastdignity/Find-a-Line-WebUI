@@ -314,7 +314,7 @@ def test_files_by_their_getfeatureinfo(http_server, tmp_path, no_sleep):
 
 def test_a_moved_file_is_asked_again(http_server, tmp_path, no_sleep):
     """A cached URL that answers 404 asks the GetFeatureInfo again and downloads the new address; a survey no
-    GetFeatureInfo names has no data (missing, said)."""
+    GetFeatureInfo names is an error (SheetUnresolved) the layer leaves out of the search, nothing recorded."""
     gfis = []
     _serve_index(http_server, _gml(FEATURES[:2]))
     _serve_files(http_server, FILES, gfi_counter=gfis)
@@ -332,12 +332,22 @@ def test_a_moved_file_is_asked_again(http_server, tmp_path, no_sleep):
     fetched = layer.download_tile(sheet, path)
     assert fetched.received > 0 and os.path.exists(path) and len(gfis) == 1
     assert json.load(open(urls_path, encoding="utf-8"))["dtm"].endswith(f"_{HASH}.zip")
-    # Not named by any GetFeatureInfo: no data
+    # Not named by any GetFeatureInfo: an error, not cached as no data
     lost = idx.LidarSheet(2001, "099", 1.0, "22d35", _name("22d35", "dtm", "099", 2001), "", sheet.extent,
                           ((S35[0] + 1500.0, S35[1] + 600.0),))
     other = layer.index.versions.request(lost)
     assert other.urls != request.urls
-    assert layer.download_tile(lost, layer.tile_path(cache_dir, lost)).received == 0
+    lost_path = layer.tile_path(cache_dir, lost)
+    with pytest.raises(rd.SheetUnresolved):
+        layer.download_tile(lost, lost_path)
+    assert layer._download_and_record(lost, cache_dir) == 0
+    assert not os.path.exists(lost_path) and cache.states(cache_dir, [lost_path]) != ["missing"]
+    # A cached URL that answers 404 and a GetFeatureInfo that then names nothing: also an error
+    os.makedirs(os.path.dirname(other.urls), exist_ok=True)
+    with open(other.urls, "w", encoding="utf-8") as f:
+        json.dump({"dtm": http_server.url(DL) + "dtm/old_" + HASH + ".zip"}, f)
+    with pytest.raises(rd.SheetUnresolved):
+        layer.download_tile(lost, lost_path)
 
 
 def test_cache_update_reads_a_new_survey_of_a_cached_sheet(http_server, tmp_path, no_sleep):
@@ -471,7 +481,7 @@ def test_a_filler_that_filled_nothing_drops_every_owners_entry(tmp_path, monkeyp
     entries = [{"layer": "a, RT", "credit": {"data": "rt"}}, {"layer": "a, MATTM", "credit": {"data": "m"}}]
 
     class _Layer(src.FileLayer):
-        def used_entries(self, grid, cache_dir):
+        def used_entries(self, grid, cache_dir, wrote=None):
             return [dict(e) for e in entries]
     grid = make_grid((S35[0], S35[1], S35[0] + 50, S35[1] + 50), 1.0, "EPSG:3003")
     path = str(tmp_path / "f.tif")
@@ -489,12 +499,253 @@ def test_a_filler_that_filled_nothing_drops_every_owners_entry(tmp_path, monkeyp
         src.mosaic.used_data.clear()
 
 
+def test_a_sole_strip_and_a_newer_strip_are_kept():
+    """select_versions keeps the newest (or a sole) survey however small: a sole strip of 0.94 % of the sheet, and
+    a newer strip over an older survey of the whole sheet (then the older one too)."""
+    from shapely.geometry import box
+    x, y = S35
+    rect = (x, y, x + 1600, y + 1200)
+
+    def entry(lot, year, shape):
+        return {"year": year, "lot": lot, "res": 1.0, "godlo": "22d35", "dtm": _name("22d35", "dtm", lot, year),
+                "dsm": "", "rectangle": rect, "footprint": shape}
+    strip = box(x, y, x + 15, y + 1200)  # 18 000 m²: 0.94 %
+    (kept,) = idx.select_versions([entry("017", 2016, strip)])
+    assert kept["lot"] == "017" and kept["extent"] == [x - 20, y - 20, x + 35, y + 1220]
+    px, py = kept["points"][0]
+    assert x <= px <= x + 15 and y <= py <= y + 1200
+    kept = idx.select_versions([entry("017", 2016, strip), entry("007", 2010, box(*rect))])
+    assert [e["lot"] for e in kept] == ["017", "007"]
+    # A strip too narrow for a point inside its edge still gets one (on it)
+    (kept,) = idx.select_versions([entry("017", 2016, box(x, y, x + 3, y + 1200))])
+    assert x <= kept["points"][0][0] <= x + 3
+
+
+def _sheet_tile(cache_dir, folder, lot, year, sheet, corner, owner, cols=None):
+    """A cached tile of a survey of a sheet (the file and its 20 m buffer), its values 100 within the columns cols
+    of the sheet (metres from its left edge; None: everywhere), no data elsewhere."""
+    x, y = corner
+    values = np.full((1240, 1640), 100.0 if owner == "RT" else 200.0, np.float32)
+    if cols is not None:
+        values[:, :20 + cols[0]] = np.nan
+        values[:, 20 + cols[1]:] = np.nan
+    path = os.path.join(cache_dir, *folder.split("/"), f"{lot}-{year}", f"{sheet}_1m.tif")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    src.layer._write_tile(path, values, "EPSG:3003", rio.transform.from_origin(x - 20, y + 1220, 1.0, 1.0),
+                          tags={rd.OWNER_TAG: owner})
+    return path
+
+
+@pytest.mark.parametrize("box_m, owners", [
+    ((1200, 100, 1300, 200), ["RT"]),           # wholly in the RT part of 22d35 (MATTM's survey under it)
+    ((100, 100, 200, 200), ["MATTM"]),          # in MATTM's part only
+    ((1050, 100, 1250, 200), ["RT", "MATTM"]),  # across both
+    ((1610, 100, 1650, 200), ["RT"]),           # in 22d36 (RT, whole), touching 22d35's MATTM buffer only
+], ids=["rt-part", "mattm-part", "both", "buffer"])
+def test_credits_follow_the_pixels_given(http_server, tmp_path, monkeypatch, box_m, owners):
+    """An owner is credited only when its files gave the mosaic a pixel: a Ministry's survey under a newer one, or
+    whose 20 m buffer alone meets the grid, brings no CC BY-SA (the catalogue's layer, prepare_layer)."""
+    layer = _on_server(monkeypatch, http_server, src.SOURCES["tuscany"].nmt)
+    cache_dir = str(tmp_path / "cache")
+    _serve_index(http_server, _gml([_feature("22d35", "005", 2012, S35, _part(S35, 1120, 1600)),
+                                    _feature("22d35", "007", 2010, S35), _feature("22d36", "005", 2012, S36)]))
+    _sheet_tile(cache_dir, layer.folder, "005", 2012, "22d35", S35, "RT", (1120, 1600))
+    _sheet_tile(cache_dir, layer.folder, "007", 2010, "22d35", S35, "MATTM")
+    _sheet_tile(cache_dir, layer.folder, "005", 2012, "22d36", S36, "RT")
+    x, y = S35
+    grid = make_grid((x + box_m[0], y + box_m[1], x + box_m[2], y + box_m[3]), 1.0, "EPSG:3003")
+    layer._use(cache_dir)
+    src.mosaic.used_data.clear()
+    try:
+        out = np.load(src.prepare_layer(layer, grid, cache_dir, str(tmp_path / "t.npy"), "terrain", download=False))
+        entries = list(src.mosaic.used_data)
+    finally:
+        src.mosaic.used_data.clear()
+    assert np.isfinite(out).all()
+    credited = [e["credit"]["licence"] for e in entries if e.get("credit")]
+    assert credited == [{"RT": "CC BY 4.0", "MATTM": "CC BY-SA 3.0 IT"}[o] for o in owners]
+    assert any(t.lot == "007" for t in layer.tiles(grid))  # the Ministry's file met the grid in every case
+
+
+def test_the_mosaic_tells_which_files_wrote(tmp_path):
+    """build_mosaic(wrote=): whether each file wrote a pixel, the values the same as without it (a file on the grid
+    copied, one under another, one reprojected, one in strips)."""
+    from sources.mosaic import build_mosaic
+    cache_dir = str(tmp_path)
+    a = _sheet_tile(cache_dir, "m", "005", 2012, "22d35", S35, "RT", (1120, 1600))
+    b = _sheet_tile(cache_dir, "m", "007", 2010, "22d35", S35, "MATTM")
+    c = _sheet_tile(cache_dir, "m", "006", 2008, "22d35", S35, "MATTM")  # under both
+    x, y = S35
+    for res, rows in ((1.0, None), (2.0, None), (2.0, 20)):
+        grid = make_grid((x + 1000, y + 100, x + 1300, y + 300), res, "EPSG:3003")
+        plain = np.array(build_mosaic([a, b, c], grid, str(tmp_path / "p.npy"), "p", rows=rows))
+        wrote = []
+        counted = np.array(build_mosaic([a, b, c], grid, str(tmp_path / "c.npy"), "c", rows=rows, wrote=wrote))
+        assert np.array_equal(plain, counted, equal_nan=True)
+        assert wrote == [True, True, False], (res, rows)
+
+
+def test_fabdem_is_never_in_tuscanys_chain():
+    """The Ministry's sheets are CC BY-SA, FABDEM CC BY-NC-SA: Tuscany's gaps come from TINITALY, then Copernicus."""
+    s = src.SOURCES["tuscany"]
+    assert s.fallbacks == ["tinitaly", "copernicus"] and not s.neighbours
+    credits = [layer.credit for sid in s.fallbacks for layer in (src.SOURCES[sid].nmt, src.SOURCES[sid].nmpt)
+               if layer is not None]
+    assert src.FABDEM_CREDIT not in credits and credits
+
+
+def test_dtm_and_dsm_resolve_once_together(http_server, tmp_path, no_sleep):
+    """The DTM's and the DSM's downloads of one survey at the same time: one GetFeatureInfo (the survey's lock),
+    the URLs' file written once and read by the other, both tiles written."""
+    import threading
+    import time
+    gfis = []
+    _serve_index(http_server, _gml(FEATURES[:1]))
+    _serve_files(http_server, FILES[:1], gfi_counter=gfis)
+    slow = http_server.routes[-1][1]
+
+    def slower(request):
+        time.sleep(0.5) if dict(request.query).get("REQUEST") == "GetFeatureInfo" else None
+        return slow(request)
+    http_server.routes[-1] = (WMS, slower)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((S35[0] + 1200, S35[1] + 100, S35[0] + 1300, S35[1] + 200), 1.0, "EPSG:3003")
+    dtm, dsm = _layer(http_server), _layer(http_server, "dsm")
+    jobs = []
+    for layer in (dtm, dsm):
+        layer._use(cache_dir)
+        (sheet,) = layer.tiles(grid)
+        jobs.append(threading.Thread(target=layer.download_tile, args=(sheet, layer.tile_path(cache_dir, sheet))))
+    for job in jobs:
+        job.start()
+    for job in jobs:
+        job.join()
+    assert len(gfis) == 1
+    assert all(os.path.exists(layer.tile_path(cache_dir, layer.tiles(grid)[0])) for layer in (dtm, dsm))
+
+
+def test_caps_of_the_answers(http_server, tmp_path, monkeypatch, no_sleep):
+    """A GetFeatureInfo longer than GFI_BYTES, a ZIP longer than max_bytes and a member longer than member_bytes are
+    errors, read no further than their cap; nothing written."""
+    _serve_index(http_server, _gml(FEATURES[:1]))
+    _serve_files(http_server, FILES[:1])
+    layer = _layer(http_server)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((S35[0] + 1200, S35[1] + 100, S35[0] + 1300, S35[1] + 200), 1.0, "EPSG:3003")
+    layer._use(cache_dir)
+    (sheet,) = layer.tiles(grid)
+    path = layer.tile_path(cache_dir, sheet)
+    monkeypatch.setattr(rd, "GFI_BYTES", 100)
+    with pytest.raises(RuntimeError, match="more than 100 bytes"):
+        layer.download_tile(sheet, path)
+    monkeypatch.setattr(rd, "GFI_BYTES", 2_000_000)
+    layer.reader.max_bytes = 1000
+    with pytest.raises(RuntimeError, match="more than 1000 bytes"):
+        layer.download_tile(sheet, path)
+    layer.reader.max_bytes = 60_000_000
+    layer.reader.member_bytes = 1000
+    with pytest.raises(RuntimeError, match="more than 1000"):
+        layer.download_tile(sheet, path)
+    assert not os.path.exists(path)
+
+
+def test_fill_gaps_rows_drops_every_owners_entry(tmp_path):
+    """filling._fill_gaps_rows (fill_gaps in strips) leaves out all the entries of a filler that filled no pixel."""
+    entries = [{"layer": "a, RT", "credit": {"data": "rt"}}, {"layer": "a, MATTM", "credit": {"data": "m"}}]
+
+    class _Layer(src.FileLayer):
+        def used_entries(self, grid, cache_dir, wrote=None):
+            return [dict(e) for e in entries]
+    grid = make_grid((S35[0], S35[1], S35[0] + 50, S35[1] + 50), 1.0, "EPSG:3003")
+    path = str(tmp_path / "f.tif")
+    _tile(path, S35, "RT", np.nan)
+    filler = src.Source(id="f_test", name="f", description="f", nmt=_Layer("f", path), fallback=None)
+    terrain = np.full((grid.height, grid.width), 5.0, np.float32)
+    terrain[10:20, 10:20] = np.nan
+    np.save(str(tmp_path / "nmt.npy"), terrain)
+    src.mosaic.used_data[:] = [{"layer": "before"}]
+    try:
+        _, filled, _ = src.fill_gaps(str(tmp_path / "nmt.npy"), None, grid, filler, str(tmp_path / "cache"),
+                                     str(tmp_path / "gap.npy"), rows=16)
+        assert filled == 0 and src.mosaic.used_data == [{"layer": "before"}]
+    finally:
+        src.mosaic.used_data.clear()
+
+
+def test_query_under_an_outline(http_server, tmp_path):
+    """CartotecaVersions.query with an outline (area_shape): a grid inside it gets its surveys, one across its edge
+    those under it only, one wholly outside none."""
+    import dataclasses
+    from shapely.geometry import box
+    _serve_index(http_server, _gml(FEATURES[:4]))
+    layer = _layer(http_server)
+    cache_dir = str(tmp_path / "cache")
+    layer._use(cache_dir)
+    x, y = S35
+    outline = box(x + 1300, y, x + 1700, y + 1200)  # the right part of 22d35, the left edge of 22d36
+    grid = make_grid((x + 1000, y + 100, x + 2000, y + 300), 1.0, "EPSG:3003")
+
+    def listed(g):
+        return sorted((t.godlo, t.lot) for t in layer.index.versions.query(layer.index, g, cache_dir, None))
+    inside = dataclasses.replace(make_grid((x + 1400, y + 100, x + 1500, y + 300), 1.0, "EPSG:3003"),
+                                 area_shape=outline)
+    assert listed(inside) == [("22d35", "005"), ("22d35", "007")]
+    assert listed(dataclasses.replace(grid, area_shape=outline)) == [("22d35", "005"), ("22d35", "007"),
+                                                                    ("22d36", "005")]
+    assert listed(dataclasses.replace(grid, area_shape=box(x + 1000, y, x + 1090, y + 1200))) == [("22d35", "007")]
+    outside = dataclasses.replace(make_grid((x + 3500, y + 100, x + 3600, y + 300), 1.0, "EPSG:3003"),
+                                  area_shape=outline)
+    assert listed(outside) == []
+
+
+def test_cached_files_without_the_index(http_server, tmp_path, no_sleep):
+    """Without the index (503), the cached surveys over the grid are used, best first, and credited by their tags;
+    a tile without the tag is the Ministry's (the stricter licence)."""
+    _serve_index(http_server, b"busy", 503, "text/plain")
+    layer = _layer(http_server)
+    cache_dir = str(tmp_path / "cache")
+    a = _sheet_tile(cache_dir, layer.folder, "005", 2012, "22d35", S35, "RT", (1120, 1600))
+    b = _sheet_tile(cache_dir, layer.folder, "007", 2010, "22d35", S35, "MATTM")
+    _sheet_tile(cache_dir, layer.folder, "005", 2012, "22d38", (S35[0] + 4800, S35[1]), "RT")  # far away
+    grid = make_grid((S35[0] + 1050, S35[1] + 100, S35[0] + 1250, S35[1] + 200), 1.0, "EPSG:3003")
+    layer._use(cache_dir)
+    assert [os.path.normpath(p) for p in layer.files(grid, cache_dir)] == [os.path.normpath(a), os.path.normpath(b)]
+    entries = layer.used_entries(grid, cache_dir)
+    assert [e["credit"]["licence"] for e in entries] == ["CC BY 4.0", "CC BY-SA 3.0 IT"]
+    with rio.open(b, "r+") as tile:
+        tile.update_tags(**{rd.OWNER_TAG: ""})
+    assert owner_of(b) == "MATTM"
+    untagged = str(tmp_path / "plain.tif")
+    src.layer._write_tile(untagged, np.ones((2, 2), np.float32), "EPSG:3003",
+                          rio.transform.from_origin(0, 2, 1, 1))
+    assert owner_of(untagged) == "MATTM"
+
+
+def test_probe_cartoteca_head(http_server, tmp_path, no_sleep):
+    """The probe's read of a cartoteca layer: the first tile's URL by a GetFeatureInfo, then the first KB of its ZIP
+    (no Range header); a survey no GetFeatureInfo names fails."""
+    from sources import probe
+    _serve_index(http_server, _gml(FEATURES[:1]))
+    _serve_files(http_server, FILES[:1])
+    layer = _layer(http_server)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((S35[0] + 1200, S35[1] + 100, S35[0] + 1300, S35[1] + 200), 1.0, "EPSG:3003")
+    layer._use(cache_dir)
+    (sheet,) = layer.tiles(grid)
+    assert probe._cartoteca_head(cache_dir, layer, sheet) == f"{_name('22d35', 'dtm', '005', 2012)} (RT)"
+    assert not any("range" in r.headers for r in http_server.log)
+    lost = idx.LidarSheet(2001, "099", 1.0, "22d35", _name("22d35", "dtm", "099", 2001), "", sheet.extent,
+                          ((S35[0] + 1500.0, S35[1] + 600.0),))
+    with pytest.raises(RuntimeError, match="no GetFeatureInfo names"):
+        probe._cartoteca_head(cache_dir, layer, lost)
+
+
 # The catalogue
 
 def test_catalogue_source():
     s = src.SOURCES["tuscany"]
     assert (s.countries, s.regions, s.crs, s.grid_origin) == (("it",), ("it-52",), "EPSG:3003", (0.0, 0.0))
-    assert (s.fallback, s.more_fallbacks, s.neighbours, s.ortho) == ("tinitaly", ("europe",), (), None)
+    assert (s.fallback, s.more_fallbacks, s.neighbours, s.ortho) == ("tinitaly", ("copernicus",), (), None)
     assert s.credits == (italy.TOS_RT_CREDIT, italy.TOS_MATTM_CREDIT) and s.nmt.credit is italy.TOS_MATTM_CREDIT
     ids = list(src.SOURCES)
     assert ids.index("sardinia") < ids.index("tuscany") < ids.index("tinitaly")
