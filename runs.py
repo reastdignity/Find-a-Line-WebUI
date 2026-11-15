@@ -426,9 +426,7 @@ def list_runs(runs_dir: str, only: Optional[Iterable[str]] = None) -> List[Dict]
                     run = json.load(f)
                 run["created"] = cache.utc_iso(run.get("created")) or ""  # without an offset before 2026-10-31
                 run["has_map"] = os.path.isfile(os.path.join(runs_dir, run_id, "map.html"))
-                # its lines for the app: the store (linestore, since 2026-11-15), or lines.js of a run of before
-                run["has_lines"] = any(os.path.isfile(os.path.join(runs_dir, run_id, name))
-                                       for name in ("lines.arrow", "lines.js"))
+                run["has_lines"] = os.path.isfile(os.path.join(runs_dir, run_id, "lines.js"))
                 runs.append(run)
     return sorted(runs, key=lambda r: r["created"], reverse=True)
 
