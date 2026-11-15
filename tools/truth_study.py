@@ -99,7 +99,7 @@ resumable (a cluster captured with the same options and known lines is not searc
                                       folder (absolute)
     <out>/data/runs/<run>/run.json    the saved run's meta (analyse --profiles reads it): its line files
                                       (RUN_FILES: lines.csv, lines.geojson, data.js, lines.js, map.html,
-                                      ATTRIBUTION.txt) are deleted once the cluster's capture.json is
+                                      ATTRIBUTION.txt, the store) are deleted once the cluster's capture.json is
                                       written, since the capture holds what the analysis reads (1 024
                                       clusters saved 31 GB of them); --keep-runs keeps every run whole
 
@@ -189,7 +189,8 @@ LINE_EXTRAS = ("elev_a1", "elev_a2", "height_max", "height_mean", "high_pct", "a
 DEFAULT_RADIUS = 1000.0     # findaline.py's --radius when a regression test gives none (params.SearchParams)
 POLL_SECONDS = 0.2          # run: how often the running children are looked at
 # A saved run's line files (web.RUN_FILES): deleted once the capture is written, run.json kept (--keep-runs)
-RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt")
+RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "lines.arrow",
+             "profiles.arrow")
 STDERR_MARK = "--- stderr ---"  # output.log: the child's stderr follows this line
 STDERR_FILE = "stderr.log"      # <out>/<cluster>/: the child's stderr while it runs, then appended to output.log
 
@@ -765,7 +766,7 @@ def _remove_run(out: str, folder: str):
 
 def slim_run(out: str, run: Optional[str]) -> List[str]:
     """A cluster's saved run (capture.json's "run") without its line files (RUN_FILES: the map, data.js,
-    lines.js, lines.csv, lines.geojson, ATTRIBUTION.txt), its run.json kept for analyse --profiles: the
+    lines.js, lines.csv, lines.geojson, ATTRIBUTION.txt, lines.arrow and profiles.arrow), its run.json kept for analyse --profiles: the
     capture holds what the analysis reads, and 1 024 clusters' runs took 31 GB. The viewer
     (runs/_viewer) and runs.js stay. Returns the files deleted (a file that cannot be deleted stays)."""
     path = _run_path(out, run)

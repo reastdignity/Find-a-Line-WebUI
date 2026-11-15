@@ -58,6 +58,7 @@ import coast
 import grid as gd
 import helpers as sh
 import hypsometry as hy
+import linestore
 import mapping as mp
 import messages
 import obstacles
@@ -2445,6 +2446,24 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
         if not p.no_html:
             map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
+    # The store (linestore: lines.arrow, profiles.arrow) after today's files, with or without a map, its head
+    # data.js's; its block "store" in run.json (never in lines.geojson, written before it: linestore.export leaves
+    # it out). A store that cannot be written never costs the run: it is kept without one (as a run of before)
+    try:
+        head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
+                           p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+        store = linestore.write(run["path"], results, head)
+    except Exception as error:  # noqa: BLE001 - the run's own files are saved already
+        for name in linestore.FILES:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(run["path"], name))
+        emit("warning", f"The run is saved without its store (lines.arrow): {type(error).__name__}: {error}")
+    else:
+        meta["store"] = store
+        path = os.path.join(run["path"], "run.json")
+        with open(path + linestore.PART, "w", encoding="utf-8") as f:  # whole, then in place of the one of before
+            json.dump(meta, f, ensure_ascii=False, indent=2)  # as runs.save_results writes it
+        os.replace(path + linestore.PART, path)
     if plan.index_runs:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")

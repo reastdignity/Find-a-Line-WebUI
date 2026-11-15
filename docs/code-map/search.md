@@ -268,7 +268,8 @@ Coordinates (`coordify` adds columns; each part's different anchor pixels transf
 (`group_lines` → `Groups`: index arrays; its cell index `_cell_index`: one int64 key per line, a stable argsort, the
 lines of a row of cells found by `searchsorted`; its loop `grouping.greedy`), matplotlib map; `save_map` writes a
 run's (its orthophoto entry `ortho_entry`, also the 3D view's patch meta) `map.html` + `data.js` + `lines.js` for the
-viewer, chunk by chunk from the columns (`files=` which of the three; `map_heads` the scripts' texts before the lines,
+viewer, chunk by chunk from the columns (`files=` which of the three; `map_head` data.js's head as a dict, also the
+store's head (`linestore.write`), `map_heads` the scripts' texts before the lines,
 `write_map_scripts` the lines of `data.js` and/or `lines.js` from them: what the children of `saving.py` run; the
 run's `terrain` in the heads of both scripts; `end_zone`, `lift` and `"ends": ["lift_needed", "lift_no_zone"]` in them
 only when the run has the options, `map_rows` putting those values before the profile; a run made with the square
@@ -292,6 +293,28 @@ computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` 
 `lines.geojson` only when the run has the options: `fields_of`, `feature_template`), `STANDS_FOR` (`stands_for`, the
 last column and property, only in a run made with the square rule) (the children of `saving.py` write
 the line files apart, `_rows(csv=, geojson=)` skips the join of the file not wanted)
+
+## `linestore.py`
+
+A run's store (docs/line-volume/spec-store.md 1.3; since 2026-11-15 written by `search.save_run` on every new run,
+after and beside the text files; a store that fails leaves the run without one, with a warning): `lines.arrow` (a row per line in the search's order) and `profiles.arrow` (a row
+per saved profile, `row` into `lines.arrow`), Arrow IPC files (pyarrow), uncompressed, one record batch each.
+`COLUMNS` names each column with its `LineTable` column and its decimals: the anchors int32 at 7, the grouping's
+values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of `mapping.map_rows`' decimals in
+the narrowest int type (field metadata `decimals`), nulls where a value may miss, the end columns and `stands_for`
+(uint32) only when the lines have them; the schema metadata `findaline` holds `format` (`FORMAT`, a higher one is
+refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the rows of each integer column whose value
+rounds to -0.0). `write(run_path, lines, head)` → run.json's block `store` (format, lines, bytes, the first 16 hex of
+`lines.arrow`'s sha256); `lines_table`/`profiles_table` the two tables (a profile from any number of
+`helpers.Profiles` batches and dicts of `line_profile`); a scaled column whose values no integer holds exactly (beyond
+2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 of round(value,
+decimals), without `decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values; both files under `.part` names until both are
+whole. `read(run_path,
+profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`; `export(run_path, "csv"|"geojson",
+out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
+with run.json's values without its `store`: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow
+only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never
+imported by the web process (`tests/test_linestore.py`)
 
 ## `saving.py`
 

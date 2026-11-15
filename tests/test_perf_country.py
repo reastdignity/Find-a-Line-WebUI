@@ -91,7 +91,7 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
                           cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
     assert lean.returncode == 0, lean.stdout + lean.stderr
     run = json.load(open(tmp_path / "out" / "samples.json"))["lean"]["run"]
-    assert sorted(os.listdir(run)) == ["lines.npz", "run.json"]
+    assert sorted(os.listdir(run)) == ["lines.arrow", "lines.npz", "profiles.arrow", "run.json"]  # and the store
     a, b = pc.read_lines(sample["run"]), pc.read_lines(run)
     assert a["group"].tolist() == b["group"].tolist() and a["representative"].tolist() == b["representative"].tolist()
     assert np.allclose(a["length_m"], b["length_m"], atol=0.05) and np.allclose(a["anchor1_easting"],

@@ -1189,7 +1189,7 @@ def test_run_saved_by_children_as_in_process(tmp_path, monkeypatch):
         saved[count] = {name: (folder / name).read_bytes() for name in os.listdir(folder)}
         assert not (tmp_path / "work" / saving.FOLDER).exists()
     assert set(saved[1]) == {"map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "run.json",
-                             "ATTRIBUTION.txt"}
+                             "ATTRIBUTION.txt", "lines.arrow", "profiles.arrow"}  # and the store (linestore)
     assert saved[4] == saved[1] and saved[2] == saved[1]
     assert saved[1]["data.js"].count(b"null]") == 0  # a circle: every line with its profile
 
