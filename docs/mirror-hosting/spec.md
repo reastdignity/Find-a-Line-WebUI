@@ -13,8 +13,8 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U22 are the user's decisions, P1-P28 the planner's, S1-S16 the
-security rows, V1, V4, V5, M2 and E1 the open items. `<host>` stands for the mirror's host name (V4).
+**Names.** "A.5" is behaviour 5 of solution A. U1-U22 are the user's decisions, P1-P28 the planner's, S1-S17 the
+security rows, V1, V4, V5, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name (V4).
 
 **Sources.** The user's decisions are quoted with their date; "(planner)" marks a decision taken without the
 user's own word, which the user can overturn. Facts about the code were read on `main` 47c5fa7. "(wave 0: ...)"
@@ -279,7 +279,7 @@ root, no capability, no published port, no route out, and no log file older than
   the mirror is unreachable until it is attached again: an outage, never an exposure. The README says how to make
   the attachment lasting and how to check it.
 - SWAG's connections are shared by all its sites, and a proxied request takes two; the mirror's totals (8 visitors
-  and 2 trusted) are far below SWAG's default of 1024 per worker (wave 0: server, from SWAG's base config).
+  and 4 trusted) are far below SWAG's default of 1024 per worker (wave 0: server, from SWAG's base config).
 - A pinned image gets no automatic security updates, and a compose plugin skips digest-pinned images in its
   update checks: the digest is edited by hand, a monthly item in the docs (D.4).
 - The public folder, staging, trash and the logs must lie on one file system and on a path that does not pass a
@@ -541,7 +541,10 @@ process's pages make no request.
 - Results pinned: regression rows R13, R21, R34, R80 and R81 from an empty cache with `--mirror-url` (the mirror's
   test stack on the PC, serving a copy on a local disk of exactly the tiles those rows need with their indexes:
   Docker Desktop showed the mapped network drive as empty) give the counts and the `lines.csv` sha256 of the
-  baseline. No baseline changes.
+  baseline. No baseline changes. The copy is made by running those rows once from the folder into an empty
+  scratch cache and copying, from the master, the tiles whose names that cache then holds, with every
+  `index.json` of their product folders unchanged (tiles an index lists but the copy lacks are never asked for
+  by these rows).
 - One Slovak search on a 5 m grid over HTTP gives the `lines.csv` sha256 of the same search from the folder (no
   regression row covers an averaged grid over HTTP).
 - `findaline.py sources check slovakia madeira aosta_valley` and `tools/check_source.py` for the three sources on
@@ -654,16 +657,18 @@ Nothing before the build.
 | S14 | An old image nobody updates | digest pin; the monthly item (D.4) | a manual step at home |
 | S15 | The public copy fills the storage | B: the free-space check before a publish; `clean` | - |
 | S16 | A request body or an odd method reaches SWAG's disk | A.8: SWAG refuses other methods and bodies above 1 KB itself | - |
+| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository, and an account that can write `<root>` and nothing else of the server (E2 says how, per platform); the public folder is read-only for the container | the PC that publishes is a trusted machine; where the server's SSH offers only its administrator, the key is the whole server's key until E2 is solved |
 
 ## 9. Still open
 
 | Id | What | Who | When |
 | --- | --- | --- | --- |
-| V1 | The trusted class: 16 MB/s per request and 4 requests at once, of which the client uses 2 for tiles (32 MB/s), is the planner's reading of "higher limit for VPS" | the user, other numbers if meant | before A is built |
+| V1 | The trusted class: 16 MB/s per request and 4 requests at once, of which the client uses 2 for tiles (32 MB/s in use; the server would allow 64 MB/s, more than the line carries), is the planner's reading of "higher limit for VPS" | the user, other numbers if meant | before A is built |
 | V4 | The mirror's host name (under the project's domain, U10); it goes into `MIRROR_URL`, the SWAG conf and Telegraf's check | the user | before the build |
 | V5 | A recut with other values: a a new edition folder (the planner's proposal), b always in place as U8's option said, with stale caches (B, the address contract) | the user (asked 2026-11-15) | before B is built |
 | M2 | On the real server through SWAG, from the VPS and from one outside address: the first byte of a tile after ten idle minutes under 2 s; two connections sustain at least 80 % of twice the class's rate; the per-address cap refuses through the real SWAG; a 5 km Slovak search's tiles (189 MB) arrive within 45 s at a visitor's limits (24 s by the numbers). Numbers of A.5, C.3 and C.6 confirmed or corrected with the user | measured at rollout step 3 | rollout |
 | E1 | The server's shell has `sha256sum` (inferred from its package list, not seen), and rclone's behaviour on a refused rename | checked at the first install; without `sha256sum` publishing runs with `--read-back` | rollout step 1 |
+| E2 | Which account the publishing key opens on the server, and what it can write (not established; some platforms give SSH to the administrator only). Ways: an account limited to `<root>`; a key restricted to SFTP inside `<root>`; a small SFTP container that mounts only `<root>` and listens on the LAN alone | the user, with the build's contract (the server agent's README then describes the chosen way) | before rollout step 1 |
 | - | The home server's facts (platform, uplink, the proxy's certificates, storage, how the PC reaches it, power and maintenance, the VPS's transfer quota) | answered by the user on 2026-11-15 and, by U16, kept out of the repository; what they set stands above as requirements | - |
 
 Dropped from the plan, with the reason: the measurement of the site's demand (M3): the VPS's transfer allowance is
@@ -689,11 +694,13 @@ across phases, results pinned), D medium. Every build passes the scope reviewer 
 C). Milestones that come first in the briefs: B proves its four rclone commands on a throw-away SFTP server; C
 traces the two phases in `jobs.py` and writes the later-phase test before the change.
 
-`tools/mirror_sizes.py` (wave 0, branch `mirror-hosting-sizes`, reviewed) joins the task's squash.
+Two merges into `main`, each on the user's word: first this specification with `tools/mirror_sizes.py` (the
+measuring tool of wave 0, reviewed) and the roadmap's pointer; later the build, as the squash of section 11's
+step 4.
 
 ## 11. Rollout (each step on the user's word)
 
-The whole task enters `main` as one squash at step 4. Steps 1-3 therefore run the mirror stack and the publish
+The whole build enters `main` as one squash at step 4. Steps 1-3 therefore run the mirror stack and the publish
 tool from the task's branch: `deploy/mirror/` is copied to the home server from that branch.
 
 1. The DNS record of `<host>`; the stack on the home server from A's README; SWAG attached to its network; the
