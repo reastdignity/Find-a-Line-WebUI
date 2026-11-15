@@ -113,10 +113,28 @@ def test_offline_boxes():
     (51.21, 3.22, None),    # Bruges
     (51.32, 4.95, None),    # Turnhout
     (51.10, 5.79, None),    # Maaseik
+    (51.84, 5.86, "nl"),    # Nijmegen
+    (51.98, 5.91, "nl"),    # Arnhem
+    (52.22, 6.89, "nl"),    # Enschede
+    (51.37, 6.17, "nl"),    # Venlo
+    (51.19, 5.99, "nl"),    # Roermond
+    (51.00, 5.87, "nl"),    # Sittard
+    (50.89, 5.98, "nl"),    # Heerlen
+    (50.771, 6.015, "nl"),  # Vaals (its west; the border runs through the town's east)
+    (53.17, 7.03, "nl"),    # Winschoten
+    (50.776, 6.083, "de"),  # Aachen
+    (51.79, 6.14, "de"),    # Kleve
+    (51.83, 6.25, "de"),    # Emmerich
+    (52.21, 7.02, "de"),    # Gronau
+    (52.43, 7.07, "de"),    # Nordhorn
+    (53.37, 7.21, "de"),    # Emden
+    (51.19, 6.44, "de"),    # Mönchengladbach
+    (51.03, 5.90, "de"),    # Selfkant (Germany's westernmost bulge, between Sittard and Belgium)
 ])
-def test_offline_keeps_off_belgium(monkeypatch, tmp_path, lat, lon, expected):
+def test_offline_boxes_along_the_borders(monkeypatch, tmp_path, lat, lon, expected):
     """Offline (or with a user's Nominatim quota used up) a centre in Belgium, which has no source, never gets the
-    Netherlands' boxes; the Dutch land does, Zeeuws-Vlaanderen and South Limburg's Maastricht included."""
+    Netherlands' boxes, nor one in Germany (its Land's boxes come after the Netherlands'); the Dutch land does,
+    Zeeuws-Vlaanderen, the east and South Limburg included."""
     def offline(*args, **kwargs):
         raise ValueError("offline")
     monkeypatch.setattr(choose.osm, "reverse", offline)

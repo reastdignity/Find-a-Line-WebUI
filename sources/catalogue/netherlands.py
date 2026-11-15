@@ -30,18 +30,36 @@ NL_CREDIT = Credit("AHN4 DTM / DSM 0.5 m (PDOK, the Netherlands)",
 # Caribbean islands have boxes of their own), so it may hold neighbours' land
 NL_BOX = (50.75, 53.56, 3.35, 7.23)
 # Its offline boxes (the country without a lookup) keep off Belgium (no source of its own: a centre there must not
-# get the Netherlands' layers with no data in them): north of 51.50 (Belgium reaches 51.505 at Baarle), Zeeland with
-# Zeeuws-Vlaanderen west of the Scheldt's Antwerp side, Noord-Brabant's south above Belgium's Kempen (Weert down to
-# 51.24), and Limburg east of the Meuse in three steps (Maaseik and Kinrooi west of 5.82 stay out; Lanaken and Maasmechelen's banks at
-# 5.64-5.73 do not). Slivers of Belgium remain (Assenede, Essen, the Baarle enclaves); Germany's border strip lies
-# in them too, where the sources of North Rhine-Westphalia and Lower Saxony, earlier in SOURCES, win: their boxes
-# (de-nw from 5.86 E, de-ni from 6.65 E) hold the eastern Netherlands too (Nijmegen, Enschede, Venlo, Heerlen), which
-# offline get them
-NL_OFFLINE = (("nl", (51.50, 53.56, 3.35, 7.23)), ("nl", (51.21, 51.50, 3.35, 4.25)),
-              ("nl", (51.42, 51.50, 4.25, 5.10)), ("nl", (51.30, 51.50, 5.10, 5.90)),
-              ("nl", (51.24, 51.30, 5.62, 5.90)), ("nl", (51.20, 51.50, 5.75, 6.25)),
-              ("nl", (51.00, 51.20, 5.82, 6.25)),
-              ("nl", (50.75, 51.00, 5.64, 6.25)))
+# get the Netherlands' layers with no data in them) and Germany, whose Länder's boxes (de-nw from 5.86 E, de-ni from
+# 6.65 E) hold the eastern Netherlands and come after these (FAMILIES): north of 51.50 bands of 0.05-0.35 degrees,
+# each ending just west of Germany's land in it (OpenStreetMap's outline of Germany, relation 51477, simplified to
+# 0.0003 degrees, read 2026-11-15; Nominatim's lookup); Zeeland with Zeeuws-Vlaanderen west of the Scheldt's Antwerp
+# side, Noord-Brabant's south above Belgium's Kempen (Weert down to 51.24), and Limburg east of the Meuse (Maaseik
+# and Kinrooi west of 5.82 stay out, Lanaken and Maasmechelen's banks at 5.64-5.73 do not) in bands of 0.01-0.16
+# degrees ending at Germany. Slivers of Belgium remain (Assenede, Essen, the Baarle enclaves); Dutch land between a
+# band's edge and the border (7 % of the European Netherlands, a strip along it) gets Germany's boxes offline
+NL_OFFLINE = (("nl", (51.50, 51.55, 3.35, 6.166)), ("nl", (51.55, 51.65, 3.35, 6.089)),
+              ("nl", (51.65, 51.70, 3.35, 6.026)), ("nl", (51.70, 51.85, 3.35, 5.943)),
+              ("nl", (51.85, 51.90, 3.35, 6.047)), ("nl", (51.90, 51.95, 3.35, 6.114)),
+              ("nl", (51.95, 52.00, 3.35, 6.795)), ("nl", (52.00, 52.10, 3.35, 6.684)),
+              ("nl", (52.10, 52.15, 3.35, 6.755)), ("nl", (52.15, 52.20, 3.35, 6.877)),
+              ("nl", (52.20, 52.25, 3.35, 6.966)), ("nl", (52.25, 52.40, 3.35, 7.024)),
+              ("nl", (52.40, 52.45, 3.35, 6.85)), ("nl", (52.45, 52.65, 3.35, 6.678)),
+              ("nl", (52.65, 52.70, 3.35, 6.77)), ("nl", (52.70, 52.90, 3.35, 7.059)),
+              ("nl", (52.90, 52.95, 3.35, 7.138)), ("nl", (52.95, 53.30, 3.35, 7.176)),
+              ("nl", (53.30, 53.45, 3.35, 6.873)), ("nl", (53.45, 53.50, 3.35, 6.681)),
+              ("nl", (53.50, 53.56, 3.35, 6.59)), ("nl", (51.21, 51.50, 3.35, 4.25)),
+              ("nl", (51.42, 51.50, 4.25, 5.1)), ("nl", (51.30, 51.50, 5.10, 5.9)),
+              ("nl", (51.24, 51.30, 5.62, 5.9)), ("nl", (51.20, 51.28, 5.75, 6.065)),
+              ("nl", (51.28, 51.34, 5.75, 6.124)), ("nl", (51.34, 51.50, 5.75, 6.188)),
+              ("nl", (51.00, 51.08, 5.82, 5.864)), ("nl", (51.08, 51.10, 5.82, 5.99)),
+              ("nl", (51.10, 51.14, 5.82, 6.038)), ("nl", (51.14, 51.16, 5.82, 6.115)),
+              ("nl", (51.16, 51.20, 5.82, 6.069)), ("nl", (50.75, 50.775, 5.64, 6.019)),
+              ("nl", (50.775, 50.78, 5.64, 6.01)), ("nl", (50.78, 50.79, 5.64, 5.993)),
+              ("nl", (50.79, 50.82, 5.64, 5.972)), ("nl", (50.82, 50.85, 5.64, 6.013)),
+              ("nl", (50.85, 50.86, 5.64, 6.03)), ("nl", (50.86, 50.92, 5.64, 6.073)),
+              ("nl", (50.92, 50.93, 5.64, 6.04)), ("nl", (50.93, 50.97, 5.64, 6.003)),
+              ("nl", (50.97, 51.00, 5.64, 5.89)))
 
 
 def _ahn4(coverage: str, description: str) -> WcsTiles:
