@@ -330,18 +330,23 @@ export function sizeOf(values: Values, km2: number | null): {level: number; word
 
 export type WhereMode = "point" | "area" | "cliffs" | "file";
 export type CoastKind = "cliffs" | "coast";
-/** Where's mode, the kind of Along cliffs, the band width and what "Sea cliffs" replaced (null: nothing). */
-export interface WhereState { mode: WhereMode; coastKind: CoastKind; buffer: number;
-                              before: {mode: WhereMode; coastKind: CoastKind; buffer: number} | null }
+/** Where's mode, the kind of Along cliffs, the band width, the limit of Along cliffs ("Limit to": an OSM name or
+ *  S,W,N,E) and what "Sea cliffs" replaced (null: nothing). */
+export interface WhereState { mode: WhereMode; coastKind: CoastKind; buffer: number; within: string;
+                              before: {mode: WhereMode; coastKind: CoastKind; buffer: number; within: string} | null }
 
-/** "Sea cliffs" switches Where to Along cliffs → Coast with a band of 100 m and remembers the mode, the kind and
- *  the band before; another goal puts them back (a mode chosen by hand meanwhile forgets them: the caller clears
- *  `before`). */
-export function whereForGoal(goal: string, w: WhereState): WhereState {
+/** "Sea cliffs" switches Where to Along cliffs → Coast with a band of 100 m and, when the limit is empty, the map
+ *  view `view` (S,W,N,E) as the limit, so the search can start (a limit typed or chosen stays); it remembers the
+ *  mode, the kind, the band and the limit before, and another goal puts them back (a mode chosen by hand meanwhile
+ *  forgets them: the caller clears `before`). Already on the coast it only sets the band (no switch: the limit
+ *  stays, nothing more is remembered). */
+export function whereForGoal(goal: string, w: WhereState, view = ""): WhereState {
   if (goal === "sea") {
-    const before = w.before ?? (w.mode === "cliffs" && w.coastKind === "coast" ? null
-      : {mode: w.mode, coastKind: w.coastKind, buffer: w.buffer});
-    return {mode: "cliffs", coastKind: "coast", buffer: 100, before};
+    if (w.before || (w.mode === "cliffs" && w.coastKind === "coast")) {
+      return {...w, mode: "cliffs", coastKind: "coast", buffer: 100};
+    }
+    return {mode: "cliffs", coastKind: "coast", buffer: 100, within: w.within.trim() ? w.within : view,
+            before: {mode: w.mode, coastKind: w.coastKind, buffer: w.buffer, within: w.within}};
   }
-  return w.before ? {mode: w.before.mode, coastKind: w.before.coastKind, buffer: w.before.buffer, before: null} : w;
+  return w.before ? {...w.before, before: null} : w;
 }

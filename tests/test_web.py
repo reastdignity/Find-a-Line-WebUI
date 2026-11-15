@@ -2894,6 +2894,38 @@ def test_basic_form_paths(tmp_path):
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_basic_form_sea_cliffs_fills_the_limit(tmp_path):
+    """"Sea cliffs" on a fresh form (the user's decision of 2026-11-15, "3 b"): Where goes to Along cliffs → Coast with
+    the map view as its limit, so the estimate comes and Start is enabled, the request names the coast within that
+    view; another goal brings the point back with its empty limit."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _basic_page(tmp_path, port, browser, **DESKTOP)
+            r["view"] = page.evaluate("() => window.FINDALINE_PLACE.viewBox()")
+            page.click(".s-card[data-goal=sea]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'cliffs'", timeout=WAIT)
+            r["limit"] = page.locator(".s-within input").input_value()
+            _ready(page)
+            r["sea"] = page.evaluate("""() => [window.FINDALINE_SEARCH.coastKind, window.FINDALINE_SEARCH.buffer,
+                !document.querySelector('.s-start').disabled, ESTIMATES[ESTIMATES.length - 1].params]""")
+            page.click(".s-card[data-goal=best]")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.mode === 'point'", timeout=WAIT)
+            r["back"] = page.evaluate("() => [window.FINDALINE_SEARCH.within, window.FINDALINE_SEARCH.buffer, "
+                                      "window.FINDALINE_SEARCH.seaBefore]")
+        finally:
+            browser.close()
+    assert r["limit"] == r["view"] and len(r["view"].split(",")) == 4, r
+    coast, band, start, params = r["sea"]
+    assert (coast, band, start) == ("coast", 100, True), r
+    assert params["area"] == "coast" and params["within"] == r["view"] and params["buffer"] == 100, r
+    assert r["back"] == ["", 100, None], r  # the band a point search had (100, the default) and no limit
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_basic_form_save_into_a_rig_deleted_elsewhere(tmp_path):
     """Advanced's "Save into" of a rig deleted on another device: refused, the page says so in the catalogue's
     words and keeps saying it after the list reloads; the rig that now stands in (the first) is never written,

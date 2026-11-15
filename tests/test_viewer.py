@@ -341,12 +341,16 @@ m.storeRigId(null); kept.push(m.storedRigId(), store.size);
 globalThis.localStorage = {{getItem: () => {{ throw new Error("blocked"); }}, setItem: () => {{ throw new Error("blocked"); }}}};
 m.storeRigId(3); kept.push(m.storedRigId());
 out.kept = kept;
-const w = (mode, coastKind = "cliffs", before = null) => ({{mode, coastKind, buffer: 40, before}});
-const sea = m.whereForGoal("sea", w("point"));
-const area = {{mode: "area", coastKind: "cliffs", buffer: 250, before: null}};
-out.where = [sea, m.whereForGoal("best", sea), m.whereForGoal("long", m.whereForGoal("sea", sea)), m.whereForGoal("sea", w("cliffs", "coast")),
-             m.whereForGoal("best", {{...sea, mode: "area", before: null}}), m.whereForGoal("best", w("file")),
-             m.whereForGoal("best", m.whereForGoal("sea", area))];
+const view = "50.15,19.75,50.16,19.76";  // the map view, S,W,N,E
+const w = (mode, coastKind = "cliffs", before = null) => ({{mode, coastKind, buffer: 40, within: "", before}});
+const sea = m.whereForGoal("sea", w("point"), view);
+const area = {{mode: "area", coastKind: "cliffs", buffer: 250, within: "", before: null}};
+const typed = {{mode: "cliffs", coastKind: "cliffs", buffer: 60, within: "osm:Gozo", before: null}};
+const typedSea = m.whereForGoal("sea", typed, view);
+out.where = [sea, m.whereForGoal("best", sea), m.whereForGoal("long", m.whereForGoal("sea", sea, view)),
+             m.whereForGoal("sea", w("cliffs", "coast"), view), m.whereForGoal("best", {{...sea, mode: "area", before: null}}),
+             m.whereForGoal("best", w("file")), m.whereForGoal("best", m.whereForGoal("sea", area, view)),
+             typedSea, m.whereForGoal("first", typedSea)];
 console.log(JSON.stringify(out));""")
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone"]
@@ -383,16 +387,22 @@ console.log(JSON.stringify(out));""")
                              "A-frame height: at most 2 m on this site.", "", "No-fall zone at the ends is 0 to 20 m.",
                              5, 2, 20, 3, None]
     assert found["kept"] == [None, 5, 5, 1, None, None, 0, None]
-    sea = {"mode": "cliffs", "coastKind": "coast", "buffer": 100,
-           "before": {"mode": "point", "coastKind": "cliffs", "buffer": 40}}
+    # "Sea cliffs" switches to the coast, 100 m, and an empty limit takes the map view (the user's 2026-11-15 "3 b")
+    view = "50.15,19.75,50.16,19.76"
+    sea = {"mode": "cliffs", "coastKind": "coast", "buffer": 100, "within": view,
+           "before": {"mode": "point", "coastKind": "cliffs", "buffer": 40, "within": ""}}
     assert found["where"][0] == sea
-    # another goal brings the mode, the kind and the band back
-    assert found["where"][1] == {"mode": "point", "coastKind": "cliffs", "buffer": 40, "before": None}
-    assert found["where"][2] == {"mode": "point", "coastKind": "cliffs", "buffer": 40, "before": None}
-    assert found["where"][3] == {"mode": "cliffs", "coastKind": "coast", "buffer": 100, "before": None}
+    # another goal brings the mode, the kind, the band and the limit back
+    point = {"mode": "point", "coastKind": "cliffs", "buffer": 40, "within": "", "before": None}
+    assert found["where"][1] == point and found["where"][2] == point
+    # already on the coast: no switch, so no limit filled and nothing remembered
+    assert found["where"][3] == {"mode": "cliffs", "coastKind": "coast", "buffer": 100, "within": "", "before": None}
     assert found["where"][4]["mode"] == "area"  # a mode chosen by hand: nothing to bring back
-    assert found["where"][5] == {"mode": "file", "coastKind": "cliffs", "buffer": 40, "before": None}
-    assert found["where"][6] == {"mode": "area", "coastKind": "cliffs", "buffer": 250, "before": None}
+    assert found["where"][5] == {"mode": "file", "coastKind": "cliffs", "buffer": 40, "within": "", "before": None}
+    assert found["where"][6] == {"mode": "area", "coastKind": "cliffs", "buffer": 250, "within": "", "before": None}
+    # a limit the user gave stays, and comes back with the mode
+    assert found["where"][7]["within"] == "osm:Gozo" and found["where"][7]["coastKind"] == "coast"
+    assert found["where"][8] == {"mode": "cliffs", "coastKind": "cliffs", "buffer": 60, "within": "osm:Gozo", "before": None}
 
 
 def test_favourites_export(tmp_path):

@@ -267,17 +267,18 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
   const [where, setWhere] = useState<WhereState>({
     mode: start0.mode === "point" ? "point" : start0.mode === "file" ? "file"
       : start0.mode === "draw" || start0.preset === "osm" ? "area" : "cliffs",
-    coastKind: start0.preset === "coast" ? "coast" : "cliffs", buffer: start0.buffer, before: null});
-  const {mode, coastKind, buffer} = where;
+    coastKind: start0.preset === "coast" ? "coast" : "cliffs", buffer: start0.buffer, within: start0.within,
+    before: null});
+  const {mode, coastKind, buffer, within} = where;
   // A mode or kind chosen by hand forgets what "Sea cliffs" replaced (choosing the coast keeps it)
   const setMode = (m: SearchMode) => setWhere((w) => ({...w, mode: m, before: null}));
   const setCoastKind = (k: CoastKind) => setWhere((w) => ({...w, coastKind: k, before: k === "coast" ? w.before : null}));
   const setBuffer = (b: number) => setWhere((w) => ({...w, buffer: b}));
+  const setWithin = (text: string) => setWhere((w) => ({...w, within: text}));
   const [areaKind, setAreaKind] = useState<AreaKind>(start0.mode === "preset" && start0.preset === "osm" ? "osm" : "draw");
   const [point, setPoint] = useState(start0.point);
   const [radius, setRadius] = useState(start0.radius);
   const [osmName, setOsmName] = useState(start0.osmName);
-  const [within, setWithin] = useState(start0.within);
   const [name, setName] = useState(start0.name);
   const [file, setFile] = useState<AreaFile | null>(null);
   const [fileKey, setFileKey] = useState(0);
@@ -325,7 +326,7 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
   const matching = matchGoal(resolved, presets, defaults);
   const preset = custom || !matching ? (presets.some((p) => p.id === "custom") ? "custom" : "") : matching;
   /** A goal moves Where for "Sea cliffs" (and back for another goal). */
-  const whereFor = (id: string) => setWhere((w) => whereForGoal(id, w));
+  const whereFor = (id: string) => { const view = place.viewBox(); setWhere((w) => whereForGoal(id, w, view)); };
   const applyPreset = (id: string) => {
     const chosen = goalOf(id);
     if (!chosen || !chosen.available) return;
