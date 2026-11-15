@@ -148,7 +148,7 @@ function useLinkedLine(model: ResultModel, line: string | null, view: ResultMap 
     const hash = hashOf(model.runId, want);
     if (now === hash) return;
     if (!want) {  // nothing selected: the link stays for a line hidden by the filters only
-      const link = linkOf(now), linked = link && model.lines.find((l) => model.lineLink(l) === link);
+      const link = linkOf(now), linked = link && model.linkedLine(link);
       if (linked && !model.groupOf(linked)) return;
       if (link && (link === model.measuredLink || (!linked && model.measurableLink(link)))) return;  // outside the run: measured
     }
@@ -188,7 +188,7 @@ function useMeasureEnds(model: ResultModel, view: ResultMap | null, setMeasured:
 function Title({data}: {data: RunData}) {
   return <div class="c-run-title">
     <b class="c-run-name">{data.run.name}</b>
-    <span class="u-small">{when(data.run.created)} · {data.lines.length} {data.lines.length === 1 ? "line" : "lines"}</span>
+    <span class="u-small">{when(data.run.created)} · {data.columns.length} {data.columns.length === 1 ? "line" : "lines"}</span>
   </div>;
 }
 

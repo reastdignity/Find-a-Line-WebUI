@@ -507,8 +507,8 @@ run({
     result.summary = text(".r-summary-count");
     result.foundLine = text(".r-found-line");
     result.found = [model().data.found, model().data.square, ($(".r-found") || {title: null}).title];
-    result.sum = model().all.reduce((n, l) => n + (l.stands_for || 0), 0);
-    result.n = model().lines.length;
+    result.sum = Array.from({length: model().total}, (_, k) => model().lineAt(k)).reduce((n, l) => n + (l.stands_for || 0), 0);
+    result.n = model().count;
     // the tight mark: on every row under 1 m and on no other; the first row is the line made tight (TIGHT_LINE)
     result.marks = rows().every((r, k) => !!r.querySelector(".r-tight") === (model().rows[k].line.clr < 1));
     result.first = [!!rows()[0].querySelector(".r-tight"), rows()[0].querySelector(".r-clr").textContent];

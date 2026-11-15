@@ -138,7 +138,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
   });
   if (!sel) return note ? <ResultNote model={model} /> : null;
   const {group, line: l} = sel;
-  const k = model.position, n = model.rows.length, size = group.members.length, at = model.variantIndex();
+  const k = model.position, n = model.rows.length, size = group.size, at = model.variantIndex();
   const members = model.membersOf(group), lift = model.liftOf(l);
   const pressed = (e: Event) => { refocus = (e.currentTarget as HTMLElement).getAttribute("aria-label"); };
   const step = (by: 1 | -1, e: Event) => {

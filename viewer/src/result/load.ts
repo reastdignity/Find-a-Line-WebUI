@@ -6,11 +6,18 @@
 // stays as the script gives it. From disk (file://: no fetch) it is a script, which the CSP (script-src
 // 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs still come
 // from their lines.js (others.loadLines).
+//
+// The rows are then read into columns (types.ts runData: docs/line-volume/spec-store.md 1.2, store wave 1) and
+// dropped: the page keeps the run's lines as typed arrays (RunData.columns). A body that arrives empty although its
+// bytes came is longer than the browser's longest string (Chromium: 536 870 888 characters, about 2.3 M lines of
+// today's data.js; the XHR's text is then "" with no error): the load fails with TooLarge, whose message the page
+// shows, and is not tried as a script (which crashed the tab: part E2 of the line-volume study).
 
 import { download } from "../download";
-import { measure } from "../perf";
+import { t } from "../i18n";
+import { measure, timed } from "../perf";
 import { nextPaint } from "../paint";
-import type { Ortho, RunData, RunInfo } from "../types";
+import { runData, type Ortho, type RunData, type RunInfo, type RunScript } from "../types";
 
 const PREFIX = "window.FINDALINE_RUN = ";  // mapping._script_head of data.js
 
@@ -24,6 +31,14 @@ export interface LoadProgress {
 }
 
 export type OnProgress = (progress: LoadProgress) => void;
+
+/** A run too large for this browser: its data.js arrived as an empty text (the browser's string limit). */
+export class TooLarge extends Error {
+  constructor() {
+    super(t("ui.result.too_large"));
+    this.name = "TooLarge";
+  }
+}
 
 interface Loading {
   promise: Promise<RunData>;
@@ -62,16 +77,26 @@ function overHttp(): boolean {
   return location.protocol === "http:" || location.protocol === "https:";
 }
 
-/** A data.js's text as its run data, or null when it is not one JSON.parse reads (NaN or Infinity in it). */
-export function parseRunScript(text: string): RunData | null {
+/** A data.js's text as its value, or null when it is not one JSON.parse reads (NaN or Infinity in it). */
+export function parseRunScript(text: string): RunScript | null {
   const end = text.lastIndexOf(";");
   if (!text.startsWith(PREFIX) || end < PREFIX.length) return null;
   try {
     const data = JSON.parse(text.slice(PREFIX.length, end));
-    return data && Array.isArray(data.lines) ? data as RunData : null;
+    return data && Array.isArray(data.lines) ? data as RunScript : null;
   } catch {
     return null;
   }
+}
+
+/** Was a downloaded body cut to nothing by the browser's string limit: empty although `bytes` of it came. */
+export function tooLarge(body: string, bytes: number): boolean {
+  return body === "" && bytes > 0;
+}
+
+/** data.js's value with its rows read into columns (the rows are dropped with the value). */
+export function columnsOf(script: RunScript): RunData {
+  return timed("fal:run:lines", () => runData(script), {count: script.lines.length});
 }
 
 async function downloadRun(url: string, key: string, report: OnProgress): Promise<RunData> {
@@ -83,17 +108,24 @@ async function downloadRun(url: string, key: string, report: OnProgress): Promis
   }).catch(() => { throw new Error("could not load the run " + key); });
   if (answer.status !== 200) throw new Error(`could not load the run ${key} (${answer.status})`);
   measure("fal:run:download", start, {bytes: answer.bytes});
+  if (tooLarge(answer.body, answer.bytes)) throw new TooLarge();
   report({phase: "parse", fraction: null});
   await nextPaint();
   const parseStart = performance.now();
-  const data = parseRunScript(answer.body);
-  measure("fal:run:parse", parseStart, {json: data !== null});
-  return data ?? scriptRun(url, key, report);
+  const script = parseRunScript(answer.body);
+  measure("fal:run:parse", parseStart, {json: script !== null});
+  if (script) return columnsOf(script);
+  return scriptRun(url, key, report);
 }
 
 function scriptRun(url: string, key: string, report: OnProgress): Promise<RunData> {
+  return scriptValue(url, key, report).then(columnsOf);
+}
+
+/** data.js's value loaded as a script. */
+function scriptValue(url: string, key: string, report: OnProgress): Promise<RunScript> {
   report({phase: "download", fraction: null});
-  return new Promise<RunData>((resolve, reject) => {
+  return new Promise<RunScript>((resolve, reject) => {
     const script = document.createElement("script"), start = performance.now();
     script.src = url;
     // A script's load event comes right after it ran, before any other script: FINDALINE_RUN is its own

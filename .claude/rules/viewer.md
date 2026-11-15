@@ -20,6 +20,12 @@ catalogue), `browser-tests.md`.
   favourite saved in one shows in the other; the address's `&also=` lines (`page.ts`, `app/c/ResultPage.tsx`
   `view3dOf`, the model's `alsoOf`) are such keys.
 
+- The page keeps a run's lines as columns (`types.ts` `lineColumns`, store wave 1): a new value of a line goes into
+  `ROW_FIELDS` or `EXTRA_FIELDS` (with the scale map_rows' decimals give), `lineAt` and `LineCursor` beside `toLine`
+  (`tests/test_viewer.py::test_columns_give_the_rows_values` compares every value with toLine's); the result's
+  page makes a Line only through `ResultModel.lineAt`, so code that goes through every line reads the columns
+  (`forEachLine`, a `LineCursor`), never `rep`/`members` of every spot (each makes Lines).
+
 ## Pitfalls
 
 - **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over

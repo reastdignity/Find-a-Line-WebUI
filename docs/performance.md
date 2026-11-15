@@ -3250,6 +3250,121 @@ parsed the script on a background thread, while JSON.parse runs on the main thre
 a task of its own with "Reading the lines…" painted before it, and the longest task (the grouping) stayed as it was.
 The 3D view's stages took the same time as before (the server 0.7-2.0 s, the mesh up to 1.3 s).
 
+## Columns in the page (2026-11-15, tag `history/store-columns`)
+
+Store wave 1 of the line-volume work (docs/line-volume/spec-store.md 1.2, 1.8). The result page now reads a run's
+`data.js` rows into typed-array columns and drops the rows (`types.ts` `lineColumns`). It makes a `Line` object only
+for a line it draws, lists, selects or saves (`ResultModel.lineAt`). Over http, a body cut to nothing by Chromium's
+string limit now shows "This result is too large for this browser." instead of crashing the tab. This section holds
+the spec's T5 and T6 measured before (`main` c8a079a) and after the change.
+
+### How it was measured
+- **Machine and lock:** this PC, under `tools/test_lock.py run --exclusive`.
+- **Browser:** headless Chromium 156 through Playwright, desktop 1400 × 900, a fresh context each round, the local
+  app on a scratch data folder.
+- **Script:** C1's `t56.py`, kept in the task's private folder. It opens the result as `tools/perf_run_load.py` does
+  and reads the page's `fal:run:*` marks.
+  - *First picture:* the page time of the first frame with the model and the map's canvas, as in part E2.
+  - *Heap:* `usedJSHeapSize` with `--enable-precise-memory-info`, two frames after that frame. It includes the
+    typed arrays' backing stores.
+  - *Changes:* a filter change (clearance at least 2 m, then back) and a grouping change (the distance × 1.5, then
+    back). Each is timed from the call to two frames later, the map drawn again.
+- **Rounds:** three for each run. `perf_run_load.py` (3 rounds, no 3D view) ran after it, in the same pass.
+- **Retained heap:** measured once per run, in the shared lane: V8's heap profiler forced a full collection
+  (`HeapProfiler.collectGarbage`) 2 s after the first picture, then `Runtime.getHeapUsage`.
+
+**The runs.** They were searched again, so this table does not compare with part E2's BAH of 949 160 lines.
+- **BAH-C4:** the target rig at Il-Bahrija, the same search as round 1's P1 (`lines.csv` sha256 equal). 2 010 351 lines,
+  `data.js` 448.8 MB.
+- **MGp-C4:** searched again too (3 525 979 lines; equal to P1). E2's `cut_run.py` made two copies of its first N rows:
+  - 2 290 000 lines: `data.js` 530 387 386 characters, 1.2 % under Chromium's longest string of 536 870 888.
+  - 2 500 000 lines: 579 253 755 characters, over the limit.
+
+### T5 and T6, every round
+
+The run's line count and `data.js` size are given above. "gc" is the heap after the page's `gc()` and 50 ms.
+
+| run | code | round | first picture s | heap MB | heap after gc MB | filter change s | grouping change s | filter back s | grouping back s |
+|---|---|---|---|---|---|---|---|---|---|
+| BAH-C4 | main | 1 | 8.46 | 2079 | 1602 | 1.55 | 1.61 | 2.38 | 2.36 |
+| BAH-C4 | main | 2 | 7.83 | 2079 | 1602 | 1.48 | 1.69 | 2.31 | 2.63 |
+| BAH-C4 | main | 3 | 7.91 | 2076 | 1602 | 1.54 | 1.76 | 2.57 | 2.51 |
+| BAH-C4 | columns | 1 | 6.82 | 1709 | 569 | 1.20 | 1.50 | 2.40 | 1.78 |
+| BAH-C4 | columns | 2 | 5.64 | 1708 | 569 | 1.08 | 1.49 | 2.32 | 1.76 |
+| BAH-C4 | columns | 3 | 5.74 | 1708 | 569 | 1.13 | 1.50 | 2.35 | 1.78 |
+| 2.29 M cut | main | 1 | 10.13 | 2512 | 1948 | 2.42 | 2.23 | 3.23 | 3.16 |
+| 2.29 M cut | main | 2 | 10.45 | 2511 | 1948 | 2.79 | 2.13 | 3.45 | 3.13 |
+| 2.29 M cut | main | 3 | 11.23 | 2511 | 1948 | 2.43 | 2.05 | 3.02 | 3.22 |
+| 2.29 M cut | columns | 1 | 6.89 | 2007 | 661 | 1.69 | 1.81 | 2.85 | 2.21 |
+| 2.29 M cut | columns | 2 | 6.92 | 2026 | 661 | 1.74 | 1.80 | 2.85 | 2.29 |
+| 2.29 M cut | columns | 3 | 6.78 | 2007 | 661 | 1.69 | 1.81 | 2.84 | 2.18 |
+| 2.5 M cut | main | 1 | the renderer crashed | | | | | | |
+| 2.5 M cut | columns | 1 | "This result is too large for this browser." | | | | | | |
+
+**The load's phases** (medians of the three rounds, s):
+
+| run | code | download | parse | lines | filter | group | ranges | rows |
+|---|---|---|---|---|---|---|---|---|
+| BAH-C4 | main | 1.62 | 1.82 | 0.34 | 0.04 | 2.23 | 0.42 | 0.15 |
+| BAH-C4 | columns | 1.30 | 1.72 | 0.40 | 0.02 | 1.67 | 0.30 | 0.08 |
+| 2.29 M cut | main | 1.70 | 2.32 | 0.47 | 0.05 | 3.11 | 0.63 | 0.18 |
+| 2.29 M cut | columns | 1.53 | 2.12 | 0.48 | 0.02 | 2.08 | 0.35 | 0.08 |
+
+The phases:
+- *lines:* making the Line objects (main) or reading the columns (columns).
+- *group:* the greedy grouping, the same algorithm in both. The columns hand it typed arrays.
+
+**`perf_run_load.py` medians.** Same pass; *shown* is from the page's start to the result drawn, in s.
+
+| run | main: shown | main: heap MB | columns: shown | columns: heap MB |
+|---|---|---|---|---|
+| BAH-C4 | 7.77 | 2089 | 6.00 | 1745 |
+| 2.29 M cut | 9.46 | 2661 | 7.01 | 2089 |
+
+**Retained heap after a full collection** (MB):
+
+| run | code | heap | of it the typed arrays | what holds the rest |
+|---|---|---|---|---|
+| BAH-C4 | main | 1454 | 1 | the Line objects 703, the rows 694 |
+| BAH-C4 | columns | 227 | 218 | 9 |
+| 2.29 M cut | main | 1765 | 1 | the Line objects 879, the rows 826 |
+| 2.29 M cut | columns | 258 | 250 | 8 |
+
+How these were found: the heap profiler's sampling, by the function that allocated what is still live.
+
+### What it means
+- **T5, heap under 500 MB at BAH: not met by wave 1.** The reading that counts is the peak after loading: two frames
+  after the first picture, the spec's method (the user, 2026-11-15). It is 1.7 GB, against 2.1 GB on main. It is
+  measured again once the page reads the binary store (step 2b-C). The other two readings:
+  - *After the page's own `gc()` and 50 ms:* 569 MB, against 1.6 GB on main.
+  - *After the profiler's full collection, 2 s after the first picture* (one round, shared lane): 227 MB, against
+    1454 MB on main. Of the 227 MB, 218 MB are the columns (about 113 B a line) and 9 MB objects.
+  - What makes up the difference between the readings is not measured. The downloaded text and the parsed rows are
+    the likely part, held until V8 collects them.
+- **T5, first picture within 3 s: not met.** It was 5.6-6.8 s at 2 M lines (main: 7.8-8.5 s).
+  - The download and JSON.parse of a 449 MB text take about 3 s alone.
+  - The grouping takes about 1.7 s.
+- **T6, a change within 0.3 s: not met.** A filter change takes 1.1-1.2 s at 2 M lines (main: 1.5 s), a grouping
+  change 1.5 s (main: 1.6-1.8 s).
+  - Almost all of it is the greedy grouping of every line shown. The filter pass over the columns takes 0.02 s.
+  - The columns do not change the grouping's algorithm.
+  - Part P5's 4-16 ms for a filter measured the filter pass alone, without the grouping.
+  - The spec's later steps leave the grouping out of a filter change: the spots stored at saving, view B1.
+- **Grouping off** ("Group similar lines" cleared) on BAH-C4: every line is a spot, so every line is drawn and gets a
+  Line. One round in the shared lane, indicative.
+  - The change took 24.7 s and made 2 010 351 Lines.
+  - The heap two frames later was 4.2 GB, and 4.0 GB after a full collection, of which the columns are 225 MB.
+  - By the heap profiler, the largest parts are Leaflet's 2 M polylines (about 1.4 GB in the sampled sites of their
+    building and projection) and the Lines (717 MB).
+  - Nothing was changed for it: making no Line would leave the polylines, which draw each shown line. The spec's
+    result view draws at most 5 000 strokes (view B).
+  - On main the same probe got no answer: its renderer was gone after the change, and the probe waited until the
+    lock's timeout.
+- **The 2.29 M cut opens in 6.9 s** with 258 MB kept (main: 10.5 s, about 1.8 GB kept).
+- **The 2.5 M cut** crashed the renderer on main and now shows the text.
+- **Which numbers are indicative:** the seconds, from one exclusive pass of three rounds on this PC, desktop
+  Chromium only; no phone and no WebKit. The heap and the retained sizes are measured.
+
 ## The resampling of a neighbour's data (2026-11-05, tag `history/partner-resampling`)
 
 Step 0 of the cube v2 contract (docs/country-precompute/contract.md, section 6). At a border a grid

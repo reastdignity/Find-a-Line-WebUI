@@ -1,7 +1,7 @@
 // Filters of the lines on the map, applied before grouping (the group size after it).
 // null means no limit. Kept in the browser for every map (but "only favourites": the map's own).
 
-import type { Line } from "./types";
+import type { LineValues } from "./types";
 
 export interface Filters {
   lenMin: number | null;
@@ -43,17 +43,17 @@ export const NO_FILTERS: Filters = {lenMin: null, lenMax: null, clrMin: null, cl
 export const NEED_FILTERS = ["hideNeedNone", "hideNeedZone", "hideNeedLift"] as const;
 const STORAGE_KEY = "findaline.filters";
 
-export const dh = (l: Line) => Math.abs(l.e1 - l.e2);
-export const lowerAnchor = (l: Line) => Math.min(l.e1, l.e2);
-export const upperAnchor = (l: Line) => Math.max(l.e1, l.e2);
-export const wallAngle = (l: Line) => Math.max(l.angle1, l.angle2);
+export const dh = (l: LineValues) => Math.abs(l.e1 - l.e2);
+export const lowerAnchor = (l: LineValues) => Math.min(l.e1, l.e2);
+export const upperAnchor = (l: LineValues) => Math.max(l.e1, l.e2);
+export const wallAngle = (l: LineValues) => Math.max(l.angle1, l.angle2);
 const known = (v: number | null) => v === null ? NaN : v;  // NaN fails every limit
 /** The prominence of the more (Math.max) or less (Math.min) prominent anchor; NaN if not known. */
-export const prominence = (l: Line, pick: (a: number, b: number) => number) => pick(known(l.prom1), known(l.prom2));
-export const drop = (l: Line) => Math.min(known(l.drop1), known(l.drop2));
+export const prominence = (l: LineValues, pick: (a: number, b: number) => number) => pick(known(l.prom1), known(l.prom2));
+export const drop = (l: LineValues) => Math.min(known(l.drop1), known(l.drop2));
 
 /** The A-frame height a line needs as the filter reads it: with the run's zone, or without it; null: not known. */
-export const liftNeed = (l: Line, noZone: boolean): number | null => {
+export const liftNeed = (l: LineValues, noZone: boolean): number | null => {
   const v = noZone ? l.lift_no_zone : l.lift_needed;
   return typeof v === "number" ? v : null;
 };
@@ -61,15 +61,15 @@ export const liftNeed = (l: Line, noZone: boolean): number | null => {
 /** The rigging a line needs, as the head's "Why so many?" box counts it: 0 no no-fall zone and no A-frames
  *  (`lift_no_zone` 0), 1 the no-fall zone (`lift_no_zone` > 0, `lift_needed` 0), 2 A-frames (`lift_needed` > 0);
  *  null: a line without the values (a run without the zone and the A-frames). */
-export function needClass(l: Line): 0 | 1 | 2 | null {
+export function needClass(l: LineValues): 0 | 1 | 2 | null {
   if (typeof l.lift_needed !== "number") return null;
   if (l.lift_needed > 0) return 2;
   return typeof l.lift_no_zone === "number" && l.lift_no_zone > 0 ? 1 : 0;
 }
 
-/** Whether a line passes the filters; `lift`: its run's A-frame height, the limit of "A-frame needed at most" while
+/** Whether a line passes the filters (a Line, or a LineCursor on the columns: result/model.ts); `lift`: its run's A-frame height, the limit of "A-frame needed at most" while
  *  that is not set (with the switch "without the no-fall zone" on, the lines that need more without the zone go). */
-export function passes(l: Line, f: Filters, lift?: number): boolean {
+export function passes(l: LineValues, f: Filters, lift?: number): boolean {
   if (f.liftMax !== null || f.liftNoZone) {
     const need = liftNeed(l, f.liftNoZone), max = f.liftMax ?? lift ?? Infinity;
     if (need !== null && need > max + 1e-9) return false;
@@ -135,16 +135,26 @@ export interface LinesState {
   showOver: boolean;
 }
 
-/** The range of a value over the lines (for the sliders); null without lines. */
-export function range(lines: Line[], value: (l: Line) => number | null): Range | null {
-  let min = Infinity, max = -Infinity;
-  for (const l of lines) {
-    const v = value(l);
-    if (v === null) continue;
-    if (v < min) min = v;
-    if (v > max) max = v;
+/** The range of values (for the sliders): `add` each, then `range`, null without values. A null value is left out,
+ *  and so is NaN (no comparison takes it). */
+export class Ranger {
+  private min = Infinity;
+  private max = -Infinity;
+  add(v: number | null) {
+    if (v === null) return;
+    if (v < this.min) this.min = v;
+    if (v > this.max) this.max = v;
   }
-  return min <= max ? {min, max} : null;
+  get range(): Range | null {
+    return this.min <= this.max ? {min: this.min, max: this.max} : null;
+  }
+}
+
+/** The range of a value over the lines (for the sliders); null without lines. */
+export function range<T>(lines: Iterable<T>, value: (l: T) => number | null): Range | null {
+  const r = new Ranger();
+  for (const l of lines) r.add(value(l));
+  return r.range;
 }
 
 export function savedFilters(): Filters {
