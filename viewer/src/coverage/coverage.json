@@ -1102,19 +1102,66 @@
    "level": 2,
    "notes": [
     {
-     "code": "mixed"
-    },
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    2
+   ],
+   "source": "madeira",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-de": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
     {
      "code": "no_trees"
     }
    ],
-   "partial": true,
+   "partial": false,
    "provider": "DROTe",
    "res": [
-    2,
-    30
+    5
    ],
-   "source": "madeira",
+   "source": "desertas",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-ps": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    5
+   ],
+   "source": "porto_santo",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-se": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    5
+   ],
+   "source": "selvagens",
    "survey": "2018–2019",
    "trees": "no"
   },
@@ -1266,7 +1313,10 @@
    "gb-wls"
   ],
   "pt": [
-   "pt-30"
+   "pt-30",
+   "pt-30-de",
+   "pt-30-ps",
+   "pt-30-se"
   ]
  },
  "start": "2025-11-05",

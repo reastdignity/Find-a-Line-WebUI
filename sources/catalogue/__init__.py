@@ -57,4 +57,6 @@ AREA_NAMES: Dict[str, str] = {
     "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon", "au": "Australia", "uy": "Uruguay",
     "nl": "Nederland", "nl-bq1": "Bonaire, Nederland", "nl-bq2": "Saba, Nederland", "nl-bq3": "Sint Eustatius, Nederland",
     "fo": "Føroyar", "mx": "México", "cy": "Κύπρος", "ee": "Eesti", "pt-30": "Madeira, Portugal",
-    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil"}
+    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil",
+    # Madeira's other island groups: Nominatim's municipality and archipelagos (checked 2026-11-15)
+    "pt-30-ps": "Porto Santo, Portugal", "pt-30-de": "Ilhas Desertas", "pt-30-se": "Ilhas Selvagens"}

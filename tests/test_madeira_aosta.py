@@ -18,12 +18,16 @@ import sources as src  # noqa: E402
 CABO_GIRAO = (32.655, -17.004)      # R80
 ARNAD = (45.648, 7.720)             # R81
 TIGNES = (45.47, 6.90)              # the Tarentaise, France: in the brief's box, not in the region's bands
-PORTO_SANTO = (33.07, -16.34)       # Madeira's region (pt-30), no 2 m data there
+PORTO_SANTO = (33.07, -16.34)       # Madeira's region (pt-30), no 2 m data there: its own 5 m source
+DESERTA_GRANDE = (32.518, -16.50)   # the Desertas, pt-30 too
+SELVAGEM_GRANDE = (30.142, -15.869)  # the Selvagens, pt-30 too
 PONT_SAINT_MARTIN = (45.597, 7.795)  # Valle d'Aosta's south-eastern tip
 IVREA = (45.467, 7.876)             # the Canavese, Piedmont: not Valle d'Aosta's
 VALCHIUSELLA = (45.50, 7.75)        # Piedmont
 ANSWERS = {CABO_GIRAO: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
            PORTO_SANTO: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
+           DESERTA_GRANDE: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
+           SELVAGEM_GRANDE: {"country_code": "pt", "ISO3166-2-lvl4": "PT-30"},
            ARNAD: {"country_code": "it", "ISO3166-2-lvl4": "IT-23"}}
 
 
@@ -69,11 +73,18 @@ def test_without_the_mirror(tmp_path, monkeypatch, online):
 
 
 def test_with_the_mirror(tmp_path, monkeypatch, online):
-    """With their folders in the mirror auto takes them in their regions, Porto Santo too (its gaps from europe)."""
+    """With their folders in the mirror auto takes them in their regions; Madeira's other island groups (pt-30 too)
+    by their boxes, each its own 5 m source; without an island's folder there Madeira's source (its gaps from
+    europe)."""
     monkeypatch.setenv(src.MIRROR_ENV, _mirror(tmp_path, "madeira/dtm/2m", "aosta/dtm/2m"))
     assert src.choose_source("auto", *CABO_GIRAO, str(tmp_path)) == (src.SOURCES["madeira"], "the centre is in PT-30")
     assert src.choose_source("auto", *PORTO_SANTO, str(tmp_path))[0].id == "madeira"
     assert src.choose_source("auto", *ARNAD, str(tmp_path)) == (src.SOURCES["aosta_valley"], "the centre is in IT-23")
+    monkeypatch.setenv(src.MIRROR_ENV, _mirror(tmp_path / "all", "madeira/dtm/2m", "porto-santo/dtm/5m",
+                                               "desertas/dtm/5m", "selvagens/dtm/5m"))
+    for point, sid in ((PORTO_SANTO, "porto_santo"), (DESERTA_GRANDE, "desertas"), (SELVAGEM_GRANDE, "selvagens"),
+                       (CABO_GIRAO, "madeira")):
+        assert src.choose_source("auto", *point, str(tmp_path)) == (src.SOURCES[sid], "the centre is in PT-30")
 
 
 def test_offline_boxes(tmp_path, monkeypatch, offline):
@@ -82,6 +93,12 @@ def test_offline_boxes(tmp_path, monkeypatch, offline):
     monkeypatch.setenv(src.MIRROR_ENV, _mirror(tmp_path, "madeira/dtm/2m", "aosta/dtm/2m"))
     assert src.choose_source("auto", *CABO_GIRAO, str(tmp_path))[0].id == "madeira"
     assert src.choose_source("auto", *ARNAD, str(tmp_path))[0].id == "aosta_valley"
+    monkeypatch.setenv(src.MIRROR_ENV, _mirror(tmp_path / "all", "madeira/dtm/2m", "porto-santo/dtm/5m",
+                                               "desertas/dtm/5m", "selvagens/dtm/5m"))
+    for point, sid in ((PORTO_SANTO, "porto_santo"), (DESERTA_GRANDE, "desertas"), (SELVAGEM_GRANDE, "selvagens"),
+                       (CABO_GIRAO, "madeira")):
+        assert src.choose_source("auto", *point, str(tmp_path))[0].id == sid, sid
+    monkeypatch.setenv(src.MIRROR_ENV, str(tmp_path / "mirror"))
     assert src.choose_source("auto", *TIGNES, str(tmp_path))[0].id != "aosta_valley"
     assert src.choose_source("auto", *PONT_SAINT_MARTIN, str(tmp_path))[0].id == "aosta_valley"
     for point in (IVREA, VALCHIUSELLA):  # Piedmont: Italy's boxes, TINITALY
@@ -105,3 +122,24 @@ def test_the_dsm_follows_by_hand():
     swiss = src.SOURCES["swisstopo"].neighbours
     assert swiss.index("aosta_valley") < swiss.index("tinitaly")
     assert aosta.fallbacks == ["tinitaly", "europe"] and madeira.fallbacks == ["europe"]
+
+
+def test_porto_santo_by_one_operation():
+    """Porto Santo's tiles are in Porto Santo 1995 / UTM 28N (EPSG:3061): PROJ takes them to WGS 84 by "Porto Santo
+    1995 to WGS 84 (3)" everywhere the data lie (the raster's corners and the source's box: the operation's area
+    reaches -16.23 E), never by its ballpark offset, which it takes beyond (here 100 m and more away)."""
+    from pyproj import Transformer
+    from pyproj.transformer import TransformerGroup
+    group = TransformerGroup("EPSG:3061", "EPSG:4326", always_xy=True)
+    op3 = next(t for t in group.transformers if "Porto Santo 1995 to WGS 84 (3)" in t.description)
+    chosen = Transformer.from_crs("EPSG:3061", "EPSG:4326", always_xy=True)
+    back = Transformer.from_crs("EPSG:4326", "EPSG:3061", always_xy=True)
+    south, north, west, east = src.SOURCES["porto_santo"].bbox
+    corners = [(366997.5, 3649007.5), (383002.5, 3649007.5), (366997.5, 3666502.5), (383002.5, 3666502.5)]
+    corners += [back.transform(lon, lat) for lon in (west, east) for lat in (south, north)]
+    for x, y in corners:
+        a, b = chosen.transform(x, y), op3.transform(x, y)
+        assert abs(a[0] - b[0]) < 1e-7 and abs(a[1] - b[1]) < 1e-7, (x, y)
+    x, y = 386500.0, 3655000.0  # about -16.22 E: beyond the operation's area
+    a, b = chosen.transform(x, y), op3.transform(x, y)
+    assert ((a[0] - b[0]) * 93_000) ** 2 + ((a[1] - b[1]) * 111_000) ** 2 > 100 ** 2

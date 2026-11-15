@@ -2197,5 +2197,71 @@
     },
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
+  },
+  "R86": {
+    "place": "Porto Santo's north-east cliffs, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of Porto Santo, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), Porto Santo 1995 / UTM 28N",
+    "args": "--lat 33.0942 --lon -16.2998 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "porto-santo/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 16492,
+      "open": 12924,
+      "checked": 52151,
+      "lines": 7052,
+      "spots": 410,
+      "csv_sha256": "2a2381c3e0137617e819e6b4fc77652ccd5357392aca4eb229b4d926e619dc44",
+      "length_km": 1442.081,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.027,
+      "clearance_max": 14.83,
+      "over_trees": 0,
+      "coverage": 63.44,
+      "empty_tiles": 0,
+      "filled_km2": 0.04,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.56,
+      "water_lines": 24,
+      "water_spots": 6
+    },
+    "seconds": 26.7
+  },
+  "R87": {
+    "place": "Deserta Grande's west cliffs, the Desertas, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Desertas (its file labelled EPSG:3061, read as PTRA08 / UTM 28N), our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m)",
+    "args": "--lat 32.5185 --lon -16.5072 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "desertas/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 23248,
+      "open": 18703,
+      "checked": 24705,
+      "lines": 785,
+      "spots": 131,
+      "csv_sha256": "c80843179fff88e04181ddc6402e28be3b1e41b241c9c55fc18296d1742829fc",
+      "length_km": 99.769,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.013,
+      "clearance_max": 491.11,
+      "over_trees": 0,
+      "coverage": 72.86,
+      "empty_tiles": 1,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.68,
+      "water_lines": 20,
+      "water_spots": 5
+    },
+    "seconds": 152.6
   }
 }

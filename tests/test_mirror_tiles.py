@@ -4,6 +4,7 @@ mirror on the data's own pixel grid; sources.GridTiles reads them back with the 
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -413,15 +414,30 @@ def test_download_of_another_size_stops(served, monkeypatch):
 
 
 def test_datasets_match_the_catalogue():
-    """The converter's datasets and the catalogue's layers name the same mirror folders, CRS, pixel size and
-    origin (the tiles are read on the grid they were cut on)."""
-    for name, sid in (("madeira", "madeira"), ("aosta", "aosta_valley")):
-        spec, source = mt.DATASETS[name], src.SOURCES[sid]
-        layer = source.nmt
-        assert isinstance(layer, src.GridTiles) and layer.mirror == mt.tile_folder(spec)
-        assert layer.crs == spec["crs"] == source.crs and layer.native_res == spec["res"] == source.default_resolution
-        assert layer.origin == spec["origin"] == source.grid_origin and layer.tile_m == mt.TILE_M
-        assert sk_tiles.TILE_M == 2000
+    """Every product of the tool's datasets is read by one catalogue layer, and every layer of the catalogue made by
+    the tool is a product: the same mirror folder, CRS, pixel size and origin (the tiles are read on the grid they
+    were cut on). The search's own grid (the source's default resolution) is never finer than the data or than 1 m
+    (a search never runs finer: 0.5 m data is searched at 1 m), a whole multiple of the data's pixel, its edges on
+    the data's (grid_origin == origin), and the source works in the product's CRS."""
+    layers = {layer.mirror: (s, layer) for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt)
+              if isinstance(layer, src.GridTiles) and layer.index.tilings and getattr(layer, "readers", None)
+              and layer.readers[layer.native_res].tool == "tools/mirror_tiles.py"}
+    products = {}
+    for name in mt.DATASETS:
+        ds = mt.dataset(name)
+        mt.check_names(ds)
+        for product in ds.products:
+            products[mt.tile_folder(ds, product)] = product
+    assert set(products) == set(layers)
+    assert {"madeira/dtm/2m", "aosta/dtm/2m", "porto-santo/dtm/5m", "selvagens/dtm/5m"} <= set(products)
+    for folder, product in products.items():
+        source, layer = layers[folder]
+        assert layer.crs == product.crs == source.crs and layer.native_res == product.res, folder
+        assert layer.origin == product.origin == source.grid_origin and layer.tile_m == mt.TILE_M, folder
+        res = source.default_resolution
+        assert res >= max(product.res, src.MIN_RESOLUTION) and math.isclose(round(res / product.res) * product.res,
+                                                                            res), folder
+    assert sk_tiles.TILE_M == 2000
 
 
 # Datasets of many inputs (2026-11-15): products, placed files, folders, ZIPs of several rasters, mosaics, masks
