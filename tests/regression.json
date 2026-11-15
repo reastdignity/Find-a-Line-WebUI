@@ -2213,7 +2213,7 @@
       "checked": 10754,
       "lines": 9337,
       "spots": 240,
-      "csv_sha256": "6962c63dde9255af27c6e9b62929b8d651f13cab185a2d9fcab519a428a1d5fe",
+      "csv_sha256": "264766cb3e314c6168b29dec49707085bc7337ead3a4625ab71cfe1a447614a5",
       "length_km": 1982.371,
       "clearance_min": 0.0,
       "clearance_mean": 3.213,
@@ -2227,11 +2227,12 @@
       "water_lines": 9261,
       "water_spots": 232,
       "access_ends": [
-        7565,
-        3616,
-        7493
+        10242,
+        788,
+        7644
       ]
     },
+    "notes": "re-baselined 2026-11-15: the measure's own answer at the anchors on shore faces (the mapping to cannot tell dropped, the user's choice): line ends hard / cannot tell / easy 7 565 / 3 616 / 7 493 -> 10 242 / 788 / 7 644; lines.csv less access1, access2 still R16's",
     "seconds": 10.6
   }
 }

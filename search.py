@@ -97,9 +97,10 @@ PIXEL_BYTES = 50
 # pixel of the grid fit the search's memory (Plan.memory, else the memory free), else in blocks (access.block_grid):
 # ACCESS_AREA_BYTES per pixel of the whole grid for its grid-wide pass (strips, masks memory-mapped) plus
 # ACCESS_WINDOW_BYTES per pixel of a block's window (the block and access.margin_px around it); blocks at least
-# ACCESS_BLOCK_MIN_M wide. Measured (tools/perf_profile.py --cores 7, exclusive; docs/performance.md, "The access
-# grid's memory"): see the figures there
-ACCESS_AREA_BYTES = 16
+# ACCESS_BLOCK_MIN_M wide. Measured 2026-11-15 (exclusive; docs/performance.md, "The access grid's memory"): at once
+# 43 B per pixel of the grid on whole metres (the Gozo coast), 29 on float heights (the Tatras); in blocks 6.1-6.6 B
+# per pixel of the grid for the grid-wide pass and 38-46 per pixel of the largest window
+ACCESS_AREA_BYTES = 8
 ACCESS_WINDOW_BYTES = 50
 ACCESS_BLOCK_MIN_M = 500
 # Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: access.npy (uint8),
