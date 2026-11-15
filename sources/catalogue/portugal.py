@@ -27,7 +27,8 @@ MADEIRA_CREDIT = Credit("MDT 2 m (DROTe, Região Autónoma da Madeira)",
 MADEIRA_ORIGIN = (1.0, 1.0)  # the pixel edges on odd metres (tools/mirror_tiles.py DATASETS["madeira"])
 # The tile's size measured over the mirror's tiles with data (tools/mirror_tiles.py cut, 2026-11-15)
 MADEIRA_DTM = GridTiles("Madeira MDT 2 m (terrain)", [], "EPSG:5016", "portugal/madeira-dtm2m/2019/epsg5016-2m-2km",
-                        2000, 2.0, 1.4e6, mirror="madeira/dtm/2m", origin=MADEIRA_ORIGIN)
+                        2000, 2.0, 1.4e6, mirror="madeira/dtm/2m", origin=MADEIRA_ORIGIN,
+                        tool="tools/mirror_tiles.py")
 # The regional orthophoto of 2023 (SNIG record 08c3bd64-ccd2-4bde-a8b2-b915bff64dd9, "No conditions apply"): a QGIS
 # server WMS whose layer Ortos is the mosaic of every island, asked in Web Mercator (it also serves EPSG:4326 and
 # 5016); sharp, without a watermark, about 0.6 s a tile (checked 2026-11-15)
