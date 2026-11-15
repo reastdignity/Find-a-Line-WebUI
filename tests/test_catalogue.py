@@ -14,12 +14,15 @@ import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.indexes.metalink import ShaTile  # noqa: E402
 from sources.layers.inegi import InegiSheet  # noqa: E402
+from sources.layers.cellsheets import CellSheetTiles  # noqa: E402
+from sources.layers.s3sheets import S3SheetSets  # noqa: E402
+from sources.indexes.sheetsets import SheetSet  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "madeira", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -2188,6 +2191,61 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                        'extent': (-4875440.139568845, -2642643.245298926, -4797071.023591221,
                                                   -2601291.8207240254)},
                                'nmpt': None},
+            'tokyo': {'crs': 'EPSG:6677',
+                      'countries': ('jp',),
+                      'bbox': None,
+                      'fallbacks': ['europe'],
+                      'grid_origin': (0.0, 0.0),
+                      'default_resolution': 1.0,
+                      'instead_without_data': None,
+                      'local_crs': 'utm_crs',
+                      'ortho': None,
+                      'credits': ['Tokyo Digital Twin point cloud data, 0.5 m grids (Tokyo Metropolitan Government)'],
+                      'nmt': {'class': 'CellSheetTiles',
+                              'description': 'Tokyo Digital Twin grid 0.5 m (terrain)',
+                              'folder': 'tokyo/grd50/2022-2023',
+                              'prefix': None,
+                              'native_res': 0.5,
+                              'processing': 1,
+                              'ttl_days': None,
+                              'credit': 'Tokyo Digital Twin point cloud data, 0.5 m grids (Tokyo Metropolitan '
+                                        'Government)',
+                              'shift': (0.0, 0.0),
+                              'crs': 'EPSG:6677',
+                              'cell': (400, 300),
+                              'origin': (0.0, 0.0),
+                              'members': '\\.tif$'},
+                      'nmpt': None},
+            'shizuoka': {'crs': 'EPSG:6676',
+                         'countries': ('jp',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': None,
+                         'credits': ['VIRTUAL SHIZUOKA point cloud data, LP grids (Shizuoka Prefecture)',
+                                     'VIRTUAL SHIZUOKA point cloud data, LP grids FY2022 (Shizuoka Prefecture)'],
+                         'nmt': {'class': 'S3SheetSets',
+                                 'description': 'VIRTUAL SHIZUOKA LP grid 0.5 m (terrain)',
+                                 'folder': 'shizuoka/lp-grid',
+                                 'prefix': 'lp-grid',
+                                 'native_res': 0.5,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'VIRTUAL SHIZUOKA point cloud data, LP grids (Shizuoka Prefecture)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com',
+                                 'crs': 'EPSG:6676',
+                                 'folders': '\\d{4}/',
+                                 'members': '\\.txt$',
+                                 'levels': {'s': ('shizuoka/lp-grid/s', (400, 300), (0.0, 0.0)),
+                                            'q': ('shizuoka/lp-grid/q', (1000, 750), (0.0, 0.0))},
+                                 'level_credits': {'q': ('FY2022 Southern Alps',
+                                                         'VIRTUAL SHIZUOKA point cloud data, LP grids FY2022 '
+                                                         '(Shizuoka Prefecture)')}},
+                         'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -2301,6 +2359,12 @@ def _layer(layer):
         info.update(url=layer.url, max_level=layer.max_level, floor=layer.floor, extent=layer.index.extent)
     if isinstance(layer, src.ZipSheetTiles):
         info.update(crs=layer.crs, archives=len(layer.archives), sheets=len(layer.index.sheets))
+    if isinstance(layer, CellSheetTiles):
+        info.update(crs=layer.crs, cell=layer.cell, origin=layer.index.origin, members=layer.members)
+    if isinstance(layer, S3SheetSets):
+        info.update(crs=layer.crs, folders=layer.folders_pattern, members=layer.members,
+                    levels={k: (t.folder, t.cell, t.origin) for k, t in layer.levels.items()},
+                    level_credits={k: (label, c.data) for k, (label, c) in layer.level_credits.items()})
     return info
 
 
@@ -2463,6 +2527,8 @@ PATHS = [
      (17, 41315, 63294)),
     ("rio_de_janeiro", "nmt", (15, 18531, 12455), "brazil/rio-mdt5m/live/15/18531/12455.tif", (15, 18531, 12455)),
     ("northern_ireland_10m", "nmt", "zipsheet", "northern_ireland/osni-dtm10m/046_0123abcd.tif", None),
+    ("tokyo", "nmt", (-169, -67), "tokyo/grd50/2022-2023/KC/63/09KC6361.tif", (-169, -67)),
+    ("shizuoka", "nmt", "sheetset", "shizuoka/lp-grid/s/OF/04/2019_08OF0485_0123abcd.tif", None),
 ]
 
 
@@ -2476,7 +2542,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd"),
             "sar": lambda: src.Sheet(**SAR),
             "inegi": lambda: INEGI_SHEET,
-            "zipsheet": lambda: src.zipsheets.ZipSheetTile(46, "0123abcd")}.get(tile, lambda: tile)()
+            "zipsheet": lambda: src.zipsheets.ZipSheetTile(46, "0123abcd"),
+            "sheetset": lambda: SheetSet("s", 145, -409, 2019, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -2547,7 +2614,7 @@ def test_layer_surface():
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
                        "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia",
-                       "sardinia", "tuscany"}
+                       "sardinia", "tuscany", "shizuoka"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg",
@@ -2740,7 +2807,25 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("fo", (61.38, 62.42, -7.72, -6.22)),
          ("cy", (34.55, 35.20, 32.25, 34.10)),
          ("ee", (57.50, 59.70, 21.75, 28.25)),
-         ("br", (-23.09, -22.75, -43.80, -43.09))]
+         ("br", (-23.09, -22.75, -43.80, -43.09)),
+         ("jp-13", (35.48, 35.50, 139.82, 139.86)), ("jp-13", (35.50, 35.55, 139.42, 139.86)),
+         ("jp-13", (35.54, 35.60, 139.35, 139.86)), ("jp-13", (35.60, 35.65, 139.17, 139.89)),
+         ("jp-13", (35.65, 35.70, 139.06, 139.92)), ("jp-13", (35.70, 35.75, 139.00, 139.92)),
+         ("jp-13", (35.75, 35.80, 138.97, 139.90)), ("jp-13", (35.79, 35.85, 138.94, 139.85)),
+         ("jp-13", (35.85, 35.90, 138.94, 139.17)), ("jp-13", (32.40, 34.82, 139.20, 140.00)),
+         ("jp-22", (34.37, 34.40, 137.53, 139.01)), ("jp-22", (34.40, 34.45, 137.52, 139.06)),
+         ("jp-22", (34.45, 34.50, 137.51, 139.10)), ("jp-22", (34.50, 34.55, 137.50, 139.11)),
+         ("jp-22", (34.54, 34.60, 137.49, 139.14)), ("jp-22", (34.60, 34.65, 137.48, 139.17)),
+         ("jp-22", (34.65, 34.70, 137.48, 139.19)), ("jp-22", (34.70, 34.75, 137.47, 139.19)),
+         ("jp-22", (34.75, 34.80, 137.47, 139.19)), ("jp-22", (34.79, 34.85, 137.48, 139.19)),
+         ("jp-22", (34.85, 34.90, 137.55, 139.19)), ("jp-22", (34.90, 34.95, 137.64, 139.19)),
+         ("jp-22", (34.95, 35.05, 137.68, 139.18)), ("jp-22", (35.04, 35.10, 137.73, 139.10)),
+         ("jp-22", (35.10, 35.15, 137.79, 139.10)), ("jp-22", (35.15, 35.20, 137.80, 139.05)),
+         ("jp-22", (35.20, 35.25, 137.82, 139.00)), ("jp-22", (35.25, 35.30, 137.88, 139.01)),
+         ("jp-22", (35.29, 35.35, 137.99, 139.02)), ("jp-22", (35.35, 35.40, 138.09, 139.02)),
+         ("jp-22", (35.40, 35.45, 138.11, 139.01)), ("jp-22", (35.45, 35.50, 138.11, 138.26)),
+         ("jp-22", (35.50, 35.55, 138.13, 138.27)), ("jp-22", (35.54, 35.60, 138.14, 138.26)),
+         ("jp-22", (35.60, 35.65, 138.20, 138.25))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -2938,6 +3023,10 @@ ATTRIBUTIONS = {
                         "sector information licensed under the Open Government Licence v3.0",
     "rio_de_janeiro": "Instituto Pereira Passos (PCRJ)",
     "northern_ireland_10m": "Contains public sector information licensed under the Open Government Licence v3.0",
+    "tokyo": ("東京都デジタルツイン 多摩地域点群データ、東京都デジタルツイン 島しょ地域点群データ、東京都デジタルツイン実現プロジェクト "
+              "区部点群データ、東京都、クリエイティブ・コモンズ・ライセンス 表示4.0国際（https://creativecommons.org/licenses/by/4.0/"
+              "deed.ja）"),
+    "shizuoka": "VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture), CC BY 4.0",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),

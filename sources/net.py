@@ -173,6 +173,15 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
+    # Tokyo's bucket of the Tokyo Digital Twin (its 0.5 m grid sheets and their index tiles): no published limits
+    # (the Tokyo Open Data terms, https://portal.data.metro.tokyo.lg.jp/terms/, and the catalogue's records
+    # t000029d0000000019, 20 and 24, read 2026-11-15); Tokyo pays the egress (not an AWS Open Data bucket):
+    # two at once
+    "gic-tokyo.s3.ap-northeast-1.amazonaws.com": 2,
+    # VIRTUAL SHIZUOKA's bucket (AWS Open Data; Shizuoka's LP grid sheets): no published limits (the README,
+    # https://github.com/aigidjp/opendata_virtualshizuoka, the AWS registry's virtual_shizuoka.yaml and the
+    # prefecture's page https://www.pref.shizuoka.jp/machizukuri/1049255/1052183.html, read 2026-11-15): two at once
+    "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

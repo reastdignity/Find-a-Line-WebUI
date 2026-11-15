@@ -47,3 +47,11 @@ method, flags, CRC-32, compressed and uncompressed sizes and local header's offs
 `sources/indexes/zipdir.py` read them by Range), and `Sheet011av2.txt.gz`, one member read whole (a beach west of
 sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
 [OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+
+`tokyo/`: the Tokyo Digital Twin's 0.5 m grid sheets as Tokyo's bucket served them on 2026-11-15, for
+`tests/test_japan.py`: `09RD8410.zip` as published (an island sheet off Mikurajima: EPSG:6677, nodata 1.70141e38,
+7 668 pixels of seabed at -12.2 to -6.5 m), `09LD1649.zip` a ward sheet (Shinjuku) with its TIFF header as published
+(a CRS without an EPSG code, AREA_OR_POINT=Point, nodata -32767) and its pixels replaced in place by 8 x 8 blocks of
+its heights and a 16 x 16 corner of -32767 (so the ZIP is small), and `toushobu/12/3636/1637.pbf`, the islands'
+index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Government, 東京都デジタルツイン 島しょ地域点群データ /
+区部点群データ, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja) (modified: the ward sheet).
