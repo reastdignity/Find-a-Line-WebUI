@@ -3780,9 +3780,11 @@ their texts. No result changes.
 - **What was sampled:** the process tree every 0.2 s (the search's process and saving's children): the working sets
   (rss), the unique sets (USS: the pages no other process maps), and the folder `saving.hand_over` writes. Hooks in
   the search's process recorded the stages, `saving.save`, `linestore.write` and the square rule's
-  `BestPerSquarePair.counts()` (`peak_rows`). The scripts and the raw results are in the task's private folder
-  (`F7\p2`). 38 searches, 0.7-3.5 million lines; P4's nine case × configuration pairs (round 1) again, and four
-  goals with the square rule (M1's cases).
+  `BestPerSquarePair.counts()` (`peak_rows`). The tool: `tools/perf_slot_memory.py` (one search a run;
+  `uv run tools/perf_slot_memory.py --out <folder> --name <name> --cores 7 --memory 4947666090 --uss [--worker]
+  --remove-run -- <findaline.py options, with --data-dir>`; its `uss_plus_handover_mb` is the measure below). The
+  batches, the cases and the tables are in the task's private folder (`F7\p2`). 38 searches, 0.7-3.5 million lines;
+  P4's nine case × configuration pairs (round 1) again, and four goals with the square rule (M1's cases).
 - Windows' numbers: a container on Linux was not measured.
 
 ### What the peak is

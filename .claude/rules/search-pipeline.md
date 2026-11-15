@@ -67,16 +67,16 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   with `tools/perf_profile.py`; it sizes the tiles (`tile_core_size` with `TILE_MEMORY_SHARE` and `TILE_PX_MAX`), the
   quick lane's reserve of `slot_memory` and the refusals of lines, and README's `GRID_MPX_MAX` row and
   `settings.Limits.grid_mpx_max`'s description name its value.
-- The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of a search's process tree with a
-  margin, counted as the processes' unique sets (USS) plus saving's hand-over files once (its children map the same
-  files, so their working sets summed count those pages once per child; a container counts them once): docs/
-  performance.md "The memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line with
-  it, so 900 B; the peak at step 5's children; the method there: 7 cores, full searches of 0.7-3.5 million
-  lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per line (`find_valid_lines`'
-  parts, `search.line_coordinates`, `mapping.group_lines`, the profiles, `LineTable.join`, `saving.hand_over`, the
-  store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant. `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the
-  profile points: a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change
-  both together.
+- The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of a search's process tree with a margin,
+  counted as the processes' unique sets (USS) plus saving's hand-over files once (its children map the same files, so
+  their working sets summed count those pages once per child; a container counts them once): docs/performance.md "The
+  memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line with it, so 900 B; the
+  peak at step 5's children; measured with `tools/perf_slot_memory.py --cores 7 --memory <a slot's bytes> --uss`, full
+  searches of 0.7-3.5 million lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per
+  line (`find_valid_lines`' parts, `search.line_coordinates`, `mapping.group_lines`, the profiles, `LineTable.join`,
+  `saving.hand_over`, the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
+  `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the profile points:
+  a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
 - The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
   where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and
   refuses on a prediction, not a lower bound: an estimate over `REFUSE_FACTOR` times a limit may be a search under it
