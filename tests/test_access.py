@@ -24,8 +24,8 @@ def tilted(rows, cols, res=1.0, grade=0.1, base=100.0, seed=0):
 def wall_and_meadows(ledge=False, ramp=False, rows=220, cols=320):
     """At 1 m: an upper meadow (columns 0-139, about 6 degrees), a face of 4 m per pixel (76 degrees, columns
     140-162) down to a lower meadow 96 m below (columns 163-): each meadow over 2 ha. With `ledge`, a shelf in the
-    face (rows 90-129, columns 148-155) 32 m below the top; with `ramp`, also a ramp of about 18 degrees cut along the
-    face (rows 0-89, columns 140-155) from the meadow's level down to that shelf."""
+    face (rows 90-129, columns 148-155) 32 m below the top; with `ramp`, also the meadow's level carried over the face
+    (rows 0-43, columns 140-155) and from it a ramp of about 34 degrees down to that shelf (rows 44-89)."""
     z = tilted(rows, cols)
     top = z[:, 139].copy()
     for k, c in enumerate(range(140, 164)):
@@ -35,9 +35,14 @@ def wall_and_meadows(ledge=False, ramp=False, rows=220, cols=320):
         shelf = top[110] - 32.0
         z[90:130, 148:156] = shelf + 0.05 * np.arange(8)[None, :] + 0.03 * np.arange(40)[:, None]
     if ramp:
-        rise = (top[0] - shelf) / 90.0  # per row: from the meadow's level at row 0 down to the shelf at row 90
-        for r in range(90):
-            z[r, 140:156] = top[0] - rise * r
+        # the meadow's level carried over the face down to row 43, then a ramp of about 34 degrees (walkable, not
+        # open ground) down to the shelf at row 90: only a walk joins them
+        for r in range(44):
+            z[r, 140:156] = z[r, 139] + 0.1 * np.arange(1, 17)
+        start = z[43, 140:156].copy()
+        rise = (start - shelf) / 47.0
+        for r in range(44, 90):
+            z[r, 140:156] = start - rise * (r - 43)
     return z.astype(np.float32)
 
 
@@ -67,6 +72,8 @@ def test_mid_face_ledge_cannot_walk_unless_a_walk_leads_there():
     z = wall_and_meadows(ramp=True)
     grid = access.access_grid(z, None, 1.0)
     assert grid[110, 151] == CAN  # the same shelf with a ramp up to the meadow
+    slope = access.slope_deg(z, 1.0)[50:85, 142:154]
+    assert (slope > access.OPEN_DEG).all() and (slope <= access.WALK_DEG).all()  # walkable, not open: a walk decides
 
 
 def pillar(height):
@@ -213,6 +220,82 @@ def test_water():
     whole, _ = lake(whole=True)
     assert access.whole_metres(whole.ravel())
     assert access.access_grid(whole, None, 1.0, alpine=False)[130, 130] == CAN
+
+
+def test_water_mask_alone_decides():
+    """Where the heights cannot tell the lake (not flat; or whole metres, where flat lakes count as ground), only the
+    water the caller passes keeps the island cut off: can walk without it, cannot walk with it."""
+    z, water = lake()
+    rough_lake = z.copy()
+    rough_lake[water] += np.random.default_rng(1).random(int(water.sum())).astype(np.float32)
+    whole, _ = lake(whole=True)
+    for heights in (rough_lake, whole):
+        assert access.access_grid(heights, None, 1.0, alpine=False)[130, 130] == CAN
+        assert access.access_grid(heights, water, 1.0, alpine=False)[130, 130] == CANNOT
+
+
+def test_walk_metric_and_limit():
+    """The walk itself: steps along an axis cost res, diagonal steps res * sqrt(2), and a pixel is reached when its
+    path is at most the limit (REACH_M in the measure) long."""
+    for res in (1.0, 2.0):
+        line = np.zeros((1, 600), bool)
+        line[0, :] = True
+        source = np.zeros_like(line)
+        source[0, 0] = True
+        reached = access._walk(line, source, res, 500.0)
+        assert reached[0, int(500 / res)] and not reached[0, int(500 / res) + 1]
+        n = 400
+        diagonal = np.eye(n, dtype=bool)
+        source = np.zeros_like(diagonal)
+        source[0, 0] = True
+        reached = access._walk(diagonal, source, res, 500.0)
+        k = int(500 / (res * np.sqrt(2)))  # 353 steps of 1.414 m: 499.2 m
+        assert reached[k, k] and not reached[k + 1, k + 1]
+
+
+def corridor():
+    """A meadow (columns 0-119, 1 m pixels), from its edge a ramp of 35 degrees (columns 120-127) and a corridor of
+    gentle ground 5 m wide (rows 98-102, columns 128-700) between drops of 30 m: its middle 3 m are walkable, its
+    1800 m2 no open ground of their own, so only the walk from the meadow reaches it (column c: c - 119 m along it)."""
+    z = tilted(200, 760) - 30.0
+    z[:, :120] += 30.0
+    c = np.arange(120, 701)
+    path = z[100, 119] + np.where(c < 128, 0.7 * (c - 119), 0.7 * 8 + 0.1 * (c - 127))
+    z[98:103, 120:701] = path[None, :]
+    return z.astype(np.float32)
+
+
+def test_walk_of_500_m():
+    """Along the corridor: its standing ground 3 m back at 500 m of walk can walk (column 622), 504 m cannot."""
+    z = corridor()
+    grid = access.access_grid(z, None, 1.0, alpine=False)
+    assert access.slope_deg(z, 1.0)[100, 121:126].min() > access.OPEN_DEG
+    assert grid[100, 400] == CAN and grid[100, 622] == CAN
+    assert grid[100, 626] == CANNOT
+
+
+def buoy(gap_m):
+    """At 0.5 m: a meadow (columns 0-199) at a lake's level (columns 200-), passed as water; a pixel in the lake
+    `gap_m` metres from the nearest walkable shore pixel (column 199)."""
+    z = 100 + 0.05 * np.mgrid[0:300, 0:300][0] + np.random.default_rng(0).random((300, 300)) * 0.02
+    water = np.zeros(z.shape, bool)
+    water[:, 200:] = True
+    return z.astype(np.float32), water, (150, 199 + int(round(gap_m / 0.5)))
+
+
+@pytest.mark.parametrize("gap_m, answer", [(2.5, CAN), (3.0, CAN), (4.0, CANNOT)])
+def test_standing_ground_within_3_m(gap_m, answer):
+    """Standing ground counts within STAND_M = 3 m of the anchor (at its level): 2.5 m and 3 m do, 4 m does not."""
+    z, water, pixel = buoy(gap_m)
+    assert access.access_grid(z, water, 0.5, alpine=False)[pixel] == answer
+
+
+def test_at_refuses_pixels_outside_the_grid():
+    grid = np.arange(12, dtype=np.uint8).reshape(3, 4)
+    assert list(access.at(grid, [[0, 0], [2, 3]])) == [0, 11]
+    for bad in ([[-1, 0]], [[0, -1]], [[3, 0]], [[0, 4]]):
+        with pytest.raises(ValueError):
+            access.at(grid, bad)
 
 
 def alpine(meadow):

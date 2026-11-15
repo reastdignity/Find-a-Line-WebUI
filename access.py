@@ -348,6 +348,10 @@ def access_grid(z: np.ndarray, water, res: float, filled=None, alpine: bool = Tr
 
 
 def at(grid: np.ndarray, pixels) -> np.ndarray:
-    """The answers at `pixels` (int (n, 2): rows, columns)."""
+    """The answers at `pixels` (int (n, 2): rows, columns); a pixel outside the grid is refused (ValueError), never
+    read from the other end of a row as a negative index would be."""
     pixels = np.asarray(pixels, np.int64).reshape(-1, 2)
+    h, w = grid.shape
+    if ((pixels < 0) | (pixels >= (h, w))).any():
+        raise ValueError("a pixel outside the access grid")
     return grid[pixels[:, 0], pixels[:, 1]]
