@@ -7,6 +7,7 @@ import os
 import sys
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -195,3 +196,61 @@ def test_funnel_of_a_search_stopped_without_the_rule_as_before(tmp_path, small_p
     funnel, error = _stopped(tmp_path, "stopped", Limits(lines_max=300))
     assert error.code == "too_many_lines_early" and error.params["n"] == 350
     assert funnel == STOPPED_WITHOUT_RULE
+
+
+# --- the truth analysis' reason for a known line the square rule dropped (made-up data: the synthetic canyon of
+# tests/test_truth_analysis.py, no known line of SlackMap) ---
+
+def _canyon(tmp_path, side, keep):
+    """test_truth_analysis's canyon with its known line "m1" (row 15, from the left rim to the right one), as a
+    search with the square rule of `side` metres saved it (None: without the rule): production's found lines
+    less every line within m1's tolerance, the others kept where keep(lines.npz's rows of anchor pixels) holds."""
+    import dataclasses as dc
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+    import test_truth_analysis as tta
+    import truth_analysis as ta
+    cases = [case for case in tta.known_lines() if case[0].id == "m1"]
+    folder = tta.write_capture(str(tmp_path / f"canyon-{side}"), cases)
+    c = ta.load_capture(folder)
+    if side is not None:
+        c.grid["params"] = {**c.grid["params"], "same_line_square": side, "same_line_side": float(side)}
+    line = c.known[0]
+    near = set(ta.candidates([line], c.found, c.grid)[0].tolist())
+    assert near  # the search without the rule finds m1
+    pixels = np.array([[*_pixel(c, p), *_pixel(c, q)] for p, q in zip(c.found.xy1, c.found.xy2)])
+    rows = [k for k in range(len(c.found)) if k not in near and keep(pixels[k])]
+    f = c.found
+    found = dc.replace(f, **{name: getattr(f, name)[rows] for name in ("a1", "a2", "length", "clearance",
+                                                                    "clearance_nmpt", "over", "rep", "group",
+                                                                    "xy1", "xy2")})
+    return ta, dc.replace(c, found=found, _cache={}), line, pixels[rows]
+
+
+def _pixel(c, xy):
+    return (int(round((c.grid["top"] - xy[1]) / c.res - 0.5)), int(round((xy[0] - c.grid["left"]) / c.res - 0.5)))
+
+
+def test_truth_analysis_names_a_line_the_square_rule_dropped(tmp_path):
+    """A known line whose valid pair the search found, and whose pair of 20 m squares kept another line outside
+    its tolerance: same_line_square (with the funnel's square_kept and that pair as the best); the same capture
+    read as a search without the rule: unexplained, as before; with the rule but no line kept in the squares of
+    any pair within the tolerance (rows 5-25 there: the squares of rows 0-39 hold no kept line): unexplained too."""
+    # the canyon's lines at rows 1-4 lie in m1's squares (rows 0-19, cols 20-39 and 80-99) 11-14 m from its ends
+    ta, c, line, kept = _canyon(tmp_path, 20, lambda p: True)
+    assert ta.REASONS[-2:] == ("same_line_square", "unexplained")
+    assert ((kept[:, 0] < 5) & (kept[:, 2] < 5)).any()
+    r = ta.diagnose(c, line, None)
+    assert r["outcome"] == "missed" and r["reason"] == "same_line_square" and r["note"] is None, (r["reason"], r["note"])
+    assert 0 < r["funnel"]["square_kept"] <= r["funnel"]["limits"] and r["best"]["stage"] == "square"
+    assert max(r["best"]["d_known"]) <= ta.tolerance(line) and r["best"]["clearance_rule"] > 0
+    assert json.loads(json.dumps(ta._plain(r)))["reason"] == "same_line_square"
+    assert ta.stats([ta._plain(r)])["reasons"]["same_line_square"] == 1
+
+    ta, c, line, _ = _canyon(tmp_path, None, lambda p: True)
+    r = ta.diagnose(c, line, None)
+    assert r["reason"] == "unexplained" and r["note"] == "a_pair_passes" and "square_kept" not in r["funnel"]
+
+    ta, c, line, kept = _canyon(tmp_path, 20, lambda p: p[0] >= 40 and p[2] >= 40)
+    assert len(kept)
+    r = ta.diagnose(c, line, None)
+    assert r["reason"] == "unexplained" and r["note"] == "a_pair_passes" and r["funnel"]["square_kept"] == 0

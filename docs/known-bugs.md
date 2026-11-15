@@ -120,12 +120,3 @@ origin 0.6, 12 804 pixel centres differ and 3 408 fall into another square, so a
 than the same search on one grid. Not reachable today: such a tiled search crashes first (the entry above). A fix,
 before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
 indices.
-
-## The truth check has no reason for a known line the square rule dropped
-
-Seen 2026-11-14 in the truth check's pass with `--same-line-square 5` (docs/truth-check.md, "The square rule"):
-`tools/truth_analysis.py` gives a known line that no found line matches a reason from the line's tests (clearance,
-height difference, a structure as an anchor …); a line whose valid pair was found and then dropped by the square
-rule (another line of the same pair of squares kept) fails none of them, so it reads `unexplained` (20 known lines
-in that pass). A fix gives such a line its own reason, for example
-`square_rule`, found by applying the rule's key to the best valid pair.
