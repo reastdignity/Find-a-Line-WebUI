@@ -56,6 +56,8 @@ class Fake:
         self.action_base = ""     # the form's action before its path ("" = this server, relative)
         self.down = 0             # the next n requests: the connection closed without an answer (an outage)
         self.repeat_paging = False  # every page is the first one again, with the same next token
+        self.search_throttle = 0  # the next n searches: 429
+        self.marked = False       # set when a file of action "mark" starts coming
         self.stall_form = 0       # the next n login pages: headers, then nothing for a second
         self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
         self.active = self.most = 0
@@ -182,6 +184,10 @@ class Fake:
             length = int(h.headers.get("Content-Length") or 0)
             body = json.loads(h.rfile.read(length))
             self.searches.append(body)
+            if self.search_throttle:
+                self.search_throttle -= 1
+                self.send(h, 429, b"slow down", {"Content-Type": "text/plain", "Retry-After": "7"})
+                return
             self.send(h, 200, json.dumps(self.search(body)).encode(), {"Content-Type": "application/geo+json"})
         elif method == "GET" and path.startswith("/dgt-be/v1/download/"):
             item_id = self.tokens.get(path.rsplit("/", 1)[-1])
@@ -195,6 +201,8 @@ class Fake:
                 self.form_fails = 1
             if action in ("429", "503"):
                 self.send(h, int(action), b"slow down", {"Content-Type": "text/plain", "Retry-After": "7"})
+            elif action in ("401", "403"):
+                self.send(h, int(action), b"who are you", {"Content-Type": "text/plain"})
             elif action == "404":
                 self.send(h, 404, b"gone", {"Content-Type": "text/plain"})
             elif action == "500":
@@ -223,6 +231,23 @@ class Fake:
         elif action == "short":
             self.send(h, 200, body[:len(body) // 2], {"Content-Type": "image/tiff"}, length=len(body))
             h.close_connection = True
+        elif action in ("nolength-more", "nolength-short"):  # no Content-Length: the body ends when it closes
+            h.send_response(200)
+            h.send_header("Content-Type", "image/tiff")
+            h.end_headers()
+            h.wfile.write(body + b"0123" if action == "nolength-more" else body[:len(body) // 2])
+            h.close_connection = True
+        elif action == "slow":
+            h.send_response(200)
+            h.send_header("Content-Length", str(len(body)))
+            h.end_headers()
+            for i in range(0, len(body), 100):
+                h.wfile.write(body[i:i + 100])
+                h.wfile.flush()
+                time.sleep(0.02)
+        elif action == "mark":
+            self.marked = True
+            self.send(h, 200, body, {"Content-Type": "image/tiff"})
         elif action == "magic":
             self.send(h, 200, b"XXXX" + body[4:], {"Content-Type": "image/tiff"})
         elif action == "size":
@@ -491,7 +516,13 @@ def test_a_second_fetch_on_one_folder_stops_and_touches_nothing(fake, tmp_path, 
         holder.kill()
         holder.wait(30)
         holder.stdout.close()
-    assert fetch(tmp_path) == 0 and len(done_rows(tmp_path)) == 2  # the system freed the lock of the dead process
+    for _ in range(100):  # the system frees a dead process's lock (Windows: after a moment)
+        try:
+            cf._unlock(cf._lock(str(area)))
+            break
+        except cf.Locked:
+            time.sleep(0.1)
+    assert fetch(tmp_path) == 0 and len(done_rows(tmp_path)) == 2
 
 
 def test_addresses_are_resolved_in_batches(fake, tmp_path, monkeypatch):
@@ -627,22 +658,20 @@ def test_files_that_failed_before_go_to_the_end(fake, tmp_path):
 def test_the_disk_is_checked_and_the_status_saved_within_a_long_file(fake, tmp_path, monkeypatch):
     fake.add("MDT-50cm", "MDT-50cm-090200-07-2024", size=5000)
     fake.add("MDT-50cm", "MDT-50cm-090201-07-2024", size=5000)
+    fake.actions["MDT-50cm-090201-07-2024"] = ["mark"]
     planned(fake, tmp_path)
     monkeypatch.setattr(cf, "DISK_EVERY", 1500)
     saved = []
     real_save = cf.Run.save
     monkeypatch.setattr(cf.Run, "save", lambda self, current=None: (saved.append(current), real_save(self, current)))
-    calls = []
     real_usage = cf.shutil.disk_usage
-
-    def usage(path):  # plenty before the files and for the first one, then nothing
-        calls.append(path)
-        free = 10 ** 15 if len(calls) <= 5 else 0
-        return real_usage(path)._replace(free=free)
-    monkeypatch.setattr(cf.shutil, "disk_usage", usage)
+    # the disk fills while the second file comes: its check before it starts sees room, a check within it none
+    monkeypatch.setattr(cf.shutil, "disk_usage",
+                        lambda path: real_usage(path)._replace(free=0 if fake.marked else 10 ** 15))
     assert fetch(tmp_path) == cf.EXIT_DISK
     assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090200-07-2024"]
-    assert ("MDT-50cm-090200-07-2024", 1544) in saved  # bytes so far: 8 + three chunks of 512
+    assert "/store/MDT-50cm-090201-07-2024" in [p for _, p, _ in fake.log]  # stopped within it, not before
+    assert any(c and c[0] == "MDT-50cm-090200-07-2024" and 1500 <= c[1] < 5000 for c in saved)  # status within
     assert not [p for p in tifs(tmp_path) if p.endswith(".part")]
 
 
@@ -828,6 +857,112 @@ def test_sigterm_stops_the_run(fake, tmp_path):
     assert signal.getsignal(signal.SIGTERM) == before  # the handler restored
 
 
+@pytest.mark.parametrize("status", ["401", "403"])
+def test_401_and_403_on_a_download_are_a_lost_session(fake, tmp_path, status):
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = [status]
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert len(done_rows(tmp_path)) == 2 and fake.logins == 2
+
+
+def test_the_size_is_checked_on_the_stream_without_a_content_length(fake, tmp_path):
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["nolength-more"] * 2
+    fake.actions["MDT-50cm-090201-07-2024"] = ["nolength-short"] * 2
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--retries", "1") == 0
+    assert not os.path.exists(tmp_path / "portugal" / "done.jsonl")
+    errors = {json.loads(line)["id"]: json.loads(line)["error"]
+              for line in open(tmp_path / "portugal" / "failed.jsonl", encoding="utf-8")}
+    assert "more than the 3000 bytes" in errors["MDT-50cm-090200-07-2024"]
+    assert "cut short" in errors["MDT-50cm-090201-07-2024"]
+    assert not [p for p in tifs(tmp_path) if p.endswith(".part")]
+
+
+def test_a_file_that_trickles_fails(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "RATE_WINDOW", 0.1)
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["slow"] * 3
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--min-rate-kb", "50") == 0
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+    failed = [json.loads(line) for line in open(tmp_path / "portugal" / "failed.jsonl", encoding="utf-8")]
+    assert len(failed) == 3 and all("slower than 50 kB/s" in f["error"] for f in failed)
+
+
+def test_six_throttles_fail_the_file(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "WAIT_BASE", 1.0)
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["429"] * 6
+    planned(fake, tmp_path)
+    fake.waits.clear()
+    assert fetch(tmp_path, "--retries", "0") == 0
+    assert [w for w in fake.waits if w] == [7.0, 7.0, 7.0, 8.0, 16.0]  # five waits: the sixth fails the file
+    failed = [json.loads(line) for line in open(tmp_path / "portugal" / "failed.jsonl", encoding="utf-8")]
+    assert [f["error"] for f in failed] == ["HTTP 429/503 6 times"]
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+
+
+def test_a_429_to_the_address_search_waits(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "WAIT_BASE", 2.0)
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    fake.search_throttle, fake.waits[:] = 1, []
+    assert fetch(tmp_path) == 0
+    assert [w for w in fake.waits if w] == [7.0] and len(done_rows(tmp_path)) == 2
+
+
+def test_retry_after_as_seconds_or_a_date():
+    import email.utils
+    import datetime
+    assert cf._retry_after({"Retry-After": "7"}) == 7.0
+    when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=120)
+    assert 115 <= cf._retry_after({"Retry-After": email.utils.format_datetime(when, usegmt=True)}) <= 121
+    assert cf._retry_after({"Retry-After": "soon"}) is None and cf._retry_after({}) is None
+
+
+def test_fetch_without_a_manifest(tmp_path, capsys):
+    assert fetch(tmp_path) == cf.EXIT_ERROR
+    assert "run `plan` first" in capsys.readouterr().err
+
+
+def test_fetch_only_the_collections_asked(fake, tmp_path):
+    mainland(fake, 2)
+    fake.add("ACORES-MDE-1", "2024_SMG_PDL_31-2-3-4_01_MDE")
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm", "ACORES-MDE-1") == 0
+    assert fetch(tmp_path, "--collections", "ACORES-MDE-1") == 0
+    assert [r["id"] for r in done_rows(tmp_path)] == ["2024_SMG_PDL_31-2-3-4_01_MDE"]
+    assert tifs(tmp_path) == ["portugal/ACORES-MDE-1/SMG/2024_SMG_PDL_31-2-3-4_01_MDE.tif"]
+
+
+def test_a_line_cut_by_a_kill_does_not_swallow_the_next(fake, tmp_path):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--limit", "1") == 0
+    with open(tmp_path / "portugal" / "done.jsonl", "ab") as f:
+        f.write(b'{"id": "MDT-50cm-0902')  # a kill in the middle of a line
+    assert fetch(tmp_path) == 0
+    rows = cf._read_jsonl(str(tmp_path / "portugal" / "done.jsonl"))
+    assert sorted(r["id"] for r in rows) == sorted(fake.bodies)
+
+
+def test_the_scrubber():
+    scrub = cf.Scrub()
+    scrub.add("cookie-value-123")
+    scrub.add("pw SECRET&p1")
+    token = "ab" * 32
+    text = scrub.text("Cookie: session=cookie-value-123; a password pw SECRET&p1 or pw+SECRET%26p1; "
+                      "https://cdd.dgterritorio.gov.pt/dgt-be/v1/download/" + token + " and "
+                      "https://bucket.objects.example/a/b.tif?X-Amz-Signature=sig123&X-Amz-Credential=KEY; "
+                      "a bare token " + token)
+    for secret in ("cookie-value-123", "SECRET", token, "X-Amz", "sig123", "KEY", "/dgt-be/", "b.tif"):
+        assert secret not in text, secret
+    assert "https://cdd.dgterritorio.gov.pt/..." in text and "https://bucket.objects.example/..." in text
+    scrub.add("ab")  # too short to mask: refused before (fetch stops with a short credential)
+    assert "ab" in scrub.text("ab")
+
+
 # fetch-list
 
 @pytest.fixture
@@ -849,6 +984,8 @@ def test_fetch_list_starts_a_broken_file_again_from_zero(fake, plain, tmp_path):
     assert tifs(tmp_path) == ["wallonia/A_MNS.zip", "wallonia/A_MNT.zip"]
     assert fake.logins == 0 and not [p for _, p, _ in fake.log if p.startswith("/realms/")]
     assert not [p for p in fake.log if p[1] == "/"]  # no sign-in for a plain list
+    asked = [headers for path, headers in fake.headers if path.startswith("/wal/")]
+    assert len(asked) == 4 and not [h for h in asked if "range" in h]  # never a Range, a retry from zero too
 
 
 def test_fetch_list_refuses_a_file_of_another_size(fake, plain, tmp_path):

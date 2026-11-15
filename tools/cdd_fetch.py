@@ -6,31 +6,42 @@ home server) in a stock Python container: standard library only, Python 3.11 or 
 Cutting the files into mirror tiles is a later step, not this tool's.
 
     python cdd_fetch.py plan [--collections MDT-50cm MDS-50cm ...] [--bbox S N W E]
-    python cdd_fetch.py fetch [--pause 3] [--retries 2] [--min-free-gb 50] [--limit N]
+    python cdd_fetch.py fetch [--pause 3] [--retries 2] [--min-free-gb 50] [--limit N] [--outage-hours 6]
+                              [--max-signins-per-hour 6] [--min-rate-kb 20]
     python cdd_fetch.py fetch-list wallonia
     python cdd_fetch.py status
 
 Everything lives in `--out`, by default `downloads/` beside the script: `downloads/portugal/` (manifest.jsonl,
-plan.json, done.jsonl, failed.jsonl, status.json, fetch.log and `<collection>/<folder>/<item id>.tif`: the folder is
-a mainland sheet's first three digits or an Azores island's code) and `downloads/wallonia/` (the ZIPs under their
-own names and the same state files). The tool never deletes a fetched file, only its own `.part` files.
+plan.json, done.jsonl, failed.jsonl, status.json, fetch.log, fetch.lock and `<collection>/<folder>/<item id>.tif`:
+the folder is a mainland sheet's first three digits or an Azores island's code) and `downloads/wallonia/` (the ZIPs
+under their own names and the same state files). The tool never deletes a fetched file, only its own `.part` files.
+One fetch at a time per folder: a second one exits at once (fetch.lock, freed by the system when its holder ends).
 
 `plan` asks the public search (POST /dgt-be/v1/search, CQL2-JSON `s_intersects` for `--bbox`, no login) for every
-item of the collections, page after page (1000 items, the `next` link's body token, 1.5 s apart), keeps the newest
-version of each sheet and writes one line per file (collection, item id, sheet, folder, version, size). A download
-address is minted anew by every search (two searches for one item gave two addresses, 2026-11-15), so none is
-stored: `fetch` resolves them from the signed-in search just before use, 20 ids per search.
+item of the collections, page after page (1000 items, the `next` link's body token; a repeated page ends it with an
+error), keeps the newest version of each sheet and writes one line per item (collection, item id, sheet, folder,
+version, size). A download address is minted anew by every search (two searches for one item gave two addresses,
+2026-11-15), so none is stored: `fetch` resolves them from the signed-in search just before use, 20 ids per search.
 
-`fetch` signs in through the site's Keycloak form (credentials only from the environment: CDD_USER, CDD_PASSWORD),
-then fetches every file of the manifest not yet done: one request at a time, a pause between files, into
-`<file>.part`, renamed when it checks (TIFF magic, the item's stated size); its sha256 goes into done.jsonl. A
-download answered by the login page, a 401/403 or an HTML page means: sign in again and retry the file once with a
-fresh address; three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no
-loop against the login form). 429/503: a growing wait honouring Retry-After. A failed file is tried again at the end
-of the run (at most `--retries` times) and at the next run; five failed files in a row stop the run. Free space under
-`--min-free-gb` (plus the next file) stops it. SIGTERM or Ctrl-C drops the current `.part` and exits 0 with the
-state saved; a second `fetch` continues where it stopped. `status.json` is rewritten every few files. done.jsonl
-decides what is done: a file deleted by hand after it was recorded (cut into tiles) is not fetched again.
+Every request, redirects included, comes at least 1.5 s after the previous one to the same host, one at a time.
+
+`fetch` signs in through the site's Keycloak form (credentials only from the environment: CDD_USER, CDD_PASSWORD;
+each of 3 characters at least, as a shorter value could not be masked). The sign-in never leaves https and the
+site's and the realm's hosts (a redirect or a form action elsewhere stops the run before anything is sent there);
+the credentials are sent at most --max-signins-per-hour times an hour, 60 s apart at least. It then fetches every
+file of the manifest not yet done, a pause between files, into `<file>.part`, synced and renamed when it checks
+(TIFF magic, the item's stated size); its sha256 goes into done.jsonl. A download answered by the login page, a
+401/403 or an HTML page means: sign in again and retry the file once; a 404 means: a fresh address and one retry;
+three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no loop against the
+login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file). A network error (no
+route, DNS, a reset, a timeout) waits 30 s doubling to 15 min and fails no file until the outage has lasted
+--outage-hours (status.json: "waiting: network"). A failed file is tried again at the end of the run (at most
+`--retries` times) and at the next run, after the others; five failed files in a row stop the run; a file slower
+than --min-rate-kb for 5 minutes fails. Free space under `--min-free-gb` (plus the next file) stops it. SIGTERM or
+Ctrl-C drops the current `.part` and exits 0 with the state saved; a second `fetch` continues where it stopped.
+`status.json` is rewritten every few files and every 1 GB of a long file; an unexpected error leaves it at "stopped:
+error (...)". done.jsonl decides what is done: a file deleted by hand after it was recorded (cut into tiles) is not
+fetched again.
 
 `fetch-list wallonia` fetches the embedded list (addresses and sizes read 2026-11-15) the same way without a login;
 that server ignores Range, so a broken file starts again from zero; the size must equal the list's (a different
@@ -40,14 +51,16 @@ the last error, the time left at the measured rate.
 Secrets never appear in any output: the username, the password, cookies and download addresses (their tokens and
 queries) are masked in every printed or written text (`Scrub`); the item id names a file in the log.
 
-Exit codes: 0 done or stopped by a signal; 1 an error; 2 credentials missing or refused; 3 three sign-ins without a
-file; 4 five failed files in a row; 5 the disk is full (under --min-free-gb).
+Exit codes: 0 done or stopped by a signal; 1 an error; 2 credentials missing, refused or the sign-in leading
+elsewhere; 3 three sign-ins without a file, or too many in an hour; 4 five failed files in a row, or an outage longer
+than --outage-hours; 5 the disk is full (under --min-free-gb); 6 another fetch holds the folder.
 
 On a home server, the script in its own folder with an env file `cdd.env` beside it (two lines,
-`CDD_USER=...` and `CDD_PASSWORD=...`, readable by its owner only):
+`CDD_USER=...` and `CDD_PASSWORD=...`, readable by its owner only; a password with `$`, `#` or quotes may be read
+differently by docker's env-file and compose's env_file: check that first when the sign-in is refused):
 
-    docker run -d --name cdd-fetch --env-file /path/to/folder/cdd.env -v /path/to/folder:/work -w /work \\
-        python:3.12-slim python cdd_fetch.py fetch
+    docker run -d --name cdd-fetch --stop-timeout 150 --env-file /path/to/folder/cdd.env \\
+        -v /path/to/folder:/work -w /work python:3.12-slim python cdd_fetch.py fetch
 
     services:                      # compose.yaml in the same folder
       cdd-fetch:
@@ -57,11 +70,14 @@ On a home server, the script in its own folder with an env file `cdd.env` beside
         env_file: [cdd.env]
         command: python cdd_fetch.py fetch
         restart: "no"
-        stop_grace_period: 60s
+        stop_grace_period: 150s
         # user: "<uid>:<gid>"        # the folder's owner, if the files should not belong to root
 
-`plan` runs once before (`docker run --rm -v ...:/work -w /work python:3.12-slim python cdd_fetch.py plan`),
-`status` any time; `fetch-list wallonia` is the same service with that command.
+The restart policy must stay "no": a restart after exit 2 or 3 would send the credentials again and again (the
+account could be locked); after any exit read fetch.log and start it again by hand. The stop timeout of 150 s
+covers a read that stalls (up to 120 s) before the stop is seen. `plan` runs once before (`docker run --rm -v
+...:/work -w /work python:3.12-slim python cdd_fetch.py plan`), `status` any time; `fetch-list wallonia` is the
+same service with that command.
 """
 
 import argparse
@@ -126,7 +142,8 @@ _MNT = _WALLONIA + "a004e570-99d6-4fe5-b83d-49b774409278/RELIEF_WALLONIE_MNT_50C
 _MNS = _WALLONIA + "5a4c28fe-d30c-493e-861e-a80ebc703b64/RELIEF_WALLONIE_MNS_50CM_2021_2022_GEOTIFF_3812_PROV_"
 # Plain file lists: name -> the folder below --out, the files' magic, (group, address, bytes) in the order fetched.
 # Wallonia: SPW's MNT and MNS 2021-2022 at 0.5 m in EPSG:3812, per province (catalogue pages a004e570... and
-# 5a4c28fe..., tab "Téléchargement"; addresses and sizes read 2026-11-15); Namur first (the user's order)
+# 5a4c28fe..., tab "Téléchargement"; addresses and sizes read 2026-11-15); Namur first (the coordinator's
+# suggested order)
 LISTS = {
     "wallonia": {"folder": "wallonia", "read": "2026-11-15", "magic": ZIP_MAGIC, "files": [
         ("MNT", _MNT + "NAMUR.zip", 46_315_489_746),
