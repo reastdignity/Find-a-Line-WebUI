@@ -1966,5 +1966,60 @@
     },
     "seconds": 17.5,
     "notes": "added 2026-11-15: --source auto picks mexico (MX); the circle lies within one sheet, G14C15B2 (terrain edition 2011, surface 2012, about 4 MB each, about 4 s a model on an empty cache), on its own pixels in EPSG:4487 (no resampling); the spots along the canyon's walls (25.946-25.951 N, 100.471-100.475 W); 13 374 lines are over obstacles: the surface model stands 10-40 m above the terrain along the walls' crests (1259 pixels over 30 m within 1 km, the most 138 m), where the terrain's mesh cuts the walls, and blocks lines across the canyon's entrance (their clearance over the surface model a median -32 m)"
+  },
+  "R78": {
+    "place": "Avakas gorge, Akamas (CY): the limestone gorge's walls in its narrows, DLS's 2019 DTM 1 m (tiles in ETRS89 degrees warped back onto CGRS93 / Cyprus LTM by nearest) and DSM 0.5 m (averaged)",
+    "args": "--lat 34.920 --lon 32.335 --radius 800 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "cy"
+    ],
+    "expected": {
+      "anchors": 47285,
+      "open": 595,
+      "checked": 51,
+      "lines": 8,
+      "spots": 3,
+      "csv_sha256": "688ab7cbfa099c295cfca4a008ff1038c7af2ff34b248570f43130a630f26de4",
+      "length_km": 0.177,
+      "clearance_min": 0.07,
+      "clearance_mean": 0.404,
+      "clearance_max": 0.63,
+      "over_trees": 0,
+      "coverage": 99.86,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 0.47
+    },
+    "seconds": 5.8,
+    "notes": "added 2026-11-15: --source auto picks cyprus (CY); nine DTM and nine DSM blocks of 1.25 km from tiles 1375_3650 and around (DLS's server about 0.2-0.8 MB/s: 62 s and 25 MB on an empty cache); the spots in the gorge's narrows (34.9209-34.9216 N, 32.3276-32.3277 E), walls of about 9 m at 1 m; 12 307 m2 of shore faces from the DSM and 1 214 m of uncertain shore at the gorge's mouth (DLS clipped its models to the coast). The brief's first place, Cape Greco (34.963, 34.080, radius 800 m, 15-80 m), gives 11 638 anchors, 186 open, 216 candidate pairs and no line: its straight sea cliffs have no partner across"
+  },
+  "R79": {
+    "place": "Pakri cliff, Paldiski (EE): the North Estonian klint of about 20 m at the lighthouse, its coves over the sea, the Land Board's 1 m DTM (5 km sheets read by our own range requests through its PHP address) and 1 km DSM sheets",
+    "args": "--lat 59.3890 --lon 24.0380 --radius 600 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "ee"
+    ],
+    "expected": {
+      "anchors": 8661,
+      "open": 1894,
+      "checked": 540,
+      "lines": 23,
+      "spots": 9,
+      "csv_sha256": "0a83246f1855acbc7d81a5a844c4a894ae9b8e4bdae022e61c116986ce493c30",
+      "length_km": 0.728,
+      "clearance_min": 0.02,
+      "clearance_mean": 1.062,
+      "clearance_max": 4.38,
+      "over_trees": 12,
+      "coverage": 100.0,
+      "empty_tiles": 3,
+      "water_lines": 22,
+      "water_spots": 8
+    },
+    "seconds": 29.2,
+    "notes": "added 2026-11-15: --source auto picks estonia (EE); four DTM blocks of sheet 63801 read by range requests and nine DSM sheets of 1 km (three in the sea answered \"Map sheet not found.\": the empty tiles); the spots in the cliff's coves at the lighthouse (59.3884-59.3897 N, 24.0366-24.0393 E), walls of 70-86 degrees and about 20 m, 22 of the 23 lines over the sea. The brief's place, Rummu quarry (59.2270, 24.1900, radius 400 m, 15-80 m), gives 11 475 anchors and none with an open direction: the DTM holds the quarry lake's surface at about 20 m and walls of about 5 m above it (its high walls are under water); Türisalu, Valaste, Ontika's cliff top, Jägala and Väo gave no line or lines over trees only"
   }
 }

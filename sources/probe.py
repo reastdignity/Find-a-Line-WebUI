@@ -69,7 +69,7 @@ from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
-from .readers.windows import _forget, _read_window, _same_crs, _wrong_crs
+from .readers.windows import _forget, _read_ranged, _same_crs, _values_on, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
@@ -84,6 +84,7 @@ from .layers.wcs import GeoWcsTiles
 from .layers.geosheets import GeoSheetTiles
 from .layers.sheets import WfsFeatureTiles
 from .layers.inegi import InegiSheets
+from .layers.metricsheets import MetricSheetTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -101,7 +102,7 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
-    (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"))
+    (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"), (MetricSheetTiles, "sheet"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -264,13 +265,24 @@ def _window(cache_dir: str, layer: FileBlocks, tile, centre: bool = False) -> st
     if not request.files:
         raise RuntimeError("no file for the first block")
     name, url, _ = request.files[0]
+    force_crs, warp = getattr(layer.reader, "force_crs", False), getattr(layer.reader, "warp", None)
+    if getattr(layer.reader, "ranged", False) and url.startswith(("http://", "https://")):
+        with host_slot(cache_dir, url):  # our own range requests (Windows(ranged=True)), each taking its turn
+            values = _read_ranged(url, request.crs, transform, (WINDOW_PX, WINDOW_PX), name, "window", force_crs,
+                                  warp)
+        if values is None:
+            raise RuntimeError(f"{name} not found")
+        share = float(np.isfinite(values).mean())
+        if not share:
+            raise RuntimeError(f"no data in a window of {name}")
+        return f"window {100 * share:.0f}% with data"
     try:
         with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
             net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
             with rio.open(_remote(url)) as remote:
-                if _wrong_crs(remote, request.crs, getattr(layer.reader, "force_crs", False)):
+                if _wrong_crs(remote, request.crs, force_crs, warp):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
-                values = _read_window(remote, transform, (WINDOW_PX, WINDOW_PX))
+                values = _values_on(remote, request.crs, transform, (WINDOW_PX, WINDOW_PX), warp)
         if errors:
             raise RuntimeError(f"{name} not read completely: " + "; ".join(dict.fromkeys(errors)))
     except (RuntimeError, rio.errors.RasterioError):

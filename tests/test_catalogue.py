@@ -19,7 +19,7 @@ IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", 
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1970,6 +1970,74 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                       'credit': 'DSM 2015 2 m (Umhvørvisstovan, the Faroe Islands)',
                                       'shift': (0.0, 0.0)},
                               'nmpt': None},
+            'cyprus': {'crs': 'EPSG:6312',
+                       'countries': ('cy',),
+                       'bbox': None,
+                       'fallbacks': ['europe'],
+                       'grid_origin': (0.0, 0.0),
+                       'default_resolution': 1.0,
+                       'instead_without_data': None,
+                       'local_crs': 'utm_crs',
+                       'ortho': None,
+                       'credits': ['Elevation (INSPIRE) 2019 DTM 1 m / DSM 0.5 m (DLS, Cyprus)'],
+                       'nmt': {'class': 'FileBlocks',
+                               'description': 'DLS DTM 2019 1 m (terrain)',
+                               'folder': 'cyprus/dtm/2019',
+                               'prefix': None,
+                               'native_res': 1.0,
+                               'processing': 1,
+                               'ttl_days': None,
+                               'credit': 'Elevation (INSPIRE) 2019 DTM 1 m / DSM 0.5 m (DLS, Cyprus)',
+                               'shift': (0.0, 0.0),
+                               'warp': 'nearest',
+                               'ranged': False},
+                       'nmpt': {'class': 'FileBlocks',
+                                'description': 'DLS DSM 2019 0.5 m averaged to 1 m (trees, buildings)',
+                                'folder': 'cyprus/dsm/2019',
+                                'prefix': None,
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'Elevation (INSPIRE) 2019 DTM 1 m / DSM 0.5 m (DLS, Cyprus)',
+                                'shift': (0.0, 0.0),
+                                'warp': 'average',
+                                'ranged': False}},
+            'estonia': {'crs': 'EPSG:3301',
+                        'countries': ('ee',),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 1.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': 'estonia/ortho/live',
+                        'credits': ['Elevation data 2021-2024, DTM / DSM 1 m (Land and Spatial Development Board, '
+                                    'Estonia)'],
+                        'nmt': {'class': 'FileBlocks',
+                                'description': 'Maa- ja Ruumiamet DTM 1 m (terrain)',
+                                'folder': 'estonia/dtm-1m/20260409',
+                                'prefix': None,
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'Elevation data 2021-2024, DTM / DSM 1 m (Land and Spatial Development '
+                                          'Board, Estonia)',
+                                'shift': (0.0, 0.0),
+                                'warp': None,
+                                'ranged': True},
+                        'nmpt': {'class': 'MetricSheetTiles',
+                                 'description': 'Maa- ja Ruumiamet DSM 1 m (trees, buildings)',
+                                 'folder': 'estonia/dsm-1m/20260409',
+                                 'prefix': None,
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Elevation data 2021-2024, DTM / DSM 1 m (Land and Spatial Development '
+                                           'Board, Estonia)',
+                                 'shift': (0.0, 0.0),
+                                 'crs': 'EPSG:3301',
+                                 'tile_m': 1000,
+                                 'not_found': 'Map sheet not found'}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -2074,6 +2142,11 @@ def _layer(layer):
     if isinstance(layer, src.InegiSheets):
         info.update(mod=layer.index.mod, index_url=layer.index.index_url, url_prefix=layer.index.url_prefix,
                     cell=layer.index.cell, top=layer.index.top, sheet_ttl=layer.index.ttl_days)
+    if isinstance(layer, src.FileBlocks) and (layer.reader.warp is not None or layer.reader.ranged):
+        info.update(warp=layer.reader.warp.name if layer.reader.warp is not None else None,
+                    ranged=layer.reader.ranged)
+    if isinstance(layer, src.MetricSheetTiles):
+        info.update(crs=layer.crs, tile_m=layer.tile_m, not_found=layer.reader.not_found)
     return info
 
 
@@ -2228,6 +2301,10 @@ PATHS = [
     ("uruguay", "nmt", (70, 48), "uruguay/mdt250/2018/E18D5.tif", (70, 48)),
     ("mexico", "nmt", "inegi", "mexico/mde-lidar5m/t/2011_G14C15B2.tif", None),
     ("mexico", "nmpt", "inegi", "mexico/mde-lidar5m/s/2011_G14C15B2.tif", None),
+    ("cyprus", "nmt", (152, 299), "cyprus/dtm/2019/3_5/152_299.tif", (152, 299)),
+    ("cyprus", "nmpt", (238, 296), "cyprus/dsm/2019/4_5/238_296.tif", (238, 296)),
+    ("estonia", "nmt", (516, 5235), "estonia/dtm-1m/20260409/10_104/516_5235.tif", (516, 5235)),
+    ("estonia", "nmpt", (645, 6541), "estonia/dsm-1m/20260409/64_654/645_6541.tif", (645, 6541)),
 ]
 
 
@@ -2460,7 +2537,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("is", (63.2, 66.6, -24.6, -13.4)),
          ("au", (-39.20, -10.90, 114.10, 129.00)), ("au", (-39.20, -9.87, 129.00, 153.68)),
          ("uy", (-35.05, -30.08, -58.45, -53.10)),
-         ("fo", (61.38, 62.42, -7.72, -6.22))]
+         ("fo", (61.38, 62.42, -7.72, -6.22)),
+         ("cy", (34.55, 35.20, 32.25, 34.10)),
+         ("ee", (57.50, 59.70, 21.75, 28.25))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -2650,6 +2729,8 @@ ATTRIBUTIONS = {
                     "in part "
                     "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "
                     "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
+    "cyprus": "Department of Lands and Surveys, Cyprus (DLS), Elevation (INSPIRE) 2019, CC BY 4.0",
+    "estonia": "Elevation data 2021-2024: Republic of Estonia Land and Spatial Development Board",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
@@ -2685,6 +2766,8 @@ ORTHOS = {  # source: (attribution, attribution_url)
                    "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/"
                    "LatestStateProgram_AllUsers/ImageServer/info/iteminfo"),
     "svalbard": ("© Norwegian Polar Institute, CC BY 4.0", "https://www.npolar.no/"),
+    "estonia": ("Orthophoto: Republic of Estonia Land and Spatial Development Board {year}",
+                "https://geoportaal.maaruum.ee/opendata-licence"),
 }
 
 

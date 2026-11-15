@@ -3550,7 +3550,7 @@ RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://api.ellipsis-drive.com", "ht
                 "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapas.ide.uy", "https://mapsneu.wien.gv.at",
                 "https://mapy.geoportal.gov.pl", "https://opendata.lgln.niedersachsen.de", "https://owsproxy.lgl-bw.de",
                 "https://service.gdi-sh.de", "https://service.pdok.nl", "https://services.thelist.tas.gov.au",
-                "https://spatial-img.information.qld.gov.au", "https://storitve.eprostor.gov.si",
+                "https://spatial-img.information.qld.gov.au", "https://storitve.eprostor.gov.si", "https://tiles.maaamet.ee",
                 "https://wmts.geo.admin.ch", "https://wmts1.geoportail.lu", "https://www.gds-srv.hessen.de",
                 "https://www.geodaten-mv.de", "https://www.geodatenportal.sachsen-anhalt.de", "https://www.ign.es",
                 "https://www.wms.nrw.de", "https://zbgisws.skgeodesy.sk")

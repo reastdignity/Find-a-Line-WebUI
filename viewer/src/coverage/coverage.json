@@ -183,6 +183,19 @@
    "survey": "newest",
    "trees": "yes"
   },
+  "cy": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "DLS",
+   "res": [
+    1
+   ],
+   "source": "cyprus",
+   "survey": "2014–2019",
+   "trees": "yes"
+  },
   "cz": {
    "added": "2026-11-02",
    "level": 2,
@@ -384,6 +397,19 @@
    ],
    "source": "denmark",
    "survey": "",
+   "trees": "yes"
+  },
+  "ee": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Maa- ja Ruumiamet",
+   "res": [
+    1
+   ],
+   "source": "estonia",
+   "survey": "2021–2024",
    "trees": "yes"
   },
   "es": {
@@ -1098,7 +1124,7 @@
    "trees": "no"
   }
  },
- "countries": 27,
+ "countries": 29,
  "partly": {
   "de": [
    "de-bb",

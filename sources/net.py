@@ -147,6 +147,16 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # (its terms, https://www.inegi.org.mx/inegi/terminos.html, read 2026-11-15, ask for "buen uso del sitio ... y a no
     # causar daños en el mismo"; robots.txt allows /app and /contenidos/productos): courtesy, two at once
     "www.inegi.org.mx": 2,
+    # DLS's INSPIRE download folder (Cyprus' 2019 DTM and DSM tiles): no published limits (the dataset's page on
+    # data.gov.cy, https://www.data.gov.cy/el/dataset/ypsometria-inspire, and the folder, read 2026-11-15; DLS's
+    # e-service limits of 1 GB a day are of another channel); a slow server (about 0.8 MB/s): two at once
+    "eservices.dls.moi.gov.cy": 2,
+    # The Estonian geoportal's download address (the DTM and DSM sheets; Cloudflare): no limit in numbers; its guide
+    # to mass downloads (https://geoportaal.maaruum.ee/est/abi-ja-juhised/andmed/kuidas-on-voimalik-palju-
+    # kaardilehti-korraga-alla-laadida/86, updated 15.05.2026, read 2026-11-15) says "Piirangut kaardilehtede arvus
+    # ei ole" (no limit on the number of sheets), at one's own risk: courtesy, two at once (the catalogue uses this
+    # host only: geoportaal.maaamet.ee answers 302 to it)
+    "geoportaal.maaruum.ee": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
