@@ -282,14 +282,19 @@ def _read_xyz(url: str, profile: Dict) -> np.ndarray:
 
 def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     """A tile's member of a remote ZIP read again by the layer's Range reader (its inflating and CRC-32
-    check), then opened by GDAL's GTiff driver on the pixels of the cached tile, with the layer's floor
-    rule applied as the layer applies it (its 0 m patches would differ otherwise); GDAL's /vsizip/ is
-    not used: its requests would read the archive's directory outside sources.net."""
-    data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
-    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
-        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                       height=profile["height"], resampling=Resampling.nearest) as vrt:
-            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    check), taken by GDAL as the reader takes it (ZipMember.raster: the CRS named, the transform fixed, so
+    Bremerhaven's eastings without the zone; an XYZ member in columns with points missing in rows), then put on
+    the pixels of the cached tile (nearest), with the layer's floor rule applied as the layer applies it (its 0 m
+    patches would differ otherwise); GDAL's /vsizip/ is not used: its requests would read the archive's directory
+    outside sources.net."""
+    from rasterio.warp import reproject
+    where = f"{layer.description} tile {tile.godlo}"
+    data, _ = layer.reader._member(tile, where)
+    band, crs, transform = layer.reader.raster(data, where)
+    values = np.full((profile["height"], profile["width"]), np.nan, dtype=np.float32)
+    reproject(band, values, src_transform=transform, src_crs=crs or profile["crs"], src_nodata=np.nan,
+              dst_transform=profile["transform"], dst_crs=profile["crs"], dst_nodata=np.nan,
+              resampling=Resampling.nearest)
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
     return drop_below(values, layer.floor, layer.ring)
 

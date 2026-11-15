@@ -4,8 +4,10 @@ the ZIP directories of sources/indexes/zipdir.py share.
 
 The ZIP format is PKWARE's APPNOTE.TXT, version 6.3.10 (2022-11-01); the sections named below are its."""
 
+import contextlib
 import re
 import struct
+import threading
 import zlib
 from typing import Callable, Dict, NamedTuple, Optional, Tuple
 
@@ -37,6 +39,10 @@ HEADER_SLACK = 1024
 MEMBER_MAX = 64_000_000
 # The smallest range asked: never a single byte (a "Range: bytes=0-0" is not ours to send)
 RANGE_MIN = 2
+# GDAL's XYZ driver (3.12) reads points written in columns through a cache it keeps once per process: two such members
+# read at once by two threads evict each other's on every block, 46 s for the pair instead of 0.3 s each (Bremerhaven's
+# DGM1 474_5936, measured 2026-11-16; points in rows are read at once without it): they are read one at a time
+COLUMNS_LOCK = threading.Lock()
 
 
 class ArchiveChanged(RuntimeError):
@@ -123,6 +129,24 @@ def drop_below(band: np.ndarray, floor: Optional[float], ring: int = 0) -> np.nd
         low = ndimage.binary_dilation(low, structure=np.ones((2 * ring + 1, 2 * ring + 1), dtype=bool))
     band[low] = np.nan
     return band
+
+
+def xyz_in_columns(data: bytes) -> bool:
+    """Whether a member is XYZ text whose first two points share their x (written in columns, as Bremerhaven's);
+    False for anything else (a GeoTIFF, points in rows)."""
+    try:
+        head = data[:1024].decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    points = []
+    for line in head.splitlines()[:4]:
+        try:
+            values = [float(v) for v in line.split()]
+        except ValueError:
+            continue  # the header line
+        if len(values) == 3:
+            points.append(values)
+    return len(points) >= 2 and points[0][0] == points[1][0] and points[0][1] != points[1][1]
 
 
 def xyz_rows(data: bytes) -> Optional[bytes]:
@@ -271,18 +295,26 @@ class ZipMember(Reader):
         return data
 
     def _write(self, data: bytes, path: str, where: str):
+        band, crs, transform = self.raster(data, where)
+        drop_below(band, self.floor, self.ring)
+        _write_tile(path, band, crs, transform)
+
+    def raster(self, data: bytes, where: str):
+        """(band, crs, transform) of a member's bytes as its tile is written, before drop_below: the band float32
+        with NaN for no data, in crs's name if given, the transform fixed (TransformFix); an XYZ member GDAL refuses
+        is read again with its points in rows (xyz_rows); one in columns under COLUMNS_LOCK. tools/check_source.py
+        reads a member again through it."""
         try:
-            band, crs, transform = self._raster(data, where)
+            with COLUMNS_LOCK if xyz_in_columns(data) else contextlib.nullcontext():
+                return self._raster(data, where)
         except rio.errors.RasterioError as e:
             rows = xyz_rows(data)  # an XYZ member in columns with points missing: read again in rows
             if rows is None:
                 raise RuntimeError(f"{where}: not a raster ({e})") from None
             try:
-                band, crs, transform = self._raster(rows, where)
+                return self._raster(rows, where)
             except rio.errors.RasterioError as again:
                 raise RuntimeError(f"{where}: not a raster ({again})") from None
-        drop_below(band, self.floor, self.ring)
-        _write_tile(path, band, crs, transform)
 
     def _raster(self, data: bytes, where: str):
         """(band, crs, transform) of a member's bytes: float32, NaN for no data, the transform fixed."""

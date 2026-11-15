@@ -76,6 +76,32 @@ def test_a_member_in_columns_with_points_missing(http_server, tmp_path, gone, na
     assert transform_part == transform and np.allclose(z_part, expected, equal_nan=True)
 
 
+def test_members_in_columns_are_read_one_at_a_time(monkeypatch):
+    """GDAL keeps one cache per process for an XYZ file in columns: two read at once in two threads evict each
+    other's on every block (46 s for a pair of Bremerhaven's DGM1 members instead of 0.3 s each), so a member in
+    columns is read under zipmember.COLUMNS_LOCK; one in rows (Bremen's) and a GeoTIFF are not."""
+    from sources.readers import zipmember
+    entered = []
+
+    class Recorder:
+        def __enter__(self):
+            entered.append(1)
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(zipmember, "COLUMNS_LOCK", Recorder())
+    columns = _xyz(COLUMNS)
+    rows = _xyz([(465000 + i, 5896999 - j, 3.25) for j in range(3) for i in range(4)])
+    assert zipmember.xyz_in_columns(columns) and not zipmember.xyz_in_columns(rows)
+    assert not zipmember.xyz_in_columns(b"II*\x00\x08\x00\x00\x00") and not zipmember.xyz_in_columns(b"x y z\r\n")
+    reader = ZipMember("DOM1 (test)", crs="EPSG:25832", fix=ZONE)
+    band, _, _ = reader.raster(columns, "t")
+    assert entered == [1] and np.allclose(band, EXPECTED)
+    ZipMember("DGM1 (test)", crs="EPSG:25832").raster(rows, "t")
+    assert entered == [1]
+
+
 def test_not_a_raster_is_still_an_error(http_server, tmp_path):
     """Text that is no XYZ grid at all fails as before (no tile), also after the second reading."""
     name = "dom1_32474_5936_1_hb.xyz"
@@ -204,6 +230,36 @@ def test_a_tile_without_the_surface(http_server, tmp_path, monkeypatch):
         assert float(cached.read(1).max()) == 9.0
     assert os.path.relpath(bhv.nmpt.tile_path(cache_dir, tile), cache_dir).startswith(
         os.path.join("bremerhaven", "dom1-2015"))
+
+
+def test_check_source_reads_a_member_as_the_reader_does(http_server, tmp_path, monkeypatch):
+    """tools/check_source.py's file check reads each member again as the layer's reader takes it (the zone taken off
+    the eastings, the surface half a pixel off the terrain): Bremerhaven's cached tiles equal their members (PASS,
+    within LERC's bound); GDAL's own transform of the member (32 000 km east) would not."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    from grid import make_grid
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    bhv = src.SOURCES["bremerhaven"]
+    rng = np.random.default_rng(5)
+    dgm = [(32474000.5 + i, 5936999.5 - j, f"{rng.uniform(0, 9):.3f}") for i in range(30) for j in range(20)]
+    dom = [(32474000 + i, 5936980 + j, f"{rng.uniform(0, 30):.3f}") for i in range(31) for j in range(20)]
+    archives = {"dgm": ("Gitternetz_DGM1_2015_BHV/dgm1_32474__5936_1_hb.xyz", dgm),
+                "dom": ("Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz", dom)}
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((474002, 5936982, 474018, 5936998), 1.0, "EPSG:25832")
+    for kind, layer in (("dgm", bhv.nmt), ("dom", bhv.nmpt)):
+        name, points = archives[kind]
+        _serve(http_server, f"/{kind}.zip", _archive([(name, _xyz(points), zipfile.ZIP_DEFLATED, False)]))
+        url = http_server.url(f"/{kind}.zip")
+        monkeypatch.setattr(layer.listing, "urls", [url])
+        monkeypatch.setattr(layer.listing, "url", url)
+        layer.download(grid, cache_dir, None, kind)
+        check = cs.check_files(layer, grid, cache_dir, 2)
+        assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
+    monkeypatch.setattr(bhv.nmt.reader, "fix", None)  # the member as GDAL alone places it
+    assert cs.check_files(bhv.nmt, grid, cache_dir, 2)["status"] == cs.WARN
 
 
 def test_sources():
