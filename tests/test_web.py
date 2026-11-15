@@ -1538,7 +1538,7 @@ run({
       result.others = $$(".r-other").map((o) => o.textContent);
       $(".r-other input").click();
       wait(() => model().others.size === 1, () => {
-        result.otherLines = [...model().others.values()][0].lines.length;
+        result.otherLines = [...model().others.values()][0].count;
         result.xss = window.XSS || null;
         result.imgs = $$(".r-others img").length;
         button("Compare").click();
@@ -1547,7 +1547,7 @@ run({
     });
   },
   measure(next) {
-    const map = window.FINDALINE_MAP, l = model().lines[0];
+    const map = window.FINDALINE_MAP, l = model().lineAt(0);
     button("Measure").click();
     map.fire("click", {latlng: {lat: l.lat1, lng: l.lon1}});
     map.fire("click", {latlng: {lat: l.lat2, lng: l.lon2}});
@@ -1740,7 +1740,7 @@ run({
     button("Compare").click();
     wait(() => $(".r-other input"), () => {
       $(".r-other input").click();
-      wait(() => model().others.size === 1, () => { result.otherLines = [...model().others.values()][0].lines.length; next(); });
+      wait(() => model().others.size === 1, () => { result.otherLines = [...model().others.values()][0].count; next(); });
     });
   },
 });
@@ -1785,7 +1785,7 @@ step = "loading";
 wait(() => model() && rows().length > 0, () => {
   step = "end";
   result.seen = seen;
-  result.lines = model().lines.length;
+  result.lines = model().count;
   result.measures = performance.getEntriesByType("measure").filter((m) => m.name.startsWith("fal:run:"))
     .map((m) => [m.name, m.detail]);
   show();
@@ -2119,7 +2119,7 @@ RESULTS_SCRIPT = """
       later(() => { result.linked = !!model.selected && model.selected.line === target; next(); }, 500);
     },
     measure(next) {
-      const map = window.FINDALINE_MAP, l = window.FINDALINE_RESULT.model.lines[0];
+      const map = window.FINDALINE_MAP, l = window.FINDALINE_RESULT.model.lineAt(0);
       button("Measure").click();
       map.fire("click", {latlng: {lat: l.lat1, lng: l.lon1}});
       map.fire("click", {latlng: {lat: l.lat2, lng: l.lon2}});

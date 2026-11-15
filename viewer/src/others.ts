@@ -1,6 +1,6 @@
 // Other runs shown with the current one: their lines.js, colours and which are nearby.
 
-import type { Line, RunInfo, RunLines } from "./types";
+import type { RunInfo, RunLines } from "./types";
 
 export const NEARBY_KM = 20;
 // Colours of other runs (not the pink and orange of the current run)
@@ -45,10 +45,9 @@ export function listOthers(runs: RunInfo[], currentId: string, box: number[]): {
     .sort((a, b) => a.km - b.km);
 }
 
-/** Lines with coordinates in metres of a local plane around (lat0, lon0), for grouping
- * lines of runs computed in different coordinate systems together. */
-export function inLocalPlane(lines: Line[], lat0: number, lon0: number): Line[] {
+/** Coordinates in metres of a local plane around (lat0, lon0), for grouping lines of runs computed in different
+ * coordinate systems together (result/model.ts): x of a longitude, y of a latitude. */
+export function localPlane(lat0: number, lon0: number): {x(lon: number): number; y(lat: number): number} {
   const k = Math.PI / 180 * EARTH_RADIUS, c = Math.cos(lat0 * Math.PI / 180);
-  return lines.map((l) => ({...l, x1: (l.lon1 - lon0) * k * c, y1: (l.lat1 - lat0) * k,
-                            x2: (l.lon2 - lon0) * k * c, y2: (l.lat2 - lat0) * k}));
+  return {x: (lon) => (lon - lon0) * k * c, y: (lat) => (lat - lat0) * k};
 }

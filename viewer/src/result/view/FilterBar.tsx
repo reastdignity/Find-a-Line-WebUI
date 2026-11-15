@@ -151,10 +151,10 @@ function LiftFilter({model}: {model: ResultModel}) {
   const top = f.liftNoZone ? Math.max(r.lift, Math.ceil(r.noZone / LIFT_BIN) * LIFT_BIN) : Math.max(r.lift, LIFT_BIN);
   const bins = Math.min(16, Math.max(1, Math.ceil(top / LIFT_BIN))), binWidth = top / bins;
   const counts: number[] = new Array(bins).fill(0);
-  for (const l of model.lines) {  // bin k: (k, k + 1] bin widths, 0 in the first
+  model.forEachLine((l) => {  // bin k: (k, k + 1] bin widths, 0 in the first
     const need = liftNeed(l, f.liftNoZone);
     if (need !== null) counts[Math.min(bins - 1, Math.max(0, Math.ceil(need / binWidth - 1e-9) - 1))]++;
-  }
+  });
   const most = Math.max(1, ...counts);
   return <div class="r-more-sec r-lift">
     <h3>{t("ui.filter.rigging")}</h3>
@@ -167,7 +167,7 @@ function LiftFilter({model}: {model: ResultModel}) {
                                                  onChange={(e) => set(model, {liftNoZone: e.currentTarget.checked})} />
       {t("ui.filter.lift_no_zone")}</label>}
     <div class="u-small r-lift-count">{t("ui.filter.lift_count", {shown: model.liftCount(max, f.liftNoZone),
-                                                                   total: model.lines.length})}</div>
+                                                                   total: model.count})}</div>
     <div class="r-lift-bars" aria-hidden="true">{counts.map((c, k) =>
       <i class={k === 0 || k * binWidth < max - 1e-9 ? "r-on" : ""} style={{height: `${Math.round(c / most * 100)}%`}} />)}</div>
     <div class="r-lift-axis u-small" aria-hidden="true"><span>0</span>

@@ -7,19 +7,18 @@
 // user choose (onChoose). No popups, no controls, no DOM outside the map: the shell's panels show the rest.
 
 import L from "leaflet";
-import type { Group } from "../grouping";
 import { COLORS } from "../style";
 import type { Line } from "../types";
-import type { ResultModel } from "./model";
+import type { LineGroup, ResultModel } from "./model";
 
 export interface Padding { top: number; right: number; bottom: number; left: number }
 
 /** A line a click reached: `px` its distance from the click on the screen. */
-export interface Choice { line: Line; group: Group<Line>; variant: boolean; px: number }
+export interface Choice { line: Line; group: LineGroup; variant: boolean; px: number }
 
 export interface ResultMapOptions {
   /** A line (`variant`: a thin line of the selected group) was clicked; default: model.select(line). */
-  onLine?(line: Line, group: Group<Line>, variant: boolean): void;
+  onLine?(line: Line, group: LineGroup, variant: boolean): void;
   /** The mouse came to (a line) or left (null) the line a click would take. */
   onHover?(line: Line | null): void;
   /** Several spots lie about as near a click (`choices`: one line each, the nearest first; `at`: the click's
@@ -71,7 +70,7 @@ export class ResultMap {
   private mapHovered: Line | null = null;  // the line a click on the map would take
   // The lines a click can reach in the order they are drawn (the last one on top), and their ends in the
   // map's pixels at `projectedZoom` (x1, y1, x2, y2 each; panning keeps them)
-  private targets: {line: Line; group: Group<Line>; variant: boolean}[] = [];
+  private targets: {line: Line; group: LineGroup; variant: boolean}[] = [];
   private projected: Float64Array | null = null;
   private projectedZoom = NaN;
   private pressedBy = "";  // the pointer type of the last press on the map
@@ -128,7 +127,7 @@ export class ResultMap {
   }
 
   /** A line a click can take; drawn later, it is on top. */
-  private target(l: Line, g: Group<Line>, variant: boolean) {
+  private target(l: Line, g: LineGroup, variant: boolean) {
     this.targets.push({line: l, group: g, variant});
   }
 
@@ -152,7 +151,7 @@ export class ResultMap {
     });
     const opacity = selected ? DIM : 0.9;
     // Lines over trees/buildings first, so clear lines stay on top
-    const order = model.groups.filter((g) => g.rep.over).concat(model.groups.filter((g) => !g.rep.over));
+    const order = model.groups.filter((g) => g.over).concat(model.groups.filter((g) => !g.over));
     for (const g of order) {
       if (selected && g === selected.group) continue;
       const l = model.shownOf(g);
@@ -218,7 +217,7 @@ export class ResultMap {
    *  two as near, the one drawn later: it is on top). */
   near(at: L.LatLng, reach: number): Choice[] {
     const xy = this.ends(), p = this.map.project(at, this.projectedZoom);
-    const best = new Map<Group<Line>, Choice & {k: number}>();
+    const best = new Map<LineGroup, Choice & {k: number}>();
     for (let k = 0; k < this.targets.length; k++) {
       const px = segmentDistance(p.x, p.y, xy[4 * k], xy[4 * k + 1], xy[4 * k + 2], xy[4 * k + 3]);
       if (px > reach) continue;

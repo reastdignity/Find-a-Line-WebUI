@@ -9,10 +9,9 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Icon } from "../../ui/icons";
 import { useMedia } from "../../ui/components";
-import type { Group } from "../../grouping";
 import { formatValue, sortKey, SORT_KEYS, type SortKey } from "../../list";
 import type { Line } from "../../types";
-import type { ResultModel, Spot } from "../model";
+import { LineGroup, type ResultModel, type Spot } from "../model";
 import type { ResultMap } from "../ResultMap";
 import { cx, LineCells, TightKey, useModel } from "./common";
 import { isTight } from "../../tight";
@@ -89,8 +88,8 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
     model.setList({...list, sort: known.key, desc: list.sort === known.key ? !list.desc : known.desc});
   };
   /** A row: selects its spot, or unselects it when it is selected; a line of a spot: selects it as the spot's. */
-  const pick = (target: Group<Line> | Line) => {
-    if ("members" in target && selected?.group === target) { model.select(null); return; }
+  const pick = (target: LineGroup | Line) => {
+    if (target instanceof LineGroup && selected?.group === target) { model.select(null); return; }
     model.select(target);
     if (model.selected) onSelect?.(model.selected.line);
   };
@@ -103,9 +102,10 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
   // would stay highlighted
   useEffect(() => {
     const l = hovered.current;
-    if (l && !rows.slice(0, limit).some((r) => r.line === l || (r.members || []).includes(l))) hover(null);
+    const g = l && model.groupOf(l);
+    if (l && !rows.slice(0, limit).some((r) => r.line === l || r.group === g)) hover(null);
   });
-  const keys = (e: KeyboardEvent, target: Group<Line> | Line) => {
+  const keys = (e: KeyboardEvent, target: LineGroup | Line) => {
     const el = e.currentTarget as HTMLElement;
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(target); }
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -125,7 +125,8 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
   const cells = (l: Line) => <LineCells line={l} height={height} lift={model.liftOf(l)} />;
   const shownRows = rows.slice(0, limit);
   const unfoldedRow = shownRows.find((r) => unfolded === model.keyOf(r.group.rep) && r.n > 1);
-  const tight = shownRows.some((r) => isTight(r.line.clr)) || !!unfoldedRow?.members?.some((m) => isTight(m.clr));
+  const tight = shownRows.some((r) => isTight(r.line.clr))
+    || (!!unfoldedRow && model.membersOf(unfoldedRow.group).some((m) => isTight(m.clr)));
 
   return <div class="r-table" ref={listRef}>
     <div class="r-table-tools">

@@ -676,7 +676,7 @@ const out = {};
   favourites = [model.lineLink(model.groups.find((g) => g.members.length > 1).members[1])];
   model = new m.ResultModel(data, {favourites: true, api});  // its own lines
   await tick();
-  const fav = model.lines.find((l) => model.lineLink(l) === favourites[0]);
+  const fav = model.linkedLine(favourites[0]);
   const g0 = model.groupOf(fav);
   out.fav = {on: model.favouritesOn, shown: model.shownOf(g0) === fav, isFav: model.isFavourite(fav),
              asFav: model.shownAsFavourite(g0)};
@@ -708,7 +708,7 @@ const out = {};
     addFolder: async (name, parent) => { made.push([name, parent]); return 9; }};
   model = new m.ResultModel(data, {favourites: true, api: folderApi});
   await tick();
-  const inTrips = model.lines.find((l) => model.lineLink(l) === favourites[0]);
+  const inTrips = model.linkedLine(favourites[0]);
   const plain = model.groups.find((g) => !g.members.includes(inTrips)).rep;
   out.folders = {of: model.folderOf(inTrips), path: model.tree.path(5), plain: model.folderOf(plain) === undefined};
   const nine = await model.newFolder(" Later ", 5);
@@ -717,7 +717,7 @@ const out = {};
   out.folders.after = {made, changes, plain: model.folderOf(plain), trips: model.folderOf(inTrips),
                        path: model.tree.path(9)};
   // Profiles: saved ones as they are, others from the server
-  const noProfile = model.lines.find((l) => !l.prof);
+  const noProfile = Array.from({length: model.count}, (_, k) => model.lineAt(k)).find((l) => !l.prof);
   out.profile = noProfile ? (await model.profile(noProfile)).min[1] : null;
   out.notified = notified;
   console.log(JSON.stringify(out));
@@ -830,9 +830,10 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
                                     min: [5, 3], water_m: 0, filled_m: 0})};
 (async () => {
   const model = new m.ResultModel(data, {favourites: false, api, profiles: true});
-  out.pct = model.lines.map((l) => [l.pct1, l.pct2]);
+  const lines = (m) => Array.from({length: m.count}, (_, k) => m.lineAt(k));
+  out.pct = lines(model).map((l) => [l.pct1, l.pct2]);
   out.ranges = {elevHigh: model.ranges.elevHigh, pct: model.ranges.pct};
-  const elevMax = [...model.lines.map(upper)].sort((a, b) => a - b)[Math.floor(model.lines.length / 2)];
+  const elevMax = lines(model).map(upper).sort((a, b) => a - b)[Math.floor(model.count / 2)];
   model.setFilters({...m.NO_FILTERS, elevMax});
   out.elevMax = {value: elevMax, shown: model.shown.lines, uppers: model.groups.flatMap((g) => g.members.map(upper))};
   model.setFilters({...m.NO_FILTERS, pctMin: 30});
@@ -843,7 +844,9 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
   model.setFilters({...m.NO_FILTERS, pctMin: 30});
   model.addRun({id: "other", name: "Other", created: "2026-11-01T00:00:00+00:00", description: ""},
                {crs: data.crs, area: data.area, lines: data.lines.map((r) => r.slice(0, 25))});
-  out.withOther = {shown: model.shown.lines, otherPct: model.others.get("other").lines.map((l) => [l.pct1, l.pct2])};
+  const other = model.others.get("other");
+  out.withOther = {shown: model.shown.lines,
+                   otherPct: Array.from({length: other.count}, (_, k) => model.lineAt(other.start + k)).map((l) => [l.pct1, l.pct2])};
   // A measured line: its ends' ranks with the run's terrain, null without
   const measured = await model.measure([49, 19], [49.001, 19.001]);
   out.measured = [measured.pct1, measured.pct2];
@@ -854,11 +857,11 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
   const old = {...data};
   delete old.terrain;
   const oldModel = new m.ResultModel(old, {favourites: false, api});
-  out.old = {pct: oldModel.lines.map((l) => [l.pct1, l.pct2]), range: oldModel.ranges.pct};
+  out.old = {pct: lines(oldModel).map((l) => [l.pct1, l.pct2]), range: oldModel.ranges.pct};
   oldModel.setFilters({...m.NO_FILTERS, pctMin: 30, pctMax: 40});
   out.old.shown = oldModel.shown.lines;
   // The details of a line
-  const line = {...model.lines[0], pct1: 62, pct2: null};
+  const line = {...model.lineAt(0), pct1: 62, pct2: null};
   out.facts = m.lineFacts(line, 10).filter(([k]) => k.startsWith("Anchor ")).map(([, v]) => v);
   out.ordinals = [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 62, 100, 111, 0].map(m.ordinal);
   console.log(JSON.stringify(out));
@@ -916,6 +919,242 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
     assert out["facts"][1].endswith(f" · {rows[0][12]:.1f} m (percentile not known)")
     assert out["ordinals"] == ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "62nd",
                                "100th", "111th", "0th"]
+
+
+# Columns in the page (docs/line-volume/spec-store.md 1.2, store wave 1): the bundle of types, keys, filters, grouping
+# and the model, for the scripts below
+def _columns_bundle(tmp_path):
+    entry = tmp_path / "columns_entry.ts"
+    src = os.path.join(VIEWER, "src").replace("\\", "/")
+    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+                     f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
+                     f'export {{ passes, range, needClass, liftNeed, dh, lowerAnchor, upperAnchor, wallAngle, prominence, '
+                     f'drop }} from "{src}/filters";\n', encoding="utf-8")
+    bundle = tmp_path / "columns.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=VIEWER, check=True)
+    return bundle
+
+
+def _run_node(tmp_path, bundle, script: str, *args):
+    path = tmp_path / "columns-test.cjs"
+    path.write_text(f"const m = require({json.dumps(str(bundle))});\n{script}", encoding="utf-8")
+    result = subprocess.run(["node", str(path), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
+                            timeout=300)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+COLUMNS_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+// Every Line value from the columns is the very value of toLine of its row (Object.is: -0, NaN and null too), the
+// cursor reads the same, and keys.lineCoords gives the same key
+function compare(rows, terrain, ends) {
+  const cols = m.lineColumns(rows, terrain, ends), bad = [], cursor = new m.LineCursor(cols);
+  rows.forEach((row, i) => {
+    const want = m.toLine(row, undefined, terrain, ends), got = m.lineAt(cols, i);
+    if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(want))) bad.push([i, "keys"]);
+    cursor.i = i;
+    for (const k of Object.keys(want)) {
+      if (!Object.is(got[k], want[k])) bad.push([i, k, String(want[k]), String(got[k])]);
+      if (k !== "prof" && k !== "run" && !Object.is(cursor[k], want[k])) bad.push([i, "cursor " + k, String(want[k]), String(cursor[k])]);
+    }
+    if (m.lineCoords(got) !== m.lineCoords(want) || m.lineCoords(cursor) !== m.lineCoords(want)) bad.push([i, "coords"]);
+  });
+  const types = {};
+  for (const [k, v] of Object.entries(cols)) if (v && v.values) types[k] = v.values.constructor.name;
+  return {bad: bad.slice(0, 20), n: rows.length, length: cols.length, types};
+}
+const out = {clip: compare(data.lines, data.terrain, data.ends)};
+// Hard values: null, -0, NaN, Infinity, more decimals than map_rows writes, a value too large for 32 bits (the column
+// then holds doubles from that row on, the rows before read back as they were); rows of lines.js (no profile), with a
+// null profile, the end values named by "ends" in either order, the square rule's count
+const base = [50.1234567, 19.7654321, 50.2, -0.0000001, 1.5, 2.25, 3.125, 4, 120.5, 1.25, null, 330.12, 328.5, false,
+              0, 0, 15, 9.5, 20, 12, 30, 3.1, null, 30, null];
+const profile = {d: [0, 120.5], z: [330, 328.5], min: [60, 1.25], water_m: 0, filled_m: 0};
+const set = (row, k, v) => { const r = row.slice(); r[k] = v; return r; };
+const hard = [
+  base.concat([profile]), set(base, 10, -0).concat([null]), set(set(base, 10, 0), 17, NaN).concat([null]),
+  set(base, 19, NaN).concat([profile]), set(set(base, 21, -0), 23, 0).concat([null]), set(base, 10, 2.5).concat([null]),
+  set(base, 11, 330.123).concat([null]), set(base, 14, 1e12).concat([null]), set(base, 17, Infinity).concat([null]),
+  set(base, 0, 50.12345678).concat([null]), set(base, 10, -0).concat([null]), set(base, 22, NaN).concat([null]),
+  set(base, 13, true).concat([profile]), set(base, 18, 100).concat([null]), set(base, 24, -12.5).concat([null]),
+];
+out.hard = compare(hard, null, ["lift_needed", "lift_no_zone"]);
+const terrain = {mean: 330, km2: 1, quantiles: Array.from({length: 101}, (_, p) => 320 + p / 5)};
+const ended = [base.concat([0.75, 3.5, profile]), base.concat([0, -0, null]), base.concat([null, 1.5]), base.concat([1.25, 2.5, 37]),
+               base.concat([0.5]), base, base.concat([profile])];
+out.ends = compare(ended, terrain, ["lift_needed", "lift_no_zone"]);
+out.swapped = compare(ended, terrain, ["lift_no_zone", "lift_needed"]);
+out.counted = compare([base.concat([37, profile]), base.concat([37]), base.concat([0.75, 3.5, 1, null]), base.concat([profile])],
+                      null, ["lift_needed", "lift_no_zone", "stands_for"]);
+out.alone = compare([base.concat([37, profile]), base.concat([1])], null, ["stands_for"]);
+out.empty = compare([], null, undefined);
+// The integer columns narrow to what holds the values; the grouping's values stay doubles
+const narrow = m.lineColumns([set(base, 18, 100).concat([null]), set(base, 18, 0).concat([null])], null, []);
+out.narrow = {highPct: narrow.highPct.values.constructor.name, e1: narrow.e1.values.constructor.name,
+              len: narrow.len.values.constructor.name, lat1: narrow.lat1.values.constructor.name};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_columns_give_the_rows_values(tmp_path, clip_data):
+    """types.ts lineColumns / lineAt / LineCursor: every value of every line of the clip's run, and of rows with the
+    hard values (null, -0, NaN, Infinity, more decimals, a value too large for an integer column, rows with and without
+    a profile, the end values named in either order, the square rule's count), reads back from the columns as toLine
+    reads it from the row (Object.is), and keys.lineCoords (the favourites' and links' key) is the same."""
+    text, data = clip_data
+    data_path = tmp_path / "data.json"
+    data_path.write_text(text, encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), COLUMNS_SCRIPT, data_path)
+    for case in ("clip", "hard", "ends", "swapped", "counted", "alone", "empty"):
+        assert out[case]["bad"] == [], (case, out[case]["bad"])
+    assert out["clip"]["n"] == out["clip"]["length"] == len(data["lines"]) > 100
+    assert out["empty"]["length"] == 0
+    types = out["clip"]["types"]
+    for name in ("x1", "y1", "x2", "y2", "len", "clr", "hmax"):  # values used for grouping: unrounded
+        assert types[name] == "Float64Array", name
+    assert types["lat1"] == types["lon2"] == "Int32Array" and types["highPct"] in ("Int16Array", "Int8Array")
+    assert out["hard"]["types"]["e1"] == out["hard"]["types"]["water"] == out["hard"]["types"]["lat1"] == "Float64Array"
+    assert out["narrow"] == {"highPct": "Int16Array", "e1": "Int32Array", "len": "Float64Array", "lat1": "Int32Array"}
+
+
+MODEL_COLUMNS_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const out = {made: [model.madeLines, model.groups.length, model.count, model.data.columns.length]};
+// The reference: today's way, a Line object of every row, filtered and grouped as objects
+const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
+const key = (l) => m.lineCoords(l);
+const mid = (f) => { const v = objects.map(f).filter((x) => x !== null && !Number.isNaN(x)).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+const cases = {
+  none: {}, lenMin: {lenMin: mid((l) => l.len)}, lenMax: {lenMax: mid((l) => l.len)}, clrMin: {clrMin: mid((l) => l.clr)},
+  clrNMin: {clrNMin: mid((l) => l.clrN)}, dhMax: {dhMax: mid(m.dh)}, elevMin: {elevMin: mid(m.lowerAnchor)},
+  elevMax: {elevMax: mid(m.upperAnchor)}, pctMin: {pctMin: 30}, pctMax: {pctMax: 70}, heightMin: {heightMin: mid((l) => l.hmax)},
+  meanMin: {meanMin: mid((l) => l.hmean)}, highPctMin: {highPctMin: mid((l) => l.highPct)}, angleMax: {angleMax: mid(m.wallAngle)},
+  promMin: {promMin: mid((l) => m.prominence(l, Math.max))}, promBothMin: {promBothMin: mid((l) => m.prominence(l, Math.min))},
+  dropMin: {dropMin: mid(m.drop)}, water: {water: "water"}, land: {water: "land"}, hideFilled: {hideFilled: true},
+  liftMax: {liftMax: 1}, liftNoZone: {liftMax: 1, liftNoZone: true}, hideNeedLift: {hideNeedLift: true},
+  hideNeedNone: {hideNeedNone: true, hideNeedZone: true}, groupMin: {groupMin: 3},
+};
+out.cases = {};
+for (const [name, set] of Object.entries(cases)) {
+  const f = {...m.NO_FILTERS, ...set};
+  model.setFilters(f);
+  const passing = objects.filter((l) => m.passes(l, f, data.lift));
+  let groups = m.groupLines(passing, data.distance, data.by);
+  if (f.groupMin !== null) groups = groups.filter((g) => g.members.length >= f.groupMin);
+  const want = {shown: {spots: groups.length, lines: groups.reduce((n, g) => n + g.members.length, 0)},
+                groups: groups.map((g) => [key(g.rep)].concat(g.members.map(key)))};
+  const got = {shown: model.shown, groups: model.groups.map((g) => [key(g.rep)].concat(g.members.map(key)))};
+  out.cases[name] = {same: JSON.stringify(got) === JSON.stringify(want), lines: got.shown.lines, total: objects.length};
+}
+model.setFilters({...m.NO_FILTERS});
+// Ungrouped: every line its own spot, clear ones first, in their order
+model.setState({...model.state, group: false});
+const ungrouped = objects.filter((l) => !l.over).concat(objects.filter((l) => l.over)).map(key);
+out.ungrouped = JSON.stringify(model.baseRows.map((r) => key(r.line))) === JSON.stringify(ungrouped);
+model.setState({...model.state, group: true});
+// The filters' ranges, the rigging classes and the A-frame counts against the objects'
+const r = (f) => m.range(objects, f), both = (a, b) => a && b ? {min: Math.min(a.min, b.min), max: Math.max(a.max, b.max)} : a || b;
+const finite = (v) => isFinite(v) ? v : null;
+const want = {len: r((l) => l.len), clr: r((l) => l.clr), clrN: r((l) => l.clrN), dh: r(m.dh), elev: r(m.lowerAnchor),
+              elevHigh: r(m.upperAnchor), pct: both(r((l) => l.pct1), r((l) => l.pct2)), hmax: r((l) => l.hmax),
+              hmean: r((l) => l.hmean), highPct: r((l) => l.highPct), angle: r(m.wallAngle),
+              prom: r((l) => finite(m.prominence(l, Math.max))), drop: r((l) => finite(m.drop(l))),
+              water: objects.some((l) => l.water > 0), filled: objects.some((l) => l.filled > 0)};
+const got = Object.fromEntries(Object.keys(want).map((k) => [k, model.ranges[k]]));
+out.ranges = {same: JSON.stringify(got) === JSON.stringify(want), got};
+const needs = [0, 0, 0];
+objects.forEach((l) => { const k = m.needClass(l); if (k !== null) needs[k]++; });
+out.needs = [model.needCounts(), needs];
+out.liftCount = [[model.liftCount(1, false), model.liftCount(0.5, true)],
+                 [objects.filter((l) => { const v = m.liftNeed(l, false); return v === null || v <= 1 + 1e-9; }).length,
+                  objects.filter((l) => { const v = m.liftNeed(l, true); return v === null || v <= 0.5 + 1e-9; }).length]];
+out.liftRange = model.ranges.lift;
+out.found = [model.count, model.total, model.nClean + model.nOver];
+console.log(JSON.stringify(out));
+"""
+
+
+def test_model_from_columns_as_from_rows(tmp_path, clip_data):
+    """result/model.ts on columns against today's way (a Line of every row, filtered by filters.passes and grouped by
+    groupLines as objects) on the clip's run with the end values and the square rule's count added: the same spots
+    with the same lines (keys.lineCoords) and the same counts for every filter, without grouping, the same ranges,
+    rigging classes and A-frame counts; a Line is made only for each spot's shown line when the model is built."""
+    text, data = clip_data
+    rng = random.Random(3)
+    lines = []
+    for row in data["lines"]:  # A-frame heights (with the zone at most without it) and a count before the profile
+        needed = rng.choice([0, 0, 0.5, 1.25, 3.0])
+        lines.append(row[:-1] + [needed, needed + rng.choice([0, 0, 1.5]), rng.randint(1, 40), row[-1]])
+    run = {**data, "end_zone": 5, "lift": 2, "square": 5, "found": sum(r[-2] for r in lines),
+           "ends": ["lift_needed", "lift_no_zone", "stands_for"], "lines": lines}
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(run), encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), MODEL_COLUMNS_SCRIPT, data_path)
+    made, spots, count, columns = out["made"]
+    assert made == spots < count == columns == len(lines)
+    for name, case in out["cases"].items():
+        assert case["same"], name
+    assert out["cases"]["none"]["lines"] == len(lines)
+    trivial = {name: c["lines"] for name, c in out["cases"].items() if not 0 < c["lines"] < len(lines)}
+    # the clip has no water, no filled gaps, no terrain statistics, and its median less prominent anchor is 0 m (all pass)
+    assert set(trivial) <= {"none", "water", "land", "hideFilled", "pctMin", "pctMax", "promBothMin"}, trivial
+    assert out["ungrouped"] is True
+    assert out["ranges"]["same"], out["ranges"]["got"]
+    assert out["needs"][0] == out["needs"][1] and sum(out["needs"][0]) == len(lines)
+    assert out["liftCount"][0] == out["liftCount"][1]
+    assert out["liftRange"] == {"lift": 2, "zone": 5, "needed": 3.0, "noZone": 4.5}
+    assert out["found"] == [len(lines), len(lines), len(lines)]
+
+
+TOO_LARGE_SCRIPT = r"""
+// result/load.ts over http with a fake XMLHttpRequest and document: what a body makes of the load
+globalThis.window = globalThis;
+globalThis.location = {protocol: "http:"};
+const made = [];
+globalThis.document = {querySelector: () => null, head: {appendChild(s) {
+  made.push(s.src);  // a script: data.js as the script would set it
+  setTimeout(() => { window.FINDALINE_RUN = {run: {id: "nan"}, lines: [[1, 2]]}; s.onload(); });
+}}, createElement: () => ({remove() {}})};
+let answer = {body: "", loaded: 0};
+globalThis.XMLHttpRequest = class {
+  static HEADERS_RECEIVED = 2;
+  open() {} setRequestHeader() {} getResponseHeader() { return null; }
+  send() { setTimeout(() => { this.status = 200; this.response = answer.body; this.onload({loaded: answer.loaded}); }); }
+};
+(async () => {
+  const out = {};
+  answer = {body: "", loaded: 600e6};  // Chromium: the text of a body over its string limit is ""
+  const e = await m.loadRun("big").then(() => null, (e) => e);
+  out.big = {name: e && e.name, message: e && e.message, tooLarge: e instanceof m.TooLarge, scripts: made.length};
+  answer = {body: 'window.FINDALINE_RUN = {"run":{"id":"ok"},"lines":[[1,2],[3,4]]};\n', loaded: 60};
+  const ok = await m.loadRun("ok");
+  out.ok = {columns: ok.columns.length, lines: "lines" in ok, scripts: made.length};
+  answer = {body: 'window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n', loaded: 40};  // JSON.parse refuses: the script
+  const nan = await m.loadRun("nan");
+  out.nan = {columns: nan.columns.length, scripts: made.length, cleared: window.FINDALINE_RUN === undefined};
+  out.words = [m.tooLarge("", 1), m.tooLarge("", 0), m.tooLarge("x", 1)];
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_too_large_body(tmp_path):
+    """result/load.ts: over http a body that arrives empty although its bytes came (Chromium's string limit) fails the
+    load with TooLarge, whose message is the catalogue's text the page shows, and starts no script; a body JSON.parse
+    reads gives the columns without the rows; one it refuses (NaN) is still loaded as a script, into columns."""
+    found = run_ts(tmp_path, "result/load", TOO_LARGE_SCRIPT)
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        text = json.load(f)["ui.result.too_large"]
+    assert text == "This result is too large for this browser."
+    assert found["big"] == {"name": "TooLarge", "message": text, "tooLarge": True, "scripts": 0}
+    assert found["ok"] == {"columns": 2, "lines": False, "scripts": 0}
+    assert found["nan"] == {"columns": 1, "scripts": 1, "cleared": True}
+    assert found["words"] == [True, False, False]
 
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
