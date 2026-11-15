@@ -170,10 +170,12 @@ MIGRATIONS = [
     # the form changed, so a sag request of before without one gets the 3 m it was made with ("search again",
     # a job still waiting, the form's edit); formula requests stay as they are (the formula never reads it)
     lambda db: _sag_fall_zone(db),
-    # 18: a user's saved rigs (the Basic search form's; NULL: the local app's user): the name, casefolded as
-    # name_key (once per user), and the seven values of params.RIG_FIELDS (JSON); no times
-    """CREATE TABLE rigs (id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT NOT NULL, name_key TEXT NOT NULL,
-                          rig TEXT NOT NULL);
+    # 18: a user's saved rigs (the Basic search form's; NULL: the local app's user): the name, its key (rig_key:
+    # composed and casefolded, once per user), and the seven values of params.RIG_FIELDS (JSON); no times. The id
+    # is never given again (AUTOINCREMENT): a browser that keeps a deleted rig's id as the rig in use must not
+    # find another rig under it
+    """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
+                          name_key TEXT NOT NULL, rig TEXT NOT NULL);
        CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)

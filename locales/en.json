@@ -249,6 +249,7 @@
   "basic.value_default": "default",
   "basic.value_yes": "yes",
   "basic.value_no": "no",
+  "basic.value_off": "off",
   "basic.receipt.lengths": "{{min}}–{{max}} m",
   "basic.receipt.anchors": "anchors within {{value}} m of height",
   "basic.receipt.trees_mark": "trees marked",
@@ -324,7 +325,7 @@
   "rig.error.copy_taken": "Give the copy a new name: “{{name}}” is taken.",
 
   "hint.presets.label": "Lines to look for",
-  "hint.presets.help": "A start set for the line length and the anchor height difference. Change the values after you select one.",
+  "hint.presets.help": "A start set for the lines: the length, the anchor height difference and the goal's other limits, such as the height above the ground, the drop below the anchors or the trees. Change the values after you select one.",
   "hint.length.label": "Line length",
   "hint.length.help": "The distance between the anchors. Use the range of lines that you will rig. A narrow range gives a faster search and a clearer map.",
   "hint.area_name.label": "Name of the area",
@@ -481,6 +482,7 @@
   "error.rigs_max": "You can keep {{max}} rigs. Delete one first.",
   "error.rig_name": "Give the rig a name of 1 to {{max}} characters.",
   "error.rig_name_taken": "You already have a rig of that name.",
+  "error.rig_missing": "This rig no longer exists.",
 
   "intro.dont_show": "Do not show again",
   "intro.got_it": "Got it",
@@ -515,7 +517,7 @@
   "intro.search.example_long": "<b>A long line?</b> Do not set 30–2000 m. Set <b>{{length}}</b> 1000–2000 m and <b>{{diff}}</b> 100 m: long lines seldom have anchors at the same height.",
   "intro.search.example_needle": "<b>A highline on a rock needle or tower?</b> Set <b>{{length}}</b> 15–60 m, <b>{{prom}}</b> 15 m and <b>{{span}}</b> 40 m. Only anchors on rock that stands out stay.",
   "intro.search.example_exposure": "<b>Big exposure over a valley?</b> Set <b>{{height}}</b> 80 m and <b>{{share}}</b> 70 % (<b>{{highAbove}}</b> 20 m). Lines that are high only in the middle are removed.",
-  "intro.search.example_sea": "<b>Lines straight out from a sea cliff?</b> Use <b>{{cliffs}}</b> → <b>{{coast}}</b>, set <b>{{angle}}</b> 30° and <b>{{drop}}</b> 30 m. The lines leave the wall over the drop, not along it.",
+  "intro.search.example_sea": "<b>Lines from a sea cliff over the water?</b> Choose <b>{{sea}}</b>: it searches <b>{{cliffs}}</b> → <b>{{coast}}</b> and sets <b>{{drop}}</b> 30 m, so the lines leave the cliff over the water.",
   "intro.search.example_forest": "<b>A first highline in a forest area?</b> Choose <b>{{preset}}</b>: it sets <b>{{nmpt}}</b> to <b>{{reject}}</b>. Only lines clear of the trees stay.",
 
   "intro.result.title": "How to read the result",

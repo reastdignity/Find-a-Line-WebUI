@@ -1398,7 +1398,7 @@ def test_rigs(run_people, tmp_path):
     made = a.post("/api/rigs", json={"name": "  Gozo   heavy ", "values": RIG})
     assert made.status_code == 200, made.text
     first = made.json()["id"]
-    light = {**RIG, "end_zone": 0, "anchor_lift": 2.5}
+    light = {**RIG, "end_zone": 0, "anchor_lift": 2}
     second = a.post("/api/rigs", json={"name": "Light", "values": light}).json()["id"]
     assert a.get("/api/rigs").json() == {"rigs": [{"id": first, "name": "Gozo heavy", "values": RIG},
                                                   {"id": second, "name": "Light", "values": light}],
@@ -1420,6 +1420,17 @@ def test_rigs(run_people, tmp_path):
                                                                             if k != "fall_zone"}):
         assert a.post("/api/rigs", json={"name": "Odd", "values": values}).status_code == 400, values
     assert a.post("/api/rigs", json=["Odd", RIG]).status_code == 422  # (FastAPI's: the body is no object)
+    # Within SearchParams' bounds but beyond the site's limits of a limited user (5 m, 2 m): refused as the search
+    # refuses it, so no saved rig blocks every Basic search; a user without limits keeps SearchParams' bounds
+    for values, words in (({**RIG, "end_zone": 10}, "No-fall zone at the ends: at most 5 m on this site."),
+                          ({**RIG, "anchor_lift": 2.5}, "A-frame height: at most 2 m on this site.")):
+        beyond = a.post("/api/rigs", json={"name": "Big", "values": values})
+        assert beyond.status_code == 400 and beyond.json()["detail"]["code"] == "at_most", beyond.text
+        assert beyond.json()["detail"]["message"] == words
+        assert a.post(f"/api/rigs/{first}", json={"values": values}).json()["detail"]["code"] == "at_most"
+    big = run_people["unlimited"].post("/api/rigs", json={"name": "Big", "values": {**RIG, "end_zone": 10,
+                                                                                     "anchor_lift": 3}})
+    assert big.status_code == 200, big.text
 
     change = lambda client, rig, body: client.post(f"/api/rigs/{rig}", json=body)  # noqa: E731
     assert change(a, second, {"name": "light"}).status_code == 200  # its own name in another case
@@ -1430,9 +1441,12 @@ def test_rigs(run_people, tmp_path):
     assert change(a, first, {"name": "LIGHT"}).json()["detail"]["code"] == "rig_name_taken"
     assert change(a, first, {}).status_code == 400 and change(a, first, {"values": {**RIG, "end_zone": -1}}).status_code == 400
     assert change(a, first, {"name": "x\x00"}).status_code == 400
+    missing = {"message": "This rig no longer exists.", "code": "rig_missing", "params": {}}
     for client, rig in ((b, first), (a, 999), (a, 2 ** 70)):
-        assert change(client, rig, {"name": "Mine"}).status_code == 404, rig
-        assert client.delete(f"/api/rigs/{rig}").status_code == 404, rig
+        answer = change(client, rig, {"name": "Mine"})
+        assert answer.status_code == 404 and answer.json()["detail"] == missing, rig
+        gone = client.delete(f"/api/rigs/{rig}")
+        assert gone.status_code == 404 and gone.json()["detail"] == missing, rig
     assert change(a, "x", {"name": "Mine"}).status_code == 422
     assert run_people["anonymous"].get("/api/rigs").status_code == 401
     assert run_people["anonymous"].post("/api/rigs", json={"name": "X", "values": RIG}).status_code == 401
@@ -1468,6 +1482,11 @@ def test_local_rigs(tmp_path, settings, account_settings, providers):
         rig = local.post("/api/rigs", json={"name": "My rig", "values": RIG}).json()["id"]
         assert local.get("/api/rigs").json() == {"rigs": [{"id": rig, "name": "My rig", "values": RIG}], "max": 10}
         assert local.post(f"/api/rigs/{rig}", json={"name": "Mine"}).status_code == 200
+        # The local app has no limits: SearchParams' bounds (0-20 m, 0-3 m)
+        assert local.post(f"/api/rigs/{rig}", json={"values": {**RIG, "end_zone": 10, "anchor_lift": 3}}).status_code == 200
+        wide = local.post(f"/api/rigs/{rig}", json={"values": {**RIG, "end_zone": 21}})
+        assert wide.status_code == 400 and wide.json()["detail"]["code"] == "end_zone_range"
+        assert local.post(f"/api/rigs/{rig}", json={"values": RIG}).status_code == 200
     _public_app(tmp_path, settings, account_settings, providers)  # adopts the runs, favourites and rigs
     admin = ac.Accounts(str(tmp_path), account_settings).first_admin()
     from jobs import Jobs
@@ -2077,6 +2096,20 @@ def test_rig_names_composed_and_decomposed(tmp_path):
         jobs.change_rig(None, other, jb.rig_name(unicodedata.normalize("NFD", "łódź rig")))
     jobs.change_rig(None, first, jb.rig_name(unicodedata.normalize("NFD", "ŁÓDŹ rig")))  # its own name, recased
     assert [r["name"] for r in jobs.rigs(None)] == ["ŁÓDŹ rig", "Other"]
+
+
+def test_a_deleted_rigs_id_is_never_given_again(tmp_path):
+    """A deleted rig's id (the highest one) is not given to the next rig of anyone (AUTOINCREMENT): a browser that
+    keeps it as the rig in use (findaline.rig) falls back to the first rig instead of finding another one."""
+    import jobs as jb
+    jobs = jb.Jobs(str(tmp_path))
+    first = jobs.add_rig(None, "A", RIG)
+    second = jobs.add_rig(None, "B", RIG)
+    jobs.delete_rig(None, second)
+    third = jobs.add_rig(None, "C", RIG)
+    other = jobs.add_rig(4, "D", RIG)
+    assert first < second < third < other, (first, second, third, other)
+    assert [r["id"] for r in jobs.rigs(None)] == [first, third]
 
 
 def test_adopt_runs_gives_rigs(tmp_path):

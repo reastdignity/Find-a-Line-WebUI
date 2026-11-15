@@ -227,6 +227,17 @@ def presets(limits: Optional[Limits] = None) -> List[Dict]:
     return answer
 
 
+def rig_within(values: Dict, limits: Optional[Limits] = None):
+    """A saved rig's values (params.check_rig's) within a user's bounds of the search (None: none): a rig beyond
+    them would be refused in every Basic search, so it is refused when it is saved, with the search's own codes and
+    words (Limits.outside: "at_most", "at_least")."""
+    import sources as src
+    for name, value in values.items():
+        problems = limits.outside(name, value, src.MIN_RESOLUTION) if limits else []
+        if problems:
+            raise problems[0]
+
+
 def check_request(request: Dict, limits: Optional[Limits] = None, hidden_sources=()) -> Dict:
     """Refuse what the web must not set, values over `limits` (None: no limits) and the sources of
     `hidden_sources`; returns the request with known keys only."""
@@ -1667,13 +1678,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.post("/api/rigs")
     def add_rig(body: Dict, user: ac.User = Depends(current_user)):
-        """A new rig: {"name", "values": the seven of params.RIG_FIELDS}; its id. At most jobs.RIGS_MAX
-        (409 "rigs_max"); a name the user has (compared casefolded) is 400 "rig_name_taken"."""
+        """A new rig: {"name", "values": the seven of params.RIG_FIELDS, within the user's bounds of the search};
+        its id. At most jobs.RIGS_MAX (409 "rigs_max"); a name the user has (compared casefolded) is 400
+        "rig_name_taken"."""
         try:
             if not isinstance(body, dict):
                 raise ValueError("name and values")
             name = jb.rig_name(body.get("name"))
             values = pm.check_rig(body.get("values"))
+            rig_within(values, user_limits(user))
             rig = jobs.add_rig(user.id, name, values)
         except QuotaExceeded as e:  # a ValueError too
             refused(user, "rigs", str(e), e.status)
@@ -1685,15 +1698,18 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.post("/api/rigs/{rig}")
     def change_rig(rig: int, body: Dict, user: ac.User = Depends(current_user)):
-        """Rename an own rig ({"name"}) and/or change its values ({"values": all seven})."""
+        """Rename an own rig ({"name"}) and/or change its values ({"values": all seven}, within the user's bounds of
+        the search); a rig that is not the user's (or gone) is 404 "rig_missing"."""
         if not isinstance(body, dict) or not ({"name", "values"} & body.keys()):
             raise HTTPException(400, "name and/or values")
         try:
             name = jb.rig_name(body["name"]) if "name" in body else None
             values = pm.check_rig(body["values"]) if "values" in body else None
+            if values is not None:
+                rig_within(values, user_limits(user))
             jobs.change_rig(user.id, rig, name, values)
         except KeyError:
-            raise HTTPException(404, "no such rig")
+            raise HTTPException(404, error_detail(messages.UserError.web("rig_missing")))
         except ValueError as e:
             raise HTTPException(400, error_detail(e))
         record("rig", user, str(rig), {"do": "change"})
@@ -1701,11 +1717,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.delete("/api/rigs/{rig}")
     def delete_rig(rig: int, user: ac.User = Depends(current_user)):
-        """Delete an own rig."""
+        """Delete an own rig (404 "rig_missing" for one not the user's, or gone)."""
         try:
             jobs.delete_rig(user.id, rig)
         except KeyError:
-            raise HTTPException(404, "no such rig")
+            raise HTTPException(404, error_detail(messages.UserError.web("rig_missing")))
         record("rig", user, str(rig), {"do": "delete"})
         return {"ok": True}
 

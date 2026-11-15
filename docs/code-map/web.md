@@ -16,9 +16,11 @@ token a map's changes need, a map being a static page; POST marks or unmarks one
 by `FavouriteLine` (`lift_needed`/`lift_no_zone` optional, `OPTIONAL`: null dropped), `/favourites/folder` moves one;
 `/api/favourites`: all of them in runs the user may open, with the user's folders; `/api/favourites/folders`: make,
 rename/move (POST `/<id>`), delete with what is in it; audit `favourite`, `favourite_folder`), the saved rigs of
-the Basic form (`/api/rigs`: GET the user's with `max`, POST makes one (`jobs.rig_name`, `params.check_rig`); POST
-`/<id>` renames and/or changes it, DELETE; another's 404, the 11th `rigs_max` (409); audit `rig` with `do` only, no
-name or value), the admin tab's
+the Basic form (`/api/rigs`: GET the user's with `max`, POST makes one (`jobs.rig_name`, `params.check_rig`, and
+`rig_within`: the user's bounds of the search, `at_most`/`at_least` as the search refuses, so a saved rig never blocks
+every Basic search; the local app without limits keeps SearchParams' bounds); POST `/<id>` renames and/or changes it,
+DELETE; another's or a gone rig 404 `rig_missing`, the 11th `rigs_max` (409); audit `rig` with `do` only, no name or
+value), the admin tab's
 `/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; the Admin page is
 `viewer/src/app/c/AdminC.tsx` (public site only), the OSM extracts `app/c/OsmC.tsx` (locally and for administrators)),
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
