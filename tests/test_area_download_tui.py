@@ -118,8 +118,8 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
             "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
-            "group-asia": "Asia (1)"}   # no Africa: no row there yet
-        assert len(app.area_rows()) == 72
+            "group-asia": "Asia (3)", "group-asia-japan": "Japan (2)"}   # no Africa: no row there yet
+        assert len(app.area_rows()) == 74
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]

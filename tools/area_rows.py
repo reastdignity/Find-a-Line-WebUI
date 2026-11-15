@@ -66,14 +66,15 @@ COUNTRIES = {
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
     "us": "United States", "vi": "U.S. Virgin Islands",
     "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands",
-    "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil"}
+    "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil", "jp": "Japan"}
 # A territory's row sits under its country in the window (its title and continent stay its own). Empty: every code is a
 # country of its own.
 PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi"}
 # Where a region lies when that is not its country's continent: its outline in shapes.json has none (a region's has
 # none today; one that has wins). The Canary Islands, Madeira, Svalbard and Jan Mayen stay European by convention.
 REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf": "South America",
-                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America"}
+                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America",
+                     "jp-13": "Asia", "jp-22": "Asia"}
 WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
 
 

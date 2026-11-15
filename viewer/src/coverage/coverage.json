@@ -838,6 +838,40 @@
    "survey": "2014",
    "trees": "yes"
   },
+  "jp-13": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Tokyo Metropolitan Government",
+   "res": [
+    1
+   ],
+   "source": "tokyo",
+   "survey": "2022–2023",
+   "trees": "no"
+  },
+  "jp-22": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "Shizuoka Prefecture",
+   "res": [
+    1
+   ],
+   "source": "shizuoka",
+   "survey": "2019–2025",
+   "trees": "no"
+  },
   "li": {
    "added": "2026-10-26",
    "level": 1,
@@ -1242,7 +1276,7 @@
    "trees": "no"
   }
  },
- "countries": 31,
+ "countries": 32,
  "partly": {
   "de": [
    "de-bb",
@@ -1264,6 +1298,10 @@
    "gb-nir",
    "gb-sct",
    "gb-wls"
+  ],
+  "jp": [
+   "jp-13",
+   "jp-22"
   ],
   "pt": [
    "pt-30"
