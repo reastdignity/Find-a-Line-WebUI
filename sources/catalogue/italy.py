@@ -308,8 +308,9 @@ SOURCES: List[Source] = [
         nmt=_tos_layer("dtm", "DTM 1 m (terrain)"), nmpt=_tos_layer("dsm", "DSM 1 m (trees, buildings)"),
         countries=("it",), regions=("it-52",), crs="EPSG:3003", credits=(TOS_RT_CREDIT, TOS_MATTM_CREDIT),
         # The lidar covers about two thirds of the region: the rest and its gaps from TINITALY, what that leaves
-        # (the sea, beyond Italy) from FABDEM / Copernicus
-        fallback="tinitaly", more_fallbacks=("europe",),
+        # (the sea, beyond Italy) from Copernicus GLO-30, never FABDEM: the Ministry's sheets are CC BY-SA, FABDEM
+        # CC BY-NC-SA (as Queensland's are kept apart from it)
+        fallback="tinitaly", more_fallbacks=("copernicus",),
         listing=ReadmeRow("Tuscany (IT)", "Regione Toscana / MATTM lidar DTM 2004-2017, 1 m (some 2 m; the rest "
                                           "TINITALY 10 m)", "Regione Toscana / MATTM lidar DSM, 1 m",
                           "– (no open orthophoto service)"),
