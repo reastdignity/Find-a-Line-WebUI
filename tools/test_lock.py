@@ -913,7 +913,13 @@ class Queue:
 
 
 def _memory() -> Optional[tuple]:
-    """(available, total) bytes of the PC's memory; None without psutil (the RAM guard is off)."""
+    """(available, total) bytes of the PC's memory; None without psutil (the RAM guard is off).
+    FINDALINE_TEST_MEMORY="AVAILABLE/TOTAL" in GiB stands in for the PC's, so a test runs the guard
+    on the same machine everywhere (as FINDALINE_TEST_SLOTS the slots)."""
+    simulated = os.environ.get("FINDALINE_TEST_MEMORY")
+    if simulated:
+        available, total = (int(float(part) * GB) for part in simulated.split("/"))
+        return available, total
     if psutil is None:
         return None
     try:
