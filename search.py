@@ -97,14 +97,14 @@ PIXEL_BYTES = 50
 # task, part 5.1; docs/performance.md, "The memory constant"): full searches of 0.7-3.5 million lines, one at a time
 # on this PC, the process tree sampled every 0.2 s, 7 cores and a compute slot's tiles. The peak is step 5, while
 # saving's children write the text files: they memory-map the same hand-over files (about 220 B a line), so the
-# working sets summed count those pages once per child (595 MB + 1 063 B a line, as part P4's 1 082 B), a container
-# once. Counted as the unique sets of the processes (USS) plus the hand-over files once: 399 MB + 440 B a line
-# without the square rule (438-470 B a line between runs), 649-762 B a kept line with it (its kept lines carry a
-# larger hand-over and more representatives' profiles per line), so 900 B. The store (linestore.write, after the
-# children) moves no peak. With the square rule step 3 holds the reducer's rows: 181-287 B a row measured, at most
-# 1.27 rows a kept line, below a kept line's cost. The fixed part (the process, its imports: about 0.4 GB) is not in
-# memory_needed. Before, by the traced heap of one process (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at
-# most 389 B a line, so 450
+# working sets summed count those pages once per child (595 MiB + 1 063 B a line, as part P4's 1 082 B), a container
+# once (inferred, not measured on Linux). Counted as the unique sets of the processes (USS) plus the hand-over files
+# once (tools/perf_slot_memory.py): 399 MiB + 440 B a line without the square rule (438-470 B a line between runs),
+# 649-762 B a kept line with it (its kept lines carry a larger hand-over and more representatives' profiles per line),
+# so 900 B. The store (linestore.write, after the children) moves no peak. With the square rule step 3 holds the
+# reducer's rows: 181-287 B a row measured, at most 1.275 rows a kept line, below a kept line's cost. The fixed part
+# (the process, its imports: about 0.4 GB) is not in memory_needed. Before, by the traced heap of one process
+# (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450
 LINE_BYTES = 900
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
@@ -637,8 +637,9 @@ def cgroup_limits(root: Optional[str] = None) -> CgroupLimits:
 
 def memory_needed(pixels: float, lines: float, profile_points: float = 0) -> float:
     """Bytes a search needs for grids of this many pixels, this many lines and profiles of this
-    many points in all (the peak of step 4 of a tile: its grids, its lines and those of the
-    tiles done already; a circle's profiles of every line)."""
+    many points in all: a tile's grids (steps 1-3), its lines and those of the tiles done already
+    at their process tree's peak (step 5's saving, LINE_BYTES), a circle's profiles of every line.
+    The process itself (its imports, about 0.4 GB) is not counted."""
     return pixels * PIXEL_BYTES + lines * LINE_BYTES + profile_points * PROFILE_POINT_BYTES
 
 

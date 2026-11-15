@@ -126,8 +126,10 @@ columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the 
 through `perf_profile.py` in a child process with hooks (the stages, `saving.save`, `saving.hand_over` and its
 folder's size, `linestore.write`, the plan's pixels, the square rule's `peak_rows`), the tree sampled every 0.2 s
 (working sets, private bytes, `--uss` unique sets, the machine's used memory); the peaks and where they fell, and
-the unique sets plus the hand-over files once; `--cores`, `--memory`, `--worker` for a compute slot's shape;
-`tests/test_perf_slot_memory.py`);
+the unique sets plus the hand-over files once (the larger of its value at the working sets' peak and its largest);
+`--cores`, `--memory`, `--worker` for a compute slot's shape (the search's own plan only); a refusal as its code, a
+missing record or run as a warning; `tests/test_perf_slot_memory.py`, which also pins `perf_country.py`'s copy of
+`LINE_BYTES`);
 `perf_profile.py --tracemalloc` the heap per stage; `perf_window_reads.py` (the bytes, requests, seconds and memory of
 a window layer's blocks over a circle on an empty scratch cache, each mode in a child process: `blocks`, `group=<m>`,
 `serial=0|1`, `order=squares|tasks`, `cache=<MB>`, `multirange=`, `gdalthreads=`; GDAL's network statistics through

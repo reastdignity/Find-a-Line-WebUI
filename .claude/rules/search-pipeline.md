@@ -69,7 +69,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `settings.Limits.grid_mpx_max`'s description name its value.
 - The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of a search's process tree with a margin,
   counted as the processes' unique sets (USS) plus saving's hand-over files once (its children map the same files, so
-  their working sets summed count those pages once per child; a container counts them once): docs/performance.md "The
+  their working sets summed count those pages once per child; a container once: inferred): docs/performance.md "The
   memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line with it, so 900 B; the
   peak at step 5's children; measured with `tools/perf_slot_memory.py --cores 7 --memory <a slot's bytes> --uss`, full
   searches of 0.7-3.5 million lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per
@@ -147,8 +147,8 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
 ## Verifying changes
 
 - Speed or memory changes: measure before and after with the tools of docs/performance.md (`tools/perf_profile.py`,
-  also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_lines_memory.py` for the bytes per
-  line, `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
+  also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_slot_memory.py` for
+  `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
   `lines.geojson` up to its `"findaline"` part, `lines.js` and `data.js` from their `"lines":[` (the run's id and time
   differ; `lines.js` names its run before that). A tiled area only with a fixed `--tile-size`: the tiles follow the
   free memory, which moves lines between tiles and reorders `data.js`. The web worker runs each phase in a daemonic
