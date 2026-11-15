@@ -243,17 +243,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
     r1 = min(grid.height, int(math.ceil((grid.top - bottom) / grid.res)))
     if r0 >= r1 or c0 >= c1:
         return False
-    src_res = abs(src.res[0]) * (111320 if src_crs.is_geographic else 1)
-    if categorical:
-        resampling = Resampling.nearest
-    elif method is not None:
-        resampling = RESAMPLINGS[method]
-    elif src_res < grid.res * FINER:
-        resampling = Resampling.average
-    elif same is not None and src_res <= grid.res * SAME:
-        resampling = RESAMPLINGS[same]
-    else:
-        resampling = Resampling.bilinear
+    resampling = _resampling(src_pixel_m(src, src_crs, grid), grid.res, categorical, method, same)
     if rows is None or r1 - r0 <= rows:
         # Read only the part of the raster under the grid (plus a margin for resampling)
         values = _warp(src, src_crs, grid, moved, shift, clean, (r0, r1, c0, c1), grid.bounds, resampling)
@@ -266,6 +256,39 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
         values = _warp(src, src_crs, grid, moved, shift, clean, (s0, s1, c0, c1), bounds, resampling)
         gave = _put(mosaic[s0:s1, c0:c1], values, categorical, _first_here(written, (s0, s1, c0, c1)), count) or gave
     return gave
+
+
+def src_pixel_m(src, src_crs, grid: Grid) -> float:
+    """A raster's pixel in metres, for the choice of its resampling (_resampling): its CRS's units; degrees as
+    111 320 m (a degree of latitude: a degree of longitude is less, by the cosine of the latitude, which is not
+    applied, so a geographic raster counts coarser than it is east-west; existing results rest on it); Web Mercator's
+    metres (EPSG:3857: Esri's elevation tiles, LercTiles) times the cosine of the grid centre's latitude, their size
+    on the ground (at 55° N a 1.19 m pixel is 0.68 m: averaged onto a 1 m grid, not interpolated)."""
+    size = abs(src.res[0])
+    if src_crs.is_geographic:
+        return size * 111320
+    if src_crs.to_epsg() == 3857:
+        from rasterio.warp import transform
+        left, bottom, right, top = grid.bounds
+        (_,), (lat,) = transform(grid.crs, "EPSG:4326", [(left + right) / 2], [(bottom + top) / 2])
+        return size * math.cos(math.radians(lat))
+    return size
+
+
+def _resampling(src_m: float, grid_res: float, categorical: bool = False, method: Optional[str] = None,
+                same: Optional[str] = None) -> Resampling:
+    """How a raster of pixels of src_m metres is reprojected onto a grid of grid_res (build_mosaic: nearest for a
+    categorical one, the asked method, average when finer than FINER of the grid's, `same` at about the grid's,
+    bilinear otherwise)."""
+    if categorical:
+        return Resampling.nearest
+    if method is not None:
+        return RESAMPLINGS[method]
+    if src_m < grid_res * FINER:
+        return Resampling.average
+    if same is not None and src_m <= grid_res * SAME:
+        return RESAMPLINGS[same]
+    return Resampling.bilinear
 
 
 def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], clean: bool,

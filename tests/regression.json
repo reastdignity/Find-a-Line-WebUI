@@ -1954,6 +1954,60 @@
     "seconds": 1.9,
     "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
   },
+  "R74": {
+    "place": "Fair Head, County Antrim (GB-NIR): its dolerite columns of about 100 m over the boulder field, DAERA's 2021 coastal lidar DTM from its Esri elevation tile cache (LERC1 tiles of level 17 in Web Mercator) reprojected onto Irish Transverse Mercator",
+    "args": "--lat 55.2240 --lon -6.1570 --radius 600 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "gb"
+    ],
+    "expected": {
+      "anchors": 43425,
+      "open": 6363,
+      "checked": 13198,
+      "lines": 2522,
+      "spots": 31,
+      "csv_sha256": "28eed4b7cedbf0991a551358db3996bfc8f1b7b25f9ab756e953fce33c7a2b0a",
+      "length_km": 254.81,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.785,
+      "clearance_max": 8.66,
+      "over_trees": 0,
+      "coverage": 32.1,
+      "empty_tiles": 57,
+      "filled_km2": 1.1,
+      "filled_from": "OSNI 10 m DTM (Northern Ireland)",
+      "sea_km2": 1.34
+    },
+    "seconds": 213.3,
+    "notes": "added 2026-11-15: --source auto picks northern_ireland (GB-NIR; the coastal DTM's cells hold data at the centre); LERC1 tiles of level 17 (0.68 m on the ground), only those within a cell of the cells mask asked, the rest of the grid's box never asked; 57 tiles without data (the sea and inland beyond the survey's strip of about 200 m: coverage 32.1 %), 1.10 km² of land filled from OSNI's 10 m DTM (the plateau inland and the boulder field's gaps; FABDEM before 2026-11-15; no line over them); the spots along the crag's rim, 55.2207-55.2264 N, 6.1617-6.1498 W, anchors at 120-158 m; about 200 s on an empty cache at the rate of 54 tiles a minute; re-baselined 2026-11-15: an EPSG:3857 tile now resampled by its ground size (0.68 m at 55° N: averaged onto the 1 m grid, was bilinear); re-baselined again 2026-11-15: the gaps from OSNI's 10 m DTM (northern_ireland_10m) instead of FABDEM (43 425 anchors, the same 2 522 lines and 31 spots, other heights in lines.csv)"
+  },
+  "R75": {
+    "place": "Pão de Açúcar and Morro da Urca, Rio de Janeiro (BR): their granite domes of about 220-390 m, Instituto Pereira Passos' 5 m lidar DTM from its Esri elevation tile cache (LERC1 tiles of level 15) reprojected onto SIRGAS 2000 / UTM 23S",
+    "args": "--lat -22.9505 --lon -43.1600 --radius 900 --min-length 30 --max-length 400",
+    "sets": [
+      "sources",
+      "br"
+    ],
+    "expected": {
+      "anchors": 9402,
+      "open": 7201,
+      "checked": 5683,
+      "lines": 536,
+      "spots": 34,
+      "csv_sha256": "8038025d5cc15da7e1416b02ce4a3257dc383a1b70ce097e2d2b9f227df18a98",
+      "length_km": 111.966,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.645,
+      "clearance_max": 15.49,
+      "over_trees": 0,
+      "coverage": 60.93,
+      "empty_tiles": 0,
+      "sea_km2": 3.22
+    },
+    "seconds": 32.0,
+    "notes": "added 2026-11-15: --source auto picks rio_de_janeiro (BR, inside the city's box, the cells mask holds data); LERC1 tiles of level 15 (4.40 m on the ground), 0 without data; the sea is outside the survey (no data) and filled as sea (3.22 km²); the spots on Pão de Açúcar's western face (190-330 m) and across the bowl of Morro da Urca's northern flank (95-140 m)"
+  },
   "R76": {
     "place": "El Potrero Chico, Hidalgo, Nuevo León (MX): the limestone walls of the canyon's entrance, INEGI's 5 m lidar terrain and surface models (2007) from the sheets of G14C15, Mexico ITRF92 / UTM 14N",
     "args": "--lat 25.9500 --lon -100.4730 --radius 1000 --min-length 30 --max-length 400",
@@ -2118,5 +2172,30 @@
       "empty_tiles": 0
     },
     "seconds": 6.6
+  },
+  "R82": {
+    "place": "Binevenagh, County Londonderry (GB-NIR): its basalt escarpment of about 100 m over Magilligan, OSNI's Open Data 10 m DTM (interpolated from the Enhanced DTM 2014-2016) from members of OpenDataNI's sheet archives read by Range, Irish Grid (TM75)",
+    "args": "--lat 55.1100 --lon -6.9150 --radius 1000 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "gb"
+    ],
+    "expected": {
+      "anchors": 225,
+      "open": 215,
+      "checked": 163,
+      "lines": 8,
+      "spots": 6,
+      "csv_sha256": "34a7c18fc21d7199e82e7c9710c9694773a1f03578e7d4d14657c8ca0bb00101",
+      "length_km": 1.417,
+      "clearance_min": 0.06,
+      "clearance_mean": 0.979,
+      "clearance_max": 1.59,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 11.0,
+    "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
   }
 }

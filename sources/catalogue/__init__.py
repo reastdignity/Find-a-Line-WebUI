@@ -19,6 +19,7 @@ from . import mexico
 from . import cyprus
 from . import estonia
 from . import portugal
+from . import brazil
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
@@ -30,8 +31,8 @@ from . import portugal
 # North Rhine-Westphalia's and Lower Saxony's offline boxes hold the eastern Netherlands, its own keep clear
 # of German land; the Faroe Islands anywhere before the global ones; Mexico before the USA: the usa's offline box
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
-# (Madeira) before Spain: Spain's offline box holds Madeira
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, world)
+# (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -56,4 +57,4 @@ AREA_NAMES: Dict[str, str] = {
     "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon", "au": "Australia", "uy": "Uruguay",
     "nl": "Nederland", "nl-bq1": "Bonaire, Nederland", "nl-bq2": "Saba, Nederland", "nl-bq3": "Sint Eustatius, Nederland",
     "fo": "Føroyar", "mx": "México", "cy": "Κύπρος", "ee": "Eesti", "pt-30": "Madeira, Portugal",
-    "it-23": "Valle d'Aosta"}
+    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil"}

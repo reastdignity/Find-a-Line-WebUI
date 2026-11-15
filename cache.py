@@ -275,12 +275,23 @@ def http_headers() -> Dict[str, str]:
 
 
 def clean_url(url: Optional[str]) -> Optional[str]:
-    """The URL without API keys: the values of key and token parameters, and the values of the
-    service keys wherever they are (settings.redact)."""
+    """The URL without API keys: the values of key and token parameters, of a signed URL's parameters (_unsigned:
+    AWS signature version 4's X-Amz-*, Cloudflare R2's signed downloads), and the values of the service keys
+    wherever they are (settings.redact)."""
     if not url:
         return url
     from settings import redact
-    return redact(re.sub(r"((?:api_?key|key|token)=)[^&]+", r"\1...", url, flags=re.I))
+    return redact(_unsigned(re.sub(r"((?:api_?key|key|token)=)[^&]+", r"\1...", url, flags=re.I)))
+
+
+# A signed URL's parameters (AWS signature version 4: X-Amz-Credential, X-Amz-Signature, X-Amz-Security-Token and
+# the other X-Amz-*; the older Signature=), also URL-encoded once (%3D for =)
+SIGNED_PARAMETER = re.compile(r"((?:X-Amz-[A-Za-z-]+|Signature)(?:=|%3D))[^&\s'\"()<>]+", re.I)
+
+
+def _unsigned(text: str) -> str:
+    """text with the values of signed URLs' parameters masked."""
+    return SIGNED_PARAMETER.sub(r"\1...", text)
 
 
 def clean_error(error) -> str:
@@ -292,7 +303,7 @@ def clean_error(error) -> str:
     the service keys are masked wherever they are (settings.redact: a server may echo one).
     """
     from settings import redact
-    return redact(re.sub(r"\?[^\s'\"()<>?]*=[^\s'\"()<>]*", "?...", str(error)))
+    return redact(_unsigned(re.sub(r"\?[^\s'\"()<>?]*=[^\s'\"()<>]*", "?...", str(error))))
 
 
 def _split(cache_dir: str, path: str):

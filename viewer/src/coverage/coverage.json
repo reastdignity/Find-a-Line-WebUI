@@ -106,6 +106,29 @@
    "survey": "",
    "trees": "no"
   },
+  "br": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "smoothed"
+    },
+    {
+     "code": "city_only"
+    }
+   ],
+   "partial": false,
+   "provider": "Instituto Pereira Passos",
+   "res": [
+    5
+   ],
+   "source": "rio_de_janeiro",
+   "survey": "2019",
+   "trees": "no"
+  },
   "ca": {
    "added": "2026-11-02",
    "level": 1,
@@ -572,6 +595,27 @@
    "source": "england",
    "survey": "2000–2022",
    "trees": "yes"
+  },
+  "gb-nir": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "DAERA",
+   "res": [
+    1,
+    10
+   ],
+   "source": "northern_ireland",
+   "survey": "2021",
+   "trees": "no"
   },
   "gb-sct": {
    "added": "2026-11-02",
@@ -1198,7 +1242,7 @@
    "trees": "no"
   }
  },
- "countries": 30,
+ "countries": 31,
  "partly": {
   "de": [
    "de-bb",
@@ -1217,6 +1261,7 @@
   ],
   "gb": [
    "gb-eng",
+   "gb-nir",
    "gb-sct",
    "gb-wls"
   ],

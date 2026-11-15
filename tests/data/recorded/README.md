@@ -31,3 +31,19 @@ England, Lower Saxony, Saxony-Anhalt, South Tyrol and Trentino (mountains, fores
 recorded once on 2026-11-01 for the offline tests of the regions of `--source auto` (`tests/test_regions.py`):
 each row the query, the time and the answer as `osm.reverse` stored it. Data © OpenStreetMap contributors,
 [ODbL 1.0](https://osm.org/copyright).
+
+`lerc/`: tiles of two Esri elevation tile caches as they answered on 2026-11-15 (`<level>_<row>_<col>.lerc`, the
+bodies of `<service>/tile/<level>/<row>/<col>`, LERC1 blobs of 257 x 257 samples), for `tests/test_lerc_tiles.py`:
+`northern-ireland/` four tiles of level 17 of DAERA's `Full_NI_Elevation` (Fair Head, its east and south neighbours,
+and a tile of the sea without a valid sample, 70 bytes; DAERA, Bluesky, [OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/)),
+`rio-de-janeiro/` four tiles of level 15 of IPP's 5 m DTM (Pão de Açúcar, its east and south neighbours, and a tile
+off Barra da Tijuca with the sea's artefacts down to -348 m; Instituto Pereira Passos (PCRJ),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). `expected.json`: what each decoded to then (valid samples,
+valid zeros, minimum, maximum, a few samples).
+
+`zipsheets/osni-dtm10/`: OSNI's Open Data 10 m DTM of Northern Ireland as OpenDataNI served it on 2026-11-15, for
+`tests/test_zipsheets.py`: `directories.json`, the central directories of the six sheet archives (each member's name,
+method, flags, CRC-32, compressed and uncompressed sizes and local header's offset, as
+`sources/indexes/zipdir.py` read them by Range), and `Sheet011av2.txt.gz`, one member read whole (a beach west of
+sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
+[OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
