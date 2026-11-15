@@ -2,8 +2,10 @@
 mirrors in tmp_path with rclone's local backend standing in for the server (an alias remote of a folder: the root
 of the remote is the server's <root>). Skipped where rclone is not installed (FINDALINE_RCLONE or PATH)."""
 
+import contextlib
 import datetime
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -28,7 +30,8 @@ REAL_CALL = mp.Rclone._call  # rclone itself, before any test's patch
 REMOTE = "mirrorfixture"  # the remote's name: no line of the tool's output may hold it
 # The fixture datasets: the real dataset names (their rows, cards and catalogue sources are used), tiny tiles
 DATASETS = {
-    "slovakia": {f"{p}/{r}": [(1, 2), (-3, 4), (12, 2)] for p in ("dmr5", "dmp1") for r in ("1m", "2m", "5m")},
+    "slovakia": {f"{p}/{r}": [(1, 2), (-3, 4), (12, 2), (-301, -631)]
+                 for p in ("dmr5", "dmp1") for r in ("1m", "2m", "5m")},
     "madeira": {"dtm/2m": [(143, 1833), (144, 1833), (150, 1840)]},
     "aosta": {"dtm/2m": [(176, 2518), (177, 2519)]},
 }
@@ -80,7 +83,13 @@ def world(tmp_path, monkeypatch):
     w.tmp, w.mirror, w.server, w.files, w.config = tmp_path, mirror, server, files, str(config)
 
     def run(*args):
-        return mp.main([*args, "--config", w.config])
+        """The tool in this process; every line it prints checked by _clean_output, then printed again (capsys)."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = mp.main([*args, "--config", w.config])
+        _clean_output(out.getvalue(), w)
+        sys.stdout.write(out.getvalue())
+        return code
     w.run = run
     w.to = f"{REMOTE}:"
     return w
@@ -155,7 +164,45 @@ def test_slovakia_with_its_averaged_folders(world, capsys):
     listing = json.loads((world.server / "public" / "v1" / "datasets.json").read_text(encoding="utf-8"))
     paths = [p["path"] for p in listing["datasets"][0]["products"]]
     assert sorted(paths) == sorted(f"slovakia/{f}" for f in DATASETS["slovakia"])
-    _clean_output(capsys.readouterr().out, world)
+    capsys.readouterr()
+    # the server's copy verified remotely: Slovakia's tile numbers are negative (S-JTSK), so are the SUM's paths
+    assert world.run("verify", f"{REMOTE}:public/v1/tiles/slovakia") == 0
+    tiles = sum(1 for p in world.files["slovakia"] if p.endswith(".tif"))
+    assert f"{tiles} tiles checked, 0 faults" in capsys.readouterr().out
+    target = world.server / "public" / "v1" / "tiles" / "slovakia" / "dmr5" / "5m" / "-31_-64" / "-301_-631.tif"
+    data = bytearray(target.read_bytes())
+    data[0] ^= 1
+    target.write_bytes(bytes(data))
+    assert world.run("verify", f"{REMOTE}:public/v1/tiles/slovakia") == 1
+    assert "dmr5/5m/-31_-64/-301_-631.tif: sha256 differs from its index" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("mode", ["nothing moved", "part moved"])
+def test_a_move_checked_wrong_stops_with_the_lock(world, monkeypatch, capsys, mode):
+    """Step 4's check: a moveto that reports success but moved nothing, or only part, stops the tool with the lock
+    kept and says where the complete copy is."""
+    staging = world.server / "staging" / "madeira"
+    public = world.server / "public" / "v1" / "tiles" / "madeira"
+
+    def call(self, argv, data, progress):
+        if "moveto" in argv and argv[-2].endswith("staging/madeira"):
+            if mode == "part moved":
+                some = sorted(p for p in staging.rglob("*.tif"))[:1]
+                for p in some:
+                    to = public / p.relative_to(staging)
+                    to.parent.mkdir(parents=True, exist_ok=True)
+                    p.replace(to)
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+        return REAL_CALL(self, argv, data, progress)
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert world.run("publish", "madeira", "--to", world.to, "--mirror", str(world.mirror)) == 1
+    out = capsys.readouterr().out
+    assert "stopped:" in out and "the lock staging/.lock is kept" in out
+    assert (world.server / "staging" / ".lock").exists()
+    if mode == "nothing moved":
+        assert "the complete copy is in staging/madeira" in out
+    else:
+        assert "the complete copy is in neither" in out
 
 
 def _nothing_written(world):
@@ -429,6 +476,8 @@ def test_stats_prints_no_address(world, capsys):
          "lim": "rate", "v": "1.4.0"},
         {"t": "2026-11-15T10:00:03Z", "s": 404, "b": 150, "rt": 0.0, "ds": "198.51.100.10", "a": "198.51.100.10",
          "lim": "-", "v": "<script>198.51.100.11"},
+        {"t": "2026-11-15T10:00:04Z", "s": 200, "b": 10, "rt": 0.0, "ds": "-", "a": "198.51.100.12",
+         "lim": "-", "v": "198.51.100.12"},
     ]
     text = "\n".join(json.dumps(line) for line in lines) + "\nnot json from 192.0.2.44\n"
     (logs / "access-2026-11-15.log").write_text(text, encoding="utf-8")

@@ -86,6 +86,7 @@ LOG_FILE = re.compile(r"^access-(\d{4}-\d{2}-\d{2})\.log$")
 # What the server's log may hold in its free fields (a visitor sends them); anything else counts as "other"
 SAFE = {"ds": re.compile(r"^(-|[a-z0-9_-]{1,64})$"), "lim": re.compile(r"^[a-z0-9_-]{1,32}$"),
         "v": re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")}
+ADDRESS_LIKE = re.compile(r"\d+\.\d+\.\d+\.\d+")  # four dotted numbers: maybe an IPv4 address, never printed
 # rclone's own detection never adds sha256 (it tries md5 and sha1 only): the remote names it by hand
 NO_SHA256 = ("the remote reports no sha256 among its hashes: set in the remote's section of the rclone config "
              "`shell_type = unix`, `hashes = sha256` and `sha256sum_command = sha256sum` (the server's shell must "
@@ -586,13 +587,23 @@ def _to_trash(remote: Remote, dataset: str):
     """public/v1/tiles/<dataset> moved to trash/<dataset>-<UTC>, checked."""
     source, trash = f"{TILES}/{dataset}", f"{TRASH}/{dataset}-{_stamp()}"
     before = remote.listing(source) or {}
-    remote.move(source, trash)
-    after = remote.listing(trash) or {}
-    if remote.exists(source) or len(after) != len(before):
-        raise Failed(f"after the move {source} still exists or {trash} holds {len(after)} of {len(before)} files: "
-                     f"the dataset's complete copy is {'in ' + trash if len(after) == len(before) else 'unclear'}",
-                     keep_lock=True)
-    print(f"  {source} moved to {trash} ({len(after)} files)", flush=True)
+    checked_move(remote, source, trash, set(before))
+
+
+def checked_move(remote: Remote, source: str, target: str, expected: set):
+    """source renamed to target (Remote.move), then checked: source gone, target holding exactly the expected files
+    (a move that fell back to copying, or stopped in the middle, shows here). Failed with the lock kept otherwise,
+    naming where the complete copy is."""
+    remote.move(source, target)
+    left, after = remote.listing(source), remote.listing(target) or {}
+    if left is None and set(after) == expected:
+        print(f"  {source} moved to {target} ({len(after)} files)", flush=True)
+        return
+    where = (target if set(after) == expected else source if left is not None and set(left) == expected
+             else f"neither ({source}: {len(left or {})} files, {target}: {len(after)} of {len(expected)})")
+    raise Failed(f"after the move from {source} to {target} the source is {'left' if left is not None else 'gone'} "
+                 f"and the target holds {len(after)} of {len(expected)} files: the complete copy is in {where}",
+                 keep_lock=True)
 
 
 def write_datasets(remote: Remote) -> Dict:
@@ -707,13 +718,7 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         target = f"{TILES}/{dataset}"
         if published:
             _to_trash(remote, dataset)
-        remote.move(staging, target)
-        after = remote.listing(target) or {}
-        if remote.exists(staging) or set(after) != set(sums):
-            raise Failed(f"after the move {staging} still exists or {target} holds {len(after)} of {len(sums)} "
-                         f"files: the complete copy is {'in ' + target if set(after) == set(sums) else 'unclear'}",
-                         keep_lock=True)
-        print(f"  {staging} moved to {target}", flush=True)
+        checked_move(remote, staging, target, set(sums))
         # 5. the list
         write_datasets(remote)
     except Failed as e:
@@ -818,7 +823,7 @@ def stats(source: str, rc: Rclone) -> int:
             except (ValueError, KeyError, TypeError, AttributeError):
                 unreadable += 1
                 continue
-            fields = {k: v if SAFE[k].match(v) else "other" for k, v in fields.items()}
+            fields = {k: v if SAFE[k].match(v) and not ADDRESS_LIKE.search(v) else "other" for k, v in fields.items()}
             requests[day, fields["ds"]][0] += 1
             requests[day, fields["ds"]][1] += sent
             statuses[status // 100] += 1
