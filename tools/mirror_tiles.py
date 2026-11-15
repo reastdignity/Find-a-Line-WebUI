@@ -59,6 +59,9 @@ import sk_tiles  # noqa: E402
 from sk_tiles import TILE_M, BLOCK, MAX_Z_ERROR, CACHE_MB, WRITE_THREADS, tile_name, _sha256  # noqa: E402
 
 ATTEMPTS = 3      # download attempts (the first and two more)
+# Replacing a file on a network share (the mirror on Z:) is refused now and then for a moment (WinError 5 while
+# the share or a scanner holds the old file): tried again for this long
+REPLACE_SECONDS = 60
 CHUNK = 8 << 20   # bytes per write of a download
 # 7-Zip unpacks Deflate64 (ZIP method 9); zipfile only stored and Deflate (0, 8)
 SEVEN_ZIP = os.environ.get("FINDALINE_7ZIP") or shutil.which("7z") or shutil.which("7za") or \
@@ -377,6 +380,32 @@ def open_bands(path: str, nodata: Tuple[float, ...]) -> Bands:
 
 # Cut
 
+def _replace(tmp: str, path: str):
+    """os.replace, tried again for REPLACE_SECONDS while Windows refuses it (PermissionError)."""
+    deadline = time.monotonic() + REPLACE_SECONDS
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.5)
+
+
+def _save_index(index: Dict, path: str):
+    """index.json written atomically (sk_tiles._save_index's way, the replace tried again)."""
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(index, f)
+    _replace(path + ".part", path)
+
+
+def _write(path: str, tile: np.ndarray, crs: str, transform):
+    """A tile in the mirror's profile (sk_tiles._write, into <path>.new), then put in place."""
+    sk_tiles._write(path + ".new", tile, crs, transform)
+    _replace(path + ".new", path)
+
+
 def _on_grid(value: float, origin: float, res: float, what: str) -> float:
     """value moved onto the pixel grid through origin (within 1 mm: ASCII headers carry such noise); ValueError when
     it is not on it."""
@@ -441,7 +470,7 @@ def cut(name: str, work: str, out: str, rows_limit: Optional[int] = None) -> Dic
                         return None
                     path = os.path.join(folder, *tile_name(i, j).split("/"))
                     os.makedirs(os.path.dirname(path), exist_ok=True)
-                    sk_tiles._write(path, tile, crs, from_origin(ox + i * TILE_M, oy + (j + 1) * TILE_M, res, res))
+                    _write(path, tile, crs, from_origin(ox + i * TILE_M, oy + (j + 1) * TILE_M, res, res))
                     return _sha256(path)
 
                 for i, digest in zip(todo, pool.map(save, todo)):
@@ -453,13 +482,14 @@ def cut(name: str, work: str, out: str, rows_limit: Optional[int] = None) -> Dic
                              licence=spec["licence"], attribution=spec["attribution"],
                              created=datetime.date.today().isoformat())
                 sk_tiles._mark_partial(index, any(f"{i}_{jj}" not in index["tiles"] for jj in rows for i in cols))
-                sk_tiles._save_index(index, index_path)
+                os.makedirs(folder, exist_ok=True)
+                _save_index(index, index_path)
                 done = sum(v is not None for v in index["tiles"].values())
                 print(f"  row {n + 1}/{len(rows)}: {done} tiles with data, {(time.time() - start) / 60:.1f} min",
                       flush=True)
             if index.get("partial") and all(f"{i}_{j}" in index["tiles"] for j in rows for i in cols):
                 sk_tiles._mark_partial(index, False)
-                sk_tiles._save_index(index, index_path)
+                _save_index(index, index_path)
         finally:
             bands.close()
     os.makedirs(root, exist_ok=True)
