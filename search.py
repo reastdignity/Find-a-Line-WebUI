@@ -2385,11 +2385,6 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
                 ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
     map_path = None
-    # The store (linestore: lines.arrow, profiles.arrow) first, with or without a map, its head data.js's;
-    # its block "store" in run.json (and so in lines.geojson's part of run.json, as linestore.export writes it)
-    head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
-                       p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-    meta["store"] = linestore.write(run["path"], results, head)
     # The line files of a large run are written by processes of their own (saving.py: one per file
     # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
     children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
@@ -2414,6 +2409,22 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
         if not p.no_html:
             map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
+    # The store (linestore: lines.arrow, profiles.arrow) after today's files, with or without a map, its head
+    # data.js's; its block "store" in run.json (never in lines.geojson, written before it: linestore.export leaves
+    # it out). A store that cannot be written never costs the run: it is kept without one (as a run of before)
+    try:
+        head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
+                           p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+        store = linestore.write(run["path"], results, head)
+    except Exception as error:  # noqa: BLE001 - the run's own files are saved already
+        for name in linestore.FILES:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(run["path"], name))
+        emit("warning", f"The run is saved without its store (lines.arrow): {type(error).__name__}: {error}")
+    else:
+        meta["store"] = store
+        with open(os.path.join(run["path"], "run.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)  # as runs.save_results writes it
     if plan.index_runs:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")

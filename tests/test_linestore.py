@@ -39,10 +39,17 @@ def _values(lines, column, index):
     return values if index is None else values[:, index]
 
 
-def _assert_read_back(lines, back):
+def _assert_read_back(lines, back, folder=None):
     """Every column of the store read back as write took it: the floats bit for bit, the scaled ones as
-    round(value, decimals) (runs.round_floats) bit for bit, -0.0 and NaN included."""
+    round(value, decimals) (runs.round_floats) bit for bit, -0.0 and NaN included; with `folder`, a scaled
+    column its lines.arrow holds as float64 (no `decimals`: no integer held its values) as it is."""
+    raw = set()
+    if folder is not None:
+        with pa.OSFile(str(folder / linestore.LINES_FILE), "rb") as f:
+            raw = {field.name for field in pa.ipc.open_file(f).schema if pa.types.is_floating(field.type)}
     for name, column, index, decimals, _ in linestore.COLUMNS:
+        if name in raw:
+            decimals = None
         if column not in lines.columns:
             assert column not in back.columns, name
             continue
@@ -142,7 +149,8 @@ def _exports_match(tmp_path, folder, lines, meta):
     expected = tmp_path / "expected"
     expected.mkdir(exist_ok=True)
     groups = mp.group_lines(lines, meta["params"]["group_distance"], meta["params"]["group_by"])
-    rn.save_results(str(expected), lines, groups, meta, files=("lines.csv", "lines.geojson"))
+    text_meta = {k: v for k, v in meta.items() if k != "store"}  # the text files are written before the store
+    rn.save_results(str(expected), lines, groups, text_meta, files=("lines.csv", "lines.geojson"))
     for fmt, name in linestore.EXPORTS.items():
         out = tmp_path / f"exported-{name}"
         linestore.export(str(folder), fmt, str(out))
@@ -157,7 +165,7 @@ def test_store_round_trip(tmp_path, ends, square, by):
     """50 000 lines with the hard floats (halfway cases, NaN, nulls, -0.0 in every integer column, both end
     columns, stands_for): linestore.write, then read gives every value back (round(value, decimals) of the
     scaled ones) and the profiles as helpers.Profiles' dicts; export gives the bytes runs.save_results
-    writes from the LineTable itself, CSV and GeoJSON (run.json's block "store" in its "findaline" part)."""
+    writes from the LineTable itself, CSV and GeoJSON (run.json's block "store" left out of "findaline")."""
     rng = np.random.default_rng(5)
     n = 50_000
     lines = _hard_lines(n, ends, square, rng)
@@ -184,10 +192,9 @@ def test_store_round_trip(tmp_path, ends, square, by):
     assert linestore.read(str(folder), profiles=False)[0].profiles == {}
 
 
-def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
-    """The Żabi Koń clip (a circle with a surface model: every line's profile, of lineprofiles' batch) through
-    search.save_run: the store beside the text files, its head data.js's, its lines read back as the search's
-    and exported as the run's lines.csv and lines.geojson byte for byte; run.json's block "store"."""
+def _clip_run(tmp_path, monkeypatch, elevation: str, surface=None, radius: float = 290):
+    """A search of the clip's place saved by search.save_run into <tmp_path>/runs/clip: (the folder, its
+    LineTable, the events (kind, text) the search emitted)."""
     import dataclasses
     from datetime import datetime
     import search
@@ -195,17 +202,27 @@ def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
     for name, value in OFFLINE_ENV.items():
         monkeypatch.setenv(name, value)
     paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
-    values = dict(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"),
-                  surface_file=os.path.join(DATA, "zabi_kon_nmpt.tif"), water="off", fill_gaps="off",
-                  northing=254608, easting=553966, radius=290)
-    plan = dataclasses.replace(search.plan_search(SearchParams(**values), paths, lambda kind, text: None),
+    values = dict(elevation_file=elevation, water="off", fill_gaps="off", northing=254608, easting=553966,
+                  radius=radius, **({"surface_file": surface} if surface else {"nmpt": "off"}))
+    events = []
+    plan = dataclasses.replace(search.plan_search(SearchParams(**values), paths,
+                                                  lambda kind, text: events.append((kind, str(text)))),
                                index_runs=False)
     lines = search.find_lines(plan, search.prepare_data(plan))
     folder = tmp_path / "runs" / "clip"
     folder.mkdir(parents=True)
     search.save_run(plan, lines, {"id": "clip", "path": str(folder), "created": datetime(2026, 11, 15, 12),
                                   "name": "clip"})
-    results = lines.results
+    return folder, lines.results, events
+
+
+def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
+    """The Żabi Koń clip (a circle with a surface model: every line's profile, of lineprofiles' batch) through
+    search.save_run: the store beside the text files, its head data.js's, its lines read back as the search's
+    and exported as the run's lines.csv and lines.geojson byte for byte; run.json's block "store" (written
+    after the text files: lines.geojson has none)."""
+    folder, results, _ = _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"),
+                                   os.path.join(DATA, "zabi_kon_nmpt.tif"))
     back, head = linestore.read(str(folder))
     _assert_read_back(results, back)
     assert len(back.profiles) == len(results) and back.profiles == {
@@ -221,7 +238,57 @@ def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
                              "bytes": sum((folder / n).stat().st_size for n in linestore.FILES)}
     import hashlib
     assert meta["store"]["sha256"] == hashlib.sha256((folder / linestore.LINES_FILE).read_bytes()).hexdigest()[:16]
-    assert b'"store": {"format": 1' in (folder / "lines.geojson").read_bytes()  # run.json's, as the export
+    assert b'"store"' not in (folder / "lines.geojson").read_bytes()
+
+
+def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
+    """Undeclared no-data of float32's largest value (3.4e38) in two stripes of the clip's terrain: lines
+    between them have e1/e2/prom/drop near 3.4e38 (the code review's input). The run saves with its store:
+    those columns float64 as they are (no `decimals`), read back as written, and the export is the run's
+    lines.csv and lines.geojson byte for byte."""
+    import rasterio
+    with rasterio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as src:
+        profile, z = src.profile, src.read(1)
+        r, c = src.index(553966, 254608)
+        k = lambda m: int(round(m / src.res[0]))  # noqa: E731
+    z[r - k(40):r + k(40), c - k(60):c - k(50)] = np.float32(3.4028235e38)
+    z[r - k(40):r + k(40), c + k(50):c + k(60)] = np.float32(3.4028235e38)
+    profile.update(nodata=None)
+    stripes = tmp_path / "stripes.tif"
+    with rasterio.open(stripes, "w", **profile) as dst:
+        dst.write(z, 1)
+    folder, results, events = _clip_run(tmp_path, monkeypatch, str(stripes), radius=150)
+    assert (results.columns["elev_a1"] > 1e38).any() and not [e for e in events if "without its store" in e[1]]
+    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+    assert meta["store"]["lines"] == len(results)
+    with pa.OSFile(str(folder / linestore.LINES_FILE), "rb") as f:
+        schema = pa.ipc.open_file(f).schema
+    for name in ("e1", "e2"):
+        assert schema.field(name).type == pa.float64() and not (schema.field(name).metadata or {}), name
+    assert schema.field("lat1").type == pa.int32() and schema.field("lat1").metadata == {b"decimals": b"7"}
+    back, _ = linestore.read(str(folder))
+    _assert_read_back(results, back, folder)
+    for fmt, name in linestore.EXPORTS.items():
+        linestore.export(str(folder), fmt, str(tmp_path / name))
+        assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
+    assert b"e+38" in (folder / "lines.csv").read_bytes()
+
+
+def test_a_store_that_fails_never_costs_the_run(tmp_path, monkeypatch):
+    """A store that cannot be written (here linestore.write raising) leaves the run saved as a run of before:
+    its text files and map, run.json without "store", no lines.arrow or profiles.arrow (a half-written one
+    removed), and a warning."""
+    def failing(run_path, lines, head):
+        (tmp_path / "runs" / "clip" / linestore.LINES_FILE).write_bytes(b"half")
+        raise MemoryError("no memory for the store")
+    monkeypatch.setattr(linestore, "write", failing)
+    folder, results, events = _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"), radius=150)
+    assert sorted(os.listdir(folder)) == ["ATTRIBUTION.txt", "data.js", "lines.csv", "lines.geojson", "lines.js",
+                                          "map.html", "run.json"]
+    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+    assert "store" not in meta and meta["summary"]["lines"] == len(results) > 0
+    assert ("warning", "The run is saved without its store (lines.arrow): MemoryError: no memory for the store") \
+        in events
 
 
 def test_store_schema(tmp_path):
@@ -229,8 +296,8 @@ def test_store_schema(tmp_path):
     uncompressed; the anchors int32 at 7 decimals, the grouping's values float64, every other value in the
     narrowest integer type with its decimals in the field's metadata, nulls by validity bits where a value
     may miss; the end columns only with them, stands_for (uint32) only with the square rule; the profiles'
-    lists, pairs and nulls. A store of a newer format, values the store cannot hold and a count too large
-    are refused."""
+    lists, pairs and nulls. A store of a newer format is refused; values no integer holds exactly are float64
+    as they are (without decimals) and a count beyond uint32 is uint64, read back as written."""
     lines = _fake_lines(40)
     for name in sh.PIXEL_COLUMNS:
         lines.columns.pop(name)
@@ -328,24 +395,34 @@ def test_store_schema(tmp_path):
     with pytest.raises(ValueError, match="no export"):
         linestore.export(str(folder), "kml", str(tmp_path / "x.kml"))
 
-    # What the store cannot hold is refused, never written wrong
-    for column, value, words in (("elev_a1", np.nan, "without a value"), ("elev_a1", np.inf, "cannot hold"),
-                                 ("angle1", 1e300, "cannot hold"), ("prom1", np.inf, "cannot hold"),
-                                 ("water_m", 2.0 ** 53, "cannot hold")):
-        bad = lines.take(np.arange(40))
-        bad.columns[column] = bad.columns[column].copy()
-        bad.columns[column][3] = value
-        with pytest.raises(ValueError, match=words):
-            linestore.lines_table(bad, {})
-    for column, value in (("anchor1", 215.0), (rn.STANDS_FOR, 2 ** 32), (rn.STANDS_FOR, -1)):
-        bad = lines.take(np.arange(40))
-        bad.columns[column] = bad.columns[column].copy()
+    # Values no integer holds exactly: float64 as they are (no decimals), read back as written, exported as
+    # runs.save_results writes them; a count beyond uint32: uint64 (int64 for a negative one)
+    for column, value, name in (("elev_a1", np.nan, "e1"), ("elev_a1", np.inf, "e1"), ("angle1", 1e300, "angle1"),
+                                ("prom1", np.inf, "prom1"), ("water_m", 2.0 ** 53, "water"),
+                                ("anchor1", 215.0, "lat1"), (rn.STANDS_FOR, 2 ** 32, rn.STANDS_FOR),
+                                (rn.STANDS_FOR, -1, rn.STANDS_FOR)):
+        wide = lines.take(np.arange(40))
+        for metres in ("water_m", "filled_m"):  # at 0.1 m as the search saves them (lines.csv prints them as they are)
+            wide.columns[metres] = rn.round_floats(wide.columns[metres], 1)
+        wide.columns[column] = wide.columns[column].copy()
         if column == "anchor1":
-            bad.columns[column][3, 0] = value
+            wide.columns[column][3, 0] = value
         else:
-            bad.columns[column][3] = value
-        with pytest.raises(ValueError, match="cannot hold"):
-            linestore.lines_table(bad, {})
+            wide.columns[column][3] = value
+        target = tmp_path / f"wide-{name}-{value}"
+        target.mkdir()
+        linestore.write(str(target), wide, {})
+        field = pa.ipc.open_file(pa.OSFile(str(target / linestore.LINES_FILE), "rb")).schema.field(name)
+        kinds = {rn.STANDS_FOR: pa.uint64() if value > 0 else pa.int64()}
+        assert field.type == kinds.get(name, pa.float64()) and not (field.metadata or {}), (name, value)
+        back, _ = linestore.read(str(target))
+        _assert_read_back(wide, back, target)
+        if column not in (rn.STANDS_FOR,):
+            meta = {"params": {"group_distance": 20, "group_by": "clearance"}, "summary": {"lines": 40}}
+            (target / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+            _exports_match(target, target, wide, meta)
+    assert (linestore.END_COLUMNS, linestore.STANDS_FOR) == (rn.END_COLUMNS, rn.STANDS_FOR)  # copies of runs'
+
 
 
 def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
@@ -361,14 +438,15 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     run_id = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     folder = data / "runs" / run_id
     assert all((folder / name).is_file() for name in linestore.FILES)
-    for name, remove in (("old", linestore.FILES), ("bare", linestore.FILES + ("lines.js",))):
+    for name, remove in (("old", linestore.FILES), ("bare", linestore.FILES + ("lines.js",)),
+                         ("store", ("lines.js",))):
         shutil.copytree(folder, data / "runs" / name)
         meta = json.loads((data / "runs" / name / "run.json").read_text(encoding="utf-8"))
         (data / "runs" / name / "run.json").write_text(json.dumps({**meta, "id": name}), encoding="utf-8")
         for file in remove:
             os.remove(data / "runs" / name / file)
     listed = {r["id"]: r["has_lines"] for r in runs.list_runs(str(data / "runs"))}
-    assert listed == {run_id: True, "old": True, "bare": False}
+    assert listed == {run_id: True, "old": True, "bare": False, "store": False}  # lines.js (until 2b-C)
     code = (f"import json, sys; sys.path.insert(0, {REPO!r}); import web\n"
             "from fastapi.testclient import TestClient\n"
             f"c = TestClient(web.create_app({str(data)!r}, token='t', start_scheduler=False), "

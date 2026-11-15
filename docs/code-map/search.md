@@ -292,13 +292,12 @@ computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` 
 `END_FIELDS`/`END_COLUMNS` (`lift_needed_m`, `lift_no_zone_m` after `clearance_nmpt_m`, in `lines.csv` and
 `lines.geojson` only when the run has the options: `fields_of`, `feature_template`), `STANDS_FOR` (`stands_for`, the
 last column and property, only in a run made with the square rule) (the children of `saving.py` write
-the line files apart, `_rows(csv=, geojson=)` skips the join of the file not wanted); `list_runs`' `has_lines`: the
-run has `lines.arrow` (the store) or `lines.js`
+the line files apart, `_rows(csv=, geojson=)` skips the join of the file not wanted)
 
 ## `linestore.py`
 
 A run's store (docs/line-volume/spec-store.md 1.3; since 2026-11-15 written by `search.save_run` on every new run,
-before and beside the text files): `lines.arrow` (a row per line in the search's order) and `profiles.arrow` (a row
+after and beside the text files; a store that fails leaves the run without one, with a warning): `lines.arrow` (a row per line in the search's order) and `profiles.arrow` (a row
 per saved profile, `row` into `lines.arrow`), Arrow IPC files (pyarrow), uncompressed, one record batch each.
 `COLUMNS` names each column with its `LineTable` column and its decimals: the anchors int32 at 7, the grouping's
 values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of `mapping.map_rows`' decimals in
@@ -307,13 +306,14 @@ the narrowest int type (field metadata `decimals`), nulls where a value may miss
 refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the rows of each integer column whose value
 rounds to -0.0). `write(run_path, lines, head)` → run.json's block `store` (format, lines, bytes, the first 16 hex of
 `lines.arrow`'s sha256); `lines_table`/`profiles_table` the two tables (a profile from any number of
-`helpers.Profiles` batches and dicts of `line_profile`); a value the store cannot hold exactly (an integer beyond
-2^53, a NaN where none may miss, a count beyond uint32) raises instead of being written wrong. `read(run_path,
+`helpers.Profiles` batches and dicts of `line_profile`); a scaled column whose values no integer holds exactly (beyond
+2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 as it is, without
+`decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values. `read(run_path,
 profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
-with run.json's values (its `store` too): the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow only at module
-level (export imports `mapping`, which groups with numba): never imported by the web process
-(`tests/test_linestore.py`)
+with run.json's values without its `store`: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow
+only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never
+imported by the web process (`tests/test_linestore.py`)
 
 ## `saving.py`
 

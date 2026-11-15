@@ -14,7 +14,10 @@ the narrowest of int8/16/32/64 that holds the run's values (the anchors int32): 
 by dividing it by 10^decimals is the one Python's round(value, decimals) gives, so the text of lines.csv
 and data.js comes back byte for byte. A missing value (NaN) is a null (validity bit) where the column may
 miss one; a value that rounds to -0.0 is listed in the schema's metadata (`negative_zero`), since an
-integer has no sign of zero and lines.csv prints "-0.0". The schema metadata `findaline` (JSON) holds
+integer has no sign of zero and lines.csv prints "-0.0". A column whose values no integer holds exactly
+(beyond 2^53 once scaled, an infinity, NaN where a value never misses: e.g. undeclared no-data of
+3.4e38 in a terrain file) is float64 as it is, without `decimals`, as the grouping's values; a count
+beyond uint32 is uint64: the store never refuses a run's values. The schema metadata `findaline` (JSON) holds
 {"format": FORMAT, "head": the head of data.js without the lines (mapping.map_head), "negative_zero":
 {column: [rows]}}; a reader refuses a higher format.
 
@@ -23,8 +26,9 @@ read(run_path) gives the lines back as a helpers.LineTable (with the profiles as
 helpers.line_profile) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
 store through mapping.group_lines and runs.save_results, the bytes the run's own files hold.
 
-Plain numpy and pyarrow: no numba here (export imports mapping inside, which groups with it), so the
-worker and the command line read a store cheaply; the web process never imports this module.
+Plain numpy and pyarrow at import: runs (Python's round() of a column, runs.round_floats) only inside
+write and export, mapping (numba's grouping) only inside export, so reading a store is cheap; the web
+process never imports this module.
 """
 
 import hashlib
@@ -37,19 +41,19 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pyarrow as pa
 
-import runs as rn
-
 FORMAT = 1  # of the store; a reader refuses a higher one ("made by a newer Find-a-Line")
 LINES_FILE = "lines.arrow"
 PROFILES_FILE = "profiles.arrow"
 FILES = (LINES_FILE, PROFILES_FILE)
 META_KEY = b"findaline"  # the schema metadata's key of both files
 MEDIA_TYPE = "application/vnd.apache.arrow.file"  # of both files (web.py serves them with it)
+END_COLUMNS = ("lift_needed", "lift_no_zone")  # runs.END_COLUMNS = helpers.END_VALUES (tests/test_linestore.py)
+STANDS_FOR = "stands_for"  # runs.STANDS_FOR = samelines.COLUMN
 
 # The columns of lines.arrow in their order: (name, the LineTable's column and its index in a pair or None,
 # decimals: None for float64 as it is, "bool" for 0/1 uint8, "count" for uint32, an int for an integer of
-# that many decimals; whether a missing value is a null). Those of runs.END_COLUMNS only with the no-fall zone
-# or the A-frames, runs.STANDS_FOR only with the square rule (the LineTable has them then).
+# that many decimals; whether a missing value is a null). Those of END_COLUMNS only with the no-fall zone or
+# the A-frames, STANDS_FOR only with the square rule (the LineTable has them then).
 COLUMNS = [
     ("lat1", "anchor1", 0, 7, False), ("lon1", "anchor1", 1, 7, False),
     ("lat2", "anchor2", 0, 7, False), ("lon2", "anchor2", 1, 7, False),
@@ -65,8 +69,8 @@ COLUMNS = [
     ("angle1", "angle1", None, 1, True), ("angle2", "angle2", None, 1, True),
     ("prom1", "prom1", None, 1, True), ("prom2", "prom2", None, 1, True),
     ("drop1", "drop1", None, 1, True), ("drop2", "drop2", None, 1, True),
-    *[(name, name, None, 2, False) for name in rn.END_COLUMNS],
-    (rn.STANDS_FOR, rn.STANDS_FOR, None, "count", False),
+    *[(name, name, None, 2, False) for name in END_COLUMNS],
+    (STANDS_FOR, STANDS_FOR, None, "count", False),
 ]
 FIXED = {name: pa.int32() for name in ("lat1", "lon1", "lat2", "lon2")}  # the anchors: int32 whatever the run
 INTS = (pa.int8(), pa.int16(), pa.int32(), pa.int64())
@@ -80,34 +84,34 @@ class NewerStore(ValueError):
 
 
 def _narrowest(values: np.ndarray) -> pa.DataType:
+    """The narrowest of INTS that holds every value (int64 values, each below 2^53 in size)."""
     lo, hi = (int(values.min()), int(values.max())) if len(values) else (0, 0)
-    for kind in INTS:
-        info = np.iinfo(kind.to_pandas_dtype())
-        if info.min <= lo and hi <= info.max:
-            return kind
-    raise ValueError("a value too large for the store")
+    return next(kind for kind in INTS if np.iinfo(kind.to_pandas_dtype()).min <= lo
+                and hi <= np.iinfo(kind.to_pandas_dtype()).max)
 
 
-def _scaled(name: str, values: np.ndarray, decimals: int, nullable: bool) -> Tuple[pa.Array, List[int]]:
-    """A column's values as integers of value x 10^decimals (round() of each: runs.round_floats) and the
-    rows whose value rounds to -0.0."""
+def _scaled(name: str, values: np.ndarray, decimals: int, nullable: bool) -> Tuple[pa.Array, List[int], bool]:
+    """A column's values as integers of value x 10^decimals (round() of each: runs.round_floats), the rows
+    whose value rounds to -0.0, and True; or, when no integer holds them exactly (NaN where a value never
+    misses, an infinity, beyond 2^53 once scaled, an anchor beyond int32), the values as float64 as they are,
+    no rows and False."""
+    import runs as rn
     rounded = rn.round_floats(values, decimals)
     missing = np.isnan(rounded)
-    if missing.any() and not nullable:
-        raise ValueError(f"{name}: a line without a value (row {int(np.flatnonzero(missing)[0])})")
     scaled = np.where(missing, 0.0, rounded) * 10.0 ** decimals
     # Beyond 2^53 an integer is no longer exact as a double (nor its quotient by 10^decimals)
-    wrong = ~np.isfinite(scaled) | (np.abs(scaled) >= 2.0 ** 53)
-    if wrong.any():
-        bad = int(np.flatnonzero(wrong)[0])
-        raise ValueError(f"{name}: a value the store cannot hold (row {bad}: {values[bad]!r})")
-    integers = np.rint(scaled).astype(np.int64)
+    exact = (nullable or not missing.any()) and bool(np.all(np.isfinite(scaled) & (np.abs(scaled) < 2.0 ** 53)))
+    if exact:
+        integers = np.rint(scaled).astype(np.int64)
+        kind = _narrowest(integers[~missing])
+        if name in FIXED:
+            exact = kind.bit_width <= FIXED[name].bit_width
+            kind = FIXED[name]
+    if not exact:
+        return pa.array(np.ascontiguousarray(values, dtype=np.float64), type=pa.float64()), [], False
     negative_zero = np.flatnonzero((rounded == 0) & np.signbit(rounded)).tolist()
-    kind = FIXED.get(name) or _narrowest(integers[~missing])
-    if _narrowest(integers[~missing]).bit_width > kind.bit_width:
-        raise ValueError(f"{name}: a value the store cannot hold in {kind}")
     array = pa.array(integers.astype(kind.to_pandas_dtype()), type=kind, mask=missing if missing.any() else None)
-    return array, negative_zero
+    return array, negative_zero, True
 
 
 def _field_values(lines, column: str, index: Optional[int]) -> np.ndarray:
@@ -124,7 +128,7 @@ def lines_table(lines, head: Dict) -> pa.Table:
     fields, arrays, negative_zero = [], [], {}
     for name, column, index, decimals, nullable in COLUMNS:
         if column not in lines.columns:
-            if column in rn.END_COLUMNS or column == rn.STANDS_FOR:
+            if column in END_COLUMNS or column == STANDS_FOR:
                 continue
             raise ValueError(f"the lines have no column {column}")
         values = _field_values(lines, column, index)
@@ -133,14 +137,17 @@ def lines_table(lines, head: Dict) -> pa.Table:
             array = pa.array(np.ascontiguousarray(values, dtype=np.float64), type=pa.float64())
         elif decimals == "bool":
             array = pa.array(np.asarray(values, dtype=bool).astype(np.uint8), type=pa.uint8())
-        elif decimals == "count":
+        elif decimals == "count":  # uint32; uint64 beyond it, int64 for a negative one (none is)
             values = np.asarray(values)
-            if len(values) and (values.min() < 0 or values.max() > np.iinfo(np.uint32).max):
-                raise ValueError(f"{name}: a count the store cannot hold")
-            array = pa.array(values.astype(np.uint32), type=pa.uint32())
+            kind = pa.uint32()
+            if len(values) and values.min() < 0:
+                kind = pa.int64()
+            elif len(values) and values.max() > np.iinfo(np.uint32).max:
+                kind = pa.uint64()
+            array = pa.array(values.astype(kind.to_pandas_dtype()), type=kind)
         else:
-            array, zeros = _scaled(name, np.asarray(values, dtype=np.float64), decimals, nullable)
-            metadata = {"decimals": str(decimals)}
+            array, zeros, exact = _scaled(name, np.asarray(values, dtype=np.float64), decimals, nullable)
+            metadata = {"decimals": str(decimals)} if exact else None
             if zeros:
                 negative_zero[name] = zeros
         fields.append(pa.field(name, array.type, nullable=nullable, metadata=metadata))
@@ -395,8 +402,9 @@ def read(run_path: str, profiles: bool = True):
         if name not in table.schema.names:
             continue
         field = table.schema.field(name)
-        if decimals not in (None, "bool", "count"):
-            decimals = int((field.metadata or {})[b"decimals"])
+        if decimals not in (None, "bool", "count"):  # float64 as it is where no integer held the values
+            places = (field.metadata or {}).get(b"decimals")
+            decimals = int(places) if places is not None else None
         values = _decoded(table.column(name), decimals, zeros.get(name) or [])
         if index is None:
             columns[column] = values
@@ -417,14 +425,16 @@ EXPORTS = {"csv": "lines.csv", "geojson": "lines.geojson"}
 def export(run_path: str, fmt: str, out: str):
     """lines.csv (fmt "csv") or lines.geojson ("geojson") of a run made from its store into the file
     `out`: the lines grouped as the search grouped them (mapping.group_lines with run.json's distance
-    and value), written by runs.save_results with run.json's values (lines.geojson's "findaline", its
-    block "store" too, as search.save_run wrote it), so the bytes are those the run's own text file
-    holds."""
+    and value), written by runs.save_results with run.json's values without its "store" (search.save_run
+    writes the store after the text files, so lines.geojson's "findaline" never held it), so the bytes
+    are those the run's own text file holds."""
     import mapping as mp
+    import runs as rn
     if fmt not in EXPORTS:
         raise ValueError(f"no export of the format {fmt!r}")
     with open(os.path.join(run_path, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
+    meta.pop("store", None)
     params = meta.get("params") or {}
     lines, _ = read(run_path, profiles=False)
     groups = mp.group_lines(lines, params["group_distance"], params.get("group_by", "clearance"))
