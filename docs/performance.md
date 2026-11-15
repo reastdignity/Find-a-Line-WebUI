@@ -3365,6 +3365,70 @@ How these were found: the heap profiler's sampling, by the function that allocat
 - **Which numbers are indicative:** the seconds, from one exclusive pass of three rounds on this PC, desktop
   Chromium only; no phone and no WebKit. The heap and the retained sizes are measured.
 
+### From the store (2026-11-15, branch `store-reader`, step 2b-C)
+
+The page now reads a run with a store from `lines.arrow` and `profiles.arrow` (apache-arrow 21.2.0) into the same
+columns, without a copy. T5 and T6 were measured again, as the user asked: "before" is `main` 47c5fa7 (the page reads
+`data.js`), "after" is 1275215 (it reads the store).
+- **Runs:** C1's three runs above. Each got the store the search would write: `linestore.write` of the run's own
+  `data.js` rows. Those rows are already round(value, decimals), and the store keeps them so. BAH-C4's store exported
+  its `lines.csv` byte for byte. The rows of each store equal those of its `data.js`.
+- **Method:** C1's `t56.py` with three additions. It records the run's files the page asked for: `data.js` before,
+  `lines.arrow` and `profiles.arrow` after, in every round. It forces a full collection after the changes
+  (`HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`). It can open a run on the iPhone 13 profile (WebKit).
+- **Heap readings:** `usedJSHeapSize` counts the ArrayBuffers' backing stores. After the full collection it equals
+  the V8 heap plus the backing stores, in every round. So before and after are counted alike, although the store's
+  columns are views of the downloaded bytes.
+- **Pass:** one exclusive pass on this PC: three rounds each, the 2.5 M cut once, headless Chromium 156.
+  `perf_run_load.py` was not run: it copies a run's `data.js`, `run.json` and `ATTRIBUTION.txt` only, so a run with a
+  store asks for a `lines.arrow` it lacks.
+
+| run | code | round | first picture s | heap MB | heap after gc MB | filter change s | grouping change s |
+|---|---|---|---|---|---|---|---|
+| BAH-C4 | data.js | 1 / 2 / 3 | 6.49 / 6.07 / 5.91 | 1732 / 1733 / 1733 | 584 / 584 / 584 | 1.20 / 1.22 / 1.13 | 1.60 / 1.52 / 1.52 |
+| BAH-C4 | store | 1 / 2 / 3 | 3.37 / 3.06 / 3.11 | 447 / 473 / 474 | 228 / 447 / 447 | 1.19 / 1.17 / 1.16 | 1.54 / 1.54 / 1.54 |
+| 2.29 M cut | data.js | 1 / 2 / 3 | 7.17 / 7.08 / 7.11 | 2007 / 2010 / 2009 | 661 / 661 / 661 | 1.77 / 1.73 / 1.65 | 1.91 / 1.83 / 1.80 |
+| 2.29 M cut | store | 1 / 2 / 3 | 3.76 / 3.83 / 3.69 | 538 / 538 / 538 | 521 / 521 / 521 | 1.81 / 1.78 / 1.76 | 1.74 / 1.78 / 1.78 |
+| 2.5 M cut | data.js | 1 | "This result is too large for this browser." | | | | |
+| 2.5 M cut | store | 1 | 4.43 | 313 | 290 | 1.84 | 2.08 |
+
+**The load's phases** (medians, s; *parse*: reading the files' tables, *lines*: the columns and percentile ranks):
+
+| run | code | download | parse | lines | group | ranges | rows |
+|---|---|---|---|---|---|---|---|
+| BAH-C4 | data.js | 1.45 | 1.74 | 0.46 | 1.78 | 0.32 | 0.09 |
+| BAH-C4 | store | 0.64 | 0.00 | 0.06 | 1.78 | 0.30 | 0.09 |
+| 2.29 M cut | data.js | 1.60 | 2.13 | 0.55 | 2.17 | 0.36 | 0.09 |
+| 2.29 M cut | store | 0.72 | 0.00 | 0.11 | 2.25 | 0.36 | 0.10 |
+
+**After the full collection** (MB, every round alike): BAH-C4 235 before and 236 after, of them 225 and 226 backing
+stores. The 2.29 M cut: 267 both, 259 backing stores. The 2.5 M cut, store: 290, of them 282 backing stores. The
+store keeps its files (BAH: 207.8 MB) where `data.js`'s columns took about as much.
+
+**Bytes** (MB; gzip level 5 is nginx's `gzip_comp_level`):
+
+| run | `data.js` | gzipped | store (`lines.arrow` + `profiles.arrow`) | gzipped |
+|---|---|---|---|---|
+| BAH-C4 | 448.8 | 143.9 | 207.8 | 89.5 |
+| 2.29 M cut | 530.4 | 183.3 | 237.5 | 108.2 |
+| 2.5 M cut | 579.3 | 200.5 | 259.2 | 118.4 |
+
+nginx gzips by `gzip_types` (`deploy/nginx/findaline.conf`), which lacks `application/vnd.apache.arrow.file`. So the
+public site sends the store as it is: 207.8 MB at BAH against 143.9 MB of gzipped `data.js`, until the type is
+added (89.5 MB) or wave 6 sends brotli.
+
+**What it means:**
+- **T5, heap under 500 MB at BAH: met by the user's reading.** The peak two frames after the first picture is
+  447-474 MB, against 1.7 GB from `data.js`. The 2.29 M cut is at 538 MB.
+- **T5, first picture within 3 s: not met by a little.** It is 3.06-3.37 s at BAH, against 5.9-6.5 s. The download
+  over loopback takes 0.6 s and reading the files almost nothing. The rest is the grouping, 1.8 s.
+- **T6: not changed.** A filter change takes 1.2 s and a grouping change 1.5 s at BAH, as before: both are the greedy
+  grouping, which view B1's stored spots take out of a filter change.
+- **The 2.5 M cut now opens** in desktop Chromium (4.4 s, 313 MB) and on the iPhone 13 profile (WebKit, desktop
+  machine): the result showed after 10.6 s of wall time. C1 saw it neither open nor refuse there from `data.js`.
+- **Indicative:** the seconds (one exclusive pass, loopback, this PC) and WebKit on Windows (not a phone). The heap
+  readings are measured.
+
 ## The resampling of a neighbour's data (2026-11-05, tag `history/partner-resampling`)
 
 Step 0 of the cube v2 contract (docs/country-precompute/contract.md, section 6). At a border a grid
