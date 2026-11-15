@@ -1130,7 +1130,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
             count mode: search.count_tile): the anchors go through pair_chunk SINK_CHUNK at a time,
             the pairs found are evaluated once EVAL_PART of them are pending, and each evaluated
             part (at most SINK_PART pairs; "a1", "a2" and the LINE_VALUES, in no particular order)
-            goes to the sink at once; nothing is joined, sorted or kept. Not with check
+            goes to the sink at once; nothing is joined, sorted or kept. Not with check; a sink that
+            raises stops the search as check does (the square rule's reducer: search._pair_search), the
+            counts so far (with the part it was given) added to stats first
         end_zone, lift, end_clearance, zone_cap: the end zone (metres at both ends, at most
             zone_cap of the length, where only the webbing less end_clearance must stay above the
             terrain) and the lift (A-frames of that height at both ends): helpers.end_zone_rule;
@@ -1311,7 +1313,11 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
                                        limits, down, values, **rule)
                 del part
                 valid += len(table)
-                sink(table)
+                try:
+                    sink(table)
+                except Exception:  # the sink stopped the search (the square rule's check): the counts so far
+                    _add_stats(stats, useful, len(todo_all), candidates, checked, found, valid, limits)
+                    raise
                 del table
             pending, held = [], 0
         progress.compute.update(len(todo), pairs=f"{checked:,}", lines=found, valid=valid)

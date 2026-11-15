@@ -45,6 +45,9 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   strips (Slovakia's M2 tiles measured: FABDEM-filled pixels off by up to 0.66 m, median 6 mm, outside the outline; 10
   of 50 M water pixels; the counts of the three tiles equal). A new search field leaves `_search_hash` as before when
   unset (`min_elevation`/`max_elevation` are dropped when None), so unfinished tiled searches of before resume.
+  `_open_run` also takes a second key (`_search_keys`): a sag search at 3 m resumes a run hashed before migration 17
+  of jobs.sqlite (the default's int 3, a float 3.0 since) and rewrites its `progress.json` with today's key;
+  `_search_hash` itself stays for every request (it seeds the 2 % sample), pinned by `tests/test_search_findings.py`.
 - A compute slot's budget (`search.slot_memory`) reserves the quick lane's largest grid (`MAX_MEASURED_PX` squared,
   `memory_needed`) and `DOWNLOAD_PROCESS_BYTES` per download slot (with GDAL's cache of ranges,
   `sources.net.RANGE_CACHE_BYTES`): a change of what the quick lane or a download process may hold changes these. With
@@ -88,8 +91,9 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `_check_lines` on the table; a tiled search counts its tiles' kept lines, held until the join: the Gozo coast 503 718
   against 503 651 after it). The option, the side and the lines found go into run.json only when set (`_run_params`,
   `summary.found`); a new column of the lines must pass the reducer's `LineTable.join` and `reorder` like the others.
-  `linesearch.find_valid_lines` takes a sink or a check, not both: a search the reducer's check stops adds no funnel
-  counts for that grid. The country layer's count mode never uses the rule (`count_tile` has its own sink).
+  `linesearch.find_valid_lines` takes a sink or a check, not both: when the reducer's check stops a search, the sink
+  path adds that grid's funnel counts up to the stop before the error goes on (as the check path does;
+  `tests/test_search_findings.py`); a refused job writes only REFUSED_STEPS to `job_funnel`. The country layer's count mode never uses the rule (`count_tile` has its own sink).
 
 ## Pitfalls
 
