@@ -3,7 +3,7 @@ of Trento (its LiDAR 2014 DTM and DSM 0.5 m, ASCII grids of 500 m), Sardinia (it
 2008, ZIPs of ASCII grids listed by a WFS of their footprints), Tuscany (Regione Toscana's and the Ministry of the
 Environment's lidar sheets 1 m of 2004-2017, credited per owner) and INGV's TINITALY 1.1 (10 m, WCS) for the rest of
 Italy, San Marino and the Vatican and for the gaps of the regional sources. Valle d'Aosta: the region's DTM 2005/2008
-2 m as our own 2 km tiles in the local mirror (tools/mirror_tiles.py); its DSM follows by hand later."""
+2 m as our own 2 km tiles from the project's data server or a local copy (tools/mirror_tiles.py); its DSM follows by hand later."""
 
 from typing import List
 
@@ -117,8 +117,8 @@ def _sar_layer(link: str, kind: str, description: str) -> WfsFeatureTiles:
 # starting beyond about 1e8 bytes and the per-section ZIPs need a token for their index, so tools/mirror_tiles.py
 # downloads the whole ZIP once with one plain GET (the manual: the service is "non per download massivi"; this is
 # the region's own bulk product, fetched once) and cuts it into 2 km tiles on its own pixel grid (origin (0, 1)) into
-# the local mirror (FINDALINE_MIRROR/aosta/dtm/2m); without the mirror the source is unavailable and --source auto
-# takes TINITALY. The DSM (DSM0508_002) follows by hand later (the user's decision of 2026-11-14): this source has no
+# the mirror (aosta/dtm/2m: FINDALINE_MIRROR, or the data server); without either the source is unavailable and
+# --source auto takes TINITALY. The DSM (DSM0508_002) follows by hand later (the user's decision of 2026-11-14): this source has no
 # surface layer until then. No request limits published (istruzioni.pdf, CC_BY_DTM_v2.pdf, read 2026-11-15)
 VDA_LICENCE = "https://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf"
 # CC_BY_DTM_v2.pdf (DGR 1620/2016): "Deve riconoscere una menzione di paternità adeguata su tutti gli elaborati che
@@ -345,7 +345,7 @@ SOURCES: List[Source] = [
     Source(
         id="aosta_valley", name="Valle d'Aosta (DTM 2005/2008, 2 m)",
         description="Regione Autonoma Valle d'Aosta: DTM 2005/2008 2 m (lidar), ED50 / UTM 32N; our own tiles from "
-                    "the local mirror (the DSM follows later)",
+                    "the project's data server or a local copy (the DSM follows later)",
         nmt=VDA_DTM, countries=("it",), regions=("it-23",), crs="EPSG:23032", default_resolution=2.0,
         grid_origin=VDA_ORIGIN, credits=(VDA_CREDIT,),
         # Gaps and the land beyond the region from TINITALY, then FABDEM / Copernicus. Neighbour of swisstopo (its
@@ -356,7 +356,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Valle d'Aosta (IT)", "Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar)",
                           "– (the DSM follows by hand later)", "– (no open orthophoto service)"),
         offline=VDA_BOXES, sample=(45.7370, 7.3200),
-        note="Valle d'Aosta's terrain model (2 m, lidar 2005 and 2008) comes from the local mirror; its surface model "
+        note="Valle d'Aosta's terrain model (2 m, lidar 2005 and 2008) comes from the project's data server or a "
+             "local copy; its surface model "
              "follows later, so trees are not checked yet, and rockfall since 2008 is not in the data. Data: Regione "
              "Autonoma Valle d'Aosta, CC BY 4.0. No open orthophoto service: the map shows its own base layers.",
         coverage=Coverage(provider="Regione Valle d'Aosta", added="2026-11-15", survey="2005–2008",

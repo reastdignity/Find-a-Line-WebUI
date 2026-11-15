@@ -173,6 +173,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
+    # The project's own data server (our own tiles: sources/readers/tilebases.py MIRROR_URL; deploy/mirror): half of
+    # the 4 requests at once it allows an address (docs/mirror-hosting/spec.md A.5, C.6), so two installations
+    # behind one address fit; its index requests take no slot (their turn only)
+    "mirror.findaline.lukawski.org": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -209,6 +213,9 @@ HOST_RATES_OF: Dict[str, int] = {
     # of 2026-11-15 promises, "at most one request per second" (less 10 %), until DAERA answers (no limits published:
     # the items, the services and OpenDataNI's pages, read 2026-11-15)
     "tiles-eu1.arcgis.com": 54,
+    # The project's own data server (sources/readers/tilebases.py MIRROR_URL): 20 requests a second per address
+    # (burst 40) by its limits (docs/mirror-hosting/spec.md A.5); half of it, 600 a minute (C.6)
+    "mirror.findaline.lukawski.org": 600,
 }
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
@@ -323,21 +330,24 @@ def verify(url: Optional[str]):
         return path
 
 
-def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
+def _get(url: str, params=None, timeout=300, binary_types=("image", "octet", "tiff", "multipart"),
+         retries: int = RETRIES):
     """GET with retries; raises RuntimeError with the server message on failure (without the
-    query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
-    (rate_turn) and is counted (servicecounts, the host only; a 200 that is not data counts as
-    `other`). A 429 or 503 (the server asks us to slow down) backs off longer: _sleep(attempt + 3),
-    about 8, 16 and 32 s."""
-    last_error = None
-    for attempt in range(RETRIES):
-        slow_down = False
+    query of the URL or a key's value: cache.clean_error), its `status` the last answer's HTTP status
+    (None: no answer). Every attempt waits for its turn (rate_turn) and is counted (servicecounts, the
+    host only; a 200 that is not data counts as `other`). A 429 or 503 (the server asks us to slow down)
+    backs off longer: _sleep(attempt + 3), about 8, 16 and 32 s. timeout: requests' (seconds, or
+    (connect, read)); retries: the attempts (the start check of the data server asks twice)."""
+    last_error, status = None, None
+    for attempt in range(retries):
+        slow_down, status = False, None
         try:
             rate_turn(url)
             with servicecounts.request(url) as counted:
                 response = counted.got(requests.get(url, params=params, timeout=timeout,
                                                     headers=cache.http_headers(), verify=verify(url)))
                 content_type = response.headers.get("content-type", "")
+                status = response.status_code
                 if response.status_code == 404:
                     return None
                 if response.status_code != 200 or not any(t in content_type for t in binary_types):
@@ -351,7 +361,9 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
             _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)
-    raise RuntimeError(cache.clean_error(last_error))
+    error = RuntimeError(cache.clean_error(last_error))
+    error.status = status  # the last attempt's (the data server's start check tells a busy server apart)
+    raise error
 
 
 def _sleep(attempt: int):

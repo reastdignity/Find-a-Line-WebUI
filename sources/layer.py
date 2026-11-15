@@ -264,6 +264,12 @@ class Layer:
         missing = settings.missing_keys(self.keys)
         return f"{self.description} needs a key of its service, {missing}" if missing else None
 
+    def reach(self) -> Optional[str]:
+        """Why the layer's server does not answer now, or None (answers, or nothing to ask). A request, unlike
+        unavailable: asked only by the first planning of a search, an estimate, a country run's main process and
+        the probe (choose.source_unreachable; docs/mirror-hosting/spec.md C.3)."""
+        return None
+
     def tile_of(self, path: str):
         """The tile of a cached file (path relative to the cache, with /), or None if it
         is not one of this layer's tiles. Used by update.py for data that can change."""

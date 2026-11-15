@@ -62,8 +62,11 @@ def region_codes(lat: float, lon: float, cache_dir: str, country: str) -> Tuple[
 
 
 def choose_source(name: str, lat: float, lon: float, cache_dir: str, elevation_file: Optional[str] = None,
-                  surface_file: Optional[str] = None) -> Tuple[Source, str]:
-    """The source to use and why."""
+                  surface_file: Optional[str] = None, reach: bool = False) -> Tuple[Source, str]:
+    """The source to use and why. reach: also ask whether the servers of a source answer now
+    (source_unreachable: the project's data server), a request; only the first planning of a search, an
+    estimate (and a country run's main process, itself) do: docs/mirror-hosting/spec.md C.3. A source that does
+    not answer is then unavailable: auto takes the next source of the place, a named one is an error."""
     if elevation_file or name == "files":
         if not elevation_file:
             raise ValueError("--source files needs --elevation-file")
@@ -81,7 +84,7 @@ def choose_source(name: str, lat: float, lon: float, cache_dir: str, elevation_f
         source.default_resolution = float(round(native)) if native >= 5 else max(MIN_RESOLUTION, round(native, 1))
         return source, "--elevation-file given"
     if name != "auto":
-        why = source_unavailable(SOURCES[name])
+        why = _cannot_use(SOURCES[name], reach)
         if why:
             raise ValueError(why)
         return SOURCES[name], f"--source {name}"
@@ -94,10 +97,10 @@ def choose_source(name: str, lat: float, lon: float, cache_dir: str, elevation_f
     if found:
         source = found[0]
         where = next((r for r in regions if r in source.regions), code).upper()
-        why = source_unavailable(source)
+        why = _cannot_use(source, reach)
         if why:  # e.g. our own Slovak tiles without a copy set up: the next source of the place (Valle d'Aosta's
             # without its mirror: TINITALY, the country's), else europe
-            after = next((s for s in found[1:] if not source_unavailable(s)), SOURCES["europe"])
+            after = next((s for s in found[1:] if not _cannot_use(s, reach)), SOURCES["europe"])
             return after, f"the centre is in {where}, but {why}"
         if source.instead_without_data and source.nmt.has_data_near(lat, lon, cache_dir) is False:
             return (SOURCES[source.instead_without_data],
@@ -113,3 +116,19 @@ def source_unavailable(source: Source) -> Optional[str]:
         if why:
             return why
     return None
+
+
+def source_unreachable(source: Source) -> Optional[str]:
+    """Why the servers of a source do not answer now (its layers' reach: the project's data server's start
+    check), or None. A request: asked only where a caller passes reach=True (choose_source) and by a country
+    run's main process and the probe."""
+    for layer in (source.nmt, source.nmpt):
+        why = layer.reach() if layer else None
+        if why:
+            return why
+    return None
+
+
+def _cannot_use(source: Source, reach: bool) -> Optional[str]:
+    """source_unavailable, then with reach source_unreachable."""
+    return source_unavailable(source) or (source_unreachable(source) if reach else None)
