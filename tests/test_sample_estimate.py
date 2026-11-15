@@ -285,8 +285,10 @@ def test_the_band_and_its_codes(tmp_path, offline, monkeypatch):
     coded = [e for e in events if e[1]]
     assert [e[:2] for e in coded] == [("info", "estimate_lines"), ("warning", "estimate_close")], events
     assert coded[-1][2]["max"] == close and len(pairs) == 2 and pairs[1] is None
-    # far below the limit: the note only
-    assert len(search_with(Limits(lines_max=int(estimate / 0.7) + 1)).results) == exact
+    # far below the limit: the note only. The limit is above the exact count too: the sample's seed comes from the
+    # search's hash, which holds the clip's absolute path, so the estimate (and how far it lies from the exact count)
+    # differs from one checkout to another
+    assert len(search_with(Limits(lines_max=max(int(estimate / 0.7), exact) + 1)).results) == exact
     assert [e[:2] for e in events if e[1]] == [("info", "estimate_lines")], events
     del data
     gc.collect()
