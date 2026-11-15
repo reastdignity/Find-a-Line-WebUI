@@ -23,7 +23,9 @@ SIZE = (112, 30)
 
 
 def _row(name, title, continent="Europe", source="austria", km2=1000):
-    return ar.Row(name, title, continent, f"osm:{title}", source, 1.0, True, km2)
+    country, _, region = title.partition(": ")
+    return ar.Row(name, title, continent, country, region or f"Whole country · {source}", f"osm:{title}", source, 1.0,
+                  True, km2)
 
 
 ROWS = [_row("austria", "Austria", km2=84387), _row("czechia", "Czechia", source="czechia"),
