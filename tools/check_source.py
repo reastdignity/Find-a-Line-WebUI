@@ -221,6 +221,22 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
     return values
 
 
+def _read_ranged(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
+    """A source file of a layer that reads its files through our own range requests (Windows(ranged=True):
+    Estonia's PHP download address, which GDAL's /vsicurl/ does not take for a .tif) on the pixels of a cached tile,
+    through ranges.open_remote (the first bytes a TIFF's) and a WarpedVRT; NaN without data. Raises RuntimeError
+    when a range could not be read whole."""
+    from sources.readers import ranges
+    with src.net.gdal_errors() as errors, ranges.open_remote(url, tiff_only=True) as (source, file):
+        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                       height=profile["height"], resampling=resampling) as vrt:
+            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    if errors or file.error is not None:
+        raise RuntimeError("not read completely: " + cache.clean_error(file.error or "; ".join(dict.fromkeys(errors))))
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _read_zip(layer: src.ZippedTiles, url: str, profile: Dict) -> np.ndarray:
     """The members of a ZippedTiles layer's ZIP that make its tiles, each read by GDAL (its GeoTIFF or XYZ
     driver, not the layer's own parser) on the pixels of a cached tile, in the layer's CRS as the
@@ -363,6 +379,8 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         for url in _sources_of(layer, tile):
             try:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
+                # A layer that warps its files onto its blocks (Cyprus: nearest for the DTM, average for the DSM)
+                resampling = getattr(getattr(layer, "reader", None), "warp", None) or resampling
                 # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
                 if isinstance(layer, src.ZippedTiles) and layer.members is not None:
                     source = _read_zip(layer, url, profile)
@@ -370,6 +388,8 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_xyz(url, profile)
                 elif isinstance(layer, src.ZipMemberTiles):
                     source = _read_member(layer, tile, profile)
+                elif getattr(getattr(layer, "reader", None), "ranged", False) and url.startswith("http"):
+                    source = _read_ranged(url, profile, resampling)
                 else:
                     source = _read_source(url, profile, resampling)
                 geoid = getattr(layer, "geoid", None)

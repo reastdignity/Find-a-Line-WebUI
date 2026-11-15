@@ -445,7 +445,8 @@ def test_catalogue_extracts(tmp_path):
                  "france": "FR",
                  "germany": "DE", "italy": "IT", "united-kingdom": "GB",
                  "new-zealand": "NZ", "canada": "CA",
-                 "slovenia": "SI", "australia": "AU", "uruguay": "UY", "netherlands": "NL", "faroe-islands": "FO"}
+                 "slovenia": "SI", "australia": "AU", "uruguay": "UY", "netherlands": "NL", "faroe-islands": "FO",
+                 "cyprus": "CY", "estonia": "EE"}
     features = [{"properties": {"id": rid, "name": rid, "parent": "europe", "iso3166-1:alpha2": [code]},
                  "geometry": None} for rid, code in countries.items()]
     features += [{"properties": {"id": rid, "name": rid, "parent": "us", "iso3166-1:alpha2": [code],
@@ -480,7 +481,8 @@ def test_catalogue_extracts(tmp_path):
          "bayern", "rheinland-pfalz",
          "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "schleswig-holstein", "saarland",
          "slovenia", "queensland", "greenland", "nunavut", "british-columbia", "iceland",
-         "guadeloupe", "martinique", "guyane", "australia", "uruguay", "isole", "italy", "netherlands", "faroe-islands"])
+         "guadeloupe", "martinique", "guyane", "australia", "uruguay", "isole", "italy", "netherlands", "faroe-islands",
+         "cyprus", "estonia"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))
