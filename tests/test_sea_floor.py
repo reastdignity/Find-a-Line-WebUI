@@ -1,13 +1,21 @@
 """Heights below a layer's floor are no data where its tiles are read onto the grid (Layer.nodata_below,
-mosaic.build_mosaic's below). Every path of the mosaic (a tile on the grid copied, a tile placed where another
-wrote, a tile reprojected), and the default (no floor: the mosaic as before, bit for bit)."""
+mosaic.build_mosaic's below): the sea floor of IGN's overseas RGE ALTI 1 m (sources/catalogue/france.py
+OVERSEAS_FLOOR). Every path of the mosaic (a tile on the grid copied, a tile placed where another wrote, a tile
+reprojected), a tile cached before the floor existed, the catalogue's own layers on served answers, and the default
+(no floor: the mosaic as before, bit for bit)."""
+
+import os
+from urllib.parse import urlencode
 
 import numpy as np
 import pytest
+import rasterio as rio
 from rasterio.transform import from_origin
 
+import sources as src
 from grid import make_grid
-from sources import mosaic
+from sources import mosaic, net
+from sources.catalogue import france
 from sources.layer import _write_tile
 
 # A 4 x 4 tile: below the floor (-30, -1.0001), at it (-1.0), between it and 0 (-0.5, -0.01), 0 and land
@@ -72,3 +80,60 @@ def test_no_floor_is_the_mosaic_as_before(tmp_path):
         before = np.asarray(mosaic.build_mosaic(files, _grid(), str(tmp_path / f"{name}0.npy"), "t"))
         again = np.asarray(mosaic.build_mosaic(files, _grid(), str(tmp_path / f"{name}1.npy"), "t", below=None))
         assert before.tobytes() == again.tobytes(), name
+
+
+def test_the_default_of_a_layer():
+    """No floor unless a layer says so: of every layer of the catalogue, only the overseas RGE ALTI ones."""
+    floored = {s.id: layer.nodata_below for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt)
+               if layer is not None and layer.nodata_below is not None}
+    assert floored == {"france_guadeloupe": -1.0, "france_martinique": -1.0, "france_guiana": -1.0,
+                       "france_spm": -1.0, "france_reunion_rgealti": -1.0}
+    assert src.WATER_MASK.nodata_below is None
+    for layer in (france.FR_RGEALTI, france.FR_MNT, france.FR_MNS, france.REU_MNT, france.REU_MNS):
+        assert layer.nodata_below is None
+
+
+def _serve(server, layer, tile, values, nodata):
+    """The GetMap the catalogue's layer writes for tile, answered by values (a float32 GeoTIFF as IGN's)."""
+    request = layer.index.request(tile)
+    res = (request.right - request.left) / request.width
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=request.width, height=request.height, count=1, dtype="float32",
+                          crs=layer.crs, transform=from_origin(request.left, request.top, res, res),
+                          nodata=nodata) as dst:
+            dst.write(values.astype(np.float32), 1)
+        body = memfile.read()
+    server.add(f"/wms-r/wms?{urlencode(layer.reader.getmap_params(request))}", body, "image/geotiff")
+
+
+@pytest.mark.parametrize("sid", ["france_martinique", "france_guadeloupe"])
+def test_the_catalogues_layers_fresh_and_cached(http_server, tmp_path, monkeypatch, sid):
+    """A served answer with the sea floor in it, through the catalogue's own layer (only the service's address
+    replaced): the tile is cached as it came (the floor is not written: a tile cached before it existed is the same
+    file), and the grid has no data below -1 m, keeps -1 m, the water between -1 and 0 and the land. A tile whose
+    every height lies below the floor is cached (it has data) and gives the grid nothing."""
+    layer = src.SOURCES[sid].nmt
+    monkeypatch.setattr(layer.reader, "service_url", http_server.url("/wms-r/wms"))
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
+    ox, oy = layer.origin
+    tile, deep_tile = (1.0, 500, 1600), (1.0, 501, 1600)
+    sea = np.full((1000, 1000), 30.0)
+    sea[:, :400] = -25.0          # the sea floor
+    sea[:, 400:410] = -1.0        # at the floor
+    sea[:, 410:420] = -0.4        # the water's edge
+    sea[:2, :] = -99999.0         # IGN's no data
+    _serve(http_server, layer, tile, sea, -99999.0)
+    _serve(http_server, layer, deep_tile, np.full((1000, 1000), -12.0), -99999.0)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((500000 + ox + 100, 1600000 + oy + 100, 502000 + ox - 100, 1601000 + oy - 100), 1.0,
+                     layer.crs, layer.origin)
+    out = np.load(src.mosaic.prepare_layer(layer, grid, cache_dir, str(tmp_path / "nmt.npy"), "terrain"))
+    for t in (tile, deep_tile):  # cached as they came: the floor is applied when read, not written
+        with rio.open(layer.tile_path(cache_dir, t)) as cached:
+            assert float(np.nanmin(cached.read(1, masked=True).filled(np.nan))) < -1
+    west = out[:, :900]  # tile 500's part of the grid: its columns 100-999
+    assert np.isnan(west[:, :300]).all()                       # -25: no data
+    assert np.allclose(west[:, 300:310], -1.0, atol=0.0051)    # -1 exactly: kept
+    assert np.allclose(west[:, 310:320], -0.4, atol=0.0051)    # between -1 and 0: kept
+    assert np.allclose(west[:, 320:], 30.0, atol=0.0051)
+    assert np.isnan(out[:, 900:]).all()                        # tile 501: all below the floor

@@ -96,15 +96,23 @@ FR_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the workin
 # tried). Vertical datums (IGN's product records): Guadeloupe GUAD88 (La Désirade GUAD92LD, Marie-Galante GUAD88MG,
 # Les Saintes GUAD88LS, Saint-Barthélemy GUAD88SB, Saint-Martin GUAD88SM), Martinique MART87, French Guiana NGG77
 # (GUYA77), Saint-Pierre-et-Miquelon Danger 1950 (STPM50). Editions: Guadeloupe 2013-2014, Saint-Barthélemy and
-# Saint-Martin 2019, Martinique 2015, French Guiana 2023, Saint-Pierre-et-Miquelon 2017. Réunion's
-# (RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS) fills the gaps of its LiDAR HD (france_reunion); Mayotte's
-# (..._MYT_RGM04UTM38S_WMS) holds sea-floor heights down to -34 m at the shore: not declared
+# Saint-Martin 2019, Martinique 2015, French Guiana 2023, Saint-Pierre-et-Miquelon 2017, Mayotte 2015 (SHOM 1953).
+# Réunion's (RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS) fills the gaps of its LiDAR HD (france_reunion).
 HALF_METRE = (0.5, 0.5)
+# These layers hold the sea floor along their coasts (measured 2026-11-15 on 500 m to 2.4 km boxes: Guadeloupe at
+# Deshaies down to -11 m, Martinique at Saint-Pierre -33 m, Réunion -16 m at Saint-Gilles, Mayotte -38 m; Mayotte's
+# source mask codes those pixels 20 and 10): next to the sea's 0 m fill (where a layer has no data) it made walls of
+# 20-30 m, and a search found false lines between them (all 9 445 lines of a 400 m search at Saint-Pierre, all 315
+# on Mayotte's north-west shore). Heights below OVERSEAS_FLOOR are no data (the user's decision of 2026-11-15), so
+# the sea fill puts 0 m there; the water at about 0 m and the land are kept. Applied where the tiles are read onto
+# the grid (Layer.nodata_below), so the tiles cached before with the sea floor in them give what a fresh one gives
+OVERSEAS_FLOOR = -1.0
 
 
 def _rgealti_overseas(zone: str, where: str, layer: str, crs: str, origin=(0.0, 0.0)) -> WmsrTiles:
     return WmsrTiles(f"RGE ALTI 1 m (terrain) {where}", FR_WMSR, layer, crs, f"france/rgealti-1m-{zone}/live",
-                     native_res=1.0, fetch_res=(1.0,), tile_m=1000, origin=origin, bytes_per_tile=2e6)
+                     native_res=1.0, fetch_res=(1.0,), tile_m=1000, origin=origin, bytes_per_tile=2e6,
+                     nodata_below=OVERSEAS_FLOOR)
 
 
 # La Réunion: LiDAR HD MNT and MNS in RGR92 / UTM 40S (EPSG:2975; the answers name EPSG:32740, forced to the
@@ -122,7 +130,8 @@ REU_MNS = _lidar_hd("MNS", "0.5 m (trees, buildings) La Réunion", "RGR92UTM40S"
 REU_RGEALTI = _rgealti_overseas("reu", "La Réunion", "RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS", REU_CRS, HALF_METRE)
 REU_BOX = (-21.42, -20.84, 55.20, 55.86)
 
-OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m has no surface model: trees and buildings "
+OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: heights below -1 m, the sea floor along the coasts, taken "
+                 "as no data, so the sea is filled at 0 m). RGE ALTI 1 m has no surface model: trees and buildings "
                  "are not in the data, check the photo.")
 
 

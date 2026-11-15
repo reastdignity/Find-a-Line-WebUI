@@ -2223,5 +2223,34 @@
     },
     "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
     "seconds": 3.4
+  },
+  "R88": {
+    "place": "The cliffs of Martinique's north coast at Anse Bagasse, Grand'Riviere (FR, Nominatim's \"fr\", chosen by the island's box): IGN's RGE ALTI 1 m by GetMap from the Geoplateforme's WMS-R (layer MTQ, EPSG:32620, pixel edges on half metres), its sea floor (heights below -1 m) taken as no data",
+    "args": "--lat 14.8735 --lon -61.1750 --radius 400 --min-length 20 --max-length 200",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 57427,
+      "open": 916,
+      "checked": 47,
+      "lines": 6,
+      "spots": 2,
+      "csv_sha256": "eb373c581dd0918aad17fac905269546e39165478bf2c6e80597d238d575685f",
+      "length_km": 0.204,
+      "clearance_min": 0.1,
+      "clearance_mean": 0.59,
+      "clearance_max": 0.98,
+      "over_trees": 0,
+      "coverage": 73.18,
+      "empty_tiles": 0,
+      "source": "IGN (RGE ALTI 1 m, Martinique)",
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 0.69
+    },
+    "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines)",
+    "seconds": 3.2
   }
 }
