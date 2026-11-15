@@ -738,7 +738,7 @@ def test_memory_bound(tmp_path, monkeypatch):
         _close(tiles[key], want[key])
     with pytest.raises(ValueError, match="too little for one tile"):
         mt._workers(_product([], res=0.5), 6, 0.5)
-    assert mt._workers(_product([], res=0.5), 6, 8.0)[0] == 6  # the server's bound: six tiles of 0.5 m at a time
+    assert mt._workers(_product([], res=0.5), 6, 8.0)[0] == 6  # the default bound: six tiles of 0.5 m at a time
 
 
 def test_masks_and_the_datasets_crs(tmp_path, monkeypatch):
@@ -1195,3 +1195,41 @@ def test_card_follows_the_overlap_rule_and_the_floor(monkeypatch):
         assert mt.dataset(name).products[0].floor == -1.0
         assert "every value below -1 m made no data" in mt.card_text(mt.dataset(name))
     assert mt.dataset("porto-santo").products[0].floor is None
+
+
+def test_verify_opens_a_sampled_tiles_files_only(tmp_path, monkeypatch):
+    """verify over a folder of 200 files, every tile sampled: the files are chosen by their recorded boxes and only
+    a sampled tile's (and the files touching it) are open at a time, never all of them."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _sheets(inputs / "pt" / "MDT", 20, 10)
+    _dataset(monkeypatch, "vmany", _product([mt.Folder("pt/MDT", expected=200, done="../done.jsonl")]))
+    mt.cut("vmany", str(work), str(out), inputs=str(inputs))
+    most, real = [0], mt._point_problems
+
+    def counting(key, got, product, p, rng, n, handles):
+        found = real(key, got, product, p, rng, n, handles)
+        most[0] = max(most[0], len(handles))
+        return found
+    monkeypatch.setattr(mt, "_point_problems", counting)
+    result = mt.verify("vmany", str(work), str(out), inputs=str(inputs), samples=50)["dtm"]
+    assert result["ok"] and len(result["samples"]) == 50 and 4 <= most[0] <= 16, most[0]
+
+
+def test_a_partial_product_with_another_work_folder_stops(tmp_path, monkeypatch):
+    """Two of a tile's four files cut (index.partial.json), then a new work folder and the other two placed: the
+    listed tile has no record there, so the cut stops instead of making the product final with half a tile."""
+    inputs, out = tmp_path / "in", tmp_path / "mirror"
+    _four(inputs, monkeypatch)
+    folder = inputs / "pt" / "MDT"
+    kept = {name: (folder / name).read_bytes() for name in ("01/s0001.tif", "01/s0101.tif")}
+    for name in kept:
+        os.remove(folder / name)
+    mt.cut("four", str(tmp_path / "w1"), str(out), inputs=str(inputs))
+    for name, data in kept.items():
+        (folder / name).write_bytes(data)
+    with pytest.raises(mt.Stale, match="tile 0_0 of a partial product has no record"):
+        mt.cut("four", str(tmp_path / "w2"), str(out), inputs=str(inputs))
+    assert not (out / "four" / "dtm" / "5m" / "index.json").exists()
+    mt.cut("four", str(tmp_path / "w1"), str(out), inputs=str(inputs))  # its own work folder: cut on, complete
+    tiles, index = _tiles(out, mt.dataset("four"))
+    assert "partial" not in index and np.isfinite(tiles["0_0"]).sum() == 160_000

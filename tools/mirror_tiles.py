@@ -1381,10 +1381,12 @@ def _clean_strays(folder: str):
                 _remove(os.path.join(root, name), folder)
 
 
-def _todo(index: Dict, p: Plan, fed_before: Dict[str, Dict[str, Optional[str]]]) -> Tuple[Dict, int]:
+def _todo(index: Dict, p: Plan, fed_before: Dict[str, Dict[str, Optional[str]]],
+          final: bool = True) -> Tuple[Dict, int]:
     """The tiles to cut now, {(i, j): the ids covering it}, and how many listed tiles have no record of what fed
-    them (final: never cut again). Stale when a listed tile would be cut again while a raster that fed it is missing,
-    or when a raster that fed it changed: nothing is cut then."""
+    them (final in a final index: never cut again). Stale when a listed tile would be cut again while a raster that
+    fed it is missing, when a raster that fed it changed, or when a tile of a partial index (index.partial.json)
+    has no record (cut with another work folder: it may lack rasters that came since): nothing is cut then."""
     ids = [rid for rid, _ in p.footprints]
     stamps = {rid: p.rasters[rid].stamp for rid in ids}
     todo, unrecorded = {}, 0
@@ -1395,6 +1397,10 @@ def _todo(index: Dict, p: Plan, fed_before: Dict[str, Dict[str, Optional[str]]])
             record = fed_before.get(key)
             if key in index["tiles"]:
                 if record is None:
+                    if not final:
+                        raise Stale(f"tile {key} of a partial product has no record of what fed it (cut with another "
+                                    "work folder?): cut on with the work folder it was cut with, or cut this product "
+                                    "into a fresh mirror folder (--out)")
                     unrecorded += 1  # cut by a run without the state: final
                     continue
                 changed = [r for r, s in record.items() if r in stamps and s is not None and s != stamps[r]]
@@ -1456,7 +1462,7 @@ def _cut_product(ds: Dataset, product: Product, work: str, out: str, rows_limit:
             if not p.footprints:
                 print(f"{tile_folder(ds, product)}: no raster yet ({'; '.join(p.missing)})", flush=True)
                 return index
-            todo, unrecorded = _todo(index, p, state.fed())
+            todo, unrecorded = _todo(index, p, state.fed(), final=ds.legacy or was_complete)
             px = tile_px(product.res)
             print(f"{tile_folder(ds, product)}: {len(p.footprints)} raster(s), {len(p.rows)} x {len(p.cols)} tiles of "
                   f"{px} px, {len(todo)} to cut, {workers} at a time, GDAL's cache {cache_mb} MB"
@@ -1684,11 +1690,14 @@ def _point_problems(key: str, got: np.ndarray, product: Product, p: Plan, rng: r
     ys = oy + (j + 1) * TILE_M - (rows + 0.5) * res
     found = np.full(n, np.nan)
     left, right, bottom, top = ox + i * TILE_M, ox + (i + 1) * TILE_M, oy + j * TILE_M, oy + (j + 1) * TILE_M
+    margin = 2 * res  # the recorded boxes only choose the files; each is read through its own transform
     for rid, fp in p.footprints:
-        src = handles.get(fp.path) or handles.setdefault(fp.path, rio.open(fp.path))
-        b = src.bounds
-        if b.right <= left or b.left >= right or b.top <= bottom or b.bottom >= top:
+        if (fp.left + fp.width * res <= left - margin or fp.left >= right + margin or fp.top <= bottom - margin
+                or fp.top - fp.height * res >= top + margin):
             continue
+        if fp.path not in handles:
+            handles[fp.path] = rio.open(fp.path)
+        src = handles[fp.path]
         inv = ~src.transform
         cc = np.floor(inv.a * xs + inv.b * ys + inv.c).astype(int)
         rr = np.floor(inv.d * xs + inv.e * ys + inv.f).astype(int)
@@ -1768,6 +1777,9 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
             px = tile_px(product.res)
             ox, oy = product.origin
             for key in chosen + chosen_nulls:
+                for h in handles.values():  # one sampled tile's files open at a time, never every raster
+                    h.close()
+                handles.clear()
                 i, j = map(int, key.split("_"))
                 fps = [p.footprints[k] for k in p.covering.get((i, j), [])]
                 for _, fp in fps:
