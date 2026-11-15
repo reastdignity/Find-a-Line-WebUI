@@ -1941,5 +1941,25 @@
     },
     "seconds": 1.9,
     "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
+  },
+  "R80": {
+    "place": "Cabo Girão, Madeira (sea cliffs of 580 m): DROTe's MDT 2 m (photogrammetry 2018-2019), our own 2 km tiles from the local mirror on the data's grid (edges on odd metres), PTRA08 / UTM 28N",
+    "args": "--lat 32.655 --lon -17.004 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "expected": {}
+  },
+  "R81": {
+    "place": "Arnad, the Machaby crags above the Dora Baltea, Valle d'Aosta, Italy: the region's DTM 2005/2008 2 m, our own 2 km tiles from the local mirror (x edges on even, y on odd metres), ED50 / UTM 32N",
+    "args": "--lat 45.648 --lon 7.720 --radius 1000 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "expected": {}
   }
 }

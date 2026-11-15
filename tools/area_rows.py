@@ -59,7 +59,7 @@ COUNTRIES = {
     "gl": "Greenland", "is": "Iceland", "it": "Italy", "li": "Liechtenstein", "lu": "Luxembourg", "mt": "Malta",
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
     "us": "United States", "vi": "U.S. Virgin Islands",
-    "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands"}
+    "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands", "pt": "Portugal"}
 
 
 class SettingsError(ValueError):

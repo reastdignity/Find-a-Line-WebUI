@@ -3539,6 +3539,7 @@ ABOUT_RING = ("<p>Terrain around the 3D view: © Mapterhorn (<a href='https://ma
 RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://api.ellipsis-drive.com", "https://basemap.nationalmap.gov", "https://data.geopf.fr",
                 "https://geo4.service24.rlp.de", "https://geodata.npolar.no", "https://geodienste.sachsen.de",
                 "https://geoportal.saarland.de", "https://geoservices.bayern.de", "https://geoservices.buergernetz.bz.it", "https://gis.natt.is", "https://gis.us.fo",
+                "https://irig-sig.madeira.gov.pt",
                 "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapas.ide.uy", "https://mapsneu.wien.gv.at",
                 "https://mapy.geoportal.gov.pl", "https://opendata.lgln.niedersachsen.de", "https://owsproxy.lgl-bw.de",
                 "https://service.gdi-sh.de", "https://service.pdok.nl", "https://services.thelist.tas.gov.au",

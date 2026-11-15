@@ -44,7 +44,9 @@ FILES = {
 # Regions made of several admin-1 units (ISO 3166-2 codes); any other region is its own code
 MERGED = {"es-cn": ("ES-GC", "ES-TF"),
           # Sardinia: its eight provinces of Natural Earth (the region's ISO code is not among its units)
-          "it-88": ("IT-CA", "IT-CI", "IT-NU", "IT-OG", "IT-OR", "IT-OT", "IT-SS", "IT-VS")}
+          "it-88": ("IT-CA", "IT-CI", "IT-NU", "IT-OG", "IT-OR", "IT-OT", "IT-SS", "IT-VS"),
+          # Valle d'Aosta: its one province of Natural Earth (Aoste)
+          "it-23": ("IT-AO",)}
 # Regions without an admin-1 unit: their country's outline within a box (south, north, west, east)
 CUT = {"no-22": ("no", (70.5, 71.5, -9.5, -7.5))}
 # Regions of Great Britain: Natural Earth's admin-1 units of a nation (`geonunit`)

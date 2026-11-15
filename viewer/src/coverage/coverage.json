@@ -639,6 +639,35 @@
    "survey": "mosaic",
    "trees": "no"
   },
+  "it-23": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2005–2008"
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Regione Valle d'Aosta",
+   "res": [
+    2
+   ],
+   "source": "aosta_valley",
+   "survey": "2005–2008",
+   "trees": "no"
+  },
   "it-88": {
    "added": "2026-11-15",
    "level": 1,
@@ -953,6 +982,27 @@
    "survey": "projects",
    "trees": "no"
   },
+  "pt-30": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "DROTe",
+   "res": [
+    2,
+    30
+   ],
+   "source": "madeira",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
   "si": {
    "added": "2026-11-03",
    "level": 1,
@@ -1077,7 +1127,7 @@
    "trees": "no"
   }
  },
- "countries": 26,
+ "countries": 27,
  "partly": {
   "de": [
    "de-bb",
@@ -1098,6 +1148,9 @@
    "gb-eng",
    "gb-sct",
    "gb-wls"
+  ],
+  "pt": [
+   "pt-30"
   ]
  },
  "start": "2025-11-05",

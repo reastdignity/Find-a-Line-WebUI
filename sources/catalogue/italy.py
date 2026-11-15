@@ -7,6 +7,7 @@ from typing import List
 
 from ..credit import CC_BY, Credit
 from ..source import Coverage, ReadmeRow, OrthoService, Source
+from ..layers.gridtiles import GridTiles
 from ..layers.sheets import WfsFeatureTiles
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
@@ -103,6 +104,41 @@ def _sar_layer(link: str, kind: str, description: str) -> WfsFeatureTiles:
     """The tiles of one model (its URL the feature's attribute link), the index asked per model."""
     return WfsFeatureTiles(f"{description} Sardinia", SAR_WFS, SAR_TYPE, link, "nomemappa", f"sar-{kind}",
                            f"italy/sar-{kind}/2008", "EPSG:32632", 1.0, 2008, bytes_per_tile=4e6)
+
+
+# Valle d'Aosta's DTM 2005/2008 2 m (lidar 2005 and 2008, "quota ortometrica (geoidica)" through IGM's grids), whole
+# region, is published as one ZIP per product: DTM0508_002_UNICO.zip (2 604 729 175 B) holds one ESRI ASCII grid of
+# 9.85 GB packed with Deflate64 (ZIP method 9: Python's zipfile cannot, 7-Zip can), decimal commas, CRLF, 44 174 x
+# 28 557 px, ED50 / UTM 32N (EPSG:23032), x edges on even and y edges on odd metres (xllcorner 329116,000024,
+# yllcorner 5036774,999974), NODATA -9999, millimetre values. The host's firewall answers HTTP 500 to a Range
+# starting beyond about 1e8 bytes and the per-section ZIPs need a token for their index, so tools/mirror_tiles.py
+# downloads the whole ZIP once with one plain GET (the manual: the service is "non per download massivi"; this is
+# the region's own bulk product, fetched once) and cuts it into 2 km tiles on its own pixel grid (origin (0, 1)) into
+# the local mirror (FINDALINE_MIRROR/aosta/dtm/2m); without the mirror the source is unavailable and --source auto
+# takes TINITALY. The DSM (DSM0508_002) follows by hand later (the user's decision of 2026-11-14): this source has no
+# surface layer until then. No request limits published (istruzioni.pdf, CC_BY_DTM_v2.pdf, read 2026-11-15)
+VDA_LICENCE = "http://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf"
+# CC_BY_DTM_v2.pdf (DGR 1620/2016): "Deve riconoscere una menzione di paternità adeguata su tutti gli elaborati che
+# utilizzeranno dati estratti dal Modello Digitale del Terreno (DTM), apponendo la seguente dicitura: Dati estratti
+# dal Modello Digitale del Terreno (DTM) della Regione Autonoma Valle d'Aosta." and "Deve fornire un link alla licenza
+# e indicare se sono state effettuate delle modifiche": the sentence verbatim, the licence's link, the change in the
+# notice (PROCESSED_NOTE says the rest)
+VDA_CREDIT = Credit("DTM 2005/2008 2 m (Regione Autonoma Valle d'Aosta)",
+                    "Dati estratti dal Modello Digitale del Terreno (DTM) della Regione Autonoma Valle d'Aosta.",
+                    "CC BY 4.0", VDA_LICENCE,
+                    notice="Modifiche: il DTM è stato tagliato in tessere di 2 km e compresso con un errore massimo di "
+                           "5 mm (changed: cut into 2 km tiles, stored within 5 mm).")
+VDA_ORIGIN = (0.0, 1.0)  # x edges on even, y edges on odd metres (tools/mirror_tiles.py DATASETS["aosta"])
+# The tile's size measured over the mirror's tiles with data (tools/mirror_tiles.py cut, 2026-11-15)
+VDA_DTM = GridTiles("Valle d'Aosta DTM 2 m (terrain)", [], "EPSG:23032", "italy/aosta-dtm0508-2m/2008/epsg23032-2m-2km",
+                    2000, 2.0, 1.8e6, mirror="aosta/dtm/2m", origin=VDA_ORIGIN)
+# The region's offline boxes: the brief's box (45.46-45.99 N, 6.80-7.94 E) in bands whose west edges keep off
+# France (the westernmost Italian land in each band, as IT_BOXES' bands along the French border); north of 45.8 N
+# Switzerland's box comes first in SOURCES
+VDA_BOXES = (("it-23", (45.46, 45.55, 6.99, 7.94)), ("it-23", (45.55, 45.60, 6.97, 7.94)),
+             ("it-23", (45.60, 45.65, 6.92, 7.94)), ("it-23", (45.65, 45.70, 6.84, 7.94)),
+             ("it-23", (45.70, 45.85, 6.80, 7.94)), ("it-23", (45.85, 45.90, 6.94, 7.94)),
+             ("it-23", (45.90, 45.99, 7.00, 7.94)))
 
 
 # TINITALY 1.1 (INGV, 2023): a 10 m terrain model of all of Italy (with San Marino and the Vatican) made from a TIN of
@@ -222,6 +258,24 @@ SOURCES: List[Source] = [
              "orthophoto service of Sardinia: the map shows its own base layers.",
         coverage=Coverage(provider="Regione Sardegna", added="2026-11-15", partial=True, rest=(10.0,),
                           survey="2008", notes=("old_survey",))),
+    Source(
+        id="aosta_valley", name="Valle d'Aosta (DTM 2005/2008, 2 m)",
+        description="Regione Autonoma Valle d'Aosta: DTM 2005/2008 2 m (lidar), ED50 / UTM 32N; our own tiles from "
+                    "the local mirror (the DSM follows later)",
+        nmt=VDA_DTM, countries=("it",), regions=("it-23",), crs="EPSG:23032", default_resolution=2.0,
+        grid_origin=VDA_ORIGIN, credits=(VDA_CREDIT,),
+        # Gaps and the land beyond the region from TINITALY, then FABDEM / Copernicus. No neighbours: France
+        # declares six already (the country layer's cap); swisstopo five (one slot left, not taken: the user's
+        # choice, gate 1 "the neighbour cap later")
+        fallback="tinitaly", more_fallbacks=("europe",),
+        listing=ReadmeRow("Valle d'Aosta (IT)", "Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar)",
+                          "– (the DSM follows by hand later)", "– (no open orthophoto service)"),
+        offline=VDA_BOXES, sample=(45.7370, 7.3200),
+        note="Valle d'Aosta's terrain model (2 m, lidar 2005 and 2008) comes from the local mirror; its surface model "
+             "follows later, so trees are not checked yet, and rockfall since 2008 is not in the data. Data: Regione "
+             "Autonoma Valle d'Aosta, CC BY 4.0. No open orthophoto service: the map shows its own base layers.",
+        coverage=Coverage(provider="Regione Valle d'Aosta", added="2026-11-15", survey="2005–2008",
+                          notes=("old_survey",))),
     Source(
         id="tinitaly", name="TINITALY 1.1 (INGV, 10 m)",
         description="INGV's TINITALY 1.1: a terrain model 10 m of Italy, San Marino and the Vatican (a TIN of contour "
