@@ -247,30 +247,40 @@ export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, end
 // The page keeps a run's lines as one typed array per value, not as an object per line: lineColumns reads them from
 // data.js's or lines.js's rows, which are dropped then. A Line is made (lineAt) only for a line the page draws, lists,
 // selects, opens or saves as a favourite; the filters, the grouping and the counts read the columns through a
-// LineCursor. Every value reads back as the very double the row held (null and NaN as toLine gives them), so the
-// page shows the same numbers and keys.lineCoords gives the same keys as from the rows.
+// LineCursor. Every value reads back as the very double the row held (null, NaN and a value past a short row's end
+// as toLine gives them), so the page shows the same numbers and keys.lineCoords gives the same keys as from the rows.
+// One difference: a row of before 2026-10-27 has its profile where `hmax` is now, which toLine reads as `hmax` (an
+// object) and the columns as NaN, which compares, groups, filters and shows ("–") as that object does.
 
 type IntArray = Int8Array | Int16Array | Int32Array;
 const INT32_MAX = 2147483647;
+// What an integer array of a column keeps instead of a number, from its type's smallest value on: null, NaN, and a
+// value the row does not have (undefined, as toLine reads a value past a short row's end: the runs saved before
+// 2026-10-27 have 16 values); its numbers start above them
+const NULL = 0, NAN = 1, MISSING = 2, CODES = 3;
 
-/** The value an integer array of a column keeps for null (its smallest; the next one is NaN). */
-const nullCode = (values: IntArray) => values instanceof Int8Array ? -128 : values instanceof Int16Array ? -32768
+/** The smallest value of an integer array of a column (its code of null). */
+const lowest = (values: IntArray) => values instanceof Int8Array ? -128 : values instanceof Int16Array ? -32768
   : -INT32_MAX - 1;
 
 /** One value of every line: `values[i] / scale` in the narrowest integer array that holds every value exactly
- *  (null as the array's smallest number, NaN as the next one; `negZero` the rows of a -0), or the values themselves
- *  in a Float64Array (scale 0; NaN as it is, null where `nulls` is 1). `at` gives back the double the row held. */
+ *  (null, NaN and a missing value as the array's three smallest numbers; `negZero` the rows of a -0), or the values
+ *  themselves in a Float64Array (scale 0; NaN as it is, null where `nulls` is 1, missing where it is 2). `at` gives
+ *  back the value the row held: the very double, null, NaN, or undefined for a value past the row's end. */
 export class NumberColumn {
   private readonly code: number;
   constructor(readonly values: Float64Array | IntArray, readonly scale: number, readonly nulls: Uint8Array | null = null,
               readonly negZero: Set<number> | null = null) {
-    this.code = scale ? nullCode(values as IntArray) : 0;
+    this.code = scale ? lowest(values as IntArray) : 0;
   }
 
   at(i: number): number | null {
     const v = this.values[i];
-    if (this.scale === 0) return this.nulls !== null && this.nulls[i] === 1 ? null : v;
-    if (v <= this.code + 1) return v === this.code ? null : NaN;
+    if (this.scale === 0) {
+      const mark = this.nulls !== null ? this.nulls[i] : 0;
+      return mark === 0 ? v : mark === 1 ? null : undefined as unknown as number;
+    }
+    if (v < this.code + CODES) return v === this.code + NULL ? null : v === this.code + NAN ? NaN : undefined as unknown as number;
     if (v === 0 && this.negZero !== null && this.negZero.has(i)) return -0;
     return v / this.scale;
   }
@@ -278,7 +288,8 @@ export class NumberColumn {
 
 /** A NumberColumn filled value by value: as integers of `scale` (0: a Float64Array) while every value is one exactly
  *  (k / scale is the very double), else as doubles from then on; `finish` narrows the integers to Int16 or Int8 when
- *  they fit. A value that is not a number is null (toLine's extra values; the rows hold numbers or null). */
+ *  they fit. `undefined` is a value the row does not have; anything else that is not a number is null (toLine's
+ *  extra values; the rows hold numbers or null). */
 class ColumnBuilder {
   private ints: Int32Array | null;
   private floats: Float64Array | null;
@@ -286,6 +297,7 @@ class ColumnBuilder {
   private negZero: Set<number> | null = null;
   private min = Infinity;
   private max = -Infinity;
+  private static readonly LOW = -INT32_MAX - 1;  // the Int32 codes: LOW + NULL, + NAN, + MISSING
 
   constructor(private readonly n: number, private readonly scale: number) {
     this.ints = scale ? new Int32Array(n) : null;
@@ -294,14 +306,15 @@ class ColumnBuilder {
 
   set(i: number, v: unknown) {
     if (typeof v !== "number") {
-      if (this.ints) this.ints[i] = -INT32_MAX - 1;
-      else { this.floats![i] = NaN; (this.nulls ??= new Uint8Array(this.n))[i] = 1; }
+      const code = v === undefined ? MISSING : NULL;
+      if (this.ints) this.ints[i] = ColumnBuilder.LOW + code;
+      else { this.floats![i] = NaN; (this.nulls ??= new Uint8Array(this.n))[i] = code === NULL ? 1 : 2; }
       return;
     }
     if (this.ints) {
-      if (v !== v) { this.ints[i] = -INT32_MAX; return; }
+      if (v !== v) { this.ints[i] = ColumnBuilder.LOW + NAN; return; }
       const k = Math.round(v * this.scale);
-      if (k / this.scale === v && k > -INT32_MAX && k <= INT32_MAX) {
+      if (k / this.scale === v && k >= ColumnBuilder.LOW + CODES && k <= INT32_MAX) {
         this.ints[i] = k;
         if (k < this.min) this.min = k;
         if (k > this.max) this.max = k;
@@ -315,11 +328,14 @@ class ColumnBuilder {
 
   /** The integers before row `upTo` as doubles, and the doubles from then on. */
   private toFloats(upTo: number) {
-    const ints = this.ints!, floats = new Float64Array(this.n);
+    const ints = this.ints!, floats = new Float64Array(this.n), low = ColumnBuilder.LOW;
     for (let j = 0; j < upTo; j++) {
       const k = ints[j];
-      if (k === -INT32_MAX - 1) { floats[j] = NaN; (this.nulls ??= new Uint8Array(this.n))[j] = 1; }
-      else if (k === -INT32_MAX) floats[j] = NaN;
+      if (k === low + NULL || k === low + MISSING) {
+        floats[j] = NaN;
+        (this.nulls ??= new Uint8Array(this.n))[j] = k === low + NULL ? 1 : 2;
+      }
+      else if (k === low + NAN) floats[j] = NaN;
       else floats[j] = k === 0 && this.negZero !== null && this.negZero.has(j) ? -0 : k / this.scale;
     }
     this.ints = null;
@@ -328,14 +344,14 @@ class ColumnBuilder {
   }
 
   finish(): NumberColumn {
-    const ints = this.ints;
+    const ints = this.ints, low = ColumnBuilder.LOW;
     if (!ints) return new NumberColumn(this.floats!, 0, this.nulls);
     for (const [make, top] of [[Int8Array, 127], [Int16Array, 32767]] as const) {
-      if (this.min > this.max || (this.min >= 1 - top && this.max <= top)) {
+      if (this.min > this.max || (this.min >= -top - 1 + CODES && this.max <= top)) {
         const narrow = new make(this.n);
         for (let j = 0; j < this.n; j++) {
           const k = ints[j];
-          narrow[j] = k === -INT32_MAX - 1 ? -top - 1 : k === -INT32_MAX ? -top : k;
+          narrow[j] = k < low + CODES ? -top - 1 + (k - low) : k;
         }
         return new NumberColumn(narrow, this.scale, null, this.negZero);
       }
@@ -376,7 +392,10 @@ export function lineColumns(rows: LineRow[], terrain?: Terrain | null, ends: str
   const over = new Uint8Array(n), profiles = new Map<number, Profile>();
   for (let i = 0; i < n; i++) {
     const d = rows[i];
-    for (let f = 0; f < ROW_FIELDS.length; f++) values[f].set(i, d[ROW_FIELDS[f][1]]);
+    for (let f = 0; f < ROW_FIELDS.length; f++) {
+      const v = d[ROW_FIELDS[f][1]];
+      values[f].set(i, v !== null && typeof v === "object" ? NaN : v);  // a profile in a short row's place (above)
+    }
     over[i] = d[OVER] ? 1 : 0;
     const last = d.length > ROW_VALUES ? d[d.length - 1] : undefined;
     const profiled = last === null || typeof last === "object";

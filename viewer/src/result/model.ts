@@ -234,7 +234,8 @@ export class ResultModel {
   private readonly index = new WeakMap<Line, number>();  // a made Line's index
   private counts = {clean: 0, over: 0};
   private grouped: LineGroup[] = [];  // the grouping's groups, before the group size filter
-  private groupAt = new Int32Array(0);  // an index's group among `groups` before sorting (shownGroups), else -1
+  // a line's group among `groups` before sorting (shownGroups), else -1: an array per run shown, by the line's row
+  private groupAt = new Map<Table, Int32Array>();
   private shownGroups: LineGroup[] = [];
   private special: Set<LineGroup> | null = null;  // the groups shown holding a chosen line or a favourite
   private valueRanges: {of: number; ranges: FilterRanges} | null = null;  // lineRanges of the runs shown (version)
@@ -292,6 +293,12 @@ export class ResultModel {
 
   get nClean(): number { return this.counts.clean; }
   get nOver(): number { return this.counts.over; }
+
+  /** The lines of run `id` (this run's or another run's shown), found by the run: a run of no lines shares its
+   *  start index with the next one. */
+  private tableOfRun(id: string): Table | undefined {
+    return id === this.runId ? this.tables[0] : this.tables.find((t) => t.run?.info.id === id);
+  }
 
   /** The run holding index `at`. */
   private tableOf(at: number): Table | undefined {
@@ -410,7 +417,7 @@ export class ResultModel {
       const special = new Set<LineGroup>();
       for (const of of [this.chosen, this.favouriteSet]) {
         of.forEach((at) => {
-          const q = at < this.groupAt.length ? this.groupAt[at] : -1;
+          const q = this.groupIndex(at);
           if (q >= 0) special.add(this.shownGroups[q]);
         });
       }
@@ -585,8 +592,15 @@ export class ResultModel {
     const f = this.filters, s = this.state;
     let groups = this.grouped;
     if (s.group && f.groupMin !== null) groups = groups.filter((g) => g.size >= f.groupMin!);
-    const groupAt = new Int32Array(this.nextStart).fill(-1);
-    groups.forEach((g, q) => { for (let k = g.start; k < g.end; k++) groupAt[g.flat[k]] = q; });
+    const groupAt = new Map(this.tables.map((t) => [t, new Int32Array(t.cols.length).fill(-1)]));
+    let t = this.tables[0], rows = groupAt.get(t)!;
+    groups.forEach((g, q) => {
+      for (let k = g.start; k < g.end; k++) {
+        const at = g.flat[k];
+        if (at < t.start || at >= t.start + t.cols.length) { t = this.tableOf(at)!; rows = groupAt.get(t)!; }
+        rows[at - t.start] = q;
+      }
+    });
     this.groupAt = groupAt;
     this.shownGroups = groups;
     this.special = null;
@@ -623,10 +637,16 @@ export class ResultModel {
     this.selectedLine = line;
   }
 
+  /** The position among shownGroups of the group holding the line of index `at`, else -1. */
+  private groupIndex(at: number): number {
+    const t = at >= 0 ? this.tableOf(at) : undefined, rows = t && this.groupAt.get(t);
+    return rows ? rows[at - t!.start] : -1;
+  }
+
   /** The group (shown now) holding a line, or undefined. */
   groupOf(l: Line): LineGroup | undefined {
     const at = this.indexOf(l);
-    const q = at >= 0 && at < this.groupAt.length ? this.groupAt[at] : -1;
+    const q = this.groupIndex(at);
     return q >= 0 ? this.shownGroups[q] : undefined;
   }
 
@@ -873,8 +893,7 @@ export class ResultModel {
   /** The lines of a run whose coordinates (keys.lineCoords) are among `found` become favourites
    *  (keys are built only for the lines whose first latitude is among theirs). */
   private markFavourites(runId: string, found: string[]) {
-    const start = runId === this.runId ? 0 : this.others.get(runId)?.start;
-    const t = start === undefined ? undefined : this.tableOf(start);
+    const t = this.tableOfRun(runId);
     if (!t) return;
     const wanted = new Set(found), lat1 = new Set(found.map((coords) => Number(coords.split(",")[0])));
     this.eachOf(t, (l, at) => { if (lat1.has(l.lat1) && wanted.has(lineCoords(l))) this.favouriteSet.add(at); });
@@ -972,7 +991,7 @@ export class ResultModel {
     const run = this.others.get(id);
     if (!run) return;
     this.others.delete(id);
-    this.tables.splice(this.tables.findIndex((t) => t.start === run.start), 1);
+    this.tables.splice(this.tables.indexOf(this.tableOfRun(id)!), 1);
     const gone = (at: number) => at >= run.start && at < run.start + run.count;
     for (const of of [this.chosen, this.favouriteSet]) of.forEach((at) => { if (gone(at)) of.delete(at); });
     this.made.forEach((_, at) => { if (gone(at)) this.made.delete(at); });

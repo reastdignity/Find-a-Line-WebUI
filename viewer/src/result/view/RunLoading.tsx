@@ -23,7 +23,7 @@ export function RunLoading({progress, error, children}: {progress: LoadProgress 
                                                           children?: ComponentChildren}) {
   return <div class="c-result-wait">
     {children}
-    {error ? <p class="c-error">{error}</p>
+    {error ? <p class="c-error" role="alert">{error}</p>
       : <div class="c-loading"><Progress value={progress?.fraction ?? null} label={loadingText(progress)} /></div>}
   </div>;
 }

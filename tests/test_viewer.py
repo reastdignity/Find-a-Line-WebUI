@@ -928,6 +928,7 @@ def _columns_bundle(tmp_path):
     src = os.path.join(VIEWER, "src").replace("\\", "/")
     entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
+                     f'export {{ formatValue, sortKey, sortRows }} from "{src}/list";\n'
                      f'export {{ passes, range, needClass, liftNeed, dh, lowerAnchor, upperAnchor, wallAngle, prominence, '
                      f'drop }} from "{src}/filters";\n', encoding="utf-8")
     bundle = tmp_path / "columns.cjs"
@@ -957,8 +958,10 @@ function compare(rows, terrain, ends) {
     if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(want))) bad.push([i, "keys"]);
     cursor.i = i;
     for (const k of Object.keys(want)) {
-      if (!Object.is(got[k], want[k])) bad.push([i, k, String(want[k]), String(got[k])]);
-      if (k !== "prof" && k !== "run" && !Object.is(cursor[k], want[k])) bad.push([i, "cursor " + k, String(want[k]), String(cursor[k])]);
+      // a row of before 2026-10-27 has its profile where hmax is now: toLine reads that object, the columns NaN
+      const expected = k === "hmax" && want[k] !== null && typeof want[k] === "object" ? NaN : want[k];
+      if (!Object.is(got[k], expected)) bad.push([i, k, String(want[k]), String(got[k])]);
+      if (k !== "prof" && k !== "run" && !Object.is(cursor[k], expected)) bad.push([i, "cursor " + k, String(want[k]), String(cursor[k])]);
     }
     if (m.lineCoords(got) !== m.lineCoords(want) || m.lineCoords(cursor) !== m.lineCoords(want)) bad.push([i, "coords"]);
   });
@@ -991,6 +994,12 @@ out.counted = compare([base.concat([37, profile]), base.concat([37]), base.conca
                       null, ["lift_needed", "lift_no_zone", "stands_for"]);
 out.alone = compare([base.concat([37, profile]), base.concat([1])], null, ["stands_for"]);
 out.empty = compare([], null, undefined);
+// Rows of runs saved before 2026-10-27: 16 values (lines.js) or 16 and the profile (data.js), nothing from hmax on
+const old = base.slice(0, 16);
+out.short = compare([old.concat([profile]), old.concat([null]), old, set(old, 10, -0).concat([profile]),
+                     old.concat([profile]).slice(0, 15)], terrain, undefined);
+out.shortValues = (() => { const c = m.lineColumns([old.concat([profile])], null, undefined), l = m.lineAt(c, 0);
+                           return [l.hmax, l.hmean === undefined, l.angle1 === undefined, l.prom1 === undefined, l.prof]; })();
 // The integer columns narrow to what holds the values; the grouping's values stay doubles
 const narrow = m.lineColumns([set(base, 18, 100).concat([null]), set(base, 18, 0).concat([null])], null, []);
 out.narrow = {highPct: narrow.highPct.values.constructor.name, e1: narrow.e1.values.constructor.name,
@@ -1008,7 +1017,7 @@ def test_columns_give_the_rows_values(tmp_path, clip_data):
     data_path = tmp_path / "data.json"
     data_path.write_text(text, encoding="utf-8")
     out = _run_node(tmp_path, _columns_bundle(tmp_path), COLUMNS_SCRIPT, data_path)
-    for case in ("clip", "hard", "ends", "swapped", "counted", "alone", "empty"):
+    for case in ("clip", "hard", "ends", "swapped", "counted", "alone", "empty", "short"):
         assert out[case]["bad"] == [], (case, out[case]["bad"])
     assert out["clip"]["n"] == out["clip"]["length"] == len(data["lines"]) > 100
     assert out["empty"]["length"] == 0
@@ -1018,6 +1027,103 @@ def test_columns_give_the_rows_values(tmp_path, clip_data):
     assert types["lat1"] == types["lon2"] == "Int32Array" and types["highPct"] in ("Int16Array", "Int8Array")
     assert out["hard"]["types"]["e1"] == out["hard"]["types"]["water"] == out["hard"]["types"]["lat1"] == "Float64Array"
     assert out["narrow"] == {"highPct": "Int16Array", "e1": "Int32Array", "len": "Float64Array", "lat1": "Int32Array"}
+    assert out["shortValues"] == [None, True, True, True, None]  # hmax NaN (JSON null), the rest undefined, no profile
+
+
+OLD_RUN_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+// today's way: a Line of every row, as main read them (values past a short row's end undefined)
+const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
+const key = (l) => m.lineCoords(l);
+const count = (f) => objects.filter((l) => m.passes(l, {...m.NO_FILTERS, ...f}, data.lift)).length;
+const shown = (f) => { model.setFilters({...m.NO_FILTERS, ...f}); return model.shown.lines; };
+const out = {
+  list: ["angle", "highPct", "hmean", "prom", "drop", "hmax"].map((k) => m.formatValue(m.sortKey(k), model.rows[0])),
+  ranges: {angle: model.ranges.angle, highPct: model.ranges.highPct, hmean: model.ranges.hmean, prom: model.ranges.prom,
+           drop: model.ranges.drop, hmax: model.ranges.hmax},
+  counts: [{angleMax: 45}, {highPctMin: 0}, {meanMin: 0}, {heightMin: 0}, {promMin: 0}, {dropMin: 0}, {lenMin: 0}]
+    .map((f) => [shown(f), count(f)]),
+};
+model.setFilters({...m.NO_FILTERS});
+for (const by of ["clearance", "height", "longest"]) {
+  model.setState({...model.state, by});
+  out[by] = JSON.stringify(model.groups.map((g) => g.members.map(key)))
+    === JSON.stringify(m.groupLines(objects, data.distance, by).map((g) => g.members.map(key)));
+}
+out.n = objects.length;
+console.log(JSON.stringify(out));
+"""
+
+
+def test_old_runs_from_columns(tmp_path, clip_data):
+    """A run saved before 2026-10-27 (rows of 16 values and the profile, nothing from the webbing's height on) opens
+    from columns as main showed it from the rows: the list shows "–" for the values it lacks, the filters offer no
+    range of them, a limit on them gives main's counts (none passes), and the spots of every rank are main's."""
+    text, data = clip_data
+    old = {k: v for k, v in data.items() if k not in ("terrain", "shore", "ends", "end_zone", "lift", "square", "found")}
+    old["lines"] = [row[:16] + [row[-1]] for row in data["lines"]]
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(old), encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), OLD_RUN_SCRIPT, data_path)
+    assert out["list"] == ["–"] * 6
+    assert out["ranges"] == {"angle": None, "highPct": None, "hmean": None, "prom": None, "drop": None, "hmax": None}
+    for got, want in out["counts"]:
+        assert got == want
+    assert out["counts"][0] == [0, 0] and out["counts"][1] == [0, 0] and out["counts"][-1] == [out["n"], out["n"]]
+    assert out["clearance"] and out["height"] and out["longest"]
+
+
+BY_MEAN_SCRIPT = r"""
+// Made-up lines with ties of the mean height, the clearance and the length and with unknown means (NaN, null):
+// under "Highest on average" (the default) each spot's shown line, its lines' order and the rows' order from the
+// columns against main's way (Line objects: the best by byMean with the row in the run, the members sorted by it)
+const rows = [];
+let seed = 11;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const pick = (values) => values[Math.floor(rnd() * values.length)];
+for (let i = 0; i < 3000; i++) {
+  const cx = (i % 12) * 300, x1 = cx + rnd() * 40, y1 = rnd() * 40, x2 = x1 + 120 + rnd() * 40, y2 = y1 + rnd() * 40;
+  const ll = (x, y) => [Number((50 + y / 111000).toFixed(7)), Number((19 + x / 71000).toFixed(7))];
+  const [lat1, lon1] = ll(x1, y1), [lat2, lon2] = ll(x2, y2);
+  rows.push([lat1, lon1, lat2, lon2, x1, y1, x2, y2, pick([120, 130, 140]), pick([1.5, 2, 2.5]), null, 300, 301, i % 9 === 0,
+             0, 0, 20, pick([25.5, 25.5, 30, 12.25, NaN, null]), 50, 10, 10, null, null, null, null, null]);
+}
+const data = {run: {id: "r", name: "r", created: "", description: ""}, center: [50, 19], area: null, crs: "EPSG:2180",
+              ortho: null, distance: 20, by: "clearance", model: "sag", rigging: {}, slope: 0, leash_fall: 0, high_above: 20,
+              max_zoom: 19, lines: rows};
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const objects = rows.map((r) => m.toLine(r)), row = new Map(objects.map((l, k) => [l, k]));
+const compare = m.byMean((l) => row.get(l)), key = (l) => m.lineCoords(l);
+const groups = m.groupLines(objects, data.distance, data.by);
+const best = groups.map((g) => g.members.length < 2 ? g.rep : g.members.reduce((a, b) => compare(b, a) < 0 ? b : a));
+const order = groups.map((g) => g.members.length < 2 ? g.members : g.members.slice().sort(compare));
+const baseRows = groups.map((g, k) => ({line: best[k], n: g.members.length, group: g}))
+  .sort((a, b) => +a.group.rep.over - +b.group.rep.over);
+const sorted = m.sortRows(baseRows, m.sortKey(model.list.sort), model.list.desc).map((r) => key(r.line));
+const out = {
+  by: model.state.by, spots: [model.groups.length, groups.length],
+  several: groups.filter((g) => g.members.length > 1).length,
+  shown: JSON.stringify(model.groups.map((g) => key(model.shownOf(g)))) === JSON.stringify(best.map(key)),
+  order: JSON.stringify(model.groups.map((g) => model.membersOf(g).map(key))) === JSON.stringify(order.map((o) => o.map(key))),
+  rows: JSON.stringify(model.rows.map((r) => key(r.line))) === JSON.stringify(sorted),
+  notRep: best.some((l, k) => l !== groups[k].rep),
+  unknown: objects.filter((l) => !Number.isFinite(l.hmean)).length,
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_by_mean_from_columns_as_from_rows(tmp_path):
+    """"Highest on average" (the default "Show per spot") from the columns as main's from Line objects, on made-up
+    lines with ties of the mean height, clearance and length and with unknown means: every spot's shown line, its
+    lines' order (the stepper, the unfolded row, `&also=`) and the rows' order are equal."""
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), BY_MEAN_SCRIPT)
+    assert out["by"] == "mean" and out["spots"][0] == out["spots"][1] and out["several"] > 50
+    assert out["unknown"] > 500 and out["notRep"]
+    assert out["shown"] and out["order"] and out["rows"]
 
 
 MODEL_COLUMNS_SCRIPT = r"""
@@ -1101,7 +1207,16 @@ out.removed = {total: model.total, others: model.others.size,
                same: JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)))
                  === JSON.stringify(m.groupLines(objects, data.distance, data.by).map((g) => [g.rep, ...g.members].map(runKey)))};
 model.addRun(info, other);
-out.again = {same: JSON.stringify(groupsNow()) === wanted, start: model.others.get("other").start};
+out.again = {same: JSON.stringify(groupsNow()) === wanted, start: model.others.get("other").start,
+             groupAt: Array.from(model.groupAt.values()).reduce((n, a) => n + a.length, 0)};
+// A run of no lines shares its start index with the next run shown: removing that one removes it, not the empty one
+model.removeRun("other");
+model.addRun({...info, id: "empty"}, {...other, lines: []});
+model.addRun(info, other);
+model.removeRun("other");
+out.empty = {others: [...model.others.keys()], total: model.total, lines: model.shown.lines};
+model.removeRun("empty");
+out.emptyGone = {others: model.others.size, total: model.total};
 console.log(JSON.stringify(out));
 """
 
@@ -1138,7 +1253,10 @@ def test_model_from_columns_as_from_rows(tmp_path, clip_data):
     assert out["found"] == [len(lines), len(lines), len(lines)]
     assert out["otherCrs"]["same"] and out["otherCrs"]["total"] == len(lines) + 400 and out["otherCrs"]["mixed"]
     assert out["removed"] == {"total": len(lines), "others": 0, "same": True}
-    assert out["again"] == {"same": True, "start": len(lines) + 400}  # an index is never given twice
+    # an index is never given twice; the groups' index arrays are the lines shown, whatever was shown before
+    assert out["again"] == {"same": True, "start": len(lines) + 400, "groupAt": len(lines) + 400}
+    assert out["empty"] == {"others": ["empty"], "total": len(lines), "lines": len(lines)}
+    assert out["emptyGone"] == {"others": 0, "total": len(lines)}
 
 
 PRUNE_SCRIPT = r"""

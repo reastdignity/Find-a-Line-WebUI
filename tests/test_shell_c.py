@@ -559,9 +559,14 @@ Object.defineProperty(XMLHttpRequest.prototype, "response",
 
 TOO_LARGE_SCRIPT = """
 run({
-  shown(next) { wait(() => text(".c-result-wait .c-error"), () => {
+  // the text shown after the download's measure (load.ts: the check comes right after it; a script would be added
+  // before the load fails), and the error announced (role="alert")
+  shown(next) { wait(() => text(".c-result-wait .c-error") && performance.getEntriesByName("fal:run:download").length, () => {
     result.text = text(".c-result-wait .c-error");
-    later(() => { result.scripts = DATA_SCRIPTS.slice(); result.model = !!window.FINDALINE_RESULT; next(); }, 1000);
+    result.alert = ($(".c-result-wait .c-error") || {getAttribute: () => null}).getAttribute("role");
+    result.scripts = DATA_SCRIPTS.slice();
+    result.model = !!window.FINDALINE_RESULT;
+    next();
   }); },
 });
 """
@@ -588,7 +593,7 @@ def test_shell_c_too_large(data, tmp_path):
         own = _edge(port, f"runs/{SMALL}/toolarge.html", tmp_path / "edge-map")
     for r in (app, own):
         assert "timeout" not in r and "error" not in r, json.dumps(r)
-        assert r["text"] == words and r["scripts"] == [] and r["model"] is False, r
+        assert r["text"] == words and r["scripts"] == [] and r["model"] is False and r["alert"] == "alert", r
         assert r["csp"] == []
 
 
