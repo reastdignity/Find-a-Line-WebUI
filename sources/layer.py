@@ -203,6 +203,10 @@ class Layer:
     # Correction (east, north) in metres of the layer CRS for data whose service is
     # georeferenced wrongly; applied when tiles are placed on the grid
     shift: Tuple[float, float] = (0.0, 0.0)
+    # Heights below this many metres are no data (the sea floor of IGN's overseas RGE ALTI): applied where the tiles
+    # are read onto the grid (mosaic.prepare_layer), never when one is written, so a tile cached before and one
+    # fetched now give the same grid; None: none (every other layer)
+    nodata_below: Optional[float] = None
     # Version of what download_tile does with the data; tiles made by another version are fetched again
     processing = 1
     # The secrets the layer's service needs (field names of settings.ServiceKeys, read when used):

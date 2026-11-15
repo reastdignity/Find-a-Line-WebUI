@@ -616,6 +616,23 @@
    "survey": "",
    "trees": "yes"
   },
+  "fr-yt": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_mayotte",
+   "survey": "",
+   "trees": "no"
+  },
   "gb-eng": {
    "added": "2026-11-01",
    "level": 1,

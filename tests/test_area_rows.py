@@ -123,7 +123,7 @@ def test_a_territory_sits_under_its_country_where_it_lies(name, country, contine
 
 @pytest.mark.parametrize("name, continent", [
     ("france-guadeloupe", "North America"), ("france-martinique", "North America"),
-    ("france-french-guiana", "South America"), ("france-reunion", "Africa"), ("netherlands-bonaire", "North America"),
+    ("france-french-guiana", "South America"), ("france-reunion", "Africa"), ("france-mayotte", "Africa"), ("netherlands-bonaire", "North America"),
     ("netherlands-saba", "North America"), ("netherlands-sint-eustatius", "North America"),
     ("spain-canary-islands", "Europe"), ("portugal-madeira", "Europe"), ("norway-svalbard", "Europe"),
     ("norway-jan-mayen", "Europe"), ("united-states-alaska", "North America"), ("germany-bavaria", "Europe")])

@@ -29,7 +29,8 @@ SINT_MAARTEN = (493632.5, 1993504.5)
 OVERSEAS = {"france_guadeloupe": ("RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS", "EPSG:32620", (0.5, 0.5)),
             "france_martinique": ("RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS", "EPSG:32620", (0.5, 0.5)),
             "france_guiana": ("RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS", "EPSG:2972", (0.0, 0.0)),
-            "france_spm": ("RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS", "EPSG:4467", (0.5, 0.5))}
+            "france_spm": ("RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS", "EPSG:4467", (0.5, 0.5)),
+            "france_mayotte": ("RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS", "EPSG:4471", (0.5, 0.5))}
 
 
 @pytest.fixture
@@ -72,7 +73,8 @@ def test_the_overseas_layers():
 
 # Per layer the recorded 32 m box on its declared pixel edges: (source, the answer at 1 m, at 0.5 m, its corner)
 ALIGNMENT = [("france_guadeloupe", 1, 2, SOUFRIERE), ("france_martinique", 4, 5, (704544.5, 1626528.5)),
-             ("france_guiana", 6, 7, (359168.0, 539520.0)), ("france_spm", 8, 9, (562592.5, 5181024.5))]
+             ("france_guiana", 6, 7, (359168.0, 539520.0)), ("france_spm", 8, 9, (562592.5, 5181024.5)),
+             ("france_mayotte", 17, 18, (510848.5, 8596032.5))]
 
 
 def test_the_alignment_recordings_are_the_layers_requests():
@@ -253,8 +255,9 @@ def _serve_tile(server, layer, tile, values, nodata):
 def test_the_reunion_chain_in_action(http_server, tmp_path, monkeypatch):
     """The catalogue's own layers on served answers: LiDAR HD answers every pixel -9999 (no tile), so the whole grid
     is a gap; the RGE ALTI filler (france_reunion_rgealti, the first of france_reunion's fallbacks) fills its west
-    half, its east half answered -99999 (no data, never a height); what is left goes to the next fallback (europe:
-    here a local stand-in, as FABDEM is not served)."""
+    half, its east half answered -99999 (no data, never a height), and a band of its west half holding the sea floor
+    (-5 m: below OVERSEAS_FLOOR, no data on the grid); what is left goes to the next fallback (europe: here a local
+    stand-in, as FABDEM is not served)."""
     from grid import make_grid
     from test_italy import _File, _local
     reunion = src.SOURCES["france_reunion"]
@@ -270,6 +273,7 @@ def test_the_reunion_chain_in_action(http_server, tmp_path, monkeypatch):
         _serve_tile(http_server, layer, lidar_tile, np.full((1000, 1000), -9999.0), -9999.0)
     rge = np.full((1000, 1000), 800.0)
     rge[:, 500:] = -99999.0
+    rge[:, 100:300] = -5.0  # the sea floor: 339100.5-339300.5 E
     _serve_tile(http_server, france.REU_RGEALTI, rge_tile, rge, -99999.0)
     cache_dir = str(tmp_path / "cache")
     nmt = src.mosaic.prepare_layer(france.REU_MNT, grid, cache_dir, str(tmp_path / "nmt.npy"), "terrain")
@@ -281,17 +285,48 @@ def test_the_reunion_chain_in_action(http_server, tmp_path, monkeypatch):
     europe.nmt.credit = src.FABDEM_CREDIT
     src.mosaic.used_data.clear()
     try:
-        _, counts = src.filling.fill_gaps_chain(nmt, None, grid, [filler, europe], cache_dir, str(tmp_path / "gap.npy"))
+        steps = []
+        _, counts = src.filling.fill_gaps_chain(nmt, None, grid, [filler, europe], cache_dir, str(tmp_path / "gap.npy"),
+                                                steps=steps)
     finally:
         src.mosaic.used_data.clear()
     z = np.load(nmt)
     assert counts[0][0] is filler and counts[0][1] > 0 and counts[1][1] > 0
     assert not np.isnan(z).any()
     # The RGE ALTI's west half (339000.5-339500.5 E): its height, never -99999; the east half from the next fallback
-    west = grid.left + (np.arange(grid.width) + 0.5) * grid.res < 339490
-    east = grid.left + (np.arange(grid.width) + 0.5) * grid.res > 339510
+    x = grid.left + (np.arange(grid.width) + 0.5) * grid.res
+    west, east = (x > 339310) & (x < 339490), x > 339510
+    floored = (x > 339110) & (x < 339290)
     assert np.allclose(z[:, west], 800.0) and (z > 0).all()
+    # The filler's sea floor never reaches the grid: those pixels come from the next fallback (its own mask)
+    by_europe = np.load(steps[1])
+    assert by_europe[:, floored].all() and not by_europe[:, west].any() and by_europe[:, east].all()
     assert counts[0][1] + counts[1][1] == z.size and int(east.sum()) * grid.height <= counts[1][1]
+
+
+def test_mayottes_shore_floored(service, tmp_path, monkeypatch):
+    """A recorded answer of Mayotte's shore through the catalogue's own reader and its floor: the tile is written as it
+    came (the sea floor in it); read onto the grid, below -1 m is no data, the water above it and the land are kept
+    (the floor of every overseas RGE ALTI layer, OVERSEAS_FLOOR). The cache is LERC within 5 mm, so a pixel within
+    5 mm of -1 m (one here) may fall on either side: the assertions leave those out."""
+    from grid import make_grid
+    from sources.readers.wmsr import MapRequest
+    layer = src.SOURCES["france_mayotte"].nmt
+    assert layer.nodata_below == france.OVERSEAS_FLOOR == -1.0
+    monkeypatch.setattr(layer.reader, "service_url", service.url("/wms-r/wms"))
+    x, y = 525344.5, 8587552.5
+    path = str(tmp_path / "shore.tif")
+    assert layer.reader.fetch(MapRequest(x, y, x + 32, y + 32, 32, 32), path).received > 0
+    raw, _ = _answer(19)
+    with rio.open(path) as cached:
+        assert same_tile(cached.read(1, masked=True).astype(np.float32).filled(np.nan), raw)
+    grid = make_grid((x, y, x + 32, y + 32), 1.0, "EPSG:4471", (0.5, 0.5))
+    z = np.asarray(src.mosaic.build_mosaic([path], grid, str(tmp_path / "m.npy"), "t", below=layer.nodata_below))
+    assert ((raw < -1).sum(), (raw == -1).sum()) == (778, 1)
+    below, above = raw < -1.0051, raw > -0.9949
+    assert below.sum() > 700 and ((raw > -1) & above).sum() > 100
+    assert np.isnan(z[below]).all() and not np.isnan(z[above]).any()
+    assert np.allclose(z[above], raw[above], atol=0.0051)
 
 
 def test_the_reunion_sources():
@@ -321,7 +356,7 @@ PLACES = [(16.044, -61.664, "fr", "france_guadeloupe"), (17.90, -62.83, "fr", "f
           (14.705, -61.100, "fr", "france_martinique"), (4.93, -52.33, "fr", "france_guiana"),
           (46.78, -56.18, "fr", "france_spm"), (47.05, -56.38, "fr", "france_spm"),
           (-21.11, 55.53, "fr", "france_reunion"), (-21.373, 55.715, "fr", "france_reunion"),  # Cap Méchant
-          (-12.78, 45.23, "fr", "europe"),  # Mayotte: not declared
+          (-12.78, 45.23, "fr", "france_mayotte"), (-12.70, 45.10, "fr", "france_mayotte"),  # Mayotte
           (43.7655, 6.3580, "fr", "france")]
 
 
@@ -331,7 +366,6 @@ def test_the_source_of_a_place(monkeypatch, tmp_path, lat, lon, code, expected):
     assert src.choose.choose_source("auto", lat, lon, str(tmp_path))[0].id == expected
 
 
-# Mayotte's "europe" offline is europe for want of any box, not of a lookup: every "fr" place but Mayotte
 @pytest.mark.parametrize("lat, lon, code, expected", [p for p in PLACES if p[2] == "fr" and p[3] != "europe"])
 def test_the_source_of_a_place_offline(monkeypatch, tmp_path, lat, lon, code, expected):
     def offline(*args, **kwargs):

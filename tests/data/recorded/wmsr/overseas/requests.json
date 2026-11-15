@@ -115,6 +115,27 @@
    "status": 200,
    "content_type": "image/geotiff",
    "body": "016.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS&STYLES=&CRS=EPSG%3A4471&BBOX=510848.5%2C8596032.5%2C510880.5%2C8596064.5&WIDTH=32&HEIGHT=32&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "017.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS&STYLES=&CRS=EPSG%3A4471&BBOX=510848.5%2C8596032.5%2C510880.5%2C8596064.5&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "018.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS&STYLES=&CRS=EPSG%3A4471&BBOX=525344.5%2C8587552.5%2C525376.5%2C8587584.5&WIDTH=32&HEIGHT=32&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "019.tif"
   }
  ]
 }

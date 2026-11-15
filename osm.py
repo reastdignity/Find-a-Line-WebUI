@@ -346,7 +346,9 @@ GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        "rio_de_janeiro": ("sudeste",),
                        # La Réunion: Geofabrik's "reunion" (europe/france/reunion, without an ISO code in its index;
                        # checked 2026-11-15)
-                       "france_reunion": ("reunion",)}
+                       "france_reunion": ("reunion",),
+                       # Mayotte: Geofabrik's "mayotte" (europe/france/mayotte, checked 2026-11-15)
+                       "france_mayotte": ("mayotte",)}
 
 
 def catalogue_extracts(cache_dir: str) -> Tuple[List[str], List[str]]:
