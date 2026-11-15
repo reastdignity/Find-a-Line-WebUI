@@ -17,6 +17,7 @@ from ..layers.zipped import ZippedTiles
 from ..layers.metalink import MetalinkTiles
 from ..layers.geojson import GeoJsonTiles
 from ..layers.zipmembers import ZipMemberTiles
+from ..readers.zipmember import TransformFix
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
 # the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
@@ -339,6 +340,34 @@ def _sl(kind: str, description: str, bytes_per_tile: float) -> ZipMemberTiles:
                           bytes_per_tile=bytes_per_tile, floor=SL_FLOOR, ring=SL_RING)
 
 
+# LGV Hamburg's open data (the Transparenzportal's records gelaendemodelle-hamburg-dgm2 and
+# digitales-hoehenmodell-hamburg-bdom8, read 2026-11-15): dl-de/by-2.0, "attribution_text": "Freie und Hansestadt
+# Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)"; "Daten geändert" for dl-de/by-2.0 §3 (a mosaic on
+# our grid), as for LVGL Saarland
+HH_ATTRIBUTION = "Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)"
+HH_CREDIT = Credit("DGM1 / bDOM1 (LGV, Hamburg)", f"{HH_ATTRIBUTION}, dl-de/by-2-0, Daten geändert", *DL_DE_BY)
+# The DGM1 (laser scanning) and the bDOM1 (image matching of the aerial photographs) of 2022: 1 km GeoTIFFs of 1 m
+# (float32, centimetres, LZW, EPSG:25832, DHHN2016, edges on whole metres) d[go]m1_32_<Ekm>_<Nkm>_1_hh_2022.tif, the
+# city (E 548-588, N 5916-5955) and Neuwerk (E 466-468, N 5973-5976), in one ZIP each (deflated members of 0.01-3.7
+# MB; 1.36 and 1.34 GB) on the open-data server, read by Range (no WCS of the heights; the INSPIRE services are
+# pictures). The DGM1's members say their origin with float noise (552999.9999999999, 5935000.000000001), so their
+# transforms are rounded to whole metres (HH_FIX); the bDOM1's are exact. Both declare nodata -3.4e38 (the DGM1) or
+# none (the bDOM1) and write -9999 beyond the city: below layer.VALID_MIN, no data either way. The Elbe and the
+# harbour basins are a constant 2.00 m in the DGM1 (measured water level, not a fill of ours). New releases come
+# under new names (the date in each archive's name): set by hand. No limits published (net.HOST_SLOTS_OF)
+HH_DGM1 = "https://www.daten-hamburg.de/opendata/fernerkundung_hoehenmodelle/dgm/dgm1_hh_2022-04-30.zip"
+HH_BDOM1 = "https://www.daten-hamburg.de/opendata/Digitales_Hoehenmodell_bDOM/dom1_hh_2022-11-21.zip"
+HH_FIX = TransformFix(snap=1.0)
+
+
+def _hh(kind: str, archive: str, description: str, bytes_per_tile: float) -> ZipMemberTiles:
+    """DGM1 or bDOM1 of LGV Hamburg: members of its archive, read by HTTP Range."""
+    folder = {"dgm": "dgm1", "dom": "bdom1"}[kind]
+    return ZipMemberTiles(description, [archive],
+                          rf"(?i)(?:^|/){kind}1_32_(?P<east>\d+)_(?P<north>\d+)_1_hh_(?P<year>\d{{4}})\.tif$",
+                          f"hamburg/{folder}-2022", "EPSG:25832", folder, bytes_per_tile=bytes_per_tile, fix=HH_FIX)
+
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -384,6 +413,26 @@ SOURCES: List[Source] = [
         offline=(("de-st", (50.94, 53.05, 10.56, 13.19)),), sample=(51.7340, 11.0200),
         note=f"Data {LVERMGEO_ATTRIBUTION}, dl-de/by-2.0. The WCS names no survey years.",
         coverage=Coverage(provider="LVermGeo ST", added="2026-11-01")),
+    # Hamburg before Lower Saxony and Schleswig-Holstein: both their offline boxes hold the whole city (the first box
+    # holding a point wins)
+    Source(
+        id="hamburg", name="LGV (DGM1 / bDOM1)",
+        description="LGV (Hamburg, Germany): terrain model 1 m (laser scanning) and image-matching surface model 1 m "
+                    "of 2022, members of two ZIP archives read by HTTP Range, ETRS89 / UTM 32N, DHHN2016",
+        nmt=_hh("dgm", HH_DGM1, "DGM1 (terrain)", 1.5e6), nmpt=_hh("dom", HH_BDOM1, "bDOM1 (trees, buildings)", 3.0e6),
+        countries=("de",), regions=("de-hh",), crs="EPSG:25832",
+        credits=(HH_CREDIT,),
+        # Lower Saxony declares six neighbours already (the most a source may: countcube.PARTNERS), so the two do not
+        # name each other: Hamburg's gaps along that border are filled by FABDEM / Copernicus
+        neighbours=("schleswig_holstein",),
+        listing=ReadmeRow("Hamburg (DE)", "LGV DGM1, 1 m (2022)", "LGV bDOM1, 1 m (2022; image matching)"),
+        # The city with the Elbe up to Lower Saxony's and Schleswig-Holstein's land, then Neuwerk and Scharhörn
+        offline=(("de-hh", (53.39, 53.75, 9.72, 10.33)), ("de-hh", (53.88, 53.98, 8.40, 8.56))),
+        sample=(53.5585, 9.8070),  # Blankenese, above the Elbe
+        note=f"Data {HH_ATTRIBUTION}, dl-de/by-2.0 (changed: mosaicked onto the working grid). Surveys of 2022. The "
+             f"surface model comes from image matching of aerial photographs, not from laser scanning: smoother over "
+             f"trees and less exact. The terrain model gives the Elbe and the harbour basins a constant 2.00 m.",
+        coverage=Coverage(provider="LGV", added="2026-11-15", survey="2022")),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
         description="LGLN (Lower Saxony, Germany): ALS terrain and surface models 1 m, newest survey per "
@@ -528,7 +577,7 @@ SOURCES: List[Source] = [
         nmt=GeoJsonTiles("DGM1 (terrain)", [SH_INDEX], SH_NAME, "schleswig_holstein/dgm1", "EPSG:25832", "dgm1"),
         countries=("de",), regions=("de-sh",), crs="EPSG:25832", ortho=SH_DOP, sea_fill=SH_SEA_FILL,
         credits=(SH_CREDIT,),
-        neighbours=("lower_saxony", "mecklenburg_vorpommern", "denmark"),
+        neighbours=("lower_saxony", "mecklenburg_vorpommern", "denmark", "hamburg"),
         listing=ReadmeRow("Schleswig-Holstein (DE)", "LVermGeo SH DGM1, 1 m (XYZ); newest survey", "–",
                           "LVermGeo SH DOP20"),
         # The Land south of the Danish islands, Angeln and North Frisia west of the Flensburg Fjord, then Sylt (one

@@ -7,11 +7,12 @@ The ZIP format is PKWARE's APPNOTE.TXT, version 6.3.10 (2022-11-01); the section
 import re
 import struct
 import zlib
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, NamedTuple, Optional, Tuple
 
 import numpy as np
 import rasterio as rio
 import requests
+from rasterio.transform import Affine
 
 import cache
 import servicecounts
@@ -124,6 +125,30 @@ def drop_below(band: np.ndarray, floor: Optional[float], ring: int = 0) -> np.nd
     return band
 
 
+class TransformFix(NamedTuple):
+    """A correction of a member's georeferencing before its tile is written, for archives whose files lie on the
+    right grid but say so imprecisely: offset (dx, dy) metres added to the origin first (Bremen's Bremerhaven XYZ
+    files carry the UTM zone in their eastings: (-32 000 000, 0)), then with snap the origin rounded to a multiple
+    of snap metres (Hamburg's DGM1: 552999.9999999999 for 553000). A rounding of more than tolerance of a pixel is
+    an error, never applied: it mends float noise, it never moves a member that lies off the grid. North-up
+    members only (no rotation)."""
+    offset: Tuple[float, float] = (0.0, 0.0)
+    snap: Optional[float] = None
+    tolerance: float = 1e-3  # pixels
+
+    def apply(self, transform: Affine, where: str) -> Affine:
+        if transform.b != 0 or transform.d != 0:
+            raise RuntimeError(f"{where}: a rotated member ({transform})")
+        x, y = transform.c + self.offset[0], transform.f + self.offset[1]
+        if self.snap:
+            snapped = (round(x / self.snap) * self.snap, round(y / self.snap) * self.snap)
+            off = max(abs(snapped[0] - x) / abs(transform.a), abs(snapped[1] - y) / abs(transform.e))
+            if off > self.tolerance:
+                raise RuntimeError(f"{where}: the origin ({x}, {y}) lies {off:.3g} px off the {self.snap} m grid")
+            x, y = snapped
+        return Affine(transform.a, 0.0, x, 0.0, transform.e, y)
+
+
 class ZipMember(Reader):
     """One member of a remote ZIP archive per tile (a request with url, member, offset, method, flags, crc,
     size (compressed), usize and length (the archive's), as sources/indexes/zipdir.py's ZipTile carries
@@ -132,7 +157,8 @@ class ZipMember(Reader):
     only (4.4.5; others and encrypted ones an error), inflated with zlib (raw deflate) and checked against the
     CRC-32 and size of the central directory (4.4.7-4.4.9): a mismatch is asked again (net.RETRIES), then an
     error, never cached. The member (a GeoTIFF) is written again as a tile (float32, NaN for no data and below
-    layer.VALID_MIN), in crs's name if given; with floor, drop_below(floor, ring) first.
+    layer.VALID_MIN), in crs's name if given; with floor, drop_below(floor, ring) first; with fix, its transform
+    corrected first (TransformFix: an offset, a rounding to the grid).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
@@ -140,8 +166,9 @@ class ZipMember(Reader):
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
-                 renew: Optional[Callable[[object], Optional[object]]] = None):
+                 renew: Optional[Callable[[object], Optional[object]]] = None, fix: Optional[TransformFix] = None):
         self.description, self.crs, self.floor, self.ring, self.renew = description, crs, floor, ring, renew
+        self.fix = fix
 
     def url(self, request) -> Optional[str]:
         return request.url
@@ -219,6 +246,8 @@ class ZipMember(Reader):
                     raise RuntimeError(f"{where}: {src.count} bands, one expected")
                 band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
                 crs, transform = self.crs or src.crs, src.transform
+                if self.fix is not None:
+                    transform = self.fix.apply(transform, where)
         except rio.errors.RasterioError as e:
             raise RuntimeError(f"{where}: not a raster ({e})") from None
         drop_below(band, self.floor, self.ring)

@@ -301,6 +301,19 @@
    "survey": "",
    "trees": "yes"
   },
+  "de-hh": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGV",
+   "res": [
+    1
+   ],
+   "source": "hamburg",
+   "survey": "2022",
+   "trees": "yes"
+  },
   "de-mv": {
    "added": "2026-11-01",
    "level": 1,
@@ -1270,6 +1283,7 @@
    "de-bw",
    "de-by",
    "de-he",
+   "de-hh",
    "de-mv",
    "de-ni",
    "de-nw",

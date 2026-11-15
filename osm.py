@@ -329,7 +329,9 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      "it-52": "centro",
                      # Northern Ireland lies in Geofabrik's "united-kingdom" (about 2 GB) and in the much smaller
                      # "ireland-and-northern-ireland" (checked in Geofabrik's index, 2026-11-15)
-                     "gb-nir": "ireland-and-northern-ireland"}
+                     "gb-nir": "ireland-and-northern-ireland",
+                     # Hamburg: Geofabrik's "hamburg" (europe/germany/hamburg, checked 2026-11-15)
+                     "de-hh": "hamburg"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        # France's overseas territories (checked in Geofabrik's index, 2026-11-15): its "france"
