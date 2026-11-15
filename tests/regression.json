@@ -1723,5 +1723,23 @@
     },
     "notes": "added 2026-11-14 with the square rule (--same-line-square, samelines.py): R3's search with the no-fall zone and A-frames finds 60 002 lines (run.json's summary.found), of which one per pair of 5 m anchor squares is kept: 3 491 lines in 121 spots, each with the lines it stands for (stands_for, the last column of lines.csv, in the checksum); every anchor has an open direction with the A-frames; a circle of this size keeps every kept line's profile",
     "seconds": 11.3
+  },
+  "R72": {
+    "place": "North Head, Sydney (AU-NSW): its sea cliffs of about 80 m, Geoscience Australia's national 5 m lidar DEM (WCS 1.0.0 in GDA94 geographic coordinates, on its own pixels) on GDA94 / MGA zone 56",
+    "args": "--lat -33.8200 --lon 151.2970 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "au"
+    ],
+    "expected": {}
+  },
+  "R73": {
+    "place": "Quebrada de los Cuervos, Treinta y Tres (UY): the gorge's short walls, IDE Uruguay's MDT 2.5 m (photogrammetric, 2017-2018) resampled from its sheet onto SIRGAS-ROU98 / UTM 21S",
+    "args": "--lat -32.9210 --lon -54.4670 --radius 800 --min-length 20 --max-length 200",
+    "sets": [
+      "sources",
+      "uy"
+    ],
+    "expected": {}
   }
 }

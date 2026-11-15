@@ -48,7 +48,7 @@ import cache  # noqa: E402
 
 COVERAGE = os.path.join(REPO, "viewer", "src", "coverage")
 TARGETS_FILE = "tui-targets.json"   # in the state folder: the target chosen for each row
-CONTINENTS = ("Europe", "North America", "Oceania")   # first in the window; others follow by name
+CONTINENTS = ("Europe", "North America", "Oceania", "South America")   # first in the window; others follow by name
 ELEVATED_SECONDS = 600
 ERROR_PRIVILEGE_NOT_HELD = 1314
 
@@ -58,7 +58,7 @@ COUNTRIES = {
     "de": "Germany", "dk": "Denmark", "es": "Spain", "fi": "Finland", "fr": "France", "gb": "United Kingdom",
     "gl": "Greenland", "is": "Iceland", "it": "Italy", "li": "Liechtenstein", "lu": "Luxembourg", "mt": "Malta",
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
-    "us": "United States", "vi": "U.S. Virgin Islands"}
+    "us": "United States", "vi": "U.S. Virgin Islands", "uy": "Uruguay"}
 
 
 class SettingsError(ValueError):
