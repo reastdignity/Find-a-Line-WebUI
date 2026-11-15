@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tracemalloc
 import zipfile
 
 import numpy as np
@@ -122,7 +123,7 @@ def test_comma_decimal_ascii_grid_cut(tmp_path, monkeypatch):
     values = _asc_values()
     work, out = tmp_path / "work", tmp_path / "mirror"
     _zip(work, "T.ASC", _asc_text(values), "test.zip")
-    assert mt.extract("asc", str(work)) == str(work / "T.ASC")
+    assert mt.extract("asc", str(work)) == [str(work / "T.ASC")]
     index = mt.cut("asc", str(work), str(out), rows_limit=1)
     assert index["partial"] is True
     mt.cut("asc", str(work), str(out))
@@ -155,7 +156,7 @@ def test_deflate64_member_unpacked_by_seven_zip(tmp_path, monkeypatch):
         with pytest.raises(NotImplementedError):
             z.read("T.ASC")
     assert (work / "T.ASC").exists() is False
-    path = mt.extract("asc64", str(work))
+    [path] = mt.extract("asc64", str(work))
     assert open(path, "rb").read() == data and not os.path.exists(path + ".part")
     # A flipped byte in the compressed data: 7-Zip's CRC check fails, nothing is put in place
     os.remove(path)
@@ -348,11 +349,11 @@ def _ranges(server):
 
 def test_download_whole_file(served):
     server, spec, work = served
-    path = mt.download("dl", str(work))
+    [path] = mt.download("dl", str(work))
     assert open(path, "rb").read() == BODY and not os.path.exists(path + ".part")
     assert _ranges(server) == [None]
     assert server.requests("/files/")[0].user_agent.startswith("Find-a-Line")
-    assert mt.download("dl", str(work)) == path and len(server.requests("/files/")) == 1  # complete: no request
+    assert mt.download("dl", str(work)) == [path] and len(server.requests("/files/")) == 1  # complete: no request
 
 
 def test_download_resumes_after_a_cut(served):
@@ -362,7 +363,7 @@ def test_download_resumes_after_a_cut(served):
     work.mkdir()
     (work / "data.zip.part").write_bytes(BODY[:100_000])
     server.fault("/files/data.zip", "truncate", lambda n, rng: n == 1)
-    path = mt.download("dl", str(work))
+    [path] = mt.download("dl", str(work))
     assert open(path, "rb").read() == BODY
     ranges = _ranges(server)
     assert ranges[0] == "bytes=100000-" and len(ranges) == 2
@@ -377,7 +378,7 @@ def test_download_server_ignoring_the_range(served):
                                                                ranges=False)
     work.mkdir()
     (work / "data.zip.part").write_bytes(b"x" * 5000)
-    path = mt.download("dl", str(work))
+    [path] = mt.download("dl", str(work))
     assert open(path, "rb").read() == BODY and _ranges(server) == ["bytes=5000-"]
 
 
@@ -388,11 +389,11 @@ def test_download_without_a_range_beyond_resume_below(served, monkeypatch):
     monkeypatch.setitem(mt.DATASETS, "dl", {**spec, "resume_below": 50_000})
     work.mkdir()
     (work / "data.zip.part").write_bytes(BODY[:60_000])
-    assert open(mt.download("dl", str(work)), "rb").read() == BODY
+    assert open(mt.download("dl", str(work))[0], "rb").read() == BODY
     assert _ranges(server) == [None]
     os.remove(work / "data.zip")
     (work / "data.zip.part").write_bytes(BODY[:40_000])
-    assert open(mt.download("dl", str(work)), "rb").read() == BODY
+    assert open(mt.download("dl", str(work))[0], "rb").read() == BODY
     assert _ranges(server) == [None, "bytes=40000-"]
 
 
@@ -421,3 +422,351 @@ def test_datasets_match_the_catalogue():
         assert layer.crs == spec["crs"] == source.crs and layer.native_res == spec["res"] == source.default_resolution
         assert layer.origin == spec["origin"] == source.grid_origin and layer.tile_m == mt.TILE_M
         assert sk_tiles.TILE_M == 2000
+
+
+# Datasets of many inputs (2026-11-15): products, placed files, folders, ZIPs of several rasters, mosaics, masks
+
+def _tif(path, values, left, top, res=5.0, crs="EPSG:5016", nodata=None, dtype="float32", strips=False):
+    """A GeoTIFF of values (north up) at (left, top)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    extra = dict(blockysize=1) if strips else dict(tiled=True, blockxsize=256, blockysize=256)
+    with rio.open(path, "w", driver="GTiff", width=values.shape[1], height=values.shape[0], count=1, dtype=dtype,
+                  crs=crs, transform=from_origin(left, top, res, res), nodata=nodata, compress="deflate",
+                  **extra) as dst:
+        dst.write(values.astype(dtype), 1)
+    return path
+
+
+def _product(inputs, name="dtm", res=5.0, crs="EPSG:5016", origin=(2.5, 2.5), **kwargs):
+    return mt.Product(name, res, crs, origin, tuple(inputs), f"Test {name}", "as published", **kwargs)
+
+
+def _dataset(monkeypatch, name, *products, **kwargs):
+    ds = mt.Dataset(name, f"Test {name}", "Test Provider", "No conditions apply", "Test Provider, 2026",
+                    tuple(products), record="https://example.org/record", not_endorsed="TP", **kwargs)
+    monkeypatch.setitem(mt.DATASETS, name, ds)
+    return ds
+
+
+def _tiles(out, ds, product=None):
+    """{key: values or None} of a product's folder, and its index."""
+    folder = out / mt.tile_folder(ds, product)
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    found = {}
+    for key, sha in index["tiles"].items():
+        if sha is None:
+            found[key] = None
+            continue
+        with rio.open(folder / src.grid_tile_name(*map(int, key.split("_")))) as t:
+            found[key] = t.read(1)
+    return found, index
+
+
+def _expected(rasters, origin=(2.5, 2.5), res=5.0):
+    """The tiles a mosaic of [(values with NaN, left, top)] makes, the first raster winning: {key: values}."""
+    px = round(2000 / res)
+    out = {}
+    for values, left, top in rasters:
+        rows, cols = values.shape
+        i0, i1 = int(np.floor((left - origin[0]) / 2000)), int(np.ceil((left + cols * res - origin[0]) / 2000))
+        j0, j1 = int(np.floor((top - rows * res - origin[1]) / 2000)), int(np.ceil((top - origin[1]) / 2000))
+        for j in range(j0, j1):
+            for i in range(i0, i1):
+                tile = out.setdefault(f"{i}_{j}", np.full((px, px), np.nan, np.float32))
+                c0, r0 = round((origin[0] + i * 2000 - left) / res), round((top - origin[1] - (j + 1) * 2000) / res)
+                rs, cs = slice(max(r0, 0), min(r0 + px, rows)), slice(max(c0, 0), min(c0 + px, cols))
+                if rs.start >= rs.stop or cs.start >= cs.stop:
+                    continue
+                part = values[rs, cs].astype(np.float32)
+                target = tile[rs.start - r0:rs.stop - r0, cs.start - c0:cs.stop - c0]
+                fill = np.isnan(target) & np.isfinite(part)
+                target[fill] = part[fill]
+    return out
+
+
+def _close(got, want):
+    assert np.array_equal(np.isnan(got), np.isnan(want))
+    assert np.nanmax(np.abs(got - want)) <= 0.0051 if np.isfinite(want).any() else True
+
+
+def test_datasets_of_before_byte_for_byte(tmp_path, monkeypatch):
+    """Madeira's and Valle d'Aosta's kind (a dict of before: one URL, one member) cut by the tool of many inputs:
+    every tile is sk_tiles._write of the expected pixels byte for byte, the index has exactly the keys of before in
+    their order, the card is the published text; cutting again, verifying and writing the card change none of the
+    index's, the tiles' or the card's bytes; one thread or six give the same bytes."""
+    left, top = 287861.0, 3666229.0
+    values = _heights((900, 1200), 4)
+    values[:100, :] = -32768.0
+    values[400:500, 600:700] = -999.0
+    digests = []
+    for threads in (1, 6):
+        spec = _spec(monkeypatch, "tif", url="https://example.org/dl/m.zip", member="M.tif")
+        work, out = tmp_path / f"w{threads}", tmp_path / f"m{threads}"
+        work.mkdir()
+        _strip_bigtiff(work / "M.tif.src", values, left, top)
+        _zip(work, "M.tif", (work / "M.tif.src").read_bytes(), "m.zip")
+        mt.extract("tif", str(work))
+        mt.cut("tif", str(work), str(out), threads=threads)
+        folder = out / "madeira" / "dtm" / "2m"
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        assert list(index) == ["tiles", "dataset", "product", "title", "source", "crs", "heights", "tile_m",
+                               "resolution", "origin", "block", "encoding", "licence", "attribution", "created"]
+        assert index["dataset"] == "tif" and index["source"] == "https://example.org/dl/m.zip"
+        masked = values.astype(np.float32)
+        masked[(masked == -32768) | (masked == -999)] = np.nan
+        expected = _expected([(masked, left, top)], origin=(1.0, 1.0), res=2.0)
+        assert list(index["tiles"]) == sorted(expected, key=lambda k: (-int(k.split("_")[1]), int(k.split("_")[0])))
+        for key, want in expected.items():
+            i, j = map(int, key.split("_"))
+            ref = tmp_path / f"ref-{threads}-{key}.tif"
+            sk_tiles._write(str(ref), want, "EPSG:5016", from_origin(1 + 2000 * i, 1 + 2000 * (j + 1), 2, 2))
+            assert (folder / src.grid_tile_name(i, j)).read_bytes() == ref.read_bytes(), key
+        snapshot = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+        assert (out / "madeira" / "README.md").read_text(encoding="utf-8") == mt.MADEIRA_CARD
+        mt.cut("tif", str(work), str(out), threads=threads)
+        assert mt.verify("tif", str(work), str(out))["dtm"]["ok"]
+        mt.write_card(mt.dataset("tif"), str(out))
+        assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file() and p.name != "verify.json"} == snapshot
+        digests.append(sorted(hashlib.sha256(b).hexdigest() for b in snapshot.values()))
+    assert digests[0] == digests[1]
+
+
+def test_products_share_one_card(tmp_path, monkeypatch):
+    """A terrain and a surface product under one dataset: two folders, one card naming both with the changes of
+    each, written whole by either cut (before 2026-11-15 the second product's card replaced the first's); a fixed
+    card of before covers one product only; names outside [a-z0-9_-] are refused."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _tif(inputs / "t.tif", _heights((300, 300), 1), 402.5, 1902.5)
+    _tif(inputs / "s.tif", _heights((300, 300), 2) + 10, 402.5, 1902.5)
+    ds = _dataset(monkeypatch, "isle", _product([mt.Placed("t.tif")], "dtm"),
+                  _product([mt.Placed("s.tif")], "dsm", sea=0.0))
+    mt.cut("isle", str(work), str(out), inputs=str(inputs), product="dtm")
+    card = (out / "isle" / "README.md").read_text(encoding="utf-8")
+    assert "## `dtm/5m`" in card and "## `dsm/5m`" in card and "the sea's value 0 made no data" in card
+    assert "Licence: No conditions apply" in card and "not endorsed by TP" in card
+    mt.cut("isle", str(work), str(out), inputs=str(inputs), product="dsm")
+    assert (out / "isle" / "README.md").read_text(encoding="utf-8") == card
+    assert (out / "isle" / "dtm" / "5m" / "index.json").exists() and (out / "isle" / "dsm" / "5m" / "index.json").exists()
+    with pytest.raises(ValueError, match="fixed card"):
+        mt.card_text(mt.replace(ds, card="# old"))
+    _dataset(monkeypatch, "Bad Name", _product([mt.Placed("t.tif")]))
+    with pytest.raises(ValueError, match="must match"):
+        mt.cut("Bad Name", str(work), str(out), inputs=str(inputs))
+    assert mt.tile_folder(ds, ds.products[1]) == "isle/dsm/5m"
+    assert mt.tile_folder(mt.replace(ds, products=(mt.replace(ds.products[0], res=0.5),))) == "isle/dtm/0.5m"
+
+
+def test_zip_of_several_rasters_seams_and_placed_files(tmp_path, monkeypatch):
+    """A placed ZIP (any name; a .crdownload beside it is not an input) of two rasters chosen by a pattern, each with
+    its own no-data pattern, side by side: unpacked into a folder of the ZIP's name, a tile across their seam holds
+    both, each one's no data NaN; two files matching a placed input are an error."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    a, b = _heights((400, 300), 3), _heights((400, 300), 4)
+    a[:50, :] = -9999.0          # its tag's no data
+    b[100:120, :] = -999.0       # a declared value
+    b[200:210, :] = -32768.0     # its tag's
+    src_dir = tmp_path / "src"
+    _tif(src_dir / "west.tif", a, 1002.5, 3002.5, nodata=-9999.0)
+    _tif(src_dir / "east.tif", b, 1002.5 + 1500, 3002.5, nodata=-32768.0)
+    (inputs / "prov").mkdir(parents=True)
+    with zipfile.ZipFile(inputs / "prov" / "Namur MNT 2022.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(src_dir / "west.tif", "rasters/west.tif")
+        z.write(src_dir / "east.tif", "rasters/east.tif")
+        z.writestr("rasters/readme.txt", "not a raster")
+    (inputs / "prov" / "Liege MNT 2022.zip.crdownload").write_bytes(b"half")
+    _dataset(monkeypatch, "prov", _product([mt.Placed("prov/*.zip*", members=("*.tif",))], nodata=(-999.0,)))
+    paths = mt.extract("prov", str(work), str(inputs))
+    assert sorted(os.path.relpath(p, work).replace(os.sep, "/") for p in paths) == [
+        "Namur MNT 2022/rasters/east.tif", "Namur MNT 2022/rasters/west.tif"]
+    mt.cut("prov", str(work), str(out), inputs=str(inputs))
+    tiles, index = _tiles(out, mt.dataset("prov"))
+    am, bm = a.astype(np.float32), b.astype(np.float32)
+    am[am == -9999] = np.nan
+    bm[(bm == -999) | (bm == -32768)] = np.nan
+    # the members in name order: east before west (no overlap, so the order does not matter here)
+    want = _expected([(bm, 2502.5, 3002.5), (am, 1002.5, 3002.5)])
+    assert set(tiles) == set(want) and "partial" not in index and index["inputs"] == 2
+    for key in want:
+        _close(tiles[key], want[key])
+    seam = tiles["1_0"]  # x from 2002.5 to 4002.5, y down to 2.5: west's last 100 columns and east's 300, rows 0-200
+    assert np.isfinite(seam[150:200, 50:100]).all() and np.isfinite(seam[150:200, 100:150]).all()
+    assert np.isnan(seam[200:]).all()
+    (inputs / "prov" / "Liege MNT 2022.zip").write_bytes(b"PK")
+    with pytest.raises(ValueError, match="2 files match"):
+        mt.cut("prov", str(work), str(out), inputs=str(inputs))
+
+
+def test_overlap_rules_and_disjoint_rasters(tmp_path, monkeypatch):
+    """Where two inputs overlap: "first" takes the first listed; "agree" accepts differences within 5 mm and stops
+    with the tile's name beyond; tiles between disjoint rasters inside the extent are null."""
+    inputs, work = tmp_path / "in", tmp_path / "work"
+    field_ = _heights((200, 300), 5)
+    base = field_[:, :200]
+    _tif(inputs / "a.tif", base, 2.5, 1002.5)
+    _tif(inputs / "b.tif", field_[:, 100:] + 0.004, 502.5, 1002.5)  # overlaps a by 100 columns, 4 mm higher
+    _tif(inputs / "c.tif", field_[:, 100:] + 0.2, 502.5, 1002.5)    # 20 cm higher
+    _tif(inputs / "far.tif", base, 6002.5, 1002.5)             # 6 km east: tiles 1 and 2 between are empty
+    for rule, second, ok in (("first", "c.tif", True), ("agree", "b.tif", True), ("agree", "c.tif", False)):
+        out = tmp_path / f"m-{rule}-{second}"
+        _dataset(monkeypatch, "ov", _product([mt.Placed("a.tif"), mt.Placed(second), mt.Placed("far.tif")],
+                                             overlap=rule))
+        if not ok:
+            with pytest.raises(mt.Overlap, match="tile 0_0: c.tif differs by 0.200"):
+                mt.cut("ov", str(work / rule), str(out), inputs=str(inputs))
+            continue
+        mt.cut("ov", str(work / f"{rule}{second}"), str(out), inputs=str(inputs))
+        tiles, index = _tiles(out, mt.dataset("ov"))
+        assert tiles["1_0"] is None and tiles["2_0"] is None and tiles["3_0"] is not None
+        assert "partial" not in index
+        _close(tiles["0_0"][200:, :200], base.astype(np.float32))  # a wins where both are
+
+
+def test_folder_of_1km_files_restarts_and_completes(tmp_path, monkeypatch):
+    """Portugal's kind: a folder of 1 km files (here 200 px of 5 m) with done.jsonl, four per 2 km tile. While the
+    folder holds fewer files than expected the index is partial and lists only tiles with data (never null); a tile
+    cut from fewer files than cover it later is cut again; once complete the empty tiles are null and partial goes.
+    A file whose sha256 is not done.jsonl's stops the cut."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    folder = inputs / "pt" / "MDT-50cm"
+    sheets = {}
+    for n, (x, y) in enumerate([(0, 0), (1, 0), (0, 1), (1, 1), (4, 0), (5, 1)]):
+        sheets[(x, y)] = _heights((200, 200), 10 + n)
+    done = []
+
+    def place(*cells):
+        for x, y in cells:
+            path = _tif(folder / f"{x}{y}" / f"sheet_{x}_{y}.tif", sheets[(x, y)], 2.5 + 1000 * x, 1002.5 + 1000 * y)
+            done.append(json.dumps({"item": f"sheet_{x}_{y}", "size": path.stat().st_size,
+                                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}))
+        (inputs / "pt" / "done.jsonl").write_text("\n".join(done) + "\n", encoding="utf-8")
+
+    ds = _dataset(monkeypatch, "pt-test", _product([mt.Folder("pt/MDT-50cm", expected=6, done="../done.jsonl")]))
+    place((0, 0), (1, 0), (4, 0))
+    mt.cut("pt-test", str(work), str(out), inputs=str(inputs))
+    tiles, index = _tiles(out, ds)
+    assert index["partial"] is True and set(tiles) == {"0_0", "2_0"}
+    assert all(v is not None for v in tiles.values())
+    assert np.isnan(tiles["0_0"][:200, :]).all()  # the north half's files are not there yet
+    first = (out / "pt-test" / "dtm" / "5m" / "0_0" / "2_0.tif").read_bytes()
+    place((0, 1), (1, 1), (5, 1))
+    mt.cut("pt-test", str(work), str(out), inputs=str(inputs))
+    tiles, index = _tiles(out, ds)
+    assert "partial" not in index and tiles["1_0"] is None and set(tiles) == {"0_0", "1_0", "2_0"}
+    want = _expected([(v, 2.5 + 1000 * x, 1002.5 + 1000 * y) for (x, y), v in sheets.items()])
+    for key in ("0_0", "2_0"):
+        _close(tiles[key], want[key])  # 0_0 cut again from its four files, 2_0 from its two
+    assert (out / "pt-test" / "dtm" / "5m" / "0_0" / "2_0.tif").read_bytes() != first
+    # Nothing changes on a third run
+    snapshot = (out / "pt-test" / "dtm" / "5m" / "index.json").read_bytes()
+    mt.cut("pt-test", str(work), str(out), inputs=str(inputs))
+    assert (out / "pt-test" / "dtm" / "5m" / "index.json").read_bytes() == snapshot
+    # A damaged file is refused by its sha256 (the state of the earlier runs is forgotten with the work)
+    path = folder / "00" / "sheet_0_0.tif"
+    path.write_bytes(path.read_bytes()[:-10] + b"0123456789")
+    with pytest.raises(ValueError, match="done.jsonl"):
+        mt.cut("pt-test", str(tmp_path / "work2"), str(tmp_path / "mirror2"), inputs=str(inputs))
+
+
+def test_stopped_cut_resumes_to_the_same_tiles(tmp_path, monkeypatch):
+    """A cut stopped after a row (and a tile's .new left by a kill) resumes to the same tiles as one run."""
+    inputs = tmp_path / "in"
+    values = _heights((900, 500), 7)
+    _tif(inputs / "r.tif", values, 2.5, 4002.5)
+    _dataset(monkeypatch, "rs", _product([mt.Placed("r.tif")]))
+    one = tmp_path / "one"
+    mt.cut("rs", str(tmp_path / "w1"), str(one), inputs=str(inputs))
+    two = tmp_path / "two"
+    index = mt.cut("rs", str(tmp_path / "w2"), str(two), rows_limit=1, inputs=str(inputs))
+    assert index["partial"] is True and len(index["tiles"]) == 2
+    stray = two / "rs" / "dtm" / "5m" / "0_0" / "0_0.tif.new"
+    stray.write_bytes(b"half a tile")
+    mt.cut("rs", str(tmp_path / "w2"), str(two), inputs=str(inputs))
+    assert not stray.exists()
+    files = lambda root: {p.relative_to(root): p.read_bytes() for p in root.rglob("*.tif")}  # noqa: E731
+    assert files(one / "rs") == files(two / "rs") and len(files(one / "rs")) == 6
+    a, b = (json.loads((r / "rs" / "dtm" / "5m" / "index.json").read_text()) for r in (one, two))
+    assert a["tiles"] == b["tiles"] and "partial" not in b
+
+
+def test_memory_bound(tmp_path, monkeypatch):
+    """A raster of full-width strips too wide for the bound (60 000 px: one row of tiles across it is 96 MB) is
+    copied into a tiled GeoTIFF in row chunks, then cut tile by tile: numpy's peak stays far below one row of tiles,
+    the tiles are right; a bound below one tile is refused."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    rows, cols = 400, 60_000
+    values = (np.add.outer(np.arange(rows), np.arange(cols) % 977) * 0.25).astype(np.float32)
+    _tif(inputs / "wide.tif", values, 2.5, 2002.5, strips=True)
+    _dataset(monkeypatch, "wide", _product([mt.Placed("wide.tif")]))
+    band = rows * cols * 4
+    bound = 0.4  # GB: GDAL's cache 64 MB, about 36 MB for the rest
+    assert mt._budget(bound)[0] < band
+    tracemalloc.start()
+    try:
+        mt.cut("wide", str(work), str(out), inputs=str(inputs), threads=6, max_memory_gb=bound)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < band / 2, peak
+    assert list((work / "tiled").glob("wide-*.tif"))  # the tiled copy
+    tiles, index = _tiles(out, mt.dataset("wide"))
+    assert len(tiles) == 150 and "partial" not in index
+    want = _expected([(values, 2.5, 2002.5)])
+    for key in ("0_0", "77_0", "149_0"):
+        _close(tiles[key], want[key])
+    with pytest.raises(ValueError, match="too little for one tile"):
+        mt._workers(_product([], res=0.5), 6, 0.5)
+    assert mt._workers(_product([], res=0.5), 6, 8.0)[0] == 6  # the server's bound: six tiles of 0.5 m at a time
+
+
+def test_masks_and_the_datasets_crs(tmp_path, monkeypatch):
+    """Masks per product: the file's nodata, declared values, the sea's value and a floor; the CRS is the
+    product's, the file's other label recorded in the index."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    values = _heights((300, 300), 8)
+    values[:20] = 0.0          # the sea
+    values[20:25] = -0.5       # a real height below 0: kept
+    values[25:30] = -50.0      # coast pixels averaged with -999
+    values[30:35] = -999.0
+    values[35:40] = -32768.0   # the file's own
+    _tif(inputs / "d.tif", values, 2.5, 1502.5, crs="EPSG:3061", nodata=-32768.0)
+    ds = _dataset(monkeypatch, "isl", _product([mt.Placed("d.tif")], nodata=(-999.0,), sea=0.0, floor=-1.0))
+    mt.cut("isl", str(work), str(out), inputs=str(inputs))
+    tiles, index = _tiles(out, ds)
+    tile = tiles["0_0"]
+    r0 = 100  # the tile's top is 2002.5, the raster's 1502.5
+    assert np.isnan(tile[r0:r0 + 20]).all() and np.allclose(tile[r0 + 20:r0 + 25, :300], -0.5, atol=0.006)
+    assert np.isnan(tile[r0 + 25:r0 + 40]).all() and np.isfinite(tile[r0 + 40:r0 + 300, :300]).all()
+    with rio.open(out / "isl" / "dtm" / "5m" / "0_0" / "0_0.tif") as t:
+        assert t.crs == rio.crs.CRS.from_epsg(5016)
+    assert index["crs"] == "EPSG:5016" and index["input_crs"] == {"EPSG:3061": ["d.tif"]}
+    assert index["masks"] == {"nodata": [-999.0, "the files' own"], "sea": 0.0, "below": -1.0}
+
+
+def test_verify(tmp_path, monkeypatch):
+    """verify: a good cut passes (verify.json beside the index); a tile rewritten with other heights, a tile whose
+    bytes no longer match its sha256 and a file the index does not list are each found."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _tif(inputs / "v.tif", _heights((800, 800), 9), 2.5, 4002.5)
+    ds = _dataset(monkeypatch, "ver", _product([mt.Placed("v.tif")]))
+    mt.cut("ver", str(work), str(out), inputs=str(inputs))
+    result = mt.verify("ver", str(work), str(out), inputs=str(inputs), samples=4)["dtm"]
+    assert result["ok"] and len([s for s in result["samples"] if s["data"]]) == 4
+    folder = out / "ver" / "dtm" / "5m"
+    assert json.loads((folder / "verify.json").read_text())["ok"] is True
+    assert any("verify" in line and "ok" in line for line in mt.status(["ver"], str(work), str(out), str(inputs)))
+    index = json.loads((folder / "index.json").read_text())
+    # Another tile's heights 1 m higher, its sha256 updated: only the comparison with the inputs finds it
+    with rio.open(folder / "0_0" / "0_1.tif") as t:
+        raised, transform = t.read(1) + 1.0, t.transform
+    sk_tiles._write(str(folder / "0_0" / "0_1.tif"), raised, "EPSG:5016", transform)
+    index["tiles"]["0_1"] = hashlib.sha256((folder / "0_0" / "0_1.tif").read_bytes()).hexdigest()
+    (folder / "index.json").write_text(json.dumps(index))
+    data = bytearray((folder / "0_0" / "1_0.tif").read_bytes())
+    data[-1] ^= 0xFF
+    (folder / "0_0" / "1_0.tif").write_bytes(bytes(data))
+    (folder / "0_0" / "9_9.tif").write_bytes(b"stray")
+    result = mt.verify("ver", str(work), str(out), inputs=str(inputs), samples=4)["dtm"]
+    problems = "\n".join(result["problems"])
+    assert not result["ok"] and "0_1: differs from the inputs by 1.0" in problems
+    assert "1_0: the file does not match its sha256" in problems and "0_0/9_9.tif" in problems
+    assert any("FAILED" in line for line in mt.status(["ver"], str(work), str(out), str(inputs)))
