@@ -493,6 +493,45 @@ def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: 
     return np.concatenate(anchors) if anchors else np.empty((0, 2), dtype=np.int32)
 
 
+# --- Prototype of the line-volume study (phase 3, 2026-11-13): measuring code behind a setting that is off
+# by default (SearchParams.lip_anchors). Plain numpy; nothing here runs when it is off. ---
+
+# The 8 neighbours in the order the steepest ascent tries them (the first of equal rises wins)
+_NEIGHBOURS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+
+
+def lip_pixels(elevation: np.ndarray, res: float, steep: np.ndarray, area_mask: np.ndarray) -> np.ndarray:
+    """PROTOTYPE ('Rim anchors: the lip, steep pixel or not', K-26). The lip of every wall: for each steep pixel
+    (`steep`: [row, col], every steep pixel of the grid) whose steepest ascent (the 8-neighbour of the largest
+    rise per metre) leads to a pixel that is not steep, that pixel; for a steep pixel with no higher neighbour,
+    the pixel itself. So the lip is the pixel just above the top steep pixel of a wall, steep or not: a line one
+    pixel wide along each rim. Decided from the 5 x 5 pixels around a lip, so tiles agree. Returns the lips
+    inside the search area as [row, col] (int32), in row-major order."""
+    h, w = elevation.shape
+    rows, cols = steep[:, 0].astype(np.int64), steep[:, 1].astype(np.int64)
+    is_steep = np.zeros((h, w), dtype=bool)
+    is_steep[rows, cols] = True
+    here = np.asarray(elevation[rows, cols], dtype=np.float32)
+    best = np.zeros(len(rows), dtype=np.float32)
+    up_r, up_c = rows.copy(), cols.copy()
+    for dr, dc in _NEIGHBOURS:
+        r, c = rows + dr, cols + dc
+        inside = (r >= 0) & (r < h) & (c >= 0) & (c < w)
+        there = np.full(len(rows), np.nan, dtype=np.float32)
+        there[inside] = elevation[r[inside], c[inside]]
+        with np.errstate(invalid="ignore"):
+            rise = (there - here) / np.float32(res * math.hypot(dr, dc))
+            better = rise > best  # NaN (no data, outside): never
+        best[better] = rise[better]
+        up_r[better], up_c[better] = r[better], c[better]
+    top = (up_r == rows) & (up_c == cols)  # nothing higher around: the wall's top is its own lip
+    lip = top | ~is_steep[up_r, up_c]
+    flat = np.unique(up_r[lip] * w + up_c[lip])
+    lr, lc = flat // w, flat % w
+    inside = np.asarray(area_mask[lr, lc], dtype=bool)
+    return np.column_stack([lr[inside], lc[inside]]).astype(np.int32)
+
+
 def max_safe_elevation(t: np.ndarray, length: float, elev_a1: float, elev_a2: float,
                        sag_table=None) -> np.ndarray:
     """Highest allowed terrain/obstacle elevation at fractions t of a line.

@@ -145,6 +145,12 @@ class SearchParams(BaseModel):
     min_drop: Optional[float] = field(None, "keep only lines whose anchors are both at least this many metres "
                                             "above the lowest terrain within --drop-radius", "search")
     drop_radius: float = field(50, "metres around an anchor in which its drop is measured", "search")
+    # Prototype of the line-volume study (phase 3, 2026-11-13; round 3's measurement 0c): measuring code, command
+    # line only, off by default; never merged
+    lip_anchors: Literal["off", "only", "add"] = field(
+        "off", "PROTOTYPE (line-volume study, K-26, rim anchors): anchors on the lip of each wall, the pixel just "
+               "above its top steep pixel, steep or not: 'only' instead of the steep pixels, 'add' with them",
+        "search", cli_only=True)
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
                                          "at most a container's CPU quota); from 2, the files of a large run are "
                                          "written by processes of their own (2 and 3: two, 4 and more: four)",

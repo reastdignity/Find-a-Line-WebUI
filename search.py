@@ -1382,6 +1382,30 @@ def _with_partners(mask: np.ndarray, partner: np.ndarray) -> np.ndarray:
     return out
 
 
+_GRID_SLOPES = sh.find_significant_slopes  # the prototype's own reference (not wrapped by the truth check)
+
+
+def _prototype_anchors(plan: Plan, data: Data, anchors: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """PROTOTYPE of the line-volume study (phase 3; measuring code, off by default; never merged): the anchors
+    of step 2 under --lip-anchors ('Rim anchors: the lip, steep pixel or not', K-26: helpers.lip_pixels of every
+    steep pixel of the grid; "only" instead of the steep pixels, "add" with them). Decided from a few pixels
+    around each anchor, so tiles give one grid's anchors."""
+    p, emit = plan.params, plan.emit
+    # every steep pixel of the grid (a wall's top steep pixel may lie just outside the area); through the
+    # function as imported, so tools/truth_study.py's capture of step 2's steep pixels sees the area's call only
+    steep = _GRID_SLOPES(data.elevation, plan.resolution, p.slope_threshold,
+                                       np.broadcast_to(True, data.elevation.shape), data.slope,
+                                       threads=line_threads(p))
+    lips = sh.lip_pixels(data.elevation, plan.resolution, steep, mask)
+    emit("info", f"Lip pixels: {len(lips)}")
+    if p.lip_anchors == "add":  # with the steep pixels, in row-major order as step 2 gives them
+        width = data.elevation.shape[1]
+        flat = np.unique(np.concatenate([anchors[:, 0].astype(np.int64) * width + anchors[:, 1],
+                                         lips[:, 0].astype(np.int64) * width + lips[:, 1]]))
+        lips = np.column_stack([flat // width, flat % width]).astype(np.int32)
+    return lips
+
+
 def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False) -> Optional[Anchors]:
     """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
     data) within the elevation band (--min/--max-elevation), with their prominence and drop and
@@ -1398,6 +1422,8 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False
         area = _with_partners(area, data.partner)
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold, area, data.slope,
                                          threads=line_threads(p))
+    if p.lip_anchors != "off":  # the prototype of the line-volume study: off by default
+        anchors = _prototype_anchors(plan, data, anchors, area)
     del area
     for seams in (data.filled, data.joined):
         if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
@@ -1989,6 +2015,8 @@ def _search_hash(plan: Plan) -> str:
     # before, made with 3 (an int when a web request left it out, a float from the command line), so it resumes
     if p["model"] != "sag" and p["fall_zone"] == 6:
         p["fall_zone"] = type(p["fall_zone"])(3)
+    if p["lip_anchors"] == "off":  # the study's prototype: off, the hash of before
+        del p["lip_anchors"]
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
         key["owner"] = plan.owner
@@ -2308,6 +2336,8 @@ def _run_params(plan: Plan) -> Dict:
     if plan.square:
         params["same_line_square"] = p.same_line_square
         params["same_line_side"] = plan.square
+    if p.lip_anchors != "off":  # the line-volume study's prototype, only when set: run.json of before
+        params["lip_anchors"] = p.lip_anchors
     return params
 
 
