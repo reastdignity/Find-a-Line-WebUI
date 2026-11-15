@@ -127,7 +127,7 @@ def _features(gml: bytes) -> List[Tuple[Dict, object]]:
     return out
 
 
-def _number(value) -> float:
+def _attribute_number(value) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -136,7 +136,7 @@ def _number(value) -> float:
 
 def _rectangle(attributes: Dict) -> Optional[Tuple[float, float, float, float]]:
     """The sheet of an entry from eg_bsw..ng_bne (None where they are 0: the surveys of 2016 and 2017)."""
-    left, bottom, right, top = (_number(attributes.get(k)) for k in ("eg_bsw", "ng_bsw", "eg_bne", "ng_bne"))
+    left, bottom, right, top = (_attribute_number(attributes.get(k)) for k in ("eg_bsw", "ng_bsw", "eg_bne", "ng_bne"))
     return (left, bottom, right, top) if right > left > 0 and top > bottom > 0 else None
 
 

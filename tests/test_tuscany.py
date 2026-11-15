@@ -495,7 +495,7 @@ def test_catalogue_source():
     s = src.SOURCES["tuscany"]
     assert (s.countries, s.regions, s.crs, s.grid_origin) == (("it",), ("it-52",), "EPSG:3003", (0.0, 0.0))
     assert (s.fallback, s.more_fallbacks, s.neighbours, s.ortho) == ("tinitaly", ("europe",), (), None)
-    assert s.credits == (italy.TOS_RT_CREDIT, italy.TOS_MATTM_CREDIT) and s.nmt.credit is None
+    assert s.credits == (italy.TOS_RT_CREDIT, italy.TOS_MATTM_CREDIT) and s.nmt.credit is italy.TOS_MATTM_CREDIT
     ids = list(src.SOURCES)
     assert ids.index("sardinia") < ids.index("tuscany") < ids.index("tinitaly")
     for layer, kind in ((s.nmt, "dtm"), (s.nmpt, "dsm")):
