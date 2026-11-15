@@ -3017,12 +3017,14 @@ def test_bounding_box_limits_before_requests(tmp_path, monkeypatch, settings, ac
     assert plan.grid.height * plan.resolution > 500_000
 
 
-def test_search_limits_of_anchors_and_lines(tmp_path):
+def test_search_limits_of_anchors_and_lines(tmp_path, monkeypatch):
     """Too many anchors or lines stop the search with a hint, before the profiles; the lines' hint is
     the advice that applies to the search's settings (messages.line_advice)."""
     import messages
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them refuses these first: tests/test_sample_estimate.py)
     point = {"northing": 254608, "easting": 553966, "radius": 150}
     for limits, text, code, extra in (
             (Limits(anchors_max=10), "anchors, at most 10", "too_many_anchors", {}),
@@ -3054,6 +3056,8 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
     from settings import Limits
     point = {"northing": 254608, "easting": 553966, "radius": 150}
     assert _plan(tmp_path, None, **point).memory is None
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them refuses these first: tests/test_sample_estimate.py)
     monkeypatch.setattr(search, "profile_points", lambda lines: 0)  # a circle's profiles: below
     monkeypatch.setattr(mapping, "coordify", lambda *a: pytest.fail("coordinates of lines over the memory"))
     for early, code in ((False, "too_many_lines_memory"), (True, "too_many_lines_memory_early")):
@@ -3090,6 +3094,8 @@ def test_large_circle_keeps_the_spots_profiles(tmp_path, monkeypatch):
     those of the lines shown for the spots (as an area), and its lines are then not refused for them."""
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them could refuse the memory at its lines: tests/test_sample_estimate.py)
     point = {"northing": 254608, "easting": 553966, "radius": 150}
     plan = _plan(tmp_path / "small", Limits(), **point)
     every = search.find_lines(plan, search.prepare_data(plan))
@@ -3177,6 +3183,8 @@ def test_lines_limit_counts_earlier_tiles(tmp_path, monkeypatch):
     import mapping
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them could refuse it first: tests/test_sample_estimate.py)
     found = []
     coordify = mapping.coordify
     monkeypatch.setattr(mapping, "coordify", lambda lines, *a: (found.append(len(lines)), coordify(lines, *a))[1])

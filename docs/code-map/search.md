@@ -119,7 +119,21 @@ grid's rows in one order), `_run_values` reads a run's pair from run.json (0/0 f
 `_early_check`'s check, and returns its table (the column `stands_for`), longest first; `search_lines` reduces the
 join of the tiles (`samelines.reduce_table`); `_check_lines` and the early check count kept lines; `_run_params`
 (`same_line_square`, `same_line_side`) and `_search_hash` hold the option only when set, `save_run` adds
-`summary.found`
+`summary.found`; the size of a search before its pairs (docs/line-volume/spec-search.md section 2): where
+`_early_check` checks (`_samples`: the web worker; never the command line or the regression set) `_lines` (one
+grid) after step 2 and `search_lines` (a tiled area: `_estimate_tiles`, every tile's window, its anchors and its
+sample before the first tile's step 3, in `work/sample<k>/`) estimate the lines with `sample_estimate` (the useful
+anchors of the core, `_open_anchors`: `free_directions` with `find_valid_lines`' set-up repeated, ordered by
+`default_rng([first 8 hex digits of _search_hash, tile])`, the first `max(1, round(SAMPLE_FRACTION N))`; without
+the square rule anchors, `_pair_search(first=)` with a counting sink, lines x N/k; with it the rule's squares, the
+distinct `samelines.square_keys` seen from their first square x M/k, the lines kept; Horvitz-Thompson variance;
+returns `(lines, variance, k, n)`), and `_estimate_check` decides: over `REFUSE_FACTOR` (1.25) times `lines_max`
+or the lines that fit into `Plan.memory` refused (`too_many_lines_estimate`, `too_many_lines_memory_estimate`,
+with the advice and the page's words, `_lines_text`/`_shown`: two digits, plain under a million, else millions),
+from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note `estimate_lines`; the funnel's `estimate`
+(a search refused for its lines: `jobs._write_refusal`'s rows); the full search's checks stay; the progress labels
+"Step 3/5: estimating the lines" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
+`jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process
 
 ## `area.py`
 

@@ -46,7 +46,7 @@ STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
 STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator table", "free directions",
               "anchor pairs", "checking lines")
 FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
-                "left_out", "lines")
+                "left_out", "lines", "estimate")
 RATIOS = (("open", "anchors_kept"), ("checked", "candidates"), ("found", "checked"), ("valid", "found"))
 CLASSES = ("model", "resolution", "length", "shape", "preset", "ends")
 # --phases: the seconds between the timestamps of a job (jobs.created, downloading_at, ready_at,

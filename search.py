@@ -25,7 +25,9 @@ nothing) refuse a search before its costly work: plan_search checks the request 
 the size of the `within` box and of a Nominatim area before OpenStreetMap is asked for
 their themes, the area (a circle's too) and its bounding box before any other service is
 asked, the bounding box of the grid, the pixels of the grid or of a tile, and the tiles;
-check_estimate the download; _lines the anchors and lines found.
+check_estimate the download; _lines the anchors and lines found, after the lines estimated
+from a sample before the pairs (sample_estimate, _estimate_check; where the early check
+checks, never on the command line).
 """
 
 import contextlib
@@ -34,6 +36,7 @@ import gc
 import glob
 import gzip
 import hashlib
+import io
 import json
 import math
 import os
@@ -127,6 +130,17 @@ PROFILE_POINTS = 203
 # at most this; above, only the representatives' as an area does (a map served by the app computes
 # the others when they are opened): about 26 000 lines of 1 m at most, R9's 85 671 at 5 m
 CIRCLE_PROFILES_BYTES = 500e6
+# The size of a search before its pairs (docs/line-volume/spec-search.md section 2): where the early check
+# checks (_samples: the web worker's line limit or a compute slot's memory; never the command line), the lines
+# are estimated after step 2 from a sample of this share of every tile core's units (sample_estimate: the
+# anchors with an open direction, or with the square rule its squares, counting the lines kept), and the search
+# is refused at once over REFUSE_FACTOR times a limit, goes on with a note that it is close from ACCEPT_FACTOR
+# times it (_estimate_check). Measured in the line-volume task, 5 seeds a case, the production kernel (parts P4
+# and M2): at 2 % the cases of a million lines or more within x1.34 (anchors, the lines found) and x1.19 (squares,
+# the lines kept), the band wrong for 1 estimate of 390 and 0 of 485; the user chose 2 % (2026-11-15)
+SAMPLE_FRACTION = 0.02
+REFUSE_FACTOR = 1.25
+ACCEPT_FACTOR = 0.8
 # Tiles of large areas: the grids of one tile may use this share of the free memory (the rest
 # is for the lines of the tiles, which _check_lines refuses over the budget)
 TILE_MEMORY_SHARE = 0.5
@@ -1266,6 +1280,11 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     found = _anchors(plan, data, quiet=core is not None)
     if found is None:  # a tile of a large area: nothing here
         return sh.LineTable.empty(), mp.Groups.each_alone(0)
+    if core is None and _samples(plan):  # the size before the pairs (a tiled search's: search_lines)
+        progress.set_step(f"Step 3/{STEPS}: estimating the lines")  # a phase of its own on the page (useJobs.ts)
+        table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
+        estimate, variance, _, _ = sample_estimate(plan, data, found, None, table, 0)
+        _estimate_check(plan, estimate, math.sqrt(variance), grid.width * grid.height)
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -1437,9 +1456,12 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False
 
 def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], sag_table,
                  check: Optional[Callable[[int], None]] = None,
-                 sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
+                 sink: Optional[Callable[[sh.LineTable], None]] = None,
+                 first: Optional[np.ndarray] = None) -> Optional[sh.LineTable]:
     """Step 3's line search (linesearch.find_valid_lines) with the arguments of the plan: with
-    core (bounds), pairs only from the anchors in it (the overlap is for partners). With the square rule
+    core (bounds), pairs only from the anchors in it (the overlap is for partners); with first (a
+    boolean per anchor, not with Data.partner), pairs only from those anchors instead, each line from
+    its first anchor (smaller x, then y): sample_estimate's sample of the core. With the square rule
     (Plan.square; not with a sink, the count mode) the evaluated parts go to a reducer that keeps one
     line per pair of anchor squares (samelines.BestPerSquarePair: the lines of this grid's core only), so
     the found lines are never held; `check` then gets the kept lines so far, and the table returned
@@ -1452,8 +1474,11 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
 
     p, grid = plan.params, plan.grid
     anchors = found.anchors
-    first = None
-    if core is not None:  # pairs only from the anchors in the core: the overlap is for partners
+    if first is not None:  # a sample of the core's anchors (sample_estimate)
+        if data.partner is not None:
+            raise ValueError("_pair_search: no sample across a border (Data.partner)")
+        first = np.asarray(first, dtype=bool)
+    elif core is not None:  # pairs only from the anchors in the core: the overlap is for partners
         left, bottom, right, top = core
         x, y = grid.pixel_to_xy(anchors[:, 0], anchors[:, 1])
         first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
@@ -1532,7 +1557,8 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     anchors, first mask (core), line limits and arguments as _lines; no step 4 (the sink decides
     which first anchors lie in core), no "no steep terrain"/"no lines" errors (an empty grid hands
     the sink nothing), no _early_check or _check_lines (limits.anchors_max stays). The model "sag"
-    uses sag_table, or an EnvelopeTable of plan.rigging when None. Returns plan.funnel with this
+    uses sag_table, or when None the EnvelopeTable of plan.rigging and the lengths built once per
+    process (_sag_table, as _lines': 1-3 s a tile before 2026-11-15). Returns plan.funnel with this
     call's counts added.
 
     With Data.partner (Plan.partners: a border tile of a country) the anchors of the zone beyond the
@@ -1552,8 +1578,10 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     if p.model != "sag":
         sag_table = None
     elif sag_table is None:
-        emit("info", "Precomputing the sag estimator for all line lengths...")
-        sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
+        key = (dataclasses.astuple(plan.rigging), p.min_length, p.max_length)
+        if key not in _SAG_TABLES:
+            emit("info", "Precomputing the sag estimator for all line lengths...")
+        sag_table = _sag_table(*key)
     water = data.water
     sides = _BorderSides(plan.grid, data.partner) if data.partner is not None else None
 
@@ -1696,6 +1724,242 @@ def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int
                               f"{messages.advice_cli(advice)}", "too_many_lines_memory_early",
                               n=total, max=fits, advice=advice)
     return check
+
+
+def _samples(plan: Plan) -> bool:
+    """Whether a search estimates its lines from a sample before its pairs (sample_estimate,
+    _estimate_check): where _early_check checks, so with Plan.early_stop and the line limit or
+    Plan.memory (the web worker); never the command line or the regression set (no limits, no memory:
+    their files and seconds stay as before)."""
+    return _early_check(plan, 0, 0) is not None
+
+
+def _no_event(kind: str, text: str):
+    """on_event of a sample's plan: its steps say nothing (the search's own messages come after it)."""
+
+
+def _open_anchors(plan: Plan, data: Data, found: Anchors, sag_table) -> np.ndarray:
+    """The indices of found.anchors with an open direction, ascending: the useful anchors of
+    linesearch.free_directions, the only ones pairs start from, with the arguments find_valid_lines
+    derives from _pair_search's (its set-up repeated here: tests/test_sample_estimate.py keeps them
+    equal)."""
+    import linesearch as ls  # numba (see _lines)
+
+    p = plan.params
+    delta, _ = sh.end_zone_rule(sag_table, plan.end_zone, plan.lift)
+    if sag_table is None:
+        gain, cap, offset = -sh.SLOPE, np.inf, sh.LEASH_FALL
+    else:
+        gain, cap = p.max_anchor_diff / 100 * math.sqrt(2), p.max_anchor_diff_m
+        offset = sag_table.rig.fall_zone + min(0.0, float(np.ascontiguousarray(sag_table.sag).min()))
+    anchors = np.ascontiguousarray(found.anchors, dtype=np.int64)
+    progress.compute.start("free directions", 1, unit="step")
+    useful, _, _ = ls.free_directions(np.asarray(data.elevation), anchors, plan.resolution, gain, cap, offset,
+                                      p.min_length, p.max_length, plan.end_zone, plan.lift, delta)
+    progress.compute.finish()
+    return useful
+
+
+def _distinct_pairs(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """The distinct pairs (a[i], b[i]), sorted by a, then b."""
+    order = np.lexsort((b, a))
+    a, b = a[order], b[order]
+    new = np.ones(len(a), dtype=bool)
+    new[1:] = (a[1:] != a[:-1]) | (b[1:] != b[:-1])
+    return a[new], b[new]
+
+
+class _KeySet:
+    """Distinct pairs of int64 gathered part by part (the keys of the square rule a sample sees): each
+    part's made distinct at once, all of them whenever the rows held pass twice the distinct ones."""
+
+    def __init__(self):
+        self.parts: List[Tuple[np.ndarray, np.ndarray]] = []
+        self.rows, self.limit = 0, 1 << 20
+
+    def add(self, a: np.ndarray, b: np.ndarray):
+        if len(a):
+            self.parts.append(_distinct_pairs(a, b))
+            self.rows += len(self.parts[-1][0])
+            if self.rows > self.limit:
+                self._compact()
+
+    def _compact(self):
+        if len(self.parts) > 1:
+            self.parts = [_distinct_pairs(np.concatenate([a for a, _ in self.parts]),
+                                          np.concatenate([b for _, b in self.parts]))]
+            self.rows = len(self.parts[0][0])
+        self.limit = max(self.limit, 2 * self.rows)
+
+    def pairs(self) -> Tuple[np.ndarray, np.ndarray]:
+        self._compact()
+        return self.parts[0] if self.parts else (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64))
+
+
+def sample_estimate(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], sag_table, tile: int,
+                    fraction: Optional[float] = None, seed: Optional[int] = None) -> Tuple[float, float, int, int]:
+    """The lines of a grid (a tile: its core's, bounds; None: the grid's) estimated from a sample before its
+    pair search, from step 2's anchors (found) whose pairs the search would start: those with an open
+    direction (_open_anchors) in the core. Returns (lines, variance, k, n): the estimate, its variance,
+    k units sampled of n; fraction None: SAMPLE_FRACTION; seed None: the search's (below).
+
+    The units are put in a random order by numpy.random.default_rng([seed, tile]) (seed: the first 8 hex
+    digits of _search_hash, so the same request gets the same estimate; tile: its index, 0 for one grid)
+    and the first k = max(1, round(fraction n)) are taken. Without the square rule (part P4's design) a
+    unit is an anchor: the lines found from the sampled anchors (_pair_search with them as first and a
+    counting sink: a line counts once, from its first anchor) times n / k estimate the lines found. With it
+    (Plan.square; part M2's design 1b) a unit is a square of the rule's lattice (samelines.side) holding
+    such an anchor, every one of them in a sampled square starts pairs, and the distinct keys
+    (samelines.square_keys) of the lines whose first anchor lies in the key's first square, times n / k,
+    estimate the lines kept, which the limits count (a key whose lines all start in its second square is
+    never seen: at a fraction of 1 about 0.1 % under the kept lines where measured, more in tiles of a few
+    hundred metres, whose edges cut many pairs of squares). The variance is
+    Horvitz-Thompson's of a simple random sample, n² (1 - k / n) s² / k, s² of the lines (keys) per
+    sampled unit. The search is not changed (its funnel and messages left alone, find_valid_lines' printed
+    lines dropped), and the result is the same for any number of threads."""
+    grid, anchors = plan.grid, found.anchors
+    fraction = SAMPLE_FRACTION if fraction is None else fraction
+    if seed is None:
+        seed = int(_search_hash(plan)[:8], 16)
+    useful = _open_anchors(plan, data, found, sag_table)
+    if core is not None:
+        left, bottom, right, top = core
+        x, y = grid.pixel_to_xy(anchors[useful, 0], anchors[useful, 1])
+        useful = useful[(left <= x) & (x < right) & (bottom <= y) & (y < top)]
+    side = plan.square
+    where = units = None
+    if side:  # the squares of the useful anchors, as samelines.square_keys numbers them
+        x, y = grid.pixel_to_xy(anchors[useful, 0], anchors[useful, 1])
+        squares = (np.floor(x / side).astype(np.int64) << 32) + np.floor(y / side).astype(np.int64)
+        units, where = np.unique(squares, return_inverse=True)
+        where = where.reshape(-1)
+    n = len(units) if side else len(useful)
+    if not n:
+        return 0.0, 0.0, 0, 0
+    k = max(1, int(round(fraction * n)))
+    chosen = np.zeros(n, dtype=bool)
+    chosen[np.random.default_rng([seed, tile]).permutation(n)[:k]] = True
+    start = useful[chosen[where]] if side else useful[chosen]
+    first = np.zeros(len(anchors), dtype=bool)
+    first[start] = True
+    width, counted, keys = grid.width, [0], _KeySet()
+    starts = np.sort(anchors[start, 0].astype(np.int64) * width + anchors[start, 1])  # the sampled anchors' pixels
+
+    def count(part: sh.LineTable):
+        c = part.columns
+        if not len(part):
+            return
+        if not side:  # the lines, and each one's first anchor (smaller column, then larger row) for s²
+            a1, a2 = np.asarray(c["a1"]), np.asarray(c["a2"])
+            one = (a1[:, 1] < a2[:, 1]) | ((a1[:, 1] == a2[:, 1]) & (a1[:, 0] > a2[:, 0]))
+            at = np.where(one[:, None], a1, a2)
+            at = np.minimum(np.searchsorted(starts, at[:, 0].astype(np.int64) * width + at[:, 1]), k - 1)
+            per[:] += np.bincount(at, minlength=k)
+            counted[0] += len(part)
+            return
+        x1, y1 = grid.pixel_to_xy(c["a1"][:, 0], c["a1"][:, 1])
+        x2, y2 = grid.pixel_to_xy(c["a2"][:, 0], c["a2"][:, 1])
+        one = (x1 < x2) | ((x1 == x2) & (y1 <= y2))  # the first anchor: smaller x, then y
+        xa, ya = np.where(one, x1, x2), np.where(one, y1, y2)
+        ka, kb = samelines.square_keys(xa, ya, np.where(one, x2, x1), np.where(one, y2, y1), side)
+        own = (np.floor(xa / side).astype(np.int64) << 32) + np.floor(ya / side).astype(np.int64)
+        mine = ka == own  # a key counts only from its first square
+        keys.add(ka[mine], kb[mine])
+
+    per = np.zeros(k, dtype=np.int64)  # the lines (keys) of each sampled unit
+    quiet = dataclasses.replace(plan, emit=_no_event, funnel={})
+    with contextlib.redirect_stdout(io.StringIO()):  # find_valid_lines' summary of the sample, not the search's
+        _pair_search(quiet, data, found, core, sag_table, sink=count, first=first)
+    if side:
+        ka, _ = keys.pairs()
+        counted[0] = len(ka)
+        sampled = units[chosen]  # ascending; a key's first square is one of them
+        per = np.bincount(np.minimum(np.searchsorted(sampled, ka), k - 1), minlength=k)
+    variance = 0.0
+    if k > 1:
+        y = per.astype(np.float64)
+        s2 = float(((y - y.mean()) ** 2).sum() / (k - 1))
+        variance = n ** 2 * (1 - k / n) * s2 / k
+    return counted[0] * (n / k), variance, k, n
+
+
+def _lines_text(n: int, unit: bool = True) -> str:
+    """A number of lines as the estimate's texts show it, to two significant digits: under a million a plain
+    number with a space between the thousands ("42 000", "870"), from a million in millions ("3.2 million",
+    "24 million"; the number alone with unit False). The page shows these strings as they are."""
+    rounded = int(float(f"{max(0, int(n)):.2g}"))
+    if rounded >= 1_000_000:
+        return f"{float(f'{rounded / 1e6:.2g}'):g}" + (" million" if unit else "")
+    return f"{rounded:,}".replace(",", " ")
+
+
+def _shown(n: int, lo: int, hi: int) -> Dict[str, object]:
+    """The parameters of an estimate in its texts: the numbers (n, lo, hi) and their words (about, low, high:
+    "About 3.2 million lines (2.6 to 3.9 million)", "About 42 000 lines (38 000 to 46 000)")."""
+    both = int(float(f"{max(0, lo):.2g}")) >= 1_000_000  # both ends in millions: the word once, after the second
+    return dict(n=n, lo=lo, hi=hi, about=_lines_text(n), low=_lines_text(lo, unit=not both), high=_lines_text(hi))
+
+
+def _estimate_check(plan: Plan, estimate: float, se: float, pixels: int):
+    """The decision on a search's estimate before its pairs (sample_estimate, summed over the tiles; se its
+    standard error): over REFUSE_FACTOR times the line limit refused at once (too_many_lines_estimate),
+    or times the lines that fit into Plan.memory with grids of this many pixels and no profiles, as
+    _early_check counts them (too_many_lines_memory_estimate), with the refusal's advice
+    (messages.line_advice); else a note of the estimate and its interval of two standard errors, and from
+    ACCEPT_FACTOR times a limit a warning that the search is close to it. A prediction, not a lower bound
+    as _early_check's: the full search's checks stay and decide at its end. The estimate goes to the
+    funnel ("estimate" of jobs.FUNNEL_STEPS) beside the lines found."""
+    n = int(round(estimate))
+    lo, hi = max(0, int(round(estimate - 2 * se))), int(round(estimate + 2 * se))
+    plan.funnel["estimate"] = n
+    lines_max = plan.limits.lines_max if plan.limits else None
+    fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES)) if plan.memory is not None else None
+    shown = _shown(n, lo, hi)
+    if lines_max and estimate > REFUSE_FACTOR * lines_max:
+        advice = messages.line_advice(plan.params)
+        raise SearchError(f"about {n} lines ({lo} to {hi}) estimated from a sample before the search's pairs, at "
+                          f"most {lines_max} on this site; {messages.advice_cli(advice)}", "too_many_lines_estimate",
+                          **shown, max=lines_max, limit=_lines_text(lines_max), advice=advice)
+    if fits is not None and estimate > REFUSE_FACTOR * fits:
+        advice = messages.line_advice(plan.params)
+        raise SearchError(f"about {n} lines ({lo} to {hi}) estimated from a sample before the search's pairs, at "
+                          f"most {fits} fit into the memory of this site; {messages.advice_cli(advice)}",
+                          "too_many_lines_memory_estimate", **shown, max=fits, limit=_lines_text(fits), advice=advice)
+    plan.emit("info", messages.Note(f"About {n} lines ({lo} to {hi}) with these settings, estimated from a "
+                                    f"sample before the search's pairs", "estimate_lines", **shown))
+    close = [limit for limit in (lines_max, fits) if limit is not None and estimate >= ACCEPT_FACTOR * limit]
+    if close and estimate > 0:  # an estimate of no line is close to nothing (a limit of 0: the grids fill the memory)
+        limit = min(close)
+        plan.emit("warning", messages.Note(f"That is close to the limit of {limit} lines: the search goes on and "
+                                           f"stops if it passes it", "estimate_close", max=limit,
+                                           limit=_lines_text(limit)))
+
+
+def _estimate_tiles(plan: Plan, area: Data):
+    """The estimate of a tiled search before the first tile's step 3: every tile's window of the area's
+    grids (_tile_data, in work/sample<k>/), its anchors (step 2, not kept: the tile finds them again) and
+    its sample (sample_estimate), summed; then the decision with the last tile's pixels (the grids held
+    with all the lines at the search's last check of a tile)."""
+    p = plan.params
+    table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
+    quiet = dataclasses.replace(plan, emit=_no_event, funnel={})
+    lines = variance = 0.0
+    for k, (core, tile) in enumerate(plan.tiles):
+        work = os.path.join(plan.paths.work, f"sample{k}")
+        os.makedirs(work, exist_ok=True)
+        tile_plan = dataclasses.replace(quiet, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
+                                        tile_label=f"Estimate, tile {k + 1}/{len(plan.tiles)} · ")
+        data = _tile_data(area, plan.grid, tile, work, None)
+        found = _anchors(tile_plan, data, quiet=True)
+        if found is not None:
+            progress.set_step(f"{tile_plan.tile_label}Step 3/{STEPS}: estimating the lines")
+            estimate, var, _, _ = sample_estimate(tile_plan, data, found, core, table, k)
+            lines, variance = lines + estimate, variance + var
+        del data, found
+        gc.collect()  # close the memory-mapped grids before deleting them (Windows)
+        shutil.rmtree(work, ignore_errors=True)
+    last = plan.tiles[-1][1]
+    _estimate_check(plan, lines, math.sqrt(variance), last.width * last.height)
 
 
 def _run_name(plan: Plan) -> str:
@@ -1896,6 +2160,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     if area is not None and area.terrain_sources is not None:
         with open(origins_path, "w", encoding="utf-8") as f:
             json.dump(area.terrain_sources, f, separators=(",", ":"))
+    if area is not None and _samples(plan):  # the size before the pairs, from every tile
+        _estimate_tiles(plan, area)
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))

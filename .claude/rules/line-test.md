@@ -62,6 +62,10 @@ What each module holds: docs/code-map/search.md (the tools: docs/code-map/tools.
   the same settings (both models, a surface, `first`, `strong`, a wall limit; nesting over zones and lifts; the sink
   mode; the buckets). The ladder of per-line buckets (`zones`, `helpers.valid_at`) gives "valid at zone j, lift h"
   exactly from `zone_margins`; `lift_needed`/`lift_no_zone` (`helpers.lift_values`) are the two values a run keeps.
+- `search._open_anchors` (the web worker's estimate before the pairs draws its sample from the anchors pairs start
+  from) repeats `find_valid_lines`' set-up of `free_directions` (`gain`, `cap`, `offset`, the rule's `delta`): the
+  fourth place of the per-anchor limit above, changed with the three;
+  `tests/test_sample_estimate.py::test_open_anchors_are_the_line_searchs` fails on a drift.
 - Heights of the webbing above the terrain (`height_max`, `height_mean`, `high_pct` of `--high-above`) are the margin
   below `max_safe_elevation` plus `helpers.fall_allowance` (leash fall or fall zone) plus the A-frames' lift (added
   last and only when not 0: `helpers.webbing_height(margin, sag_table, lift)`, the same in `_evaluate`,
