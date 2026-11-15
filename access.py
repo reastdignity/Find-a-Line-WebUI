@@ -12,8 +12,8 @@ without data holds what the measure gives an anchor there (cannot walk; cannot t
 open ground is scarce): no anchor lies on one.
 
 The measure:
-- slope: the app's slope (np.gradient, degrees); a pixel next to a pixel without data has no slope and is neither
-  open nor walkable.
+- slope: the app's slope (np.gradient, degrees); a pixel beside a NaN along an axis has no slope and is neither
+  open nor walkable (a filled gap has heights, so the pixels beside it keep theirs).
 - open ground: below OPEN_DEG, not water, with data, in an 8-connected region of such pixels of at least
   OPEN_MIN_M2 (a meadow, a plateau, a field, a valley floor; not a ledge in a face or the top of a pillar).
 - walkable ground, strict: slope <= WALK_DEG, not water, with data, not a crest (a pixel that falls away on both

@@ -149,6 +149,43 @@ def test_end_of_data_cannot_tell():
     assert access.access_grid(middle, None, 2.0, filled=filled)[300, 300] == UNSURE
 
 
+def test_no_data():
+    """A pixel without data holds what an anchor there would get (cannot walk here: open ground all around). A NaN
+    hole beside the plateau is no end of the data, unlike a filled gap: the plateau's pixels beside it have no slope
+    (the study's rule)."""
+    middle = plateau(600, 600, 290, 290)
+    middle[290:310, 310:330] = np.nan
+    grid = access.access_grid(middle, None, 2.0)
+    assert grid[300, 320] == CANNOT
+    assert grid[300, 300] == CANNOT
+
+
+def ridge(width):
+    """A meadow (columns 0-119, 1 m pixels), a chasm 60 m deep, a ridge rising at 35 degrees (columns 120-169) to a
+    plateau of 40 x 40 m (rows 80-119, columns 170-209): with width 1 a knife edge (its sides 1 m, then 4 m lower),
+    with width 5 a flat crest 5 m wide."""
+    z = tilted(200, 300)
+    out = z - 60.0
+    out[:, :120] = z[:, :120]
+    top = z[100, 119] + 0.7 * (np.arange(120, 170) - 119)
+    half = width // 2
+    out[100 - half:101 + half, 120:170] = top[None, :]
+    if width == 1:
+        out[99, 120:170] = out[101, 120:170] = top - 1.0
+        out[98, 120:170] = out[102, 120:170] = top - 4.0
+    out[80:120, 170:210] = top[-1] + 0.05 * np.arange(40)[None, :] + 0.02 * np.arange(40)[:, None]
+    return out.astype(np.float32)
+
+
+def test_knife_edge_crest():
+    """The plateau beyond a knife-edge ridge of 35 degrees: the strict walk does not take a crest, the loose one
+    does: cannot tell. The same ridge 5 m wide: can walk."""
+    knife = ridge(1)
+    assert access.crest(knife, 1.0)[100, 145] and access.slope_deg(knife, 1.0)[100, 145] < access.WALK_DEG
+    assert access.access_grid(knife, None, 1.0, alpine=False)[100, 190] == UNSURE
+    assert access.access_grid(ridge(5), None, 1.0, alpine=False)[100, 190] == CAN
+
+
 def lake(whole=False):
     """A lake of 120 x 120 m at 100 m (1 m pixels) with an island of 19 x 19 m rising 1.5 m in its middle, in a
     meadow rising from its shore."""
