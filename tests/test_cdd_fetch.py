@@ -21,6 +21,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 import cdd_fetch as cf  # noqa: E402
 
+REAL_SITE, REAL_AUTH = cf.SITE, cf.AUTH_URL  # read before any fixture replaces them; never requested
 USER = "user-SECRET-u1"
 PASSWORD = "pw SECRET&p1"  # a space and an ampersand: masked in the form's encoding too
 TIFF = b"II*\x00"
@@ -50,6 +51,10 @@ class Fake:
         self.logins = 0
         self.posts = 0
         self.form_fails = 0
+        self.times = []           # (when, Host header) of every request
+        self.headers = []         # (path, the request's headers) of every request
+        self.action_base = ""     # the form's action before its path ("" = this server, relative)
+        self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
         self.active = self.most = 0
         self.lock = threading.Lock()
         self.plain = {}           # /wal/<name> -> bytes
@@ -94,6 +99,8 @@ class Fake:
             self.active += 1
             self.most = max(self.most, self.active)
             self.log.append((method, parts.path, h.headers.get("User-Agent")))
+            self.times.append((time.monotonic(), h.headers.get("Host")))
+            self.headers.append((parts.path, {k.lower(): v for k, v in h.headers.items()}))
         try:
             self.route(h, method, parts)
         finally:
@@ -117,7 +124,8 @@ class Fake:
 
     def form_page(self):
         code = self.secret("sc")
-        action = "/realms/dgterritorio/login-actions/authenticate?session_code=%s&amp;execution=e1" % code
+        action = self.action_base + \
+            "/realms/dgterritorio/login-actions/authenticate?session_code=%s&amp;execution=e1" % code
         return ('<html><body><form id="kc-form-login" class="x" action="%s" method="post">'
                 '<input type="text" name="username"><input type="password" name="password">'
                 '<input type="hidden" name="flow" value="f1"></form></body></html>' % action).encode()
@@ -128,7 +136,7 @@ class Fake:
             self.send(h, 200, b"<html>site</html>", {"Content-Type": "text/html",
                                                       "Set-Cookie": "site=%s; Path=/" % self.secret("site")})
         elif method == "GET" and path == "/auth/login":
-            self.send(h, 302, headers={"Location": "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"})
+            self.send(h, 302, headers={"Location": self.login_location})
         elif method == "POST" and path.endswith("/authenticate") and self.form_fails:
             self.form_fails -= 1
             h.rfile.read(int(h.headers.get("Content-Length") or 0))
@@ -268,7 +276,7 @@ def fake(monkeypatch):
     server = Fake()
     monkeypatch.setattr(cf, "SITE", server.base)
     monkeypatch.setattr(cf, "AUTH_URL", server.base + "/realms/dgterritorio/protocol/openid-connect/auth")
-    monkeypatch.setattr(cf, "SEARCH_PAUSE", 0)
+    monkeypatch.setattr(cf, "REQUEST_PAUSE", 0)
     monkeypatch.setattr(cf, "CHUNK", 512)
     monkeypatch.setattr(cf, "PAGE", 2)
     monkeypatch.setenv("CDD_USER", USER)
@@ -369,7 +377,7 @@ def test_plan_walks_every_page_and_keeps_the_newest_version(fake, tmp_path):
 
 
 def test_every_search_is_paced(fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(cf, "SEARCH_PAUSE", 5.0)
+    monkeypatch.setattr(cf, "REQUEST_PAUSE", 5.0)
     mainland(fake, 3)
     fake.add("ACORES-MDE-1", "2024_SMG_PDL_31-2-3-4_01_MDE")
     assert run(tmp_path, "plan", "--collections", "MDT-50cm", "ACORES-MDE-1") == 0
@@ -506,6 +514,77 @@ def test_refused_credentials_stop_at_once(fake, tmp_path, monkeypatch):
     monkeypatch.setenv("CDD_PASSWORD", "wrong-SECRET-pw")
     assert fetch(tmp_path) == cf.EXIT_CREDENTIALS
     assert fake.posts == 1
+
+
+def test_a_form_action_elsewhere_gets_no_credentials(fake, tmp_path, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    fake.action_base = fake.base.replace("127.0.0.1", "localhost")  # the same server under another host name
+    capsys.readouterr()
+    assert fetch(tmp_path) == cf.EXIT_CREDENTIALS
+    assert fake.posts == 0 and not [h for _, h in fake.times if h.startswith("localhost")]
+    err = capsys.readouterr().err
+    assert "localhost" in err and "not signing in" in err and "SECRET" not in err
+
+
+def test_a_redirect_elsewhere_during_the_sign_in_is_not_followed(fake, tmp_path, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    fake.login_location = fake.base.replace("127.0.0.1", "localhost") + \
+        "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
+    assert fetch(tmp_path) == cf.EXIT_CREDENTIALS
+    assert fake.posts == 0 and not [h for _, h in fake.times if h.startswith("localhost")]
+
+
+def test_the_sign_in_stays_on_https_and_the_two_hosts(monkeypatch):
+    monkeypatch.setattr(cf, "SITE", REAL_SITE)
+    monkeypatch.setattr(cf, "AUTH_URL", REAL_AUTH)
+    monkeypatch.setattr(cf, "REQUEST_PAUSE", 0)
+    client = cf.Http(cf.Scrub())
+    client.guard = cf.signin_hosts()
+    client.before("https://cdd.dgterritorio.gov.pt/auth/login")
+    client.before("https://auth.cdd.dgterritorio.gov.pt/realms/dgterritorio/login-actions/authenticate?x=1")
+    for url in ("http://auth.cdd.dgterritorio.gov.pt/realms/dgterritorio/login-actions/authenticate",  # http
+                "http://cdd.dgterritorio.gov.pt/auth/callback",  # a redirect from https down to http
+                "https://other.example/realms/x", "https://auth.cdd.dgterritorio.gov.pt.example/x"):
+        with pytest.raises(cf.UnsafeLogin):
+            client.before(url)
+    client.guard = None
+    client.before("https://objects.example/bucket/file.tif?X-Amz-Signature=1")  # a download's store: allowed
+
+
+def test_requests_are_paced_per_host(fake, tmp_path, monkeypatch):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    monkeypatch.setattr(cf, "REQUEST_PAUSE", 0.2)
+    monkeypatch.setattr(cf, "_wait", time.sleep)
+    fake.times.clear()
+    assert fetch(tmp_path) == 0
+    hosts = {}
+    for when, host in fake.times:
+        hosts.setdefault(host, []).append(when)
+    assert sum(len(t) for t in hosts.values()) >= 12  # the sign-in's steps, searches, downloads, redirects
+    for times in hosts.values():
+        assert all(b - a >= 0.17 for a, b in zip(times, times[1:])), times  # 0.2 s less the clocks' jitter
+
+
+def test_sign_ins_have_a_ceiling(fake, tmp_path):
+    mainland(fake, 8)
+    for item_id in fake.bodies:
+        fake.actions[item_id] = ["expire"]
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--max-signins-per-hour", "6") == cf.EXIT_SIGNINS
+    assert fake.posts == 6 and len(done_rows(tmp_path)) == 5
+    assert [w for w in fake.waits if w > 50] and all(55 < w <= 60 for w in fake.waits if w > 50)
+
+
+def test_a_password_too_short_to_mask_is_refused(fake, tmp_path, monkeypatch, capsys):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    monkeypatch.setenv("CDD_PASSWORD", "ab")
+    before = len(fake.log)
+    assert fetch(tmp_path) == cf.EXIT_CREDENTIALS
+    assert len(fake.log) == before and "3 characters" in capsys.readouterr().err
 
 
 def test_missing_credentials(fake, tmp_path, monkeypatch, capsys):

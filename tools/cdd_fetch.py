@@ -99,12 +99,13 @@ FIELDS = {"include": ["id", "collection", "properties.version", "properties.file
 PAGE = 1000            # items per search page while planning
 RESOLVE_BATCH = 20     # ids per search resolving download addresses
 ADDRESS_SECONDS = 900  # a resolved address is used within this time, else resolved again
-SEARCH_PAUSE = 1.5     # seconds between searches
+REQUEST_PAUSE = 1.5    # seconds between two requests to one host (redirects and sign-in steps included)
 TIMEOUT = 120          # seconds a socket may wait
 CHUNK = 1 << 20
 STATUS_EVERY = 5       # files between rewrites of status.json
 DISK_EVERY = 1 << 30   # bytes between free-space checks within one file
 MAX_SIGNINS = 3        # sign-ins in a row without a fetched file
+SIGNIN_GAP = 60.0      # seconds at least between two sendings of the credentials
 MAX_FAILED_IN_ROW = 5
 THROTTLE_TRIES = 6     # 429/503 answers to one file before it counts as failed
 WAIT_BASE = 60.0       # the first wait after a 429/503 (doubled each time)
@@ -248,6 +249,18 @@ class BadFile(Exception):
     """The file failed (an HTTP error, a wrong magic or size, a broken connection): tried again later."""
 
 
+class NetworkDown(BadFile):
+    """No answer: no route, a name not resolved, a reset or a timeout."""
+
+
+class UnsafeLogin(Exception):
+    """The sign-in would go outside the site and its realm, or off the site's scheme (https): refused."""
+
+
+class SigninCeiling(Exception):
+    """More sign-ins in the last hour than allowed."""
+
+
 class DiskLow(Exception):
     pass
 
@@ -274,36 +287,76 @@ def _retry_after(headers):
             return None
 
 
+def _host(url):
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme.lower(), parts.netloc.lower()
+
+
+def signin_hosts():
+    """Where a sign-in may go: the site's and the realm's hosts, on the site's scheme (https) only."""
+    scheme = _host(SITE)[0]
+    return {(scheme, _host(SITE)[1]), (scheme, _host(AUTH_URL)[1])}
+
+
+class _Gate(urllib.request.BaseHandler):
+    """Every request passes here, each redirect too: Http.before (the pause, the sign-in's hosts)."""
+
+    def __init__(self, owner):
+        self.owner = owner
+
+    def http_request(self, request):
+        self.owner.before(request.full_url)
+        return request
+
+    https_request = http_request
+
+
 class Http:
-    """One opener with a cookie jar kept in memory only; one request at a time; every cookie value is masked."""
+    """One opener with a cookie jar kept in memory only; one request at a time, at least REQUEST_PAUSE after the
+    previous one to the same host; while `guard` is set (a sign-in) a request elsewhere raises UnsafeLogin before
+    it is sent; every cookie value is masked."""
 
     def __init__(self, scrub):
         self.scrub = scrub
         self.jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar), _Gate(self))
         self.opener.addheaders = [("User-Agent", AGENT)]
-        self.searched = -1e9
+        self.last = {}     # host -> when it was last asked
+        self.guard = None  # the (scheme, host) pairs a sign-in may reach
+
+    def before(self, url):
+        scheme, host = _host(url)
+        if self.guard is not None and (scheme, host) not in self.guard:
+            raise UnsafeLogin("%s://%s" % (scheme, urllib.parse.urlsplit(url).hostname))
+        pause = REQUEST_PAUSE - (time.monotonic() - self.last.get(host, -1e9))
+        if pause > 0:
+            _wait(pause)
+        self.last[host] = time.monotonic()
 
     def open(self, url, data=None, headers=None):
-        """The answer (an HTTPError is an answer too; a network error raises BadFile); the caller closes it."""
+        """The answer (an HTTPError is an answer too; no answer raises NetworkDown); the caller closes it."""
         request = urllib.request.Request(url, data=data, headers=headers or {})
         try:
             answer = self.opener.open(request, timeout=TIMEOUT)
         except urllib.error.HTTPError as error:
             answer = error
-        except (urllib.error.URLError, OSError, HTTPException, ValueError) as error:
-            raise BadFile("network: %s %s" % (type(error).__name__, getattr(error, "reason", ""))) from None
+        except (urllib.error.URLError, OSError, HTTPException) as error:
+            raise NetworkDown("network: %s %s" % (type(error).__name__, getattr(error, "reason", ""))) from None
         finally:
             for cookie in self.jar:
                 self.scrub.add(cookie.value)
         return answer
 
+    def page(self, url, data=None, headers=None, cap=2_000_000):
+        """(status, final address, body) of a small answer, read whole; a broken read raises NetworkDown."""
+        with self.open(url, data, headers) as answer:
+            try:
+                return answer.getcode(), answer.geturl(), answer.read(cap)
+            except (OSError, HTTPException) as error:
+                raise NetworkDown("network: %s while reading" % type(error).__name__) from None
+
     def json(self, url, body):
-        """A search: at least SEARCH_PAUSE after the previous one."""
-        pause = SEARCH_PAUSE - (time.monotonic() - self.searched)
-        if pause > 0:
-            _wait(pause)
-        self.searched = time.monotonic()
+        """A search's answer, a JSON object."""
         answer = self.open(url, json.dumps(body).encode(), {"Content-Type": "application/json",
                                                             "Accept": "application/json"})
         with answer:
@@ -312,14 +365,17 @@ class Http:
                 raise Throttled(status, _retry_after(answer.headers))
             try:
                 raw = answer.read(100_000_000)
-            except (OSError, HTTPException, ValueError) as error:
-                raise BadFile("network: %s while reading the search" % type(error).__name__) from None
+            except (OSError, HTTPException) as error:
+                raise NetworkDown("network: %s while reading the search" % type(error).__name__) from None
         if status != 200:
             raise BadFile("the search answered HTTP %d" % status)
         try:
-            return json.loads(raw)
+            found = json.loads(raw)
         except ValueError:
             raise BadFile("the search answered something not JSON") from None
+        if not isinstance(found, dict):
+            raise BadFile("the search answered JSON that is not an object")
+        return found
 
 
 # Planning
@@ -468,39 +524,62 @@ class Job:
 class CddJob(Job):
     signin_needed = True
 
-    def __init__(self, area, items, user, password):
+    def __init__(self, area, items, user, password, per_hour=6):
         super().__init__(area, items, TIFF_MAGIC)
         self.user, self.password = user, password
         self.addresses = {}  # id -> (address, when resolved): in memory only
+        self.per_hour = per_hour
+        self.posts = deque()  # when the credentials were sent, within the last hour
 
     def signin(self, http, log):
-        """The Keycloak form as the site leads to it; raises CredentialsRefused when the form comes back."""
+        """The Keycloak form as the site leads to it. Every request of it, redirects included, stays on the site's
+        and the realm's hosts over the site's scheme (UnsafeLogin otherwise, before anything is sent there); the
+        credentials go only to a form action there, at least SIGNIN_GAP after the previous time and at most
+        `per_hour` times an hour (SigninCeiling). CredentialsRefused when the form comes back."""
         http.jar.clear()
         self.addresses.clear()
-        with http.open(SITE + "/") as answer:
-            answer.read(2_000_000)
-        with http.open(SITE + "/auth/login") as answer:
-            page_url, body = answer.geturl(), answer.read(2_000_000)
-        form = _login_form(body)
-        if form is None:
-            with http.open(AUTH_URL) as answer:
-                page_url, body = answer.geturl(), answer.read(2_000_000)
+        http.guard = signin_hosts()
+        try:
+            http.page(SITE + "/")
+            _, page_url, body = http.page(SITE + "/auth/login")
             form = _login_form(body)
-        if form is None:
-            raise BadFile("no login form found")
-        action, hidden = form
-        fields = dict(hidden)
-        fields.update(username=self.user, password=self.password)
-        fields.setdefault("credentialId", "")
-        with http.open(urllib.parse.urljoin(page_url, action), urllib.parse.urlencode(fields).encode(),
-                       {"Content-Type": "application/x-www-form-urlencoded"}) as answer:
-            status = answer.getcode()
-            body = answer.read(2_000_000)
+            if form is None:
+                _, page_url, body = http.page(AUTH_URL)
+                form = _login_form(body)
+            if form is None:
+                raise BadFile("no login form found")
+            action, hidden = form
+            target = urllib.parse.urljoin(page_url, action)
+            for url in (page_url, target):
+                if _host(url) not in http.guard:
+                    raise UnsafeLogin("%s://%s" % (_host(url)[0], urllib.parse.urlsplit(url).hostname))
+            self._turn()
+            fields = dict(hidden)
+            fields.update(username=self.user, password=self.password)
+            fields.setdefault("credentialId", "")
+            status, _, body = http.page(target, urllib.parse.urlencode(fields).encode(),
+                                        {"Content-Type": "application/x-www-form-urlencoded"})
+        finally:
+            http.guard = None
         if b"kc-form-login" in body:
             raise CredentialsRefused()
         if status >= 400:
             raise BadFile("the sign-in answered HTTP %d" % status)
         log("signed in")
+
+    def _turn(self):
+        """Waits for the gap since the previous sending of the credentials; SigninCeiling beyond per_hour."""
+        while self.posts and time.monotonic() - self.posts[0] > 3600:
+            self.posts.popleft()
+        if len(self.posts) >= self.per_hour:
+            raise SigninCeiling()
+        if self.posts:
+            gap = SIGNIN_GAP - (time.monotonic() - self.posts[-1])
+            if gap > 0:
+                _wait(gap)
+            if STOP.is_set():
+                raise Stopped()
+        self.posts.append(time.monotonic())
 
     def address(self, http, item, pending):
         found = self.addresses.get(item["id"])
@@ -815,6 +894,13 @@ def fetch_run(job, args, http, log):
     except CredentialsRefused:
         log("the sign-in was refused: check CDD_USER and CDD_PASSWORD", error=True)
         code = EXIT_CREDENTIALS
+    except UnsafeLogin as e:
+        log("the sign-in would go to %s, outside the site and its realm or off https: not signing in" % e,
+            error=True)
+        code = EXIT_CREDENTIALS
+    except SigninCeiling:
+        log("more than %d sign-ins within an hour: stopping" % getattr(job, "per_hour", 0), error=True)
+        code = EXIT_SIGNINS
     except Throttled as t:
         log("the server refused the sign-in or a search for now (%s): run again later" % t, error=True)
         code = EXIT_FAILURES
@@ -890,7 +976,11 @@ def fetch(args, scrub, log):
     if not user or not password:
         log("CDD_USER and CDD_PASSWORD must be set in the environment", error=True)
         return EXIT_CREDENTIALS
-    return fetch_run(CddJob(area, items, user, password), args, Http(scrub), log)
+    if len(user) < 3 or len(password) < 3:
+        log("CDD_USER and CDD_PASSWORD must have 3 characters at least (a shorter value could not be masked in "
+            "the output)", error=True)
+        return EXIT_CREDENTIALS
+    return fetch_run(CddJob(area, items, user, password, args.max_signins_per_hour), args, Http(scrub), log)
 
 
 def fetch_list(args, scrub, log):
@@ -983,6 +1073,8 @@ def _parser():
             p.add_argument("name", choices=sorted(LISTS))
         else:
             p.add_argument("--collections", nargs="+", help="only these collections of the manifest")
+            p.add_argument("--max-signins-per-hour", type=int, default=6,
+                           help="stop beyond this many sign-ins within an hour (default 6)")
         p.add_argument("--pause", type=float, default=3.0, help="seconds between files (default 3)")
         p.add_argument("--retries", type=int, default=2, help="tries of a failed file in this run after its first")
         p.add_argument("--min-free-gb", type=float, default=50.0, help="stop under this free space (default 50)")
