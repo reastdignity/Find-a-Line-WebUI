@@ -39,4 +39,6 @@ AREA_NAMES: Dict[str, str] = {
     "it-bz": "Provincia autonoma di Bolzano", "it-tn": "Provincia autonoma di Trento", "li": "Liechtenstein",
     "lu": "Luxembourg", "mt": "Malta", "no": "Norge", "no-21": "Svalbard", "no-22": "Jan Mayen", "nz": "New Zealand",
     "pl": "Polska", "pr": "Puerto Rico", "si": "Slovenija", "sk": "Slovensko", "us": "United States",
-    "us-ak": "Alaska", "vi": "United States Virgin Islands"}
+    "us-ak": "Alaska", "vi": "United States Virgin Islands",
+    "bl": "Saint-Barthélemy", "fr-gf": "Guyane", "fr-gp": "Guadeloupe", "fr-mq": "Martinique",
+    "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon"}
