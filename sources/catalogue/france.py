@@ -103,9 +103,12 @@ HALF_METRE = (0.5, 0.5)
 # Deshaies down to -11 m, Martinique at Saint-Pierre -33 m, Réunion -16 m at Saint-Gilles, Mayotte -38 m; Mayotte's
 # source mask codes those pixels 20 and 10): next to the sea's 0 m fill (where a layer has no data) it made walls of
 # 20-30 m, and a search found false lines between them (all 9 445 lines of a 400 m search at Saint-Pierre, all 315
-# on Mayotte's north-west shore). Heights below OVERSEAS_FLOOR are no data (the user's decision of 2026-11-15), so
-# the sea fill puts 0 m there; the water at about 0 m and the land are kept. Applied where the tiles are read onto
-# the grid (Layer.nodata_below), so the tiles cached before with the sea floor in them give what a fresh one gives
+# on Mayotte's north-west shore). Heights below OVERSEAS_FLOOR are no data (the user's decision of 2026-11-15): inside
+# the sea zone the sea fill puts 0 m there, outside it (water behind the coastline) they are gaps on land, filled from
+# the fallback; the water above the floor and the land are kept. Applied where the tiles are read onto the grid
+# (Layer.nodata_below), so the tiles cached before with the sea floor in them give what a fresh one gives. The cache
+# is LERC within 5 mm (layer.MAX_Z_ERROR), so the floor is -1 m within 5 mm: a pixel stored as -1.00 may decode as
+# -1.0000015 and be taken out
 OVERSEAS_FLOOR = -1.0
 
 
@@ -130,8 +133,8 @@ REU_MNS = _lidar_hd("MNS", "0.5 m (trees, buildings) La Réunion", "RGR92UTM40S"
 REU_RGEALTI = _rgealti_overseas("reu", "La Réunion", "RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS", REU_CRS, HALF_METRE)
 REU_BOX = (-21.42, -20.84, 55.20, 55.86)
 
-OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: heights below -1 m, the sea floor along the coasts, taken "
-                 "as no data, so the sea is filled at 0 m). RGE ALTI 1 m has no surface model: trees and buildings "
+OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: heights below -1 m, within the cache's 5 mm, the sea "
+                 "floor along the coasts, taken as no data, so the sea is filled at 0 m). RGE ALTI 1 m has no surface model: trees and buildings "
                  "are not in the data, check the photo.")
 
 
@@ -239,7 +242,8 @@ SOURCES: List[Source] = [
                           "IGN LiDAR HD MNS, 0.5 m (WMS-R, fetched at 1 m)", "IGN BD ORTHO"),
         sample=(-21.1300, 55.4550),  # the Cilaos rampart
         note="Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the working grid). Where LiDAR HD has no "
-             "data, gaps are filled from RGE ALTI 1 m. Along the coast LiDAR HD gives the sea heights of about 0 to "
+             "data, gaps are filled from RGE ALTI 1 m (its heights below -1 m, the sea floor, taken as no data). Along "
+             "the coast LiDAR HD gives the sea heights of about 0 to "
              "-2 m; where its data end offshore, their edge can hold wrong heights (hundreds of metres); beyond, the "
              "sea is filled as water.",
         coverage=Coverage(provider="IGN", added="2026-11-15", areas=("fr-re",))),
@@ -251,6 +255,7 @@ SOURCES: List[Source] = [
         credits=(FR_RGEALTI_CREDIT,),
         listing=ReadmeRow("La Réunion (France)", "IGN RGE ALTI, 1 m (WMS-R)", ortho="IGN BD ORTHO"),
         sample=(-21.1300, 55.4550),
-        note="Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m has no surface model: LiDAR HD (the source "
-             "france_reunion) is better wherever it has data."),
+        note="Data: IGN, Licence Ouverte 2.0 (processed: heights below -1 m, within the cache's 5 mm, the sea floor "
+             "along the coasts, taken as no data, so the sea is filled at 0 m). RGE ALTI 1 m has no surface model: "
+             "LiDAR HD (the source france_reunion) is better wherever it has data."),
 ]
