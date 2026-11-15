@@ -10,7 +10,12 @@ The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `
 app's result view, `result/view/ResultColumns.tsx`, loading the run's data.js itself (`loadRunFrom`; a map.html
 written before 2026-11-04 loads it by a tag first, which it still takes), `#line=` in its hash, the way back to
 `../index.html` from disk or to the app, none on a share link; the old map with popups and panels was removed on
-2026-10-30), `filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
+2026-10-30), `types.ts` the run data's types and a run's lines as columns (`lineColumns` from data.js's or lines.js's rows: a
+`NumberColumn` per value, the grouping's values as `Float64Array`, the others as the narrowest integers that give back
+the very double (null, NaN and -0 kept), else doubles; `lineAt` a Line of a row, `LineCursor` its values without one;
+`toLine` the reader of one row they must equal: tests/test_viewer.py `test_columns_give_the_rows_values`),
+`grouping.ts` the grouping (`groupIndices` on typed arrays, `groupLines` over objects: the 3D view's fan, the tests),
+`filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
 options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept), `tight.ts`
 the tight mark (`TIGHT` = 1 m, `clearanceText` rounds a tight clearance down, the mark's words with and without A-frames), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
 the lift (`limits`, `riggingNeed`, `liftChoices`), `labels.ts` the chart's label layout (`layoutLabels`: no two boxes
@@ -46,11 +51,23 @@ privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg`
 `loadRun`/`loadRunFrom` its `data.js`: over http(s) downloaded by `download.ts` (XMLHttpRequest: its progress counts
 the decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops
 Content-Length; the 3D view's patch too) and read by `parseRunScript` (JSON.parse, about 30 % faster than the script),
-a file it refuses (NaN, Infinity) and every load from disk as a script, `LoadProgress` to `RunLoading.tsx` (the phases
-and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`), `orthoForApp` its orthophoto's
-cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows, selection, next/previous spot,
-favourites; a spot's first line and its order (`BY_MEAN` "Highest on average", the default of "Show per spot":
-`bestOf`/`membersOf` by `byMean`, the groups and their members stay `groupLines`'), `needCounts`; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
+a file it refuses (NaN, Infinity) and every load from disk as a script; then `columnsOf` reads the rows into columns
+and drops them (`RunData.columns`; store wave 1, docs/performance.md "Columns in the page"); a body that arrives
+empty although its bytes came (Chromium's longest string, about 537 M characters) fails as `TooLarge`, whose message
+`ui.result.too_large` the page shows, and is never tried as a script (that crashed the tab); `LoadProgress` to
+`RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`),
+`orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
+selection, next/previous spot, favourites, on columns: the runs shown are `Table`s of `types.ts` `LineColumns` (this
+run's from index 0, each other run's from its own `start`, never given twice), a line is its index; the filters
+(`filters.passes` through a `LineCursor`), the ranges (one pass, `filters.Ranger`), the counts and the grouping
+(`grouping.groupIndices` on typed arrays gathered from the columns, other runs' in `others.localPlane`) read the
+columns, a spot is a `LineGroup` (indices; `size`, `has`; `rep` and `members` make Lines when asked); a Line object
+is made only by `lineAt` (`madeLines` counts them): each spot's shown line (`shownOf`/`bestOf`, which rank indices
+by `byMean` through two cursors), the members of a spot asked for (`membersOf`/`linesOf`: the selected spot, an
+unfolded row), a link's line (`linkedLine`), the favourites; kept by index while in use, the rest dropped after a
+compute when they are many more than the rows (`prune`); a spot's first line and its order (`BY_MEAN` "Highest on
+average", the default of "Show per spot": `bestOf`/`membersOf` by `byMean`, the groups and their members stay the
+grouping's), `needCounts`; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
 map; a click takes the nearest line within `REACH_MOUSE`, a finger's within `REACH_TOUCH`, known by the last
 pointerdown since WebKit's click after a tap is a "mouse" one; spots within `TIE_*` of the nearest go to `onChoose`,
 the workspace's `view/LineChooser.tsx`); `view/` the panel pieces (`ResultColumns.tsx`: C's result, shared by
