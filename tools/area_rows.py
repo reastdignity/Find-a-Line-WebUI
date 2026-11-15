@@ -4,8 +4,13 @@ catalogue with their continents and sizes, the settings, where each area's tiles
 stopping a download. No textual here: only the window needs the group `tui`.
 
 The rows are the areas of the coverage map (viewer/src/coverage/coverage.json), their continents and sizes from its
-outlines (shapes.json; a region takes its country's continent), plus the settings' `extra`. A row's name is its name in
-the state folder, so a download started by hand with that name is the same row.
+outlines (shapes.json; a region takes its country's continent unless `REGION_CONTINENTS` says where it lies: Guadeloupe
+in North America), plus the settings' `extra`. A row's name is its name in the state folder, so a download started by
+hand with that name is the same row. The window groups the rows by continent and country (`Row.country`, so a country
+may be under two continents): a region and a territory of `PARENTS` (Åland, Puerto Rico, ...) sit under their country,
+in the continent where they lie, each showing its own name (`Row.label`) in a country's group, a country-wide row
+"Whole country · <source>" (a country of one row in a continent has no group: its row shows its title). An extra row's
+country is its `"country"`, else its title's part before ": " when that names a country of `COUNTRIES`, else its title.
 
 The settings, a JSON file outside the repository (it may name a contact and a share):
 
@@ -15,7 +20,7 @@ The settings, a JSON file outside the repository (it may name a contact and a sh
                          "max_memory_gb": 12}},
      "rows": {"poland": {"target": "NAS", "host_slots": ["opendata.geoportal.gov.pl=2"], "max_memory_gb": 8}},
      "extra": [{"name": "utah", "title": "United States: Utah", "continent": "North America", "area": "osm:Utah",
-                "source": "usa", "km2": 219900}]}
+                "source": "usa", "km2": 219900, "country": "United States"}]}   # "country" may be left out
 
 `max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
 unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
@@ -31,7 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import pyproj
@@ -48,7 +53,8 @@ import cache  # noqa: E402
 
 COVERAGE = os.path.join(REPO, "viewer", "src", "coverage")
 TARGETS_FILE = "tui-targets.json"   # in the state folder: the target chosen for each row
-CONTINENTS = ("Europe", "North America", "Oceania", "South America", "Asia")   # first in the window; others follow by name
+# First in the window, in this order (a continent without a row has no group); others follow by name
+CONTINENTS = ("Europe", "North America", "Oceania", "South America", "Asia", "Africa")
 ELEVATED_SECONDS = 600
 ERROR_PRIVILEGE_NOT_HELD = 1314
 
@@ -61,6 +67,14 @@ COUNTRIES = {
     "us": "United States", "vi": "U.S. Virgin Islands",
     "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands",
     "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil"}
+# A territory's row sits under its country in the window (its title and continent stay its own). Empty: every code is a
+# country of its own.
+PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi"}
+# Where a region lies when that is not its country's continent: its outline in shapes.json has none (a region's has
+# none today; one that has wins). The Canary Islands, Madeira, Svalbard and Jan Mayen stay European by convention.
+REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf": "South America",
+                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America"}
+WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
 
 
 class SettingsError(ValueError):
@@ -79,10 +93,12 @@ def contact_ok(contact: str) -> bool:
 @dataclass(frozen=True)
 class Row:
     """One line of the window."""
-    name: str        # in the state folder
+    name: str        # in the state folder: slug(title); neither changes, the state files and settings are keyed by it
     title: str
     continent: str
-    area: str        # osm:<name>, or a GeoJSON file
+    country: str     # the group under the continent: COUNTRIES' name, after PARENTS
+    label: str       # what the row shows under its country: the region's or territory's name, or WHOLE · source
+    area: str       # osm:<name>, or a GeoJSON file
     source: str
     resolution: float
     surface: bool    # whether the source has a surface model
@@ -156,20 +172,58 @@ def catalogue() -> List[Row]:
     continents, sizes = _shapes()
     rows = []
     for area, facts in areas.items():
-        country = area.split("-")[0]
-        title = COUNTRIES[country] if area == country else f"{COUNTRIES[country]}: {regions[f'region.{area}']}"
+        code = area.split("-")[0]
+        parent = PARENTS.get(code, code)
+        region = None if area == code else regions[f"region.{area}"]
+        title = COUNTRIES[code] if region is None else f"{COUNTRIES[code]}: {region}"   # the row's name: never changes
         source = src.SOURCES[facts["source"]]
-        rows.append(Row(slug(title), title, continents[country], f"osm:{src.AREA_NAMES[area]}", source.id,
-                        source.default_resolution, source.nmpt is not None, round(sizes[area])))
+        if region is not None:
+            label = region
+        elif code != parent:
+            label = COUNTRIES[code]          # a territory: its own name
+        else:
+            label = f"{WHOLE} · {source.id}"
+        continent = continents.get(area) or REGION_CONTINENTS.get(area) or continents[code]
+        rows.append(Row(slug(title), title, continent, COUNTRIES[parent], label,
+                        f"osm:{src.AREA_NAMES[area]}", source.id, source.default_resolution, source.nmpt is not None,
+                        round(sizes[area])))
     return rows
 
 
+def _country_of(title: str) -> Tuple[str, str]:
+    """An extra row's country and label from its title: "United States: Utah" is in the United States as Utah, a
+    known country's (or territory's) title the whole country (or the territory), any other title its own country."""
+    codes = {name: code for code, name in COUNTRIES.items()}
+    head, sep, rest = title.partition(": ")
+    if sep and head in codes:
+        country = COUNTRIES[PARENTS.get(codes[head], codes[head])]
+        return country, rest if head == country else title
+    if title in codes:
+        country = COUNTRIES[PARENTS.get(codes[title], codes[title])]
+        return country, WHOLE if title == country else title
+    return title, title
+
+
 def _extra_row(entry: Dict) -> Row:
-    """A row of the settings' `extra`, with its source's resolution and surface model unless it says."""
+    """A row of the settings' `extra`, with its source's resolution and surface model unless it says. Its country is
+    its `country`, else what its title says (_country_of)."""
     import sources as src
     try:
         source = src.SOURCES[entry["source"]]
-        return Row(entry["name"], entry.get("title", entry["name"]), entry.get("continent", "Other"), entry["area"],
+        title = entry.get("title", entry["name"])
+        country, label = _country_of(title)
+        if entry.get("country"):
+            given = entry["country"]
+            head, sep, rest = title.partition(": ")
+            label = rest if sep and slug(head) == slug(given) else WHOLE if slug(title) == slug(given) else title
+            codes = {slug(name): code for code, name in COUNTRIES.items()}
+            code = codes.get(slug(given))
+            country = given if code is None else COUNTRIES[PARENTS.get(code, code)]   # a territory: its country's
+            if label == WHOLE and code is not None and code in PARENTS:
+                label = title                                                         # ... as the title's would
+        if label == WHOLE:
+            label = f"{WHOLE} · {source.id}"
+        return Row(entry["name"], title, entry.get("continent", "Other"), country, label, entry["area"],
                    source.id, float(entry.get("resolution", source.default_resolution)), source.nmpt is not None,
                    int(entry.get("km2", 0)))
     except KeyError as e:
@@ -207,20 +261,46 @@ def _budget(entry: Dict) -> Optional[float]:
 
 
 def rows_of(settings: Settings) -> List[Row]:
-    """The window's rows, by continent and title: the catalogue's and the settings' `extra`, each row's settings on it."""
+    """The window's rows, by continent, country and label: the catalogue's and the settings' `extra`, each row's
+    settings on it."""
     rows = [*catalogue(), *(_extra_row(entry) for entry in settings.extra)]
     known = {row.name for row in rows}
     unknown = sorted(set(settings.rows) - known)
     if unknown:
         raise SettingsError(f"rows of the settings not in the list: {', '.join(unknown)}")
     rows = [_with_settings(row, settings.rows.get(row.name, {})) for row in rows]
-    order = {continent: k for k, continent in enumerate(CONTINENTS)}
-    return sorted(rows, key=lambda row: (order.get(row.continent, len(order)), row.continent, row.title))
+    return sorted(_one_spelling(rows), key=order_of)
+
+
+def _one_spelling(rows: List[Row]) -> List[Row]:
+    """Continents, and countries within a continent, whose names slug alike are one (the window's group ids are their
+    slugs): "europe" is Europe, "france" or "FRANCE" beside the catalogue's France is France, "Aland" Åland. The
+    spelling of CONTINENTS or of the catalogue wins (its rows come first), else the first seen."""
+    continents = {slug(name): name for name in CONTINENTS}
+    countries: Dict[Tuple[str, str], str] = {}
+    spelled = []
+    for row in rows:
+        continent = continents.setdefault(slug(row.continent), row.continent)
+        country = countries.setdefault((slug(continent), slug(row.country)), row.country)
+        spelled.append(replace(row, continent=continent, country=country))
+    return spelled
+
+
+def _plain_name(text: str) -> str:
+    return anyascii(text).lower()
+
+
+def order_of(row: Row) -> Tuple:
+    """Continents in CONTINENTS' order (others after them, by name), countries by name, in a country the country-wide
+    row first, then by label."""
+    rank = CONTINENTS.index(row.continent) if row.continent in CONTINENTS else len(CONTINENTS)
+    return (rank, row.continent, _plain_name(row.country), row.country, not row.label.startswith(WHOLE),
+            _plain_name(row.label), row.title)
 
 
 def _with_settings(row: Row, entry: Dict) -> Row:
-    return Row(row.name, row.title, row.continent, row.area, row.source, float(entry.get("resolution", row.resolution)),
-               row.surface, row.km2, tuple(entry.get("host_slots", ())), _budget(entry))
+    return replace(row, resolution=float(entry.get("resolution", row.resolution)),
+                   host_slots=tuple(entry.get("host_slots", ())), max_memory_gb=_budget(entry))
 
 
 def targets_chosen(settings: Settings) -> Dict[str, str]:
