@@ -177,6 +177,7 @@ Scripts: `scripts/g8-ca/` (`stac_query.py`, `cog_window.py`, `places_coverage.py
 Scripts: `scripts/g9-mx-gl-carib/`, samples: `dl/g9-mx-gl-carib/`. Rows: [sources.json](sources.json) (39).
 
 ### Mexico (INEGI): sheet ZIPs through the elevation viewer's endpoints
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `mexico`: the 5 m lidar DTM and DSM (GRID ZIPs, not the 1.5 m photogrammetry), a static mask of the sheets' cells, each sheet cut to its cell; R76 El Potrero Chico.
 - **Data**: two programmes on the 1:10 000 sheet grid (3'20" x 3'45", about 5.6 x 6.9 km, with an overlap strip, "faja de excedencia"):
   - *Modelos Digitales de Elevación de Alta Resolución LiDAR, 5 m*, Terreno (DTM) and Superficie (DSM): **26 334 sheets** (about 1.0 M km², half of the country, lat 14.5–32.7). LiDAR of 2006–2012; the sheet of El Potrero Chico (G14C15B2) was flown in 2007 with a Leica ALS50 II at 0.052 pts/m², **0.012 ground points/m²** (one per ~80 m²): the 5 m grid is an interpolation and will smooth cliffs.
   - *Modelo digital de elevación tipo terreno / superficie, 1.5 m*: **1 843 sheets** (~70 000 km²), edition 2021, **photogrammetric from stereo satellite images** of 2017–2019 (not LiDAR). Its own metadata warns of triangulated interpolation on slopes near 90°, shadows, dense vegetation and cloud holes.

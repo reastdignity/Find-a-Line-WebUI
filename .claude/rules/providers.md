@@ -38,6 +38,7 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   23.4, 4.3, 26.2 and 4.8 GB: `tools/sk_tiles.py recompress` rewrote the four folders' 51 304 files in 14.3 min and
   the cache's 26 242 copies in 6.5 min); without those folders a 2 m or 5 m grid reads the 1 m tiles as before
   (`GridResolutions.resolution`).
+  Madeira's and Valle d'Aosta's tiles (`tools/mirror_tiles.py`) share the mirror.
 - **Credits** follow each provider's own wording (`tests/test_catalogue.py` keeps them: read the terms again before
   changing one); every run's ATTRIBUTION.txt, the about page and the map add `credit.PROCESSED_NOTE` (CC BY's
   "indicate if changed"; the map's copy is `viewer/src/layers.ts` `PROCESSED_NOTE`, kept equal by
@@ -83,6 +84,21 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   with SRSNAME 32632. Italian regional sources fall back on `tinitaly`, so a run it fills alone is CC BY. Queensland
   (CC BY-SA) is never a neighbour of a source filled by FABDEM. IDE Uruguay's sheets each have an origin off whole
   metres (`check_source`'s alignment WARN is expected).
+- **Batch 5 wave 2** (2026-11-15): INEGI's per-sheet JSON (`getF10KDescarga.do`) is undocumented: a 404 for a cell
+  of the mask means a moved endpoint, never "no sheet"; its GRIDs name no CRS (Mexico ITRF92 / UTM of the zone) and
+  reach 100-400 m beyond their cells with TIN edges up to 73 m off (cut to the cell + 10 m). Tuscany: the WFS type
+  `rt_cartoteca.lidar2k` is not in the capabilities; the files' URLs carry a hash only a GetFeatureInfo gives, one
+  survey per point; the GetFeatureInfo's owner is wrong for 351 co-owned MATTM sheets (the licence PDF in the ZIP
+  decides); surveys of 2016 and 2017 have 0 in their sheet boxes; a MATTM run is CC BY-SA, so its chain never takes
+  FABDEM (copernicus). DLS's INSPIRE folder (Cyprus) is slow (about 0.8 MB/s); Estonia's host is
+  geoportaal.maaruum.ee (maaamet.ee 302s to it). Valle d'Aosta's ZIP is Deflate64 (7-Zip, not zipfile), its ASCII
+  grid has decimal commas, and its firewall answers 500 to a Range beyond about 1e8 bytes. A mirror dataset's
+  `origin` in `tools/mirror_tiles.py` `DATASETS` equals its layer's `GridTiles(origin=)`. Spain's offline box holds
+  Madeira: `portugal` comes before `spain`. Replacing a file on the Z: share needs a retry (`_replace`, WinError 5).
+  OpenDataNI's links redirect to signed R2 URLs: never store or print them (`cache.clean_url` masks X-Amz-*). OSNI's
+  members: sheets 51-100 under a folder, a space before ".txt", sheet 11's extra "011a" west of its box, no 287 or
+  290, a sheet 293 off the grid (box from its points). DAERA's tiles at 54/min (`HOST_RATES_OF`: the mail's
+  promise) until DAERA answers. IPP's Rio layer is a city project's and may vanish (europe then).
 - **geoportal orthophoto**: `ORTO/WMS/HighResolution` holds only sheets of 10 cm or finer (mostly towns) and answers
   elsewhere with a white JPEG (667 bytes), not an error; the gaps come from the base tiles (`OrthoService.base_url`:
   the `ORTO/WMTS/StandardResolution` GetTile in EPSG:3857, zoom 0–19). The `ORTO/WMS/StandardResolution` answers about

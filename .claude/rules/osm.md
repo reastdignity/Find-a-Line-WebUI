@@ -18,6 +18,11 @@ What each module holds: docs/code-map/sources.md (`osm.py`, `coast.py`, `osmextr
   (`tests/test_osm.py::test_overpass_relations_keep_their_roles`, `test_extract_features_with_roles`). A theme taken
   from the extracts is in `EXTRACT_THEMES`: adding one makes `osm update` take every extract's features again
   (`_missing_themes`), and `build_tile` builds no tile of a theme a `themes.json` lacks.
+- A source's region inside a larger Geofabrik extract is named in `osm.GEOFABRIK_OF_CODE` (its ISO code → that
+  extract: it-23 nord-ovest, pt-30 portugal, it-52 centro, gb-nir ireland-and-northern-ireland), a source covering
+  part of a region in `GEOFABRIK_OF_SOURCE` (rio_de_janeiro → sudeste, the French overseas): `osm.catalogue_extracts`
+  then lists that extract, which the VPS downloads (`deploy/vps.sh` `osm_data`, `OSM_EXTRACTS_SKIP`;
+  `tests/test_osm.py`). Check the name in Geofabrik's index.
 
 ## Pitfalls
 

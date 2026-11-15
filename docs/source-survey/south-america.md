@@ -29,6 +29,7 @@ Summary: no country of the group has an open national LiDAR DTM. The usable sour
 - **Open questions**: the licence; how well a 2 m whole-metre photogrammetric DTM shows dome edges (compare with GLO-30 and a known line at Pedra Azul).
 
 ### Brazil – Rio de Janeiro (city, IPP): LiDAR 2019 only as a rendered 5 m map
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `rio_de_janeiro`: the 5 m DTM is also an Esri elevation tile cache of heights (ArcGIS item 4dd8af31ff8f4486802613a8d1a22f33, CC BY 4.0, a city project's layer that may vanish), read tile by tile (`LercTiles`); R75 Pão de Açúcar. The 1 m and 2024 files are asked of IPP.
 - **Data**: the city flew LiDAR in 2019 and 2024 (8 pts/m², Topocart; papers by IPP/UERJ). Published: "Modelo Digital de Terreno derivado de levantamento Lidar de 2019 reamostrado para 5 metros", a MapServer (rendered hypsometry, EPSG:31983); `identify` returns pixel values (373.67 m at Pão de Açúcar), so values exist on the server, but there is no export. No DSM, no point clouds in the city's ArcGIS Hub (searched for LiDAR, MDT, nuvem de pontos).
 - **Licence**: IPP items: "uso público, citadas as fontes e sem alteração das informações originais".
 - **Orthophoto**: ImageServers `Imagens/Mosaico_1999 … Mosaico_2025` (2025: 0.57 m, 3-band U8); `exportImage` in EPSG:3857 at Pão de Açúcar 512 px in 2.9 s, fine.

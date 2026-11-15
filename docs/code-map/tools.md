@@ -12,6 +12,11 @@ whole-metre heights, tiles without data (a ZIP member read again by Range throug
 `/vsizip//vsicurl/`); on a grid of `search.plan_search(with_margin=False)`; PASS/WARN/FAIL, `--json`;
 `tests/test_check_source.py`
 
+Batch 5 (wave 2): it also reads an INEGI sheet's whole ZIP (`_read_grid`: zipfile, the GRID cut as the layer cuts
+it), a `ranged` layer's files through our own ranges (`_read_ranged`), a `warp` layer's files with its resampling, a
+cartoteca sheet's grid inside its ZIP (`_gdal_path`: `<zip>/<member>` by `/vsizip/`), and LercTiles and
+ZipSheetTiles as services (no source files to compare).
+
 ## `tools/au_coverage.py`
 
 The static cells mask of Geoscience Australia's 5 m lidar DEM (`sources/catalogue/australia_dem5m_cells.npz`):
@@ -19,6 +24,38 @@ the WCS grid sampled every 88 × 80 of its pixels (about 485 ×
 412 m) in 2 × 2 requests of at most 4096 px, a cell of 4 × 4 samples (about 1.9 × 1.65 km) has data when any sample
 is non-zero; `GeoWcsTiles.has_data_near` reads it. Run it again when GA adds surveys and commit the file
 (`tests/test_australia_uruguay.py` pins the places).
+
+## `tools/lerc_coverage.py`
+
+The static cells mask of an Esri elevation tile cache (a `LercTiles` source's `cells`:
+`sources/catalogue/northern_ireland_dtm_cells.npz`, `rio_de_janeiro_dtm_cells.npz`): the cache walked from level 10
+(`START_LEVEL`) to 13 (`LEVEL`) over the source's boxes, a tile with a valid sample opening its four children; at
+level 13 each tile split into 8 × 8 cells (`PER_TILE`), a cell True when a valid sample lies in it; one request at a
+time, 1.1 s apart, through the layer's reader; `--check-box` asks every level-13 tile of a box and counts the cells
+the mask missed (must be 0). Read by `LercTiles.has_data_near` and `MercatorTiling` (no tile asked far from data).
+Northern Ireland's took 795 tiles in 1 025 s (2026-11-15). Run it again when the provider adds surveys and commit
+the file (`tests/test_lerc_tiles.py`).
+
+## `tools/mx_sheets.py`
+
+The static mask of the cells of INEGI's lattice that hold a 5 m sheet, per model
+(`sources/catalogue/mexico_sheets.npz`, read by `InegiIndex`): the download viewer's two lists (`getFormato10k.do`,
+mod T and S) read once; it stops if a centroid's cell does not carry its sheet's name. The models are frozen
+(2006-2012): run it again only if INEGI publishes new sheets (`tests/test_mexico.py`).
+
+## `tools/mirror_tiles.py`
+
+Run by hand under the test lock with `--resource data`: own copies of elevation models published only as one big
+file, for the local mirror (`DATASETS`: `madeira`, DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's
+DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII grid with decimal commas). Steps `download` (one GET through the
+app's headers, rate and counting; a resume by `Range: bytes=N-` only below `resume_below`: Aosta's firewall answers
+500 beyond about 1e8 bytes; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`),
+`extract` (zipfile for Deflate, 7-Zip `7z e -so` for Deflate64, CRC checked, the `.part` removed on failure),
+`cut` (2 km bands from the top, tiles from the dataset's `origin` (its pixel edges modulo 2 km) in tools/sk_tiles.py's
+layout and encoding, whose `_write`, `_sha256`, `_mark_partial` and `tile_name` it reuses; `index.json` with sha256,
+null for no data, "partial" while unfinished; a dataset card), `all`. Replacing a file on the mirror's network share
+is tried again for 60 s (`_replace`: Windows refused one replace on Z:). The `origin` must equal the catalogue
+layer's `GridTiles(origin=)` (`tests/test_mirror_tiles.py`).
 
 ## `tools/source_docs.py`
 
