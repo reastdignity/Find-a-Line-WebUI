@@ -59,11 +59,13 @@ class WmsrTiles(ComposedLayer):
     tiles are fetched at (the server's answer at a coarser one must be the mean of its pixels: checked for
     IGN's LiDAR HD at 1 m); origin: the pixel edges of the layer when they are not on multiples of its
     resolution (LiDAR HD: x on .75, y on .25); params: more GetMap parameters (see WmsrReader);
-    bytes_per_tile: a tile's download, for estimates (at the coarsest fetch resolution)."""
+    bytes_per_tile: a tile's download, for estimates (at the coarsest fetch resolution); nodata_below:
+    Layer.nodata_below (heights below it are no data where the tiles are read onto the grid)."""
 
     def __init__(self, description: str, url: str, layer: str, crs: str, folder: str, native_res: float,
                  fetch_res: Sequence[float], tile_m: float = 1000, origin: Tuple[float, float] = (0.0, 0.0),
-                 params: Optional[Tuple[Tuple[str, str], ...]] = None, bytes_per_tile: float = 0):
+                 params: Optional[Tuple[Tuple[str, str], ...]] = None, bytes_per_tile: float = 0,
+                 nodata_below: Optional[float] = None):
         self.description, self.url, self.crs, self.folder = description, url, crs, folder
         self.native_res, self.tile_m, self.origin = native_res, tile_m, origin
         self.index = ResolutionTiling(crs, folder, tile_m, fetch_res, origin)
@@ -71,3 +73,4 @@ class WmsrTiles(ComposedLayer):
         self.reader = WmsrReader(description, url, layer, crs) if params is None else \
             WmsrReader(description, url, layer, crs, params)
         self._bytes = bytes_per_tile
+        self.nodata_below = nodata_below
