@@ -132,7 +132,7 @@ SOURCES: List[Source] = [
         nmt=EE_DTM, nmpt=EE_DSM, countries=("ee",), crs=EE_CRS, ortho=EE_ORTHO, credits=(EE_CREDIT,),
         listing=ReadmeRow("Estonia", "Maa- ja Ruumiamet DTM, 1 m (lidar 2021-2024)", "Maa- ja Ruumiamet DSM, 1 m",
                           "Maa- ja Ruumiamet orthophoto"),
-        offline=(("ee", EE_BOX),), sample=(59.4115, 24.3420),  # Türisalu cliff
+        offline=(("ee", EE_BOX),), sample=(59.3890, 24.0380),  # Pakri cliff at Paldiski (R79)
         note="Elevation data 2021-2024: Republic of Estonia Land and Spatial Development Board "
              "(https://geoportaal.maaruum.ee/opendata-licence).",
         coverage=Coverage(provider="Maa- ja Ruumiamet", added="2026-11-15", survey="2021–2024")),
