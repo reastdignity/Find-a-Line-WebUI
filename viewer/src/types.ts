@@ -124,15 +124,26 @@ export interface Credit {
   notice: string;       // more for ATTRIBUTION.txt (citation, disclaimer)
 }
 
+/** run.json's block `store` (linestore.write): the run keeps its lines as an Arrow store (lines.arrow, profiles.arrow),
+ *  which the page reads (result/load.ts); a run without it (saved before 2026-11-15, or whose store failed or was
+ *  left by a stopped save) is read from its data.js. */
+export interface StoreInfo {
+  format: number;  // linestore.FORMAT; a page reads up to load.ts STORE_FORMAT
+  lines: number;
+  bytes: number;   // lines.arrow and profiles.arrow
+  sha256: string;  // of lines.arrow, its first 16 hex digits
+}
+
 export interface RunInfo {
   id: string;
   name: string;
   created: string;
   description: string;
   has_map?: boolean;
-  has_lines?: boolean;
+  has_lines?: boolean;  // lines.arrow or lines.js (runs.list_runs)
   center?: {lat: number; lon: number};
   bbox?: [number, number, number, number] | null;  // west, south, east, north
+  store?: StoreInfo;    // in runs.js (runs._listed keeps run.json's block)
 }
 
 export type ShoreKind = "surface" | "sea";
@@ -251,8 +262,12 @@ export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, end
 // as toLine gives them), so the page shows the same numbers and keys.lineCoords gives the same keys as from the rows.
 // One difference: a row of before 2026-10-27 has its profile where `hmax` is now, which toLine reads as `hmax` (an
 // object) and the columns as NaN, which compares, groups, filters and shows ("–") as that object does.
+// A run with a store (store wave 2) gets the same columns from it without a copy (storedColumns): NumberColumn over
+// the store's own arrays, its missing values from their validity bits.
 
 type IntArray = Int8Array | Int16Array | Int32Array;
+/** An integer array of a store's column: int8/16/32 of value × 10^decimals, uint32 of a count (linestore.COLUMNS). */
+type StoredInts = IntArray | Uint32Array;
 const INT32_MAX = 2147483647;
 // What an integer array of a column keeps instead of a number, from its type's smallest value on: null, NaN, and a
 // value the row does not have (undefined, as toLine reads a value past a short row's end: the runs saved before
@@ -266,15 +281,25 @@ const lowest = (values: IntArray) => values instanceof Int8Array ? -128 : values
 /** One value of every line: `values[i] / scale` in the narrowest integer array that holds every value exactly
  *  (null, NaN and a missing value as the array's three smallest numbers; `negZero` the rows of a -0), or the values
  *  themselves in a Float64Array (scale 0; NaN as it is, null where `nulls` is 1, missing where it is 2). `at` gives
- *  back the value the row held: the very double, null, NaN, or undefined for a value past the row's end. */
+ *  back the value the row held: the very double, null, NaN, or undefined for a value past the row's end.
+ *  A store's column (NumberColumn.stored) has no such codes: every number of its array is a value, and a missing
+ *  one is a 0 bit of `valid` (Arrow's validity bits), read as `missing` (null or NaN, as data.js shows it). */
 export class NumberColumn {
   private readonly code: number;
-  constructor(readonly values: Float64Array | IntArray, readonly scale: number, readonly nulls: Uint8Array | null = null,
-              readonly negZero: Set<number> | null = null) {
-    this.code = scale ? lowest(values as IntArray) : 0;
+  constructor(readonly values: Float64Array | StoredInts, readonly scale: number, readonly nulls: Uint8Array | null = null,
+              readonly negZero: Set<number> | null = null, readonly valid: Uint8Array | null = null,
+              readonly missing: number | null = null, coded = true) {
+    this.code = scale && coded ? lowest(values as IntArray) : -Infinity;
+  }
+
+  /** A store's column: `values` as they are (no codes), `valid` its validity bits (null: none missing). */
+  static stored(values: Float64Array | StoredInts, scale: number, valid: Uint8Array | null, missing: number | null,
+                nulls: Uint8Array | null = null, negZero: Set<number> | null = null): NumberColumn {
+    return new NumberColumn(values, scale, nulls, negZero, valid, missing, false);
   }
 
   at(i: number): number | null {
+    if (this.valid !== null && (this.valid[i >> 3] & (1 << (i & 7))) === 0) return this.missing;
     const v = this.values[i];
     if (this.scale === 0) {
       const mark = this.nulls !== null ? this.nulls[i] : 0;
@@ -363,11 +388,17 @@ class ColumnBuilder {
 /** The values of a line kept as numbers (all of LineValues but `over`). */
 export type NumberField = Exclude<keyof LineValues, "over">;
 
-/** A run's lines as columns (lineColumns): a NumberColumn per value, `over` as 0/1, the saved profiles by row. */
+/** A run's saved profiles by row: data.js's (a Map), or the store's profiles.arrow, each made when it is asked for. */
+export interface ProfileSource {
+  get(row: number): Profile | undefined;
+}
+
+/** A run's lines as columns (lineColumns, storedColumns): a NumberColumn per value, `over` as 0/1, the saved
+ *  profiles by row. */
 export type LineColumns = {readonly [K in NumberField]: NumberColumn} & {
   readonly length: number;
   readonly over: Uint8Array;
-  readonly profiles: Map<number, Profile>;
+  readonly profiles: ProfileSource;
 };
 
 // The values of a row (toLine) by their place, and the scale an integer column tries: the decimals mapping.map_rows
@@ -408,6 +439,55 @@ export function lineColumns(rows: LineRow[], terrain?: Terrain | null, ends: str
   const columns: Record<string, unknown> = {length: n, over, profiles, pct1: pct1.finish(), pct2: pct2.finish()};
   ROW_FIELDS.forEach(([name], f) => { columns[name] = values[f].finish(); });
   EXTRA_FIELDS.forEach(([name], f) => { columns[name] = extras[f].column.finish(); });
+  return columns as LineColumns;
+}
+
+/** A column of a run's store as result/load.ts reads it: its array as the file holds it (no copy), the scale
+ *  10^decimals (the field's `decimals`; 0: float64 as it is), its validity bits (null: none missing) and the rows
+ *  of a -0 (the store's `negative_zero`). */
+export interface StoredColumn {
+  values: Float64Array | StoredInts;
+  scale: number;
+  valid: Uint8Array | null;
+  negZero: number[];
+}
+
+// The values data.js writes as null when they miss (mapping.map_rows' empty_nan: clrN, prom1/2, drop1/2), so toLine
+// reads null; any other value that misses (hmean, highPct, angle1/2: null in the store; e1 in a float64 column) is
+// NaN in data.js. A store's missing value reads as data.js shows it.
+export const NULL_WHEN_MISSING: readonly NumberField[] = ["clrN", "prom1", "prom2", "drop1", "drop2"];
+
+/** A run's lines as columns from its store (linestore.COLUMNS by name, `n` rows): the same values lineColumns
+ *  gives the run's data.js rows, read from the store's own arrays, the anchors' percentile ranks from `terrain`; a
+ *  value of `ends` the store does not hold reads null, as toLine reads it. */
+export function storedColumns(n: number, stored: Map<string, StoredColumn>, over: Uint8Array,
+                              terrain: Terrain | null | undefined, profiles: ProfileSource): LineColumns {
+  const columns: Record<string, unknown> = {length: n, over, profiles};
+  const none = new Uint8Array((n + 7) >> 3);  // every bit 0: a column the store does not hold (`ends`), all null
+  for (const name of [...ROW_FIELDS.map(([name]) => name), ...EXTRA_FIELDS.map(([name]) => name)]) {
+    const c = stored.get(name);
+    const asNull = NULL_WHEN_MISSING.includes(name);
+    if (!c) {
+      if (ROW_FIELDS.some(([field]) => field === name)) throw new Error(`the run's store has no column ${name}`);
+      columns[name] = NumberColumn.stored(new Int8Array(0), 1, none, null);
+      continue;
+    }
+    let nulls: Uint8Array | null = null;
+    if (c.scale === 0 && asNull) {  // a float64 column of a value data.js writes as null when NaN
+      const v = c.values;
+      for (let i = 0; i < n; i++) if (v[i] !== v[i]) (nulls ??= new Uint8Array(n))[i] = 1;
+    }
+    columns[name] = NumberColumn.stored(c.values, c.scale, c.valid, asNull ? null : NaN, nulls,
+                                        c.negZero.length ? new Set(c.negZero) : null);
+  }
+  const q = terrain ? terrain.quantiles : null, e1 = columns.e1 as NumberColumn, e2 = columns.e2 as NumberColumn;
+  const pct1 = new ColumnBuilder(n, 1), pct2 = new ColumnBuilder(n, 1);
+  for (let i = 0; i < n; i++) {
+    pct1.set(i, q ? percentileRank(e1.at(i) as number, q) : null);
+    pct2.set(i, q ? percentileRank(e2.at(i) as number, q) : null);
+  }
+  columns.pct1 = pct1.finish();
+  columns.pct2 = pct2.finish();
   return columns as LineColumns;
 }
 

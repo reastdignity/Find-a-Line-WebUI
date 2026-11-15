@@ -22,14 +22,16 @@ catalogue), `browser-tests.md`.
 
 - The page keeps a run's lines as columns (`types.ts` `lineColumns`, store wave 1): a new value of a line goes into
   `ROW_FIELDS` or `EXTRA_FIELDS` (with the scale map_rows' decimals give), `lineAt` and `LineCursor` beside `toLine`
-  (`tests/test_viewer.py::test_columns_give_the_rows_values` compares every value with toLine's); the result's
+  (`tests/test_viewer.py::test_columns_give_the_rows_values` compares every value with toLine's), and a store's
+  column into `storedColumns` (run-files.md: the store's reader and `linestore`'s schema); the result's
   page makes a Line only through `ResultModel.lineAt`, so code that goes through every line reads the columns
   (`forEachLine`, a `LineCursor`), never `rep`/`members` of every spot (each makes Lines).
 
 ## Pitfalls
 
 - **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over
-  http(s)) and the list of runs too (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never
+  http(s); a run with a store over http(s) its `lines.arrow`/`profiles.arrow` as bytes, `result/load.ts`) and the
+  list of runs too (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never
   a fetch's streamed body: headless Edge's `--dump-dom` runs its virtual time ahead of a stream (with no timer left it
   jumps to the budget's end, and 16 tests saw no run), while it waits for an XHR as for a script; everything it needs
   (Leaflet, its CSS and marker images) is in the bundle, no CDN. The app serves it with `style-src 'self'`: no
@@ -46,7 +48,8 @@ catalogue), `browser-tests.md`.
   fresh build). Start scripts keep their line endings (`*.sh`/`*.command` LF, `*.bat` CRLF). `build.mjs` also writes
   `dist/THIRD-PARTY-LICENSES.txt` (`generate-license-file` over the runtime dependencies, LF, without TypeScript and
   `@types/*`, which are never bundled and would make it differ per platform) and starts every bundle with a comment
-  naming it; the About page links it (`web.THIRD_PARTY_LICENCES`): a new runtime dependency changes it.
+  naming it; the About page links it (`web.THIRD_PARTY_LICENCES`): a new runtime dependency changes it
+  (apache-arrow, 2026-11-15: with flatbuffers and json-with-bigint; its `@types/node` stays out).
 
 ## Verifying changes
 

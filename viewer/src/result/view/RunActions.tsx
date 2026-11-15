@@ -8,7 +8,7 @@ import { Icon } from "../../ui/icons";
 import { api, user, type RunListed } from "../../app/api";
 import { listOthers, loadLines, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunInfo } from "../../types";
-import { loadRunList } from "../load";
+import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
 import type { ResultMap } from "../ResultMap";
 import { LinkField } from "./LineDetails";
@@ -90,8 +90,9 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
-    loadLines(item.run.id, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                      () => change(item, "error"));
+    // its store when it has one (lines.arrow), else its lines.js (load.ts loadOtherRun)
+    loadOtherRun(item.run, base, loadLines).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
+                                                 () => change(item, "error"));
   };
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
     <input type="checkbox" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />

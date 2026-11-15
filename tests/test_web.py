@@ -1803,6 +1803,11 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
     rows = len(_lines_of(tmp_path, run_id))
+    import runs as rn  # data.js is what this test loads: the run as one without a store (a store is read instead)
+    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+    meta.pop("store", None)
+    (folder / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    rn.write_index(str(tmp_path / "runs"))
     nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
     shutil.copytree(folder, nan)
     shutil.copytree(folder, missing)

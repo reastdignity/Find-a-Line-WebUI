@@ -975,9 +975,11 @@ export class ResultModel {
 
   // --- other runs ---
 
-  /** Show another run's lines (lines.js, from others.loadLines) with this run's: its rows read into columns. */
-  addRun(info: RunInfo, loaded: RunLines, color = colorOf(info.id)) {
-    const cols = lineColumns(loaded.lines, loaded.terrain, loaded.ends), start = this.nextStart;
+  /** Show another run's lines with this run's: its lines.js (others.loadLines), its rows read into columns, or its
+   *  store's columns (load.ts loadOtherRun). */
+  addRun(info: RunInfo, loaded: RunLines | RunData, color = colorOf(info.id)) {
+    const cols = "columns" in loaded ? loaded.columns : lineColumns(loaded.lines, loaded.terrain, loaded.ends);
+    const start = this.nextStart;
     this.nextStart += cols.length;
     this.tables.push({cols, start, run: {info, color}});
     this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area, start, count: cols.length});

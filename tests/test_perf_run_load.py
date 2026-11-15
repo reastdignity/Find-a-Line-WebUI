@@ -51,7 +51,50 @@ def test_summarize_result_takes_the_first_measure_and_medians():
     assert out["transfer"] == 300.0  # the rounds with a resource timing only
     assert out["download"] is None and out["parse"] is None  # a script's load: no such phases
     assert out["ready"] == 2500 and out["longest_task"] == 100 and out["long_tasks"] == 100
-    assert out["heap_mb"] == 768 and out["errors"] == ["boom"]
+    assert out["heap_mb"] == 768 and out["errors"] == ["boom"] and out["source"] == ""
+    assert prl.summarize_result([{**r, "source": "data.js"} for r in rounds])["source"] == "data.js"
+
+
+def test_the_file_read_and_its_size(tmp_path):
+    """A row names the file its page read, with that file's bytes: the store (lines.arrow + profiles.arrow) when the
+    page asked for lines.arrow and not data.js; data.js when it asked for that, also after a store's 404 (the
+    fallback)."""
+    assert prl.source_of(["/app/app.js", "/runs/r/lines.arrow", "/runs/r/profiles.arrow"]) == "store"
+    assert prl.source_of(["/runs/r/lines.arrow", "/runs/r/profiles.arrow", "/runs/r/data.js"]) == "data.js"
+    assert prl.source_of(["/runs/r/data.js"]) == "data.js"
+    for name, size in (("data.js", 5000), ("lines.arrow", 3000), ("profiles.arrow", 700)):
+        (tmp_path / name).write_bytes(bytes(range(256)) * (size // 256) + b"x" * (size % 256))
+    store = prl.size_of(str(tmp_path), "store")
+    assert store["bytes"] == 3700 and store["gzip"] == prl.gzip_size(str(tmp_path / "lines.arrow")) + \
+        prl.gzip_size(str(tmp_path / "profiles.arrow"))
+    assert prl.size_of(str(tmp_path), "data.js") == {"bytes": 5000, "gzip": prl.gzip_size(str(tmp_path / "data.js"))}
+
+
+def test_scratch_data_lists_a_runs_store(tmp_path):
+    """The scratch data folder holds each run's store beside its data.js and a runs.js that lists run.json's block
+    "store", so the page reads the store there, as in the app; a run without a store is listed without one."""
+    import json
+    runs, cache = tmp_path / "runs", tmp_path / "cache"
+    cache.mkdir()
+    for run_id, store in (("with", {"format": 1, "lines": 1, "bytes": 2, "sha256": "0" * 16}), ("without", None)):
+        (runs / run_id).mkdir(parents=True)
+        _data_js(runs / run_id / "data.js", ["[1,2,3,4]"])
+        meta = {"id": run_id, "name": run_id, "created": "2026-11-15T10:00:00+00:00", "params": {}}
+        if store:
+            meta["store"] = store
+            for name in ("lines.arrow", "profiles.arrow"):
+                (runs / run_id / name).write_bytes(b"x")
+        (runs / run_id / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    scratch = tmp_path / "scratch"
+    links = prl.scratch_data(str(scratch), str(runs), str(cache), ["with", "without"])
+    try:
+        assert sorted(os.listdir(scratch / "runs" / "with")) == ["data.js", "lines.arrow", "profiles.arrow", "run.json"]
+        listed = (scratch / "runs" / "runs.js").read_text(encoding="utf-8")
+        entries = {r["id"]: r.get("store") for r in json.loads(listed.split(" = ", 1)[1].split(";\n")[0])}
+        assert entries == {"with": {"format": 1, "lines": 1, "bytes": 2, "sha256": "0" * 16}, "without": None}
+    finally:
+        for path in links:
+            prl._unlink(path)
 
 
 def test_summarize_compare_and_3d():
@@ -70,14 +113,14 @@ def test_summarize_compare_and_3d():
 
 def test_markdown_has_every_table():
     result = prl.summarize_result([{"measures": _measures(100.0, 50.0), "file": None, "ready": 1000,
-                                    "longtasks": [], "heap": None, "errors": []}])
+                                    "longtasks": [], "heap": None, "errors": [], "source": "store"}])
     compare = prl.summarize_compare([{"script": 10, "fetch": 2, "parse": 5, "error": "SyntaxError", "lines": 7,
                                       "parsed": None}])
     view = prl.summarize_3d({"measures": [], "file": None, "ready_at": None, "error": "no patch"})
     text = prl.markdown({"browser": "1.0", "rounds": 1, "runs": [
         {"id": "run-a", "size": {"bytes": 2 ** 20, "gzip": 2 ** 18}, "result": result, "compare": compare,
          "view3d": {"full": view}}]})
-    assert "| run-a | 1000 | 1.0 | 0.2 |" in text
+    assert "| run-a | 1000 | store | 1.0 | 0.2 |" in text  # the file the page read
     assert "no: SyntaxError" in text and "| run-a | full |" in text and "no patch" in text
 
 
