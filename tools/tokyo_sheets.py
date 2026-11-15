@@ -7,9 +7,9 @@ the folder 2023, the 23 wards in 2024), Mapbox vector tiles at zoom 12 with the 
 and URL (its ZIP), read with GDAL's MVT driver through pyogrio (no other dependency). Every code must be a 1/500
 sheet of zone IX (sources.catalogue.japan.jp_cell) and its URL the folder's address of that code, or the tool stops.
 Paced: one request at a time, at least PAUSE_S apart; `--count` says how many tiles a run asks without asking any.
-A sheet may be in both folders (85 along the line between Tama and the wards, 2026-11-15: each file
-partial). The surveys are frozen (2022-2023): run this again only when Tokyo publishes more sheets, check the tests' places
-and commit the new table.
+A sheet may be in both folders (85 along the line between Tama and the wards, 2026-11-15: each file partial).
+The surveys are frozen (2022-2023): run this again only when Tokyo publishes more sheets, check the tests' places and
+commit the new table.
 
     uv run tools/tokyo_sheets.py [--count] [--work <folder for the tiles>] [--out sources/catalogue/tokyo_sheets.npz]
 """

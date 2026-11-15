@@ -92,6 +92,8 @@ from .layers.lerc import LercTiles
 from .layers.zipsheets import ZipSheetTiles, signed_location
 from .indexes.mercator import level_for
 from .readers.lerc import LERC1_MAGIC
+from .layers.cellsheets import CellSheetTiles
+from .layers.s3sheets import S3SheetSets
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -112,6 +114,9 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
     (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"), (MetricSheetTiles, "sheet"),
     (LercTiles, "lerc"), (ZipSheetTiles, "zipsheets"))
+# Sheets composed from whole ZIPs (Tokyo's table, Shizuoka's bucket listing: S3SheetSets is an IndexedTiles): the first
+# KB of the first file of the first sheet, never a byte range 0-0. S3SheetSets ahead of IndexedTiles, of which it is one
+STRATEGIES = ((S3SheetSets, "sheetset"),) + STRATEGIES + ((CellSheetTiles, "sheetset"),)
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -238,6 +243,17 @@ def _zip_head(cache_dir: str, layer: IndexedTiles, tile) -> str:
     url = layer.index.request(tile).url
     status, kind, body = _ask(cache_dir, url)
     if status != 200 or not body.startswith(b"PK"):
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return ""
+
+
+def _zip_url_head(cache_dir: str, url: Optional[str]) -> str:
+    """The first KB of a whole ZIP file at url (no Range); raises unless it starts with a ZIP's local file header."""
+    if not url:
+        raise RuntimeError("no address for the first tile")
+    status, kind, body = _ask(cache_dir, url)
+    if status != 200 or not body.startswith(b"PK"):
         text = " ".join(body[:200].decode("utf-8", "replace").split())
         raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
@@ -514,7 +530,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca", "zipsheets"):
+        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca", "zipsheets") or (
+                kind == "sheetset" and isinstance(layer, IndexedTiles)):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -540,6 +557,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _xyz_head(cache_dir, layer, tiles[0])
             elif kind == "zipfile":
                 _zip_head(cache_dir, layer, tiles[0])
+            elif kind == "sheetset":
+                _zip_url_head(cache_dir, layer.tile_url(tiles[0]))
             elif kind == "cartoteca":
                 row.notes.append(_cartoteca_head(cache_dir, layer, tiles[0]))
             elif kind == "zip":

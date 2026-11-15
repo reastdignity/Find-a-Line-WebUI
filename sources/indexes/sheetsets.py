@@ -168,7 +168,8 @@ class SheetSets(Versions):
         """The cached files of the same sheet made from other sets of files than those in keep."""
         folder = os.path.dirname(self.path(cache_dir, sheet))
         found = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
-        return [p for p in found if (s := self._sheet_of(p)) is not None and (s.level, s.i, s.j) == (sheet.level, sheet.i, sheet.j)
+        place = (sheet.level, sheet.i, sheet.j)
+        return [p for p in found if (s := self._sheet_of(p)) is not None and (s.level, s.i, s.j) == place
                 and s.key not in keep]
 
     def prune(self, cache_dir: str, tiles: List[SheetSet]) -> int:
@@ -199,7 +200,8 @@ class SheetSets(Versions):
             cached = self._sheet_of(path)
             if cached is None:
                 continue
-            west, south, east, north = transform_bounds(self.crs, "EPSG:4326", *self._box(cached.level, cached.i, cached.j))
+            box = self._box(cached.level, cached.i, cached.j)
+            west, south, east, north = transform_bounds(self.crs, "EPSG:4326", *box)
             if not (lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG):
                 continue
             current = now.get((cached.level, cached.i, cached.j), [])

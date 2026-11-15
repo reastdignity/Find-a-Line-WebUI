@@ -196,7 +196,8 @@ def sz_prefixes(folder: str, box: Tuple[float, float, float, float]) -> List[str
     """The prefixes of a survey's folder ("2019/") under which the files of a box (left, bottom, right, top in
     zone VIII) lie: one per 1/50000 sheet (40 x 30 km) over it."""
     left, bottom, right, top = box
-    columns = range(max(0, int((left - JP_LEFT) // 40_000)), min(len(JP_COLUMNS) - 1, int((right - JP_LEFT) // 40_000)) + 1)
+    columns = range(max(0, int((left - JP_LEFT) // 40_000)),
+                    min(len(JP_COLUMNS) - 1, int((right - JP_LEFT) // 40_000)) + 1)
     rows = range(max(0, int((JP_TOP - top) // 30_000)), min(len(JP_ROWS) - 1, int((JP_TOP - bottom) // 30_000)) + 1)
     return [f"{folder}LP/Grid/08/{JP_ROWS[r]}{JP_COLUMNS[c]}/" for r in rows for c in columns]
 

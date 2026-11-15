@@ -89,7 +89,8 @@ def test_metric_cell_tiling():
     inside = make_grid((left + 10, bottom + 10, right - 10, top - 10), 1.0, "EPSG:6676")
     assert tiling.tiles(inside) == [cell]
     across = make_grid((left - 10, bottom - 10, right + 10, top + 10), 1.0, "EPSG:6676")
-    assert sorted(tiling.tiles(across)) == sorted((cell[0] + di, cell[1] + dj) for di in (-1, 0, 1) for dj in (-1, 0, 1))
+    around = [(cell[0] + di, cell[1] + dj) for di in (-1, 0, 1) for dj in (-1, 0, 1)]
+    assert sorted(tiling.tiles(across)) == sorted(around)
     from shapely.geometry import box
     across.area_shape = box(left + 1, bottom + 1, right - 1, top + 50)   # reaches into the row above
     assert sorted(tiling.tiles(across)) == [cell, (cell[0], cell[1] + 1)]
@@ -171,7 +172,8 @@ def test_tokyo_table_shipped():
     assert table["09KD8388"] == (2024, 2023)  # on the line between Tama and the wards: both, the newer first
     assert all(japan.jp_cell(9, code) is not None for code in table)
     assert len(table) == 18845 and sum(len(f) == 2 for f in table.values()) == 85
-    assert japan.tk_files(*japan.jp_cell(9, "09LD1649")) ==         [("2024_09LD1649", f"{japan.TK_BUCKET}/2024/dig/grd50/09LD1649.zip", 2024)]
+    assert japan.tk_files(*japan.jp_cell(9, "09LD1649")) == [
+        ("2024_09LD1649", f"{japan.TK_BUCKET}/2024/dig/grd50/09LD1649.zip", 2024)]
 
 
 def test_tokyo_sheets_tool_reads_a_saved_tile(tmp_path):
@@ -226,13 +228,15 @@ def test_tokyo_sheet_in_two_folders(tokyo, http_server, tmp_path, monkeypatch):
         values = tile.read(1)
         assert tile.transform.almost_equals(from_origin(left, top, 0.5, 0.5)) and tile.shape == (600, 800)
     assert np.allclose(values[:100], 52.0) and np.allclose(values[100:], 50.5)
-    assert [(n, y, p) for n, y, p in gave_pixels(path)] == [(f"2024_{code}", 2024, 80_000), (f"2023_{code}", 2023, 400_000)]
+    assert [(n, y, p) for n, y, p in gave_pixels(path)] == [(f"2024_{code}", 2024, 80_000),
+                                                             (f"2023_{code}", 2023, 400_000)]
 
 
 # --- the CSV variant of the text grids -----------------------------------------------------------------------------
 def test_csv_points():
     """ "n,x,y,z,flag" lines: columns 2-4, every row kept whatever its flag (0, 1, -9999); "x y z" lines as before."""
-    text = b"1,-52799.75,-82200.25,1301.80,0\r\n2,-52799.25,-82200.25,1302.00,1\r\n3,-52798.75,-82200.25,117.6,-9999\r\n"
+    text = (b"1,-52799.75,-82200.25,1301.80,0\r\n2,-52799.25,-82200.25,1302.00,1\r\n"
+            b"3,-52798.75,-82200.25,117.6,-9999\r\n")
     xyz = _xyz_points(text)
     assert xyz.tolist() == [[-52799.75, -82200.25, 1301.8], [-52799.25, -82200.25, 1302.0],
                             [-52798.75, -82200.25, 117.6]]
@@ -257,7 +261,8 @@ def _sheet_text(code: str, z: float, rows=None, csv: bool = False, level: str = 
     if csv:
         n = np.arange(1, xx.size + 1)
         flags = np.where(n % 7 == 0, -9999, n % 2)
-        lines = [f"{k},{x:.2f},{y:.2f},{v:.2f},{f}" for k, x, y, v, f in zip(n, xx.ravel(), yy.ravel(), zz.ravel(), flags)]
+        rows_of = zip(n, xx.ravel(), yy.ravel(), zz.ravel(), flags)
+        lines = [f"{k},{x:.2f},{y:.2f},{v:.2f},{f}" for k, x, y, v, f in rows_of]
     else:
         lines = [f"{x:.3f} {y:.3f} {v:.3f}" for x, y, v in zip(xx.ravel(), yy.ravel(), zz.ravel())]
     return ("\r\n".join(lines) + "\r\n").encode()
@@ -279,7 +284,8 @@ def _bucket(http_server, objects):
             keys = sorted(k for k in objects if k.startswith(prefix))
             body = f"<ListBucketResult xmlns='{NS}'><IsTruncated>false</IsTruncated>"
             if query.get("delimiter") == "/":
-                folders = sorted({prefix + k[len(prefix):].split("/", 1)[0] + "/" for k in keys if "/" in k[len(prefix):]})
+                rest = [k[len(prefix):] for k in keys]
+                folders = sorted({prefix + r.split("/", 1)[0] + "/" for r in rest if "/" in r})
                 body += "".join(f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in folders)
             else:
                 body += "".join(f"<Contents><Key>{escape(k)}</Key><LastModified>2026-11-04T07:00:00.000Z"
@@ -331,7 +337,8 @@ def test_shizuoka_composes_newest_first(shizuoka, http_server, tmp_path):
     by_code = {os.path.basename(p).split("_")[1]: p for p in files}
     with rio.open(by_code["08OF0485"]) as tile:
         values = tile.read(1)
-        assert tile.crs.to_epsg() == 6676 and tile.transform.almost_equals(from_origin(a[0] * 400, (a[1] + 1) * 300, 0.5, 0.5))
+        assert tile.crs.to_epsg() == 6676
+        assert tile.transform.almost_equals(from_origin(a[0] * 400, (a[1] + 1) * 300, 0.5, 0.5))
     assert np.allclose(values[:300], 20.0) and np.allclose(values[300:], 10.0, atol=0.006)
     assert [(n.split("@")[0], y, p) for n, y, p in gave_pixels(by_code["08OF0485"])] == \
         [("2020_08OF0485", 2020, 240_000), ("2019_08OF0485", 2019, 240_000)]
@@ -389,9 +396,11 @@ def test_shizuoka_two_levels(shizuoka, http_server, tmp_path):
     code = japan.jp_sheet(8, *small)
     letters = f"{code[2:4]}/{code[4:6]}"
     objects = {
-        f"2022/LP/Grid/08/LD/33/08LD3341.zip": _zip("08LD3341.txt", _sheet_text("08LD3341", 2022.0, range(20), level="q")),
+        "2022/LP/Grid/08/LD/33/08LD3341.zip": _zip("08LD3341.txt",
+                                                    _sheet_text("08LD3341", 2022.0, range(20), level="q")),
         f"2021/LP/Grid/08/{letters}/{code}.zip": _zip(f"{code}_DEM.txt", _sheet_text(code, 2021.0)),
-        f"2025/LP/Grid/08/{letters}/{code}.zip": _zip(f"{code}_0.5g.txt", _sheet_text(code, 2025.0, range(100, 120), csv=True)),
+        f"2025/LP/Grid/08/{letters}/{code}.zip": _zip(f"{code}_0.5g.txt",
+                                                       _sheet_text(code, 2025.0, range(100, 120), csv=True)),
     }
     _bucket(http_server, objects)
     sl, sb, sr, st = japan.SZ_LEVELS["s"].edges(small)
