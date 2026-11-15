@@ -931,25 +931,28 @@ def tile_px(res: float) -> int:
 
 
 def readable(raster: Raster, work: str, res: float, max_memory_gb: float = MAX_MEMORY_GB,
-             files: Optional[WorkFiles] = None) -> str:
+             files: Optional[WorkFiles] = None, product: Optional["Product"] = None):
     """The file to read a raster's windows from: its own, or a tiled GeoTIFF copy in work (an ASCII grid; a raster
     of strips whose one row of tiles would not fit in GDAL's cache within the bound), made when missing or when its
-    record does not name the raster's present stamp."""
+    record does not name the raster's present stamp. With a product: (that file, its Footprint), the file opened
+    once (a first scan of many files)."""
     own = files is None
     files = files or WorkFiles(work)
     try:
         path, copy = raster.path, _copy_path(raster.path, work)
         if files.valid(copy, raster.stamp):
-            return copy
-        if path.lower().endswith(".asc"):
-            return _record(files, _asc_copy(path, copy, max_memory_gb), path, raster.stamp)
-        with rio.open(path) as src:
-            block_h, block_w = src.block_shapes[0]
-            cache_bytes, _ = _budget(max_memory_gb)
-            band = tile_px(res) * src.width * np.dtype(src.dtypes[0]).itemsize  # one row of tiles' strips
-            if block_w < src.width or band <= cache_bytes // 2:
-                return path
-        return _record(files, _strip_copy(path, copy, max_memory_gb), path, raster.stamp)
+            found = copy
+        elif path.lower().endswith(".asc"):
+            found = _record(files, _asc_copy(path, copy, max_memory_gb), path, raster.stamp)
+        else:
+            with rio.open(path) as src:
+                block_h, block_w = src.block_shapes[0]
+                cache_bytes, _ = _budget(max_memory_gb)
+                band = tile_px(res) * src.width * np.dtype(src.dtypes[0]).itemsize  # one row of tiles' strips
+                if block_w < src.width or band <= cache_bytes // 2:
+                    return path if product is None else (path, _footprint_of(src, product, path))
+            found = _record(files, _strip_copy(path, copy, max_memory_gb), path, raster.stamp)
+        return found if product is None else (found, footprint(found, product))
     finally:
         if own:
             files.close()
@@ -1046,18 +1049,22 @@ def _on_grid(value: float, origin: float, res: float, what: str) -> float:
 
 def footprint(path: str, product: Product) -> Footprint:
     """Where a raster file lies on the product's grid (its header only); ValueError when it is not on it."""
-    res, (ox, oy) = product.res, product.origin
     with rio.open(path) as src:
-        if src.count != 1 or src.transform.b or src.transform.d or src.transform.e >= 0:
-            raise ValueError(f"{path}: one band, north up, without rotation expected")
-        if not (math.isclose(src.res[0], res, rel_tol=1e-9) and math.isclose(src.res[1], res, rel_tol=1e-9)):
-            raise ValueError(f"{path}: {src.res} m pixels, {res} m expected")
-        label = None
-        if src.crs is not None:
-            epsg = src.crs.to_epsg()
-            label = f"EPSG:{epsg}" if epsg else src.crs.to_string()
-        return Footprint(_on_grid(src.transform.c, ox, res, "left edge"),
-                         _on_grid(src.transform.f, oy, res, "top edge"), src.width, src.height, src.nodata, label, path)
+        return _footprint_of(src, product, path)
+
+
+def _footprint_of(src, product: Product, path: str) -> Footprint:
+    res, (ox, oy) = product.res, product.origin
+    if src.count != 1 or src.transform.b or src.transform.d or src.transform.e >= 0:
+        raise ValueError(f"{path}: one band, north up, without rotation expected")
+    if not (math.isclose(src.res[0], res, rel_tol=1e-9) and math.isclose(src.res[1], res, rel_tol=1e-9)):
+        raise ValueError(f"{path}: {src.res} m pixels, {res} m expected")
+    label = None
+    if src.crs is not None:
+        epsg = src.crs.to_epsg()
+        label = f"EPSG:{epsg}" if epsg else src.crs.to_string()
+    return Footprint(_on_grid(src.transform.c, ox, res, "left edge"),
+                     _on_grid(src.transform.f, oy, res, "top edge"), src.width, src.height, src.nodata, label, path)
 
 
 def tiles_of(fp: Footprint, product: Product) -> Tuple[range, range]:
@@ -1099,14 +1106,15 @@ class State:
 
     def footprint(self, raster: Raster, product: Product, read_path) -> Footprint:
         """The raster's footprint: kept from before while the file's size and time and the grid are the same and
-        the file it is read from is there, else read (read_path(): the file to read, made when missing)."""
+        the file it is read from is there, else read (read_path(): (the file to read, made when missing, and its
+        footprint))."""
         stamp = self._stamp(raster, product)
         row = self.known.get(raster.id)
         if row and row[0] == stamp:
             fp = Footprint(**json.loads(row[1]))
             if os.path.exists(fp.path):
                 return fp
-        fp = footprint(read_path(), product)
+        fp = read_path()[1]
         self.known[raster.id] = (stamp, json.dumps(fp.__dict__), 0)
         self.pending.append((raster.id, stamp, json.dumps(fp.__dict__)))
         if len(self.pending) >= STATE_BATCH:
@@ -1265,7 +1273,7 @@ def plan(ds: Dataset, product: Product, work: str, inputs: Optional[str], state:
         footprints, input_crs = [], {}
         for raster in resolved.rasters:
             fp = state.footprint(raster, product,
-                                 lambda r=raster: readable(r, work, product.res, max_memory_gb, files))
+                                 lambda r=raster: readable(r, work, product.res, max_memory_gb, files, product))
             footprints.append((raster.id, fp))
             if fp.crs_label is not None and not _same_crs(fp.crs_label, product.crs):
                 input_crs.setdefault(fp.crs_label, []).append(raster.id)
