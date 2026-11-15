@@ -7,9 +7,9 @@ A dataset (`DATASETS`) is a folder of the mirror with one or more products, each
 card (README.md) generated from the dataset's record for every product it has (the provider, licence, attribution and
 the changes made per product), written whole each time. A product has a list of inputs, each one of:
   Url(url, bytes)        a file the tool downloads into --work, one at a time (never two downloads at once: a lock in
-                         --work), its declared size checked, resumed by a Range where the server allows it (`resume_below`;
-                         a server answering 200 to a Range sends the whole file, written from zero), at most ATTEMPTS
-                         tries; for small single files (Madeira's 5 m ZIP of 114 MB)
+                         --work), its declared size checked, resumed by a Range where the server allows it
+                         (`resume_below`; a server answering 200 to a Range sends the whole file, written from zero),
+                         at most ATTEMPTS tries; for small single files (Madeira's 5 m ZIP of 114 MB)
   Placed(pattern)        a file placed by hand (or by another tool) in --inputs, any name matching the pattern, its
                          size not known in advance; a .part, .crdownload or .tmp is never an input
   Folder(path, pattern)  a folder of many rasters in --inputs (Portugal's tens of thousands of 1 km GeoTIFFs), each file
@@ -115,7 +115,7 @@ SEVEN_ZIP = os.environ.get("FINDALINE_7ZIP") or shutil.which("7z") or shutil.whi
 THREADS = 6            # tile writers (the server's 6 threads)
 MAX_MEMORY_GB = 8.0    # the cut's bound, GDAL's cache included (the server's 12 GB)
 BASE_MB = 300          # Python, GDAL and the libraries before any tile
-TILE_BYTES_PER_PX = 24  # a tile in flight: its float32 buffer, a read window of float64 at worst, the masks, LERC's copy
+TILE_BYTES_PER_PX = 24  # a tile in flight: its float32 buffer, a float64 read window at worst, the masks, LERC's copy
 SAMPLES = 8            # verify: tiles with data compared with the inputs per product
 VERIFY_EPS = MAX_Z_ERROR + 1e-4  # LERC's bound and float32 rounding at heights of a few thousand metres
 NAME = re.compile(r"^[a-z0-9_-]+$")
@@ -508,6 +508,7 @@ class Resolved:
     rasters: List[Raster] = field(default_factory=list)
     complete: bool = True
     missing: List[str] = field(default_factory=list)
+    checks: List[str] = field(default_factory=list)  # how many of a folder's files done.jsonl names
 
 
 def resolve(product: Product, work: str, inputs: Optional[str]) -> Resolved:
@@ -517,11 +518,20 @@ def resolve(product: Product, work: str, inputs: Optional[str]) -> Resolved:
     for spec in product.inputs:
         if isinstance(spec, Folder):
             files = folder_files(spec, inputs)
-            digests = done_digests(os.path.join(inputs, spec.path, spec.done)) if spec.done else {}
+            done = os.path.join(inputs, spec.path, spec.done) if spec.done else None
+            digests = done_digests(done) if done else {}
+            named = 0
             for rel in files:
                 below = os.path.relpath(rel, spec.path.replace("\\", "/")).replace(os.sep, "/")
-                out.rasters.append(Raster(rel, os.path.join(inputs, rel),
-                                          digests.get(below) or digests.get(os.path.basename(rel))))
+                digest = digests.get(below) or digests.get(os.path.basename(rel))
+                named += digest is not None
+                out.rasters.append(Raster(rel, os.path.join(inputs, rel), digest))
+            if done and os.path.exists(done) and files and not named:
+                raise ValueError(f"{done}: names none of the {len(files)} files of {spec.path} (its keys do not "
+                                 "match): their sha256 cannot be checked (done_digests reads the fetch tool's keys)")
+            if done:
+                out.checks.append(f"{spec.path}: {named} of {len(files)} files named in {spec.done}" if
+                                  os.path.exists(done) else f"{spec.path}: no {spec.done}, the files not checked")
             if spec.expected is None or len(files) < spec.expected:
                 out.complete = False
                 out.missing.append(f"{spec.path}: {len(files)} of {spec.expected or '?'} rasters")
@@ -849,8 +859,8 @@ def footprint(path: str, product: Product) -> Footprint:
         if src.crs is not None:
             epsg = src.crs.to_epsg()
             label = f"EPSG:{epsg}" if epsg else src.crs.to_string()
-        return Footprint(_on_grid(src.transform.c, ox, res, "left edge"), _on_grid(src.transform.f, oy, res, "top edge"),
-                         src.width, src.height, src.nodata, label, path)
+        return Footprint(_on_grid(src.transform.c, ox, res, "left edge"),
+                         _on_grid(src.transform.f, oy, res, "top edge"), src.width, src.height, src.nodata, label, path)
 
 
 def tiles_of(fp: Footprint, product: Product) -> Tuple[range, range]:
@@ -884,16 +894,18 @@ class State:
         st = os.stat(path)
         return f"{st.st_size}:{st.st_mtime_ns}"
 
-    def footprint(self, raster: Raster, product: Product, read_path: str) -> Footprint:
+    def footprint(self, raster: Raster, product: Product, read_path) -> Footprint:
+        """The raster's footprint: kept from before while the file's size and time and the grid are the same and
+        the file it is read from is there, else read (read_path(): the file to read, made when missing)."""
         # the file's size and time, and the grid it was placed on (another origin is checked again)
         stamp = f"{self.stamp(raster.path)}:{product.res:g}:{product.origin[0]:g}:{product.origin[1]:g}"
         with self.lock:
             row = self.db.execute("SELECT stamp, footprint FROM rasters WHERE id = ?", (raster.id,)).fetchone()
         if row and row[0] == stamp:
             fp = Footprint(**json.loads(row[1]))
-            fp.path = read_path
-            return fp
-        fp = footprint(read_path, product)
+            if os.path.exists(fp.path):
+                return fp
+        fp = footprint(read_path(), product)
         with self.lock, self.db:
             self.db.execute("INSERT OR REPLACE INTO rasters (id, stamp, footprint, checked) VALUES (?, ?, ?, 0)",
                             (raster.id, stamp, json.dumps(fp.__dict__)))
@@ -1025,7 +1037,8 @@ def plan(ds: Dataset, product: Product, work: str, inputs: Optional[str], state:
     resolved = resolve(product, work, inputs)
     footprints, input_crs = [], {}
     for raster in resolved.rasters:
-        fp = state.footprint(raster, product, readable(raster.path, work, product.res, max_memory_gb))
+        fp = state.footprint(raster, product,
+                             lambda r=raster: readable(r.path, work, product.res, max_memory_gb))
         footprints.append((raster.id, fp))
         if fp.crs_label is not None and not _same_crs(fp.crs_label, product.crs):
             input_crs.setdefault(fp.crs_label, []).append(raster.id)
@@ -1042,6 +1055,8 @@ def plan(ds: Dataset, product: Product, work: str, inputs: Optional[str], state:
         right = cols[-1] if right is None else max(right, cols[-1])
     if not footprints:
         return Plan([], range(0), range(0), {}, resolved.complete, resolved.missing, input_crs)
+    for line in resolved.checks:
+        print(f"  {line}", flush=True)
     return Plan(footprints, range(top, bottom - 1, -1), range(left, right + 1), covering, resolved.complete,
                 resolved.missing, input_crs)
 
@@ -1116,6 +1131,7 @@ def _cut_product(ds: Dataset, product: Product, work: str, out: str, rows_limit:
     folder = os.path.join(out, *tile_folder(ds, product).split("/"))
     index_path = os.path.join(folder, "index.json")
     index = _load_index(index_path)
+    was_complete = bool(index["tiles"]) and not index.get("partial")  # never made partial again
     _clean_strays(folder)
     workers, cache_mb = _workers(product, threads, max_memory_gb)
     state = State(work, ds, product)
@@ -1142,13 +1158,20 @@ def _cut_product(ds: Dataset, product: Product, work: str, out: str, rows_limit:
                 if not cover:
                     return [] if p.complete and name_ not in index["tiles"] else None
                 before = fed_before.get(name_)
+                # only a raster added since makes a tile be cut again: one removed (the user deletes the fetched
+                # files by hand once a product is cut) leaves its tiles as they are
+                added = before is None or bool(set(cover) - set(before))
                 if name_ not in index["tiles"]:
                     # no data from the same rasters before: listed (null) only once every input is complete
-                    same = before is not None and sorted(before) == sorted(cover)
-                    return None if same and not p.complete else cover
+                    return cover if added or p.complete else None
                 if before is None:  # cut by a run without the state (or before it existed): one raster, as now
                     return None if len(cover) <= 1 else cover
-                return None if sorted(before) == sorted(cover) else cover
+                return cover if added else None
+
+            # each raster's last row of tiles (rows go down): its file is closed once that row is cut
+            last_row: Dict[str, int] = {}
+            for _, fp in p.footprints:
+                last_row[fp.path] = min(last_row.get(fp.path, 1 << 30), tiles_of(fp, product)[0][-1])
 
             handles: Dict[str, "rio.DatasetReader"] = {}
             checked = set()
@@ -1191,18 +1214,20 @@ def _cut_product(ds: Dataset, product: Product, work: str, out: str, rows_limit:
                             index["tiles"][key] = digest
                             fed[key] = cover
                         _update_index(index, ds, product, p)
-                        sk_tiles._mark_partial(index, not _finished(index, p))
+                        sk_tiles._mark_partial(index, not _finished(index, p, was_complete))
                         os.makedirs(folder, exist_ok=True)
                         _save_index(index, index_path)
                         state.set_fed(fed)
+                        for path in [path for path in handles if last_row[path] >= j]:
+                            handles.pop(path).close()
                         done = sum(v is not None for v in index["tiles"].values())
                         print(f"  row {n + 1}/{len(p.rows)}: {done} tiles with data, "
                               f"{(time.time() - start) / 60:.1f} min", flush=True)
                 finally:
                     for h in handles.values():
                         h.close()
-            if bool(index.get("partial")) != (not _finished(index, p)) and index["tiles"]:
-                sk_tiles._mark_partial(index, not _finished(index, p))
+            if bool(index.get("partial")) != (not _finished(index, p, was_complete)) and index["tiles"]:
+                sk_tiles._mark_partial(index, not _finished(index, p, was_complete))
                 _save_index(index, index_path)
     finally:
         state.close()
@@ -1224,9 +1249,12 @@ def _save_tile(folder: str, product: Product, i: int, j: int, tile: Optional[np.
     return _sha256(path)
 
 
-def _finished(index: Dict, p: Plan) -> bool:
-    """Every input complete and every tile of the extent in the index."""
-    return p.complete and all(f"{i}_{j}" in index["tiles"] for j in p.rows for i in p.cols)
+def _finished(index: Dict, p: Plan, was_complete: bool = False) -> bool:
+    """Every input complete and every tile of the extent in the index; an index complete before stays complete
+    when inputs went away since (every tile their rasters still cover in it)."""
+    if p.complete:
+        return all(f"{i}_{j}" in index["tiles"] for j in p.rows for i in p.cols)
+    return was_complete and all(f"{i}_{j}" in index["tiles"] for (i, j) in p.covering)
 
 
 def _update_index(index: Dict, ds: Dataset, product: Product, p: Plan):
@@ -1234,7 +1262,8 @@ def _update_index(index: Dict, ds: Dataset, product: Product, p: Plan):
     them)."""
     urls = [spec.url for spec in product.inputs if isinstance(spec, Url)]
     source = urls[0] if ds.legacy else "; ".join(
-        spec.url if isinstance(spec, Url) else spec.pattern if isinstance(spec, Placed) else f"{spec.path}/{spec.pattern}"
+        spec.url if isinstance(spec, Url) else spec.pattern if isinstance(spec, Placed)
+        else f"{spec.path}/{spec.pattern}"
         for spec in product.inputs)
     index.update(dataset=ds.key if ds.legacy else ds.name, product=product.name,
                  title=product.title, source=source, crs=product.crs, heights=product.heights, tile_m=TILE_M,

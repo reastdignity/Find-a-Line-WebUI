@@ -562,7 +562,7 @@ def test_products_share_one_card(tmp_path, monkeypatch):
     assert "Licence: No conditions apply" in card and "not endorsed by TP" in card
     mt.cut("isle", str(work), str(out), inputs=str(inputs), product="dsm")
     assert (out / "isle" / "README.md").read_text(encoding="utf-8") == card
-    assert (out / "isle" / "dtm" / "5m" / "index.json").exists() and (out / "isle" / "dsm" / "5m" / "index.json").exists()
+    assert all((out / "isle" / name / "5m" / "index.json").exists() for name in ("dtm", "dsm"))
     with pytest.raises(ValueError, match="fixed card"):
         mt.card_text(mt.replace(ds, card="# old"))
     _dataset(monkeypatch, "Bad Name", _product([mt.Placed("t.tif")]))
@@ -786,3 +786,131 @@ def test_verify(tmp_path, monkeypatch):
     assert not result["ok"] and "0_1: differs from the inputs by 1.0" in problems
     assert "1_0: the file does not match its sha256" in problems and "0_0/9_9.tif" in problems
     assert any("FAILED" in line for line in mt.status(["ver"], str(work), str(out), str(inputs)))
+
+
+def test_ascii_dataset_of_before_byte_for_byte(tmp_path, monkeypatch):
+    """Valle d'Aosta's kind (an ASCII grid, now copied into a tiled GeoTIFF before the cut): every tile is
+    sk_tiles._write of the expected pixels byte for byte, the index keys of before, the published card; cutting again
+    and verifying change nothing."""
+    spec = _spec(monkeypatch, "asc", url="https://example.org/dl/test.zip", member="T.ASC")
+    values = _asc_values()
+    work, out = tmp_path / "work", tmp_path / "mirror"
+    _zip(work, "T.ASC", _asc_text(values), "test.zip")
+    mt.extract("asc", str(work))
+    mt.cut("asc", str(work), str(out))
+    folder = out / "aosta" / "dtm" / "2m"
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    assert list(index) == ["tiles", "dataset", "product", "title", "source", "crs", "heights", "tile_m",
+                           "resolution", "origin", "block", "encoding", "licence", "attribution", "created"]
+    masked = values.astype(np.float32)
+    masked[masked == -9999] = np.nan
+    expected = _expected([(masked, 329116.0, 5036775.0 + ASC_H * 2)], origin=(0.0, 1.0), res=2.0)
+    assert set(index["tiles"]) == set(expected)
+    for key, want in expected.items():
+        i, j = map(int, key.split("_"))
+        ref = tmp_path / f"ref-{key}.tif"
+        sk_tiles._write(str(ref), want, spec["crs"], from_origin(2000 * i, 1 + 2000 * (j + 1), 2, 2))
+        assert (folder / src.grid_tile_name(i, j)).read_bytes() == ref.read_bytes(), key
+    assert (out / "aosta" / "README.md").read_text(encoding="utf-8") == mt.AOSTA_CARD
+    snapshot = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+    mt.cut("asc", str(work), str(out))
+    assert mt.verify("asc", str(work), str(out))["dtm"]["ok"]
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file() and p.name != "verify.json"} == snapshot
+
+
+def _sheets(folder, nx, ny, seed=20):
+    """nx x ny files of 1 km (200 px of 5 m) from (2.5, 2.5), with a done.jsonl beside the folder; their values."""
+    done, values = [], {}
+    for y in range(ny):
+        for x in range(nx):
+            values[(x, y)] = _heights((200, 200), seed + x + 100 * y)
+            path = _tif(folder / f"{y:02d}" / f"s{x:02d}{y:02d}.tif", values[(x, y)], 2.5 + 1000 * x,
+                        1002.5 + 1000 * y)
+            done.append(json.dumps({"item": path.stem, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}))
+    (folder.parent / "done.jsonl").write_text("\n".join(done) + "\n", encoding="utf-8")
+    return values
+
+
+def test_removed_inputs_leave_a_finished_product(tmp_path, monkeypatch):
+    """The user deletes fetched files by hand once a product is cut: a cut run again cuts nothing, the index stays
+    complete, every byte as it was; a file put back under its old name (other bytes, no sha256 line) is not cut again:
+    its tiles were cut from it."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    folder = inputs / "pt" / "MDT"
+    _sheets(folder, 4, 2)
+    ds = _dataset(monkeypatch, "rm", _product([mt.Folder("pt/MDT", expected=8, done="../done.jsonl")]))
+    mt.cut("rm", str(work), str(out), inputs=str(inputs))
+    snapshot = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+    assert "partial" not in json.loads((out / "rm" / "dtm" / "5m" / "index.json").read_text())
+    os.remove(folder / "00" / "s0000.tif")
+    os.remove(folder / "01" / "s0101.tif")
+    mt.cut("rm", str(work), str(out), inputs=str(inputs))
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == snapshot
+    assert any("waiting for" in line for line in mt.status(["rm"], str(work), str(out), str(inputs)))
+    _tif(folder / "00" / "s0000.tif", _heights((200, 200), 99), 2.5, 1002.5)   # back, other heights: no sha256 line
+    lines = (folder.parent / "done.jsonl").read_text().splitlines()
+    (folder.parent / "done.jsonl").write_text("\n".join(line for line in lines if "s0000" not in line) + "\n")
+    mt.cut("rm", str(work), str(out), inputs=str(inputs))
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == snapshot  # not added: nothing cut
+    tiles, index = _tiles(out, ds)
+    assert "partial" not in index and set(tiles) == {"0_0", "1_0"}
+
+
+def test_files_closed_after_their_last_row(tmp_path, monkeypatch):
+    """A folder of 200 files: each is closed once the last row of tiles it covers is cut, so the cut holds the files
+    of about two rows of files open, never all of them (Portugal: 91 000 per product)."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _sheets(inputs / "pt" / "MDT", 20, 10)
+    _dataset(monkeypatch, "many", _product([mt.Folder("pt/MDT", expected=200, done="../done.jsonl")]))
+    most, real = [0], mt.assemble
+
+    def counting(key, product, footprints, handles):
+        most[0] = max(most[0], len(handles))
+        return real(key, product, footprints, handles)
+    monkeypatch.setattr(mt, "assemble", counting)
+    mt.cut("many", str(work), str(out), inputs=str(inputs))
+    assert 0 < most[0] <= 40, most[0]
+    tiles, index = _tiles(out, mt.dataset("many"))
+    assert len(tiles) == 50 and "partial" not in index
+
+
+def test_done_jsonl_naming_none_of_the_files(tmp_path, monkeypatch):
+    """A done.jsonl whose keys name none of the folder's files is an error (no file could be checked); without one
+    the files are cut unchecked and the cut says so."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _sheets(inputs / "pt" / "MDT", 2, 1)
+    (inputs / "pt" / "done.jsonl").write_text(json.dumps({"key": "s0000", "hash": "x"}) + "\n" +
+                                             json.dumps({"other": "s0100", "sha256": "0" * 64}) + "\n")
+    _dataset(monkeypatch, "dj", _product([mt.Folder("pt/MDT", expected=2, done="../done.jsonl")]))
+    with pytest.raises(ValueError, match="names none of the 2 files"):
+        mt.cut("dj", str(work), str(out), inputs=str(inputs))
+    os.remove(inputs / "pt" / "done.jsonl")
+    mt.cut("dj", str(work), str(out), inputs=str(inputs))
+    assert mt.resolve(mt.dataset("dj").products[0], str(work), str(inputs)).checks == [
+        "pt/MDT: no ../done.jsonl, the files not checked"]
+    assert mt.done_digests(str(tmp_path / "none.jsonl")) == {}
+
+
+def test_clean_leaves_the_inputs(tmp_path, monkeypatch):
+    """clean removes the product's unpacked ZIP members and tiled copies from --work, never an input or a downloaded
+    file."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    src_dir = tmp_path / "src"
+    _tif(src_dir / "a.tif", _heights((100, 100), 1), 2.5, 1002.5)
+    (inputs / "z").mkdir(parents=True)
+    with zipfile.ZipFile(inputs / "z" / "p.zip", "w") as z:
+        z.write(src_dir / "a.tif", "a.tif")
+    _tif(inputs / "b.tif", _heights((100, 100), 2), 1002.5, 1002.5)
+    (inputs / "asc").mkdir()
+    (inputs / "asc" / "g.asc").write_bytes(_asc_text(_heights((10, 10), 3), left=2002.5, bottom=502.5)
+                                           .replace(b"cellsize 2", b"cellsize 5"))
+    _dataset(monkeypatch, "cl", _product([mt.Placed("z/p.zip", members=("*.tif",)), mt.Placed("b.tif"),
+                                         mt.Placed("asc/g.asc")]))
+    before = {p: p.read_bytes() for p in inputs.rglob("*") if p.is_file()}
+    mt.extract("cl", str(work), str(inputs))
+    mt.cut("cl", str(work), str(out), inputs=str(inputs))
+    assert (work / "p" / "a.tif").exists() and list((work / "tiled").glob("g-*.tif"))
+    left = mt.clean("cl", str(work), str(inputs))
+    assert not (work / "p" / "a.tif").exists() and not list((work / "tiled").glob("*.tif"))
+    assert all(name.startswith("state") for name in left), left
+    assert {p: p.read_bytes() for p in inputs.rglob("*") if p.is_file()} == before
