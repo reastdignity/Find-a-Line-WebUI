@@ -1,0 +1,22 @@
+{
+ "recipe": "wfs-tuscany",
+ "recorded": "2026-11-15",
+ "case": {
+  "source": "tuscany",
+  "layer": "nmt",
+  "lat": 43.0,
+  "lon": 12.0
+ },
+ "hosts": [
+  "https://www502.regione.toscana.it"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://www502.regione.toscana.it/wmsraster/com.rt.wms.RTmap/wms?map=wmscartoteca&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=rt_cartoteca.lidar2k&SRSNAME=EPSG%3A3003&PROPERTYNAME=GEOMETRY%2Cfoglio%2Cdtmname%2Cdsmname%2Ceg_bsw%2Cng_bsw%2Ceg_bne%2Cng_bne&MAXFEATURES=5000&BBOX=43.0%2C12.0%2C43.25%2C12.25%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=gml/3.1.1; charset=UTF-8",
+   "body": "001.xml.gz"
+  }
+ ]
+}

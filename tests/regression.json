@@ -1941,5 +1941,16 @@
     },
     "seconds": 1.9,
     "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
+  },
+  "R77": {
+    "place": "The Carrara marble basins between Colonnata and Fantiscritti, the Apuan Alps, Tuscany (IT-52): Regione Toscana's lidar DTM and DSM 1 m (2012), ZIPs of ASCII grids listed by the cartoteca's WFS, their URLs from its GetFeatureInfo",
+    "args": "--lat 44.085 --lon 10.150 --radius 800 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {},
+    "seconds": 0,
+    "notes": "added 2026-11-15: --source auto picks tuscany (the centre is in IT-52); 9 sheets per model, all of Regione Toscana's survey of 2012 (lot 005: the run credits Regione Toscana, CC BY 4.0, no MATTM sheet), about 5.5 MB each, 104 MB with the water mask on an empty cache; nothing filled; the spots lie in the quarry pits and on their walls (Fossa di Colonnata, Fantiscritti, La Piastra)"
   }
 }

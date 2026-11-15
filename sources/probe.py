@@ -83,6 +83,7 @@ from .layers.lidarbc import LidarBcBlocks
 from .layers.wcs import GeoWcsTiles
 from .layers.geosheets import GeoSheetTiles
 from .layers.sheets import WfsFeatureTiles
+from .layers.cartoteca import CartotecaTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -97,6 +98,7 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (ZipMemberTiles, "zip"),  # the same
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WfsFeatureTiles, "zipfile"),  # before IndexedTiles, of which it is one: the first KB, never a byte range 0-0
+    (CartotecaTiles, "cartoteca"),  # the same, its URL from a GetFeatureInfo first
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
@@ -230,6 +232,21 @@ def _zip_head(cache_dir: str, layer: IndexedTiles, tile) -> str:
         text = " ".join(body[:200].decode("utf-8", "replace").split())
         raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
+
+
+def _cartoteca_head(cache_dir: str, layer: CartotecaTiles, tile) -> str:
+    """The first tile's URL from a GetFeatureInfo (written to the probe's own folder only), then the first KB of its
+    ZIP (no Range); raises unless one names it and the file starts with a ZIP's local file header."""
+    request = layer.index.request(tile)
+    with host_slot(cache_dir, layer.index_url):
+        urls = layer.reader.resolve(request)
+    if not (urls or {}).get(layer.kind):
+        raise RuntimeError(f"no GetFeatureInfo names {request.name}")
+    status, kind, body = _ask(cache_dir, urls[layer.kind])
+    if status != 200 or not body.startswith(b"PK"):
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return f"{request.name} ({urls.get('owner')})"
 
 
 def _zip_header(cache_dir: str, layer: ZipMemberTiles, tile) -> str:
@@ -428,7 +445,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text", "zip", "blocks", "zipfile"):
+        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -454,6 +471,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _xyz_head(cache_dir, layer, tiles[0])
             elif kind == "zipfile":
                 _zip_head(cache_dir, layer, tiles[0])
+            elif kind == "cartoteca":
+                row.notes.append(_cartoteca_head(cache_dir, layer, tiles[0]))
             elif kind == "zip":
                 row.notes.append(_zip_header(cache_dir, layer, tiles[0]))
             elif kind == "sheet":

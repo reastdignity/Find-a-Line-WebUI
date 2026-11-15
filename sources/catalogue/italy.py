@@ -1,12 +1,14 @@
 """Italy: the Autonomous Province of Bolzano / South Tyrol (its DTM and DSM 2.5 m, WCS), the Autonomous Province
 of Trento (its LiDAR 2014 DTM and DSM 0.5 m, ASCII grids of 500 m), Sardinia (its coastal lidar DTM and DSM 1 m of
-2008, ZIPs of ASCII grids listed by a WFS of their footprints) and INGV's TINITALY 1.1 (10 m, WCS) for the rest of
+2008, ZIPs of ASCII grids listed by a WFS of their footprints), Tuscany (Regione Toscana's and the Ministry of the
+Environment's lidar sheets 1 m of 2004-2017, credited per owner) and INGV's TINITALY 1.1 (10 m, WCS) for the rest of
 Italy, San Marino and the Vatican and for the gaps of the regional sources."""
 
 from typing import List
 
 from ..credit import CC_BY, Credit
 from ..source import Coverage, ReadmeRow, OrthoService, Source
+from ..layers.cartoteca import CartotecaTiles
 from ..layers.sheets import WfsFeatureTiles
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
@@ -103,6 +105,82 @@ def _sar_layer(link: str, kind: str, description: str) -> WfsFeatureTiles:
     """The tiles of one model (its URL the feature's attribute link), the index asked per model."""
     return WfsFeatureTiles(f"{description} Sardinia", SAR_WFS, SAR_TYPE, link, "nomemappa", f"sar-{kind}",
                            f"italy/sar-{kind}/2008", "EPSG:32632", 1.0, 2008, bytes_per_tile=4e6)
+
+
+# Tuscany: Regione Toscana's lidar DTM and DSM of its own surveys (2004-2017) and of the Ministry of the Environment's
+# (MATTM: 2008, 2010, 2016), 1 m (some 2 m), one file per survey of a 1:2000 sheet (1600 x 1200 m in Monte Mario /
+# Italy zone 1, EPSG:3003, and a 20 m buffer: two neighbours' buffers hold the same values, checked at Carrara), a
+# Deflate ZIP of an ARC/INFO ASCII grid without a CRS (xllcenter <edge>.5: pixel edges on whole metres), nodata
+# -9999, millimetre values, "quota geoidica" (orthometric), and the owner's licence (licenza_dati_Lidar.pdf).
+# Listed by the cartoteca's WFS feature type rt_cartoteca.lidar2k, which its capabilities do not name but which
+# answers GetFeature (11 281 entries on 2026-11-15: 9 889 with their sheet's box, 1 392 of the surveys of 2016 and
+# 2017 with only their footprint); a survey covers its footprint only, often part of a sheet, so every survey adding
+# data to the newer ones is read (sources/indexes/cartoteca.py). The files' URLs carry a 32-hex hash no index gives:
+# one GetFeatureInfo per survey (sources/readers/cartoteca.py). A survey under a newer one with a changed wall
+# (Carrara's quarries: up to 22 m between RT 2012 and MATTM 2010) is hidden by it. No request limits published (the
+# WMS's and WFS's Fees and AccessConstraints none; the GetFeatureInfo's licence notes; read 2026-11-15). The
+# image-correlation DSM of 2021 (another layer, EPSG:7791) and the 2019-2021 lidar of the noRT layer (for public
+# bodies only) are not used
+TOS_WMS = "https://www502.regione.toscana.it/wmsraster/com.rt.wms.RTmap/wms?map=wmscartoteca"
+TOS_TYPE = "rt_cartoteca.lidar2k"
+# The citations each owner's licence asks for, verbatim ("La pubblicazione del dataset o di sue elaborazioni implica la
+# citazione della fonte con la seguente dicitura: ..." in licenza_dati_Lidar.pdf of every sheet's ZIP, read
+# 2026-11-15): Regione Toscana's surveys under CC BY 4.0 (its Decreto Dirigenziale n. 663/2014), the Ministry's
+# under CC BY-SA 3.0 IT ("Creative Commons Attribuzione Condividi allo stesso modo 3.0 Italia"), also the 351 MATTM
+# sheets co-owned with the Pisan municipalities, which the GetFeatureInfo calls "RT". A run is credited by the owners
+# of the sheets it used (the user's decision of 2026-11-15): with a MATTM sheet, its results are share-alike
+TOS_RT_CREDIT = Credit("Rilievi LIDAR 1 m (Regione Toscana)", "Fonte dei dati: Regione Toscana – “Rilievi LIDAR”",
+                       *CC_BY, notice="Terms: licenza_dati_Lidar.pdf in each sheet's ZIP (Regione Toscana, Decreto "
+                                      "Dirigenziale n. 663/2014)")
+TOS_MATTM_CREDIT = Credit(
+    "Rilievi Lidar 1 m (Ministero dell’Ambiente, distributed by Regione Toscana)",
+    "Fonte dei dati: Ministero dell’Ambiente e della tutela del Territorio e del Mare – “Rilievi Lidar”",
+    "CC BY-SA 3.0 IT", "https://creativecommons.org/licenses/by-sa/3.0/it/",
+    notice="Share-alike: what is made from these data (this run's lines, heights, profiles and maps) is shared under "
+           "the same licence (CC BY-SA 3.0 IT or a later version of it)")
+TOS_CREDITS = {"RT": TOS_RT_CREDIT, "MATTM": TOS_MATTM_CREDIT}
+TOS_LABELS = {"RT": "Regione Toscana's surveys", "MATTM": "the Ministry of the Environment's surveys"}
+# Tuscany's land in bands of 0.05° from Nominatim's outline of the Toscana (relation 41977, 2026-11-15; consecutive
+# bands of one width merged): its islands (Gorgona, Capraia, Elba, Pianosa, Montecristo, Giglio, Giannutri) in
+# boxes of their own, Corsica (east to 9.56 E) outside; the bands hold slivers of Liguria (about 140 km²),
+# Emilia-Romagna (990), Umbria (280) and Lazio (190), where an offline guess gets Tuscany, no lidar, and TINITALY
+TOS_BOXES = (("it-52", (42.20, 42.30, 11.09, 11.12)), ("it-52", (42.30, 42.35, 10.28, 10.34)),
+             ("it-52", (42.30, 42.35, 10.88, 10.94)), ("it-52", (42.35, 42.40, 10.06, 10.07)),
+             ("it-52", (42.35, 42.40, 10.29, 10.32)), ("it-52", (42.35, 42.40, 10.86, 10.94)),
+             ("it-52", (42.35, 42.40, 11.09, 11.46)), ("it-52", (42.40, 42.45, 11.08, 11.62)),
+             ("it-52", (42.45, 42.50, 11.17, 11.63)), ("it-52", (42.50, 42.55, 11.16, 11.59)),
+             ("it-52", (42.55, 42.60, 10.04, 10.11)), ("it-52", (42.55, 42.60, 10.88, 10.91)),
+             ("it-52", (42.55, 42.60, 11.10, 11.70)), ("it-52", (42.60, 42.65, 10.07, 10.09)),
+             ("it-52", (42.60, 42.65, 11.03, 11.81)), ("it-52", (42.65, 42.70, 10.99, 11.81)),
+             ("it-52", (42.70, 42.75, 10.11, 10.44)), ("it-52", (42.70, 42.75, 10.92, 11.83)),
+             ("it-52", (42.75, 42.80, 10.10, 10.44)), ("it-52", (42.75, 42.80, 10.71, 11.82)),
+             ("it-52", (42.80, 42.85, 10.12, 10.45)), ("it-52", (42.80, 42.85, 10.72, 11.92)),
+             ("it-52", (42.85, 42.90, 10.39, 10.55)), ("it-52", (42.85, 42.90, 10.76, 11.96)),
+             ("it-52", (42.90, 42.95, 10.49, 11.96)), ("it-52", (42.95, 43.00, 10.48, 11.97)),
+             ("it-52", (43.00, 43.05, 9.79, 9.85)), ("it-52", (43.00, 43.05, 10.50, 11.99)),
+             ("it-52", (43.05, 43.10, 9.80, 9.85)), ("it-52", (43.05, 43.10, 10.53, 11.99)),
+             ("it-52", (43.10, 43.15, 10.53, 11.93)), ("it-52", (43.15, 43.20, 10.53, 12.03)),
+             ("it-52", (43.20, 43.25, 10.52, 12.12)), ("it-52", (43.25, 43.30, 10.48, 12.23)),
+             ("it-52", (43.30, 43.35, 10.45, 12.22)), ("it-52", (43.35, 43.40, 10.42, 12.14)),
+             ("it-52", (43.40, 43.45, 9.88, 9.91)), ("it-52", (43.40, 43.45, 10.37, 12.11)),
+             ("it-52", (43.45, 43.50, 10.31, 12.15)), ("it-52", (43.50, 43.55, 10.21, 12.17)),
+             ("it-52", (43.55, 43.60, 10.28, 12.20)), ("it-52", (43.60, 43.65, 10.28, 12.22)),
+             ("it-52", (43.65, 43.70, 10.26, 12.34)), ("it-52", (43.70, 43.75, 10.27, 12.38)),
+             ("it-52", (43.75, 43.80, 10.26, 12.33)), ("it-52", (43.80, 43.85, 10.24, 11.92)),
+             ("it-52", (43.80, 43.85, 12.16, 12.24)), ("it-52", (43.85, 43.90, 10.21, 11.78)),
+             ("it-52", (43.90, 43.95, 10.17, 11.72)), ("it-52", (43.95, 44.00, 10.10, 11.70)),
+             ("it-52", (44.00, 44.05, 10.01, 11.70)), ("it-52", (44.05, 44.10, 9.98, 11.75)),
+             ("it-52", (44.10, 44.15, 9.97, 11.76)), ("it-52", (44.15, 44.20, 9.85, 10.77)),
+             ("it-52", (44.15, 44.20, 11.19, 11.62)), ("it-52", (44.20, 44.25, 9.85, 10.50)),
+             ("it-52", (44.20, 44.25, 11.33, 11.46)), ("it-52", (44.25, 44.30, 9.77, 10.41)),
+             ("it-52", (44.30, 44.35, 9.71, 10.23)), ("it-52", (44.35, 44.40, 9.68, 10.15)),
+             ("it-52", (44.40, 44.45, 9.75, 10.01)), ("it-52", (44.45, 44.50, 9.80, 9.98)))
+
+
+def _tos_layer(kind: str, description: str) -> CartotecaTiles:
+    """One model's sheets; the index answers (tos-lidar) and the resolved URLs (tos-urls) shared by both models."""
+    return CartotecaTiles(f"{description} Tuscany", TOS_WMS, TOS_TYPE, kind, "tos-lidar", f"italy/tos-{kind}",
+                          "italy/sheet-index/tos-urls", TOS_CREDITS, TOS_LABELS, bytes_per_tile=5e6)
 
 
 # TINITALY 1.1 (INGV, 2023): a 10 m terrain model of all of Italy (with San Marino and the Vatican) made from a TIN of
@@ -222,6 +300,27 @@ SOURCES: List[Source] = [
              "orthophoto service of Sardinia: the map shows its own base layers.",
         coverage=Coverage(provider="Regione Sardegna", added="2026-11-15", partial=True, rest=(10.0,),
                           survey="2008", notes=("old_survey",))),
+    Source(
+        id="tuscany", name="Tuscany (lidar 1 m, 2004-2017)",
+        description="Regione Toscana: lidar DTM and DSM 1 m (some 2 m) of its own and the Ministry of the "
+                    "Environment's surveys 2004-2017, sheets of 1:2000, Monte Mario / Italy zone 1; elsewhere "
+                    "TINITALY 10 m",
+        nmt=_tos_layer("dtm", "DTM 1 m (terrain)"), nmpt=_tos_layer("dsm", "DSM 1 m (trees, buildings)"),
+        countries=("it",), regions=("it-52",), crs="EPSG:3003", credits=(TOS_RT_CREDIT, TOS_MATTM_CREDIT),
+        # The lidar covers about two thirds of the region: the rest and its gaps from TINITALY, what that leaves
+        # (the sea, beyond Italy) from FABDEM / Copernicus
+        fallback="tinitaly", more_fallbacks=("europe",),
+        listing=ReadmeRow("Tuscany (IT)", "Regione Toscana / MATTM lidar DTM 2004-2017, 1 m (some 2 m; the rest "
+                                          "TINITALY 10 m)", "Regione Toscana / MATTM lidar DSM, 1 m",
+                          "– (no open orthophoto service)"),
+        offline=TOS_BOXES, sample=(44.0870, 10.1340),  # the Carrara marble basins
+        note="Tuscany's lidar (Regione Toscana and the Ministry of the Environment, 2004-2017, 1 m, some sheets 2 m) "
+             "covers about two thirds of the region: elsewhere the data are TINITALY's 10 m (lines shorter than "
+             "about 60 m there are not reliable). Quarries and rockfall since the survey are not in the data. A run "
+             "that used the Ministry's sheets is CC BY-SA 3.0 IT (share-alike); Regione Toscana's are CC BY 4.0. No "
+             "open orthophoto service of Tuscany: the map shows its own base layers.",
+        coverage=Coverage(provider="Regione Toscana", added="2026-11-15", partial=True, rest=(10.0,),
+                          survey="2004–2017", notes=("old_survey",))),
     Source(
         id="tinitaly", name="TINITALY 1.1 (INGV, 10 m)",
         description="INGV's TINITALY 1.1: a terrain model 10 m of Italy, San Marino and the Vatican (a TIN of contour "

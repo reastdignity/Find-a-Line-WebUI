@@ -51,6 +51,9 @@ RECIPES = {
     "arcgis-lidarbc": ("arcgis", "lidarbc-dem", "british_columbia", "nmt", 48.25, -124.5),
     # Sardinia: its WFS of the coastal lidar's tiles (GeoJSON, footprints in EPSG:32632) over Cala Gonone
     "wfs-sardinia": ("wfs", "sardinia-dtm", "sardinia", "nmt", 40.25, 9.5),
+    # Tuscany: the cartoteca's WFS of the lidar sheets (GML, footprints in EPSG:3003) at the Umbrian border by
+    # Cortona: surveys of both owners, 1 m and 2 m, sheets of more than one survey
+    "wfs-tuscany": ("wfs", "tuscany-lidar", "tuscany", "nmt", 43.0, 12.0),
 }
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
 YEARS = {"wfs-geoportal-error": ["gugik:SkorowidzNMT1900"]}

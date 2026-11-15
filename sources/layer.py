@@ -312,6 +312,12 @@ class Layer:
             info["credit"] = self.credit.as_dict()
         return info
 
+    def used_entries(self, grid: Grid, cache_dir: str) -> List[Dict]:
+        """The entries a run records of the data it used from this layer (sources.used_data): used() alone, or
+        one per owner of the files where they are credited apart (Tuscany's sheets: Regione Toscana's CC BY,
+        the Ministry's CC BY-SA), each with its own credit."""
+        return [self.used(grid, cache_dir)]
+
 
 def each_layer(layers: Sequence[Layer], call: Callable[[Layer], Any]) -> list:
     """call(layer) of every layer, each in a thread of its own (what asks a layer's index, which

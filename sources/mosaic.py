@@ -86,7 +86,7 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
     build_mosaic(layer.files(grid, cache_dir), grid, out_path, label, shift=layer.shift, rows=rows,
                  resampling=resampling, same_resolution=same_resolution)
-    used_data.append(layer.used(grid, cache_dir))
+    used_data.extend(layer.used_entries(grid, cache_dir))
     return out_path
 
 

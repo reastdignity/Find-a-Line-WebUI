@@ -696,6 +696,11 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     return out_path
 
 
+def _forget_entries(records: List[Dict]):
+    """Leave these entries out of the record of the data used (a layer that filled no pixel)."""
+    used_data[:] = [entry for entry in used_data if not any(entry is record for record in records)]
+
+
 def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fallback: "Source",
               cache_dir: str, out_path: str, update: Optional[str] = None,
               exclude: Optional[np.ndarray] = None, name: str = "gap",
@@ -747,9 +752,10 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         if not gaps.any():
             continue
         # A neighbour has no data beyond its border: no line about its tiles without data
+        first = len(used_data)
         path = prepare_layer(layer, sub, cache_dir, os.path.join(work, name), f"gap fill ({fallback.name})", update,
                              quiet=window is not None, resampling=resampling, same_resolution=same_resolution)
-        record = used_data[-1]  # prepare_layer's
+        records = used_data[first:]  # prepare_layer's (Layer.used_entries: one per owner of the files)
         if window is None:
             other = np.asarray(np.load(path, mmap_mode="r"))
         else:
@@ -758,7 +764,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         count = _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}")
         written += count
         if count == 0:
-            used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
+            _forget_entries(records)  # no credit either
         del other, gaps  # before the next pair's mosaic
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
@@ -809,16 +815,17 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
                 remove_grid(gaps_path)
                 continue
         # A neighbour has no data beyond its border: no line about its tiles without data
+        first = len(used_data)
         path = prepare_layer(layer, sub, cache_dir, os.path.join(work, file), f"gap fill ({fallback.name})", update,
                              quiet=window is not None, rows=rows, resampling=resampling,
                              same_resolution=same_resolution)
-        record = used_data[-1]  # prepare_layer's
+        records = used_data[first:]  # prepare_layer's (Layer.used_entries: one per owner of the files)
         other = np.load(path, mmap_mode="r")
         count = _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}", rows=rows,
                       window=window, work=work)
         written += count
         if count == 0:
-            used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
+            _forget_entries(records)  # no credit either
         del other, gaps  # before the next pair's mosaic
         if gaps_path:
             remove_grid(gaps_path)
