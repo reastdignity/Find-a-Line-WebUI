@@ -4,10 +4,12 @@ catalogue with their continents and sizes, the settings, where each area's tiles
 stopping a download. No textual here: only the window needs the group `tui`.
 
 The rows are the areas of the coverage map (viewer/src/coverage/coverage.json), their continents and sizes from its
-outlines (shapes.json; a region takes its country's continent), plus the settings' `extra`. A row's name is its name in
-the state folder, so a download started by hand with that name is the same row. The window groups the rows by continent
-and country (`Row.country`): a region and a territory of `PARENTS` (Åland, Puerto Rico, ...) sit under their country, in
-its continent, each showing its own name (`Row.label`), a country-wide row "Whole country · <source>". An extra row's
+outlines (shapes.json; a region takes its country's continent unless `REGION_CONTINENTS` says where it lies: Guadeloupe
+in North America), plus the settings' `extra`. A row's name is its name in the state folder, so a download started by
+hand with that name is the same row. The window groups the rows by continent and country (`Row.country`, so a country
+may be under two continents): a region and a territory of `PARENTS` (Åland, Puerto Rico, ...) sit under their country,
+in the continent where they lie, each showing its own name (`Row.label`) in a country's group, a country-wide row
+"Whole country · <source>" (a country of one row in a continent has no group: its row shows its title). An extra row's
 country is its `"country"`, else its title's part before ": " when that names a country of `COUNTRIES`, else its title.
 
 The settings, a JSON file outside the repository (it may name a contact and a share):
@@ -51,7 +53,8 @@ import cache  # noqa: E402
 
 COVERAGE = os.path.join(REPO, "viewer", "src", "coverage")
 TARGETS_FILE = "tui-targets.json"   # in the state folder: the target chosen for each row
-CONTINENTS = ("Europe", "North America", "Oceania", "South America", "Asia")   # first in the window; others follow by name
+# First in the window, in this order (a continent without a row has no group); others follow by name
+CONTINENTS = ("Europe", "North America", "Oceania", "South America", "Asia", "Africa")
 ELEVATED_SECONDS = 600
 ERROR_PRIVILEGE_NOT_HELD = 1314
 
@@ -64,9 +67,13 @@ COUNTRIES = {
     "us": "United States", "vi": "U.S. Virgin Islands",
     "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands",
     "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil"}
-# A territory's row sits under its country in the window, in that country's continent (its title stays its own). Empty:
-# every code is a country of its own, in the continent of its outline.
+# A territory's row sits under its country in the window (its title and continent stay its own). Empty: every code is a
+# country of its own.
 PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi"}
+# Where a region lies when that is not its country's continent: its outline in shapes.json has none (a region's has
+# none today; one that has wins). The Canary Islands, Madeira, Svalbard and Jan Mayen stay European by convention.
+REGION_CONTINENTS = {"fr-gp": "North America", "fr-mq": "North America", "fr-gf": "South America",
+                     "nl-bq1": "North America", "nl-bq2": "North America", "nl-bq3": "North America"}
 WHOLE = "Whole country"   # the label of a country-wide row: "Whole country · <source id>"
 
 
@@ -176,7 +183,8 @@ def catalogue() -> List[Row]:
             label = COUNTRIES[code]          # a territory: its own name
         else:
             label = f"{WHOLE} · {source.id}"
-        rows.append(Row(slug(title), title, continents[parent], COUNTRIES[parent], label,
+        continent = continents.get(area) or REGION_CONTINENTS.get(area) or continents[code]
+        rows.append(Row(slug(title), title, continent, COUNTRIES[parent], label,
                         f"osm:{src.AREA_NAMES[area]}", source.id, source.default_resolution, source.nmpt is not None,
                         round(sizes[area])))
     return rows

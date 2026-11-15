@@ -112,27 +112,44 @@ def test_country_and_label_of_a_row():
 
 
 @pytest.mark.parametrize("name, country, continent", [
-    ("saint-barthelemy", "France", "Europe"), ("saint-martin-france", "France", "Europe"),
-    ("saint-pierre-and-miquelon", "France", "Europe"), ("puerto-rico", "United States", "North America"),
+    ("saint-barthelemy", "France", "North America"), ("saint-martin-france", "France", "North America"),
+    ("saint-pierre-and-miquelon", "France", "North America"), ("puerto-rico", "United States", "North America"),
     ("u-s-virgin-islands", "United States", "North America"), ("aland", "Finland", "Europe")])
-def test_a_territory_sits_under_its_country(name, country, continent):
+def test_a_territory_sits_under_its_country_where_it_lies(name, country, continent):
     row = _row(ar.catalogue(), name)
     assert (row.country, row.continent) == (country, continent)
     assert row.label == row.title    # its own name
 
 
+@pytest.mark.parametrize("name, continent", [
+    ("france-guadeloupe", "North America"), ("france-martinique", "North America"),
+    ("france-french-guiana", "South America"), ("netherlands-bonaire", "North America"),
+    ("netherlands-saba", "North America"), ("netherlands-sint-eustatius", "North America"),
+    ("spain-canary-islands", "Europe"), ("portugal-madeira", "Europe"), ("norway-svalbard", "Europe"),
+    ("norway-jan-mayen", "Europe"), ("united-states-alaska", "North America"), ("germany-bavaria", "Europe")])
+def test_a_region_lies_on_its_continent(name, continent):
+    """REGION_CONTINENTS where a region's outline names none and it is not on its country's continent."""
+    assert _row(ar.catalogue(), name).continent == continent
+
+
+def test_region_continents_name_regions_of_the_map():
+    with open(os.path.join(ar.COVERAGE, "coverage.json"), encoding="utf-8") as f:
+        areas = json.load(f)["areas"]
+    assert set(ar.REGION_CONTINENTS) <= set(areas)
+    assert set(ar.REGION_CONTINENTS.values()) <= set(ar.CONTINENTS)
+
+
 def test_without_parents_every_code_is_its_own_country(monkeypatch):
-    """The continents as before the grouping by country, each territory a country of its own."""
+    """Each territory a country of its own; PARENTS moves no row to another continent."""
+    continents = {row.name: row.continent for row in ar.catalogue()}
     monkeypatch.setattr(ar, "PARENTS", {})
     rows = ar.catalogue()
-    for name, continent in [("saint-barthelemy", "North America"), ("saint-martin-france", "North America"),
-                            ("saint-pierre-and-miquelon", "North America"), ("puerto-rico", "North America"),
-                            ("aland", "Europe"), ("france-guadeloupe", "Europe")]:
-        assert _row(rows, name).continent == continent
+    assert {row.name: row.continent for row in rows} == continents
     assert _row(rows, "puerto-rico").country == "Puerto Rico"
     assert _row(rows, "aland").label == "Whole country · finland"
-    assert sum(row.continent == "Europe" for row in rows) == 52
-    assert sum(row.continent == "North America" for row in rows) == 12
+    assert sum(row.continent == "Europe" for row in rows) == 46
+    assert sum(row.continent == "North America" for row in rows) == 17
+    assert sum(row.continent == "South America" for row in rows) == 3
 
 
 def test_the_list_by_continent_with_its_settings(settings):

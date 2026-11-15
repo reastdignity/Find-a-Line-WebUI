@@ -384,8 +384,23 @@ The window of the area download (`area_download.py tui --settings <file>`, Textu
 (`area_rows.catalogue`: `coverage.json`, continents and km² from `shapes.json`, a region takes its country's
 continent; `COUNTRIES` the titles, `sources.AREA_NAMES` each area's Nominatim name (also the country layer's
 territories), each checked once against the outlines: an administrative boundary of the area, larger on a coast by the
-territorial waters) plus the settings' `extra`, grouped by continent (`Collapsible`s of rows of `Checkbox` subclasses:
-a `DataTable`'s first click only moves its cursor, a `SelectionList` has no cell to click for the target). A checkbox
+territorial waters) plus the settings' `extra`, grouped Continent → Country → area (`Group`, a `Collapsible`, per
+continent holding one per country of two or more rows, with rows of `Checkbox` subclasses: a `DataTable`'s first click
+only moves its cursor, a `SelectionList` has no cell to click for the target). A country of one row (after `PARENTS`
+and the extra rows) has no group: its row sits in the continent by its title, in the countries' order, so nothing moves
+when it gains a second row (`SINGLE_ROW_COUNTRY_LEVEL`, False by the user's word of 2026-11-15). `Row.country` is
+`COUNTRIES`' name after `PARENTS` (a territory under its country: Saint-Barthélemy, Saint-Martin,
+Saint-Pierre-et-Miquelon under France, Puerto Rico and the US Virgin Islands under the United States, Åland under
+Finland; an empty table gives each code its own country). A row's continent is where it lies (the user's word of
+2026-11-15): its own outline's, else `REGION_CONTINENTS` (Guadeloupe, Martinique and the Caribbean Netherlands in North
+America, French Guiana in South America), else its country's; so a country may have a group under two continents
+(`group-europe-france`, `group-north-america-france`). `Row.label` is what a row in a
+country's group shows (the region's or territory's name, a country-wide row "Whole country · <source>"); the title and
+name stay the full ones. An extra row's country is its `"country"`, else its title's part before ": " when that is a
+known name, else its title. Sorted by `CONTINENTS`, country, the country-wide row first, label. Each group's title
+carries its count and ticked count; at start the continents open and a country's group only when one of its rows has a
+state (`FOLD_AT_START`); the filter matches title and country, opens the groups with a match, hides the others and
+gives the folds back when cleared; up and down walk the visible titles and boxes. A checkbox
 only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A row's name is its name in the state folder
 (`slug` of the title: `poland`, `czechia`, as the downloads started by hand). The settings (a JSON file outside the
 repository: the docstring of `area_rows.py`) name the state folder, a contact (`FINDALINE_CONTACT` of what starts,
