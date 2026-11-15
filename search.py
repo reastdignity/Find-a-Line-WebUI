@@ -1281,7 +1281,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     if found is None:  # a tile of a large area: nothing here
         return sh.LineTable.empty(), mp.Groups.each_alone(0)
     if core is None and _samples(plan):  # the size before the pairs (a tiled search's: search_lines)
-        progress.set_step(f"Estimate · Step 3/{STEPS}: estimating the lines")  # the page's phase (useJobs.ts)
+        progress.set_step(f"Step 3/{STEPS}: estimating the lines")  # a phase of its own on the page (useJobs.ts)
         table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
         estimate, variance, _, _ = sample_estimate(plan, data, found, None, table, 0)
         _estimate_check(plan, estimate, math.sqrt(variance), grid.width * grid.height)

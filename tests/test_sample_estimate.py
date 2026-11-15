@@ -472,7 +472,7 @@ console.log(JSON.stringify({json.dumps(cases)}.map((d) => m.detailMessage(d, "fa
 
 def test_the_page_shows_the_estimate_as_its_own_phase(tmp_path):
     """The job page's bar (viewer/src/app/useJobs.ts jobProgress) runs from 0 to 1 over the estimate of a tiled
-    search ("Estimate, tile k/n · Step 2/5", "Step 3/5" of each tile) and of one grid ("Estimate · Step 3/5"),
+    search ("Estimate, tile k/n · Step 2/5", "Step 3/5" of each tile) and of one grid ("Step 3/5: estimating"),
     never back within it, and the search's own tiles then start their own bar (a 9-tile search's first tile at
     its step 2 is near 0, as before)."""
     import subprocess
@@ -486,7 +486,7 @@ def test_the_page_shows_the_estimate_as_its_own_phase(tmp_path):
     steps = [f"Estimate, tile {t}/9 · Step {s}/5: {what}" for t in range(1, 10)
              for s, what in ((2, "finding significant slopes"), (3, "estimating the lines"))]
     states = [(step, share) for step in steps for share in (0.0, 0.5, 1.0)]
-    states += [("Estimate · Step 3/5: estimating the lines", share) for share in (0.0, 0.5, 1.0)]
+    states += [("Step 3/5: estimating the lines", share) for share in (0.0, 0.5, 1.0)]
     states += [("Tile 1/9 · Step 2/5: finding significant slopes", 0.5), ("Step 1/5: preparing the data", 0.5)]
     script = tmp_path / "progress.cjs"
     script.write_text(f"""globalThis.document = {{querySelector: () => null}};  // api.ts reads the page's meta tags

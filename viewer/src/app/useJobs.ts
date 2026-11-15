@@ -117,9 +117,9 @@ const share = (bar: Bar | undefined) => !bar ? 0 : bar.total ? Math.min(1, bar.c
 
 /** A job's progress as one step, one bar and one label: the download (its bar), then the computing
  *  (its tiles and the five steps of each, the current step by its bar). The estimate of the lines before
- *  the pairs (search.py: "Estimate · Step 3/5: ..." of one grid, "Estimate, tile 2/9 · Step 2/5: ..." of a
- *  tiled area, steps 2 and 3 of each tile) is a phase of its own: its bar runs from 0 to 1 over its tiles,
- *  then the search's own steps start theirs. */
+ *  the pairs (search.py: "Step 3/5: estimating the lines" of one grid, "Estimate, tile 2/9 · Step 2/5: ..."
+ *  of a tiled area, steps 2 and 3 of each tile) is a phase of its own: its bar runs from 0 to 1 over its
+ *  tiles, then the search's own steps start theirs. */
 export function jobProgress(job: JobView): JobProgress {
   const finished = FINISHED.includes(job.status);
   const state = job.status === "done" ? "done" : job.status === "failed" || job.status === "cancelled" ? "failed"
@@ -130,7 +130,7 @@ export function jobProgress(job: JobView): JobProgress {
     const bar = job.bars.Download;
     fraction = bar && bar.total ? share(bar) : null;
   } else if (job.status === "computing") {
-    const estimate = /^Estimate(?:, tile (\d+)\/(\d+))? · Step (\d+)\//.exec(job.step);
+    const estimate = /^Estimate, tile (\d+)\/(\d+) · Step (\d+)\/|^Step \d+\/\d+: estimating the lines$/.exec(job.step);
     const tile = /Tile (\d+)\/(\d+)/.exec(job.step);
     const step = /Step (\d+)\/(\d+)/.exec(job.step);
     if (estimate) {

@@ -132,7 +132,7 @@ or the lines that fit into `Plan.memory` refused (`too_many_lines_estimate`, `to
 with the advice and the page's words, `_lines_text`/`_shown`: two digits, plain under a million, else millions),
 from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note `estimate_lines`; the funnel's `estimate`
 (a search refused for its lines: `jobs._write_refusal`'s rows); the full search's checks stay; the progress labels
-"Estimate · Step 3/5" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
+"Step 3/5: estimating the lines" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
 `jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process
 
 ## `area.py`
