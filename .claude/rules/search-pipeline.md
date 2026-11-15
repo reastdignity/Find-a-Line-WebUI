@@ -67,15 +67,16 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   with `tools/perf_profile.py`; it sizes the tiles (`tile_core_size` with `TILE_MEMORY_SHARE` and `TILE_PX_MAX`), the
   quick lane's reserve of `slot_memory` and the refusals of lines, and README's `GRID_MPX_MAX` row and
   `settings.Limits.grid_mpx_max`'s description name its value.
-- The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of steps 3, 4 and 5 with a margin
-  (`tools/perf_lines_memory.py --call` on swiss-long, the Gozo coast's large tile and R9, and `--tiles` for the join
-  of a tiled search; after wave 5 of 2026-11-01: 389 B, R9's representatives' profiles in step 4, so 450 B; with the
-  no-fall zone or the A-frames +16 B of `lift_needed`/`lift_no_zone` through steps 4-5 and +16-24 B of `zone_margins`
-  in step 3's join, within the margin, not measured): a change of what steps 3-5 hold per line (`find_valid_lines`'
-  parts, `search.line_coordinates`, `mapping.group_lines`, the profiles, `LineTable.join`, the saving) is measured
-  again with it. `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the
-  profile points: a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change
-  both together.
+- The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of a search's process tree with a margin,
+  counted as the processes' unique sets (USS) plus saving's hand-over files once (its children map the same files, so
+  their working sets summed count those pages once per child; a container once: inferred): docs/performance.md "The
+  memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line with it, so 900 B; the
+  peak at step 5's children; measured with `tools/perf_slot_memory.py --cores 7 --memory <a slot's bytes> --uss`, full
+  searches of 0.7-3.5 million lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per
+  line (`find_valid_lines`' parts, `search.line_coordinates`, `mapping.group_lines`, the profiles, `LineTable.join`,
+  `saving.hand_over`, the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
+  `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the profile points:
+  a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
 - The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
   where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and
   refuses on a prediction, not a lower bound: an estimate over `REFUSE_FACTOR` times a limit may be a search under it
@@ -146,8 +147,8 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
 ## Verifying changes
 
 - Speed or memory changes: measure before and after with the tools of docs/performance.md (`tools/perf_profile.py`,
-  also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_lines_memory.py` for the bytes per
-  line, `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
+  also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_slot_memory.py` for
+  `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
   `lines.geojson` up to its `"findaline"` part, `lines.js` and `data.js` from their `"lines":[` (the run's id and time
   differ; `lines.js` names its run before that). A tiled area only with a fixed `--tile-size`: the tiles follow the
   free memory, which moves lines between tiles and reorders `data.js`. The web worker runs each phase in a daemonic
