@@ -55,3 +55,9 @@ sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
 its heights and a 16 x 16 corner of -32767 (so the ZIP is small), and `toushobu/12/3636/1637.pbf`, the islands'
 index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Government, 東京都デジタルツイン 島しょ地域点群データ /
 区部点群データ, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja) (modified: the ward sheet).
+
+`shizuoka/`: the heads of two of VIRTUAL SHIZUOKA's LP grid sheets as its bucket served them on 2026-11-16 (through
+`net._get`), for `tests/test_japan.py`: `08MC4919_2025.zip` the first 300 lines of FY2025's `08mc4919_0.5g.txt`
+("n,x,y,z,flag", decimetres) and `08OF0485_2019.zip` the first 300 of FY2019's `08OF0485_DEM.txt` ("x y z"), the lines
+untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (modified: cut).
