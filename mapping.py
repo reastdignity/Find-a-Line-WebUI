@@ -374,18 +374,8 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
     return path
 
 
-def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
-              ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
-              rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Tuple[str, str]:
-    """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
-    which the orthophoto cache's URL is relative to): everything before the lines. The run's end
-    zone and A-frames (run.json's params "end_zone", "anchor_lift") go into both heads as
-    "end_zone" and "lift", each only when set (a run without them: the heads of before), and then
-    "ends": the names of the values its rows hold after the drop below anchor 2 and before the
-    profile (helpers.END_VALUES: the A-frame heights each line needs, map_rows). A run made with the
-    square rule (run.json's params "same_line_side", summary "found") has "square" (the side of its
-    anchor squares, m) and "found" (the lines found, which its lines stand for) in both heads, and
-    runs.STANDS_FOR as the last name of "ends": each line's count."""
+def _ends(run: Dict) -> Dict:
+    """The keys of a run's end zone, A-frames and square rule in the heads (map_heads)."""
     params = run.get("params") or {}
     ends = {key: params[name] for key, name in (("end_zone", "end_zone"), ("lift", "anchor_lift"))
             if params.get(name)}
@@ -394,6 +384,15 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
     if params.get("same_line_side"):
         ends.update(square=params["same_line_side"], found=run["summary"]["found"],
                     ends=ends.get("ends", []) + [STANDS_FOR])
+    return ends
+
+
+def map_head(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
+             ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
+             rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Dict:
+    """The head of data.js (map_heads) as a dict, without its "lines": also the head of the run's
+    store (linestore.write, the schema's metadata), which the search writes with or without a map."""
+    ends = _ends(run)
     data = {
         "run": {"id": run["id"], "name": run["name"], "created": run["created"],
                 "description": run.get("description", "")},
@@ -407,10 +406,27 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
         "slope": SLOPE, "leash_fall": LEASH_FALL, **ends, "high_above": high_above, "max_zoom": MAX_ZOOM,
         "terrain": run.get("terrain"),  # the search area's (hypsometry.statistics), None when not known
         "shore": run.get("shore"),  # the uncertain shore (sources.filling.shore_segments), None when not known
-        "lines": None,
     }
     if run.get("terrain_sources"):  # where the area's terrain came from (sources.filling.terrain_origins), when known
-        data = {**{k: v for k, v in data.items() if k != "lines"}, "terrain_sources": run["terrain_sources"], "lines": None}
+        data["terrain_sources"] = run["terrain_sources"]
+    return data
+
+
+def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
+              ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
+              rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Tuple[str, str]:
+    """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
+    which the orthophoto cache's URL is relative to): everything before the lines. The run's end
+    zone and A-frames (run.json's params "end_zone", "anchor_lift") go into both heads as
+    "end_zone" and "lift", each only when set (a run without them: the heads of before), and then
+    "ends": the names of the values its rows hold after the drop below anchor 2 and before the
+    profile (helpers.END_VALUES: the A-frame heights each line needs, map_rows). A run made with the
+    square rule (run.json's params "same_line_side", summary "found") has "square" (the side of its
+    anchor squares, m) and "found" (the lines found, which its lines stand for) in both heads, and
+    runs.STANDS_FOR as the last name of "ends": each line's count. data.js's head is map_head's."""
+    data = {**map_head(area, path, run, crs, group_distance, group_by, ortho_cache, ortho_service, model, rigging,
+                       high_above), "lines": None}
+    ends = _ends(run)
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
     return (_script_head("window.FINDALINE_RUN", data),
             _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], **ends,
