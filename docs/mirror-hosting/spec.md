@@ -428,7 +428,7 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    base at all". The question "does the mirror answer" is a second one, `reach`, asked only where a caller
    passes `reach=True`; everywhere else the default is off, so nothing new can ask by accident.
    `reach` fetches the native resolution's `index.json` of each layer of the source that has a remote base:
-   connect 10 s, 20 s for the answer, two attempts. An index it gets is kept as in 2; a failure is remembered for
+   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts. An index it gets is kept as in 2; a failure is remembered for
    60 s, and only for later `reach` calls (so a quick lane that lives long neither repeats the wait at every
    estimate nor keeps an outage). "Does not answer" is: no HTTP answer, a 5xx other than 503, or a 404 of the
    index (the dataset is not published). A 429 or a 503 is an answer: the mirror is there and busy, the source
@@ -439,21 +439,25 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    - **the first planning of a search**: the command line's search, and a web job's first phase. The reason of a
      fall-back is in that phase's messages, which the page shows.
    - **Estimates** in the worker's quick lane, so an estimate says what a search would do.
-   - **A country run's main process**, once, for the country's own source before the prefetch: down is an error
-     and the run does not start (a country counted on the fall-back's data would be useless).
+   - **A country run's main process**, once, for the country's own source: in `country.run` between the setup and
+     the band plans (never inside `band_plan`, which the workers share). Down is an error and the run does not
+     start, as an unavailable own source already stops it today; that holds for a resume whose tiles are all
+     cached too (a country counted on the fall-back's data would be useless, and the rule stays one rule).
    - **The probe** (`findaline.py sources check`): its row for these layers shows the index's state, and it reads
      the first tile the index lists with data.
    Who never does:
    - **Later phases of the same job never choose again**: `plan_search` gets the first phase's source as an
      argument of its own (the job's stored `source`, which the first phase already writes and which holds
      "europe" after a fall-back). `params.source` stays as the user gave it, so the search's hash, a tiled
-     area's resume and `run.json` do not change. The later phase's "Data:" line names the source as "chosen when
-     the search started"; the reason itself is not stored (no migration). A tile the phase still needs is
+     area's resume and `run.json` do not change. The argument is ignored when an elevation file is given, and a
+     job without a stored source chooses as today, without `reach`. The later phase's "Data:" line names the
+     source as "chosen when the search started" (the two readers of that line, `tests/regression.py` and
+     `tools/obstacle_study.py`, still match it); the reason itself is not stored (no migration). A tile the phase still needs is
      downloaded then; if the mirror does not answer, the phase fails (U6's "in the middle") and running it again
      resumes from the cache. This is the part to trace first; its review runs at high effort.
-   - **A finished run's profiles and 3D views** (`search.py:2569`, `:2633`, `:2768`: they plan through
-     `plan_search` with the run's source by name): they work from the cache while the mirror is down, and a
-     remembered failure never touches them.
+   - **A finished run's profiles and 3D views** (they plan through `plan_search` at `search.py:2569`, `:2648` and
+     `:2781` and choose the run's source by name at `:2633` and `:2768`): they work from the cache while the
+     mirror is down, and a remembered failure never touches them.
    - **Neighbours** (`filling.py:1325`, `country.py:1454`): no check of their own. A neighbour whose download
      fails is skipped by the code as it is today (`filling.py:1335`: "Gaps at the border not filled from ...",
      after `net._get`'s attempts), which is P5.
@@ -474,7 +478,9 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
 6. **Good manners** (P25). `net.HOST_SLOTS_OF` gets the mirror's host with 2 connections and `net.HOST_RATES_OF`
    with 600 requests a minute: half a visitor's per-address numbers, so two installations behind one address
    fit. Index requests take no slot, so an installation can have 2 tiles and an index or two under way: within
-   the 4 requests an address may have at once, for visitors and for the trusted class alike. Requests to the
+   the 4 requests an address may have at once, for visitors and for the trusted class alike. Accepted: several
+   processes of one machine fetching indexes at the same moment can pass 4, and a request refused three times
+   then fails its phase, which is run again (rare: an index is fetched once per process and 300 s). Requests to the
    mirror pass `timeout=(10, 300)` (today one 300 s value serves as both: a dead home server would cost 3 x
    300 s a tile).
 7. **Estimates.** For a remote base `GridTiles.estimate` uses a kept index when there is one (null tiles are not
