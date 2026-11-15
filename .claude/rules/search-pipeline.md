@@ -140,7 +140,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   country layer: `country.json`, `area.geojson`, `manifest.sqlite`, `run.lock`, `logs/`, `tiles/<band>/<name>.npz`,
   `cube/`, `compare.json`; the tiles' grids in `work/country-<id>/<band>-<name>/`, removed after each tile); a tiled
   search's work folder holds the area's grids of step 1 (`nmt.npy`, `nmpt.npy`, `obstacles.npy`, `wbm.npy`,
-  `water.npy`, `filled.npy`, `joined.npy`, `gap_*.npy`, `mask.npy`; its temporaries `sea.npy`, `sea_zone.npy`,
+  `water.npy`, `filled.npy`, `joined.npy`, `gap_*.npy`, `mask.npy`, `access.npy` with `--access`; its temporaries `sea.npy`, `sea_zone.npy`,
   `lake.npy`, `bare.npy`, `border.npy`, `footprint.npy`, `edge.npy`, `*_gaps.npy`, `both.npy` while they are used),
   removed after the last tile, and each tile's copies in `tile<k>/` while it is computed; layout and index in
   `cache.py`. `country run` from a worktree needs `--data-dir` of the real data folder (the worktree's own cache is

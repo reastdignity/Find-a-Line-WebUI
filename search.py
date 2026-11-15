@@ -817,7 +817,8 @@ def estimate_search(plan: Plan) -> Estimate:
         # The area's grids with step 1's temporaries, and the copies of one tile at a time (the
         # largest one's: a tile's folder is removed before the next tile's are made)
         largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
-        work += plan.grid.width * plan.grid.height * AREA_TEMP_BYTES + largest.width * largest.height * tile_bytes(plan)
+        work += plan.grid.width * plan.grid.height * (AREA_TEMP_BYTES + bool(plan.params.access)) \
+            + largest.width * largest.height * tile_bytes(plan)  # with --access the area's access.npy (uint8)
     work_gb = work / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
@@ -859,11 +860,13 @@ AREA_TEMP_BYTES = 4
 def tile_bytes(plan: Plan) -> int:
     """The bytes per pixel of a tile's copies of the area's grids (search_lines: _tile_data): float32
     the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled, the
-    joined and the covered masks (the gaps with the shore faces) when the search makes them."""
+    joined and the covered masks (the gaps with the shore faces) when the search makes them; uint8 the access
+    grid's window with --access."""
     p, source = plan.params, plan.source
     floats = 1 + bool(plan.nmpt) + bool(p.slope_file)
     masks = (p.water == "fill") + (_fills_gaps(plan) and (bool(source.fallback) + bool(source.neighbours)))
     masks += p.water == "fill" and bool(plan.nmpt)
+    masks += bool(p.access)
     return 4 * floats + masks
 
 
@@ -2170,9 +2173,10 @@ def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarr
 
 def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
     """access1, access2 of the lines (with their pixels "a1", "a2" of data's grid; in place): each anchor's
-    answer of the access grid (access.at, uint8). An anchor on a pixel the measure takes for no data (filled
-    from a coarser model and not water: access_grid's rule; never NaN, where no anchor lies) holds what the
-    measure gives a pixel without data there, which is no answer about walking: "cannot tell" (UNSURE)
+    answer of the access grid (access.at, uint8). An anchor on a pixel the measure takes for no data (one of
+    Data.filled_pixels and not water: a gap filled from a coarser model, or a shore face taken from the surface
+    model, which is where such anchors stand: the cliff's top edge, R83; never NaN, where no anchor lies) holds
+    what the measure gives a pixel without data there, which is no answer about walking: "cannot tell" (UNSURE)
     instead, never "hard access"."""
     import access
     water, filled = data.water, data.filled_pixels()
@@ -2189,7 +2193,7 @@ def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
         answers[no_data] = access.UNSURE
         lines.columns[name] = answers.astype(np.uint8, copy=False)
     if mapped:
-        plan.emit("info", f"Access: {mapped} line ends on filled data (no data for the walk) read "
+        plan.emit("info", f"Access: {mapped} line ends on filled data or shore faces (no data for the walk) read "
                           f"\"cannot tell\"")
 
 

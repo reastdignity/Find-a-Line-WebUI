@@ -140,9 +140,10 @@ whole grid, `Data.access`: in memory for one grid (`find_lines`, unless the data
 `ACCESS_FILE` (`access.npy`) in its work folder, removed with step 1's grids, each tile's window copied by
 `_tile_data` (so a tile reads one grid's answers: the measure's window margin `access.MARGIN_M` never applies);
 `_lines` after `line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors'
-pixels), an anchor on a pixel the measure takes for no data (filled and not water) set to `access.UNSURE` (cannot
-tell) with an info line of how many; `_run_params` (`access`) and `_search_hash` hold the option only when set;
-its memory is the whole grid's, not a tile's (docs/performance.md, "The access grid's memory"); `save_run`'s
+pixels), an anchor on a pixel the measure takes for no data (filled or a shore face, not water) set to
+`access.UNSURE` (cannot tell) with an info line of how many; `_run_params` (`access`) and `_search_hash` hold
+the option only when set; `tile_bytes` and `estimate_search` count the uint8 `access.npy` and a tile's copy; its
+memory is the whole grid's, not a tile's (docs/performance.md, "The access grid's memory"); `save_run`'s
 warning of a store that failed is the `messages.Note` `store_failed` (the exception's text on the command line only)
 
 ## `area.py`

@@ -142,7 +142,7 @@ def test_whole_metres_and_the_end_of_the_data(tmp_path, offline):
 
 
 def test_anchors_on_filled_data_cannot_tell():
-    """search._access_columns: an anchor the measure takes for no data (filled from a coarser model and not water)
+    """search._access_columns: an anchor the measure takes for no data (Data.filled_pixels and not water)
     reads cannot tell whatever the grid holds there, with a note of how many; one on filled water or on the
     source's data keeps the grid's answer."""
     grid = np.zeros((4, 4), np.uint8)  # every pixel hard access
@@ -159,7 +159,8 @@ def test_anchors_on_filled_data_cannot_tell():
     search._access_columns(plan, lines, data)
     assert lines.columns["access1"].tolist() == [1, 0, 0, 1] and lines.columns["access2"].tolist() == [0, 1, 1, 1]
     assert lines.columns["access1"].dtype == np.uint8
-    assert events == [("info", 'Access: 5 line ends on filled data (no data for the walk) read "cannot tell"')]
+    assert events == [("info", 'Access: 5 line ends on filled data or shore faces (no data for the walk) read '
+                                       '"cannot tell"')]
 
 
 @pytest.fixture(scope="module")
@@ -300,6 +301,20 @@ def test_tiles_give_one_grids_answers(tmp_path, monkeypatch):
         rows = {name: _script(os.path.join(runs[name], file))["lines"] for name in ("one", "tiled")}
         assert sorted(map(json.dumps, rows["one"])) == sorted(map(json.dumps, rows["tiled"])), file
     assert len(glob.glob(os.path.join(runs["tiled"], "tiles", "*.table.pkl.gz"))) > 1
+    # with the square rule too: the access columns pass the reducer and the join of the tiles' kept lines
+    kept = {}
+    for name, tile_size in (("one-square", None), ("tiled-square", 150)):
+        params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                              area=area, max_length=150, water="fill", fill_gaps="on", coastline="copernicus",
+                              ortho="never", tile_size=tile_size, access=True, same_line_square=5, name=name)
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = dataclasses.replace(search.plan_search(params, paths, lambda kind, text: None), index_runs=False)
+        lines, run = search.search_lines(plan)
+        kept[name] = search.save_run(plan, lines, run).run["path"]
+    table = open(os.path.join(kept["one-square"], "lines.csv"), "rb").read()
+    assert table == open(os.path.join(kept["tiled-square"], "lines.csv"), "rb").read()
+    assert b",access1,access2,stands_for\r\n" in table[:2000]
 
 
 def test_the_store_note_is_coded(tmp_path, offline, monkeypatch):
