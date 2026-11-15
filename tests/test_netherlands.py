@@ -58,7 +58,7 @@ def test_declarations():
     assert fo.countries == ("fo",) and fo.crs == "EPSG:5316" and fo.nmpt is None and fo.fallbacks == ["copernicus"]
     assert fo.grid_origin == faroe.FO_ORIGIN and fo.default_resolution == 2.0 and fo.neighbours == ()
     assert fo.nmt.folder == "faroe/dsm-2015-2m/20241112" and not fo.nmt.reader.force_crs
-    for host, slots in (("service.pdok.nl", 4), ("basisdata.nl", 4), ("cdn.foroyakort.fo", 2)):
+    for host, slots in (("service.pdok.nl", 4), ("basisdata.nl", 2), ("cdn.foroyakort.fo", 2)):
         assert src.net.HOST_SLOTS_OF[host] == slots
 
 
@@ -91,12 +91,36 @@ def test_chosen_by_box(monkeypatch, tmp_path, lat, lon, expected):
 
 
 def test_offline_boxes():
-    """Without a lookup, the islands' boxes and the European box give nl; the Faroes fo."""
-    for code, (s, n, w, e) in [("nl", netherlands.NL_BOX), ("fo", faroe.FO_BOX)] + [
-            ("nl", src.SOURCES[sid].bbox) for sid in ISLANDS]:
+    """Without a lookup, the islands' boxes give nl; the Faroes fo."""
+    for code, (s, n, w, e) in [("fo", faroe.FO_BOX)] + [("nl", src.SOURCES[sid].bbox) for sid in ISLANDS]:
         lat, lon = (s + n) / 2, (w + e) / 2
         assert any(c == code and bs <= lat <= bn and bw <= lon <= be
                    for c, (bs, bn, bw, be) in choose.OFFLINE_BOXES)
+
+
+@pytest.mark.parametrize("lat, lon, expected", [
+    (51.44, 3.57, "nl"),    # Vlissingen
+    (51.31, 3.39, "nl"),    # Sluis (Zeeuws-Vlaanderen)
+    (51.28, 4.05, "nl"),    # Hulst
+    (51.44, 5.48, "nl"),    # Eindhoven
+    (51.25, 5.71, "nl"),    # Weert
+    (50.85, 5.69, "nl"),    # Maastricht
+    (53.22, 6.57, "nl"),    # Groningen
+    (50.85, 4.35, None),    # Brussels
+    (51.22, 4.40, None),    # Antwerp
+    (51.05, 3.72, None),    # Ghent
+    (50.63, 5.57, None),    # Liège
+    (51.21, 3.22, None),    # Bruges
+    (51.32, 4.95, None),    # Turnhout
+    (51.10, 5.79, None),    # Maaseik
+])
+def test_offline_keeps_off_belgium(monkeypatch, tmp_path, lat, lon, expected):
+    """Offline (or with a user's Nominatim quota used up) a centre in Belgium, which has no source, never gets the
+    Netherlands' boxes; the Dutch land does, Zeeuws-Vlaanderen and South Limburg's Maastricht included."""
+    def offline(*args, **kwargs):
+        raise ValueError("offline")
+    monkeypatch.setattr(choose.osm, "reverse", offline)
+    assert choose.country_code(lat, lon, str(tmp_path)) == expected
 
 
 def _write(path, crs, left, top, band, res=0.5):
@@ -227,3 +251,39 @@ def test_wcs_requests():
     subsets = [v for k, v in reader.coverage_params(175000, 315000, 176000, 316000, 0.5) if k == "SUBSET"]
     assert params["COVERAGEID"] == "dtm_05m" and params["FORMAT"] == "image/tiff" and "SCALESIZE" not in params
     assert subsets == ["x(175000.000,176000.000)", "y(315000.000,316000.000)"]
+
+
+@pytest.mark.parametrize("force_crs, ok", [(True, True), (False, False)])
+def test_probe_window_forced_crs(tmp_path, force_crs, ok):
+    """The probe's window read (sources/probe.py _window) takes a LOCAL_CS file in the layer's CRS when the layer
+    forces it, and calls it a file in another CRS when it does not (a local file: no request)."""
+    from sources import probe
+    band = np.full((2400, 2400), 250.0, np.float32)
+    band[:8, :] = np.nan  # the window's first rows without data: a share, not all
+    path = tmp_path / "local.tif"
+    _write(path, rio.crs.CRS.from_wkt(LOCAL_CS), 499000.0, 1938000.0, band)
+    layer = _layer(str(path), force_crs)
+    if ok:
+        text = probe._window(str(tmp_path / "cache"), layer, (499, 1937))
+        assert text.startswith("window ") and text.endswith("% with data") and not text.startswith("window 100%")
+    else:
+        with pytest.raises(RuntimeError, match="is in .*not EPSG:10745"):
+            probe._window(str(tmp_path / "cache"), layer, (499, 1937))
+
+
+def test_check_source_reads_a_local_cs_file(tmp_path):
+    """tools/check_source.py compares cached blocks with their files through a WarpedVRT in the block's CRS: a file
+    naming only a LOCAL_CS is read as if in that CRS (src_crs), its pixels as they are."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    band = (np.add.outer(np.arange(400) * 0.5, np.arange(400) * 0.25) + 10.0).astype(np.float32)
+    band[:20, :30] = np.nan
+    path = tmp_path / "local.tif"
+    _write(path, rio.crs.CRS.from_wkt(LOCAL_CS), 499000.0, 1938000.0, band)
+    profile = {"crs": rio.crs.CRS.from_epsg(10745), "transform": from_origin(499050.0, 1937990.0, 0.5, 0.5),
+               "width": 200, "height": 300}
+    values = cs._read_source(str(path), profile)
+    expected = band[20:320, 100:300]
+    assert values.shape == (300, 200)
+    assert np.array_equal(np.isnan(values), np.isnan(expected))
+    assert np.allclose(values[~np.isnan(values)], expected[~np.isnan(expected)])
