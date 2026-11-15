@@ -525,10 +525,10 @@ def test_ortho_attribution_url(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def clip_data(clip_folder):
+def clip_data(tmp_path_factory):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),
-    computed once, offline: (its JSON text, the value)."""
-    path = clip_folder / "data.js"
+    computed once, offline: (its JSON text, the value). Other modules import this fixture alone."""
+    path = _clip_folder(tmp_path_factory, "clip") / "data.js"
     text = path.read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";")
     return text, json.loads(text)
 
@@ -1423,9 +1423,14 @@ console.log(JSON.stringify(out));
 def clip_folder(tmp_path_factory):
     """The run folder of the Żabi Koń clip's run of clip_data (its own copy): data.js and the store the search
     wrote."""
-    import clip_runs  # the search once per session, this module's own copy
+    return _clip_folder(tmp_path_factory, "clipstore")
+
+
+def _clip_folder(tmp_path_factory, name: str):
+    """A copy of the folder of clip_data's run (the search runs once per session)."""
+    import clip_runs
     tests_data = os.path.join(REPO, "tests", "data")
-    data = clip_runs.data_copy(tmp_path_factory, "clip", [
+    data = clip_runs.data_copy(tmp_path_factory, name, [
         "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
         "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
         "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
