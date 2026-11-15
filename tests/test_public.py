@@ -3094,6 +3094,8 @@ def test_large_circle_keeps_the_spots_profiles(tmp_path, monkeypatch):
     those of the lines shown for the spots (as an area), and its lines are then not refused for them."""
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them could refuse the memory at its lines: tests/test_sample_estimate.py)
     point = {"northing": 254608, "easting": 553966, "radius": 150}
     plan = _plan(tmp_path / "small", Limits(), **point)
     every = search.find_lines(plan, search.prepare_data(plan))
@@ -3181,6 +3183,8 @@ def test_lines_limit_counts_earlier_tiles(tmp_path, monkeypatch):
     import mapping
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them could refuse it first: tests/test_sample_estimate.py)
     found = []
     coordify = mapping.coordify
     monkeypatch.setattr(mapping, "coordify", lambda lines, *a: (found.append(len(lines)), coordify(lines, *a))[1])
