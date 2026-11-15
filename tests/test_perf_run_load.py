@@ -55,6 +55,21 @@ def test_summarize_result_takes_the_first_measure_and_medians():
     assert prl.summarize_result([{**r, "source": "data.js"} for r in rounds])["source"] == "data.js"
 
 
+def test_the_file_read_and_its_size(tmp_path):
+    """A row names the file its page read, with that file's bytes: the store (lines.arrow + profiles.arrow) when the
+    page asked for lines.arrow and not data.js; data.js when it asked for that, also after a store's 404 (the
+    fallback)."""
+    assert prl.source_of(["/app/app.js", "/runs/r/lines.arrow", "/runs/r/profiles.arrow"]) == "store"
+    assert prl.source_of(["/runs/r/lines.arrow", "/runs/r/profiles.arrow", "/runs/r/data.js"]) == "data.js"
+    assert prl.source_of(["/runs/r/data.js"]) == "data.js"
+    for name, size in (("data.js", 5000), ("lines.arrow", 3000), ("profiles.arrow", 700)):
+        (tmp_path / name).write_bytes(bytes(range(256)) * (size // 256) + b"x" * (size % 256))
+    store = prl.size_of(str(tmp_path), "store")
+    assert store["bytes"] == 3700 and store["gzip"] == prl.gzip_size(str(tmp_path / "lines.arrow")) + \
+        prl.gzip_size(str(tmp_path / "profiles.arrow"))
+    assert prl.size_of(str(tmp_path), "data.js") == {"bytes": 5000, "gzip": prl.gzip_size(str(tmp_path / "data.js"))}
+
+
 def test_scratch_data_lists_a_runs_store(tmp_path):
     """The scratch data folder holds each run's store beside its data.js and a runs.js that lists run.json's block
     "store", so the page reads the store there, as in the app; a run without a store is listed without one."""

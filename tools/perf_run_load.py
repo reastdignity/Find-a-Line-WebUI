@@ -46,6 +46,7 @@ HEAD_MAX = 32 * 1024 * 1024  # bytes of data.js read to find its first line
 # what the result and the 3D view read of a run: its store when it has one (run.json's block "store", listed in the
 # scratch folder's runs.js), else its data.js
 RUN_COPY = ("data.js", "lines.arrow", "profiles.arrow", "run.json", "ATTRIBUTION.txt")
+STORE_FILES = ("lines.arrow", "profiles.arrow")  # linestore.FILES
 # data.js read as a script (before 2026-11-04, a map from disk, a file JSON.parse refuses) or fetched and parsed
 PHASES = ("fal:run:script", "fal:run:download", "fal:run:parse", "fal:run:lines", "fal:run:filter", "fal:run:group", "fal:run:ranges", "fal:run:rows")
 PHASES_3D = ("fal:3d:request", "fal:3d:body", "fal:3d:decode", "fal:3d:mesh", "fal:3d:first-frame",
@@ -141,6 +142,22 @@ def gzip_size(path: str, level: int = GZIP_LEVEL) -> int:
     return size + len(gz.flush())
 
 
+def source_of(asked: list) -> str:
+    """The file a page read of its run, from the paths it asked for: "data.js" when it asked for that (a run without
+    a store, or a store's file missing: the fallback), else "store" when it asked for lines.arrow."""
+    if any(a.endswith("/data.js") for a in asked):
+        return "data.js"
+    return "store" if any(a.endswith("/lines.arrow") for a in asked) else "data.js"
+
+
+def size_of(folder: str, source: str) -> dict:
+    """The bytes of the file(s) a run's page read (`source`: "store", lines.arrow and profiles.arrow; else data.js)
+    and gzipped as nginx sends them."""
+    names = STORE_FILES if source == "store" else ("data.js",)
+    paths = [os.path.join(folder, name) for name in names]
+    return {"bytes": sum(os.path.getsize(p) for p in paths), "gzip": sum(gzip_size(p) for p in paths)}
+
+
 def median(values):
     values = [v for v in values if v is not None]
     return statistics.median(values) if values else None
@@ -203,7 +220,7 @@ def markdown(results: dict) -> str:
     out = ["# Loading a run in the browser", "",
            f"Chromium {results['browser']}, {results['rounds']} rounds per run, medians; seconds unless named.", "",
            "## The result's page", "",
-           "| run | lines | read | data.js MB | gzip MB | " + " | ".join(f"gzip at {r} Mbit/s" for r in RATES_MBIT) +
+           "| run | lines | read | file MB | gzip MB | " + " | ".join(f"gzip at {r} Mbit/s" for r in RATES_MBIT) +
            " | transfer (loopback) | script | download | parse | lines | filter | group | ranges | rows | shown | longest task | "
            "long tasks | heap MB |",
            "|" + "---|" * (18 + len(RATES_MBIT))]
@@ -215,7 +232,8 @@ def markdown(results: dict) -> str:
                    + " | ".join(rates) + " | " + " | ".join(_s(r[k]) for k in (
                        "transfer", "script", "download", "parse", "lines", "filter", "group", "ranges", "rows", "ready", "longest_task",
                        "long_tasks")) + f" | {'' if r['heap_mb'] is None else round(r['heap_mb'])} |")
-    out += ["", "*read*: the file the page read (the store, or data.js); *transfer*: that file's (lines.arrow's or "
+    out += ["", "*read*: the file the page read (the store, or data.js), whose bytes *file MB* and *gzip MB* give "
+            "(the store: lines.arrow and profiles.arrow); *transfer*: that file's (lines.arrow's or "
             "data.js's) resource timing; *script*: from the request to its load event (download and parse); "
             "*download*, *parse*: fetched with its bytes counted, then JSON.parse (result/load.ts); *shown*: from the "
             "page's start to the result drawn.", "",
@@ -315,10 +333,10 @@ def open_result(browser, site: str, run: str, timeout: float, out: str, keep_pag
         context.close()
         raise SystemExit(f"{run}: the result did not show ({failed}; page errors {errors}; {shot})")
     # which file the page read: the store (lines.arrow, profiles.arrow) or data.js
-    store = page.evaluate("() => performance.getEntriesByType('resource')"
-                          ".some((r) => new URL(r.name).pathname.endsWith('/lines.arrow'))")
-    found = page.evaluate(COLLECT, "/lines.arrow" if store else "/data.js")
-    found["source"] = "store" if store else "data.js"
+    source = source_of(page.evaluate("() => performance.getEntriesByType('resource')"
+                                     ".map((r) => new URL(r.name).pathname)"))
+    found = page.evaluate(COLLECT, "/lines.arrow" if source == "store" else "/data.js")
+    found["source"] = source
     print(f"{run}: read from {found['source']}", flush=True)
     found["errors"] = errors
     if keep_page:
@@ -367,8 +385,7 @@ def measure(args) -> dict:
             results["browser"] = browser.version
             for run in args.runs:
                 path = os.path.join(args.runs_dir, run, "data.js")
-                print(f"{run}: gzip size", flush=True)
-                entry = {"id": run, "size": {"bytes": os.path.getsize(path), "gzip": gzip_size(path)}}
+                entry = {"id": run}
                 rounds = []
                 for k in range(args.rounds):
                     print(f"{run}: result, round {k + 1} of {args.rounds}", flush=True)
@@ -388,6 +405,8 @@ def measure(args) -> dict:
                     rounds.append(found)
                 entry["result_rounds"] = rounds
                 entry["result"] = summarize_result(rounds)
+                print(f"{run}: gzip size", flush=True)
+                entry["size"] = size_of(os.path.join(args.runs_dir, run), entry["result"]["source"])
                 if args.levels:
                     line = first_line(path)
                     entry["line"] = line

@@ -3416,9 +3416,10 @@ store keeps its files (BAH: 207.8 MB) where `data.js`'s columns took about as mu
 | 2.29 M cut | 530.4 | 183.3 | 237.5 | 108.2 |
 | 2.5 M cut | 579.3 | 200.5 | 259.2 | 118.4 |
 
-nginx gzips by `gzip_types` (`deploy/nginx/findaline.conf`), which lacks `application/vnd.apache.arrow.file`. So the
-public site sends the store as it is: 207.8 MB at BAH against 143.9 MB of gzipped `data.js`, until the type is
-added (89.5 MB) or wave 6 sends brotli.
+nginx gzips by `gzip_types` (`deploy/nginx/findaline.conf`). The measurement found `application/vnd.apache.arrow.file`
+missing there, so the store went out as it is (207.8 MB at BAH against 143.9 MB of gzipped `data.js`). The fix round
+of this step added the type (`docs/deployment.md`; `tests/nginx_check.sh` checks it): the public site now sends BAH's
+store gzipped, 89.5 MB, until wave 6 sends brotli.
 
 **What it means:**
 - **T5, heap under 500 MB at BAH: met by the user's reading.** The peak two frames after the first picture is

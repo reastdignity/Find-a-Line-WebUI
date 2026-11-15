@@ -1608,6 +1608,45 @@ def test_store_failures_and_fallbacks(tmp_path, store_cases):
     assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": []}
 
 
+COMPARE_GROUPS_SCRIPT = r"""
+const fs = require("fs");
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+const script = (p) => { const window = {}; new Function("window", fs.readFileSync(p, "utf-8"))(window); return window.FINDALINE_RUN; };
+// lines.js: data.js's rows without the profile, with the head's values Compare reads
+const rowsOf = (data) => ({crs: data.crs, area: data.area, terrain: data.terrain, ends: data.ends,
+                           lines: data.lines.map((r) => r.slice(0, -1))});
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const info = (id) => ({id, name: id, created: "", description: ""});
+const runKey = (l) => (l.run ? l.run.info.id : "this") + "|" + m.lineCoords(l);
+const groupsOf = (model) => JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)));
+const here = script(cases.square + "/data.js");
+// the other run as Compare reads it from its store (loadOtherRun: lines.arrow only) and, for the reference, its rows
+const fromStore = m.readStore(bytes(cases.zone + "/lines.arrow"), null), fromRows = rowsOf(script(cases.zone + "/data.js"));
+const model = new m.ResultModel(here, {favourites: false, api}), reference = new m.ResultModel(here, {favourites: false, api});
+model.addRun(info("zone"), fromStore);
+reference.addRun(info("zone"), fromRows);
+const out = {total: [model.total, reference.total], same: groupsOf(model) === groupsOf(reference)};
+model.removeRun("zone");
+out.removed = groupsOf(model) === groupsOf(new m.ResultModel(here, {favourites: false, api}));
+model.addRun(info("zone"), fromStore);  // ticked off and on again
+out.again = groupsOf(model) === groupsOf(reference);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_compare_from_a_store_groups_as_from_its_rows(tmp_path, store_cases):
+    """Compare's other run read from its store (the columns of lines.arrow, no profiles, as loadOtherRun gives them to
+    model.addRun) gives the spots and lines it gives from its rows (lines.js); ticked off, this run's spots alone;
+    ticked on again, the same spots."""
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
+                          encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), COMPARE_GROUPS_SCRIPT, cases_path)
+    assert out["total"] == [6000, 6000] and out["same"], out
+    assert out["removed"] and out["again"], out
+
+
 WHICH_FILE_SCRIPT = r"""
 // runs.js as the server has it now (`listed`), loaded by a made-up script tag; each load counted
 let listed = [], loads = [];
