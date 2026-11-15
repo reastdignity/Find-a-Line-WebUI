@@ -52,6 +52,7 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
+# "need:<expression>" to wait until it is true and leave the page out when it is not (the run does not have it),
 # or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
 # RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
@@ -73,10 +74,12 @@ ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t
 # The filter of a run with a no-fall zone or A-frames ("A-frame needed at most", FilterBar.tsx LiftFilter) in view
 RIGGING_SHOWN = "document.querySelector('.r-lift')?.scrollIntoView({block: 'center'})"
 # The uncertain shore's control shown (shoreLayer.ts), and its chip unfolded (a click whether the chip is shown or not:
-# from 768 px up it is hidden and the box is open anyway)
+# from 768 px up it is hidden and the box is open anyway). A run without uncertain shore (the clip's) has no control:
+# its shore pages are left out ("need:"), not shot empty after a wait or failed on the chip's click
 SHORE_SHOWN = ["js:(window.FINDALINE_MAP.zoomOut(1, {animate: false}), new Promise((done) => setTimeout(done, 1500)))",
-               "wait:document.querySelector('.u-shore-ctl:not([hidden])')"]  # zoomed out: a coast at the area's edge
-SHORE_UNFOLD = "document.querySelector('.u-shore-chip').click()"
+               "need:document.querySelector('.u-shore-ctl:not([hidden])')"]  # zoomed out: a coast at the area's edge
+SHORE_UNFOLD = "document.querySelector('.u-shore-chip')?.click()"
+NEED_WAIT_MS = 20000  # how long a "need:" step waits before its page is left out
 # The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
 PROFILE_IN_VIEW = "document.querySelector('.r-dock .fal-profile-chart')?.scrollIntoView({block: 'center'})"
 # A click at the map's centre on what is there (the cells' canvas: Leaflet finds the cell under it)
@@ -446,8 +449,10 @@ def serve(data: str, run_folder: str | None = None):
         rigger = users.sign_in("github", subject, name)
         users.set_status(rigger.id, "approved")
         users.set_unlimited(rigger.id, True)
+        have = {rig["name"] for rig in jobs.rigs(rigger.id)}  # a --data-dir used before: its rigs are there
         for rig_name, values in rigs:
-            jobs.add_rig(rigger.id, rig_name, values)
+            if rig_name not in have:
+                jobs.add_rig(rigger.id, rig_name, values)
         cookies[name] = users.new_session(rigger.id)[0]
     run = saved_run(data, run_folder) if run_folder else clip_run(data)
     sys.path.insert(0, os.path.join(REPO, "tests"))
@@ -564,6 +569,15 @@ def main():
                                     page.wait_for_function(f"() => ({step[5:]})", timeout=60000)
                                 except Exception:
                                     print(f"{name} ({device}): still waiting for {step[5:]}")
+                                page.wait_for_timeout(600)
+                                continue
+                            if step.startswith("need:"):  # what the page shows, absent in this run: no page
+                                try:
+                                    page.wait_for_function(f"() => ({step[5:]})", timeout=NEED_WAIT_MS)
+                                except Exception:
+                                    print(f"{name} ({device}): left out, this run does not have {step[5:]}")
+                                    missing = True
+                                    break
                                 page.wait_for_timeout(600)
                                 continue
                             if step.startswith("low:"):  # the last one, at the bottom of its panel

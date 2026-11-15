@@ -120,28 +120,3 @@ origin 0.6, 12 804 pixel centres differ and 3 408 fall into another square, so a
 than the same search on one grid. Not reachable today: such a tiled search crashes first (the entry above). A fix,
 before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
 indices.
-
-## An unfinished tiled sag job starts over after migration 17
-
-Seen 2026-11-14 (the sag model's fall zone default of 6 m): migration 17 of `jobs.sqlite` writes 3 into stored sag
-requests that had no `fall_zone`, and the worker validates it as the float 3.0, while the job's hash of before
-(`search._search_hash`) was taken with the default's int 3. The hashes differ, so a tiled sag job of the web app that
-was unfinished at the deploy, searched again, starts over instead of resuming from its finished tiles; its results
-are the same. Not normalised: that would move the hash of command-line sag searches given `--fall-zone 3`. Only jobs
-unfinished at that one deploy are affected.
-
-## A search stopped early by the square rule's check writes no funnel counts for that grid
-
-Seen 2026-11-14 (the line-volume task): when the early check inside the square rule's reducer refuses a search
-(the line limit or the memory budget during the pair search), `Plan.funnel` of that grid is not filled, so the job's
-`job_funnel` rows lack the line search's counts for it. The refusal itself is right. A fix would add the counts
-reached so far before the refusal is raised.
-
-## The truth check has no reason for a known line the square rule dropped
-
-Seen 2026-11-14 in the truth check's pass with `--same-line-square 5` (docs/truth-check.md, "The square rule"):
-`tools/truth_analysis.py` gives a known line that no found line matches a reason from the line's tests (clearance,
-height difference, a structure as an anchor …); a line whose valid pair was found and then dropped by the square
-rule (another line of the same pair of squares kept) fails none of them, so it reads `unexplained` (20 known lines
-in that pass). A fix gives such a line its own reason, for example
-`square_rule`, found by applying the rule's key to the best valid pair.

@@ -10,7 +10,7 @@ import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
-import { loadRunFrom, type LoadProgress } from "../result/load";
+import { columnsOf, loadRunFrom, TooLarge, type LoadProgress } from "../result/load";
 import type { ResultModel } from "../result/model";
 import { ResultColumns, type BackAction } from "../result/view/ResultColumns";
 import { RunLoading } from "../result/view/RunLoading";
@@ -53,13 +53,19 @@ function RunMap({data}: {data: RunData}) {
 
 /** The map once its data is in; meanwhile the load's progress (RunLoading), or its error. */
 function LoadedMap() {
-  const [data, setData] = useState<RunData | null>(window.FINDALINE_RUN ?? null);
+  // data.js loaded by a tag before the bundle (a map.html of before 2026-11-04): its rows as columns, then dropped
+  const [data, setData] = useState<RunData | null>(() => {
+    const script = window.FINDALINE_RUN;
+    if (!script) return null;
+    delete window.FINDALINE_RUN;
+    return columnsOf(script);
+  });
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (data) return;
     loadRunFrom("data.js", "map", setProgress)
-      .then(setData, () => setError("The run's data (data.js) could not be loaded."));
+      .then(setData, (e) => setError(e instanceof TooLarge ? e.message : "The run's data (data.js) could not be loaded."));
   }, []);
   if (data) return <RunMap data={data} />;
   return <Screen theme={storedTheme()}><RunLoading progress={progress} error={error} /></Screen>;

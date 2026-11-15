@@ -676,7 +676,7 @@ const out = {};
   favourites = [model.lineLink(model.groups.find((g) => g.members.length > 1).members[1])];
   model = new m.ResultModel(data, {favourites: true, api});  // its own lines
   await tick();
-  const fav = model.lines.find((l) => model.lineLink(l) === favourites[0]);
+  const fav = model.linkedLine(favourites[0]);
   const g0 = model.groupOf(fav);
   out.fav = {on: model.favouritesOn, shown: model.shownOf(g0) === fav, isFav: model.isFavourite(fav),
              asFav: model.shownAsFavourite(g0)};
@@ -708,7 +708,7 @@ const out = {};
     addFolder: async (name, parent) => { made.push([name, parent]); return 9; }};
   model = new m.ResultModel(data, {favourites: true, api: folderApi});
   await tick();
-  const inTrips = model.lines.find((l) => model.lineLink(l) === favourites[0]);
+  const inTrips = model.linkedLine(favourites[0]);
   const plain = model.groups.find((g) => !g.members.includes(inTrips)).rep;
   out.folders = {of: model.folderOf(inTrips), path: model.tree.path(5), plain: model.folderOf(plain) === undefined};
   const nine = await model.newFolder(" Later ", 5);
@@ -717,7 +717,7 @@ const out = {};
   out.folders.after = {made, changes, plain: model.folderOf(plain), trips: model.folderOf(inTrips),
                        path: model.tree.path(9)};
   // Profiles: saved ones as they are, others from the server
-  const noProfile = model.lines.find((l) => !l.prof);
+  const noProfile = Array.from({length: model.count}, (_, k) => model.lineAt(k)).find((l) => !l.prof);
   out.profile = noProfile ? (await model.profile(noProfile)).min[1] : null;
   out.notified = notified;
   console.log(JSON.stringify(out));
@@ -830,9 +830,10 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
                                     min: [5, 3], water_m: 0, filled_m: 0})};
 (async () => {
   const model = new m.ResultModel(data, {favourites: false, api, profiles: true});
-  out.pct = model.lines.map((l) => [l.pct1, l.pct2]);
+  const lines = (m) => Array.from({length: m.count}, (_, k) => m.lineAt(k));
+  out.pct = lines(model).map((l) => [l.pct1, l.pct2]);
   out.ranges = {elevHigh: model.ranges.elevHigh, pct: model.ranges.pct};
-  const elevMax = [...model.lines.map(upper)].sort((a, b) => a - b)[Math.floor(model.lines.length / 2)];
+  const elevMax = lines(model).map(upper).sort((a, b) => a - b)[Math.floor(model.count / 2)];
   model.setFilters({...m.NO_FILTERS, elevMax});
   out.elevMax = {value: elevMax, shown: model.shown.lines, uppers: model.groups.flatMap((g) => g.members.map(upper))};
   model.setFilters({...m.NO_FILTERS, pctMin: 30});
@@ -843,7 +844,9 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
   model.setFilters({...m.NO_FILTERS, pctMin: 30});
   model.addRun({id: "other", name: "Other", created: "2026-11-01T00:00:00+00:00", description: ""},
                {crs: data.crs, area: data.area, lines: data.lines.map((r) => r.slice(0, 25))});
-  out.withOther = {shown: model.shown.lines, otherPct: model.others.get("other").lines.map((l) => [l.pct1, l.pct2])};
+  const other = model.others.get("other");
+  out.withOther = {shown: model.shown.lines,
+                   otherPct: Array.from({length: other.count}, (_, k) => model.lineAt(other.start + k)).map((l) => [l.pct1, l.pct2])};
   // A measured line: its ends' ranks with the run's terrain, null without
   const measured = await model.measure([49, 19], [49.001, 19.001]);
   out.measured = [measured.pct1, measured.pct2];
@@ -854,11 +857,11 @@ const api = {loadFavourites: async () => [], saveFavourite: async () => {},
   const old = {...data};
   delete old.terrain;
   const oldModel = new m.ResultModel(old, {favourites: false, api});
-  out.old = {pct: oldModel.lines.map((l) => [l.pct1, l.pct2]), range: oldModel.ranges.pct};
+  out.old = {pct: lines(oldModel).map((l) => [l.pct1, l.pct2]), range: oldModel.ranges.pct};
   oldModel.setFilters({...m.NO_FILTERS, pctMin: 30, pctMax: 40});
   out.old.shown = oldModel.shown.lines;
   // The details of a line
-  const line = {...model.lines[0], pct1: 62, pct2: null};
+  const line = {...model.lineAt(0), pct1: 62, pct2: null};
   out.facts = m.lineFacts(line, 10).filter(([k]) => k.startsWith("Anchor ")).map(([, v]) => v);
   out.ordinals = [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 62, 100, 111, 0].map(m.ordinal);
   console.log(JSON.stringify(out));
@@ -916,6 +919,436 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
     assert out["facts"][1].endswith(f" · {rows[0][12]:.1f} m (percentile not known)")
     assert out["ordinals"] == ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "62nd",
                                "100th", "111th", "0th"]
+
+
+# Columns in the page (docs/line-volume/spec-store.md 1.2, store wave 1): the bundle of types, keys, filters, grouping
+# and the model, for the scripts below
+def _columns_bundle(tmp_path):
+    entry = tmp_path / "columns_entry.ts"
+    src = os.path.join(VIEWER, "src").replace("\\", "/")
+    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+                     f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
+                     f'export {{ formatValue, sortKey, sortRows }} from "{src}/list";\n'
+                     f'export {{ passes, range, needClass, liftNeed, dh, lowerAnchor, upperAnchor, wallAngle, prominence, '
+                     f'drop }} from "{src}/filters";\n', encoding="utf-8")
+    bundle = tmp_path / "columns.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=VIEWER, check=True)
+    return bundle
+
+
+def _run_node(tmp_path, bundle, script: str, *args):
+    path = tmp_path / "columns-test.cjs"
+    path.write_text(f"const m = require({json.dumps(str(bundle))});\n{script}", encoding="utf-8")
+    result = subprocess.run(["node", str(path), *map(str, args)], capture_output=True, text=True, encoding="utf-8",
+                            timeout=300)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+COLUMNS_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+// Every Line value from the columns is the very value of toLine of its row (Object.is: -0, NaN and null too), the
+// cursor reads the same, and keys.lineCoords gives the same key
+function compare(rows, terrain, ends) {
+  const cols = m.lineColumns(rows, terrain, ends), bad = [], cursor = new m.LineCursor(cols);
+  rows.forEach((row, i) => {
+    const want = m.toLine(row, undefined, terrain, ends), got = m.lineAt(cols, i);
+    if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(want))) bad.push([i, "keys"]);
+    cursor.i = i;
+    for (const k of Object.keys(want)) {
+      // a row of before 2026-10-27 has its profile where hmax is now: toLine reads that object, the columns NaN
+      const expected = k === "hmax" && want[k] !== null && typeof want[k] === "object" ? NaN : want[k];
+      if (!Object.is(got[k], expected)) bad.push([i, k, String(want[k]), String(got[k])]);
+      if (k !== "prof" && k !== "run" && !Object.is(cursor[k], expected)) bad.push([i, "cursor " + k, String(want[k]), String(cursor[k])]);
+    }
+    if (m.lineCoords(got) !== m.lineCoords(want) || m.lineCoords(cursor) !== m.lineCoords(want)) bad.push([i, "coords"]);
+  });
+  const types = {};
+  for (const [k, v] of Object.entries(cols)) if (v && v.values) types[k] = v.values.constructor.name;
+  return {bad: bad.slice(0, 20), n: rows.length, length: cols.length, types};
+}
+const out = {clip: compare(data.lines, data.terrain, data.ends)};
+// Hard values: null, -0, NaN, Infinity, more decimals than map_rows writes, a value too large for 32 bits (the column
+// then holds doubles from that row on, the rows before read back as they were); rows of lines.js (no profile), with a
+// null profile, the end values named by "ends" in either order, the square rule's count
+const base = [50.1234567, 19.7654321, 50.2, -0.0000001, 1.5, 2.25, 3.125, 4, 120.5, 1.25, null, 330.12, 328.5, false,
+              0, 0, 15, 9.5, 20, 12, 30, 3.1, null, 30, null];
+const profile = {d: [0, 120.5], z: [330, 328.5], min: [60, 1.25], water_m: 0, filled_m: 0};
+const set = (row, k, v) => { const r = row.slice(); r[k] = v; return r; };
+const hard = [
+  base.concat([profile]), set(base, 10, -0).concat([null]), set(set(base, 10, 0), 17, NaN).concat([null]),
+  set(base, 19, NaN).concat([profile]), set(set(base, 21, -0), 23, 0).concat([null]), set(base, 10, 2.5).concat([null]),
+  set(base, 11, 330.123).concat([null]), set(base, 14, 1e12).concat([null]), set(base, 17, Infinity).concat([null]),
+  set(base, 0, 50.12345678).concat([null]), set(base, 10, -0).concat([null]), set(base, 22, NaN).concat([null]),
+  set(base, 13, true).concat([profile]), set(base, 18, 100).concat([null]), set(base, 24, -12.5).concat([null]),
+];
+out.hard = compare(hard, null, ["lift_needed", "lift_no_zone"]);
+const terrain = {mean: 330, km2: 1, quantiles: Array.from({length: 101}, (_, p) => 320 + p / 5)};
+const ended = [base.concat([0.75, 3.5, profile]), base.concat([0, -0, null]), base.concat([null, 1.5]), base.concat([1.25, 2.5, 37]),
+               base.concat([0.5]), base, base.concat([profile])];
+out.ends = compare(ended, terrain, ["lift_needed", "lift_no_zone"]);
+out.swapped = compare(ended, terrain, ["lift_no_zone", "lift_needed"]);
+out.counted = compare([base.concat([37, profile]), base.concat([37]), base.concat([0.75, 3.5, 1, null]), base.concat([profile])],
+                      null, ["lift_needed", "lift_no_zone", "stands_for"]);
+out.alone = compare([base.concat([37, profile]), base.concat([1])], null, ["stands_for"]);
+out.empty = compare([], null, undefined);
+// Rows of runs saved before 2026-10-27: 16 values (lines.js) or 16 and the profile (data.js), nothing from hmax on
+const old = base.slice(0, 16);
+out.short = compare([old.concat([profile]), old.concat([null]), old, set(old, 10, -0).concat([profile]),
+                     old.concat([profile]).slice(0, 15)], terrain, undefined);
+out.shortValues = (() => { const c = m.lineColumns([old.concat([profile])], null, undefined), l = m.lineAt(c, 0);
+                           return [l.hmax, l.hmean === undefined, l.angle1 === undefined, l.prom1 === undefined, l.prof]; })();
+// The integer columns narrow to what holds the values; the grouping's values stay doubles
+const narrow = m.lineColumns([set(base, 18, 100).concat([null]), set(base, 18, 0).concat([null])], null, []);
+out.narrow = {highPct: narrow.highPct.values.constructor.name, e1: narrow.e1.values.constructor.name,
+              len: narrow.len.values.constructor.name, lat1: narrow.lat1.values.constructor.name};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_columns_give_the_rows_values(tmp_path, clip_data):
+    """types.ts lineColumns / lineAt / LineCursor: every value of every line of the clip's run, and of rows with the
+    hard values (null, -0, NaN, Infinity, more decimals, a value too large for an integer column, rows with and without
+    a profile, the end values named in either order, the square rule's count), reads back from the columns as toLine
+    reads it from the row (Object.is), and keys.lineCoords (the favourites' and links' key) is the same."""
+    text, data = clip_data
+    data_path = tmp_path / "data.json"
+    data_path.write_text(text, encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), COLUMNS_SCRIPT, data_path)
+    for case in ("clip", "hard", "ends", "swapped", "counted", "alone", "empty", "short"):
+        assert out[case]["bad"] == [], (case, out[case]["bad"])
+    assert out["clip"]["n"] == out["clip"]["length"] == len(data["lines"]) > 100
+    assert out["empty"]["length"] == 0
+    types = out["clip"]["types"]
+    for name in ("x1", "y1", "x2", "y2", "len", "clr", "hmax"):  # values used for grouping: unrounded
+        assert types[name] == "Float64Array", name
+    assert types["lat1"] == types["lon2"] == "Int32Array" and types["highPct"] in ("Int16Array", "Int8Array")
+    assert out["hard"]["types"]["e1"] == out["hard"]["types"]["water"] == out["hard"]["types"]["lat1"] == "Float64Array"
+    assert out["narrow"] == {"highPct": "Int16Array", "e1": "Int32Array", "len": "Float64Array", "lat1": "Int32Array"}
+    assert out["shortValues"] == [None, True, True, True, None]  # hmax NaN (JSON null), the rest undefined, no profile
+
+
+OLD_RUN_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+// today's way: a Line of every row, as main read them (values past a short row's end undefined)
+const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
+const key = (l) => m.lineCoords(l);
+const count = (f) => objects.filter((l) => m.passes(l, {...m.NO_FILTERS, ...f}, data.lift)).length;
+const shown = (f) => { model.setFilters({...m.NO_FILTERS, ...f}); return model.shown.lines; };
+const out = {
+  list: ["angle", "highPct", "hmean", "prom", "drop", "hmax"].map((k) => m.formatValue(m.sortKey(k), model.rows[0])),
+  ranges: {angle: model.ranges.angle, highPct: model.ranges.highPct, hmean: model.ranges.hmean, prom: model.ranges.prom,
+           drop: model.ranges.drop, hmax: model.ranges.hmax},
+  counts: [{angleMax: 45}, {highPctMin: 0}, {meanMin: 0}, {heightMin: 0}, {promMin: 0}, {dropMin: 0}, {lenMin: 0}]
+    .map((f) => [shown(f), count(f)]),
+};
+model.setFilters({...m.NO_FILTERS});
+for (const by of ["clearance", "height", "longest"]) {
+  model.setState({...model.state, by});
+  out[by] = JSON.stringify(model.groups.map((g) => g.members.map(key)))
+    === JSON.stringify(m.groupLines(objects, data.distance, by).map((g) => g.members.map(key)));
+}
+out.n = objects.length;
+console.log(JSON.stringify(out));
+"""
+
+
+def test_old_runs_from_columns(tmp_path, clip_data):
+    """A run saved before 2026-10-27 (rows of 16 values and the profile, nothing from the webbing's height on) opens
+    from columns as main showed it from the rows: the list shows "–" for the values it lacks, the filters offer no
+    range of them, a limit on them gives main's counts (none passes), and the spots of every rank are main's."""
+    text, data = clip_data
+    old = {k: v for k, v in data.items() if k not in ("terrain", "shore", "ends", "end_zone", "lift", "square", "found")}
+    old["lines"] = [row[:16] + [row[-1]] for row in data["lines"]]
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(old), encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), OLD_RUN_SCRIPT, data_path)
+    assert out["list"] == ["–"] * 6
+    assert out["ranges"] == {"angle": None, "highPct": None, "hmean": None, "prom": None, "drop": None, "hmax": None}
+    for got, want in out["counts"]:
+        assert got == want
+    assert out["counts"][0] == [0, 0] and out["counts"][1] == [0, 0] and out["counts"][-1] == [out["n"], out["n"]]
+    assert out["clearance"] and out["height"] and out["longest"]
+
+
+BY_MEAN_SCRIPT = r"""
+// Made-up lines with ties of the mean height, the clearance and the length and with unknown means (NaN, null):
+// under "Highest on average" (the default) each spot's shown line, its lines' order and the rows' order from the
+// columns against main's way (Line objects: the best by byMean with the row in the run, the members sorted by it)
+const rows = [];
+let seed = 11;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const pick = (values) => values[Math.floor(rnd() * values.length)];
+for (let i = 0; i < 3000; i++) {
+  const cx = (i % 12) * 300, x1 = cx + rnd() * 40, y1 = rnd() * 40, x2 = x1 + 120 + rnd() * 40, y2 = y1 + rnd() * 40;
+  const ll = (x, y) => [Number((50 + y / 111000).toFixed(7)), Number((19 + x / 71000).toFixed(7))];
+  const [lat1, lon1] = ll(x1, y1), [lat2, lon2] = ll(x2, y2);
+  rows.push([lat1, lon1, lat2, lon2, x1, y1, x2, y2, pick([120, 130, 140]), pick([1.5, 2, 2.5]), null, 300, 301, i % 9 === 0,
+             0, 0, 20, pick([25.5, 25.5, 30, 12.25, NaN, null]), 50, 10, 10, null, null, null, null, null]);
+}
+const data = {run: {id: "r", name: "r", created: "", description: ""}, center: [50, 19], area: null, crs: "EPSG:2180",
+              ortho: null, distance: 20, by: "clearance", model: "sag", rigging: {}, slope: 0, leash_fall: 0, high_above: 20,
+              max_zoom: 19, lines: rows};
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const objects = rows.map((r) => m.toLine(r)), row = new Map(objects.map((l, k) => [l, k]));
+const compare = m.byMean((l) => row.get(l)), key = (l) => m.lineCoords(l);
+const groups = m.groupLines(objects, data.distance, data.by);
+const best = groups.map((g) => g.members.length < 2 ? g.rep : g.members.reduce((a, b) => compare(b, a) < 0 ? b : a));
+const order = groups.map((g) => g.members.length < 2 ? g.members : g.members.slice().sort(compare));
+const baseRows = groups.map((g, k) => ({line: best[k], n: g.members.length, group: g}))
+  .sort((a, b) => +a.group.rep.over - +b.group.rep.over);
+const sorted = m.sortRows(baseRows, m.sortKey(model.list.sort), model.list.desc).map((r) => key(r.line));
+const out = {
+  by: model.state.by, spots: [model.groups.length, groups.length],
+  several: groups.filter((g) => g.members.length > 1).length,
+  shown: JSON.stringify(model.groups.map((g) => key(model.shownOf(g)))) === JSON.stringify(best.map(key)),
+  order: JSON.stringify(model.groups.map((g) => model.membersOf(g).map(key))) === JSON.stringify(order.map((o) => o.map(key))),
+  rows: JSON.stringify(model.rows.map((r) => key(r.line))) === JSON.stringify(sorted),
+  notRep: best.some((l, k) => l !== groups[k].rep),
+  unknown: objects.filter((l) => !Number.isFinite(l.hmean)).length,
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_by_mean_from_columns_as_from_rows(tmp_path):
+    """"Highest on average" (the default "Show per spot") from the columns as main's from Line objects, on made-up
+    lines with ties of the mean height, clearance and length and with unknown means: every spot's shown line, its
+    lines' order (the stepper, the unfolded row, `&also=`) and the rows' order are equal."""
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), BY_MEAN_SCRIPT)
+    assert out["by"] == "mean" and out["spots"][0] == out["spots"][1] and out["several"] > 50
+    assert out["unknown"] > 500 and out["notRep"]
+    assert out["shown"] and out["order"] and out["rows"]
+
+
+MODEL_COLUMNS_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const out = {made: [model.madeLines, model.groups.length, model.count, model.data.columns.length]};
+// The reference: today's way, a Line object of every row, filtered and grouped as objects
+const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
+const key = (l) => m.lineCoords(l);
+const mid = (f) => { const v = objects.map(f).filter((x) => x !== null && !Number.isNaN(x)).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+const cases = {
+  none: {}, lenMin: {lenMin: mid((l) => l.len)}, lenMax: {lenMax: mid((l) => l.len)}, clrMin: {clrMin: mid((l) => l.clr)},
+  clrNMin: {clrNMin: mid((l) => l.clrN)}, dhMax: {dhMax: mid(m.dh)}, elevMin: {elevMin: mid(m.lowerAnchor)},
+  elevMax: {elevMax: mid(m.upperAnchor)}, pctMin: {pctMin: 30}, pctMax: {pctMax: 70}, heightMin: {heightMin: mid((l) => l.hmax)},
+  meanMin: {meanMin: mid((l) => l.hmean)}, highPctMin: {highPctMin: mid((l) => l.highPct)}, angleMax: {angleMax: mid(m.wallAngle)},
+  promMin: {promMin: mid((l) => m.prominence(l, Math.max))}, promBothMin: {promBothMin: mid((l) => m.prominence(l, Math.min))},
+  dropMin: {dropMin: mid(m.drop)}, water: {water: "water"}, land: {water: "land"}, hideFilled: {hideFilled: true},
+  liftMax: {liftMax: 1}, liftNoZone: {liftMax: 1, liftNoZone: true}, hideNeedLift: {hideNeedLift: true},
+  hideNeedNone: {hideNeedNone: true, hideNeedZone: true}, groupMin: {groupMin: 3},
+};
+out.cases = {};
+for (const [name, set] of Object.entries(cases)) {
+  const f = {...m.NO_FILTERS, ...set};
+  model.setFilters(f);
+  const passing = objects.filter((l) => m.passes(l, f, data.lift));
+  let groups = m.groupLines(passing, data.distance, data.by);
+  if (f.groupMin !== null) groups = groups.filter((g) => g.members.length >= f.groupMin);
+  const want = {shown: {spots: groups.length, lines: groups.reduce((n, g) => n + g.members.length, 0)},
+                groups: groups.map((g) => [key(g.rep)].concat(g.members.map(key)))};
+  const got = {shown: model.shown, groups: model.groups.map((g) => [key(g.rep)].concat(g.members.map(key)))};
+  out.cases[name] = {same: JSON.stringify(got) === JSON.stringify(want), lines: got.shown.lines, total: objects.length};
+}
+model.setFilters({...m.NO_FILTERS});
+// Ungrouped: every line its own spot, clear ones first, in their order
+model.setState({...model.state, group: false});
+const ungrouped = objects.filter((l) => !l.over).concat(objects.filter((l) => l.over)).map(key);
+out.ungrouped = JSON.stringify(model.baseRows.map((r) => key(r.line))) === JSON.stringify(ungrouped);
+model.setState({...model.state, group: true});
+// The filters' ranges, the rigging classes and the A-frame counts against the objects'
+const r = (f) => m.range(objects, f), both = (a, b) => a && b ? {min: Math.min(a.min, b.min), max: Math.max(a.max, b.max)} : a || b;
+const finite = (v) => isFinite(v) ? v : null;
+const want = {len: r((l) => l.len), clr: r((l) => l.clr), clrN: r((l) => l.clrN), dh: r(m.dh), elev: r(m.lowerAnchor),
+              elevHigh: r(m.upperAnchor), pct: both(r((l) => l.pct1), r((l) => l.pct2)), hmax: r((l) => l.hmax),
+              hmean: r((l) => l.hmean), highPct: r((l) => l.highPct), angle: r(m.wallAngle),
+              prom: r((l) => finite(m.prominence(l, Math.max))), drop: r((l) => finite(m.drop(l))),
+              water: objects.some((l) => l.water > 0), filled: objects.some((l) => l.filled > 0)};
+const got = Object.fromEntries(Object.keys(want).map((k) => [k, model.ranges[k]]));
+out.ranges = {same: JSON.stringify(got) === JSON.stringify(want), got};
+const needs = [0, 0, 0];
+objects.forEach((l) => { const k = m.needClass(l); if (k !== null) needs[k]++; });
+out.needs = [model.needCounts(), needs];
+out.liftCount = [[model.liftCount(1, false), model.liftCount(0.5, true)],
+                 [objects.filter((l) => { const v = m.liftNeed(l, false); return v === null || v <= 1 + 1e-9; }).length,
+                  objects.filter((l) => { const v = m.liftNeed(l, true); return v === null || v <= 0.5 + 1e-9; }).length]];
+out.liftRange = model.ranges.lift;
+out.found = [model.count, model.total, model.nClean + model.nOver];
+// Another run in another coordinate system (Compare): grouped with this run's in a local plane around this run, as
+// others.inLocalPlane did before (its arithmetic here), the groups holding each run's own lines; removed and shown
+// again, the same groups
+const other = {crs: "EPSG:other", area: data.area, terrain: null, ends: data.ends,
+               lines: data.lines.slice(0, 400).map((r) => { const s = r.slice(0, -1); s[1] += 0.00001; s[3] += 0.00001; return s; })};
+const info = {id: "other", name: "Other", created: "", description: ""};
+const runKey = (l) => (l.run ? l.run.info.id : "this") + "|" + key(l);
+const referenceGroups = () => {
+  const run = {info, color: "#000"}, theirs = other.lines.map((r) => m.toLine(r, run, null, other.ends));
+  const all = objects.concat(theirs), [lat0, lon0] = data.center;
+  const k = Math.PI / 180 * 6371008.8, c = Math.cos(lat0 * Math.PI / 180);
+  const planar = all.map((l) => ({...l, x1: (l.lon1 - lon0) * k * c, y1: (l.lat1 - lat0) * k,
+                                  x2: (l.lon2 - lon0) * k * c, y2: (l.lat2 - lat0) * k}));
+  const back = new Map(planar.map((p, i) => [p, all[i]]));
+  return m.groupLines(planar, data.distance, data.by).map((g) => [g.rep, ...g.members].map((x) => runKey(back.get(x))));
+};
+const groupsNow = () => model.groups.map((g) => [g.rep, ...g.members].map(runKey));
+model.addRun(info, other);
+const wanted = JSON.stringify(referenceGroups()), first = JSON.stringify(groupsNow());
+out.otherCrs = {same: first === wanted, total: model.total, spots: model.groups.length,
+                mixed: model.groups.some((g) => g.members.some((l) => l.run) && g.members.some((l) => !l.run))};
+model.removeRun("other");
+out.removed = {total: model.total, others: model.others.size,
+               same: JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)))
+                 === JSON.stringify(m.groupLines(objects, data.distance, data.by).map((g) => [g.rep, ...g.members].map(runKey)))};
+model.addRun(info, other);
+out.again = {same: JSON.stringify(groupsNow()) === wanted, start: model.others.get("other").start,
+             groupAt: Array.from(model.groupAt.values()).reduce((n, a) => n + a.length, 0)};
+// A run of no lines shares its start index with the next run shown: removing that one removes it, not the empty one
+model.removeRun("other");
+model.addRun({...info, id: "empty"}, {...other, lines: []});
+model.addRun(info, other);
+model.removeRun("other");
+out.empty = {others: [...model.others.keys()], total: model.total, lines: model.shown.lines};
+model.removeRun("empty");
+out.emptyGone = {others: model.others.size, total: model.total};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_model_from_columns_as_from_rows(tmp_path, clip_data):
+    """result/model.ts on columns against today's way (a Line of every row, filtered by filters.passes and grouped by
+    groupLines as objects) on the clip's run with the end values and the square rule's count added: the same spots
+    with the same lines (keys.lineCoords) and the same counts for every filter, without grouping, the same ranges,
+    rigging classes and A-frame counts; a Line is made only for each spot's shown line when the model is built."""
+    text, data = clip_data
+    rng = random.Random(3)
+    lines = []
+    for row in data["lines"]:  # A-frame heights (with the zone at most without it) and a count before the profile
+        needed = rng.choice([0, 0, 0.5, 1.25, 3.0])
+        lines.append(row[:-1] + [needed, needed + rng.choice([0, 0, 1.5]), rng.randint(1, 40), row[-1]])
+    run = {**data, "end_zone": 5, "lift": 2, "square": 5, "found": sum(r[-2] for r in lines),
+           "ends": ["lift_needed", "lift_no_zone", "stands_for"], "lines": lines}
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(run), encoding="utf-8")
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), MODEL_COLUMNS_SCRIPT, data_path)
+    made, spots, count, columns = out["made"]
+    assert made == spots < count == columns == len(lines)
+    for name, case in out["cases"].items():
+        assert case["same"], name
+    assert out["cases"]["none"]["lines"] == len(lines)
+    trivial = {name: c["lines"] for name, c in out["cases"].items() if not 0 < c["lines"] < len(lines)}
+    # the clip has no water, no filled gaps, no terrain statistics, and its median less prominent anchor is 0 m (all pass)
+    assert set(trivial) <= {"none", "water", "land", "hideFilled", "pctMin", "pctMax", "promBothMin"}, trivial
+    assert out["ungrouped"] is True
+    assert out["ranges"]["same"], out["ranges"]["got"]
+    assert out["needs"][0] == out["needs"][1] and sum(out["needs"][0]) == len(lines)
+    assert out["liftCount"][0] == out["liftCount"][1]
+    assert out["liftRange"] == {"lift": 2, "zone": 5, "needed": 3.0, "noZone": 4.5}
+    assert out["found"] == [len(lines), len(lines), len(lines)]
+    assert out["otherCrs"]["same"] and out["otherCrs"]["total"] == len(lines) + 400 and out["otherCrs"]["mixed"]
+    assert out["removed"] == {"total": len(lines), "others": 0, "same": True}
+    # an index is never given twice; the groups' index arrays are the lines shown, whatever was shown before
+    assert out["again"] == {"same": True, "start": len(lines) + 400, "groupAt": len(lines) + 400}
+    assert out["empty"] == {"others": ["empty"], "total": len(lines), "lines": len(lines)}
+    assert out["emptyGone"] == {"others": 0, "total": len(lines)}
+
+
+PRUNE_SCRIPT = r"""
+// 60 000 made-up lines in a few clusters: without grouping every line is a spot and gets its Line; grouped again,
+// the Lines nothing shows are dropped (prune), and the chosen and selected line stays the same object
+const rows = [], n = 60000;
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+for (let i = 0; i < n; i++) {
+  const cx = (i % 6) * 500, x1 = cx + rnd() * 30, y1 = rnd() * 30, x2 = x1 + 100 + rnd() * 30, y2 = y1 + rnd() * 30;
+  const ll = (x, y) => [Number((50 + y / 111000).toFixed(7)), Number((19 + x / 71000).toFixed(7))];
+  const [lat1, lon1] = ll(x1, y1), [lat2, lon2] = ll(x2, y2);
+  rows.push([lat1, lon1, lat2, lon2, x1, y1, x2, y2, Math.hypot(x2 - x1, y2 - y1), rnd() * 20, null, 300, 301, i % 7 === 0,
+             0, 0, 20, Math.round(rnd() * 2000) / 100, 50, 10, 10, null, null, null, null, null]);
+}
+const data = {run: {id: "r", name: "r", created: "", description: ""}, center: [50, 19], area: null, crs: "EPSG:2180",
+              ortho: null, distance: 20, by: "clearance", model: "sag", rigging: {}, slope: 0, leash_fall: 0, high_above: 20,
+              max_zoom: 19, lines: rows};
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const model = new m.ResultModel(data, {favourites: false, api});
+const out = {spots: model.groups.length, madeGrouped: model.madeLines};
+model.setState({...model.state, group: false});
+out.ungrouped = {spots: model.groups.length, kept: model.made.size};
+const group = model.rows[3].group, line = model.lineAt(group.repAt + 0);
+model.setState({...model.state, group: true});
+const spot = model.groupOf(line), other = model.membersOf(spot).find((l) => l !== model.shownOf(spot));
+model.select(other);  // chosen in its spot, and selected
+const before = {chosen: model.selected.line === other};
+model.setState({...model.state, group: false});
+model.setState({...model.state, group: true});
+out.regrouped = {kept: model.made.size, spots: model.groups.length, selected: model.selected && model.selected.line === other,
+                 shown: model.shownOf(model.groupOf(other)) === other, before};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_made_lines_dropped_after_regrouping(tmp_path):
+    """ResultModel's Lines: 60 000 lines without grouping get one each (every line is a spot); grouped again, those
+    nothing shows are dropped (prune: over PRUNE_MIN and more than twice the rows), while the chosen and selected
+    line stays the same object, shown in its spot."""
+    out = _run_node(tmp_path, _columns_bundle(tmp_path), PRUNE_SCRIPT)
+    assert out["madeGrouped"] == out["spots"] < 1000
+    assert out["ungrouped"] == {"spots": 60000, "kept": 60000}
+    regrouped = out["regrouped"]
+    assert regrouped["before"] == {"chosen": True} and regrouped["selected"] and regrouped["shown"]
+    assert regrouped["spots"] == out["spots"] and regrouped["kept"] <= 2 * out["spots"] + 2
+
+
+TOO_LARGE_SCRIPT = r"""
+// result/load.ts over http with a fake XMLHttpRequest and document: what a body makes of the load
+globalThis.window = globalThis;
+globalThis.location = {protocol: "http:"};
+const made = [];
+globalThis.document = {querySelector: () => null, head: {appendChild(s) {
+  made.push(s.src);  // a script: data.js as the script would set it
+  setTimeout(() => { window.FINDALINE_RUN = {run: {id: "nan"}, lines: [[1, 2]]}; s.onload(); });
+}}, createElement: () => ({remove() {}})};
+let answer = {body: "", loaded: 0};
+globalThis.XMLHttpRequest = class {
+  static HEADERS_RECEIVED = 2;
+  open() {} setRequestHeader() {} getResponseHeader() { return null; }
+  send() { setTimeout(() => { this.status = 200; this.response = answer.body; this.onload({loaded: answer.loaded}); }); }
+};
+(async () => {
+  const out = {};
+  answer = {body: "", loaded: 600e6};  // Chromium: the text of a body over its string limit is ""
+  const e = await m.loadRun("big").then(() => null, (e) => e);
+  out.big = {name: e && e.name, message: e && e.message, tooLarge: e instanceof m.TooLarge, scripts: made.length};
+  answer = {body: 'window.FINDALINE_RUN = {"run":{"id":"ok"},"lines":[[1,2],[3,4]]};\n', loaded: 60};
+  const ok = await m.loadRun("ok");
+  out.ok = {columns: ok.columns.length, lines: "lines" in ok, scripts: made.length};
+  answer = {body: 'window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n', loaded: 40};  // JSON.parse refuses: the script
+  const nan = await m.loadRun("nan");
+  out.nan = {columns: nan.columns.length, scripts: made.length, cleared: window.FINDALINE_RUN === undefined};
+  out.words = [m.tooLarge("", 1), m.tooLarge("", 0), m.tooLarge("x", 1)];
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_too_large_body(tmp_path):
+    """result/load.ts: over http a body that arrives empty although its bytes came (Chromium's string limit) fails the
+    load with TooLarge, whose message is the catalogue's text the page shows, and starts no script; a body JSON.parse
+    reads gives the columns without the rows; one it refuses (NaN) is still loaded as a script, into columns."""
+    found = run_ts(tmp_path, "result/load", TOO_LARGE_SCRIPT)
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        text = json.load(f)["ui.result.too_large"]
+    assert text == "This result is too large for this browser."
+    assert found["big"] == {"name": "TooLarge", "message": text, "tooLarge": True, "scripts": 0}
+    assert found["ok"] == {"columns": 2, "lines": False, "scripts": 0}
+    assert found["nan"] == {"columns": 1, "scripts": 1, "cleared": True}
+    assert found["words"] == [True, False, False]
 
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"

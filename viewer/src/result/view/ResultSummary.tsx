@@ -59,7 +59,7 @@ function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onC
       <button type="button" class="r-note-x" aria-label={t("ui.result.why_close")} onClick={onClose}>
         <Icon name="close" /></button></div>
     <p class="u-small r-why-text">{t("ui.result.why_text", {found: count(found)})}
-      {needs && <>{" "}{t("ui.result.why_of", {n: count(model.lines.length)})}</>}</p>
+      {needs && <>{" "}{t("ui.result.why_of", {n: count(model.count)})}</>}</p>
     {needs && <>
       <div class="r-why-bar" aria-hidden="true">{needs.map((n, k) =>
         <i key={k} class={cx(`r-why-k${k}`, f[NEED_FILTERS[k]] && "r-off")} style={{flexGrow: n}} />)}</div>
@@ -77,7 +77,7 @@ function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onC
 export function ResultSummary({model, legend = true, note = true}: ResultSummaryProps) {
   useModel(model);
   const [why, setWhy] = useState(false);
-  const {spots, lines} = model.shown, total = model.all.length, hidden = total - lines;
+  const {spots, lines} = model.shown, total = model.total, hidden = total - lines;
   const grouped = model.state.group;
   // A run made with the square rule: one line was kept per pair of anchor squares, of `found` lines found
   const {found, square} = model.data, known = typeof found === "number";

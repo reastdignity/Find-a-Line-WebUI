@@ -1,22 +1,31 @@
 // The result of a run without its UI: lines, filters, groups, the list's rows and order, the chosen
 // line of each group, favourites, the selection, other runs shown with it, links to lines and
-// profiles: filters first, then groupLines, then the group size. The app's shells and a run's map.html
+// profiles: filters first, then the grouping, then the group size. The app's shells and a run's map.html
 // draw it with ResultMap and their own panels. Plain TypeScript (no DOM but fetch), so tests run it
 // under Node.
+//
+// The lines are columns (types.ts lineColumns: this run's and each other run's), known by their index among the
+// runs shown (`lineAt`): the filters, the grouping, the ranges and the counts read the columns through a LineCursor,
+// and the spots (LineGroup) hold indices. A Line object is made (lineAt) only for a line drawn, listed, selected,
+// opened, compared or saved as a favourite: a spot's shown line, the members of a spot asked for (the selected
+// spot's, an unfolded row's), a link's line, the favourites. It is kept while it is in use, so the same index gives
+// the same object (the selection, the choices and the views compare them); after a change of the groups the made
+// lines are dropped when they are many more than the rows (prune).
 
-import { dh, drop, lowerAnchor, needClass, NO_FILTERS, passes, prominence, range as valueRange, saveFilters, savedFilters,
+import { dh, drop, lowerAnchor, needClass, NO_FILTERS, passes, prominence, Ranger, saveFilters, savedFilters,
          upperAnchor, wallAngle, type FilterRanges, type Filters, type LinesState, type Range } from "../filters";
-import { groupLines, type Group } from "../grouping";
+import { groupIndices, type Group, type GroupInput } from "../grouping";
 import { detailMessage } from "../i18n";
 import { addFolder, loadRunFavourites, moveFavourite, saveFavourite, type FavouriteFolder,
          type RunFavourites } from "../favourites";
 import { FolderTree } from "../folders";
 import { lineCoords, lineKey, runLineKey } from "../keys";
 import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, type Row } from "../list";
-import { colorOf, inLocalPlane } from "../others";
+import { colorOf, localPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
-import { toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines } from "../types";
+import { lineAt, lineColumns, LineCursor, runData, type Line, type LineColumns, type LineValues, type OtherRun,
+         type Profile, type RunData, type RunInfo, type RunLines, type RunScript } from "../types";
 import type { OnProgress } from "./load";
 import { measuredLine } from "./measured";
 
@@ -25,8 +34,28 @@ export { measuredLine };
 export type { Filters, Group, LinesState, ListState, FilterRanges };
 export { NO_FILTERS };
 
+/** A spot of the model (one line without grouping): its lines by their index among the runs shown (ResultModel.lineAt),
+ *  flat[start] .. flat[end - 1] of the grouping's array, in the grouping's order. Its Line objects are made only when
+ *  asked for: `rep`, and `members` (every one: a spot drawn with its lines, unfolded in the list or selected). */
+export class LineGroup implements Group<Line> {
+  constructor(private readonly model: ResultModel, readonly flat: Int32Array, readonly start: number,
+              readonly end: number, readonly repAt: number, readonly over: boolean) {}
+
+  /** How many lines the spot holds. */
+  get size(): number { return this.end - this.start; }
+  /** Its representative (the grouping's best line). */
+  get rep(): Line { return this.model.lineAt(this.repAt); }
+  /** Its lines in the grouping's order, as Lines (one made for each). */
+  get members(): Line[] { return this.model.linesOf(this); }
+  /** Does it hold the line of index `at`. */
+  has(at: number): boolean {
+    for (let k = this.start; k < this.end; k++) if (this.flat[k] === at) return true;
+    return false;
+  }
+}
+
 /** A row of the list: a group (one line without grouping) and the line shown for it. */
-export type Spot = Row & {group: Group<Line>};
+export type Spot = Row & {group: LineGroup};
 
 /** A message for the user above the results (a link to a line, an error), with an optional action. */
 export interface Note {
@@ -35,14 +64,26 @@ export interface Note {
   onAction?(): void;
 }
 
-/** Another run shown with this one: its lines (in its colour) and area. */
+/** Another run shown with this one (in its colour): its area, and its lines: `count` of them, from index `start`
+ *  among the runs shown (ResultModel.lineAt). */
 export interface ShownRun {
   info: RunInfo;
   color: string;
   crs: string;
   area: RunLines["area"];
-  lines: Line[];
+  start: number;
+  count: number;
 }
+
+/** A run's lines among the runs shown: the indices start .. start + cols.length - 1. */
+interface Table {
+  cols: LineColumns;
+  start: number;
+  run?: OtherRun;  // another run's
+}
+
+/** The made lines are kept, however many more they are than the rows, up to this many (prune). */
+const PRUNE_MIN = 50_000;
 
 /** What the model asks the server; replaced in tests. */
 export interface ResultApi {
@@ -91,8 +132,8 @@ const known = (v: number | null | undefined): v is number => typeof v === "numbe
 
 /** A spot's order of its lines under BY_MEAN, best first: the highest mean height (not known: last), then the
  *  most clearance, the longest, then the line's row in its run (`row`). */
-export function byMean(row: (l: Line) => number) {
-  return (a: Line, b: Line): number => {
+export function byMean<T extends Pick<LineValues, "hmean" | "clr" | "len">>(row: (l: T) => number) {
+  return (a: T, b: T): number => {
     const ka = known(a.hmean), kb = known(b.hmean);
     if (ka !== kb) return ka ? -1 : 1;
     return (ka ? b.hmean - a.hmean : 0) || (b.clr - a.clr) || (b.len - a.len) || (row(a) - row(b));
@@ -107,20 +148,27 @@ const finite = (v: number) => isFinite(v) ? v : null;
 const both = (a: Range | null, b: Range | null): Range | null =>
   a && b ? {min: Math.min(a.min, b.min), max: Math.max(a.max, b.max)} : a || b;
 
-/** The ranges of the lines' values the filters offer. */
-function lineRanges(all: Line[], highAbove: number, largestGroup: number, favourites: boolean,
-                    lift: FilterRanges["lift"] = null): FilterRanges {
-  return {lift, len: valueRange(all, (l) => l.len), clr: valueRange(all, (l) => l.clr),
-          clrN: valueRange(all, (l) => l.clrN), dh: valueRange(all, dh),
-          elev: valueRange(all, lowerAnchor), elevHigh: valueRange(all, upperAnchor),
-          pct: both(valueRange(all, (l) => l.pct1), valueRange(all, (l) => l.pct2)),
-          hmax: valueRange(all, (l) => l.hmax),
-          hmean: valueRange(all, (l) => l.hmean), highPct: valueRange(all, (l) => l.highPct),
-          highAbove, angle: valueRange(all, wallAngle),
-          prom: valueRange(all, (l) => finite(prominence(l, Math.max))),
-          drop: valueRange(all, (l) => finite(drop(l))),
-          group: largestGroup > 1 ? {min: 1, max: largestGroup} : null,
-          water: all.some((l) => l.water > 0), filled: all.some((l) => l.filled > 0), favourites};
+/** The ranges of the lines' values the filters offer, in one pass over the lines (`each` calls its function with
+ *  every line). */
+function lineRanges(each: (f: (l: LineValues) => void) => void, highAbove: number, largestGroup: number,
+                    favourites: boolean, lift: FilterRanges["lift"] = null): FilterRanges {
+  const r = {len: new Ranger(), clr: new Ranger(), clrN: new Ranger(), dh: new Ranger(), elev: new Ranger(),
+             elevHigh: new Ranger(), pct1: new Ranger(), pct2: new Ranger(), hmax: new Ranger(), hmean: new Ranger(),
+             highPct: new Ranger(), angle: new Ranger(), prom: new Ranger(), drop: new Ranger()};
+  let water = false, filled = false;
+  each((l) => {
+    r.len.add(l.len); r.clr.add(l.clr); r.clrN.add(l.clrN); r.dh.add(dh(l));
+    r.elev.add(lowerAnchor(l)); r.elevHigh.add(upperAnchor(l)); r.pct1.add(l.pct1); r.pct2.add(l.pct2);
+    r.hmax.add(l.hmax); r.hmean.add(l.hmean); r.highPct.add(l.highPct); r.angle.add(wallAngle(l));
+    r.prom.add(finite(prominence(l, Math.max))); r.drop.add(finite(drop(l)));
+    if (!water && l.water > 0) water = true;
+    if (!filled && l.filled > 0) filled = true;
+  });
+  return {lift, len: r.len.range, clr: r.clr.range, clrN: r.clrN.range, dh: r.dh.range, elev: r.elev.range,
+          elevHigh: r.elevHigh.range, pct: both(r.pct1.range, r.pct2.range), hmax: r.hmax.range,
+          hmean: r.hmean.range, highPct: r.highPct.range, highAbove, angle: r.angle.range, prom: r.prom.range,
+          drop: r.drop.range, group: largestGroup > 1 ? {min: 1, max: largestGroup} : null, water, filled,
+          favourites};
 }
 
 /** The two points ([lat, lon]) of a link's line "lat1,lon1,lat2,lon2"; null when it is not four finite numbers. */
@@ -134,13 +182,11 @@ function linkPoints(key: string): [[number, number], [number, number]] | null {
 export class ResultModel {
   readonly data: RunData;
   readonly runId: string;
-  /** This run's lines. */
-  readonly lines: Line[];
   state: LinesState;
   filters: Filters;
   list: ListState;
   /** The groups shown (filters, grouping, group size), clear ones first, best first: the map's order. */
-  groups: Group<Line>[] = [];
+  groups: LineGroup[] = [];
   /** The groups as rows in the map's order (clear first); `rows` is them sorted as the list says. */
   baseRows: Spot[] = [];
   rows: Spot[] = [];
@@ -153,7 +199,7 @@ export class ResultModel {
   favouritesOn = false;
   note: Note | null = null;
   /** The selected group and the line shown for it; null: none. */
-  selected: {group: Group<Line>; line: Line} | null = null;
+  selected: {group: LineGroup; line: Line} | null = null;
   /** The key of a link's line outside this run being measured or shown as measured (`openLinked`), else null. */
   measuredLink: string | null = null;
   /** The profile of the selected line was closed (ProfileDock); selecting again, or another line, shows it. */
@@ -161,43 +207,60 @@ export class ResultModel {
   /** Shows every region of coarser terrain on the map (coarserLayer.addCoarser, the head's "Show on map"); null
    *  without a map or without such regions. */
   coarserFit: (() => void) | null = null;
+  /** How many Line objects the model made (lineAt): for tests and measurements. */
+  madeLines = 0;
 
-  // Runs of hundreds of thousands of lines: what goes through every line (keys are strings built
-  // from the coordinates) is done only when it changes, and lines are known by the objects
+  // Runs of millions of lines: what goes through every line reads the columns, is done only when it changes, and
+  // the lines are known by their index among the runs shown (lineAt)
   private readonly favourites = new Set<string>();  // keyOf
-  private readonly favouriteSet = new Set<Line>();     // the lines of `favourites` among the runs shown
+  private readonly favouriteSet = new Set<number>();   // the indices of `favourites` among the runs shown
   private readonly inFolder = new Map<string, number | null>();  // keyOf -> the favourite's folder
   /** The user's folders of favourites (from the server with the run's favourites). */
   folders: FavouriteFolder[] = [];
   tree = new FolderTree([]);
-  private readonly chosen = new Set<Line>();        // the line shown of a group, chosen by the user
+  private readonly chosen = new Set<number>();      // the line shown of a group, chosen by the user (its index)
   private readonly computed = new Map<string, Profile>();  // by lineCoords (this run's lines only)
   private readonly listeners = new Set<() => void>();
   private readonly api: ResultApi;
   private readonly wantFavourites: boolean;
   readonly canCompute: boolean;
   private selectedLine: Line | null = null;
-  private allLines: Line[] = [];
+  // This run's lines (the first) and the other runs', each from its own index on; indices are never given twice
+  // (a run shown again gets new ones), so a Line's index (`index`) never names another line
+  private readonly tables: Table[] = [];
+  private nextStart = 0;
+  private version = 0;  // of the runs shown (gather)
+  private made = new Map<number, Line>();           // the Lines made, by index (lineAt)
+  private readonly index = new WeakMap<Line, number>();  // a made Line's index
   private counts = {clean: 0, over: 0};
-  private grouped: Group<Line>[] = [];  // groupLines' groups, before the group size filter
-  private valueRanges: {of: Line[]; ranges: FilterRanges} | null = null;  // lineRanges of `all`
-  // A spot's best line and its lines in the spot's order (BY_MEAN), per group of the last compute
-  private best = new WeakMap<Group<Line>, Line>();
-  private ordered = new WeakMap<Group<Line>, Line[]>();
-  private rows_: Map<Line, number> | null = null;  // a line's row in its run: made when a tie needs it
-  private readonly compareMean = byMean((l) => this.rowOf(l));
+  private grouped: LineGroup[] = [];  // the grouping's groups, before the group size filter
+  // a line's group among `groups` before sorting (shownGroups), else -1: an array per run shown, by the line's row
+  private groupAt = new Map<Table, Int32Array>();
+  private shownGroups: LineGroup[] = [];
+  private special: Set<LineGroup> | null = null;  // the groups shown holding a chosen line or a favourite
+  private valueRanges: {of: number; ranges: FilterRanges} | null = null;  // lineRanges of the runs shown (version)
+  // A spot's best line (its index) and its lines in the spot's order (BY_MEAN) or the grouping's, per group
+  private best = new WeakMap<LineGroup, number>();
+  private ordered = new WeakMap<LineGroup, Line[]>();
+  private inOrder = new WeakMap<LineGroup, Line[]>();
+  private readonly compareMean = byMean<LineCursor>((c) => c.i);  // c.i: the line's row in its run
+  private readonly cursorA = new LineCursor(lineColumns([]));
+  private readonly cursorB = new LineCursor(lineColumns([]));
 
-  constructor(data: RunData, options: ResultOptions = {}) {
-    this.data = data;
+  /** `data`: a run with its lines as columns (result/load.ts), or data.js's value with its rows (read into columns
+   *  here; the rows are left as they are). */
+  constructor(data: RunData | RunScript, options: ResultOptions = {}) {
+    this.data = "columns" in data ? data
+      : timed("fal:run:lines", () => runData(data as RunScript), {count: (data as RunScript).lines.length});
     this.runId = data.run.id;
-    this.lines = timed("fal:run:lines", () => data.lines.map((row) => toLine(row, undefined, data.terrain, data.ends)),
-                       {count: data.lines.length});
+    this.tables.push({cols: this.data.columns, start: 0});
+    this.nextStart = this.data.columns.length;
     this.gather();
     this.api = options.api || SERVER_API;
     const app = appFlags();
     this.wantFavourites = options.favourites ?? app?.favourites ?? fromServer();
     this.canCompute = options.profiles ?? app?.profiles ?? fromServer();
-    this.state = {group: true, distance: data.distance, by: BY_MEAN, showClean: true, showOver: true};
+    this.state = {group: true, distance: this.data.distance, by: BY_MEAN, showClean: true, showOver: true};
     this.filters = savedFilters();
     this.list = options.list && !hasSavedList() ? {...savedList(), ...options.list} : savedList();
     this.compute();
@@ -218,31 +281,87 @@ export class ResultModel {
 
   // --- lines and keys ---
 
-  /** This run's lines and those of the other runs shown. */
-  get all(): Line[] {
-    return this.allLines;
+  /** How many lines this run has. */
+  get count(): number {
+    return this.data.columns.length;
+  }
+
+  /** How many lines the runs shown have (this run's and the other runs'). */
+  get total(): number {
+    return this.tables.reduce((n, t) => n + t.cols.length, 0);
   }
 
   get nClean(): number { return this.counts.clean; }
   get nOver(): number { return this.counts.over; }
 
-  /** `all` and its counts again (the runs shown changed). */
-  private gather() {
-    this.allLines = this.lines.concat(...Array.from(this.others.values()).map((r) => r.lines));
-    const over = this.allLines.reduce((n, l) => n + +l.over, 0);
-    this.counts = {clean: this.allLines.length - over, over};
-    this.rows_ = null;
+  /** The lines of run `id` (this run's or another run's shown), found by the run: a run of no lines shares its
+   *  start index with the next one. */
+  private tableOfRun(id: string): Table | undefined {
+    return id === this.runId ? this.tables[0] : this.tables.find((t) => t.run?.info.id === id);
   }
 
-  /** A line's row in its run's data (the last tie of byMean). */
-  private rowOf(l: Line): number {
-    if (!this.rows_) {
-      const rows = new Map<Line, number>();
-      this.lines.forEach((x, k) => rows.set(x, k));
-      this.others.forEach((r) => r.lines.forEach((x, k) => rows.set(x, k)));
-      this.rows_ = rows;
+  /** The run holding index `at`. */
+  private tableOf(at: number): Table | undefined {
+    for (const t of this.tables) if (at >= t.start && at < t.start + t.cols.length) return t;
+    return undefined;
+  }
+
+  /** The line of index `at` among the runs shown (this run's line k is index k) as a Line: the same object while it
+   *  is kept (prune), made from the columns when it is not. */
+  lineAt(at: number): Line {
+    let l = this.made.get(at);
+    if (l) return l;
+    const t = this.tableOf(at);
+    if (!t) throw new RangeError("no line " + at);
+    l = lineAt(t.cols, at - t.start, t.run);
+    if (!l.prof && !t.run && this.computed.size) l.prof = this.computed.get(lineCoords(l)) ?? null;
+    this.madeLines++;
+    this.made.set(at, l);
+    this.index.set(l, at);
+    return l;
+  }
+
+  /** The index of a Line the model made (lineAt), else -1 (a measured line, a copy). */
+  indexOf(l: Line): number {
+    return this.index.get(l) ?? -1;
+  }
+
+  /** Call `f` with each of this run's lines (a cursor on the columns, valid only during the call). */
+  forEachLine(f: (l: LineValues) => void) {
+    this.eachOf(this.tables[0], f);
+  }
+
+  private eachOf(t: Table, f: (l: LineValues, at: number) => void) {
+    const cursor = new LineCursor(t.cols);
+    for (let i = 0; i < t.cols.length; i++) {
+      cursor.i = i;
+      f(cursor, t.start + i);
     }
-    return this.rows_.get(l) ?? 0;
+  }
+
+  /** The cursor `c` on the line of index `at`. */
+  private place(c: LineCursor, at: number): LineCursor {
+    const t = this.tableOf(at)!;
+    c.c = t.cols;
+    c.i = at - t.start;
+    return c;
+  }
+
+  /** byMean of the lines of two indices. */
+  private compareAt(a: number, b: number): number {
+    return this.compareMean(this.place(this.cursorA, a), this.place(this.cursorB, b));
+  }
+
+  /** The runs shown changed: their counts again. */
+  private gather() {
+    let over = 0, all = 0;
+    for (const t of this.tables) {
+      const o = t.cols.over;
+      for (let i = 0; i < o.length; i++) over += o[i];
+      all += o.length;
+    }
+    this.counts = {clean: all - over, over};
+    this.version++;
   }
 
   /** The key of a line among the runs shown (keys.lineKey). */
@@ -264,34 +383,81 @@ export class ResultModel {
     return lineCoords(l);
   }
 
+  /** The index of this run's line whose link (keys.lineCoords) is `link`, else -1. */
+  private findLink(link: string): number {
+    const lat1 = Number(link.split(",")[0]), c = this.data.columns, cursor = new LineCursor(c);
+    for (let i = 0; i < c.length; i++) {
+      if (c.lat1.at(i) !== lat1) continue;  // the same text has the same first number
+      cursor.i = i;
+      if (lineCoords(cursor) === link) return i;
+    }
+    return -1;
+  }
+
+  /** This run's line whose link (keys.lineCoords) is `link`, else null. */
+  linkedLine(link: string): Line | null {
+    const at = this.findLink(link);
+    return at < 0 ? null : this.lineAt(at);
+  }
+
   // --- what is shown ---
 
   /** The line a group shows: the one chosen in it, else the user's favourite in it, else its best (bestOf). */
-  shownOf(g: Group<Line>): Line {
+  shownOf(g: LineGroup): Line {
     if (this.chosen.size === 0 && this.favouriteSet.size === 0) return this.bestOf(g);
-    return g.members.find((m) => this.chosen.has(m)) || g.members.find((m) => this.favouriteSet.has(m)) || this.bestOf(g);
+    if (!this.specialGroups().has(g)) return this.bestOf(g);
+    for (let k = g.start; k < g.end; k++) if (this.chosen.has(g.flat[k])) return this.lineAt(g.flat[k]);
+    for (let k = g.start; k < g.end; k++) if (this.favouriteSet.has(g.flat[k])) return this.lineAt(g.flat[k]);
+    return this.bestOf(g);
+  }
+
+  /** The groups shown that hold a chosen line or a favourite. */
+  private specialGroups(): Set<LineGroup> {
+    if (!this.special) {
+      const special = new Set<LineGroup>();
+      for (const of of [this.chosen, this.favouriteSet]) {
+        of.forEach((at) => {
+          const q = this.groupIndex(at);
+          if (q >= 0) special.add(this.shownGroups[q]);
+        });
+      }
+      this.special = special;
+    }
+    return this.special;
   }
 
   /** The first line of a spot: under BY_MEAN its line with the highest mean height (byMean), else the
    *  representative of the grouping. */
-  bestOf(g: Group<Line>): Line {
-    if (this.state.by !== BY_MEAN || g.members.length < 2) return g.rep;
+  bestOf(g: LineGroup): Line {
+    if (this.state.by !== BY_MEAN || g.size < 2) return this.lineAt(g.repAt);
     let best = this.best.get(g);
-    if (!best) {
-      best = g.members.reduce((a, b) => this.compareMean(b, a) < 0 ? b : a);
+    if (best === undefined) {
+      best = g.flat[g.start];
+      for (let k = g.start + 1; k < g.end; k++) if (this.compareAt(g.flat[k], best) < 0) best = g.flat[k];
       this.best.set(g, best);
     }
-    return best;
+    return this.lineAt(best);
+  }
+
+  /** A spot's lines in the grouping's order (the representative first), as Lines. */
+  linesOf(g: LineGroup): Line[] {
+    let lines = this.inOrder.get(g);
+    if (!lines) {
+      lines = Array.from(g.flat.subarray(g.start, g.end), (at) => this.lineAt(at));
+      this.inOrder.set(g, lines);
+    }
+    return lines;
   }
 
   /** A spot's lines in the order the page shows them (the stepper, the unfolded rows, `alsoOf`), best first:
    *  under BY_MEAN by byMean, else the grouping's order (the representative first). The members of the groups
-   *  stay those of groupLines, in its order. */
-  membersOf(g: Group<Line>): Line[] {
-    if (this.state.by !== BY_MEAN || g.members.length < 2) return g.members;
+   *  stay those of the grouping, in its order. */
+  membersOf(g: LineGroup): Line[] {
+    if (this.state.by !== BY_MEAN || g.size < 2) return this.linesOf(g);
     let lines = this.ordered.get(g);
     if (!lines) {
-      lines = g.members.slice().sort(this.compareMean);
+      const order = Array.from(g.flat.subarray(g.start, g.end)).sort((a, b) => this.compareAt(a, b));
+      lines = order.map((at) => this.lineAt(at));
       this.ordered.set(g, lines);
     }
     return lines;
@@ -303,36 +469,96 @@ export class ResultModel {
   }
 
   /** Is the line shown for its group the user's favourite rather than a choice. */
-  shownAsFavourite(g: Group<Line>): boolean {
-    const l = this.shownOf(g);
-    return this.favouriteSet.has(l) && !this.chosen.has(l);
+  shownAsFavourite(g: LineGroup): boolean {
+    const at = this.indexOf(this.shownOf(g));
+    return this.favouriteSet.has(at) && !this.chosen.has(at);
+  }
+
+  /** The indices of the lines the filters pass among the runs shown, in their order. */
+  private visibleLines(): Int32Array {
+    const f = this.filters, s = this.state, lift = this.data.lift;
+    const favOnly = f.favOnly && this.favouritesOn;
+    const out = new Int32Array(this.total);
+    let n = 0;
+    for (const t of this.tables) {
+      const over = t.cols.over, cursor = new LineCursor(t.cols);
+      for (let i = 0; i < over.length; i++) {
+        if (over[i] ? !s.showOver : !s.showClean) continue;
+        cursor.i = i;
+        if (!passes(cursor, f, lift)) continue;
+        if (favOnly && !this.favouriteSet.has(t.start + i)) continue;
+        out[n++] = t.start + i;
+      }
+    }
+    return out.subarray(0, n);
+  }
+
+  /** The grouping of the lines of indices `visible`: runs in another coordinate system are grouped in a local plane
+   *  around this run (their anchors' metres from their latitudes and longitudes). */
+  private groupVisible(visible: Int32Array): LineGroup[] {
+    const m = visible.length;
+    const framed = Array.from(this.others.values()).some((r) => r.crs !== this.data.crs);
+    const plane = framed ? localPlane(this.data.center[0], this.data.center[1]) : null;
+    const input: GroupInput = {x1: new Float64Array(m), y1: new Float64Array(m), x2: new Float64Array(m),
+                               y2: new Float64Array(m), len: new Float64Array(m), clr: new Float64Array(m),
+                               hmax: new Float64Array(m), over: new Uint8Array(m)};
+    let t = this.tables[0];
+    for (let k = 0; k < m; k++) {
+      const at = visible[k];
+      if (at < t.start || at >= t.start + t.cols.length) t = this.tableOf(at)!;
+      const c = t.cols, i = at - t.start;
+      if (plane) {
+        input.x1[k] = plane.x(c.lon1.at(i)!); input.y1[k] = plane.y(c.lat1.at(i)!);
+        input.x2[k] = plane.x(c.lon2.at(i)!); input.y2[k] = plane.y(c.lat2.at(i)!);
+      } else {
+        input.x1[k] = c.x1.at(i)!; input.y1[k] = c.y1.at(i)!; input.x2[k] = c.x2.at(i)!; input.y2[k] = c.y2.at(i)!;
+      }
+      // null as a Float64Array stores it (0), as the grouping read the lines' values before
+      input.len[k] = c.len.at(i)!; input.clr[k] = c.clr.at(i)!; input.hmax[k] = c.hmax.at(i)!;
+      input.over[k] = c.over[i];
+    }
+    const {reps, members, starts} = groupIndices(input, this.state.distance, this.groupBy());
+    for (let k = 0; k < members.length; k++) members[k] = visible[members[k]];
+    return Array.from(reps, (rep, g) => new LineGroup(this, members, starts[g], starts[g + 1], visible[rep],
+                                                        input.over[rep] === 1));
   }
 
   /** The groups and rows again: after a change of the filters, of the grouping
    *  or of the runs shown. */
   private compute() {
-    const all = this.all, f = this.filters, s = this.state;
-    // Runs in another coordinate system are grouped in a local plane around this run;
-    // the groups hold the lines themselves, not their copies in the plane
-    const framed = Array.from(this.others.values()).some((r) => r.crs !== this.data.crs);
-    const lift = this.data.lift;
-    const visible = timed("fal:run:filter", () => all.filter((l) => (l.over ? s.showOver : s.showClean) && passes(l, f, lift)
-      && (!f.favOnly || !this.favouritesOn || this.favouriteSet.has(l))));
-    const planar = framed ? inLocalPlane(visible, this.data.center[0], this.data.center[1]) : visible;
-    const original = framed ? new Map<Line, Line>(planar.map((p, k) => [p, visible[k]])) : null;
-    this.grouped = timed("fal:run:group", () => s.group
-      ? groupLines(planar, s.distance, this.groupBy()).map((g) => original ? {rep: original.get(g.rep)!,
-                                                                    members: g.members.map((m) => original.get(m)!)} : g)
-      : visible.map((l) => ({rep: l, members: [l]})), {count: visible.length});
-    this.largestGroup = this.grouped.reduce((m, g) => Math.max(m, g.members.length), 1);
+    const s = this.state;
+    const visible = timed("fal:run:filter", () => this.visibleLines());
+    this.grouped = timed("fal:run:group", () => s.group ? this.groupVisible(visible)
+      : Array.from(visible, (at, k) => new LineGroup(this, visible, k, k + 1, at, this.isOver(at))), {count: visible.length});
+    this.largestGroup = this.grouped.reduce((m, g) => Math.max(m, g.size), 1);
     this.ranges = timed("fal:run:ranges", () => this.rangesNow());
     timed("fal:run:rows", () => this.showGroups(), {count: this.grouped.length});
+    this.prune();
   }
 
-  /** The filters' ranges: of the values only when the lines changed. */
+  private isOver(at: number): boolean {
+    const t = this.tableOf(at)!;
+    return t.cols.over[at - t.start] === 1;
+  }
+
+  /** Forget the made lines that nothing shown holds when they are many more than the rows (PRUNE_MIN): kept are
+   *  the rows' lines, the selected line, the chosen lines and the favourites. */
+  private prune() {
+    if (this.made.size <= Math.max(PRUNE_MIN, 2 * this.baseRows.length)) return;
+    const keep = new Map<number, Line>(), made = this.made;
+    const hold = (at: number) => { const l = made.get(at); if (l) keep.set(at, l); };
+    this.baseRows.forEach((r) => hold(this.indexOf(r.line)));
+    if (this.selectedLine) hold(this.indexOf(this.selectedLine));
+    this.chosen.forEach(hold);
+    this.favouriteSet.forEach(hold);
+    this.made = keep;
+  }
+
+  /** The filters' ranges: of the values only when the runs shown changed. */
   private rangesNow(): FilterRanges {
-    if (this.valueRanges?.of !== this.all) {
-      this.valueRanges = {of: this.all, ranges: lineRanges(this.all, this.data.high_above, 1, false, this.liftRange())};
+    if (this.valueRanges?.of !== this.version) {
+      const each = (f: (l: LineValues) => void) => this.tables.forEach((t) => this.eachOf(t, f));
+      this.valueRanges = {of: this.version, ranges: lineRanges(each, this.data.high_above, 1, false, this.liftRange())};
     }
     const largest = this.largestGroup;
     return {...this.valueRanges.ranges, group: largest > 1 ? {min: 1, max: largest} : null, favourites: this.favouritesOn};
@@ -344,20 +570,20 @@ export class ResultModel {
     const d = this.data;
     if (!d.end_zone && !d.lift) return null;
     let needed = 0, noZone = 0;
-    for (const l of this.lines) {
+    this.forEachLine((l) => {
       if (typeof l.lift_needed === "number" && l.lift_needed > needed) needed = l.lift_needed;
       if (typeof l.lift_no_zone === "number" && l.lift_no_zone > noZone) noZone = l.lift_no_zone;
-    }
+    });
     return {lift: d.lift || 0, zone: d.end_zone || 0, needed, noZone};
   }
 
   /** How many of this run's lines need at most `max` metres of A-frames (with the zone, or without it: `noZone`). */
   liftCount(max: number, noZone: boolean): number {
     let n = 0;
-    for (const l of this.lines) {
+    this.forEachLine((l) => {
       const v = noZone ? l.lift_no_zone : l.lift_needed;
       if (typeof v !== "number" || v <= max + 1e-9) n++;
-    }
+    });
     return n;
   }
 
@@ -365,19 +591,32 @@ export class ResultModel {
   private showGroups() {
     const f = this.filters, s = this.state;
     let groups = this.grouped;
-    if (s.group && f.groupMin !== null) groups = groups.filter((g) => g.members.length >= f.groupMin!);
-    // groupLines gives clear groups first; without grouping the lines come in their order, so the
+    if (s.group && f.groupMin !== null) groups = groups.filter((g) => g.size >= f.groupMin!);
+    const groupAt = new Map(this.tables.map((t) => [t, new Int32Array(t.cols.length).fill(-1)]));
+    let t = this.tables[0], rows = groupAt.get(t)!;
+    groups.forEach((g, q) => {
+      for (let k = g.start; k < g.end; k++) {
+        const at = g.flat[k];
+        if (at < t.start || at >= t.start + t.cols.length) { t = this.tableOf(at)!; rows = groupAt.get(t)!; }
+        rows[at - t.start] = q;
+      }
+    });
+    this.groupAt = groupAt;
+    this.shownGroups = groups;
+    this.special = null;
+    // the grouping gives clear groups first; without grouping the lines come in their order, so the
     // rows (clear first) keep that order within each kind
-    this.baseRows = groups.map((g) => ({line: this.shownOf(g), n: g.members.length, members: g.members, group: g}))
-      .sort((a, b) => +a.group.rep.over - +b.group.rep.over);
+    this.baseRows = groups.map((g) => ({line: this.shownOf(g), n: g.size, group: g}))
+      .sort((a, b) => +a.group.over - +b.group.over);
     this.groups = this.baseRows.map((r) => r.group);
-    this.shown = {spots: groups.length, lines: groups.reduce((n, g) => n + g.members.length, 0)};
+    this.shown = {spots: groups.length, lines: groups.reduce((n, g) => n + g.size, 0)};
     this.sortRows();
     this.reselect();
   }
 
   /** The rows' lines again after a choice (the groups stay). */
   private refreshRows() {
+    this.special = null;
     this.baseRows.forEach((r) => { r.line = this.shownOf(r.group); });
     this.sortRows();
     this.reselect();
@@ -398,17 +637,24 @@ export class ResultModel {
     this.selectedLine = line;
   }
 
+  /** The position among shownGroups of the group holding the line of index `at`, else -1. */
+  private groupIndex(at: number): number {
+    const t = at >= 0 ? this.tableOf(at) : undefined, rows = t && this.groupAt.get(t);
+    return rows ? rows[at - t!.start] : -1;
+  }
+
   /** The group (shown now) holding a line, or undefined. */
-  groupOf(l: Line): Group<Line> | undefined {
-    return this.groups.find((g) => g.members.includes(l));
+  groupOf(l: Line): LineGroup | undefined {
+    const at = this.indexOf(l);
+    const q = this.groupIndex(at);
+    return q >= 0 ? this.shownGroups[q] : undefined;
   }
 
   /** The other lines of the spot of `l` (its group among the groups shown) that belong to its run, in the spot's
    *  order (membersOf: the highest on average first), at most `max`: what the 3D view's link hands over besides
    *  the line itself (`&also=`). A line alone in its spot, or not among the groups shown, has none. */
   alsoOf(l: Line, max = 20): Line[] {
-    const sel = this.selected?.group;
-    const group = sel && sel.members.includes(l) ? sel : this.groupOf(l);
+    const group = this.groupOf(l);
     if (!group) return [];
     const run = this.runOf(l);
     return this.membersOf(group).filter((m) => m !== l && this.runOf(m) === run).slice(0, max);
@@ -442,11 +688,11 @@ export class ResultModel {
   }
 
   /** Select a group, or a line (shown for its group: chosen if it is not), or nothing. */
-  select(target: Group<Line> | Line | null) {
+  select(target: LineGroup | Line | null) {
     this.profileClosed = false;
     if (target === null) {
       this.selectedLine = null;
-    } else if ("members" in target) {
+    } else if (target instanceof LineGroup) {
       this.selectedLine = this.shownOf(target);
     } else {
       const group = this.groupOf(target);
@@ -484,15 +730,16 @@ export class ResultModel {
     return true;
   }
 
-  private setChosen(g: Group<Line>, line: Line) {
-    g.members.forEach((m) => this.chosen.delete(m));
-    this.chosen.add(line);
+  private setChosen(g: LineGroup, line: Line) {
+    for (let k = g.start; k < g.end; k++) this.chosen.delete(g.flat[k]);
+    this.chosen.add(this.indexOf(line));
+    this.special = null;
   }
 
   /** Show another line of a group (the representative too is a choice: it wins over a favourite in it);
-   * the groups stay those of groupLines. A selected group keeps its selection on the new line. */
-  choose(g: Group<Line>, line: Line) {
-    if (!g.members.includes(line)) return;
+   * the groups stay those of the grouping. A selected group keeps its selection on the new line. */
+  choose(g: LineGroup, line: Line) {
+    if (!g.has(this.indexOf(line))) return;
     const wasSelected = this.selected?.group === g;
     this.profileClosed = false;
     this.setChosen(g, line);
@@ -514,7 +761,7 @@ export class ResultModel {
 
   /** The index of the shown line among its spot's lines in their order (membersOf; the selected group's by
    *  default); -1: none. */
-  variantIndex(g: Group<Line> | undefined = this.selected?.group): number {
+  variantIndex(g: LineGroup | undefined = this.selected?.group): number {
     return g ? this.membersOf(g).indexOf(this.shownOf(g)) : -1;
   }
 
@@ -524,10 +771,10 @@ export class ResultModel {
     if (!this.data.end_zone && !this.data.lift) return null;
     if (!this.needs) {
       const n: [number, number, number] = [0, 0, 0];
-      for (const l of this.lines) {
+      this.forEachLine((l) => {
         const k = needClass(l);
         if (k !== null) n[k]++;
-      }
+      });
       this.needs = n;
     }
     return this.needs;
@@ -618,14 +865,15 @@ export class ResultModel {
   /** Mark or unmark a favourite at once (a new one into `folder`, by default the last folder used);
    *  rolled back with a note when the server does not save it. */
   toggleFavourite(l: Line, folder: number | null = this.lastFolder): Promise<void> {
-    const key = this.keyOf(l), on = !this.favourites.has(key);
+    const key = this.keyOf(l), on = !this.favourites.has(key), at = this.indexOf(l);
     const flip = (to: boolean) => {
-      if (to) { this.favourites.add(key); this.favouriteSet.add(l); this.inFolder.set(key, folder); }
-      else { this.favourites.delete(key); this.favouriteSet.delete(l); this.inFolder.delete(key); }
+      if (to) { this.favourites.add(key); if (at >= 0) this.favouriteSet.add(at); this.inFolder.set(key, folder); }
+      else { this.favourites.delete(key); this.favouriteSet.delete(at); this.inFolder.delete(key); }
+      this.special = null;
     };
     // A line shown stays shown in its group
     const group = this.groupOf(l);
-    if (!on && group && this.shownOf(group) === l) this.chosen.add(l);
+    if (!on && group && this.shownOf(group) === l) { this.chosen.add(at); this.special = null; }
     flip(on);
     this.note = null;
     this.afterFavourite();
@@ -645,14 +893,17 @@ export class ResultModel {
   /** The lines of a run whose coordinates (keys.lineCoords) are among `found` become favourites
    *  (keys are built only for the lines whose first latitude is among theirs). */
   private markFavourites(runId: string, found: string[]) {
-    const lines = runId === this.runId ? this.lines : this.others.get(runId)?.lines || [];
+    const t = this.tableOfRun(runId);
+    if (!t) return;
     const wanted = new Set(found), lat1 = new Set(found.map((coords) => Number(coords.split(",")[0])));
-    for (const l of lines) if (lat1.has(l.lat1) && wanted.has(lineCoords(l))) this.favouriteSet.add(l);
+    this.eachOf(t, (l, at) => { if (lat1.has(l.lat1) && wanted.has(lineCoords(l))) this.favouriteSet.add(at); });
+    this.special = null;
   }
 
   /** The favourite lines of the runs shown. */
   favouriteLines(): Line[] {
-    return this.all.filter((l) => this.favouriteSet.has(l));
+    return Array.from(this.favouriteSet).filter((at) => this.tableOf(at)).sort((a, b) => a - b)
+      .map((at) => this.lineAt(at));
   }
 
   setNote(note: Note | null) {
@@ -670,19 +921,19 @@ export class ResultModel {
   /** A link's line that `openLinked` would measure: four numbers, this page can ask profiles, and the line is not
    *  among the run's. */
   measurableLink(link: string): boolean {
-    return this.canCompute && linkPoints(link) !== null && !this.lines.some((l) => lineCoords(l) === link);
+    return this.canCompute && linkPoints(link) !== null && this.findLink(link) < 0;
   }
 
   /** Show and select the line of a link ("#line=lat1,lon1,lat2,lon2" or the value alone) in its group;
    * returns it, or null with a note (not in this run; hidden by the filters, with an action that
-   * clears them and tries again). A line that is not among this run's (the 3D view's moved anchors, a favourite
+   * clears them and tries again). A line that is not among the run's (the 3D view's moved anchors, a favourite
    * saved there) is measured where the page may ask profiles, as `measure` does for two points: with
    * `onMeasured`, which gets the measured line (the shell shows it), the link's key in `measuredLink` meanwhile,
    * and a note when the measurement fails; without it, or where profiles cannot be asked, today's note. */
   openLinked(hash: string, onMeasured?: (line: Line) => void): Line | null {
     const value = hash.startsWith("#line=") ? hash.slice("#line=".length) : hash.replace(/^#/, "");
     const wanted = decodeURIComponent(value);
-    const line = this.lines.find((l) => lineCoords(l) === wanted);
+    const line = this.linkedLine(wanted);
     if (!line) {
       const points = onMeasured && this.canCompute ? linkPoints(wanted) : null;
       if (points) {
@@ -705,7 +956,7 @@ export class ResultModel {
     }
     this.measuredLink = null;
     this.note = null;
-    this.chosen.add(line);
+    this.chosen.add(this.indexOf(line));
     this.refreshRows();
     if (this.groupOf(line)) {
       this.select(line);
@@ -724,11 +975,12 @@ export class ResultModel {
 
   // --- other runs ---
 
-  /** Show another run's lines (lines.js, from others.loadLines) with this run's. */
+  /** Show another run's lines (lines.js, from others.loadLines) with this run's: its rows read into columns. */
   addRun(info: RunInfo, loaded: RunLines, color = colorOf(info.id)) {
-    const run = {info, color};
-    this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area,
-                              lines: loaded.lines.map((row) => toLine(row, run, loaded.terrain, loaded.ends))});
+    const cols = lineColumns(loaded.lines, loaded.terrain, loaded.ends), start = this.nextStart;
+    this.nextStart += cols.length;
+    this.tables.push({cols, start, run: {info, color}});
+    this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area, start, count: cols.length});
     this.gather();
     this.compute();
     this.notify();
@@ -736,7 +988,13 @@ export class ResultModel {
   }
 
   removeRun(id: string) {
-    if (!this.others.delete(id)) return;
+    const run = this.others.get(id);
+    if (!run) return;
+    this.others.delete(id);
+    this.tables.splice(this.tables.indexOf(this.tableOfRun(id)!), 1);
+    const gone = (at: number) => at >= run.start && at < run.start + run.count;
+    for (const of of [this.chosen, this.favouriteSet]) of.forEach((at) => { if (gone(at)) of.delete(at); });
+    this.made.forEach((_, at) => { if (gone(at)) this.made.delete(at); });
     this.gather();
     this.compute();
     this.notify();

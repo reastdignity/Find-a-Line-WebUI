@@ -1977,6 +1977,29 @@ def _run_name(plan: Plan) -> str:
 
 def _search_hash(plan: Plan) -> str:
     """What identifies the same tiled search, to resume it."""
+    return _hash_of(_search_key(plan))
+
+
+def _hash_of(key: Dict) -> str:
+    return hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _search_keys(plan: Plan) -> List[str]:
+    """The hashes an unfinished tiled run of this search may hold: _search_hash, and for a sag search at 3 m
+    also its hash of before migration 17 of jobs.sqlite. A web request that left the fall zone out was hashed
+    with the default's int 3 until 2026-11-14; the migration wrote 3 into it, which validates as the float 3.0,
+    so its hash moved. The same search, the same results: it resumes from the tiles of before."""
+    key = _search_key(plan)
+    hashes = [_hash_of(key)]
+    p = key["params"]
+    if p["model"] == "sag" and p["fall_zone"] == 3 and not isinstance(p["fall_zone"], int):
+        key["params"] = {**p, "fall_zone": 3}
+        hashes.append(_hash_of(key))
+    return hashes
+
+
+def _search_key(plan: Plan) -> Dict:
+    """The parameters _search_hash hashes."""
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by"})
     for name in ("min_elevation", "max_elevation"):  # unset: the hash of before (its tiles resume)
@@ -1993,26 +2016,37 @@ def _search_hash(plan: Plan) -> str:
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
         key["owner"] = plan.owner
-    return hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+    return key
 
 
 def _open_run(plan: Plan) -> Dict:
     """The run folder of a tiled search: an unfinished one of the same search (whose tile
-    size is then used again, so its finished tiles fit), or a new one."""
-    key = _search_hash(plan)
+    size is then used again, so its finished tiles fit), or a new one. A run found under a key of before
+    (_search_keys) goes on under today's key. A progress.json that cannot be read (an empty one, left by a
+    process killed while _progress wrote it before it wrote whole) is skipped: its run never resumes."""
+    keys = _search_keys(plan)
+    key = keys[0]
     for path in sorted(glob.glob(os.path.join(plan.paths.runs, "*", "progress.json")), reverse=True):
-        with open(path, encoding="utf-8") as f:
-            state = json.load(f)
-        if state.get("status") == "running" and state.get("search") == key:
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(state, dict):
+            continue
+        if state.get("status") == "running" and state.get("search") in keys:
             folder = os.path.dirname(path)
             if state["tile_core"] != plan.tile_core:
                 plan.tile_core = state["tile_core"]
                 plan.tiles = _tiles(plan.grid, plan.params, plan.resolution, plan.source.grid_origin, plan.tile_core)
             done = len(glob.glob(os.path.join(folder, "tiles", TILE_FILE.format("*"))))
             plan.emit("info", f"Resuming run {os.path.basename(folder)}: {done} of {len(plan.tiles)} tiles done")
-            return {"id": os.path.basename(folder), "path": folder, "name": state["name"],
-                    "created": datetime.fromisoformat(state["created"]), "search": key,
-                    "tile_core": state["tile_core"]}
+            run = {"id": os.path.basename(folder), "path": folder, "name": state["name"],
+                   "created": datetime.fromisoformat(state["created"]), "search": key,
+                   "tile_core": state["tile_core"]}
+            if state["search"] != key:  # found under a key of before: today's from now on
+                _progress(run, "running")
+            return run
     created = datetime.now()
     name = _run_name(plan)
     run = rn.new_run(plan.paths.runs, name, created)
@@ -2022,10 +2056,13 @@ def _open_run(plan: Plan) -> Dict:
 
 
 def _progress(run: Dict, status: str):
-    """progress.json of a tiled run: its state while running (run.json is written at the end)."""
-    with open(os.path.join(run["path"], "progress.json"), "w", encoding="utf-8") as f:
+    """progress.json of a tiled run: its state while running (run.json is written at the end). Written whole
+    (a .part beside it, then replaced), so another search's _open_run never reads it half written."""
+    path = os.path.join(run["path"], "progress.json")
+    with open(path + ".part", "w", encoding="utf-8") as f:
         json.dump({"status": status, "search": run["search"], "tile_core": run["tile_core"],
                    "name": run["name"], "created": run["created"].isoformat()}, f)
+    os.replace(path + ".part", path)
 
 
 TILE_FILE = "{}.table.pkl.gz"  # a finished tile's lines; "<k>.pkl.gz" of before held a dict per line

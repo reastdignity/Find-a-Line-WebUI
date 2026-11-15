@@ -142,6 +142,7 @@ anchors.
 | `clearance_mid` | the same with the first failure farther in |
 | `surface_obstacle` | under `--nmpt reject` only: no pair that passed the terrain passes the surface (under "mark", the default, the surface rejects nothing: such lines are found and marked) |
 | `wall_angle` | `--max-wall-angle` set and no pair left within it |
+| `same_line_square` | with `--same-line-square` only: a pair passes every test and a found line lies in its two anchor squares: the square rule kept that line, outside the tolerance, and dropped the pair's (with `--min-prominence` set a note says the strong anchors are not in the capture) |
 | `unexplained` | a pair passes every test, another line limit (`--min-height` and the like) explains it, or no pixel lies between a pair's anchors (a note says which) |
 
 Each record also holds the ends (slopes, the nearest pixel of 45, 40, 35 and 30° within tol, the anchors within tol,
@@ -542,6 +543,10 @@ and `clearance_mid`; the reasons before the clearance do not move, the zone × l
 most one line a cell. The kept line is more often the one its spot shows (70 of 283 against 36 of 306), and
 the best match's clearance is lower (the mean height, not the clearance, decides inside a pair). Here a pair of
 squares holds 11 lines on average: small circles in the default rig; the line volume study's target rig holds 24-65.
+
+Since 2026-11-15 the analysis has the reason `same_line_square` for such a miss (a pair passing every test in the two
+squares of a kept line). The pass was not analysed again (its captures were removed): all 20 `unexplained` lines carry
+the note `a_pair_passes`, so at most 20 would read `same_line_square` now; 20 is an upper bound, not a recount.
 
 ### The pilot
 
