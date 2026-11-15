@@ -160,17 +160,42 @@ def test_folded_at_start_but_a_country_with_a_download(settings):
 
 
 def test_a_continent_without_rows_has_no_group(settings):
-    app, _ = _app(settings, ROWS + [_row("reunion", "France: Réunion", "Africa", "france")])
+    """Africa is in CONTINENTS before any row lies there: no group for it, until a row does, in its place."""
+    assert "Africa" in ar.CONTINENTS
+    settings.rows = {}
+    catalogue = ar.rows_of(settings)
+    assert not any(row.continent == "Africa" for row in catalogue)
+    app, _ = _app(settings, catalogue)
+
+    async def none(pilot):
+        assert "group-africa" not in [group.id for group in app.query(".continent")]
+    _drive(app, none)
+    other = ar.Row("x-other", "X", "Other", "X", "X", "osm:X", "usa", 1.0, False, 1)
+    rows = sorted(catalogue + [_row("reunion", "France: Réunion", "Africa", "france"), other], key=ar.order_of)
+    app, _ = _app(settings, rows)
 
     async def body(pilot):
         assert [group.id for group in app.query(".continent")] == [
-            "group-europe", "group-north-america", "group-oceania", "group-africa"]
+            "group-europe", "group-north-america", "group-oceania", "group-south-america", "group-asia",
+            "group-africa", "group-other"]
     _drive(app, body)
-    app, _ = _app(settings)
 
-    async def none(pilot):
-        assert not app.query("#group-africa")
-    _drive(app, none)
+
+def test_two_spellings_of_a_country_open_as_one_group(settings):
+    """An extra row's "france" beside the catalogue's France (two groups of one id: the window would not open)."""
+    settings.rows = {}
+    settings.extra = [{"name": "brittany", "title": "Brittany", "country": "france", "continent": "Europe",
+                       "area": "osm:X", "source": "france"},
+                      {"name": "corsica", "title": "Corsica", "country": "FRANCE", "continent": "europe",
+                       "area": "osm:Y", "source": "france"}]
+    app, _ = _app(settings, ar.rows_of(settings))
+
+    async def body(pilot):
+        france = _group(app, "Europe", "France")
+        assert [row.row.name for row in france.query(tui.AreaRow)] == ["france", "brittany", "corsica"]
+        assert france.title == "France (3)"
+        assert len(app.query("#group-europe")) == 1
+    _drive(app, body)
 
 
 def test_everything_open_at_start_when_asked(settings, monkeypatch):

@@ -397,7 +397,8 @@ America, French Guiana in South America), else its country's; so a country may h
 (`group-europe-france`, `group-north-america-france`). `Row.label` is what a row in a
 country's group shows (the region's or territory's name, a country-wide row "Whole country · <source>"); the title and
 name stay the full ones. An extra row's country is its `"country"`, else its title's part before ": " when that is a
-known name, else its title. Sorted by `CONTINENTS`, country, the country-wide row first, label. Each group's title
+known name, else its title (a territory's name through `PARENTS`); continents, and countries within one, whose names
+slug alike are one (`_one_spelling`: the group ids are slugs). Sorted by `CONTINENTS`, country, the country-wide row first, label. Each group's title
 carries its count and ticked count; at start the continents open and a country's group only when one of its rows has a
 state (`FOLD_AT_START`); the filter matches title and country, opens the groups with a match, hides the others and
 gives the folds back when cleared; up and down walk the visible titles and boxes. A checkbox

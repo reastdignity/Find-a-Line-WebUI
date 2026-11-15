@@ -188,6 +188,49 @@ def test_the_order_continent_country_then_the_whole_country_first(settings):
     ({}, "the-alps", "the-alps"),   # no title: its name
 ])
 def test_the_country_of_an_extra_row(tmp_path, entry, country, label):
+    _check_extra(tmp_path, entry, country, label)
+
+
+@pytest.mark.parametrize("entry, country, label", [
+    ({"title": "Puerto Rico: San Juan", "country": "Puerto Rico"}, "United States", "San Juan"),
+    ({"title": "Åland", "country": "Åland"}, "Finland", "Åland"),
+    ({"title": "Mariehamn", "country": "Aland"}, "Finland", "Mariehamn"),
+    ({"title": "Brittany", "country": "france"}, "France", "Brittany"),
+    ({"title": "FRANCE: Brittany", "country": "FRANCE"}, "France", "Brittany"),
+])
+def test_an_extra_rows_country_goes_through_parents_and_spelling(tmp_path, entry, country, label):
+    _check_extra(tmp_path, entry, country, label)
+
+
+def test_a_title_that_is_a_territorys_name():
+    assert ar._country_of("Åland") == ("Finland", "Åland")
+    assert ar._country_of("Puerto Rico") == ("United States", "Puerto Rico")
+
+
+def test_names_that_slug_alike_are_one_group(tmp_path):
+    """The window's group ids are slugs: two spellings of one country (or continent) would be two groups of one id."""
+    extra = [{"name": "brittany", "title": "Brittany", "country": "france", "continent": "Europe"},
+             {"name": "corsica", "title": "Corsica", "country": "France", "continent": "europe"},
+             {"name": "a1", "title": "Atlantis: North", "continent": "Lost"},
+             {"name": "a2", "title": "x", "country": "ATLANTIS: north", "continent": "lost"}]
+    settings = ar.load_settings(_write(tmp_path, extra=[{"area": "osm:X", "source": "usa", **e} for e in extra]))
+    rows = ar.rows_of(settings)
+    for name in ("brittany", "corsica", "france"):
+        assert (_row(rows, name).continent, _row(rows, name).country) == ("Europe", "France")
+    assert {(_row(rows, name).continent, _row(rows, name).country) for name in ("a1", "a2")} == {
+        ("Lost", "Atlantis: North")}
+    keys = {(ar.slug(row.continent), ar.slug(row.country)): (row.continent, row.country) for row in rows}
+    assert len(keys) == len({(row.continent, row.country) for row in rows})   # one spelling per slug
+
+
+def test_a_continent_outside_the_list_sorts_last():
+    def row(continent):
+        return ar.Row("x", "X", continent, "X", "X", "osm:X", "usa", 1.0, False, 1)
+    order = sorted([row("Other"), row("Africa"), row("Europe"), row("Asia")], key=ar.order_of)
+    assert [r.continent for r in order] == ["Europe", "Asia", "Africa", "Other"]
+
+
+def _check_extra(tmp_path, entry, country, label):
     settings = ar.load_settings(_write(tmp_path, extra=[{"name": "the-alps", "area": "osm:X", "source": "usa",
                                                          "continent": "Europe", **entry}]))
     row = _row(ar.rows_of(settings), "the-alps")

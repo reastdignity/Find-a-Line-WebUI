@@ -213,9 +213,14 @@ def _extra_row(entry: Dict) -> Row:
         title = entry.get("title", entry["name"])
         country, label = _country_of(title)
         if entry.get("country"):
-            country = entry["country"]
-            label = (title[len(country) + 2:] if title.startswith(f"{country}: ") else WHOLE if title == country
-                     else title)
+            given = entry["country"]
+            head, sep, rest = title.partition(": ")
+            label = rest if sep and slug(head) == slug(given) else WHOLE if slug(title) == slug(given) else title
+            codes = {slug(name): code for code, name in COUNTRIES.items()}
+            code = codes.get(slug(given))
+            country = given if code is None else COUNTRIES[PARENTS.get(code, code)]   # a territory: its country's
+            if label == WHOLE and code is not None and code in PARENTS:
+                label = title                                                         # ... as the title's would
         if label == WHOLE:
             label = f"{WHOLE} · {source.id}"
         return Row(entry["name"], title, entry.get("continent", "Other"), country, label, entry["area"],
@@ -264,7 +269,21 @@ def rows_of(settings: Settings) -> List[Row]:
     if unknown:
         raise SettingsError(f"rows of the settings not in the list: {', '.join(unknown)}")
     rows = [_with_settings(row, settings.rows.get(row.name, {})) for row in rows]
-    return sorted(rows, key=order_of)
+    return sorted(_one_spelling(rows), key=order_of)
+
+
+def _one_spelling(rows: List[Row]) -> List[Row]:
+    """Continents, and countries within a continent, whose names slug alike are one (the window's group ids are their
+    slugs): "europe" is Europe, "france" or "FRANCE" beside the catalogue's France is France, "Aland" Åland. The
+    spelling of CONTINENTS or of the catalogue wins (its rows come first), else the first seen."""
+    continents = {slug(name): name for name in CONTINENTS}
+    countries: Dict[Tuple[str, str], str] = {}
+    spelled = []
+    for row in rows:
+        continent = continents.setdefault(slug(row.continent), row.continent)
+        country = countries.setdefault((slug(continent), slug(row.country)), row.country)
+        spelled.append(replace(row, continent=continent, country=country))
+    return spelled
 
 
 def _plain_name(text: str) -> str:
