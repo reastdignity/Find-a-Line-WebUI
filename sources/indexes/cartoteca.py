@@ -34,8 +34,9 @@ BUFFER_M = 20.0              # each file holds its sheet and 20 m around it (the
 # A sheet whose newer surveys' footprints cover this share of it needs no older one (the footprints lie about 0.4 m
 # off the sheets' edges, transformed from another CRS: a whole sheet is covered to 0.9992)
 SHEET_COVERED = 0.995
-# An older survey is used where it adds at least this share of its sheet (19 200 m² at 1:2000) to the newer ones:
-# below it, the file is downloaded for a sliver along an edge (22d54's survey of 2010 adds 56 m² to that of 2012)
+# A survey after the first one kept is used where it adds at least this share of its sheet (19 200 m² at 1:2000) to
+# the ones kept before it: below it, the file is downloaded for a sliver along an edge (22d54's survey of 2010 adds
+# 56 m² to that of 2012). The newest survey (or a sole one) is always kept, however small
 MIN_ADDED = 0.01
 # The most features one answer may hold (MAXFEATURES asked): a 0.25° tile holds at most about 700 entries (the Apuan
 # Alps, 2026-11-15); an answer of exactly this many may be cut, an error
@@ -156,11 +157,11 @@ def _label(geometry) -> Optional[Tuple[float, float]]:
 
 
 def select_versions(entries: List[Dict]) -> List[Dict]:
-    """The surveys of one sheet worth reading, best first (sheet_rank), each with its points: a survey is used
-    while the better ones used before it cover less than SHEET_COVERED of the sheet and it adds at least
-    MIN_ADDED of it (an entry without a footprint covers the whole sheet). An entry is {"year", "lot", "res",
-    "godlo", "dtm", "dsm", "rectangle", "footprint"}; the answer's are {..., "extent", "points"} without the
-    shapes."""
+    """The surveys of one sheet worth reading, best first (sheet_rank), each with its points: the first is always
+    kept; a later one while the ones kept before it cover less than SHEET_COVERED of the sheet
+    and it adds at least MIN_ADDED of it (an entry without a footprint covers the whole sheet). An entry is
+    {"year", "lot", "res", "godlo", "dtm", "dsm", "rectangle", "footprint"}; the answer's are {..., "extent",
+    "points"} without the shapes."""
     import shapely
     from shapely.geometry import box
     rectangle = next((e["rectangle"] for e in entries if e["rectangle"]), None)
@@ -180,13 +181,14 @@ def select_versions(entries: List[Dict]) -> List[Dict]:
         if covered is not None and covered.area >= SHEET_COVERED * area:
             break
         added = shape if covered is None else shape.difference(covered)
-        if added.area < MIN_ADDED * area:
+        if added.is_empty or (covered is not None and added.area < MIN_ADDED * area):
             continue
         others = [s for j, s in enumerate(shapes) if j != k]
         own = shape.difference(shapely.union_all(others)) if others else shape
         points = [p for p in (_label(own), _label(added), _label(shape)) if p is not None]
-        if not points:
-            continue
+        if not points:  # narrower than twice POINT_INSET_M: a point on it all the same
+            inside = added.representative_point()
+            points = [(round(inside.x, 1), round(inside.y, 1))]
         # Its data: the footprint's box grown by the buffer, within the file (the sheet and its buffer)
         f_left, f_bottom, f_right, f_top = shape.bounds
         extent = (max(rectangle[0] - BUFFER_M, math.floor(f_left - BUFFER_M)),
