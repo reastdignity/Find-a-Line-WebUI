@@ -10,8 +10,7 @@ import numpy as np
 import rasterio as rio
 import rasterio.cache
 from affine import Affine
-from rasterio.vrt import WarpedVRT
-from rasterio.warp import Resampling, reproject
+from rasterio.warp import Resampling, reproject, transform_bounds
 from rasterio.windows import Window
 
 import cache
@@ -95,15 +94,27 @@ def _warped(src, crs: str, warp: Optional[Resampling]) -> bool:
 
 def _warp_window(src, crs: str, transform: Affine, shape: Tuple[int, int], warp: Resampling) -> np.ndarray:
     """The values of an open raster in another CRS on the pixels of transform and shape in crs, NaN where it has
-    none: a WarpedVRT with the resampling warp (GDAL's warper reads only the file's window under the block; nodata
-    and values below VALID_MIN not valid, so an average is that of the valid pixels). rasterio makes the VRT under
-    nogil, which runs the scan of a remote file's directories, and the VRT's own mask flags never reach the file
-    (no HTTP request holding the GIL: tests/test_window_gil.py, check_source's reads); one thread (GDAL's warper
-    with threads: the pitfall of mosaic.WARP_KWARGS). Cyprus' tiles, kept by DLS in EPSG:4258, read onto blocks of
-    CGRS93 / Cyprus LTM."""
-    with WarpedVRT(src, crs=crs, transform=transform, width=shape[1], height=shape[0], resampling=warp) as vrt:
-        part = vrt.read(1, masked=True)
-    return _clean(part.astype(np.float32).filled(np.nan))
+    none, resampled with warp: the file's window under the block (its box in the file's CRS, two pixels more on
+    every side) read as _read_window reads one (_read_masked: no HTTP request holding the GIL), cleaned (its nodata
+    and values below VALID_MIN as NaN: _clean), then reprojected from that array (no dataset behind it, so the
+    warper's initialisation asks nothing), one thread (the pitfall of mosaic.WARP_KWARGS). Not a WarpedVRT: GDAL's
+    warper leaves out only the file's nodata, so an average would take in other invalid values (a -9999 in a file
+    whose nodata is -3.4e38). Cyprus' tiles, kept by DLS in EPSG:4258, read onto blocks of CGRS93 / Cyprus LTM."""
+    out = np.full(shape, np.nan, dtype=np.float32)
+    bounds = (transform.c, transform.f + shape[0] * transform.e, transform.c + shape[1] * transform.a, transform.f)
+    left, bottom, right, top = transform_bounds(crs, src.crs, *bounds, densify_pts=21)
+    t = src.transform
+    cols = sorted(((left - t.c) / t.a, (right - t.c) / t.a))
+    rows = sorted(((top - t.f) / t.e, (bottom - t.f) / t.e))
+    c1, c2 = max(math.floor(cols[0]) - 2, 0), min(math.ceil(cols[1]) + 2, src.width)
+    r1, r2 = max(math.floor(rows[0]) - 2, 0), min(math.ceil(rows[1]) + 2, src.height)
+    if r1 >= r2 or c1 >= c2:
+        return out
+    window = Window(c1, r1, c2 - c1, r2 - r1)
+    band = _clean(_read_masked(src, window).astype(np.float32).filled(np.nan))
+    reproject(band, out, src_transform=src.window_transform(window), src_crs=src.crs, dst_transform=transform,
+              dst_crs=crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=warp, num_threads=1)
+    return out
 
 
 def _values_on(src, crs: str, transform: Affine, shape: Tuple[int, int],

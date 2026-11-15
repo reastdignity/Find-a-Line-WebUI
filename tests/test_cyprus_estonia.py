@@ -46,17 +46,20 @@ def no_sleep(monkeypatch):
 
 # --- Cyprus: a file in degrees warped onto blocks of LTM ---
 
-def _degree_file(path, pixel=1.0e-5, far=False):
+def _degree_file(path, pixel=1.0e-5, far=False, invalid=False):
     """A file like DLS's: EPSG:4258, square pixels in degrees, 128 px tiles, LZW, nodata -3.4028e38, over the two
     northern blocks of tile 1900_3725 and 30 m around; a slope with a wall of 20 m (where nearest and bilinear
     differ) and "sea" (nodata) in its south-west corner. far: its overviews and mask after the data (the directories
-    beyond the bytes the open fetches, as DLS's files keep their directory at the end)."""
+    beyond the bytes the open fetches, as DLS's files keep their directory at the end). invalid: a patch of -9999 in
+    the data (below VALID_MIN, not the file's nodata)."""
     west, south, east, north = transform_bounds(cyprus.CY_LTM, "EPSG:4258", 190_000 - 30, 373_750 - 30,
                                                 192_500 + 30, 375_000 + 30)
     width, height = int((east - west) / pixel) + 1, int((north - south) / pixel) + 1
     rows, cols = np.mgrid[0:height, 0:width]
     band = (600 + rows * 0.03 + cols * 0.05 + 20.0 * (cols > width // 2)).astype(np.float32)
     band[height - 200:, :300] = NODATA_CY
+    if invalid:
+        band[300:304, 400:404] = -9999.0
     profile = dict(driver="GTiff", width=width, height=height, count=1, dtype="float32", crs="EPSG:4258",
                    transform=from_origin(west, north, pixel, pixel), tiled=True, blockxsize=128, blockysize=128,
                    compress="lzw", nodata=NODATA_CY)
@@ -74,7 +77,7 @@ def _expected(path, request, resampling):
     out = np.full(request.shape, np.nan, np.float32)
     with rio.open(path) as f:
         band = f.read(1).astype(np.float32)
-        band[band == NODATA_CY] = np.nan
+        band[(band == NODATA_CY) | (band < -500)] = np.nan  # as the layers clean (sources.layer.VALID_MIN)
         reproject(band, out, src_transform=f.transform, src_crs=f.crs, dst_transform=request.transform,
                   dst_crs=request.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling)
     return out
@@ -160,6 +163,26 @@ def test_cyprus_dsm_averaged(cy_served, tmp_path):
     assert inside.mean() > 0.9
     assert np.allclose(values[inside], average[inside], atol=0.006)
     assert not np.allclose(values[inside], nearest[inside], atol=0.006)
+
+
+def test_cyprus_average_leaves_out_invalid_values(http_server, tmp_path, monkeypatch):
+    """A value below VALID_MIN that is not the file's nodata (-9999 where the nodata is -3.4e38) is no data before the
+    average: never averaged into the valid pixels around it (GDAL's warper alone leaves out only the nodata)."""
+    folder = tmp_path / "rasters"
+    (folder / "2019_DSM").mkdir(parents=True)
+    file = _degree_file(folder / "2019_DSM" / "ETRS89_1900_3725.tif", pixel=0.5e-5, invalid=True)
+    http_server.add_folder("/rasters", str(folder))
+    monkeypatch.setattr(cyprus, "CY_DATA", http_server.url("/rasters"))
+    layer = src.SOURCES["cyprus"].nmpt
+    request = layer.index.request(CY_BLOCKS[0])
+    path = str(tmp_path / "dsm.tif")
+    layer.download_tile(CY_BLOCKS[0], path)
+    with rio.open(path) as block:
+        values = block.read(1)
+    expected = _expected(file, request, Resampling.average)
+    assert np.nanmin(values) > 500  # nothing of the -9999 patch in any pixel
+    assert np.array_equal(np.isnan(values), np.isnan(expected))
+    assert np.allclose(values[np.isfinite(values)], expected[np.isfinite(expected)], atol=0.006)
 
 
 def test_cyprus_group_equals_blocks(cy_served, tmp_path):
@@ -365,6 +388,79 @@ def test_estonia_error_page_as_206_never_cached(http_server, tmp_path, monkeypat
         layer.reader.fetch_group([layer.index.request((516, 5235))])
     with pytest.raises(RuntimeError, match="not a TIFF"):
         probe._window(str(tmp_path / "cache"), layer, (516, 5235))
+
+
+def test_estonia_file_in_another_crs(http_server, tmp_path, monkeypatch):
+    """A sheet at the PHP address in another CRS than L-EST97: never used by the ranged read (WrongCrs), the block
+    fails rather than being missing, alone and in a group; nothing written."""
+    rows, cols = np.mgrid[0:1300, 0:1300]
+    with rio.open(tmp_path / "utm.tif", "w", driver="GTiff", width=1300, height=1300, count=1, dtype="float32",
+                  crs="EPSG:32635", transform=from_origin(645_000.0, 6_545_000.0, 1.0, 1.0), tiled=True,
+                  blockxsize=512, blockysize=512, compress="deflate") as dst:
+        dst.write((20 + rows * 0.01 + cols * 0.01).astype(np.float32), 1)
+    http_server.add(_ee_path("64442", "dem_1m_geotiff", "dtm"), (tmp_path / "utm.tif").read_bytes(), "image/tiff")
+    monkeypatch.setattr(estonia, "EE_URL", estonia.EE_URL.replace("https://geoportaal.maaruum.ee",
+                                                                   http_server.base))
+    layer = src.SOURCES["estonia"].nmt
+    path = tmp_path / "block.tif"
+    with pytest.raises(RuntimeError, match="64442 is in EPSG:32635, not EPSG:3301; no file of this block"):
+        layer.download_tile((516, 5235), str(path))
+    assert not path.exists()
+    with pytest.raises(RuntimeError, match="could be read in its CRS"):
+        layer.reader.fetch_group([layer.index.request((516, 5235))])
+
+
+def test_range_answer_wider_than_asked_never_read(http_server, monkeypatch):
+    """A 206 whose Content-Range claims more than the range asked (50 MB for 64 KB): closed unread every time, then
+    an error; none of its body read."""
+    body = bytes(2_000_000)
+
+    def wide(request):
+        return Answer(206, body, {"Content-Type": "image/tiff", "Content-Range": "bytes 0-52428799/52428800"})
+    http_server.route("/wide", wide)
+    read = []
+    original = requests.models.Response.iter_content
+
+    def counting(self, *args, **kwargs):
+        for chunk in original(self, *args, **kwargs):
+            read.append(len(chunk))
+            yield chunk
+    monkeypatch.setattr(requests.models.Response, "iter_content", counting)
+    with pytest.raises(RuntimeError, match="0-52428799/52428800 \\(not read\\)"):
+        ranges.get_range(http_server.url("/wide"), 0, ranges.CHUNK - 1)
+    assert sum(read) == 0 and len(http_server.requests("/wide")) == src.net.RETRIES
+
+
+def test_check_source_reads_ranged_files(ee_served, http_server):
+    """tools/check_source.py reads a ranged layer's file through our own ranges (the PHP address is no .tif for
+    /vsicurl/): the sheet's pixels on a cached tile's grid."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    url = estonia.ee_dtm_url("64442")
+    profile = {"crs": rio.crs.CRS.from_epsg(3301), "transform": from_origin(646_250.0, 6_545_000.0, 1.0, 1.0),
+               "width": 300, "height": 200}
+    values = cs._read_ranged(url, profile)
+    expected = ee_served[:200, 1250:1550]
+    assert np.array_equal(np.isnan(values), np.isnan(expected))
+    assert np.array_equal(values[np.isfinite(values)], expected[np.isfinite(expected)])
+    assert all("range" in r.headers for r in http_server.requests("/index.php"))
+
+
+def test_check_source_compares_with_the_layers_warp(cy_served, tmp_path, monkeypatch):
+    """check_source's file check takes a warping layer's own resampling: Cyprus' averaged DSM blocks equal their
+    file averaged (PASS), and would not equal it by nearest (WARN)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    import grid as gd
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    layer = src.SOURCES["cyprus"].nmpt
+    grid = gd.make_grid((190_100, 374_000, 190_900, 374_900), 1.0, cyprus.CY_LTM)
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    check = cs.check_files(layer, grid, cache_dir, 2)
+    assert check["status"] == cs.PASS, check["text"]
+    monkeypatch.setattr(layer.reader, "warp", Resampling.nearest)
+    assert cs.check_files(layer, grid, cache_dir, 2)["status"] == cs.WARN
 
 
 def test_estonia_whole_file_for_a_range_never_read(http_server, tmp_path, monkeypatch):
