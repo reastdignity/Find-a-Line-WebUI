@@ -170,3 +170,45 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 - `cache status` and `cache update <folder>` on a scratch data folder with the index rows aged by hand (`checked_at` in `cache/<top>/index.sqlite`, with a time zone, e.g. `2024-01-01T00:00:00+00:00`).
 - New download code that uses GDAL's network access: read one window inside the Docker image too (HTTPS certificates of the slim image), and a job through the web app's queue.
 - The whole regression set: the other countries' checksums must not change.
+
+## 5. Pitfalls met, in detail
+The rules in `.claude/rules/sources.md` point here for their measurements and examples.
+
+- **Services beyond their extent** (the rule's "WCS services differ"): the Environment Agency answers HTTP 500 (not
+  404) for a tile wholly outside its coverage; Mecklenburg-Vorpommern's MapServer answers 400 for one wholly outside
+  and stores the sea and the extent outside the Land as 0 in both layers; Hesse's rasdaman answers 404 beyond its
+  extent and stores 0 outside the Land in its DOM (-9999 in its DGM); Saxony-Anhalt's ArcGIS WCS writes its multipart
+  headers with bare LF, refuses more than about 2000 px (400) and answers 0 without nodata outside the Land; South
+  Tyrol's GeoServer refuses SCALESIZE, clips partial requests, takes `GEOTIFF:COMPRESSION=DEFLATE`, and blends the
+  pixels next to its nodata edge with 0 (`edge_px=3`).
+- **GDAL's warper on Windows, measured** (the rule of the same name): a strip its source covers in part (a mosaic of
+  two degree tiles: the water mask, FABDEM) is split into 40-55 chunks, many without a source pixel, so the country
+  layer's workers died at about 1.4 of 1000 such stitches (32 times in 81 550 tiles of rounds 4 and 5, never at a
+  stitch of one tile; a stress of 12 processes 41 times in 15 minutes, 0 with `mosaic.WARP_KWARGS`, 2026-11-08).
+  `faulthandler`'s output was checked with a double free of ucrtbase's and in the warper's stress.
+- **A grid smaller than its outline, what it cost**: 04e91b0 (2026-11-08) dropped the grid's box from the choice of
+  data tiles: until 2026-11-11 every interior tile of Slovakia listed the 12 715 files of each layer of the whole
+  country and the mosaic opened each (about 33 s a tile, 31 of the lead profile's 32 stitching hours), the counts
+  unchanged (files outside the window are skipped).
+- **Esri elevation tiles (LERC1)** (batch 5): a tile's 257 × 257 samples sit on the corners of its 256 × 256 cells,
+  so the last row and column are the next tiles' first (equal within the service's `lercError`): a sample is a pixel
+  centre, the tile's grid starts half a cell west and north of its corner, and the shared row and column are dropped
+  (`readers.lerc.tile_transform`). No data comes from the blob's own validity mask, not from 0.0: valid 0 m samples
+  exist (Northern Ireland's intertidal zone, 11 in one Rio tile), and GDAL's MRF driver applies the mask whatever
+  NDV is given. Rio's tiles hold artefacts down to -348 m at sea (`floor`). Bilinear takes the outer half sample of a
+  seam from one tile (at most the slope times half a cell).
+- **Average or bilinear by ground metres** (batch 5): the mosaic averages data finer than `FINER` (0.75) of the
+  grid's pixel. Web Mercator's metres are 1/cos(latitude) of the ground's: NI's level-17 pixel of 1.19 m is 0.68 m
+  on the ground at 55° N, so it counted as coarser than a 1 m grid until `mosaic.src_pixel_m` (3c80a85; bilinear
+  minus average at Fair Head: median 0.016 m, p99 0.46 m, max 1.15 m on crag edges). Degrees still count as 111 320
+  m both ways (docs/roadmap.md, "To check").
+- **An error page with HTTP 206** (batch 5, Estonia): asked with a Range, the geoportal answered an error as an HTML
+  page with HTTP 206 and a Content-Range of the page's own length; without a Range, HTTP 200. Only the first bytes
+  tell (the TIFF magic: `ranges.NotTiff`, `Download(tiff_only=True)`). A 206 naming another range than the one
+  asked is closed unread (a wider one could claim megabytes: `ranges.get_range`).
+- **Warping a file with average** (batch 5, Cyprus): GDAL's warper leaves out only the file's nodata, so another
+  invalid value (a -9999 in a file whose nodata is -3.4e38) is averaged in; `windows._warp_window` cleans the
+  file's window first, then reprojects the array.
+- **Signed download URLs** (batch 5, OpenDataNI): stable links redirect to signed Cloudflare R2 URLs (7 days) that
+  answer GET with Range but not HEAD (403); resolve the link for every read, never store or print the signed one
+  (`cache.clean_url` and `clean_error` mask X-Amz-* and Signature=).

@@ -1144,6 +1144,89 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     TINITALY's surface gaps (South Tyrol's and Trento's surface gaps in Italy take TINITALY's terrain, no trees).
   - The VPS downloads every new OSM extract (italy 2.25 GB, isole, australia, netherlands, ...: the user kept them all,
     2026-11-15; `OSM_EXTRACTS_SKIP` unchanged). docs/images/coverage-* not re-rendered (`tools/coverage_media.py readme`).
+- **Wave 2, done 2026-11-15** (five branches merged into `new-sources-5-w2`, each reviewed for scope and code and
+  fixed by its worker; into main as one commit on the user's word; R74-R82; the existing entries the agents ran again
+  unchanged, R74 re-baselined twice within the wave):
+  - *Northern Ireland's coast* (`northern_ireland`, region gb-nir): DAERA's 2021 NI 3D Coastal Survey DTM (0.25 m
+    lidar, the intertidal zone and about 200 m inland, OGL) is published only as an Esri elevation tile cache (LERC1
+    tiles of 257 × 257 corner samples in Web Mercator): a new part, `LercTiles` (`MercatorTiling` at the level whose
+    cell on the ground suits the grid, at most 19; `LercTileReader`: one GET per tile, no Range, 1 MB cap, no data from
+    the blob's own mask, valid 0 m kept), reprojected once onto ITM (EPSG:2157); a static cells mask
+    (`northern_ireland_dtm_cells.npz`, `tools/lerc_coverage.py`) decides which tiles a search asks and, with `near_m`
+    100, where `--source auto` takes it. Chain: `northern_ireland_10m`, then europe; `instead_without_data`
+    `northern_ireland_10m`. Offline boxes split at 5.85 W so the Mull of Kintyre, Southend and Sanda stay Scotland's.
+    No orthophoto (DAERA's would load from tiles-eu1 in visitors' browsers, outside the promised rate). R74: Fair Head
+    (2 522 lines in 31 spots). Behaviour change in the wave: `mosaic.src_pixel_m` counts an EPSG:3857 pixel at its
+    ground size (times the cosine of the grid centre's latitude), so NI's level-17 tiles (1.19 m, 0.68 m on the
+    ground) are averaged onto a 1 m grid, not interpolated; only the two LercTiles sources are in EPSG:3857.
+  - *Northern Ireland inland* (`northern_ireland_10m`, the user's words of 2026-11-15: "If there is - use it"):
+    OSNI's Open Data 10 m DTM (interpolated from the Enhanced DTM 2014-2016, OGL), six OpenDataNI ZIP archives of
+    "x y z" sheet members, read one member at a time by Range (`ZipSheetTiles`: `ZipSheetIndex`, `ZipSheetReader`);
+    the stable links redirect to signed Cloudflare R2 URLs, resolved again for every read and never stored or
+    printed (`cache.clean_url`/`clean_error` mask X-Amz-* and Signature=). Irish Grid TM75 (EPSG:29903), no offline
+    boxes (chosen through `northern_ireland` only), gaps from europe. R82: Binevenagh (8 lines in 6 spots). R74
+    re-baselined: its 1.10 km² of gaps now from the 10 m DTM, not FABDEM (lines and spots the same, anchors 45 171 →
+    43 425).
+  - *Rio de Janeiro city* (`rio_de_janeiro`, bbox of the city): Instituto Pereira Passos' 2019 lidar DTM degraded to
+    5 m (CC BY 4.0), the same `LercTiles` part from a city project's layer on tiles.arcgis.com (level 15, floor -5 m
+    for the sea's artefacts, its own cells mask), onto SIRGAS 2000 / UTM 23S; `instead_without_data` europe (Niterói
+    is in the box). R75: Pão de Açúcar and Morro da Urca (536 lines in 34 spots).
+  - *Mexico* (`mexico`, before `usa`): INEGI's 5 m lidar terrain and surface models (2006-2012, editions 2011-2012,
+    about half the country), one ZIP of an ArcInfo GRID per 1:10 000 sheet (`InegiSheets`: the download viewer's
+    undocumented JSON per sheet, a static mask of the sheets' cells `mexico_sheets.npz` from `tools/mx_sheets.py`,
+    each GRID cut to its cell + 10 m: the files' TIN edges reach 73 m off), working CRS Mexico ITRF92 / UTM of the
+    place (no resampling); neighbour of usa (both ways), offline boxes as a staircase off US land plus
+    `border_boxes`; `instead_without_data` europe (the Copper Canyon, Basaseachi). R76: El Potrero Chico (60 375
+    lines in 3 027 spots, 13 374 over trees: the DSM's crests).
+  - *Tuscany* (`tuscany`, region it-52, after sardinia, before tinitaly): Regione Toscana's cartoteca, 1 m (some 2 m)
+    lidar sheets of 2004-2017 of two owners (`CartotecaTiles`: the WFS type `rt_cartoteca.lidar2k`, one
+    GetFeatureInfo per survey for the files' hashed URLs, every survey of a sheet that adds data to the newer ones,
+    newest first: footprints are partial). Each run is credited by the owners whose files wrote a pixel
+    (`Layer.used_entries`, `credits_by_pixels`): Regione Toscana CC BY 4.0, the Ministry (MATTM, also the 351 sheets
+    co-owned with the Pisan municipalities, owner read from the licence PDF in each ZIP) CC BY-SA 3.0 IT with a
+    share-alike notice (the user's gate 0, 4 a). Chain: tinitaly, then copernicus, never FABDEM. R77: the Carrara
+    marble basins (29 333 lines in 517 spots, all Regione Toscana's 2012 sheets).
+  - *Cyprus* (`cyprus`, government-controlled area): DLS's 2019 DTM 1 m and DSM 0.5 m (CC BY 4.0) from its INSPIRE
+    download folder, 2.5 km tiles that DLS reprojected into ETRS89 degrees, read in 1.25 km blocks and warped back
+    onto Cyprus LTM (EPSG:6312) by `Windows(warp=)` (nearest for the DTM, average for the DSM: resampled twice, some
+    steps on walls a pixel off). R78: Avakas gorge (8 lines in 3 spots; Cape Greco gave none).
+  - *Estonia* (`estonia`): Maa- ja Ruumiamet's DTM 1 m (5 km sheets read by our own range requests,
+    `Windows(ranged=True)`: the PHP download address is no .tif for /vsicurl/ and answers errors as 206 HTML pages)
+    and DSM 1 m (1 km sheets downloaded whole, `MetricSheetTiles`); the release folder `20260409` is set by hand;
+    the Board's orthophoto. R79: Pakri cliff (23 lines in 9 spots; Rummu's quarry gave no open anchor).
+  - *Madeira* (`madeira`, region pt-30, before spain) and *Valle d'Aosta* (`aosta_valley`, region it-23, DTM only):
+    own copies in the local mirror (the user's gate 0, 5 a and 6 b), cut by `tools/mirror_tiles.py` into 2 km tiles on
+    each dataset's own pixel grid (`GridTiles(origin=)`; Madeira 235 tiles with data, 0.33 GB; Aosta 914, 1.46 GB):
+    DROTe's MDT 2 m (photogrammetry 2018-2019, "No conditions apply", Madeira island only, gaps from europe) and the
+    region's DTM 2005/2008 2 m (CC BY 4.0, one Deflate64 ZIP of a 9.85 GB ASCII grid, gaps from tinitaly then europe).
+    Behaviour change: `choose_source` gives an unavailable source's place to the next available source of that place,
+    else europe (without the mirror Valle d'Aosta takes TINITALY; Slovakia and Madeira europe as before). R80: Cabo
+    Girão (10 458 lines in 132 spots), R81: Arnad (123 lines in 29 spots), both skipped without the mirror's folders
+    (`needs_path`).
+- **Decided by the coordinator, not asked of the user** (2026-11-15): Tuscany's last filler is copernicus, not FABDEM
+  (MATTM's CC BY-SA and FABDEM's CC BY-NC-SA in one run, as Queensland is kept apart); the cos(lat) correction of the
+  resampling choice is limited to EPSG:3857 (degrees still count as 111 320 m: no existing result moved; under *To
+  check*); OSNI's 10 m DTM for inland Northern Ireland follows the user's words of 2026-11-15 (above).
+- **Open from wave 2**:
+  - Valle d'Aosta's DSM (DSM0508_002) comes by hand later (the user, 2026-11-14).
+  - Valle d'Aosta and Madeira need the local mirror (`FINDALINE_MIRROR`, docs/deployment.md section 16): without it,
+    and so on the VPS today, Valle d'Aosta falls back to TINITALY and Madeira to europe.
+  - swisstopo declares five neighbours: its one free slot (for `aosta_valley`, north of 45.8 N) waits for the user.
+  - Tuscany: the share-alike notice's wording (the text in `TOS_MATTM_CREDIT`, for the user to confirm), the 2021
+    image-correlation DSM (EPSG:7791) as an option, and the noRT layer (the 2019-2021 lidar, for public bodies only).
+  - Mexico's DSM has crest spikes (1 259 px more than 30 m above the DTM at R76; 22 % of its lines marked over
+    obstacles, median surface clearance -32 m): whether obstacles stay on for `mexico` is the user's question. A new
+    INEGI edition comes only through a search with `--update` (`cache update` never touches the frozen sheets).
+  - Rio covers the city only; IPP's layer is a project's and may vanish (the source then falls back to europe); its
+    1 m and 2024 files are asked by mail 28.
+  - Northern Ireland: DAERA's tiles at the 54/min the mail promises (`net.HOST_RATES_OF`) until DAERA answers (mail
+    27). The cells masks of both LERC sources are refreshed by hand (`tools/lerc_coverage.py`).
+  - Porto Santo, the Desertas and the Selvagens could come from the 5 m ZIP of the same DROTe record (not used; the
+    2 m covers Madeira island only, and Madeira's offline box does not reach the Selvagens).
+  - Estonia: a new upload of the whole country needs `EE_RELEASE` changed by hand.
+  - Mails 27-31 drafted, not sent (DAERA, IPP, Valle d'Aosta, DLS, Het Waterschapshuis).
+  - The VPS will download the new Geofabrik extracts: nord-ovest (Valle d'Aosta), portugal (Madeira), centro
+    (Tuscany), ireland-and-northern-ireland, sudeste (Rio de Janeiro), mexico, cyprus, estonia.
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
@@ -1394,6 +1477,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **The main checkout's venv on Python 3.15, then a `.python-version` file** (the user's "yes" of 2026-11-13): done 2026-11-14. The main checkout's `.venv` ran 3.13.7 while CI, the image and every worktree ran 3.15.2, so an A/B between the checkout and a worktree compared two interpreters as well. The venv first, by a rename: `uv sync --python 3.15` in place, or the file with the old venv still there, starts removing a venv that every session's `tools/test_lock.py` wrapper and the user's lock page run from, Windows refuses, and the venv is left half-removed with every session's lock broken. A relocatable 3.15.2 environment was built beside it (`uv venv --relocatable --python 3.15 <folder>`, then `UV_PROJECT_ENVIRONMENT=<folder> uv sync --frozen --group tui --python 3.15` from the main checkout), brought up to the lock of 28d53b7 (pytest-xdist 3.8.0 and execnet 2.1.2, which the old venv lacked, so a full pytest from it had run serial), checked to work after its folder was renamed, and swapped in at 11:27 when nothing but the lock page ran from `.venv`: a script stopped the page's scheduled task (killing its process would only make the task start it again), renamed both folders on one volume, checked the version, the lock tool's imports and `test_lock.py status`, and started the page again (on 2026-11-13 it had waited two hours for such a moment in vain, with six to eight wrappers of other sessions at any time; on 2026-11-14 the first rename was refused and the second, 40 s later, went through). Then the file: uv 0.13.6 reads the `.python-version` of the project it runs in, never one of a folder above (tried on a project nested as the worktrees are), so a worktree changes only when its own branch holds the file; CI names its version itself (setup-uv) and the image's build sets `UV_PYTHON`; whoever manages Pythons with pyenv needs a 3.15 there. Checked: the new `.venv` holds the lock's 111 packages, `uv sync --frozen --group tui --dry-run` makes no changes, the whole `pytest` on it under the test lock (now in parallel, 8.5 min): 1813 passed, 9 skipped. The old venv (0.64 GB) was removed.
 - **Retries with backoff when nothing answers at all** (seen 2026-11-13, the test-speed task; the user's word: into the roadmap): `sources.net._get` makes `RETRIES` (3) attempts and sleeps `_sleep(attempt)` (0.5-1.5 times 2^attempt s) after a failure, whatever the failure was, also a connection that is refused outright (no network, a dead proxy), where a second attempt a second later cannot do better. Measured where it shows, the country tests, which run `country.run` behind a dead proxy (127.0.0.1:9): `relief.fetch_relief_tiles` took 202 s over 19 calls, 103 s of it in the backoff (48 sleeps) and 98 s in 80 refused connects (2.02-2.06 s each on Windows, the system's own retry of a refused loopback connect), before `country._set_weights` says "the tiles' weights from the relief failed" and keeps the tiles in their order. So a `country run` started offline waits about 10 s a relief fetch (the tests' figure; not measured on a PC without a network, where the failure may be a DNS error or a timeout instead) before going on as it would have at once, and every other `net._get` behind a refused connection waits the same way. To decide: whether a refused connection (and a name that does not resolve) is retried at all, or once without backoff, while timeouts, resets and 5xx keep the three attempts with backoff (swisstopo's fair use asks for the backoff: `_sleep`'s docstring); or whether `_set_weights` skips the relief when the search is known to be offline. Not assigned.
 - **minimatch in the viewer's dev tools** (Dependabot alert 3, medium, dismissed as a tolerable risk on 2026-11-14; the user's word: into the roadmap to fix): `viewer/package-lock.json` holds minimatch 10.2.6, fixed in 11.0.1, but `generate-license-file` 4.2.5 (the newest; `viewer/build.mjs` writes the bundle's licence file with it) needs `^10` through `@npmcli/arborist`, `@npmcli/map-workspaces`, `@tufjs/models`, `glob` 13 and `ignore-walk`, so Dependabot's security update failed on every attempt (the only path it found downgraded generate-license-file to 2.0.0). Dev only: nothing of it reaches the bundle, and CI's `npm audit --omit=dev` does not see it. To fix: a newer generate-license-file that allows minimatch 11 (check its releases), or an npm `overrides` entry `"minimatch": "^11.0.1"` if `node build.mjs` still writes the same licence file with it (a major version: compare the file byte for byte), or another library for the licence file. Not assigned.
+- **A geographic raster's pixel counted at 111 320 m both ways** (found 2026-11-15, batch 5 wave 2, the review of the LERC tiles): `mosaic.src_pixel_m` takes a degree as 111 320 m for the mosaic's choice of resampling (average when the data are finer than `FINER` 0.75 of the grid's pixel, else bilinear), but a degree of longitude is that times the cosine of the latitude, so a geographic raster counts its east-west pixel too coarse by 1/cos(lat) (FABDEM, Copernicus GLO-30, GA's 5 m DEM in EPSG:4283: at 50° N FABDEM's 1″ is 30.9 m north-south but 19.9 m east-west), and the mosaic may pick bilinear where average would apply. Only EPSG:3857 got the cosine (3c80a85: Northern Ireland's LERC tiles). A fix moves existing results (every entry whose grid takes a geographic layer near the threshold): measure first which entries change, then decide. Not assigned.
 - **Hugging Face for the Slovak tiles**: dataset repository or Storage Bucket (FABDEM's mirror is a bucket); the docs disagree on a soft cap per public repository (300 GB or 1 TB) and on limits for anonymous downloads; check before uploading (134 GB at 1 m as cut, 2 × 12 826 files plus two indexes; about 530 GB with the 0.5 m cycle).
 - **geoportal.gov.pl sheet files instead of WCS** (done 2026-10-25, `SheetTiles`: newest sheet of 0.5–1 m per godło, cached as GeoTIFF, working grid aligned to the sheet pixels, offline from the cached sheets; the Polish regression tests now take 3 min instead of 15). Findings: the EVRF2007 NMT index covers all of Poland (63 465 sheets 1:5000 of ≤ 1 m in PL-1992, plus PL-2000 sheets in some cities), the NMPT about 85% (53 846, all laser scans, `.asc`); the newest NMT sheet is `.asc` for 94% of the sheets, `.xyz.zip` for most others; in 56% of the sheets it is labelled "aerial photos", but in a sample these held the values of the earlier laser scan (4 of 5 identical, 1 within ±3 cm). Before: the EVRF2007 WCS spends 30–50 s generating each 2 km ASCII tile (75 MB, 55 s in all; four parallel requests take as long as one), while the sheet files linked from the WFS indexes (`url_do_pobrania` on `opendata.geoportal.gov.pl`) download at about 17 MB/s: a 1 m NMT sheet of about 2.3×2.3 km (37 MB) in 2 s, roughly 30× faster per km². It is also the download path the geoportal pages describe, and the cache would then match the units GUGiK updates (sheet, year, `nr_zglosz`). To check first: whether the EVRF2007 indexes cover all of Poland with 1 m sheets, the sheet formats (`.asc`, `.xyz.zip`, `.zip`), the NMPT sheets, and choosing between sheets of different years and sources (laser scan vs aerial photos). The geoportal pages give no limits for parallel requests; technical contact: service.desk@gugik.gov.pl.
 - **geoportal.gov.pl height system** (done 2026-10-24: switched to EVRF2007 at native resolution, averaged locally, Polish tests re-baselined; the server's own downsampling left most of the Tatras empty at 5 m): the sources used the KRON86 coverages (`DTM_PL-KRON86-NH_TIFF`, `DSM_PL-KRON86-NH`), whose sheet indexes end in 2019. The WCS also has `DTM_PL-EVRF2007-NH` (ASCII grid only) and `DSM_PL-EVRF2007-NH`. Checked on 2026-10-24 by comparing 200×200 m windows of both coverages with the sheet files (difference of differences, so the resampling of the WCS cancels out): the difference between the two coverages equals the difference between the newest KRON86 and the newest EVRF2007 sheet (residual median 0.00 m, p5–p95 about ±0.2 m) at Żabi Koń (2013 vs 2023), Kasprowy (2012 vs 2025), Sokoliki (2012 vs 2025) and Gdańsk (2018 vs 2024); in Warsaw the EVRF2007 coverage matches the 2025 sheet within ±0.1 m. So **the KRON86 coverage holds surveys up to 2019 and the EVRF2007 one the newest**, 5–13 years newer in these places. Before step 2: switch NMT and NMPT to EVRF2007 (NMT only as ASCII grid: `fmt="image/x-aaigrid"`) and re-baseline the Polish regression tests. To watch: some newest sheets come from aerial photos, not laser scanning (Sokoliki 2025); at Żabi Koń the 2024 "aerial photo" sheet holds exactly the values of the 2023 laser scan.

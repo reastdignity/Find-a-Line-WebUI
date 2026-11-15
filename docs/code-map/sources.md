@@ -124,6 +124,28 @@ before, another real CRS still raises `WrongCrs`): the Caribbean Netherlands' AH
 in degrees), pixels checked to 1/1000 px and resampled by nearest only when the service answers on others, a 404 or
 an answer without a valid pixel missing (Geoscience Australia).
 
+Batch 5 (wave 2): `windows.py` `Windows(warp=)` (a `Resampling`): a file in another real CRS is warped onto its
+block's pixels (`_warped`, `_warp_window`: the file's window under the block read as `_read_masked` reads it, cleaned
+of its nodata and values below `VALID_MIN`, then reprojected from that array, one thread; not a `WarpedVRT`, whose
+average takes in invalid values other than the file's nodata; `_values_on`, `_wrong_crs(..., warp)`): Cyprus' tiles
+in EPSG:4258 onto blocks of Cyprus LTM; `Windows(ranged=True)` (`_read_ranged`): remote files read through
+`ranges.open_remote(tiff_only=True)`, never `/vsicurl/` (Estonia's PHP download address: no `.tif` for GDAL, errors
+as 206 HTML pages), a 404 missing; both off by default (`FileBlocks(warp=, ranged=)`). `ranges.py`: `get_range`
+streams and never reads past the bytes asked (a 200 to a Range, or a 206 naming another range, closed unread; error
+text `ERROR_BYTES`), `RangeFile`/`open_remote(tiff_only=)` with `NotTiff` (the first bytes not a TIFF's) and
+`page_text`; `download.py` `Download(tiff_only=, not_found=)` (a non-TIFF answer asked again, then an error, never
+cached; a page matching `not_found` is missing); `tilebases.py` `TileBases(tool=)` (the tool named when the mirror is
+missing). `cartoteca.py` `CartotecaFile` (Tuscany: a survey's ZIP of an ASCII grid without a CRS, EPSG:3003 imposed;
+its URL from a WMS GetFeatureInfo at one of the survey's `points`, only links under `DOWNLOADS`, both models' URLs
+kept per survey in a small JSON under a lock per survey, asked again after a 404; `capped_get`: every answer streamed
+up to its cap; the owner from the licence link in `licenza_dati_Lidar.pdf`, else the GetFeatureInfo's, else MATTM,
+written into the tile as `OWNER_TAG`; `SheetUnresolved` when no GetFeatureInfo names the file); `lerc.py`
+`LercTileReader` (one tile of an Esri elevation tile cache: one GET without a Range, at most `TILE_BYTES_MAX` 1 MB
+streamed, the LERC1 magic and Content-Length checked, decoded by GDAL's MRF driver (`decode`; NaN where the blob's own
+mask says invalid, so real 0 m samples stay), retried on faults and decode errors, 429/503 slower; 404 or no valid
+sample missing; samples below `floor` no data; written as 256 × 256 px in EPSG:3857 on its own samples, half a cell
+west and north of the tile's corner, the shared last row and column dropped: `tile_transform`).
+
 ## `sources/indexes/`
 
 Which tiles cover a grid: `tilings.py` fixed tilings (`WcsTiling`, `MetricTiling`, `DegreeTiling`,
@@ -191,6 +213,19 @@ names the grid by a hash of corner, pixel and size) and `GeoSheetTiling` (cell �
 EPSG:4326, SRSNAME the files' CRS so the extents match the files; an exception report, an answer that is not a
 FeatureCollection or numberMatched > numberReturned raise `IndexUnavailable`: Sardinia).
 
+Batch 5 (wave 2): `cartoteca.py` `CartotecaSheets` (Regione Toscana's WFS 1.1.0 type `rt_cartoteca.lidar2k`, which
+its capabilities do not name: one GetFeature per 0.25° tile, GML read by pyogrio, footprints in EPSG:3003; an
+exception report, no FeatureCollection, `FEATURES_MAX` features or more than `ANSWER_BYTES` raise
+`IndexUnavailable`), `select_versions` (per sheet the newest survey always, then each older one adding at least
+`MIN_ADDED` 1 % while those kept cover less than `SHEET_COVERED` 99.5 %; order `sheet_rank`: newer year, 1 m before
+2 m, later lot), `LidarSheet`, `CartotecaRequest`, `CartotecaVersions` (every survey kept, newest first, so the
+mosaic takes older ones only in gaps; nothing pruned; a file per `<lotto>-<anno>/<foglio>_<res>m.tif`); `mercator.py`
+`MercatorTiling` (an Esri tile cache's level/row/col tiles over a grid at `level_for`: the coarsest level whose cell
+on the ground, Web Mercator's metres times the cosine of the latitude, is not coarser than the grid's pixel, at most
+`max_level`; only tiles within the service's extent and, with `cells`, within a cell of data; `tile_of` for
+`cache update`), `TileCells` (a static mask of cells with data, an `.npz` of `tools/lerc_coverage.py`), `tile_box`,
+`tile_pixels`, `MercatorBox`.
+
 ## `sources/layers/`
 
 One module per kind of layer, each a thin `ComposedLayer` building its parts with the constructor and attributes the
@@ -236,6 +271,29 @@ file's CRS from its name (`_utmNN`), its `projection` or its footprint (`file_cr
 Batch 5: `wcs.py` `GeoWcsTiles` (`GeoPixelTiling` + `GeoWcsReader`; `cells=` a packaged mask of cells with data for
 `has_data_near`), `geosheets.py` `GeoSheetTiles` (`GeoSheetTiling` + `Download`: Uruguay), `sheets.py`
 `WfsFeatureTiles` (`WfsFeatures` + `NewestPerSheet` + `SheetFile`: Sardinia).
+
+Batch 5 (wave 2): `inegi.py` `InegiSheets` (Mexico: `inegi_sheet`/`inegi_cell` name a 1:10 000 sheet of the 3'20" ×
+3'45" lattice, `inegi_crs` Mexico ITRF92 / UTM by its zone (EPSG:4484-4489); `InegiIndex` asks the viewer's JSON
+only for the cells of the static mask (`tools/mx_sheets.py`), caches each answer per sheet in
+`sheet-index/<mod>/<sheet>.json` (asked again by an update after 365 days; a failure, a 404 of a listed cell, a
+non-list answer or a refused URL is an error: the cached answer, else the sheet left out with a line, never cached
+as "no sheet"), `grid_entry` takes only URLs under INEGI's file server; `InegiGrid` streams the ZIP (50 MB cap),
+unpacks its ArcInfo GRID with zipfile (backslash names) and cuts it to the cell + `margin_m` 10 m (an empty cut is an
+error); frozen: never checked again, a new edition only through an updated answer); `cartoteca.py` `CartotecaTiles`
+(Tuscany: `CartotecaSheets` + `CartotecaVersions` read by `CartotecaFile`; `credits_by_pixels`, `used_entries` one
+entry per owner whose files wrote a pixel, each with its credit, `owner_of`; a `SheetUnresolved` survey left out of
+the search, nothing recorded); `metricsheets.py` `SheetTiling`, `MetricSheetTiles` (square sheets of a metric grid,
+each a whole GeoTIFF named by `sheet(i, j)`, `Download(tiff_only=True)`, a page matching `not_found` missing:
+Estonia's DSM); `gridtiles.py` `GridTiles(origin=, tool=)` (the tile grid from the data's pixel edges modulo
+`tile_m`: Madeira (1, 1), Valle d'Aosta (0, 1), Slovakia (0, 0); the tool named when the mirror is missing);
+`lerc.py` `LercTiles` (`MercatorTiling` + `LercTileReader`, `has_data_near` from the cells mask within `near_m`;
+Northern Ireland's coast, Rio de Janeiro); `zipsheets.py` `ZipSheetTiles` (a fixed table of sheets made of "x y z"
+members of remote ZIP archives: `ZipSheetIndex` reads the archives' central directories by Range from the address
+each stable link redirects to now (`signed_location`), kept per TTL with ETag and length, kept ones used however old
+when unreadable; a sheet's members by a regular expression, its box grown by `margin`; `ZipSheetReader` reads each
+member by one Range (`ZipMember`, CRC-32 checked), joins them into one raster (`sheetfile._xyz_grid`), renews the
+directories once on a failed read and writes a renewed sheet under its new key (the members' CRC-32s), deleting the
+older file; errors through `cache.clean_error`: OSNI's 10 m DTM).
 
 ## `sources/catalogue/`
 
@@ -299,6 +357,23 @@ corner, gaps from `copernicus`), `australia` gains `australia` (GA's 5 m lidar D
 `au_mga_crs`, the cells mask `australia_dem5m_cells.npz` for `has_data_near`, `instead_without_data="europe"`, no
 neighbours) and `uruguay` (`uruguay`: IDE's 2.5 m sheets by `GeoSheetTiles`, `uy_sheet`/`uy_cell` name a sheet from
 its 0.06° × 0.045° cell, `UY_REMESAS` the static table of their folders, `uy_crs` 5382/5383 by zone).
+
+Batch 5 (wave 2): `mexico` (`mexico`: INEGI's 5 m terrain and surface `InegiSheets`, `mexico_sheets.npz`, `mx_crs`
+by zone, `MX_BOXES` a staircase off US land and `MX_BORDER_BOXES`, neighbour of `usa` (which declares it last),
+`instead_without_data="europe"`; before `usa` in FAMILIES), `cyprus` (`cyprus`: DLS's 2019 tiles in `FileBlocks` of
+1.25 km with `warp` nearest (DTM) and average (DSM), the static tables `CY_DTM_TILES`/`CY_DSM_TILES`), `estonia`
+(`estonia`: the DTM sheets in `FileBlocks(ranged=True)`, `ee_sheet`/`ee_corner` the 5 km sheet's number, `EE_SHEETS`
+the static table, the DSM in `MetricSheetTiles`, `EE_RELEASE` the hand-set release folder, the Board's WMTS
+orthophoto), `portugal` (`madeira`: DROTe's MDT 2 m as mirror `GridTiles` with origin (1, 1), region pt-30, before
+`spain` in FAMILIES, whose offline box holds Madeira; the 2023 orthophoto WMS), `brazil` (`rio_de_janeiro`: IPP's
+5 m DTM as `LercTiles`, bbox of the city, `rio_de_janeiro_dtm_cells.npz`); `italy` gains `aosta_valley` (the DTM
+2005/2008 2 m as mirror `GridTiles` with origin (0, 1), region it-23, `VDA_BOXES` bands of its outline, no surface
+layer yet, gaps from tinitaly then europe) and `tuscany` (`CartotecaTiles` per model, `TOS_CREDITS` per owner,
+`TOS_BOXES` bands of 0.05°, gaps from tinitaly then copernicus), both after `sardinia` and before `tinitaly`; `uk`
+gains `northern_ireland` (first in uk's SOURCES: DAERA's coastal DTM as `LercTiles`, ITM, `NI_BOXES` split at 5.85 W
+off Kintyre, fallback and `instead_without_data` `northern_ireland_10m`) and `northern_ireland_10m` (OSNI's 10 m DTM
+as `ZipSheetTiles` over `northern_ireland_10k_sheets.json`, Irish Grid TM75 EPSG:29903, no offline boxes). `usa`
+declares `mexico` as a neighbour, `country.NEIGHBOUR_CUBES` names it.
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 
@@ -397,6 +472,14 @@ approximate transformer, as a tile's extent made it differ before; each strip ve
 `test_border_gaps_rows_as_whole`, `test_rasterize_into_as_whole`, `test_median_of_rows_is_np_median`,
 `test_mosaic_rows_as_whole`)
 
+Batch 5 (wave 2): `choose_source` gives an unavailable source's place (`source_unavailable`: our own tiles without a
+mirror) to the next available source found for the place, else europe (Valle d'Aosta without its mirror: TINITALY);
+`mosaic.src_pixel_m` (a raster's pixel in metres for `_resampling`, which holds the choice: degrees as 111 320 m,
+EPSG:3857 times the cosine of the grid centre's latitude, else the CRS's units); `build_mosaic(wrote=)` (whether each
+file wrote a pixel, for a layer with `Layer.credits_by_pixels`; `_put`/`_place(count=)`), `prepare_layer` records
+`Layer.used_entries` (default `[used()]`; Tuscany one per owner), and `fill_gaps`/`_fill_gaps_rows` drop every
+entry of a filler that filled nothing (`_forget_entries`).
+
 ## `sources/probe.py`
 
 The source probe (`findaline.py sources check`): per source and layer at `Source.sample` on a tiny grid, the index
@@ -412,6 +495,11 @@ thread); `tests/test_probe.py`
 
 Batch 5 kinds: `geowcs` (a 16 × 16 px GetCoverage at the sample, no index), `sheet` (`Range: bytes=0-7`, a TIFF's
 first bytes), `zipfile` (`_zip_head`: the first KB without a Range header); the deep probe runs on `row.read == OK`.
+Wave 2: `zipfile` also for `InegiSheets`, `sheet` for `MetricSheetTiles`; `cartoteca` (`_cartoteca_head`: the first
+tile's URL from a GetFeatureInfo, then the first KB of its ZIP); `lerc` (`_lerc_head`: the first KB of the tile at the
+sample at the source's resolution's level, which must start with the LERC1 magic; no index); `zipsheets`
+(`_zip_sheet_header`: the first sheet's first member's local header by one Range on the address its link redirects
+to); `window` reads `ranged` files through our own ranges and warps `warp` files.
 
 ## `cache.py`
 
@@ -423,7 +511,8 @@ written again in the current encoding: the row's sha256 only, its times kept); `
 filelock: `mapping.install_viewer` and `runs.write_index` take it, one process at a time; two compute slots saving
 their runs at once had moved their copies of `runs/_viewer` over each other, a `PermissionError` on Windows that
 failed the job, and the later `runs.js` could leave out the other run; stored data: only the empty lock file, no
-migration)
+migration); `clean_url` and `clean_error` also mask a signed URL's parameters (`SIGNED_PARAMETER`, `_unsigned`:
+X-Amz-* and Signature=, also URL-encoded; OpenDataNI's redirects to Cloudflare R2, batch 5)
 
 ## `update.py`
 

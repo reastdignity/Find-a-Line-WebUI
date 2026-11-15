@@ -302,6 +302,7 @@ Rows: `fr`, `mc`, `ad`, `pt`, `pt-20` (Azores), `pt-30` (Madeira). Scripts in `s
 - **Fit**: the same CDD driver, with a CRS per island group. Priority medium (sea cliffs, calderas).
 
 ### Portugal, Madeira (pt-30): 5 m only, terms unknown
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `madeira`: DROTe's MDT 2 m of 2018-2019 (SNIG record abba9a83, "No conditions apply"; Madeira island only, one ZIP of one BigTIFF) as our own tiles in the local mirror (`tools/mirror_tiles.py`); the 5 m ZIP of the same record covers every island (not used); orthophoto 2023 by WMS. R80 Cabo Girão.
 - The regional government (DROTe / IRIG-Madeira) lists an MDT of the RAM 2018/2019 at 5 m, an older 10 m MDT (2004) and Porto Santo at 10 m. dados.gov.pt says "License Not Specified". The SNIG record API answered 404, and the regional catalogue host did not resolve.
 - Madeira is not part of DGT's 2024 LiDAR. Despite very high sea cliffs (Cabo Girão), the priority is low until a LiDAR survey appears. Ask DROTe (drote@madeira.gov.pt).
 
@@ -401,6 +402,7 @@ How: docs/data-sources.md. Scripts in `scripts/g4-it/` (`wcs.py`, `csw.py`, `img
 - **Tests**: metadata only. **Open**: licence; the download path (worth a mail to the Region); the geoid of the orthometric files.
 
 ### Valle d'Aosta (it-23)
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `aosta_valley`: the DTM 2005/2008 2 m, one ZIP (Deflate64) of a 9.85 GB ASCII grid in ED50 / UTM 32N, as our own tiles in the local mirror (`tools/mirror_tiles.py`); the DSM follows by hand later. R81 Arnad.
 - **Data**: the Region's DTM (LiDAR 2005-2008, about 2 m; details unclear), granted under CC BY 4.0 by DGR 899/2014. Required credit: "Dati estratti dal Modello Digitale del Terreno (DTM) della Regione Autonoma Valle d'Aosta".
 - **Access**: the SCT geoportal (geonavigator). The partout.it catalogue hosts did not answer. The PST WMS shows 1 m data on the valley floor at Aosta.
 - **Open**: resolution, coverage, any newer survey, and the download mechanism.
@@ -419,6 +421,7 @@ How: docs/data-sources.md. Scripts in `scripts/g4-it/` (`wcs.py`, `csw.py`, `img
 - **Fit**: `WcsTiles` works but is poor. Finale (very high relevance) depends on the national portal.
 
 ### Toscana (it-52)
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `tuscany`: every survey of a sheet that adds data (footprints are partial), each run credited by the owners whose sheets gave pixels (MATTM's CC BY-SA 3.0 IT with a share-alike notice); the 2021 DSM and the noRT layer not used. R77 Carrara.
 - **Data**: LiDAR DTM and DSM per 1:2000 sheet, 1x1 or 2x2 m: 11 281 sheets, mostly the MATTM/PST surveys of 2008-2013 plus the Region's own (Elba 2012...). A 2019-2021 survey by Italian Remote Sensing (1851 sheets) is "solo uso enti pubblici": not open. The DSM 2021 at 1 m comes from image correlation.
 - **Access**:
   - Index: WFS `https://www502.regione.toscana.it/wmsraster/com.rt.wms.RTmap/wms?map=wmscartoteca`, typename `rt_cartoteca.lidar2k` (attributes foglio, lotto, risoluz, anno, srid, dtmname, dsmname, rilievo).
@@ -551,6 +554,7 @@ Best candidates: **Norway** (1 m DTM and DSM in tiled GeoTIFFs from an ATOM feed
 - ArcticDEM (another group's row) is likely the better source at 2 m. Low priority: remote cliffs.
 
 ### Estonia (Maa- ja Ruumiamet)
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `estonia`: the DTM sheets read by our own range requests (the PHP address is no .tif for /vsicurl/ and answers errors as 206 HTML pages), the DSM sheets whole; host geoportaal.maaruum.ee. R79 Pakri cliff.
 - **Data**:
   - DTM 1 m on 5 km sheets (1:10 000). Two files per sheet: the current `<sheet>_dtm_1m.tif` and the cycle file `<sheet>_dem_1m_2017-2020.tif`.
   - DSM ("absolute height") and nDSM 1 m on 1 km sheets (1:2000). The sheet number is `<N km − 6000><E km>`, e.g. 541645.
@@ -611,6 +615,8 @@ Researched 2026-10-31. Scripts: `scripts/g6-uk-ie/` (`wcs_get.py`, `cog_probe.py
 - **Links**: [LiDAR viewer metadata (COG URLs, OGL)](https://datamap.gov.wales/maps/4419/metadata_detail), [LiDAR viewer](https://datamap.gov.wales/maps/lidar-viewer/), [tile catalogue 2020–2023](https://datamap.gov.wales/layers/geonode:welsh_government_lidar_tile_catalogue_2020_2023/metadata_detail), [delivery index](https://datamap.gov.wales/layers/geonode:wg_lidar_2020_2022_delivery_index/metadata_detail), [NRW archive](https://datamap.gov.wales/layers/inspire-nrw:NRW_LIDAR_ARCHIVE_TILE_CATALOGUE/metadata_detail), [APGB dates flown](https://datamap.gov.wales/layers/geonode:apgb_dates_flown_wales/metadata_detail).
 
 ### Northern Ireland (OSNI, DAERA): nothing usable at Fair Head
+- **Corrected 2026-11-15** (batch 5): the 2021 coastal survey's DTM is also an Esri *elevation* tile cache (LERC1 heights, not only pictures: `Full_NI_Elevation` on tiles-eu1.arcgis.com, levels 0-23, lercError 0.1 m), read tile by tile; OSNI's 10 m DTM covers the whole of Northern Ireland (six OpenDataNI archives, one member per 10k sheet, read by Range); no DSM raster is published (the coastal DSM and the River Basin DSMs are point clouds or pictures).
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `northern_ireland` (the coastal DTM, `LercTiles`; R74 Fair Head) and `northern_ireland_10m` (OSNI's 10 m DTM, `ZipSheetTiles`, inland and the coast's gaps; R82 Binevenagh).
 - **Data**: OSNI Open Data 10 m DTM (national, from the Enhanced DTM 2014–2016, sheet ZIPs, OGL); River Basin LiDAR 2009–2012 at 1 m (DTM ASCII grids + DSM point clouds per area ZIP of 36–615 MB, about 14% of NI: river basins and towns); the **2021 NI 3D Coastal Survey** (DAERA, 0.25 m DTM/DSM, intertidal to about 200 m inland, OGL) is published only as a cached Web Mercator map service (TPK): pictures, not heights.
 - **Access**: OpenDataNI CKAN (`https://admin.opendatani.gov.uk/api/3/action/package_show?id=...`), downloads redirected to signed Cloudflare R2 URLs (range requests work, HEAD does not).
 - **Licence**: UK OGL.
@@ -706,6 +712,7 @@ Scripts: `scripts/g7-southeast-east/` (`cog_probe.py`, `wcs_probe.py`); samples:
 - **Links**: http://inspire.mzh.government.bg:8080/geoserver/ows?service=WCS&version=2.0.1&request=GetCapabilities, the DEM metadata https://inspireportal.egov.bg/geonetwork/srv/eng/csw?service=CSW&version=2.0.2&request=GetRecordById&outputSchema=http://www.isotc211.org/2005/gmd&elementSetName=full&id=ac4118bf-b7b8-460b-822e-06757790a54e, https://www.mzh.government.bg/bg/politiki-i-programi/programi-za-finansirane/direktni-plashaniya/cifrova-ortofotokarta/, https://www.mzh.government.bg/bg/uslugi/administrativni-uslugi/izdavane-na-administrativni-aktove/kopiya-ot-cifrovata-ortofoto-karta/. The EU INSPIRE geoportal's certificate had expired; the national catalogue `inspireportal.egov.bg` answers.
 
 ### Cyprus (DLS): DTM/DSM behind a government login
+- **Built 2026-11-15** (batch 5 wave 2; docs/roadmap.md, "Batch 5"): `cyprus`: DLS's 2019 DTM 1 m and DSM 0.5 m are open (CC BY 4.0, data.gov.cy's "ypsometria-inspire") in the INSPIRE download folder `eservices.dls.moi.gov.cy/inspire_downloads/EL/rasters` as 2.5 km tiles reprojected by DLS into ETRS89 degrees, warped back onto Cyprus LTM; R78 Avakas gorge. The notes below are of 2026-10-31.
 - **Data**: DTM and DSM from photogrammetric surveys of "different time periods"; a 5 m 2014 mosaic of DLS tiles is mirrored on Zenodo (CC BY 4.0 claimed by the uploader). No LiDAR found.
 - **Access**: e-services with a Cyprus government login, free up to 1 GB per user per day; beyond that a form and EUR 17/km² (areas over 50 km² need the Director's approval). The DLS API catalogue lists only contours (ArcGIS MapServer, access on request to the portal administrator). data.gov.cy has no CKAN API.
 - **Licence**: not stated (a disclaimer page); unclear.
