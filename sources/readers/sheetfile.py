@@ -42,6 +42,9 @@ STEP_SNAP = 0.01
 MAX_FINER = 4
 # A line of three numbers (blank lines are skipped by np.loadtxt): any other line with something on it is malformed
 _NOT_XYZ = re.compile(rb"^(?![ \t]*[-+.\deE]+[ \t]+[-+.\deE]+[ \t]+[-+.\deE]+[ \t]*\r?$)[^\n]*\S[^\n]*$", re.M)
+# A first line of five comma-separated numbers: "n,x,y,z,flag" (_csv_points). Such a file failed as "x y z" lines
+# before, so the branch changes no file read before
+_CSV_NXYZF = re.compile(rb"[ \t]*-?\d+(?:[ \t]*,[ \t]*[-+.\deE]+){4}[ \t]*\r?(?:\n|$)")
 
 
 class SheetFile(Reader):
@@ -61,18 +64,30 @@ class SheetFile(Reader):
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, members: Optional[str] = None, max_bytes: int = 200_000_000,
-                 member_bytes: int = 100_000_000):
+                 member_bytes: int = 100_000_000, listed: bool = False):
         self.description, self.members = description, members
         self.max_bytes, self.member_bytes = max_bytes, member_bytes
+        # listed: every request is a file the publisher lists (a static table, a bucket's listing), so a 404 is an
+        # error of that tile (asked again by the next search), never a tile without data recorded as missing
+        self.listed = listed
 
     def url(self, tile) -> Optional[str]:
         return tile.url
 
-    def fetch(self, tile, path: str) -> Fetched:
+    def download(self, tile):
+        """The answer of a sheet's URL; None for a 404 (no such sheet), an error for a 404 when the files are
+        listed (listed) and for any other failure."""
         try:
             response = net._get(tile.url, binary_types=("octet", "zip", "text", "image"))
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: {e}")
+        if response is None and self.listed:
+            raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: HTTP 404 for a "
+                               f"listed file")
+        return response
+
+    def fetch(self, tile, path: str) -> Fetched:
+        response = self.download(tile)
         if response is None:
             return Fetched(0, tile.url)
         if self.members is not None:
@@ -239,6 +254,8 @@ def _xyz_points(data: bytes, where: str = "") -> np.ndarray:
     one); more, or no line at all, is an error."""
     if data.startswith(BOM):
         data = data[len(BOM):]
+    if _CSV_NXYZF.match(data):
+        return _csv_points(data, where)
     try:
         xyz = _loadtxt(data)
     except ValueError:
@@ -261,6 +278,22 @@ def _xyz_points(data: bytes, where: str = "") -> np.ndarray:
     if xyz.shape[1] < 3:
         raise RuntimeError(f"lines of {xyz.shape[1]} number(s), x y z expected")
     return xyz[:, :3]
+
+
+def _csv_points(data: bytes, where: str = "") -> np.ndarray:
+    """The x, y, z of "n,x,y,z,flag" lines (columns 2-4): VIRTUAL SHIZUOKA's CSV grids (FY2021 centre and west,
+    FY2025 north-west; 2026-11-15). The flag column is undocumented: 0, 1 and -9999 occur, all three with valid
+    heights (08ME9065_2: the -9999 rows at 117.6-127.6 m among 117.4-232.4 m), so every row is kept. A line that is
+    not five numbers is an error (these files are written by a program, none was seen broken)."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            xyz = np.loadtxt(io.BytesIO(data), dtype=np.float64, delimiter=",", usecols=(1, 2, 3), ndmin=2)
+    except ValueError as e:
+        raise RuntimeError(f"not n,x,y,z,flag lines ({e})") from None
+    if xyz.shape[0] == 0:
+        raise RuntimeError("no n,x,y,z,flag lines in the file")
+    return xyz
 
 
 def _loadtxt(data: bytes) -> np.ndarray:
