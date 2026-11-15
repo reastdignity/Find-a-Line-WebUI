@@ -2583,7 +2583,16 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             page.fill("dialog[open] input[type=text]", "Gone")
             page.keyboard.press("Escape")
             page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement?.classList.contains('s-rig-change')", timeout=WAIT)
             r["escaped"] = (names()[0][0], page.evaluate("document.activeElement.className"))
+            # A press outside the window (on its backdrop) closes it too; a press on its padding does not
+            page.click(".s-rig-change")
+            page.wait_for_selector("dialog[open] .s-rig-form", timeout=WAIT)
+            box = page.locator("dialog[open]").bounding_box()
+            page.mouse.click(box["x"] + 3, box["y"] + 3)  # the window's own corner: stays
+            r["inside"] = page.locator("dialog[open]").count()
+            page.mouse.click(box["x"] - 8, box["y"] + 20)  # the backdrop beside it
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
             # Rename and change a value
             page.click(".s-rig-change")
             page.fill("dialog[open] input[type=text]", "Light")
@@ -2643,6 +2652,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             # Back to Basic: the dialog, "Stay in Advanced" focused; again, "Reset them to Basic's values"
             page.click(".s-tabs [data-tab=basic]")
             page.wait_for_selector("dialog[open] .n-actions", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement?.closest('dialog[open] .n-actions')", timeout=WAIT)
             r["dialog"] = page.evaluate("""() => [document.querySelector('dialog[open] h2').textContent,
                 [...document.querySelectorAll('dialog[open] li')].map((li) => li.textContent),
                 document.querySelector('dialog[open] .s-note').textContent, document.activeElement.textContent]""")
@@ -2689,9 +2699,12 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             r["ten"] = page.evaluate("""() => [document.querySelector('.s-rig-state').textContent,
                 document.querySelector('.s-rig-add').disabled, document.querySelector('.s-rig-add').textContent,
                 document.querySelectorAll('.s-rig-item:not(.s-rig-add)').length]""")
-            page.click(".s-tabs [data-tab=advanced]")
-            page.click(".s-more-head")
-            page.click(".s-topic[data-topic=rigging] > summary")
+            # The receipt's rig opens Advanced with More settings and Clearance model open, its field focused
+            page.evaluate(POINT_JS)
+            page.click(".s-receipt button[data-field=end_zone]")
+            page.wait_for_function("() => document.activeElement?.closest('[data-field=end_zone]')", timeout=WAIT)
+            r["rig_part"] = page.evaluate("() => [window.FINDALINE_SEARCH.tab, "
+                                          "!!document.querySelector('.s-topic[data-topic=rigging][open]')]")
             r["ten_new"] = page.evaluate("() => [...document.querySelectorAll('.s-rig-save button')].map((b) => [b.textContent, b.disabled])")
             r["csp"] = page.evaluate("() => window.CSP_VIOLATIONS")
         finally:
@@ -2700,6 +2713,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["saved"][0] == [("My rig", STARTING_RIG)] and r["saved"][1].startswith("My rig"), r
     assert r["saved"][2] == r["saved"][3], r  # the new rig is in use, kept in this browser
     assert r["edit_title"] == "Change a rig" and r["escaped"] == ("My rig", "u-btn s-rig-change"), r
+    assert r["inside"] == 1, r
     assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag · no-fall zone 3 m · no A-frames"), r
     assert r["taken"] == "Give the copy a new name: “Light” is taken.", r
     assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
@@ -2726,7 +2740,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["saved_into"] == ("Saved into “Heavy”. Every Basic search uses it now.", 4.0, None), r
     assert r["ten"] == ["10 rigs, the most you can keep", True,
                         "You have 10 rigs: the most you can keep. Delete one to add another.", 10], r
-    assert r["ten_new"][-1] == ["Save as a new rig", True], r
+    assert r["rig_part"] == ["advanced", True] and r["ten_new"][-1] == ["Save as a new rig", True], r
     assert r["csp"] == [], r
 
 

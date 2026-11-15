@@ -148,11 +148,18 @@ function Modal({onClose, label: labelledBy, class: cls, focusAfter, children}:
       if (dialog.open) dialog.close();
       const target = (after.current?.() as HTMLElement | null) ?? (back && document.contains(back) ? back : null);
       target?.focus();
+      // The browser may move the focus to the page once the dialog leaves it: once more then, if it did
+      setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) target?.focus(); });
     };
   }, []);
+  // A press outside: on the backdrop, which is the dialog's own box from outside its rectangle
+  const outside = (e: MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) onClose();
+  };
   return <dialog ref={ref} class={cx("ui u-dialog s-dialog", cls)} aria-labelledby={labelledBy}
-                 onCancel={(e) => { e.preventDefault(); onClose(); }}
-                 onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+                 onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={outside}>
     {children}
   </dialog>;
 }

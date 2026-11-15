@@ -7,7 +7,7 @@
 // SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
 
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
 import { parseValue, withValue } from "../app/request";
 import { errorText, label, t } from "../i18n";
@@ -273,10 +273,9 @@ function SaveRig({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
 function Topic({s, topic, title, fields, onRig}:
                {s: SearchState; topic: string; title: string; fields: SchemaField[]; onRig(ask: RigAsk): void}) {
   const count = fields.filter((f) => s.differs(f.name)).length;
-  const [open, setOpen] = useState(() => topic === "lines" || count > 0);
-  useEffect(() => {
-    if (s.focus && fields.some((f) => f.name === s.focus!.field)) setOpen(true);
-  }, [s.focus?.n]);
+  const asked = () => !!s.focus && fields.some((f) => f.name === s.focus!.field);
+  const [open, setOpen] = useState(() => topic === "lines" || count > 0 || asked());
+  useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);  // before AdvancedPane focuses the field
   return <details class="s-topic" open={open} data-topic={topic}
                   onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
     <summary><span class="u-grow">{title}</span>{count > 0 && <span class="u-badge">{count}</span>}</summary>
@@ -291,10 +290,9 @@ function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const topics = Object.entries(s.schema.topics).filter(([t]) => t !== "where");
   const fields = s.schema.fields.filter((f) => f.topic && f.topic !== "where" && !KEY_FIELDS.includes(f.name));
   const changed = fields.filter((f) => s.differs(f.name)).length;
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (s.focus && (s.focus.field === "more" || fields.some((f) => f.name === s.focus!.field))) setOpen(true);
-  }, [s.focus?.n]);
+  const asked = () => !!s.focus && (s.focus.field === "more" || fields.some((f) => f.name === s.focus!.field));
+  const [open, setOpen] = useState(asked);
+  useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);
   return <div class="s-more" data-field="more">
     <button type="button" class="s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <Icon name="filter" /><span class="u-grow">More settings · height, anchors, data, rigging model, output</span>
@@ -318,18 +316,23 @@ function AdvancedPane({s, where, onRig}: {s: SearchState; where: ComponentChildr
   const dots = differing(s.resolved, s.base).length;
   const goal = s.goalOf(s.goal);
   const rig = s.rigs.inUse ? s.rigs.inUse.name : t("basic.from_starting");
-  // A field asked for (the receipt, "Lighter"): open (Topic, MoreSettings) and focus it
+  // A field asked for (the receipt, "Lighter"): MoreSettings and its Topic open it (their layout effects), then it
+  // is focused once it is drawn (a few frames at most)
   useEffect(() => {
     if (!s.focus) return;
     const field = s.focus.field;
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined, tries = 10;
+    const focus = () => {
       const box = field === "name" ? document.getElementById(nameId)?.parentElement
         : document.querySelector(`.s-pane [data-field="${field}"]`);
       const target = field === "more" ? box?.querySelector<HTMLElement>(".s-more-head")
         : box?.querySelector<HTMLElement>("input, select, button.s-more-head");
-      box?.scrollIntoView?.({block: "center"});
-      target?.focus();
-    });
+      if (target && target.getClientRects().length) {
+        box?.scrollIntoView?.({block: "center"});
+        target.focus();
+      } else if (tries-- > 0) timer = setTimeout(focus, 50);
+    };
+    timer = setTimeout(focus);
     return () => clearTimeout(timer);
   }, [s.focus?.n]);
   return <div class="s-pane" role="tabpanel" aria-label={t("basic.tab.advanced")}>
