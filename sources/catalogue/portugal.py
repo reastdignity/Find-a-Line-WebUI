@@ -42,11 +42,13 @@ MADEIRA_ORTHO = OrthoService("Orthophoto 2023 (DROTe, Madeira)",
 # The 5 m ZIP of the same record (mdt_5m.zip, 114 126 877 B, members of 2026-05-18): a raster per island, each a
 # dataset of our mirror of its own (tools/mirror_tiles.py DATASETS "porto-santo", "desertas", "selvagens"), 5 m with
 # pixel edges at 2.5 m modulo 5 (origin (2.5, 2.5)). Porto Santo's is in Porto Santo 1995 / UTM zone 28N (EPSG:3061),
-# the sea written as 0 (its nodata tag); PROJ takes it to WGS 84 by "Porto Santo 1995 to WGS 84 (3)" over the whole
-# island (that operation's area reaches -16.23 E: tests/test_madeira_aosta.py). The Desertas' file is labelled
-# EPSG:3061 but lies in PTRA08 (EPSG:5016: its coast against OSM's and the orthophoto's, 2026-11-15), the
-# Selvagens' is in PTRA08; both hold -32768 outside and -999 at the coast. Without their mirror folders --source auto
-# takes Madeira's source there (unavailable too: then europe)
+# the sea written as 0 (its nodata tag); GDAL (rasterio.warp.transform, the mosaic's) takes it to WGS 84 by "Porto
+# Santo 1995 to WGS 84 (3)" over the data and the whole offline box, left unpinned (tests/test_madeira_aosta.py); its
+# choice changes about 3 km east of the data, beyond that operation's area (-16.23 E): sea only. The Desertas' file is
+# labelled EPSG:3061 but lies in PTRA08 (EPSG:5016: its coast against OSM's and the orthophoto's, 2026-11-15), the
+# Selvagens' is in PTRA08; both hold -32768 outside, -999 at the coast and coast pixels averaged with -999 (below -1 m:
+# no data, tools/mirror_tiles.py). Without their mirror folders --source auto takes Madeira's source there
+# (unavailable too: then europe)
 MADEIRA_5M_CREDIT = Credit("MDT 5 m (DROTe, Região Autónoma da Madeira)",
                            "DTM 5 m: Direção Regional do Ordenamento do Território (DROTe), Região Autónoma da "
                            "Madeira, 2018-2019", "No conditions apply", MADEIRA_RECORD)

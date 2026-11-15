@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import tracemalloc
 import zipfile
 
@@ -182,7 +183,7 @@ def test_failed_unpacking_leaves_no_part(tmp_path, monkeypatch):
     (work / "bad.zip").write_bytes(bytes(raw))
     with pytest.raises(Exception):
         mt.extract("asc", str(work))
-    assert sorted(os.listdir(work)) == ["bad.zip"]
+    assert [n for n in os.listdir(work) if n not in ("state", "mirror_tiles.lock")] == ["bad.zip"]
 
 
 def test_replace_tried_again(tmp_path, monkeypatch):
@@ -467,7 +468,7 @@ def _dataset(monkeypatch, name, *products, **kwargs):
 def _tiles(out, ds, product=None):
     """{key: values or None} of a product's folder, and its index."""
     folder = out / mt.tile_folder(ds, product)
-    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    index, _ = mt.product_index(str(folder))
     found = {}
     for key, sha in index["tiles"].items():
         if sha is None:
@@ -662,12 +663,18 @@ def test_folder_of_1km_files_restarts_and_completes(tmp_path, monkeypatch):
     tiles, index = _tiles(out, ds)
     assert index["partial"] is True and set(tiles) == {"0_0", "2_0"}
     assert all(v is not None for v in tiles.values())
+    product_folder = out / "pt-test" / "dtm" / "5m"
+    # a partial product has no index.json: nothing reads or publishes it
+    assert not (product_folder / "index.json").exists() and (product_folder / "index.partial.json").exists()
+    assert any("partial (no index.json" in line for line in mt.status(["pt-test"], str(work), str(out), str(inputs)))
+    assert any("pt/MDT-50cm: 3 of 6" in line for line in mt.status(["pt-test"], str(work), str(out), str(inputs)))
     assert np.isnan(tiles["0_0"][:200, :]).all()  # the north half's files are not there yet
     first = (out / "pt-test" / "dtm" / "5m" / "0_0" / "2_0.tif").read_bytes()
     place((0, 1), (1, 1), (5, 1))
     mt.cut("pt-test", str(work), str(out), inputs=str(inputs))
     tiles, index = _tiles(out, ds)
     assert "partial" not in index and tiles["1_0"] is None and set(tiles) == {"0_0", "1_0", "2_0"}
+    assert (product_folder / "index.json").exists() and not (product_folder / "index.partial.json").exists()
     want = _expected([(v, 2.5 + 1000 * x, 1002.5 + 1000 * y) for (x, y), v in sheets.items()])
     for key in ("0_0", "2_0"):
         _close(tiles[key], want[key])  # 0_0 cut again from its four files, 2_0 from its two
@@ -882,6 +889,9 @@ def test_done_jsonl_naming_none_of_the_files(tmp_path, monkeypatch):
     (inputs / "pt" / "done.jsonl").write_text(json.dumps({"key": "s0000", "hash": "x"}) + "\n" +
                                              json.dumps({"other": "s0100", "sha256": "0" * 64}) + "\n")
     _dataset(monkeypatch, "dj", _product([mt.Folder("pt/MDT", expected=2, done="../done.jsonl")]))
+    with pytest.raises(ValueError, match="line 2 has a sha256 but none of the keys"):
+        mt.cut("dj", str(work), str(out), inputs=str(inputs))
+    (inputs / "pt" / "done.jsonl").write_text(json.dumps({"item": "other-1", "sha256": "0" * 64}) + "\n")
     with pytest.raises(ValueError, match="names none of the 2 files"):
         mt.cut("dj", str(work), str(out), inputs=str(inputs))
     os.remove(inputs / "pt" / "done.jsonl")
@@ -914,3 +924,274 @@ def test_clean_leaves_the_inputs(tmp_path, monkeypatch):
     assert not (work / "p" / "a.tif").exists() and not list((work / "tiled").glob("*.tif"))
     assert all(name.startswith("state") for name in left), left
     assert {p: p.read_bytes() for p in inputs.rglob("*") if p.is_file()} == before
+
+
+# The fix round of 2026-11-16: deleted and changed inputs, partial products, work copies, clean, locks, verify
+
+def _four(inputs, monkeypatch, name="four", expected=4):
+    """Four 1 km files (5 m) filling tile 0_0, with their done.jsonl; the dataset."""
+    values = _sheets(inputs / "pt" / "MDT", 2, 2)
+    ds = _dataset(monkeypatch, name, _product([mt.Folder("pt/MDT", expected=expected, done="../done.jsonl")]))
+    return values, ds
+
+
+def test_deleted_inputs_never_cut_out_of_a_finished_tile(tmp_path, monkeypatch, capsys):
+    """Four files in one tile, cut, verified; two deleted by hand. A cut with a work folder without state takes the
+    listed tile as final (said once, with the count): its 160 000 valid pixels stay, the index stays complete, and a
+    verify that finds nothing it can check keeps the earlier passing verify.json of that index; `all` then skips the
+    product."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _four(inputs, monkeypatch)
+    mt.cut("four", str(work), str(out), inputs=str(inputs))
+    assert mt.verify("four", str(work), str(out), inputs=str(inputs))["dtm"]["ok"]
+    folder = out / "four" / "dtm" / "5m"
+    snapshot = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+    for name in ("00/s0000.tif", "01/s0101.tif"):
+        os.remove(inputs / "pt" / "MDT" / name)
+    capsys.readouterr()
+    mt.cut("four", str(tmp_path / "fresh"), str(out), inputs=str(inputs))
+    assert "1 listed tile(s) without a record of what fed them" in capsys.readouterr().out
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == snapshot
+    with rio.open(folder / "0_0" / "0_0.tif") as t:
+        assert np.isfinite(t.read(1)).sum() == 160_000
+    for w in (work, tmp_path / "fresh"):
+        result = mt.verify("four", str(w), str(out), inputs=str(inputs))["dtm"]
+        assert result["ok"] and result.get("kept")
+    assert (folder / "verify.json").read_bytes() == snapshot[folder / "verify.json"]
+    monkeypatch.setattr(sys, "argv", ["mirror_tiles.py", "all", "four", "--work", str(work), "--inputs", str(inputs),
+                                      "--out", str(out)])
+    mt.main()
+    assert "complete and verified on" in capsys.readouterr().out
+
+
+def test_a_tile_never_loses_the_pixels_of_deleted_inputs(tmp_path, monkeypatch):
+    """With the state kept: two of a tile's four files cut (partial), deleted, the other two placed: the cut stops
+    before writing anything, naming the tile and the missing files (fetch them again, or a fresh folder)."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _four(inputs, monkeypatch)
+    folder = inputs / "pt" / "MDT"
+    kept = {name: (folder / name).read_bytes() for name in ("01/s0001.tif", "01/s0101.tif")}
+    for name in kept:
+        os.remove(folder / name)
+    mt.cut("four", str(work), str(out), inputs=str(inputs))
+    snapshot = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+    for name in ("00/s0000.tif", "00/s0100.tif"):
+        os.remove(folder / name)
+    for name, data in kept.items():
+        (folder / name).write_bytes(data)
+    with pytest.raises(mt.Stale, match=r"tile 0_0: 2 new raster\(s\) cover it .* 2 that fed it are missing "
+                                       r"\(pt/MDT/00/s0000.tif, pt/MDT/00/s0100.tif\)"):
+        mt.cut("four", str(work), str(out), inputs=str(inputs))
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == snapshot
+
+
+def test_changed_sources_redo_their_work_copies(tmp_path, monkeypatch):
+    """A placed ASCII grid replaced by one 100 m higher: its tiled copy in --work is made again (never the old one
+    read), and the cut stops on the tile that grid fed (changed since). A placed ZIP replaced by a new version whose
+    member has the same size: unpacked again (its CRC differs), not "already extracted"."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    grid = _heights((10, 10), 3)
+    (inputs / "asc").mkdir(parents=True)
+    text = lambda v: _asc_text(v, left=2002.5, bottom=502.5).replace(b"cellsize 2", b"cellsize 5")  # noqa: E731
+    (inputs / "asc" / "g.asc").write_bytes(text(grid))
+    _dataset(monkeypatch, "ch", _product([mt.Placed("asc/g.asc")]))
+    mt.cut("ch", str(work), str(out), inputs=str(inputs))
+    (inputs / "asc" / "g.asc").write_bytes(text(grid + 100))
+    os.utime(inputs / "asc" / "g.asc", ns=(1, 1))  # another time even on a coarse clock
+    raster = mt.resolve(mt.dataset("ch").products[0], str(work), str(inputs)).rasters[0]
+    with rio.open(mt.readable(raster, str(work), 5.0)) as copy:
+        assert np.allclose(copy.read(1), (grid + 100).astype(np.float32), atol=1e-3)
+    with pytest.raises(mt.Stale, match="tile 1_0: 1 raster\\(s\\) that fed it changed"):
+        mt.cut("ch", str(work), str(out), inputs=str(inputs))
+
+    def member_zip(values):
+        src_dir = tmp_path / "src"
+        with rio.open(src_dir / "m.tif", "w", driver="GTiff", width=100, height=100, count=1, dtype="float32",
+                      crs="EPSG:5016", transform=from_origin(2.5, 1002.5, 5, 5)) as dst:
+            dst.write(values.astype(np.float32), 1)
+        with zipfile.ZipFile(inputs / "z" / "p.zip", "w") as z:
+            z.write(src_dir / "m.tif", "m.tif")
+    (tmp_path / "src").mkdir()
+    (inputs / "z").mkdir()
+    member_zip(_heights((100, 100), 1))
+    _dataset(monkeypatch, "zz", _product([mt.Placed("z/p.zip", members=("m.tif",))]))
+    [path] = mt.extract("zz", str(work), str(inputs))
+    size = os.path.getsize(path)
+    member_zip(_heights((100, 100), 2))
+    [again] = mt.extract("zz", str(work), str(inputs))
+    assert again == path and os.path.getsize(path) == size
+    with rio.open(path) as m:
+        assert np.allclose(m.read(1), _heights((100, 100), 2).astype(np.float32))
+
+
+def test_clean_never_removes_an_input(tmp_path, monkeypatch):
+    """Inputs whose names hold "!" (a file placed by hand, a folder's file under such a directory) stay; clean
+    removes only what the tool recorded as made; the one removal helper refuses any path outside --work."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _tif(inputs / "tile!1.tif", _heights((100, 100), 1), 2.5, 1002.5)
+    _tif(inputs / "a!b" / "s.tif", _heights((100, 100), 2), 502.5, 1002.5)
+    _dataset(monkeypatch, "bang", _product([mt.Placed("tile!1.tif"), mt.Folder("a!b", expected=1, done=None)]))
+    before = {p: p.read_bytes() for p in inputs.rglob("*") if p.is_file()}
+    mt.cut("bang", str(work), str(out), inputs=str(inputs))
+    mt.clean("bang", str(work), str(inputs))
+    mt.clean("bang", str(inputs), str(inputs))  # --work on the inputs folder: still nothing of theirs removed
+    assert {p: p.read_bytes() for p in before} == before
+    with pytest.raises(ValueError, match="removes only files it made"):
+        mt._remove(str(inputs / "tile!1.tif"), str(work))
+
+
+def test_torn_done_line_and_files_not_recorded_yet(tmp_path, monkeypatch, capsys):
+    """A done.jsonl whose last line was torn by a stopped fetch: skipped with one log line (its number, never its
+    text); a file in the folder that a present done.jsonl does not name yet is no input in this run, counted."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _sheets(inputs / "pt" / "MDT", 2, 1)
+    done = inputs / "pt" / "done.jsonl"
+    lines = done.read_text().splitlines()
+    done.write_text(lines[0] + "\n" + lines[1][:30])  # the second file's line cut short
+    _dataset(monkeypatch, "torn", _product([mt.Folder("pt/MDT", expected=2, done="../done.jsonl")]))
+    r = mt.resolve(mt.dataset("torn").products[0], str(work), str(inputs))
+    printed = capsys.readouterr().out
+    assert "line 2 is not JSON" in printed and lines[1][:30] not in printed
+    assert [x.id for x in r.rasters] == ["pt/MDT/00/s0000.tif"] and not r.complete
+    assert r.checks == ["pt/MDT: 1 of 2 files named in ../done.jsonl; 1 not named yet: no inputs in this run"]
+    mt.cut("torn", str(work), str(out), inputs=str(inputs))
+    tiles, index = _tiles(out, mt.dataset("torn"))
+    assert index["partial"] is True and index["inputs"] == 1
+
+
+def test_upper_case_extensions(tmp_path, monkeypatch):
+    """".tif" finds ".TIF" on every system (Linux's globs are case-sensitive), in a folder and in a placed name."""
+    inputs, work = tmp_path / "in", tmp_path / "work"
+    _tif(inputs / "f" / "A.TIF", _heights((100, 100), 1), 2.5, 1002.5)
+    _tif(inputs / "f" / "b.tif", _heights((100, 100), 2), 502.5, 1002.5)
+    _tif(inputs / "P.TIF", _heights((100, 100), 3), 1002.5, 1002.5)
+    product = _product([mt.Folder("f", expected=2, done=None), mt.Placed("p.tif")])
+    assert [r.id for r in mt.resolve(product, str(work), str(inputs)).rasters] == ["f/A.TIF", "f/b.tif", "P.TIF"]
+    assert mt._any_case("**/*.tif") == "**/*.[tT][iI][fF]" and mt._any_case("[ab]x") == "[ab][xX]"
+
+
+_HOLD = """
+import sys, time, os
+sys.path.insert(0, sys.argv[1])
+import mirror_tiles as mt
+with mt._locked(sys.argv[2], "a test's"):
+    print("held", flush=True)
+    while not os.path.exists(sys.argv[3]):
+        time.sleep(0.05)
+"""
+
+
+def _holder(tmp_path, lock_path, release):
+    """Another process holding the tool's lock at lock_path until release exists."""
+    script = tmp_path / "hold.py"
+    script.write_text(_HOLD)
+    proc = subprocess.Popen([sys.executable, str(script), os.path.dirname(mt.__file__), lock_path, release],
+                            stdout=subprocess.PIPE, text=True)
+    assert proc.stdout.readline().strip() == "held"
+    return proc
+
+
+def test_one_run_at_a_time(tmp_path, monkeypatch):
+    """Another process holding the work folder (or the product's mirror folder): cut, verify, clean and extract stop
+    at once with Busy, touching nothing; the command line exits non-zero with the message."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _tif(inputs / "r.tif", _heights((100, 100), 1), 2.5, 1002.5)
+    _dataset(monkeypatch, "busy", _product([mt.Placed("r.tif")]))
+    release = tmp_path / "release"
+    proc = _holder(tmp_path, str(work / "mirror_tiles.lock"), str(release))
+    try:
+        for call in (lambda: mt.cut("busy", str(work), str(out), inputs=str(inputs)),
+                     lambda: mt.verify("busy", str(work), str(out), inputs=str(inputs)),
+                     lambda: mt.clean("busy", str(work), str(inputs)),
+                     lambda: mt.extract("busy", str(work), str(inputs))):
+            with pytest.raises(mt.Busy, match="in use by another run"):
+                call()
+        assert not out.exists()
+        monkeypatch.setattr(sys, "argv", ["mirror_tiles.py", "cut", "busy", "--work", str(work), "--inputs",
+                                          str(inputs), "--out", str(out)])
+        with pytest.raises(SystemExit) as stopped:
+            mt.main()
+        assert "Busy" in str(stopped.value.code)
+    finally:
+        release.write_text("")
+        proc.wait(30)
+    release.unlink()
+    proc = _holder(tmp_path, str(out / ".locks" / "busy.dtm.5m.lock"), str(release))
+    try:
+        with pytest.raises(mt.Busy, match="busy/dtm/5m"):
+            mt.cut("busy", str(tmp_path / "other-work"), str(out), inputs=str(inputs))
+    finally:
+        release.write_text("")
+        proc.wait(30)
+    mt.cut("busy", str(work), str(out), inputs=str(inputs))  # free again
+    assert (out / "busy" / "dtm" / "5m" / "index.json").exists()
+
+
+def test_download_waits_for_another(served, tmp_path):
+    """Never two downloads at once: a second process's download waits until the first lets go of the lock."""
+    server, spec, work = served
+    work.mkdir()
+    script = tmp_path / "hold_download.py"
+    script.write_text("import sys, time\nfrom filelock import FileLock\nwith FileLock(sys.argv[1]):\n"
+                      "    print('held', flush=True)\n    time.sleep(1.5)\n")
+    proc = subprocess.Popen([sys.executable, str(script), str(work / "download.lock")], stdout=subprocess.PIPE,
+                            text=True)
+    assert proc.stdout.readline().strip() == "held"
+    start = time.time()
+    [path] = mt.download("dl", str(work))
+    assert time.time() - start > 1.0 and open(path, "rb").read() == BODY
+    proc.wait(30)
+
+
+def _buggy(kind):
+    """An assemble with a bug, used by both the cut and verify's own re-assembly (so only the independent check can
+    see it)."""
+    real = mt.assemble
+
+    def assemble(key, product, footprints, handles):
+        if kind == "origin":
+            return real(key, mt.replace(product, origin=(product.origin[0] + product.res, product.origin[1])),
+                        footprints, handles)
+        tile = real(key, product, footprints, handles)
+        return tile[::-1].copy() if kind == "rows" else np.roll(tile, 3, axis=1)
+    return assemble
+
+
+@pytest.mark.parametrize("kind", ["origin", "rows", "shift"])
+def test_verify_reads_the_inputs_apart_from_the_cut(tmp_path, monkeypatch, kind):
+    """verify's second comparison reads pixels straight from the input rasters through their own transforms, with
+    the masks applied apart: a wrong origin, a swapped row order or a shifted tile, made in assemble and so equal in
+    the cut and in verify's own re-assembly, is found."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    values = _heights((400, 400), 4)
+    values[50:60] = -999.0
+    _tif(inputs / "r.tif", values, 2.5, 2002.5)
+    _dataset(monkeypatch, "pts", _product([mt.Placed("r.tif")], nodata=(-999.0,)))
+    mt.cut("pts", str(work), str(out), inputs=str(inputs))
+    good = mt.verify("pts", str(work), str(out), inputs=str(inputs))["dtm"]
+    assert good["ok"] and good["points_compared"] == mt.POINTS and good["seed"] == 0
+    monkeypatch.setattr(mt, "assemble", _buggy(kind))
+    bad = tmp_path / "bad"
+    mt.cut("pts", str(tmp_path / "w2"), str(bad), inputs=str(inputs))
+    result = mt.verify("pts", str(tmp_path / "w2"), str(bad), inputs=str(inputs))["dtm"]
+    assert not result["ok"] and any("read straight from the inputs" in x for x in result["problems"])
+    assert not any("differs from the inputs by" in x or "no data differs" in x for x in result["problems"])
+
+
+def test_verify_sample_size():
+    """1 % of the tiles with data, at least 8, at most 500 (a defect in 1 % of 50 000 tiles found 99.3 % of the
+    time instead of 7.7 % with 8)."""
+    assert [mt.default_samples(n) for n in (0, 799, 5_000, 50_000, 10 ** 6)] == [8, 8, 50, 500, 500]
+
+
+def test_card_follows_the_overlap_rule_and_the_floor(monkeypatch):
+    """The card says the overlap rule the product has, and the islands' masks: the Desertas' and the Selvagens'
+    floor of -1 m (the user's decision of 2026-11-15), none for Porto Santo."""
+    agree = mt.Dataset("o", "O", "P", "L", "A", (_product([mt.Placed("a.tif"), mt.Placed("b.tif")], overlap="agree"),))
+    first = mt.replace(agree, products=(mt.replace(agree.products[0], overlap="first"),))
+    assert "where they overlap they agree within 5 mm" in mt.card_text(agree)
+    assert "first listed wins" not in mt.card_text(agree) and "first listed wins" in mt.card_text(first)
+    for name in ("desertas", "selvagens"):
+        assert mt.dataset(name).products[0].floor == -1.0
+        assert "every value below -1 m made no data" in mt.card_text(mt.dataset(name))
+    assert mt.dataset("porto-santo").products[0].floor is None

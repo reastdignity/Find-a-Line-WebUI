@@ -7,6 +7,7 @@ import json
 import os
 import sys
 
+import numpy as np
 import pytest
 import requests
 
@@ -125,21 +126,22 @@ def test_the_dsm_follows_by_hand():
 
 
 def test_porto_santo_by_one_operation():
-    """Porto Santo's tiles are in Porto Santo 1995 / UTM 28N (EPSG:3061): PROJ takes them to WGS 84 by "Porto Santo
-    1995 to WGS 84 (3)" everywhere the data lie (the raster's corners and the source's box: the operation's area
-    reaches -16.23 E), never by its ballpark offset, which it takes beyond (here 100 m and more away)."""
-    from pyproj import Transformer
+    """Porto Santo's tiles are in Porto Santo 1995 / UTM 28N (EPSG:3061), the operation left to GDAL: on the app's own
+    path (rasterio.warp.transform, what the mosaic and the grids use) it equals "Porto Santo 1995 to WGS 84 (3)",
+    pinned, to under 1 mm over a grid of the source's whole offline box and the raster's extent; about 3 km east of
+    the data (sea only), beyond that operation's area (-16.23 E), GDAL's choice changes (here 100 m and more)."""
     from pyproj.transformer import TransformerGroup
+    from rasterio.warp import transform
     group = TransformerGroup("EPSG:3061", "EPSG:4326", always_xy=True)
     op3 = next(t for t in group.transformers if "Porto Santo 1995 to WGS 84 (3)" in t.description)
-    chosen = Transformer.from_crs("EPSG:3061", "EPSG:4326", always_xy=True)
-    back = Transformer.from_crs("EPSG:4326", "EPSG:3061", always_xy=True)
     south, north, west, east = src.SOURCES["porto_santo"].bbox
-    corners = [(366997.5, 3649007.5), (383002.5, 3649007.5), (366997.5, 3666502.5), (383002.5, 3666502.5)]
-    corners += [back.transform(lon, lat) for lon in (west, east) for lat in (south, north)]
-    for x, y in corners:
-        a, b = chosen.transform(x, y), op3.transform(x, y)
-        assert abs(a[0] - b[0]) < 1e-7 and abs(a[1] - b[1]) < 1e-7, (x, y)
-    x, y = 386500.0, 3655000.0  # about -16.22 E: beyond the operation's area
-    a, b = chosen.transform(x, y), op3.transform(x, y)
-    assert ((a[0] - b[0]) * 93_000) ** 2 + ((a[1] - b[1]) * 111_000) ** 2 > 100 ** 2
+    lons, lats = np.meshgrid(np.linspace(west, east, 41), np.linspace(south, north, 41))
+    xs, ys = op3.transform(lons.ravel(), lats.ravel(), direction="INVERSE")
+    gx, gy = np.meshgrid(np.linspace(366997.5, 383002.5, 21), np.linspace(3649007.5, 3666502.5, 21))
+    xs, ys = np.concatenate([xs, gx.ravel()]), np.concatenate([ys, gy.ravel()])
+    glon, glat = transform("EPSG:3061", "EPSG:4326", xs, ys)
+    plon, plat = op3.transform(xs, ys)
+    assert np.max(np.hypot((np.array(glon) - plon) * 93_000, (np.array(glat) - plat) * 111_000)) < 0.001
+    (lon,), (lat,) = transform("EPSG:3061", "EPSG:4326", [386500.0], [3655000.0])  # about -16.22 E
+    plon, plat = op3.transform(386500.0, 3655000.0)
+    assert np.hypot((lon - plon) * 93_000, (lat - plat) * 111_000) > 100
