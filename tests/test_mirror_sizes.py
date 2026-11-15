@@ -211,3 +211,108 @@ def test_the_json_and_the_table_hold_the_same_numbers_and_no_path(mirror, tmp_pa
     with redirect_stdout(io.StringIO()):
         assert ms.main(["--json", os.path.join(mirror, "x.json")]) == 2  # never into the mirror
     assert _snapshot(mirror) == before
+
+
+def test_weighted_rank_by_hand():
+    """The nearest rank over values counted weight times: the median and p90 columns of parts 2 and 3."""
+    pairs = {1: 1, 2: 1, 3: 2}  # the list 1, 2, 3, 3
+    assert [ms.weighted_rank(pairs, s) for s in (0.25, 0.5, 0.75, 0.9, 1.0)] == [1, 2, 3, 3, 3]
+    assert [ms.weighted_rank({1: 5, 2: 4, 9: 1}, s) for s in (0.5, 0.9, 1.0)] == [1, 2, 9]
+    assert [ms.weighted_rank({7: 3}, s) for s in (0.01, 0.5, 1.0)] == [7, 7, 7]
+    assert ms.weighted_rank({}, 0.5) is None
+    weights = {0: 3, 4: 7, 5: 1, 11: 6, 12: 2}
+    expanded = sorted(v for v, w in weights.items() for _ in range(w))
+    for share in (0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0):
+        assert ms.weighted_rank(weights, share) == ms.nearest_rank(expanded, share), share
+    assert [ms.nearest_rank([1, 2, 3, 3], s) for s in (0.25, 0.5, 0.9)] == [1, 2, 3]
+
+
+def test_block_folders_and_stray_files(tmp_path):
+    """Only block folders named <n>_<n> are listed: the files of another folder are in no count; a file in a block
+    folder that is not a listed tile counts as "on disk, not listed" and never as a tile."""
+    root = str(tmp_path / "mirror")
+    folder = os.path.join(root, "alpha", "dtm", "2m")
+    _tiles(folder, {(0, 0): 10, (1, 0): 20})
+    for name, size in (("0_0/notes.txt", 3), ("tmp/2_0.tif", 50), ("old/0_0.tif", 60)):
+        os.makedirs(os.path.dirname(os.path.join(folder, name)), exist_ok=True)
+        with open(os.path.join(folder, name), "wb") as f:
+            f.write(b"z" * size)
+    row = _folder(ms.run(root), "alpha/dtm/2m")
+    assert (row["tiles_with_data"], row["tile_bytes"], row["unlisted_on_disk"]) == (2, 30, 1)
+
+
+def test_folders_without_a_usable_index_are_noted(mirror, tmp_path):
+    """An index without "tiles", an empty or cut-short index.json and a resolution folder without one: listed with
+    a note, left out of parts 2-4, the run goes on and its exit code is 1."""
+    gamma = os.path.join(mirror, "gamma")
+    for res, text in (("2m", "{}"), ("5m", ""), ("10m", '{"tiles": {"0_0": "ab')):
+        os.makedirs(os.path.join(gamma, "dtm", res))
+        with open(os.path.join(gamma, "dtm", res, "index.json"), "w", encoding="utf-8") as f:
+            f.write(text)
+    _tiles(os.path.join(gamma, "dsm", "2m"), {(0, 0): 10})
+    os.remove(os.path.join(gamma, "dsm", "2m", "index.json"))
+    result = ms.run(mirror)
+    notes = {f["folder"]: f.get("note") for f in result["folders"]}
+    assert notes["gamma/dtm/2m"] == ms.NO_TILES
+    assert notes["gamma/dtm/5m"] == notes["gamma/dtm/10m"] == ms.UNREADABLE
+    assert notes["gamma/dsm/2m"] == ms.NO_INDEX
+    assert notes["alpha/dtm/2m"] is None and notes["beta/dmr5/1m"] is None
+    assert _folder(result, "gamma/dsm/2m")["tiles_with_data"] is None
+    assert all(not r["folder"].startswith("gamma/") for r in result["squares"])
+    assert all(r["dataset"] != "gamma" for r in result["combined"] + result["totals"])
+    assert any(r["folder"] == "alpha/dtm/2m" for r in result["squares"])
+    text = ms.report(result)
+    assert "| gamma/dsm/2m |" in text and "index without tiles |" in text and "no index.json |" in text
+    with redirect_stdout(io.StringIO()):
+        assert ms.main(["--mirror", mirror, "--json", str(tmp_path / "out.json")]) == 1
+    with open(tmp_path / "out.json", encoding="utf-8") as f:
+        assert ms.report(json.load(f)) == text
+
+
+def test_products_on_different_grids_are_named_in_part_3(tmp_path):
+    root = str(tmp_path / "mirror")
+    _tiles(os.path.join(root, "delta", "dtm", "2m"), {(0, 0): 10}, index={"origin": [0.0, 0.0]})
+    _tiles(os.path.join(root, "delta", "dsm", "2m"), {(0, 0): 20}, index={"origin": [1.0, 1.0]})
+    result = ms.run(root)
+    assert result["combined"] == []
+    assert len(result["combined_left_out"]) == 1
+    assert result["combined_left_out"][0]["products"] == "dsm+dtm"
+    text = ms.report(result)
+    assert "Left out: delta 2 m dsm+dtm: the products lie on different tile grids" in text
+    assert "(no dataset with two complete products" not in text
+
+
+def test_json_inside_the_mirror_by_any_spelling(mirror, tmp_path, monkeypatch):
+    """--json is refused for any spelling of a path in the mirror: another case (Windows), a relative path, a
+    junction to it; a root at a drive's top holds every path of that drive."""
+    before = _snapshot(mirror)
+    spellings = [os.path.relpath(os.path.join(mirror, "alpha", "rel.json"), os.getcwd())
+                 if os.path.splitdrive(mirror)[0].lower() == os.path.splitdrive(os.getcwd())[0].lower() else None]
+    monkeypatch.chdir(tmp_path)
+    spellings.append(os.path.join("mirror", "alpha", "rel2.json"))
+    if os.path.normcase("A") == "a":  # a file system without case (Windows)
+        spellings.append(os.path.join(mirror.upper(), "ALPHA", "case.json"))
+    link = str(tmp_path / "link")
+    try:
+        import _winapi
+        _winapi.CreateJunction(mirror, link)
+    except (ImportError, OSError):
+        try:
+            os.symlink(mirror, link, target_is_directory=True)
+        except OSError:
+            link = None
+    if link:
+        spellings.append(os.path.join(link, "alpha", "linked.json"))
+    try:
+        for path in [p for p in spellings if p]:
+            with redirect_stdout(io.StringIO()):
+                assert ms.main(["--mirror", mirror, "--json", path]) == 2, path
+            assert _snapshot(mirror) == before, path
+    finally:
+        if link and os.path.lexists(link):
+            os.rmdir(link) if os.name == "nt" else os.remove(link)
+    top = os.path.abspath(os.sep)  # C:\ on Windows, / elsewhere
+    assert ms.inside(os.path.join(top, "x.json"), top)
+    assert ms.inside(mirror, mirror)
+    assert not ms.inside(str(tmp_path / "out.json"), mirror)
+    assert not ms.inside(mirror + "-other" + os.sep + "x.json", mirror)

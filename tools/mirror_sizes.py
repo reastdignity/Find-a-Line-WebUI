@@ -18,7 +18,10 @@ one index.json per product folder, tools/sk_tiles.py and tools/mirror_tiles.py):
 4. the whole datasets (the cost of one full download): per dataset and resolution, per dataset, and all together, the
    tiles' bytes and those of the index.json and README.md files.
 
-A product folder whose index says "partial" is reported in 1 and left out of 2-4. Nothing is opened but the
+A product folder whose index says "partial" is reported in 1 and left out of 2-4; so is one without index.json,
+with an index that cannot be read or without a "tiles" object, with a note saying so, and then the exit code is 1
+(0 otherwise; 2 for a wrong argument: no mirror, or --json inside it by any spelling of its path). Products of one
+dataset and resolution on different tile grids are left out of 3 with a line saying why. Nothing is opened but the
 index.json files, for reading: sizes come from os.scandir (one listing per block folder; no tile is opened), tile
 presence from the indexes. Standard library only, so it runs on the mirror's server with its python3 too.
 
@@ -114,24 +117,47 @@ def scan_folder(path: str) -> Dict[str, int]:
     return found
 
 
+NO_INDEX, UNREADABLE, NO_TILES = "no index.json", "index unreadable", "index without tiles"
+
+
+def _noted(dataset: str, product: str, res_name: str, note: str, index_bytes: Optional[int] = None) -> Dict:
+    """The part 1 row of a folder whose index cannot be used (note says why): no counts, left out of parts 2-4."""
+    return {"folder": f"{dataset}/{product}/{res_name}", "dataset": dataset, "product": product,
+            "resolution_m": float(RES_FOLDER.match(res_name)[1]), "partial": False, "origin": None, "tile_m": None,
+            "block": None, "tiles_listed": None, "tiles_with_data": None, "tiles_null": None, "tile_bytes": None,
+            "tile_gb": None, "index_bytes": index_bytes,
+            "tile_mb": {k: None for k in ("min", "median", "mean", "p90", "p99", "max")},
+            "unlisted_on_disk": None, "listed_missing_on_disk": None, "note": note, "_sizes": {}}
+
+
 def read_folder(root: str, dataset: str, product: str, res_name: str) -> Dict:
     """One product folder: its index's tiles against the files on disk (part 1), with the tiles' sizes kept under
-    "_sizes" ({(i, j): bytes} of the tiles with data, 0 for one missing on disk) for parts 2-4."""
+    "_sizes" ({(i, j): bytes} of the tiles with data, 0 for one missing on disk) for parts 2-4. A folder without
+    an index.json, with one that cannot be read, or with one without a "tiles" object gets a row with only its
+    "note" (NO_INDEX, UNREADABLE, NO_TILES)."""
     path = os.path.join(root, dataset, product, res_name)
     index_path = os.path.join(path, "index.json")
-    with open(index_path, "r", encoding="utf-8") as f:
-        index = json.load(f)
-    tiles = index.get("tiles") or {}
-    origin = tuple(float(v) for v in index.get("origin", (0.0, 0.0)))
-    tile_m, block = float(index.get("tile_m", TILE_M)), int(index.get("block", BLOCK))
+    if not os.path.isfile(index_path):
+        return _noted(dataset, product, res_name, NO_INDEX)
+    index_bytes = os.stat(index_path).st_size
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            index = json.load(f)
+        if not isinstance(index, dict) or not isinstance(index.get("tiles"), dict):
+            return _noted(dataset, product, res_name, NO_TILES, index_bytes)
+        tiles = index["tiles"]
+        origin = tuple(float(v) for v in index.get("origin", (0.0, 0.0)))
+        tile_m, block = float(index.get("tile_m", TILE_M)), int(index.get("block", BLOCK))
+        keys = {key: tuple(map(int, key.split("_"))) for key, digest in tiles.items() if digest is not None}
+        if len(origin) != 2 or any(len(k) != 2 for k in keys.values()):
+            raise ValueError("an origin or a tile key that is not a pair")
+    except (OSError, ValueError, TypeError):  # JSONDecodeError is a ValueError
+        return _noted(dataset, product, res_name, UNREADABLE, index_bytes)
     on_disk = scan_folder(path)
     sizes: Dict[Tuple[int, int], int] = {}
     expected = set()
     missing = 0
-    for key, digest in tiles.items():
-        if digest is None:
-            continue
-        i, j = map(int, key.split("_"))
+    for i, j in keys.values():
         name = f"{i // block}_{j // block}/{i}_{j}.tif"
         expected.add(name)
         if name in on_disk:
@@ -145,7 +171,7 @@ def read_folder(root: str, dataset: str, product: str, res_name: str) -> Dict:
         "folder": folder, "dataset": dataset, "product": product, "resolution_m": float(RES_FOLDER.match(res_name)[1]),
         "partial": bool(index.get("partial")), "origin": list(origin), "tile_m": tile_m, "block": block,
         "tiles_listed": len(tiles), "tiles_with_data": len(sizes), "tiles_null": len(tiles) - len(sizes),
-        "tile_bytes": sum(present), "tile_gb": sum(present) / 1e9, "index_bytes": os.stat(index_path).st_size,
+        "tile_bytes": sum(present), "tile_gb": sum(present) / 1e9, "index_bytes": index_bytes,
         "tile_mb": {
             "min": present[0] / 1e6 if present else None,
             "median": nearest_rank(present, 0.5) / 1e6 if present else None,
@@ -156,12 +182,14 @@ def read_folder(root: str, dataset: str, product: str, res_name: str) -> Dict:
         },
         "unlisted_on_disk": sum(1 for name in on_disk if name not in expected),
         "listed_missing_on_disk": missing,
+        "note": None,
         "_sizes": sizes,
     }
 
 
 def read_mirror(root: str) -> List[Dict]:
-    """Every product folder with an index.json: <root>/<dataset>/<product>/<res>m, in name order."""
+    """Every product folder <root>/<dataset>/<product>/<res>m, in name order (one without index.json too, with
+    its note)."""
     found = []
     for dataset in sorted(os.listdir(root)):
         if dataset.startswith(".") or not os.path.isdir(os.path.join(root, dataset)):
@@ -172,7 +200,7 @@ def read_mirror(root: str) -> List[Dict]:
                 continue
             for res_name in sorted(os.listdir(base), key=lambda n: float(RES_FOLDER.match(n)[1])
                                    if RES_FOLDER.match(n) else math.inf):
-                if RES_FOLDER.match(res_name) and os.path.isfile(os.path.join(base, res_name, "index.json")):
+                if RES_FOLDER.match(res_name) and os.path.isdir(os.path.join(base, res_name)):
                     found.append(read_folder(root, dataset, product, res_name))
     return found
 
@@ -241,11 +269,13 @@ def squares(table: Table, side_m: float, step: float, tile_m: float) -> Dict:
 
 def measure(folders: List[Dict], step: float = STEP_M, sides_km: Sequence[float] = SIDES_KM,
             cards: Optional[Dict[str, int]] = None) -> Dict:
-    """Parts 1-4 of a mirror's folders (read_mirror; cards: README.md bytes per dataset), as the JSON's dict."""
-    complete = [f for f in folders if not f["partial"]]
+    """Parts 1-4 of a mirror's folders (read_mirror; cards: README.md bytes per dataset), as the JSON's dict. A
+    partial folder or one with a note is left out of 2-4; products of one dataset and resolution on different grids
+    are left out of part 3, each such group named in "combined_left_out"."""
+    complete = [f for f in folders if not f["partial"] and not f.get("note")]
     result: Dict = {"mirror": "<mirror>", "step_m": step, "sides_km": list(sides_km), "note": NOTE,
                     "folders": [{k: v for k, v in f.items() if not k.startswith("_")} for f in folders],
-                    "squares": [], "combined": [], "totals": []}
+                    "squares": [], "combined": [], "combined_left_out": [], "totals": []}
     for f in complete:
         table = Table([f])
         for side in sides_km:
@@ -256,8 +286,14 @@ def measure(folders: List[Dict], step: float = STEP_M, sides_km: Sequence[float]
     for (dataset, res), group in by_res.items():
         if len(group) < 2:
             continue
-        if len({(tuple(f["origin"]), f["tile_m"]) for f in group}) != 1:
-            continue  # products on different grids: not one square's tiles
+        grids = sorted({(tuple(f["origin"]), f["tile_m"]) for f in group})
+        if len(grids) != 1:  # products on different grids: not one square's tiles
+            result["combined_left_out"].append({
+                "dataset": dataset, "resolution_m": res, "products": "+".join(f["product"] for f in group),
+                "reason": "the products lie on different tile grids: " + ", ".join(
+                    f"{f['product']} origin ({f['origin'][0]:g}, {f['origin'][1]:g}) tile {f['tile_m']:g} m"
+                    for f in group)})
+            continue
         table = Table(group)
         for side in sides_km:
             result["combined"].append({"dataset": dataset, "resolution_m": res,
@@ -322,19 +358,24 @@ SQUARE_COLUMNS = [("side km", "side_km"), ("placements", "placements"), ("tiles 
 def report(result: Dict) -> str:
     """The Markdown tables of a measure() result (from the dict alone, so the JSON holds the same numbers)."""
     parts = [f"# Mirror sizes ({result['mirror']})", "",
-             "## 1. Product folders (tile sizes in MB, nearest rank; partial: left out of 2-4)",
+             "## 1. Product folders (tile sizes in MB, nearest rank; partial or with a note: left out of 2-4)",
              markdown(result["folders"], [
                  ("folder", "folder"), ("partial", "partial"), ("with data", "tiles_with_data"),
                  ("null", "tiles_null"), ("GB", "tile_gb"), ("min", "tile_mb.min"), ("median", "tile_mb.median"),
                  ("mean", "tile_mb.mean"), ("p90", "tile_mb.p90"), ("p99", "tile_mb.p99"), ("max", "tile_mb.max"),
-                 ("on disk, not listed", "unlisted_on_disk"), ("listed, not on disk", "listed_missing_on_disk")]),
+                 ("on disk, not listed", "unlisted_on_disk"), ("listed, not on disk", "listed_missing_on_disk"),
+                 ("note", "note")]),
              "", f"## 2. Square searches per product folder: tiles (requests) and MB asked of the mirror "
              f"(lattice step {result['step_m']:g} m; {result['note']})",
              markdown(result["squares"], [("folder", "folder")] + SQUARE_COLUMNS)]
     parts += ["", "## 3. Square searches, the products of a dataset together"]
-    parts.append(markdown(result["combined"], [("dataset", "dataset"), ("res m", "resolution_m"),
-                                               ("products", "products")] + SQUARE_COLUMNS)
-                 if result["combined"] else "(no dataset with two complete products at one resolution)")
+    left_out = result.get("combined_left_out") or []
+    if result["combined"]:
+        parts.append(markdown(result["combined"], [("dataset", "dataset"), ("res m", "resolution_m"),
+                                                   ("products", "products")] + SQUARE_COLUMNS))
+    elif not left_out:
+        parts.append("(no dataset with two complete products at one resolution)")
+    parts += [f"Left out: {g['dataset']} {g['resolution_m']:g} m {g['products']}: {g['reason']}" for g in left_out]
     parts += ["", "## 4. Whole datasets (one full download)",
               markdown(result["totals"], [("dataset", "dataset"), ("resolution", "resolution"),
                                           ("folders", "folders"), ("tiles with data", "tiles_with_data"),
@@ -366,7 +407,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not root or not os.path.isdir(root):
         sys.stderr.write(f"no mirror folder: pass --mirror or set {MIRROR_ENV}\n")
         return 2
-    if args.json and os.path.abspath(args.json).startswith(os.path.abspath(root) + os.sep):
+    if args.json and inside(args.json, root):
         sys.stderr.write("--json must not be inside the mirror\n")
         return 2
     result = run(root, args.step, args.sides)
@@ -374,7 +415,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=1)
-    return 0
+    return 1 if any(f.get("note") for f in result["folders"]) else 0
+
+
+def inside(path: str, root: str) -> bool:
+    """Whether path lies in root (or is it), whatever its spelling: case on Windows, a relative path, links and
+    junctions resolved, a root at a drive's top; another drive is outside."""
+    a, r = (os.path.normcase(os.path.realpath(p)) for p in (path, root))
+    try:
+        return os.path.commonpath([a, r]) == os.path.commonpath([r])
+    except ValueError:  # different drives, or an absolute and a relative path
+        return False
 
 
 if __name__ == "__main__":

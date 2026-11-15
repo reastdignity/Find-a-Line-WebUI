@@ -65,9 +65,11 @@ from its `index.json` files and one `os.scandir` per block folder, never opening
 tiles with data and null, bytes, tile sizes (min, median, mean, p90, p99, max), files not listed and listed tiles
 missing; the tiles and MB a square search of 2, 5, 10, 20 km asks of the mirror over every placement on a `--step`
 lattice whose centre lies in data (`axis_groups` and summed-area tables; a square covers every tile it touches from
-the index's `origin`), per product and the products of a dataset together; whole-dataset totals. A "partial" folder
-is listed and left out of the rest. Table on stdout, `--json` (the mirror named `<mirror>`);
-`tests/test_mirror_sizes.py` (a brute-force walk over the lattice)
+the index's `origin`), per product and the products of a dataset together (products on different grids: a line
+saying they were left out); whole-dataset totals. A "partial" folder is listed and left out of the rest; so is one
+without index.json, with an unreadable one or one without "tiles", with a note, and the exit code is then 1. Table on
+stdout, `--json` (the mirror named `<mirror>`; refused inside the mirror by any spelling: `inside`, realpath and
+normcase); `tests/test_mirror_sizes.py` (a brute-force walk over the lattice, `weighted_rank` by hand)
 
 ## `tools/source_docs.py`
 
