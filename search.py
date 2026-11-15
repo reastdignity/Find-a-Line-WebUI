@@ -357,6 +357,10 @@ class Data:
     # partner, 1-6 a neighbour of Source.neighbours, 7 the source's own data where none's boxes reach);
     # the anchors where it is not 0 pair only with the anchors inside. None: Plan.partners off
     partner: Optional[np.ndarray] = None
+    # The access mark (--access, access.py): every pixel's answer (uint8: access.CANNOT 0 "hard access", UNSURE 1
+    # "cannot tell", CAN 2 "can walk"), computed once on the whole search grid (_access_grid; a tile takes its
+    # window, _tile_data); None: the option off
+    access: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -1257,7 +1261,10 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
-    """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
+    """Steps 2-4 of one grid: anchors, line search, coordinates and profiles, groups; with --access first the
+    access grid of the whole grid (_access_grid, kept in data.access), unless data has it."""
+    if plan.params.access and data.access is None:
+        data.access = _access_grid(plan, data)
     results, groups = _lines(plan, data)
     return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore, data.terrain_sources)
 
@@ -1310,6 +1317,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 4, "coordinates, groups and profiles")
     results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled_pixels(), core)
     del valid_lines  # the same table (in place)
+    if data.access is not None:  # --access: each anchor's answer, as water_m (the lines of the core only)
+        _access_columns(plan, results, data)
     _fixed_order(plan, results)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
@@ -2008,6 +2017,8 @@ def _search_key(plan: Plan) -> Dict:
     for name in ("end_zone", "anchor_lift", "same_line_square"):  # 0: the hash of before
         if p[name] == 0:
             del p[name]
+    if not p["access"]:  # the access mark off: the hash of before
+        del p["access"]
     # The formula never reads fall_zone (its lines, profiles and limits take the leash fall; only the rigging
     # saved for the map's estimator holds it): at the default, 6 m since 2026-11-14, its search keeps the hash of
     # before, made with 3 (an int when a web request left it out, a float from the command line), so it resumes
@@ -2130,7 +2141,56 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"))
+                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"),
+                access=copy(data.access, "access.npy"))
+
+
+ACCESS_FILE = "access.npy"  # a tiled search's access grid in its work folder (removed with step 1's grids)
+
+
+def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarray:
+    """The access mark of every pixel of the search grid (--access; access.access_grid, the alpine variant
+    on: the user's choice), from step 1's filled terrain, its water and its filled pixels (Data.filled_pixels:
+    no data for the walk). Once per search on the whole grid, so a tiled search's tiles read one grid's
+    answers (_tile_data takes each tile's window; the measure's 533 m margin of a window, access.MARGIN_M,
+    never applies). path: saved there and returned memory-mapped (a tiled search's work folder), else in
+    memory. Its peak is per pixel of the whole grid, not of a tile (docs/performance.md, "The access grid's
+    memory")."""
+    import access  # numba: only where a search computes (see _lines)
+    progress.compute.start("access to anchors", 1, unit="step")
+    grid = access.access_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), alpine=True)
+    progress.compute.update(1)
+    progress.compute.finish()
+    if path is None:
+        return grid
+    np.save(path, grid)
+    del grid
+    return np.load(path, mmap_mode="r")
+
+
+def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
+    """access1, access2 of the lines (with their pixels "a1", "a2" of data's grid; in place): each anchor's
+    answer of the access grid (access.at, uint8). An anchor on a pixel the measure takes for no data (filled
+    from a coarser model and not water: access_grid's rule; never NaN, where no anchor lies) holds what the
+    measure gives a pixel without data there, which is no answer about walking: "cannot tell" (UNSURE)
+    instead, never "hard access"."""
+    import access
+    water, filled = data.water, data.filled_pixels()
+    mapped = 0
+    for name, pixels in (("access1", "a1"), ("access2", "a2")):
+        a = lines.columns[pixels]
+        answers = access.at(data.access, a)  # a copy (fancy indexing)
+        rows, cols = a[:, 0], a[:, 1]
+        no_data = ~np.isfinite(data.elevation[rows, cols])
+        if filled is not None:
+            no_data |= np.asarray(filled[rows, cols], bool) & (~np.asarray(water[rows, cols], bool)
+                                                                 if water is not None else True)
+        mapped += int((no_data & (answers != access.UNSURE)).sum())
+        answers[no_data] = access.UNSURE
+        lines.columns[name] = answers.astype(np.uint8, copy=False)
+    if mapped:
+        plan.emit("info", f"Access: {mapped} line ends on filled data (no data for the walk) read "
+                          f"\"cannot tell\"")
 
 
 def _remove_grids(work: str):
@@ -2180,7 +2240,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     Returns the lines and, for a tiled search, its run (to be completed by save_run).
     """
     if not plan.tiles:
-        lines = find_lines(plan, prepare_data(plan))
+        lines = find_lines(plan, prepare_data(plan))  # with --access its grid in memory (find_lines)
         progress.set_step("")
         return lines, None
     run = _open_run(plan)
@@ -2190,6 +2250,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     todo = [k for k in range(len(plan.tiles)) if not os.path.exists(os.path.join(folder, TILE_FILE.format(k)))]
     area = prepare_data(plan, strips=True) if todo else None  # step 1 once, on the whole grid
+    if area is not None and plan.params.access:  # the access grid once too: one grid's answers in every tile
+        area.access = _access_grid(plan, area, os.path.join(plan.paths.work, ACCESS_FILE))
     shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
@@ -2346,6 +2408,9 @@ def _run_params(plan: Plan) -> Dict:
     if plan.square:
         params["same_line_square"] = p.same_line_square
         params["same_line_side"] = plan.square
+    # The access mark only when set (its lines have access1, access2): run.json of before
+    if p.access:
+        params["access"] = True
     return params
 
 
@@ -2457,7 +2522,10 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         for name in linestore.FILES:
             with contextlib.suppress(OSError):
                 os.remove(os.path.join(run["path"], name))
-        emit("warning", f"The run is saved without its store (lines.arrow): {type(error).__name__}: {error}")
+        # A coded note (the page's text from the catalogue); the exception's text only on the command line: it
+        # may hold paths
+        emit("warning", messages.Note(f"The run is saved without its store (lines.arrow): "
+                                      f"{type(error).__name__}: {error}", "store_failed"))
     else:
         meta["store"] = store
         path = os.path.join(run["path"], "run.json")

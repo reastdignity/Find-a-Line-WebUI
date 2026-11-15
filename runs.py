@@ -170,13 +170,21 @@ END_COLUMNS = ("lift_needed", "lift_no_zone")  # helpers.END_VALUES (runs is imp
 # lines.geojson and, in data.js and lines.js, the last value before the profile (their heads' "ends" names it);
 # a run without the option has none of them (the FIELDS and the rows of before)
 STANDS_FOR = "stands_for"
+# The access mark of a run made with --access (access.py: 0 hard access, 1 cannot tell, 2 can walk) at anchor 1
+# and anchor 2: after the anchors' columns of lines.csv and the properties of a feature of lines.geojson, before
+# STANDS_FOR; in data.js and lines.js values before the profile (their heads' "ends" names them, after the A-frame
+# heights and before STANDS_FOR); a run without the option has none of them (the FIELDS and the rows of before)
+ACCESS = ["access1", "access2"]
 
 
 def fields_of(lines) -> List[str]:
     """The columns of lines.csv (and properties of lines.geojson) of lines (a helpers.LineTable):
-    FIELDS, with END_FIELDS after clearance_nmpt_m when the lines have the A-frame heights and
-    STANDS_FOR at the end when they have the count of the square rule."""
+    FIELDS, with END_FIELDS after clearance_nmpt_m when the lines have the A-frame heights, ACCESS
+    after the anchors' columns when they have the access mark and STANDS_FOR at the end when they have
+    the count of the square rule."""
     fields = _with_ends(FIELDS) if END_COLUMNS[0] in lines.columns else FIELDS
+    if ACCESS[0] in lines.columns:
+        fields = fields + ACCESS
     return fields + [STANDS_FOR] if STANDS_FOR in lines.columns else fields
 
 
@@ -292,7 +300,7 @@ def feature_template(fields: List[str]) -> str:
             '"properties": {' + ", ".join(f"{json.dumps(name)}: %s" for name in fields) + "}}")
 
 
-_TEMPLATES: Dict[tuple, str] = {}  # feature_template of the lists of fields met (fields_of: at most four)
+_TEMPLATES: Dict[tuple, str] = {}  # feature_template of the lists of fields met (fields_of: at most eight)
 
 
 def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size: np.ndarray,
@@ -319,6 +327,8 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
         columns += [column_texts(pick(a, 0), 7), column_texts(pick(a, 1), 7), column_texts(pick(elev), 2),
                     column_texts(pick(xy, 1), 2), column_texts(pick(xy, 0), 2), column_texts(pick(angle), 1),
                     column_texts(pick(prom), 1, empty_nan=True), column_texts(pick(drop), 1, empty_nan=True)]
+    if ACCESS[0] in c:  # the access mark: after the anchors' columns, before the count
+        columns += [column_texts(pick(name)) for name in ACCESS]
     columns += count
     if not len(order):
         return "", ""

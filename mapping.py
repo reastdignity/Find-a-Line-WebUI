@@ -18,7 +18,7 @@ import cache
 from grid import Grid
 from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
 from progress import progress
-from runs import STANDS_FOR, column_texts
+from runs import ACCESS, STANDS_FOR, column_texts
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
@@ -316,8 +316,9 @@ def _script_head(target: str, value: Dict) -> str:
 
 def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
     """The JSON texts of the rows of lines.js of lines start..stop (viewer/src/types.ts, toLine),
-    without the profile that data.js adds as its last value (with the END_VALUES and then the count of
-    the square rule, runs.STANDS_FOR, before it when the lines have them: map_heads' "ends"). The same
+    without the profile that data.js adds as its last value (with the END_VALUES, the access mark's
+    runs.ACCESS and then the count of the square rule, runs.STANDS_FOR, before it when the lines have
+    them: map_heads' "ends"). The same
     text as json.dumps of the
     row as a list of Python values (round() of each, rounded() for those that may be missing),
     built column by column. Values used for grouping are not rounded, so the browser groups
@@ -333,6 +334,8 @@ def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
                text(c["drop1"], 1, True), text(c["drop2"], 1, True)]
     if END_VALUES[0] in c:  # with an end zone or A-frames: the heads' "ends", before the profile
         columns += [text(c[name], 2) for name in END_VALUES]
+    if ACCESS[0] in c:  # the access mark (--access): each anchor's answer, after the A-frame heights
+        columns += [text(c[name]) for name in ACCESS]
     if STANDS_FOR in c:  # the square rule: the found lines each line stands for, the last value before the profile
         columns.append(text(c[STANDS_FOR]))
     return list(map(",".join, zip(*columns))) if stop > start else []
@@ -375,12 +378,14 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
 
 
 def _ends(run: Dict) -> Dict:
-    """The keys of a run's end zone, A-frames and square rule in the heads (map_heads)."""
+    """The keys of a run's end zone, A-frames, access mark and square rule in the heads (map_heads)."""
     params = run.get("params") or {}
     ends = {key: params[name] for key, name in (("end_zone", "end_zone"), ("lift", "anchor_lift"))
             if params.get(name)}
     if ends:
         ends["ends"] = list(END_VALUES)
+    if params.get("access"):  # the access mark: named only (the page reads a value by its name in "ends")
+        ends["ends"] = ends.get("ends", []) + ACCESS
     if params.get("same_line_side"):
         ends.update(square=params["same_line_side"], found=run["summary"]["found"],
                     ends=ends.get("ends", []) + [STANDS_FOR])
@@ -421,6 +426,8 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
     "end_zone" and "lift", each only when set (a run without them: the heads of before), and then
     "ends": the names of the values its rows hold after the drop below anchor 2 and before the
     profile (helpers.END_VALUES: the A-frame heights each line needs, map_rows). A run made with the
+    access mark (run.json's params "access") has runs.ACCESS in "ends" after them (each anchor's answer,
+    0 hard access, 1 cannot tell, 2 can walk), with no key of its own. A run made with the
     square rule (run.json's params "same_line_side", summary "found") has "square" (the side of its
     anchor squares, m) and "found" (the lines found, which its lines stand for) in both heads, and
     runs.STANDS_FOR as the last name of "ends": each line's count. data.js's head is map_head's."""

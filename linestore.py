@@ -51,11 +51,13 @@ META_KEY = b"findaline"  # the schema metadata's key of both files
 MEDIA_TYPE = "application/vnd.apache.arrow.file"  # of both files (web.py serves them with it)
 END_COLUMNS = ("lift_needed", "lift_no_zone")  # runs.END_COLUMNS = helpers.END_VALUES (tests/test_linestore.py)
 STANDS_FOR = "stands_for"  # runs.STANDS_FOR = samelines.COLUMN
+ACCESS = ("access1", "access2")  # runs.ACCESS: the access mark at each anchor (--access)
 
 # The columns of lines.arrow in their order: (name, the LineTable's column and its index in a pair or None,
-# decimals: None for float64 as it is, "bool" for 0/1 uint8, "count" for uint32, an int for an integer of
-# that many decimals; whether a missing value is a null). Those of END_COLUMNS only with the no-fall zone or
-# the A-frames, STANDS_FOR only with the square rule (the LineTable has them then).
+# decimals: None for float64 as it is, "bool" for 0/1 uint8, "count" for uint32, "mark" for a small code as
+# uint8, an int for an integer of that many decimals; whether a missing value is a null). Those of END_COLUMNS
+# only with the no-fall zone or the A-frames, ACCESS only with the access mark (0 hard access, 1 cannot tell,
+# 2 can walk), STANDS_FOR only with the square rule (the LineTable has them then).
 COLUMNS = [
     ("lat1", "anchor1", 0, 7, False), ("lon1", "anchor1", 1, 7, False),
     ("lat2", "anchor2", 0, 7, False), ("lon2", "anchor2", 1, 7, False),
@@ -72,6 +74,7 @@ COLUMNS = [
     ("prom1", "prom1", None, 1, True), ("prom2", "prom2", None, 1, True),
     ("drop1", "drop1", None, 1, True), ("drop2", "drop2", None, 1, True),
     *[(name, name, None, 2, False) for name in END_COLUMNS],
+    *[(name, name, None, "mark", False) for name in ACCESS],
     (STANDS_FOR, STANDS_FOR, None, "count", False),
 ]
 FIXED = {name: pa.int32() for name in ("lat1", "lon1", "lat2", "lon2")}  # the anchors: int32 whatever the run
@@ -130,7 +133,7 @@ def lines_table(lines, head: Dict) -> pa.Table:
     fields, arrays, negative_zero = [], [], {}
     for name, column, index, decimals, nullable in COLUMNS:
         if column not in lines.columns:
-            if column in END_COLUMNS or column == STANDS_FOR:
+            if column in END_COLUMNS or column in ACCESS or column == STANDS_FOR:
                 continue
             raise ValueError(f"the lines have no column {column}")
         values = _field_values(lines, column, index)
@@ -139,6 +142,11 @@ def lines_table(lines, head: Dict) -> pa.Table:
             array = pa.array(np.ascontiguousarray(values, dtype=np.float64), type=pa.float64())
         elif decimals == "bool":
             array = pa.array(np.asarray(values, dtype=bool).astype(np.uint8), type=pa.uint8())
+        elif decimals == "mark":  # a code of 0..255 (the access mark's 0, 1, 2)
+            values = np.asarray(values)
+            if len(values) and (values.min() < 0 or values.max() > 255):
+                raise ValueError(f"the column {column} holds values beyond uint8")
+            array = pa.array(values.astype(np.uint8), type=pa.uint8())
         elif decimals == "count":  # uint32; uint64 beyond it, int64 for a negative one (none is)
             values = np.asarray(values)
             kind = pa.uint32()
@@ -345,6 +353,8 @@ def _decoded(array: pa.ChunkedArray, decimals, negative_zero: List[int]) -> np.n
         return array.to_numpy(zero_copy_only=False).astype(bool)
     if decimals == "count":
         return array.to_numpy(zero_copy_only=False).astype(np.int64)
+    if decimals == "mark":  # uint8, as the search's column (its text: the integer)
+        return array.to_numpy(zero_copy_only=False).astype(np.uint8)
     values = array.fill_null(0).to_numpy(zero_copy_only=False).astype(np.float64) / 10.0 ** decimals
     if array.null_count:
         values[array.is_null().to_numpy(zero_copy_only=False)] = np.nan
@@ -414,7 +424,7 @@ def read(run_path: str, profiles: bool = True):
         if name not in table.schema.names:
             continue
         field = table.schema.field(name)
-        if decimals not in (None, "bool", "count"):  # float64 as it is where no integer held the values
+        if decimals not in (None, "bool", "count", "mark"):  # float64 as it is where no integer held the values
             places = (field.metadata or {}).get(b"decimals")
             decimals = int(places) if places is not None else None
         values = _decoded(table.column(name), decimals, zeros.get(name) or [])

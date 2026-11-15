@@ -19,7 +19,9 @@ with more pairs than linesearch.pair_chunk's buffer (its second pass), parts of 
 one anchor and of several (`small` has few anchors, `wide` more than linesearch.CHUNKS), and
 profiles thinned to their max_points (lines of more than 205 pixels, in `wide`). The sag estimator
 gives the kernels arrays of the types of the formula's (float64, C order), but its default
---max-anchor-diff-m is an int: one search of it. Not covered: grids of 2**31 pixels or more
+--max-anchor-diff-m is an int: one search of it. The first search also marks the access to the anchors
+(--access: access.py's walk and its standing ground, on the read-only memory-mapped terrain and, as the
+scenes' heights are whole metres, on the smoothed heights in memory). Not covered: grids of 2**31 pixels or more
 (terrain.prominence's int64 indices), compiled by the first such search.
 
 It never writes to the cache, the runs or jobs.sqlite: its data folder is a temporary folder under
@@ -120,6 +122,8 @@ def run(folder: str):
                               **({"surface_file": nmpt} if surface else {"nmpt": "off"}))
         plan = search.plan_search(params, paths, lambda kind, text: None)
         data = search.prepare_data(plan)
+        if k == 0:  # the access mark's kernels (search._access_grid, as find_lines with --access)
+            data.access = search._access_grid(plan, data)
         water, filled = _masks(paths.work, data.elevation.shape, str(k))
         for with_water, with_filled in variants:
             search.find_lines(plan, dataclasses.replace(data, water=water if with_water else None,
