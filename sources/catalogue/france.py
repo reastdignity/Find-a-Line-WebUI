@@ -1,6 +1,7 @@
 """France (mainland and Corsica): IGN's LiDAR HD terrain and surface models (MNT / MNS, 0.5 m) by GetMaps of raw
 heights from the Géoplateforme's WMS-R; IGN's RGE ALTI 1 m fills their gaps (no key). The overseas territories of
-the Antilles, French Guiana and Saint-Pierre-et-Miquelon: RGE ALTI 1 m from the same WMS-R, one layer each."""
+the Antilles, French Guiana and Saint-Pierre-et-Miquelon: RGE ALTI 1 m from the same WMS-R, one layer each. La
+Réunion: its LiDAR HD MNT / MNS from the same WMS-R, the gaps from its RGE ALTI 1 m."""
 
 from typing import List
 
@@ -95,8 +96,9 @@ FR_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the workin
 # tried). Vertical datums (IGN's product records): Guadeloupe GUAD88 (La Désirade GUAD92LD, Marie-Galante GUAD88MG,
 # Les Saintes GUAD88LS, Saint-Barthélemy GUAD88SB, Saint-Martin GUAD88SM), Martinique MART87, French Guiana NGG77
 # (GUYA77), Saint-Pierre-et-Miquelon Danger 1950 (STPM50). Editions: Guadeloupe 2013-2014, Saint-Barthélemy and
-# Saint-Martin 2019, Martinique 2015, French Guiana 2023, Saint-Pierre-et-Miquelon 2017. Réunion
-# (RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS) and Mayotte (..._MYT_RGM04UTM38S_WMS) exist too: not declared yet
+# Saint-Martin 2019, Martinique 2015, French Guiana 2023, Saint-Pierre-et-Miquelon 2017. Réunion's
+# (RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS) fills the gaps of its LiDAR HD (france_reunion); Mayotte's
+# (..._MYT_RGM04UTM38S_WMS) holds sea-floor heights down to -34 m at the shore: not declared
 HALF_METRE = (0.5, 0.5)
 
 
@@ -202,4 +204,32 @@ SOURCES: List[Source] = [
              "better wherever it has data."),
     # The overseas territories after the mainland: no box of theirs touches its boxes
     *OVERSEAS,
+    # La Réunion (Nominatim's zoom 3 names it "fr", 2026-11-15: chosen by its bbox, which holds no other source's
+    # box): the LiDAR HD, its gaps from the island's RGE ALTI (the source after it, which its box takes only when
+    # asked for by name), then FABDEM / Copernicus
+    Source(
+        id="france_reunion", name="IGN (LiDAR HD MNT / MNS, La Réunion)",
+        description="IGN (La Réunion): LiDAR HD terrain and surface models 0.5 m from the Géoplateforme's WMS-R, "
+                    "fetched at 1 m (the mean of 2 x 2 pixels), RGR92 / UTM 40S (EPSG:2975); gaps from RGE ALTI 1 m",
+        # The working grid's edges on whole metres: those of the 1 m answers and of the 0.5 m pixels
+        nmt=REU_MNT, nmpt=REU_MNS, countries=("fr",), bbox=REU_BOX, crs=REU_CRS, default_resolution=1.0,
+        grid_origin=(0.0, 0.0), ortho=FR_ORTHO, credits=(FR_LIDAR_CREDIT,),
+        fallback="france_reunion_rgealti", more_fallbacks=("europe",),
+        offline=(("fr", REU_BOX),),
+        listing=ReadmeRow("La Réunion (France)", "IGN LiDAR HD MNT, 0.5 m (WMS-R, fetched at 1 m)",
+                          "IGN LiDAR HD MNS, 0.5 m (WMS-R, fetched at 1 m)", "IGN BD ORTHO"),
+        sample=(-21.1300, 55.4550),  # the Cilaos rampart
+        note="Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the working grid). Where LiDAR HD has no "
+             "data, gaps are filled from RGE ALTI 1 m. The sea has no data in either: it is filled as water.",
+        coverage=Coverage(provider="IGN", added="2026-11-15", areas=("fr-re",))),
+    Source(
+        id="france_reunion_rgealti", name="IGN (RGE ALTI 1 m, La Réunion)",
+        description="IGN (La Réunion): RGE ALTI 1 m terrain model from the Géoplateforme's WMS-R, RGR92 / UTM 40S "
+                    "(EPSG:2975), IGN 1989 heights",
+        nmt=REU_RGEALTI, countries=("fr",), bbox=REU_BOX, crs=REU_CRS, grid_origin=HALF_METRE, ortho=FR_ORTHO,
+        credits=(FR_RGEALTI_CREDIT,),
+        listing=ReadmeRow("La Réunion (France)", "IGN RGE ALTI, 1 m (WMS-R)", ortho="IGN BD ORTHO"),
+        sample=(-21.1300, 55.4550),
+        note="Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m has no surface model: LiDAR HD (the source "
+             "france_reunion) is better wherever it has data."),
 ]

@@ -219,12 +219,34 @@ def test_the_reunion_sea_is_missing(service, tmp_path, monkeypatch):
     assert not os.path.exists(path)
 
 
+def test_the_reunion_sources():
+    """france_reunion: the island's LiDAR HD on a grid with edges on whole metres, gaps from its RGE ALTI, then
+    FABDEM / Copernicus; the filler a source of its own, on its half-metre edges, with no coverage of its own."""
+    s, filler = src.SOURCES["france_reunion"], src.SOURCES["france_reunion_rgealti"]
+    assert s.nmt is france.REU_MNT and s.nmpt is france.REU_MNS and filler.nmt is france.REU_RGEALTI
+    assert s.crs == filler.crs == "EPSG:2975" and s.grid_origin == (0.0, 0.0) and filler.grid_origin == (0.5, 0.5)
+    assert s.default_resolution == 1.0 and s.fallbacks == ["france_reunion_rgealti", "europe"]
+    assert filler.fallbacks == ["europe"] and s.neighbours == () == filler.neighbours
+    assert s.countries == filler.countries == ("fr",) and s.bbox == filler.bbox == (-21.42, -20.84, 55.20, 55.86)
+    assert s.offline == (("fr", s.bbox),) and not filler.offline
+    assert s.credits == src.SOURCES["france"].credits and filler.credits == src.SOURCES["france_rgealti"].credits
+    assert s.ortho is filler.ortho is src.SOURCES["france"].ortho
+    assert s.map_areas() == ("fr-re",) and "fr-re" in src.AREA_NAMES and filler.coverage is None
+    assert s.covers(*s.sample) and filler.covers(*filler.sample)
+    # No other "fr" source's box reaches the island, nor the island's box any other's
+    others = [box for o in src.SOURCES.values() if o.id not in (s.id, filler.id) and "fr" in o.countries
+              for box in [o.bbox] + [b for _, b in o.offline] if box]
+    south, north, west, east = s.bbox
+    assert not [b for b in others if b[0] <= north and b[1] >= south and b[2] <= east and b[3] >= west]
+
+
 # (lat, lon, the country Nominatim names at zoom 3 (asked 2026-11-15), the source --source auto takes)
 PLACES = [(16.044, -61.664, "fr", "france_guadeloupe"), (17.90, -62.83, "fr", "france_guadeloupe"),
           (18.08, -63.05, "fr", "france_guadeloupe"), (18.03, -63.06, "nl", "europe"),
           (14.705, -61.100, "fr", "france_martinique"), (4.93, -52.33, "fr", "france_guiana"),
           (46.78, -56.18, "fr", "france_spm"), (47.05, -56.38, "fr", "france_spm"),
-          (-21.11, 55.53, "fr", "europe"), (-12.78, 45.23, "fr", "europe"),  # Réunion, Mayotte: not declared
+          (-21.11, 55.53, "fr", "france_reunion"), (-21.373, 55.715, "fr", "france_reunion"),  # Cap Méchant
+          (-12.78, 45.23, "fr", "europe"),  # Mayotte: not declared
           (43.7655, 6.3580, "fr", "france")]
 
 
@@ -234,7 +256,8 @@ def test_the_source_of_a_place(monkeypatch, tmp_path, lat, lon, code, expected):
     assert src.choose.choose_source("auto", lat, lon, str(tmp_path))[0].id == expected
 
 
-@pytest.mark.parametrize("lat, lon, code, expected", [p for p in PLACES if p[0] > 0 and p[2] == "fr"])
+# Mayotte's "europe" offline is europe for want of any box, not of a lookup: every "fr" place but Mayotte
+@pytest.mark.parametrize("lat, lon, code, expected", [p for p in PLACES if p[2] == "fr" and p[3] != "europe"])
 def test_the_source_of_a_place_offline(monkeypatch, tmp_path, lat, lon, code, expected):
     def offline(*args, **kwargs):
         raise ValueError("offline")

@@ -57,4 +57,5 @@ AREA_NAMES: Dict[str, str] = {
     "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon", "au": "Australia", "uy": "Uruguay",
     "nl": "Nederland", "nl-bq1": "Bonaire, Nederland", "nl-bq2": "Saba, Nederland", "nl-bq3": "Sint Eustatius, Nederland",
     "fo": "Føroyar", "mx": "México", "cy": "Κύπρος", "ee": "Eesti", "pt-30": "Madeira, Portugal",
-    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil"}
+    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil",
+    "fr-re": "La Réunion"}

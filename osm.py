@@ -341,7 +341,10 @@ GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        "france_guiana": ("guyane",), "france_spm": ("canada",),
                        # The city of Rio de Janeiro: Geofabrik's "sudeste" of Brazil, not the whole country (checked
                        # in Geofabrik's index, 2026-11-15)
-                       "rio_de_janeiro": ("sudeste",)}
+                       "rio_de_janeiro": ("sudeste",),
+                       # La Réunion: Geofabrik's "reunion" (europe/france/reunion, without an ISO code in its index;
+                       # checked 2026-11-15)
+                       "france_reunion": ("reunion",)}
 
 
 def catalogue_extracts(cache_dir: str) -> Tuple[List[str], List[str]]:

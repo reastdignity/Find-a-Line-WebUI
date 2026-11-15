@@ -583,6 +583,26 @@
    "survey": "",
    "trees": "no"
   },
+  "fr-re": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_reunion",
+   "survey": "",
+   "trees": "yes"
+  },
   "gb-eng": {
    "added": "2026-11-01",
    "level": 1,
