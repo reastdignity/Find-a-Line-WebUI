@@ -165,7 +165,48 @@ def test_deflate64_member_unpacked_by_seven_zip(tmp_path, monkeypatch):
     (work / "t64.zip").write_bytes(bytes(raw))
     with pytest.raises(RuntimeError, match="7-Zip"):
         mt.extract("asc64", str(work))
-    assert not os.path.exists(path)
+    assert not os.path.exists(path) and not os.path.exists(path + ".part")  # no partial file left behind
+
+
+def test_failed_unpacking_leaves_no_part(tmp_path, monkeypatch):
+    """A Deflate member that fails its CRC (zipfile) leaves neither the raster nor its .part behind."""
+    _spec(monkeypatch, "asc", url="https://example.org/dl/bad.zip", member="T.ASC")
+    work = tmp_path / "work"
+    _zip(work, "T.ASC", _asc_text(_heights((40, 50), 6)), "bad.zip")
+    with zipfile.ZipFile(work / "bad.zip") as z:
+        info = z.getinfo("T.ASC")
+    raw = bytearray((work / "bad.zip").read_bytes())
+    raw[info.header_offset + 30 + len(info.filename) + len(info.extra) + 40] ^= 0xFF
+    (work / "bad.zip").write_bytes(bytes(raw))
+    with pytest.raises(Exception):
+        mt.extract("asc", str(work))
+    assert sorted(os.listdir(work)) == ["bad.zip"]
+
+
+def test_replace_tried_again(tmp_path, monkeypatch):
+    """Replacing a file the share refuses for a moment (PermissionError) is tried again until REPLACE_SECONDS, then
+    the error is raised."""
+    real, calls = os.replace, []
+
+    def flaky(a, b):
+        calls.append(a)
+        if len(calls) < 3:
+            raise PermissionError(5, "Access is denied")
+        real(a, b)
+    monkeypatch.setattr(mt.os, "replace", flaky)
+    monkeypatch.setattr(mt.time, "sleep", lambda s: None)
+    (tmp_path / "a.part").write_text("new")
+    (tmp_path / "a").write_text("old")
+    mt._replace(str(tmp_path / "a.part"), str(tmp_path / "a"))
+    assert len(calls) == 3 and (tmp_path / "a").read_text() == "new" and not (tmp_path / "a.part").exists()
+
+    def refused(a, b):
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(mt.os, "replace", refused)
+    monkeypatch.setattr(mt, "REPLACE_SECONDS", 0)
+    (tmp_path / "b.part").write_text("x")
+    with pytest.raises(PermissionError):
+        mt._replace(str(tmp_path / "b.part"), str(tmp_path / "b"))
 
 
 def test_ascii_grid_errors(tmp_path):
@@ -268,6 +309,22 @@ def test_grid_tiles_with_an_origin_read_the_mirror(tmp_path, monkeypatch):
     assert edges[0] % 2000 == 1 and edges[1] % 2000 == 1
     plain = src.GridTiles("Test DTM", [], "EPSG:5016", "test/plain", 2000, 2.0, 1.5e6, mirror="madeira/dtm/2m")
     assert plain.index.tilings[2.0].edges(plain.tiles(grid)[0][1:])[0] % 2000 == 0
+
+    # A grid off the data's pixels (1 m from origin (0, 0), as a neighbour's or another resolution's) whose left edge
+    # is a multiple of 2 km: its first metre lies in the tile cut from 288 001 to 290 001, which only the origin
+    # names; without it the tile is not listed and the first column has no data
+    k = 145  # x = 290 000, inside the data (287 861 - 290 261)
+    fine = gd.make_grid((k * 2000, top - 1700, k * 2000 + 200, top - 100), 1.0, "EPSG:5016")
+    assert fine.left == k * 2000
+    assert {t[1] for t in layer.tiles(fine)} == {k - 1, k}
+    assert {t[1] for t in plain.tiles(fine)} == {k}  # what ignoring the origin would read
+    layer.download(fine, cache_dir, None, "test")
+    fine_mosaic = src.build_mosaic(layer.files(fine, cache_dir), fine, str(tmp_path / "f.npy"), "test")
+    assert np.isfinite(fine_mosaic[:, 0]).all() and np.isfinite(fine_mosaic).all()
+    plain_dir = str(tmp_path / "plain")
+    plain.download(fine, plain_dir, None, "test")
+    plain_mosaic = src.build_mosaic(plain.files(fine, plain_dir), fine, str(tmp_path / "p.npy"), "test")
+    assert not np.isfinite(plain_mosaic[:, 0]).any()  # the test would fail if GridTiles ignored its origin
 
 
 # Downloads
