@@ -103,6 +103,41 @@ def test_the_catalogues_layers(http_server, tmp_path, kind, declared):
     assert np.array_equal(np.isnan(z), expected) and z[5, 5] == 2.0
 
 
+def test_a_tile_only_in_the_surface_archive(http_server, tmp_path, monkeypatch):
+    """Five tiles at the city's edge are members of the bDOM1's archive only (555_5939, 569_5949, 571_5922,
+    571_5953, 578_5916: their central directories, 2026-11-15; the DGM1 has 466_5976 and 467_5976 alone). The
+    catalogue's own layers on two archives served here: the terrain lists no tile there (the search's gap filling
+    takes it: FABDEM, as Hamburg names no neighbour on that side), the surface one, downloaded."""
+    from grid import make_grid
+    hh = src.SOURCES["hamburg"]
+    flat = np.full((1000, 1000), 10.0)
+    both = Affine(1.0, 0.0, 553000.0, 0.0, -1.0, 5935000.0)
+    only = Affine(1.0, 0.0, 571000.0, 0.0, -1.0, 5923000.0)
+    archives = {
+        "dgm": _archive([("s32_553/dgm1_32_553_5934_1_hh_2022.tif", _member(both, flat, None), zipfile.ZIP_DEFLATED,
+                          False)]),
+        "dom": _archive([("s32_553/dom1_32_553_5934_1_hh_2022.tif", _member(both, flat, None), zipfile.ZIP_DEFLATED,
+                          False),
+                         ("s32_571/dom1_32_571_5922_1_hh_2022.tif", _member(only, flat + 5, None),
+                          zipfile.ZIP_DEFLATED, False)])}
+    for kind, layer in (("dgm", hh.nmt), ("dom", hh.nmpt)):
+        _serve(http_server, f"/{kind}.zip", archives[kind])
+        url = http_server.url(f"/{kind}.zip")  # only the archive's address replaced
+        monkeypatch.setattr(layer.listing, "urls", [url])
+        monkeypatch.setattr(layer.listing, "url", url)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((571100, 5922100, 571900, 5922900), 1.0, "EPSG:25832")
+    for layer in (hh.nmt, hh.nmpt):
+        layer._use(cache_dir)
+    assert hh.nmt.tiles(grid) == []
+    (tile,) = hh.nmpt.tiles(grid)
+    assert (tile.east, tile.north) == (571, 5922)
+    hh.nmpt.download(grid, cache_dir, None, "surface")
+    with rio.open(hh.nmpt.tile_path(cache_dir, tile)) as cached:
+        assert cached.transform.c == 571000.0 and float(cached.read(1).max()) == 15.0
+    assert hh.fallbacks == ["europe"] and "lower_saxony" not in hh.neighbours
+
+
 def test_source():
     hh = src.SOURCES["hamburg"]
     assert hh.regions == ("de-hh",) and hh.countries == ("de",) and hh.crs == "EPSG:25832"
@@ -136,12 +171,20 @@ def test_source():
     (53.5585, 9.8070, True),    # Blankenese
     (53.5500, 9.9930, True),    # the Binnenalster
     (53.4600, 9.9800, True),    # Harburg
+    (53.4880, 10.2150, True),   # Bergedorf
+    (53.6300, 9.9880, True),    # the airport
     (53.9150, 8.5000, True),    # Neuwerk
+    (53.4000, 10.0500, False),  # Seevetal-Maschen (Lower Saxony)
+    (53.4650, 9.7950, False),   # Neu Wulmstorf (Lower Saxony)
+    (53.4700, 9.7300, False),   # east of Buxtehude (Lower Saxony)
+    (53.7000, 10.0000, False),  # Norderstedt (Schleswig-Holstein)
+    (53.6600, 9.8000, False),   # Pinneberg (Schleswig-Holstein)
     (53.4700, 9.6900, False),   # Stade's marshes (Lower Saxony)
     (53.7700, 9.9000, False),   # Quickborn (Schleswig-Holstein)
     (53.2500, 10.4100, False),  # Lüneburg
 ])
 def test_offline_boxes(lat, lon, inside):
-    """Offline, the first box holding a point wins: Hamburg's before Lower Saxony's and Schleswig-Holstein's."""
+    """Offline, the first box holding a point wins: Hamburg's before Lower Saxony's and Schleswig-Holstein's, so its
+    boxes keep off their towns at the city's edges (Hamburg has no tiles there and does not name Lower Saxony)."""
     found = next((code for code, (s, n, w, e) in src.OFFLINE_BOXES if s <= lat <= n and w <= lon <= e), None)
     assert (found == "de-hh") == inside, found

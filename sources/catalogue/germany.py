@@ -426,8 +426,16 @@ SOURCES: List[Source] = [
         # name each other: Hamburg's gaps along that border are filled by FABDEM / Copernicus
         neighbours=("schleswig_holstein",),
         listing=ReadmeRow("Hamburg (DE)", "LGV DGM1, 1 m (2022)", "LGV bDOM1, 1 m (2022; image matching)"),
-        # The city with the Elbe up to Lower Saxony's and Schleswig-Holstein's land, then Neuwerk and Scharhörn
-        offline=(("de-hh", (53.39, 53.75, 9.72, 10.33)), ("de-hh", (53.88, 53.98, 8.40, 8.56))),
+        # A staircase of boxes inside the city (lattice cells of 0.01 degrees at least 75 % inside its OSM outline, in
+        # bands of 0.04 degrees: they hold 77 % of it and 0.2 % of other land), so Lower Saxony's and
+        # Schleswig-Holstein's towns at its edges keep their own sources offline; then Neuwerk and Scharhörn. The
+        # city's whole box is a border box (the neighbour fill along Schleswig-Holstein)
+        offline=(("de-hh", (53.43, 53.47, 9.92, 10.02)), ("de-hh", (53.43, 53.47, 10.10, 10.27)),
+                 ("de-hh", (53.47, 53.51, 9.80, 10.22)), ("de-hh", (53.51, 53.55, 9.78, 10.15)),
+                 ("de-hh", (53.55, 53.59, 9.77, 9.81)), ("de-hh", (53.55, 53.59, 9.83, 10.15)),
+                 ("de-hh", (53.59, 53.63, 9.89, 10.19)), ("de-hh", (53.63, 53.67, 9.99, 10.17)),
+                 ("de-hh", (53.67, 53.71, 10.08, 10.14)), ("de-hh", (53.88, 53.98, 8.40, 8.56))),
+        border_boxes=((53.39, 53.75, 9.72, 10.33),),
         sample=(53.5585, 9.8070),  # Blankenese, above the Elbe
         note=f"Data {HH_ATTRIBUTION}, dl-de/by-2.0 (changed: mosaicked onto the working grid). Surveys of 2022. The "
              f"surface model comes from image matching of aerial photographs, not from laser scanning: smoother over "
