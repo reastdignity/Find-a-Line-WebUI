@@ -77,6 +77,14 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   `STANDS_FOR`): the last column of `lines.csv`, the last property of a feature, the last name of `ends` and value
   before the profile, with `square` and `found` in the heads (`mapping.map_heads` from run.json's
   `params.same_line_side` and `summary.found`); `Line.stands_for` is never sent with a favourite.
+- The access mark (`--access`, `access.py`): `access1`, `access2` (uint8: 0 hard access, 1 cannot tell, 2 easy
+  access; `runs.ACCESS` = `linestore.ACCESS`) after the anchors' columns of `lines.csv` and a feature's properties,
+  before `stands_for`; in `data.js`/`lines.js` values before the profile named in the heads' `ends` after the
+  A-frame heights and before `stands_for` (`mapping._ends` from run.json's `params.access`); two uint8 columns
+  (`"mark"`) of the store; `web.FavouriteLine` keeps them optional (`OPTIONAL`); a run without the option has none
+  and today's bytes (`tests/test_units.py::test_saved_text_as_before`, `tests/test_access_search.py`). The page
+  reads an extra value by its name in `ends`, so today's ignores them; the page that shows them (`types.ts`,
+  `favourites.ts`) takes the same names.
 - The uncertain shore: `sources.filling.shore_segments`' dict is run.json's and data.js's `shore`
   (`mapping.map_heads`, not lines.js; `runs._listed` leaves it out) and `Shore`/`ShoreSegment` of
   `viewer/src/types.ts` (`shore.ts`, `shoreLayer.ts`); runs saved before 2026-11-05 have none and show no layer. The

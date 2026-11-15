@@ -133,7 +133,17 @@ with the advice and the page's words, `_lines_text`/`_shown`: two digits, plain 
 from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note `estimate_lines`; the funnel's `estimate`
 (a search refused for its lines: `jobs._write_refusal`'s rows); the full search's checks stay; the progress labels
 "Step 3/5: estimating the lines" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
-`jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process
+`jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process; the access mark (`--access`,
+docs/line-volume/spec-search.md 3): `_access_grid` (`access.access_grid`, the alpine variant on, from step 1's
+filled terrain, water and `Data.filled_pixels`; the bar "access to anchors" of step 1) once per search on its
+whole grid, `Data.access`: in memory for one grid (`find_lines`, unless the data has it), a tiled search's
+`ACCESS_FILE` (`access.npy`) in its work folder, removed with step 1's grids, each tile's window copied by
+`_tile_data` (so a tile reads one grid's answers: the measure's window margin `access.MARGIN_M` never applies);
+`_lines` after `line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors'
+pixels), an anchor on a pixel the measure takes for no data (filled and not water) set to `access.UNSURE` (cannot
+tell) with an info line of how many; `_run_params` (`access`) and `_search_hash` hold the option only when set;
+its memory is the whole grid's, not a tile's (docs/performance.md, "The access grid's memory"); `save_run`'s
+warning of a store that failed is the `messages.Note` `store_failed` (the exception's text on the command line only)
 
 ## `area.py`
 
@@ -316,6 +326,19 @@ with run.json's values without its `store`: the bytes of the run's `lines.csv`/`
 only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never
 imported by the web process (`tests/test_linestore.py`)
 
+## `access.py`
+
+The access mark of three states (docs/line-volume/spec-search.md 3; part P3d's measure ported, its constants kept;
+the module's docstring has the whole measure): `access_grid(z, water, res, filled=None, alpine=True)` → uint8 per
+pixel, `CAN` 2 ("easy access"), `UNSURE` 1 ("cannot tell"), `CANNOT` 0 ("hard access"); a pixel without data
+holds what an anchor there would get (no anchor lies on one; the search maps an anchor on filled data to `UNSURE`:
+`search._access_columns`); `at(grid, pixels)` refuses pixels outside the grid; `MARGIN_M` (533 m) is the window
+margin that gives one grid's answers in a window's core up to about 7 m (whole metres) / 40 m (float) pixels, never
+needed by the search, which computes one grid. numba kernels (`_walk`, an indexed Dijkstra; `_stands_near`,
+parallel, each pixel its own answer: the answers never depend on the threads), compiled by `warmup`; never imported
+by the web process (`tests/test_access_search.py`). Tests: `tests/test_access.py` (made-up terrain),
+`tests/test_access_search.py` (through the search, the files, tiles)
+
 ## `saving.py`
 
 Step 5 in processes of its own (`search.save_run` for runs of `MIN_LINES` (100 000) lines or more with
@@ -353,7 +376,9 @@ is a tmpfs, compiled again after every start of its container): synthetic search
 GeoTIFFs written by `write_grids`, through `search.plan_search`, `prepare_data`, `find_lines` and `_lines(core=)`) in
 every combination that gives the kernels other argument types (`SEARCHES`: surface model or none, the masks of water
 and filled gaps (`MASKS`, read-only memory-mapped as a search's), a tile's core, `linesearch.PAIR_BUFFER` overflowing,
-parts of one and of several anchors, thinned profiles, the sag estimator once); in a temporary data folder
+parts of one and of several anchors, thinned profiles, the sag estimator once; the first search also
+computes the access grid, `search._access_grid`: `access.py`'s kernels on the read-only memory-mapped
+terrain and on the smoothed heights of whole metres); in a temporary data folder
 `work/warmup/<id>` (never the cache, the runs or `jobs.sqlite`), output dropped, a failure printed to stderr;
 `tests/test_public.py::test_numba_warm_up` (a search afterwards compiles nothing): a kernel's new argument type needs
 a search here

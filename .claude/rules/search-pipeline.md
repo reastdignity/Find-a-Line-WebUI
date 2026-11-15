@@ -76,6 +76,12 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   again with it. `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the
   profile points: a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change
   both together.
+- The access mark (`--access`, `access.py`): one grid per search (`_access_grid`; a tiled search's `access.npy`,
+  each tile its window by `_tile_data`), so tiles give one grid's answers (`tests/test_access_search.py`); off, no
+  file, tile file or hash changes. Its peak is per pixel of the area's whole grid (44 B measured), not a tile's: no
+  memory check counts it yet (docs/performance.md, "The access grid's memory"); a change of `access.py`'s arrays
+  is measured again with `tools/perf_profile.py` (the Gozo coast, the Tatras circle). One grid's stays within
+  `PIXEL_BYTES`.
 - The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
   where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and
   refuses on a prediction, not a lower bound: an estimate over `REFUSE_FACTOR` times a limit may be a search under it
