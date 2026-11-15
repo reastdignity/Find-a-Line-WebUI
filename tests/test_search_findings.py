@@ -22,7 +22,7 @@ CLI = ["--area", "coast", "--within", "osm:Gozo"]
 # stored JSON), command-line ones from params.parse_cli; source geoportal, resolution 2 m. The fix moves none.
 WEB = {"sag, fall_zone 3": ({"model": "sag", "fall_zone": 3}, "829cd2e55c16a9e7", "ea8791ac80a2a352"),
        "sag, fall_zone 4.5": ({"model": "sag", "fall_zone": 4.5}, "55135368e473d7c0", "967a6a8e3d9b8d40"),
-       "sag, default (6 m)": ({"model": "sag"}, None, None),
+       "sag, default (6 m)": ({"model": "sag"}, "8cd584ec6285fb9c", "0f7399a5897bbb87"),
        "formula": ({}, "c2815824f4b9a796", "08f4bceb300b72ac"),
        "formula, fall_zone 3": ({"fall_zone": 3}, "6630d85d9cde2074", "ef1b56f1a7a21d06")}
 COMMAND_LINE = {"sag --fall-zone 3": (["--model", "sag", "--fall-zone", "3"], "173c1c5395ba26b5", "a6dfefeb63327a5f"),
@@ -56,9 +56,7 @@ def test_hashes_stay(owner):
     """_search_hash of every request is today's; the key of before is only a second key of a sag search at 3 m."""
     column = 1 if owner is None else 2
     for name, row in WEB.items():
-        got = search._search_hash(_plan(_web(row[0]), owner))
-        if row[column] is not None:
-            assert got == row[column], name
+        assert search._search_hash(_plan(_web(row[0]), owner)) == row[column], name
     for name, row in COMMAND_LINE.items():
         [params], _ = pm.parse_cli(CLI + row[0])
         assert search._search_hash(_plan(params, owner)) == row[column], name
@@ -240,7 +238,8 @@ def test_truth_analysis_names_a_line_the_square_rule_dropped(tmp_path):
     assert ta.REASONS[-2:] == ("same_line_square", "unexplained")
     assert ((kept[:, 0] < 5) & (kept[:, 2] < 5)).any()
     r = ta.diagnose(c, line, None)
-    assert r["outcome"] == "missed" and r["reason"] == "same_line_square" and r["note"] is None, (r["reason"], r["note"])
+    assert r["outcome"] == "missed" and r["reason"] == "same_line_square", (r["reason"], r["note"])
+    assert r["note"] is None
     assert 0 < r["funnel"]["square_kept"] <= r["funnel"]["limits"] and r["best"]["stage"] == "square"
     assert max(r["best"]["d_known"]) <= ta.tolerance(line) and r["best"]["clearance_rule"] > 0
     assert json.loads(json.dumps(ta._plain(r)))["reason"] == "same_line_square"
@@ -254,3 +253,42 @@ def test_truth_analysis_names_a_line_the_square_rule_dropped(tmp_path):
     assert len(kept)
     r = ta.diagnose(c, line, None)
     assert r["reason"] == "unexplained" and r["note"] == "a_pair_passes" and r["funnel"]["square_kept"] == 0
+
+
+def test_truth_analysis_squares_are_the_rules(tmp_path):
+    """The analysis' squares are the rule's: production's lines of the canyon reduced by samelines.reduce_table
+    (5 m squares), read back as lines.npz holds them (WGS84 to 7 decimals): every line found shares the squares
+    of a kept line, a pair in squares no kept line has does not (R_FILTERED of the canyon has no anchors; a pair
+    1 m long)."""
+    import dataclasses as dc
+    import helpers as sh
+    import linesearch as ls
+    import samelines
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+    import test_truth_analysis as tta
+    import truth_analysis as ta
+    folder = tta.write_capture(str(tmp_path / "canyon"), [case for case in tta.known_lines() if case[0].id == "m1"])
+    c = ta.load_capture(folder)
+    c.grid["params"] = {**c.grid["params"], "same_line_square": 5, "same_line_side": 5.0}
+    p = tta.PARAMS
+    table = ls.find_valid_lines(c.elevation, c.surface, c.anchors, tta.RES, p["min_length"], p["max_length"],
+                                nmpt_mode="reject", threads=2, max_dh_ratio=p["max_anchor_diff"] / 100,
+                                max_dh=p["max_anchor_diff_m"], high_above=p["high_above"],
+                                limits=sh.LineLimits(max_wall_angle=p["max_wall_angle"]))
+    a1, a2 = table.columns["a1"].copy(), table.columns["a2"].copy()
+
+    def centre(px):
+        return np.column_stack([tta.LEFT + (px[:, 1] + 0.5) * tta.RES, tta.TOP - (px[:, 0] + 0.5) * tta.RES])
+
+    kept = sh.LineTable({"a1_xy": centre(a1), "a2_xy": centre(a2), "a1": a1, "a2": a2,
+                         "length": table.columns["length"].copy(),
+                         "height_mean": table.columns["height_mean"].copy(),
+                         samelines.COLUMN: np.ones(len(a1), dtype=np.int64)})
+    samelines.reduce_table(kept, 5.0)
+    assert 0 < len(kept) < len(a1) / 2
+    k = kept.columns
+    found = tta._found([(tuple(p), tuple(q)) for p, q in zip(k["a1"].tolist(), k["a2"].tolist())])
+    c = dc.replace(c, found=found, _cache={})
+    assert ta._square_kept(c, a1, a2).all()
+    assert not ta._square_kept(c, np.array([[105, 30], [5, 30]]), np.array([[105, 90], [5, 31]])).any()
+    assert ta._square_kept(dc.replace(c, grid={**c.grid, "params": tta.PARAMS}, _cache={}), a1, a2).sum() == 0
