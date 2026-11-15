@@ -7,13 +7,16 @@ the search changed (it calls the search's own functions, one call per design, fr
 the studies counted every estimate of a tile from one pair search).
 
     python tools/estimate_study.py [--fractions 0.005,0.01,0.02,0.05] [--seeds 5] [--seed-rule study|search]
-        [--designs anchors,squares] [--square 5] [--exact] [--limit 1500000] [--name NAME] [--out F.json]
-        -- <findaline.py options of the search, with its --data-dir>
+        [--owner USER] [--designs anchors,squares] [--square 5] [--exact] [--limit 1500000] [--name NAME]
+        [--out F.json] -- <findaline.py options of the search, with its --data-dir>
 
 Seeds: "study" (the default) draws as the studies did, numpy default_rng([1000 + s, tile]) for the anchors
 and default_rng([2000 + s, tile]) for the squares, s = 0 .. --seeds - 1, so their rows can be reproduced;
 "search" takes the search's own seed (the first 8 hex digits of search._search_hash of the plan in that
-design: one seed, the estimate a job of the web worker gets). The squares design is the plan with
+design: one seed). The hash holds the job's owner (Plan.owner, which the web worker sets to the job's user):
+--owner USER (the user's id in jobs.sqlite) gives the sample of that user's job on the public site; without
+it the sample of the local app's job (no owner). The tiles follow the free memory unless the options fix
+--tile-size: a tiled job's tile_core.json gives its size. The squares design is the plan with
 --same-line-square (the search's own value, else --square), the anchors design the plan without it. Step 1
 runs once; a tiled area takes each tile's window (search._tile_data) and its anchors as the search does, and
 sums its tiles. --exact adds one pair search from every useful anchor of each core: the lines found (the
@@ -137,15 +140,17 @@ class _Exact:
 
 def study(params, data_dir: str, fractions: Sequence[float] = FRACTIONS, seeds: int = SEEDS,
           seed_rule: str = "study", designs: Sequence[str] = DESIGNS, square: float = SQUARE,
-          exact: bool = False, limit: Optional[int] = None) -> Dict:
-    """The study of one search (params.SearchParams, data_dir its data folder): see the module's docstring.
-    Returns {"settings", "tiles", "per_tile", "rows", "exact", "seconds"}."""
+          exact: bool = False, limit: Optional[int] = None, owner: Optional[int] = None) -> Dict:
+    """The study of one search (params.SearchParams, data_dir its data folder; owner: the job's user, for the
+    seed rule "search"): see the module's docstring. Returns {"settings", "tiles", "per_tile", "rows",
+    "exact", "seconds"}."""
     import cache
     import samelines
     import search
     started = time.monotonic()
     paths = search.Paths(data_dir, cache.new_work(data_dir))
     plan = search.plan_search(params, paths, _quiet)
+    plan.owner = owner  # as jobs.run_phase sets it: in the search's hash, so its seed
     p = plan.params
     table = search._sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) \
         if p.model == "sag" else None
@@ -253,6 +258,7 @@ def main(argv: Optional[List[str]] = None):
     parser.add_argument("--fractions", default=",".join(f"{f:g}" for f in FRACTIONS))
     parser.add_argument("--seeds", type=int, default=SEEDS)
     parser.add_argument("--seed-rule", choices=("study", "search"), default="study")
+    parser.add_argument("--owner", type=int, help="the job's user id (the seed rule search of a public job)")
     parser.add_argument("--designs", default=",".join(DESIGNS))
     parser.add_argument("--square", type=float, default=SQUARE)
     parser.add_argument("--exact", action="store_true")
@@ -271,7 +277,7 @@ def main(argv: Optional[List[str]] = None):
     result = study(searches[0], cache.data_dir(options.data_dir),
                    fractions=tuple(float(f) for f in args.fractions.split(",")), seeds=args.seeds,
                    seed_rule=args.seed_rule, designs=designs, square=args.square, exact=args.exact,
-                   limit=args.limit)
+                   limit=args.limit, owner=args.owner)
     result["name"] = args.name
     print(table_text(result, args.name), flush=True)
     if args.out:

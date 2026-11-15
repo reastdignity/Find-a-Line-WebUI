@@ -31,8 +31,9 @@ def _params(**values):
     return SearchParams(**{"elevation_file": CLIP, "water": "off", "fill_gaps": "off", "ortho": "never", **values})
 
 
-def _searched(tmp_path, monkeypatch, params) -> tuple:
-    """A search with limits (the web worker's estimate): its estimate and its lines."""
+def _searched(tmp_path, monkeypatch, params, owner=None) -> tuple:
+    """A search with limits (the web worker's estimate; owner: the job's user, as jobs.run_phase sets it): its
+    estimate and its lines."""
     import search
     from settings import Limits
     seen, check = [], search._estimate_check
@@ -40,6 +41,7 @@ def _searched(tmp_path, monkeypatch, params) -> tuple:
                                                                               check(plan, e, se, px))[1])
     plan = search.plan_search(params, search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None,
                               limits=Limits())
+    plan.owner = owner
     lines, _ = search.search_lines(plan)
     monkeypatch.setattr(search, "_estimate_check", check)
     return seen[0], len(lines.results), plan
@@ -47,31 +49,41 @@ def _searched(tmp_path, monkeypatch, params) -> tuple:
 
 def test_exact_counts_and_the_searchs_own_estimate(tmp_path, monkeypatch):
     """At a fraction of 1 the anchors design gives the lines found and the squares design the keys seen
-    from their first square, at most the lines kept; the study rule's seeds give a row per seed; the search
-    rule gives the estimate a job of the web worker gets for the same request, in both designs."""
+    from their first square, at most the lines kept; the study rule's seeds give a row per seed, each with
+    the numbers this clip gives (900 880 found, 18 593 kept, 18 577 from their first square; measured
+    2026-11-15); the search rule gives the estimate a job of the web worker gets for the same request, in both
+    designs, also of a job with an owner (the public site: the owner is in the seed)."""
     import estimate_study as es
     import search
     result = es.study(_params(**POINT, **SAG), str(tmp_path / "data"), fractions=(1.0, 0.25), seeds=2, exact=True,
                       limit=1_000_000)
-    exact = result["exact"]
-    assert exact["found"] > exact["kept"] == exact["kept_tiles"] >= exact["from_ka"] >= 0.999 * exact["kept"]
+    assert result["exact"] == {"found": 900_880, "kept": 18_593, "kept_tiles": 18_593, "from_ka": 18_577}
     rows = {(r["design"], r["fraction"], r["seed"]): r for r in result["rows"]}
     assert set(rows) == {(d, f, es.STUDY_SEEDS[d] + s) for d in es.DESIGNS for f in (1.0, 0.25) for s in (0, 1)}
     for s in (1000, 1001):
-        assert rows[("anchors", 1.0, s)]["estimate"] == exact["found"] and rows[("anchors", 1.0, s)]["se"] == 0
+        assert rows[("anchors", 1.0, s)]["estimate"] == 900_880 and rows[("anchors", 1.0, s)]["se"] == 0
     for s in (2000, 2001):
-        assert rows[("squares", 1.0, s)]["estimate"] == exact["from_ka"]
-    quarter = rows[("anchors", 0.25, 1000)]
-    assert quarter["k"] == round(0.25 * quarter["n"]) and quarter["lo"] <= quarter["estimate"] <= quarter["hi"]
-    assert quarter["verdict"] == es.verdict(quarter["estimate"], 1_000_000) and quarter["ratio"] > 0
+        assert rows[("squares", 1.0, s)]["estimate"] == 18_577
+    quarters = {key[2]: (r["estimate"], r["se"], r["lo"], r["hi"], r["k"], r["n"], r["verdict"])
+                for key, r in rows.items() if key[1] == 0.25}
+    assert quarters == {1000: (901_233, 28_373, 844_487, 957_980, 2_774, 11_097, "close"),  # 0.8 M <= est <= 1.25 M
+                        1001: (898_749, 29_120, 840_508, 956_990, 2_774, 11_097, "close"),
+                        2000: (19_013, 1_799, 15_415, 22_611, 281, 1_125, "on"),
+                        2001: (18_524, 1_746, 15_033, 22_016, 281, 1_125, "on")}, quarters
+    assert rows[("anchors", 0.25, 1000)]["ratio"] == round(901_233 / 900_880, 4)
+    assert [es.verdict(e, 1_000_000) for e in (1_250_001, 1_250_000, 800_000, 799_999)] == [
+        "refused", "close", "close", "on"]
     assert result["tiles"] == 0 and result["per_tile"][0]["anchors"] > 0
     assert not {"northing", "easting", "elevation_file"} & set(result["settings"])
-    for square, design in ((0, "anchors"), (5, "squares")):
-        (estimate, se), _, _ = _searched(tmp_path / design, monkeypatch, _params(same_line_square=square, **POINT,
-                                                                                  **SAG))
-        own = es.study(_params(same_line_square=square, **POINT, **SAG), str(tmp_path / "data"),
-                       fractions=(search.SAMPLE_FRACTION,), seed_rule="search", designs=(design,))
+    for square, design, owner in ((0, "anchors", None), (5, "squares", None), (0, "anchors", 7)):
+        params = _params(same_line_square=square, **POINT, **SAG)
+        (estimate, se), _, _ = _searched(tmp_path / f"{design}-{owner}", monkeypatch, params, owner)
+        own = es.study(params, str(tmp_path / "data"), fractions=(search.SAMPLE_FRACTION,), seed_rule="search",
+                       designs=(design,), owner=owner)
         assert [(r["estimate"], r["se"]) for r in own["rows"]] == [(int(round(estimate)), int(round(se)))]
+        if owner:  # another seed than the local app's job of the same request
+            assert own["rows"][0]["seed"] != es.study(params, str(tmp_path / "data"), fractions=(0.02,),
+                                                      seed_rule="search", designs=(design,))["rows"][0]["seed"]
     gc.collect()
 
 
@@ -103,7 +115,8 @@ def test_the_command_line(tmp_path, capsys):
     printed = capsys.readouterr().out
     saved = json.loads(out.read_text(encoding="utf-8"))
     row = saved["rows"][0]
-    assert saved["name"] == "clip" and len(saved["rows"]) == 1 and row["verdict"] == es.verdict(row["estimate"], 500)
+    assert saved["name"] == "clip" and len(saved["rows"]) == 1 and saved["exact"]["found"] == 1301
+    assert (row["estimate"], row["se"], row["k"], row["n"], row["verdict"]) == (1288, 109, 310, 620, "refused")
     assert "| anchors | 0.5 | 1000 |" in printed and not os.path.exists(str(out) + ".partial")
     for text in (printed, out.read_text(encoding="utf-8")):
         assert "254608" not in text and "553966" not in text and "zabi_kon" not in text
