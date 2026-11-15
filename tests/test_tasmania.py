@@ -36,19 +36,20 @@ def test_chosen_in_tasmania_only(tmp_path, recorded):
     for point in (CAPE_HAUY, ORGAN_PIPES, SEA, KING_ISLAND):
         assert src.choose_source("auto", *point, str(tmp_path)) == (src.SOURCES["tasmania"],
                                                                     "the centre is in AU-TAS"), point
-    # Elsewhere in Australia the national 5 m DEM (Arapiles has no survey in it: FABDEM fills the gaps)
-    assert src.choose_source("auto", *ARAPILES, str(tmp_path)) == (src.SOURCES["australia"],
-                                                                   "the centre is in AU")
+    # Elsewhere in Australia the national 5 m DEM where it has a survey near the centre; Arapiles has none
+    assert src.choose_source("auto", *ARAPILES, str(tmp_path)) == (
+        src.SOURCES["europe"], "the centre is in AU, but australia has no terrain data near it")
 
 
 def test_offline_box(monkeypatch, tmp_path):
-    """Offline, the region's box gives Australia and Tasmania; elsewhere in Australia the national box."""
+    """Offline, the region's box gives Australia and Tasmania; elsewhere in Australia the national box
+    (and europe where the national DEM has no survey)."""
     def offline(*args, **kwargs):
         raise ValueError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
     assert src.choose_source("auto", *CAPE_HAUY, str(tmp_path)) == (src.SOURCES["tasmania"],
                                                                     "the centre is in AU-TAS")
-    assert src.choose_source("auto", *ARAPILES, str(tmp_path))[0].id == "australia"
+    assert src.choose_source("auto", *ARAPILES, str(tmp_path))[0].id == "europe"  # australia: no survey near it
 
 
 def test_blocks_on_the_file_pixels():

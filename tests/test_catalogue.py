@@ -1525,7 +1525,7 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                            'fallbacks': ['europe'],
                            'grid_origin': (0.0, 0.0),
                            'default_resolution': 5.0,
-                           'instead_without_data': None,
+                           'instead_without_data': 'europe',
                            'local_crs': 'au_mga_crs',
                            'ortho': None,
                            'credits': ['Digital Elevation Model (DEM) of Australia derived from LiDAR 5 Metre Grid (Geoscience '
@@ -1847,7 +1847,8 @@ PATHS = [
     ("queensland_demh", "nmt", ("EPSG:28355", (30.0, 26, 512)),
      "queensland/dem-h/live/epsg28355-30m-500px-tif/26_512.tif", ("EPSG:28355", (30.0, 26, 512))),
     ("islandsdem10", "nmt", (563, 78), "iceland/islandsdem-v1.0-10m/11_1/563_78.tif", (563, 78)),
-    ("australia", "nmt", (675, -465), "australia/dem5m/live/epsg4283-1000px/675_-465.tif", (675, -465)),
+    ("australia", "nmt", (675, -465), "australia/dem5m/live/epsg4283-1000px-g81d4e2da/675_-465.tif",
+     (675, -465)),
     ("uruguay", "nmt", (70, 48), "uruguay/mdt250/2018/E18D5.tif", (70, 48)),
 ]
 
@@ -2001,7 +2002,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("au-qld", (-29.00, -9.10, 138.00, 151.00)), ("au-qld", (-28.60, -9.10, 151.00, 152.50)),
          ("au-qld", (-28.20, -9.10, 152.50, 153.60)),
          ("is", (63.2, 66.6, -24.6, -13.4)),
-         ("au", (-39.20, -9.87, 114.10, 153.68)), ("uy", (-35.05, -30.08, -58.45, -53.10))]
+         ("au", (-39.20, -10.90, 114.10, 129.00)), ("au", (-39.20, -9.87, 129.00, 153.68)),
+         ("uy", (-35.05, -30.08, -58.45, -53.10))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

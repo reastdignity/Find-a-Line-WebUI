@@ -73,10 +73,15 @@ def test_geo_pixel_tiling_boxes_paths_and_tiles():
     last = tiling.box((2, -2))  # columns 2000-2499, rows 1000-1799
     assert (last.width, last.height) == (500, 800)
     assert last.right == CORNER[0] + 2500 * PIXEL[0] and last.bottom == CORNER[1] - 1800 * PIXEL[1]
-    assert tiling.path("C:/cache", (2, -2)).replace(os.sep, "/") == "C:/cache/fake/dem5m/live/epsg4283-1000px/2_-2.tif"
-    assert tiling.tile_of("fake/dem5m/live/epsg4283-1000px/2_-2.tif") == (2, -2)
-    assert tiling.tile_of("fake/dem5m/live/epsg4283-500px/2_-2.tif") is None
-    assert tiling.tile_of("other/epsg4283-1000px/2_-2.tif") is None
+    # The grid's corner, pixel and size in the folder's name: another grid never takes these tiles
+    grid = re.fullmatch(r"epsg4283-1000px-g([0-9a-f]{8})", tiling._dir).group(1)
+    moved = GeoPixelTiling("EPSG:4283", "fake/dem5m/live", 1000, (CORNER[0] + PIXEL[0], CORNER[1]), PIXEL, SIZE)
+    assert moved._dir != tiling._dir
+    name = f"fake/dem5m/live/epsg4283-1000px-g{grid}/2_-2.tif"
+    assert tiling.path("C:/cache", (2, -2)).replace(os.sep, "/") == f"C:/cache/{name}"
+    assert tiling.tile_of(name) == (2, -2) and moved.tile_of(name) is None
+    assert tiling.tile_of("fake/dem5m/live/epsg4283-1000px/2_-2.tif") is None
+    assert tiling.tile_of(f"other/epsg4283-1000px-g{grid}/2_-2.tif") is None
     # A grid in GDA94 / MGA 56 around a point inside the first tile: that tile only
     from pyproj import Transformer
     to_mga = Transformer.from_crs("EPSG:4283", "EPSG:28356", always_xy=True)
@@ -219,3 +224,118 @@ def test_probe_of_the_new_kinds(http_server, tmp_path):
     assert http_server.requests("/s/a.tif")[-1].headers["range"] == "bytes=0-7"
     with pytest.raises(RuntimeError, match="not a TIFF"):
         probe._tiff_head(str(tmp_path), http_server.url("/s/b.tif"))
+
+
+def test_point_registered_sheet(http_server, tmp_path):
+    """The IDE's files are PixelIsPoint (AREA_OR_POINT=Point): the cached tile is written on the pixel areas GDAL
+    reads from the file (its corner half a pixel up and left of the first pixel's centre), without the Point tag,
+    so the mosaic never moves it again."""
+    centre = (654461.2874, 6209563.5005)  # the first pixel's centre
+    area = from_origin(centre[0] - 1.25, centre[1] + 1.25, 2.5, 2.5)
+    band = np.full((20, 30), 88.5, dtype=np.float32)
+    with MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=30, height=20, count=1, dtype="float32", crs="EPSG:5382",
+                          nodata=-32767, transform=area) as dst:
+            dst.update_tags(AREA_OR_POINT="Point")
+            dst.write(band, 1)
+        served = memfile.read()
+    with MemoryFile(served) as check, check.open() as src_file:
+        assert src_file.tags().get("AREA_OR_POINT") == "Point"
+        read_transform = src_file.transform
+    assert read_transform.almost_equals(area)
+    http_server.add("/p/E18D6.tif", served, "image/tiff")
+    cell = uruguay.uy_cell("E18D6")
+    layer = src.GeoSheetTiles("Fake MDT", "fake/mdt/2018", "EPSG:4326", uruguay.UY_CELL, uruguay.UY_ORIGIN, 2.5,
+                              uruguay.uy_sheet, uruguay.uy_cell,
+                              lambda i, j: http_server.url(f"/p/{uruguay.uy_sheet(i, j)}.tif"))
+    path = str(tmp_path / "E18D6.tif")
+    assert layer.download_tile(cell, path).received > 0
+    with rio.open(path) as tile:
+        assert tile.transform.almost_equals(area)
+        assert tile.tags().get("AREA_OR_POINT", "Area") == "Area"
+        assert np.allclose(tile.read(1), 88.5, atol=0.006)
+
+
+def test_geo_wcs_answer_on_other_pixels(http_server, tmp_path):
+    """A service answering on pixels other than those asked (here half a pixel east and south, and one pixel
+    wider): the tile is resampled by nearest neighbour onto its own pixels."""
+    def answer(request):
+        q = dict(request.query)
+        left, bottom, right, top = (float(v) for v in q["BBOX"].split(","))
+        width, height = int(q["WIDTH"]), int(q["HEIGHT"])
+        dx, dy = (right - left) / width, (top - bottom) / height
+        body = _geotiff(left + dx / 2, bottom - dy / 2, right + dx * 1.5, top - dy / 2, width + 1, height)
+        return Answer(200, body, {"Content-Type": "image/tiff"})
+    http_server.route("/off", answer)
+    layer = src.GeoWcsTiles("Fake 5 m DEM", http_server.url("/off"), "1", "EPSG:4283", "fake/dem5m/live", 5.0,
+                            corner=CORNER, pixel=PIXEL, size=SIZE, tile_px=100, zero_is_nodata=True)
+    tile = (20, -1)  # columns 2000-2099: all east of 151.06 E
+    path = str(tmp_path / "off.tif")
+    assert layer.download_tile(tile, path).received > 0
+    box = layer.index.box(tile)
+    with rio.open(path) as written:
+        assert written.shape == (100, 100)
+        assert written.transform.almost_equals(from_origin(box.left, box.top, *PIXEL), precision=1e-12)
+        band = written.read(1)
+    # Nearest: each pixel takes an answered pixel half a pixel off, so its value is within one pixel's step of the
+    # truth at its centre, and not the truth itself
+    rows, cols = np.mgrid[0:100, 0:100]
+    truth = value(box.left + (cols + 0.5) * PIXEL[0], box.top - (rows + 0.5) * PIXEL[1])
+    step = 1e4 * PIXEL[0] + 1e3 * PIXEL[1]
+    finite = np.isfinite(band)
+    assert finite[1:, 1:].all() and np.abs(band[finite] - truth[finite]).max() <= step + 0.01
+    assert not np.allclose(band[finite], truth[finite], atol=0.01)
+
+
+def test_coverage_cells_tool_and_has_data_near(tmp_path):
+    """tools/au_coverage.py: the pieces within the service's 4096 px, cells holding data when any sample does, the
+    saved mask read back by GeoWcsTiles.has_data_near; and the stored mask at the places it was checked at."""
+    sys.path.insert(0, os.path.join(HERE, "tools"))
+    import au_coverage
+    assert au_coverage.pieces((718787, 651083), (88, 80)) == [(0, 0, 4096, 4096), (4096, 0, 4073, 4096),
+                                                              (0, 4096, 4096, 4043), (4096, 4096, 4073, 4043)]
+    samples = np.zeros((10, 9), dtype=np.float32)
+    samples[5, 8] = 12.5  # one sample with data: the cell of rows 4-7, column 8
+    samples[0, 0] = np.nan
+    mask = au_coverage.cells(samples, 4)
+    assert mask.shape == (3, 3) and mask.sum() == 1 and mask[1, 2]
+
+    def get(params):  # a fake service answering every piece
+        q = dict(params)
+        left, bottom, right, top = (float(v) for v in q["BBOX"].split(","))
+        return _geotiff(left, bottom, right, top, int(q["WIDTH"]), int(q["HEIGHT"]))
+    got = au_coverage.sample(get, CORNER, PIXEL, SIZE, step=(25, 20), max_px=40)  # 100 x 90 samples, 3 x 3 pieces
+    assert got.shape == (90, 100) and (got[:, :43] == 0).all() and (got[:, 44:] > 0).all()  # 151.06 E
+    path = str(tmp_path / "cells.npz")
+    au_coverage.save(path, au_coverage.cells(got, 4), (25, 20), 4)
+    layer = src.GeoWcsTiles("Fake", "https://wcs.example/", "1", "EPSG:4283", "fake/x/live", 5.0, corner=CORNER,
+                            pixel=PIXEL, size=SIZE, cells=path)
+    lat = CORNER[1] - 900 * PIXEL[1]
+    assert layer.has_data_near(lat, CORNER[0] + 200 * PIXEL[0], "", metres=500) is False  # 151.011 E
+    assert layer.has_data_near(lat, CORNER[0] + 2000 * PIXEL[0], "") is True  # 151.110 E
+    assert layer.has_data_near(lat, CORNER[0] - 1.0, "") is False  # beyond the grid
+    plain = src.GeoWcsTiles("Fake", "https://wcs.example/", "1", "EPSG:4283", "fake/x/live", 5.0, corner=CORNER,
+                            pixel=PIXEL, size=SIZE)
+    assert plain.has_data_near(lat, CORNER[0] + 2000 * PIXEL[0], "") is None
+    # The stored mask (2026-11-15): GA's coastal surveys are data, the inland cliffs are not
+    stored = src.SOURCES["australia"].nmt
+    for place in ((-33.8200, 151.2970), (-35.0930, 150.8030), (-34.88, 150.60), (-34.15, 151.08), (-28.07, 152.85),
+                  (-27.477, 153.035)):  # North Head, Point Perpendicular, Nowra, Royal NP, Frog Buttress, Kangaroo Pt
+        assert stored.has_data_near(*place, "") is True, place
+    for place in ((-36.75, 141.83), (-33.59, 150.26), (-37.15, 142.45), (-33.732, 150.312)):
+        assert stored.has_data_near(*place, "") is False, place  # Arapiles, Mount Victoria, Grampians, 3 Sisters
+
+
+def test_australia_chosen_where_it_has_data(monkeypatch, tmp_path):
+    """Offline: North Head gets australia, Arapiles europe (no survey near it), Kupang (West Timor, north of the
+    split box) no Australian source, the Kimberley Australia."""
+    def offline(*args, **kwargs):
+        raise ValueError("offline")
+    monkeypatch.setattr(src.choose.osm, "reverse", offline)
+    choose = src.choose_source
+    assert choose("auto", -33.8200, 151.2970, str(tmp_path))[0].id == "australia"
+    assert choose("auto", -36.75, 141.83, str(tmp_path)) == (
+        src.SOURCES["europe"], "the centre is in AU, but australia has no terrain data near it")
+    assert src.choose.country_code(-10.17, 123.60, str(tmp_path)) is None  # Kupang
+    assert choose("auto", -10.17, 123.60, str(tmp_path))[0].id == "europe"
+    assert src.choose.country_code(-14.0, 126.0, str(tmp_path)) == "au"  # the Kimberley

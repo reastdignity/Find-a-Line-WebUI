@@ -3,6 +3,7 @@
 the gaps), each in its region; the rest of Australia from Geoscience Australia's national 5 m lidar DEM (a WCS
 1.0.0 in GDA94 geographic coordinates), FABDEM where it has no survey."""
 
+import os
 from typing import List
 
 from ..credit import CC_BY, Credit
@@ -168,10 +169,14 @@ AU_CRS = "EPSG:4283"
 AU_CORNER = (114.09855219640832, -9.86608416402494015)       # the grid's west and north edges (DescribeCoverage)
 AU_PIXEL = (5.5063478185957097e-05, 5.16012325277870332e-05)  # degrees of longitude and latitude
 AU_SIZE = (718787, 651083)                                    # columns, rows
+# The cells of about 1.9 x 1.65 km of the grid that hold data (tools/au_coverage.py, the WCS sampled every 88 x 80
+# pixels on 2026-11-15; made again when GA adds surveys), for has_data_near: --source auto takes europe where
+# the DEM has no survey within 2 km of the centre (instead_without_data), not a 5 m grid of FABDEM's fill
+AU_CELLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "australia_dem5m_cells.npz")
 # Tiles of 1000 x 1000 px (about 5.5 x 5.7 km, 4 MB uncompressed per request)
 AU_DEM = GeoWcsTiles("Geoscience Australia 5 m lidar DEM (terrain)", AU_WCS, "1", AU_CRS, "australia/dem5m/live",
                      native_res=5.0, corner=AU_CORNER, pixel=AU_PIXEL, size=AU_SIZE, tile_px=1000, fmt="GeoTIFF",
-                     zero_is_nodata=True)
+                     zero_is_nodata=True, cells=AU_CELLS)
 # The WCS's AccessConstraints, verbatim (GetCapabilities, read 2026-11-15)
 AU_ATTRIBUTION = ("© Commonwealth of Australia (Geoscience Australia) 2025. This product is released under the "
                   "Creative Commons Attribution 4.0 International Licence.")
@@ -179,8 +184,10 @@ AU_CREDIT = Credit("Digital Elevation Model (DEM) of Australia derived from LiDA
                    AU_ATTRIBUTION, *CC_BY,
                    notice="Dataset: https://doi.org/10.26186/89644 (Geoscience Australia, eCat 22be4b55-2465-4320-"
                           "e053-10a3070a5236), read from its WCS DEM_LiDAR_5m_2025.")
-# The mainland and the coastal islands north of Bass Strait (Wilsons Promontory 39.13 S), clear of Tasmania's box
-AU_BOX = (-39.20, -9.87, 114.10, 153.68)
+# The mainland and the coastal islands north of Bass Strait (Wilsons Promontory 39.13 S), clear of Tasmania's box:
+# west of 129 E only south of 10.9 S (the Kimberley's coast lies below 13.7 S), so West Timor (Kupang 10.17 S),
+# Rote, Sawu and Sumba stay out; east of it up to 9.87 S (the grid's north edge; Queensland's boxes come first)
+AU_BOXES = (("au", (-39.20, -10.90, 114.10, 129.00)), ("au", (-39.20, -9.87, 129.00, 153.68)))
 
 
 def au_mga_crs(lat: float, lon: float) -> str:
@@ -244,7 +251,12 @@ SOURCES: List[Source] = [
         nmt=AU_DEM, countries=("au",), local_crs=au_mga_crs, default_resolution=5.0, credits=(AU_CREDIT,),
         listing=ReadmeRow("Australia (outside Queensland and Tasmania), where it has lidar",
                           "Geoscience Australia DEM from lidar, 5 m (2001-2015, WCS)"),
-        offline=(("au", AU_BOX),), sample=(-33.8200, 151.2970),
+        offline=AU_BOXES, sample=(-33.8200, 151.2970),
+        # No neighbours: queensland's data (CC BY-SA) are never mixed with FABDEM (CC BY-NC-SA), this source's
+        # fallback, as a neighbour's fill would do in a grid here; tasmania has no land border with it and its box
+        # (south of 39.45 S) does not touch these
+        # Where the DEM has no survey near the centre (its cells), --source auto takes europe instead
+        instead_without_data="europe",
         note=AU_NOTE,
         # Partial: lidar on about 3 % of the country, FABDEM 30 m elsewhere
         coverage=Coverage(provider="Geoscience Australia", added="2026-11-15", partial=True, rest=(30.0,),
