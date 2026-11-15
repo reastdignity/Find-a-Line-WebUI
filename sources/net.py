@@ -179,6 +179,12 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # https://suche.transparenz.hamburg.de/api/3/action/package_show?id=<name>: dl-de/by-2.0, "is_free_to_use", no
     # limits; https://www.daten-hamburg.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
     "www.daten-hamburg.de": 2,
+    # Landesamt GeoInformation Bremen's INSPIRE downloads (the DGM1 and DOM1 archives of Bremen and Bremerhaven, read by
+    # Range): no published limits (MetaVer's record https://metaver.de/trefferanzeige?docuuid=C448202A-0F15-413A-99E6-
+    # F22F10E190C9: CC BY 4.0, "Es gelten keine Zugriffsbeschränkungen"; the open-data decree of 22.05.2024; the DOP
+    # WMS's capabilities, https://geodienste.bremen.de/wms_dop_lb: Fees CC BY, no AccessConstraints;
+    # https://gdi2.geo.bremen.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
+    "gdi2.geo.bremen.de": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

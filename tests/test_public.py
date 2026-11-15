@@ -3809,7 +3809,8 @@ SOFTWARE_3D = ("The maps, the app and the 3D view include open-source libraries 
 ABOUT_RING = ("<p>Terrain around the 3D view: © Mapterhorn (<a href='https://mapterhorn.com/attribution'>"
               "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>")
 RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://api.ellipsis-drive.com", "https://basemap.nationalmap.gov", "https://data.geopf.fr",
-                "https://geo4.service24.rlp.de", "https://geodata.npolar.no", "https://geodienste.sachsen.de",
+                "https://geo4.service24.rlp.de", "https://geodata.npolar.no", "https://geodienste.bremen.de",
+                "https://geodienste.sachsen.de",
                 "https://geoportal.saarland.de", "https://geoservices.bayern.de", "https://geoservices.buergernetz.bz.it", "https://gis.natt.is", "https://gis.us.fo",
                 "https://irig-sig.madeira.gov.pt",
                 "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapas.ide.uy", "https://mapsneu.wien.gv.at",
