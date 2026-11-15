@@ -324,7 +324,7 @@ def test_sources():
     (42.6400, 18.1100, None),     # Dubrovnik
     (45.2300, 13.6000, None),     # Poreč, Istria
     # The Alps and Friuli: the neighbours' boxes come first (as before), Italy's hold the rest
-    (45.7915, 6.9733, "it"),      # Courmayeur
+    (45.7915, 6.9733, "it-23"),   # Courmayeur: Valle d'Aosta's band (45.70-45.85 N from 6.80 E)
     (45.0800, 6.7000, "it"),      # Bardonecchia
     (44.9400, 6.7500, "it"),      # Claviere
     (43.8700, 7.5400, "it"),      # Airole, the Roya below Breil

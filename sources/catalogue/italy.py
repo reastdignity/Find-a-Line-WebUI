@@ -118,7 +118,7 @@ def _sar_layer(link: str, kind: str, description: str) -> WfsFeatureTiles:
 # the local mirror (FINDALINE_MIRROR/aosta/dtm/2m); without the mirror the source is unavailable and --source auto
 # takes TINITALY. The DSM (DSM0508_002) follows by hand later (the user's decision of 2026-11-14): this source has no
 # surface layer until then. No request limits published (istruzioni.pdf, CC_BY_DTM_v2.pdf, read 2026-11-15)
-VDA_LICENCE = "http://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf"
+VDA_LICENCE = "https://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf"
 # CC_BY_DTM_v2.pdf (DGR 1620/2016): "Deve riconoscere una menzione di paternità adeguata su tutti gli elaborati che
 # utilizzeranno dati estratti dal Modello Digitale del Terreno (DTM), apponendo la seguente dicitura: Dati estratti
 # dal Modello Digitale del Terreno (DTM) della Regione Autonoma Valle d'Aosta." and "Deve fornire un link alla licenza
