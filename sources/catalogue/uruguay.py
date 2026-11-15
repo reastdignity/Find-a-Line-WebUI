@@ -107,7 +107,8 @@ SOURCES: List[Source] = [
         nmt=UY_MDT, countries=("uy",), local_crs=uy_crs, ortho=UY_ORTHO, credits=(UY_CREDIT,),
         listing=ReadmeRow("Uruguay", "IDE Uruguay MDT 2.5 m (photogrammetric, 2017-2018)", "–",
                           "IDE Uruguay ortofoto nacional"),
-        offline=(("uy", (-35.05, -30.08, -58.45, -53.10)),), sample=(-32.9210, -54.4670),
+        # The sample on Arequita (R73): Quebrada de los Cuervos, the first choice, gives no line at 2.5 m
+        offline=(("uy", (-35.05, -30.08, -58.45, -53.10)),), sample=(-34.2913, -55.2673),
         note="Data: Infraestructura de Datos Espaciales de Uruguay (IDEuy), Licencia de Datos Abiertos - Uruguay. "
              "The 2.5 m model is photogrammetric (2017-2018): vertical walls are smoothed and short ones may be "
              "missed. No surface model: trees and buildings are not in the data.",
