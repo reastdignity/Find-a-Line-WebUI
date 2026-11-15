@@ -198,7 +198,7 @@ the first rig. VPS: deploy; `jobs.sqlite` migrates at the web's start; old jobs 
   user, 2026-11-13) but no search option exists (the country layer's `sg.TensionTable` only) and the approved privacy
   entry omits it. Measured: nothing below 300 m, +15 to +26 % lines on GZ2 above (part P3c, banded). (a) leave it out
   until a task builds the option; (b) build it with the form (field, stored value, privacy entry reworded). Rec.: (a).
-- **U-2** 'Sea cliffs' without its wall-angle limit: 5.4.
+- **U-2** 'Sea cliffs' without its wall-angle limit: 5.4. Decided (a) on 2026-11-15 (`spec.md` 6.4).
 - **U-3 Texts changed from the accepted page:** the card of "The best lines here" without its cap sentence; the "?"
   with the target rig's factors and the KOB example; "about 15 times fewer lines (7 to 113)"; with the square rule
   "Can be millions of lines" on "Everything" is no longer true for most areas (2-4 % of the lines remain, G-11):
@@ -291,7 +291,8 @@ deploy, no migration; compare `job_funnel` "estimate" with "lines" for some week
 ### 2.11 Needs the user's word
 - **U-6** If 5.5 b finds no estimator of kept lines as accurate as part P4's, Basic searches are never sampled:
   (a) ship for searches without the square rule only; (b) a band on found lines times a measured kept share. On
-  5.5 b's numbers.
+  5.5 b's numbers. Decided on 2026-11-15: neither; 5.5 b found one (the rule's squares sampled, 2.2), built in
+  4f468d3 (`spec.md` 6.4).
 - **U-7** (a) the web worker only (this file); (b) also the command line, printing the estimate. Rec.: (a).
 
 ## 3. Access mark of three states
@@ -352,8 +353,11 @@ tiles = one grid; option off byte-equal (`test_saved_text_as_before`, the R entr
 "Worth") reproduced on its six target-rig tables by the repository's `access.py`.
 
 ### 3.8 Acceptance
-Part P3d's answers equal on the six tables; about 0.3 s per megapixel (indicative); checksums unchanged with the
-option off. E7 'Trust' (gate 1): no number set; the user judges part P3d's pictures (U-11).
+Part P3d's answers equal: with the alpine variant off on its six tables (KOB, BAH, BEL, DOL, MGp, GZp), with it on
+on the two where the study ran it (KOB, MGp); a check script outside the repository, since the study's grids are
+recomputed from its runs and its comparison used known lines (counts only). About 0.3 s per megapixel (indicative);
+checksums unchanged with the option off. E7 'Trust' (gate 1): no number set; the user judged part P3d's pictures
+(U-11, 2026-11-15: the colours match).
 
 ### 3.9 Waves
 1. `access.py` and tests (Opus, high). 2. Search and files (Opus, high). 3. Mock-up, then the page after the user's
@@ -368,9 +372,10 @@ anchors read "cannot tell"; memory per pixel grows. VPS: deploy, no migration.
   re-baselined). Rec.: (a).
 - **U-9 The alpine variant** ("cannot walk" becomes "cannot tell" where open ground is under 5 % of the land within
   250 m; MGp's ends then 99.9 % "cannot tell"): (a) in; (b) out (part P3d's main measure). Rec.: (a), no confident
-  "cannot walk" on alpine walls.
+  "cannot walk" on alpine walls. **Decided (a)** on 2026-11-15 ("3. a").
 - **U-10** Where the mark shows: a mock-up before code. **U-11** The user looks at part P3d's pictures of five cases
-  (BAH, MGp, BEL, DOL and a quarry) before building (G-09's recommendation).
+  (BAH, MGp, BEL, DOL and a quarry) before building (G-09's recommendation). **Decided** on 2026-11-15 ("4. a"): the
+  colours match; the measure is ported as it is.
 
 ## 4. Lip anchors measured against the known lines (a measurement, not a feature)
 **Decision.** G-07 'Fewer, better anchors', answer a: "Today's anchors; measure the lips against the known lines";
@@ -432,9 +437,10 @@ whatever you choose". **Behaviour:** 30° keeps 2 298 of 354 586 GZp lines of 30
 at BAH; the goal in the target rig: GZ1 84 416, GZ2 83 351, BAH 148 056 (part P3c). **Files:**
 `params.PRESETS["sea"]`, `goal.sea.text`; pair: `web-app.md`'s catalogue (no new key). **Waves:** counted without the
 limit and at 45°, 60°, 75°, with the square rule, in 5.5 a. **U-2:** (a) no wall-angle limit; (b) a wide one from that
-count. Rec.: (a): the coast area and `min_drop` 30 carry "Lines that leave the cliff over the water".
+count. Rec.: (a): the coast area and `min_drop` 30 carry "Lines that leave the cliff over the water". **Decided
+(a)** on 2026-11-15; built in c8a079a.
 
-### 5.5 Owed measurements (before the Basic form and the sample are built)
+### 5.5 Owed measurements (before the Basic form and the sample are built; both done in round 2, 2026-11-14/15)
 - **a. Every goal with the square rule on**, 16 reference cases, the target rig (G-11): part P3c's goal
   configurations (each goal's values of 1.2 on each case) with `--same-line-square 5`; found lines by part P1's count
   route (5.3 first), kept lines by a search with the option (the count mode, `count_tile` with a sink, ignores the

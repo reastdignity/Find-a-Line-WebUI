@@ -91,12 +91,17 @@ def test_offline_boxes(tmp_path, monkeypatch, offline):
 
 def test_the_dsm_follows_by_hand():
     """Valle d'Aosta has no surface model yet: its module, README row and note say the DSM follows later (the user's
-    words); Madeira has none at all. Both are 2 m on their own grids, our own tiles with no remote base yet."""
+    words); Madeira has none at all. Both are 2 m on their own grids, our own tiles with no remote base yet. Valle
+    d'Aosta and swisstopo are neighbours both ways, Valle d'Aosta before TINITALY in swisstopo's (the user's decision
+    of 2026-11-15: neighbours fill in turn and TINITALY's box holds the region); Madeira has none."""
     import sources.catalogue.italy as italy
     aosta, madeira = src.SOURCES["aosta_valley"], src.SOURCES["madeira"]
     assert aosta.nmpt is None and "DSM follows by hand later" in aosta.listing.surface
     assert "DSM follows by hand later" in italy.__doc__ and "surface model follows later" in aosta.note
     assert madeira.nmpt is None and madeira.listing.surface == "–"
     for source in (aosta, madeira):
-        assert source.nmt.urls == [] and source.default_resolution == 2.0 and source.neighbours == ()
+        assert source.nmt.urls == [] and source.default_resolution == 2.0
+    assert aosta.neighbours == ("swisstopo",) and madeira.neighbours == ()
+    swiss = src.SOURCES["swisstopo"].neighbours
+    assert swiss.index("aosta_valley") < swiss.index("tinitaly")
     assert aosta.fallbacks == ["tinitaly", "europe"] and madeira.fallbacks == ["europe"]
