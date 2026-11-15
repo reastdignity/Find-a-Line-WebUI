@@ -57,6 +57,18 @@ null for no data, "partial" while unfinished; a dataset card), `all`. Replacing 
 is tried again for 60 s (`_replace`: Windows refused one replace on Z:). The `origin` must equal the catalogue
 layer's `GridTiles(origin=)` (`tests/test_mirror_tiles.py`).
 
+## `tools/cdd_fetch.py`
+
+Runs on another machine (a home server, a stock Python container), not in the app: standard library only, no
+import of the project. Bulk copies for the mirror into `downloads/` beside the script: `plan` walks the CDD's public
+search (Portugal's MDT/MDS 50 cm and the Azores' 1 m models; pages by the `next` body's token; the newest version of
+each sheet; no address stored: a search mints a new one each time), `fetch` signs in through the Keycloak form
+(`CDD_USER`, `CDD_PASSWORD`), resolves addresses 20 ids per search and fetches one file at a time (TIFF magic and
+stated size, sha256 into `done.jsonl`; a session lost means one sign-in and one retry, three sign-ins without a file
+stop; 429/503 wait; five failures in a row, low disk or SIGTERM stop cleanly), `fetch-list wallonia` the embedded
+list of SPW's ten province ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked in every
+output (`Scrub`); `tests/test_cdd_fetch.py` runs it against a fake CDD.
+
 ## `tools/source_docs.py`
 
 Writes README's "Data sources" table and the ids of the `--source` row from `Source.listing` and the catalogue
