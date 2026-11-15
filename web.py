@@ -201,22 +201,23 @@ def schema(limits: Optional[Limits] = None, hidden_sources=()) -> List[Dict]:
 def presets(limits: Optional[Limits] = None) -> List[Dict]:
     """The goals (presets) of params.PRESETS for the form: each with its values for every field of
     PRESET_FIELDS (None: "custom", the values stay as they are) and whether it is available under
-    `limits`. A value the goal sets that is outside a user's bounds, or a field (or choice) the site does
-    not allow, makes the goal unavailable (with the reason): clamping it would give another kind of lines
-    under the same name. A field the goal leaves at its default is not sent (so the site may forbid setting
-    it), but its default must be within the bounds ("Everything" asks for the default's longest lines)."""
+    `limits`. The goal is judged by what the Basic form sends (viewer/src/search/basic.ts
+    basicRequestValues: every goal field with a value, defaults included, but a field the site does not allow,
+    which the schema leaves out): a value outside a user's bounds, a choice the site does not allow (also the
+    default's: "nmpt=mark"), or a field it does not allow set to another value than its default makes the goal
+    unavailable (with the reason); clamping it would give another kind of lines under the same name."""
     import sources as src
     answer = []
     for preset in pm.PRESETS:
         values = pm.preset_values(preset)
         problems = []
         for name, value in (values or {}).items():
-            if not limits:
+            if not limits or value is None:  # no value: not sent
                 continue
-            sent = value != pm.SearchParams.model_fields[name].default
-            if sent and not limits.allows(name):
-                problems.append(messages.UserError.web("not_allowed", field=name))
-            elif sent and isinstance(value, str) and not limits.allows(name, value):
+            if not limits.allows(name):  # left out of the schema: sent only if the goal needs another value
+                if value != pm.SearchParams.model_fields[name].default:
+                    problems.append(messages.UserError.web("not_allowed", field=name))
+            elif isinstance(value, str) and not limits.allows(name, value):
                 problems.append(messages.UserError.web("not_allowed_value", field=name,
                                                        value=messages.text(f"choice.{name}.{value}")))
             elif isinstance(value, (int, float)):

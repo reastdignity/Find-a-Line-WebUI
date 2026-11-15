@@ -378,9 +378,9 @@ export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptio
                            within: mode === "cliffs" ? within : "", name};
     // Basic sends the goal's fields, the model, the rig's seven values and the square rule also at their defaults;
     // a site whose limits leave one of the last out cannot take it
-    const blocked = tab === "basic" ? basicProblem(byName) : "";
-    if (blocked) return blocked;
     const sent = tab === "basic" ? basicRequestValues(goalOf(goal), rigs.values, defaults) : values;
+    const blocked = tab === "basic" ? basicProblem(byName, sent) : "";
+    if (blocked) return blocked;
     const built = buildRequest(placed, sent, drawnAreas, file);
     if (typeof built === "string") return built;
     const wrong = Object.entries(problems);

@@ -196,6 +196,7 @@ def test_basic_requests_of_every_goal_and_rig(tmp_path):
     no_high = {k: v for k, v in defaults.items() if k != "high_above"}
     no_lift = {k: v for k, v in by_name.items() if k != "anchor_lift"}
     formula_only = {**by_name, "model": {**by_name["model"], "choices": ["formula"]}}
+    no_mark = {**by_name, "nmpt": {**by_name["nmpt"], "choices": ["reject", "off"]}}  # a site forbidding nmpt=mark
     found = run_ts(tmp_path, "search/basic", f"""
 const presets = {json.dumps(presets)}, defaults = {json.dumps(defaults)};
 const out = {{}};
@@ -204,6 +205,9 @@ for (const p of presets.filter((p) => p.values)) for (const [name, rig] of [["st
 out.fields = m.GOAL_FIELDS; out.rig = m.RIG_FIELDS; out.starting = m.STARTING_RIG;
 out.noHigh = m.basicRequestValues(presets[0], m.STARTING_RIG, {json.dumps(no_high)});
 out.problems = [m.basicProblem({json.dumps(by_name)}), m.basicProblem({json.dumps(no_lift)}), m.basicProblem({json.dumps(formula_only)})];
+const sent = (id) => m.basicRequestValues(presets.find((p) => p.id === id), m.STARTING_RIG, defaults);
+out.noMark = [m.basicProblem({json.dumps(no_mark)}, sent("best")), m.basicProblem({json.dumps(no_mark)}, sent("first")),
+              m.basicProblem({json.dumps(by_name)}, sent("best"))];
 console.log(JSON.stringify(out));""")
     assert found["fields"] == list(pm.GOAL_FIELDS) and found["rig"] == list(pm.RIG_FIELDS)
     assert found["starting"] == STARTING_RIG
@@ -227,6 +231,8 @@ console.log(JSON.stringify(out));""")
     assert "high_above" not in found["noHigh"] and found["noHigh"]["max_anchor_diff"] == 5
     assert found["problems"] == ["", "A-frame height cannot be changed on this site.",
                                  'Clearance model: "Sag estimate" cannot be used on this site.']
+    # a goal's default choice sent explicitly, which the site forbids: Basic's problem, Start disabled
+    assert found["noMark"] == ['Trees and buildings: "Mark in orange" cannot be used on this site.', "", ""]
 
 
 def test_basic_match_goal_and_what_basic_cannot_show(tmp_path):

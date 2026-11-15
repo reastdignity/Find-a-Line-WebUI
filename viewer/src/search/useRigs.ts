@@ -1,6 +1,8 @@
 // The user's saved rigs (/api/rigs: with the account on the public site, in the local app's jobs.sqlite) and
 // the rig in use, which this browser keeps (findaline.rig in localStorage: the id; spec-search 1.3, U-5): a
-// missing or unknown id takes the first rig, no rig the starting rig (basic.ts STARTING_RIG).
+// missing or unknown id takes the first rig when the rigs load, no rig the starting rig (basic.ts STARTING_RIG).
+// A rig in use that goes later (deleted on another device, found when a refused change reloads the list) is
+// "lost": the first rig stands in for Basic, but nothing is saved into it before the user chooses a rig.
 
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { api } from "../app/api";
@@ -18,6 +20,9 @@ export interface RigsState {
   loaded: boolean;           // the first answer came (or failed)
   error: string;             // of loading
   inUse: Rig | null;         // null: the starting rig
+  /** The rig in use went after the rigs loaded (deleted on another device): the first rig stands in for Basic,
+   *  but nothing is saved into it before the user chooses a rig. */
+  lost: boolean;
   values: RigValues;         // the rig in use's values (the starting rig's without one)
   choose(id: number): void;
   /** A new rig, then in use; throws the server's error (ApiError). */
@@ -34,7 +39,9 @@ export function useRigs(): RigsState {
   const [max, setMax] = useState(RIGS_MAX);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  const [stored, setStored] = useState<number | null>(storedRigId);
+  // The id of the rig in use on this page: the stored one when the rigs load (else the first), then the user's
+  // choices; a reload that no longer lists it leaves it as it is (lost)
+  const [current, setCurrent] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     const answer = await api.rigs();
@@ -44,11 +51,13 @@ export function useRigs(): RigsState {
     return list;
   }, []);
   useEffect(() => {
-    reload().then(() => setError(""), (e: Error) => setError(e.message)).finally(() => setLoaded(true));
+    reload().then((list) => { setCurrent(rigInUse(list, storedRigId())?.id ?? null); setError(""); },
+                  (e: Error) => setError(e.message)).finally(() => setLoaded(true));
   }, [reload]);
 
-  const inUse = rigInUse(rigs, stored);
-  const choose = (id: number) => { setStored(id); storeRigId(id); };
+  const lost = current !== null && !rigs.some((r) => r.id === current);
+  const inUse = rigInUse(rigs, current);
+  const choose = (id: number | null) => { setCurrent(id); storeRigId(id); };
   /** A change refused (a rig deleted on another device: "rig_missing", a name taken there): the list as the
    *  server has it now, then the error for the caller to show. */
   const refused = async (e: unknown): Promise<never> => {
@@ -56,7 +65,7 @@ export function useRigs(): RigsState {
     throw e;
   };
   return {
-    rigs, max, loaded, error, inUse, values: inUse ? inUse.values : STARTING_RIG, choose,
+    rigs, max, loaded, error, inUse, lost, values: inUse ? inUse.values : STARTING_RIG, choose,
     add: async (name, values) => {
       const {id} = await api.addRig(name, values).catch(refused);
       choose(id);
@@ -70,11 +79,7 @@ export function useRigs(): RigsState {
     remove: async (id) => {
       await api.deleteRig(id).catch(refused);
       const list = await reload();
-      if (inUse?.id === id) {
-        const first = list[0]?.id ?? null;
-        setStored(first);
-        storeRigId(first);
-      }
+      if (inUse?.id === id) choose(list[0]?.id ?? null);
     },
   };
 }

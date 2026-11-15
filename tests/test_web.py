@@ -2894,6 +2894,59 @@ def test_basic_form_paths(tmp_path):
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_basic_form_save_into_a_rig_deleted_elsewhere(tmp_path):
+    """Advanced's "Save into" of a rig deleted on another device: refused, the page says so in the catalogue's
+    words and keeps saying it after the list reloads; the rig that now stands in (the first) is never written,
+    "Save into" stays off until the user chooses a rig in Basic, then saves into the chosen one."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    jobs = Jobs(str(tmp_path))
+    heavy = jobs.add_rig(None, "Heavy", {**STARTING_RIG, "anchor_lift": 2})
+    spare = jobs.add_rig(None, "Spare", STARTING_RIG)
+    note = ".s-rig-save .u-small"
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _basic_page(tmp_path, port, browser, **DESKTOP)  # "Heavy", the first rig, in use
+            page.click(".s-tabs [data-tab=advanced]")
+            page.click(".s-more-head")
+            page.click(".s-topic[data-topic=rigging] > summary")
+            field = page.locator(".s-setting[data-field=pretension] input")
+            field.fill("3")
+            field.dispatch_event("change")
+            jobs.delete_rig(None, heavy)  # on another device
+            page.click(BUTTON % "Save into “Heavy”")
+            # the list reloads (the refusal): "Spare" stands in, and the refusal's words stay
+            page.wait_for_function("() => [...document.querySelectorAll('.s-rig-save button')]"
+                                   ".some((b) => b.textContent === 'Save into “Spare”')", timeout=WAIT)
+            r["refused"] = page.evaluate(f"""() => [document.querySelector({json.dumps(note)}).textContent,
+                [...document.querySelectorAll('.s-rig-save button')].map((b) => [b.textContent, b.disabled])]""")
+            r["spare"] = jobs.rigs(None)[0]["values"]["pretension"]
+            # The user chooses "Spare" in Basic (the values back to Basic's first), then saves into it from Advanced
+            page.click(".s-tabs [data-tab=basic]")
+            page.click(IN_DIALOG % "Reset them to Basic's values")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'basic'", timeout=WAIT)
+            page.click(".s-rig-pick")
+            page.click(f".s-rig-item[data-rig='{spare}']")
+            page.click(".s-tabs [data-tab=advanced]")
+            page.click(".s-more-head")
+            page.click(".s-topic[data-topic=rigging] > summary")
+            field = page.locator(".s-setting[data-field=pretension] input")
+            field.fill("4")
+            field.dispatch_event("change")
+            page.click(BUTTON % "Save into “Spare”")
+            page.wait_for_function(f"() => document.querySelector({json.dumps(note)})?.textContent.startsWith('Saved into')",
+                                   timeout=WAIT)
+            r["chosen"] = [page.text_content(note), jobs.rigs(None)[0]["values"]["pretension"]]
+        finally:
+            browser.close()
+    assert r["refused"] == ["This rig no longer exists.", [["Save into “Spare”", True], ["Save as a new rig", False]]], r
+    assert r["spare"] == 2.5, r  # the rig that stood in was not written
+    assert r["chosen"] == ["Saved into “Spare”. Every Basic search uses it now.", 4.0], r
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_basic_form_on_a_phone(tmp_path):
     """On a phone of 390 × 844 px (touch, pixel ratio 3) the form keeps at least 396 px between the map and the
     compact bar (spec-search 1.8: the accepted mock-up's 396 px); the bar's one line "<goal> · <lengths> · <rig>"

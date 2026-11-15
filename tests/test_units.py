@@ -2863,6 +2863,12 @@ def test_labels_topics_and_presets():
     no_reject = {p["id"]: p for p in web.presets(Limits(not_allowed=["nmpt=reject", "max_wall_angle"]))}
     assert not no_reject["first"]["available"] and no_reject["sea"]["available"]  # a field left at its default
     assert no_reject["first"]["reason"] == 'Trees and buildings: "Remove these lines" cannot be used on this site.'
+    # Judged by what Basic sends: every goal field with a value, defaults included (a default choice the site
+    # forbids, "nmpt=mark", makes the goals that send it unavailable; "First highline" sends "reject")
+    no_mark = {p["id"]: p for p in web.presets(Limits(not_allowed=["nmpt=mark"]))}
+    assert [g for g, p in no_mark.items() if not p["available"]] == ["best", "long", "sea", "everything"]
+    assert no_mark["best"]["reason"] == 'Trees and buildings: "Mark in orange" cannot be used on this site.'
+    assert no_mark["first"]["available"] and no_mark["custom"]["available"]
     fields = {f["name"]: f for f in web.schema()}
     assert offered["first"]["label"] == "First highline" and fields["nmpt"]["choice_labels"]["off"] == "Do not check"
     assert fields["max_anchor_diff_m"]["label"] == "Anchor height difference"

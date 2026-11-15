@@ -240,27 +240,33 @@ function SaveRig({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const full = r.rigs.length >= r.max;
   const [message, setMessage] = useState("");
   const key = JSON.stringify(shown);
-  useEffect(() => setMessage(""), [key, r.inUse?.id]);
+  useEffect(() => setMessage(""), [key]);  // a new value: the last save's words go (not when the rig in use changes)
   const into = async () => {
     const problem = rigProblem(shown, s.byName);
     if (problem) { setMessage(problem); return; }
+    const target = r.inUse!;
     try {
-      await r.change(r.inUse!.id, {values: shown});
-      setMessage(t("basic.saved_into", {name: r.inUse!.name}));
+      await r.change(target.id, {values: shown});
+      setMessage(t("basic.saved_into", {name: target.name}));
     } catch (e) {
       setMessage((e as Error).message);  // a coded answer: its text from the catalogue (ApiError, i18n.detailMessage)
     }
   };
+  // The rig in use gone (deleted on another device: "rig_missing" reloads the list, or found so when the page
+  // loaded): another rig stands in for Basic, but "Save into" stays off until the user chooses a rig in Basic, so a
+  // save never moves to a rig the user did not pick
+  const lost = r.lost;
   const asNew = () => {
     const problem = rigProblem(shown, s.byName);
     if (problem) { setMessage(problem); return; }
     onRig({mode: r.inUse ? "new" : "first", values: shown, from: "advanced"});
   };
-  const note = message || (full && !same && r.inUse ? t("basic.full_save_into", {max: r.max, name: r.inUse.name})
+  const note = message || (lost ? t("error.rig_missing")
+    : full && !same && r.inUse ? t("basic.full_save_into", {max: r.max, name: r.inUse.name})
     : r.inUse && same ? t("basic.same_values", {name: r.inUse.name}) : t("basic.rig_keeps"));
   return <div class="s-rig-save">
     <div class="s-rig-ask">
-      {r.inUse && <Button disabled={same} onClick={into}>{t("basic.save_into", {name: r.inUse.name})}</Button>}
+      {r.inUse && <Button disabled={same || lost} onClick={into}>{t("basic.save_into", {name: r.inUse.name})}</Button>}
       <Button disabled={full} onClick={asNew}>{t(r.inUse ? "basic.save_new" : "basic.save_mine")}</Button>
     </div>
     <p class="u-small" aria-live="polite">{note}</p>

@@ -72,14 +72,18 @@ export function basicRequestValues(goal: Preset | undefined, rig: RigValues, def
   return {...changedOf(all, defaults), ...Object.fromEntries([...goalFields, ...EXPLICIT].map((k) => [k, all[k]]))};
 }
 
-/** Why a site cannot take Basic's request (its limits leave out a field Basic must send, or the sag model), in the
- *  words of the server's refusal, or "": the model, the rig's seven values and the square rule are sent always. */
-export function basicProblem(byName: Record<string, Field>): string {
+/** Why a site cannot take Basic's request `sent` (basicRequestValues), in the words of the server's refusal, or "":
+ *  its limits leave out a field Basic must send (the model, the rig's seven values and the square rule are sent
+ *  always), or a choice it sends is not among the schema's choices (the sag model, a goal's choice: also a
+ *  default's, which Basic sends explicitly: "nmpt=mark"). */
+export function basicProblem(byName: Record<string, Field>, sent: Values = {model: "sag"}): string {
   for (const k of EXPLICIT) {
-    const field = byName[k];
-    if (!field) return t("error.not_allowed", {label: label(k)});
-    if (k === "model" && field.choices && !field.choices.includes("sag")) {
-      return t("error.not_allowed_value", {label: label(k), value: t("choice.model.sag")});
+    if (!byName[k]) return t("error.not_allowed", {label: label(k)});
+  }
+  for (const [k, value] of Object.entries(sent)) {
+    const choices = byName[k]?.choices;
+    if (typeof value === "string" && choices && k !== "source" && !choices.includes(value)) {
+      return t("error.not_allowed_value", {label: label(k), value: t(`choice.${k}.${value}`)});
     }
   }
   return "";
