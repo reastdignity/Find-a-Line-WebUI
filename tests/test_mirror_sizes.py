@@ -76,6 +76,12 @@ def _folder(result, name):
     return next(f for f in result["folders"] if f["folder"] == name)
 
 
+def test_constants_match_the_app():
+    """The tool imports nothing of the app (it runs on the mirror's server): its copies of the grid's constants."""
+    import sk_tiles
+    assert (ms.TILE_M, ms.BLOCK, ms.MIRROR_ENV) == (sk_tiles.TILE_M, sk_tiles.BLOCK, MIRROR_ENV)
+
+
 def test_counts_and_bytes_of_a_folder(mirror):
     """Part 1: tiles with data and null, bytes, size statistics, the consistency counts (a missing tile is
     counted, not a crash)."""
