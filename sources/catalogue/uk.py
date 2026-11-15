@@ -1,13 +1,16 @@
 """The United Kingdom by region: England (Environment Agency's LIDAR Composite, WCS), Wales (Welsh Government's
-LiDAR 2020-22, one national COG each) and Scotland (the Scottish Remote Sensing Portal's 0.5 m collections in an
-open S3 bucket, composed newest first)."""
+LiDAR 2020-22, one national COG each), Scotland (the Scottish Remote Sensing Portal's 0.5 m collections in an
+open S3 bucket, composed newest first) and Northern Ireland's coast (DAERA's 2021 coastal survey DTM, an Esri
+elevation tile cache)."""
 
+import os
 from typing import List
 
 from ..credit import Credit
-from ..source import Coverage, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..indexes.osgrid import os_prefixes, os_tile_extent
 from ..layers.fileblocks import FileBlocks
+from ..layers.lerc import LercTiles
 from ..layers.s3blocks import S3Blocks
 from ..layers.wcs import WcsTiles
 
@@ -102,6 +105,42 @@ def _scotland(kind: str, description: str) -> S3Blocks:
                     f"srsp-{kind}", f"scotland/srsp-{kind}", BNG, 0.5, 1000, 16e6, os_prefixes, _sct_extent)
 
 
+# Northern Ireland: DAERA's "2021 NI 3D Coastal Survey - 3D Elevation Layer" (ArcGIS item
+# 442cbde42ebe49a3b0d46cd7ce5c8ea2, service Full_NI_Elevation): the bare-earth DTM of the survey's lidar (0.25 m;
+# the intertidal zone and about 200 m inland, the whole coast with Lough Foyle, Belfast and Strangford Loughs, Rathlin;
+# Fair Head's crag and plateau), published only as an Esri elevation tile cache (LERC1 tiles in Web Mercator, levels
+# 0-23, cached to 1:564, lercError 0.1 m: every sample within 0.1 m of the survey's value), no download of the
+# rasters ("exportTilesAllowed": false is Esri's export operation; the tiles load without a key). Heights above
+# Belfast Lough datum. Read at the level that suits the working grid (17 for 1 m: 0.68 m on the ground at 55° N), at
+# most 19 (0.17 m: the first level finer than the data), and reprojected once onto Irish Transverse Mercator: ITM
+# (EPSG:2157, IRENET95, i.e. ETRS89, which PROJ takes as WGS84 like Web Mercator's datum) needs no datum shift, while
+# the Irish Grid (TM75 or TM65) needs a Helmert shift of about 1 m accuracy; ITM's scale error over Northern Ireland
+# stays within about -0.02 % (its central meridian, 8° W) and +0.02 % (the Ards peninsula), and one zone covers it
+# all (UTM splits it at 6° W). The cache is DAERA's, not a download service: no published limits (the item, the
+# service and OpenDataNI's pages, read 2026-11-15), asked gently (net.HOST_RATES_OF: at most one request a second, as
+# the mail to DAERA of 2026-11-15 promises). The service's extent (EPSG:3857): tiles outside it are never asked; the
+# cells with data (tools/lerc_coverage.py) decide where the source is chosen and which tiles a search asks. Folder
+# live: DAERA may add newer surveys to the layer (the 2022 post-storm models are pictures only so far).
+NI_DTM_URL = "https://tiles-eu1.arcgis.com/kswen6BYexuc1SUk/arcgis/rest/services/Full_NI_Elevation/ImageServer"
+NI_EXTENT = (-815794.4751765616, 7171282.93937308, -600897.7231999885, 7424282.448916508)
+NI_CELLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "northern_ireland_dtm_cells.npz")
+NI_DTM = LercTiles("DAERA 2021 coastal lidar DTM (terrain)", NI_DTM_URL, "northern_ireland/coastal-dtm/live",
+                   native_res=0.25, max_level=19, extent=NI_EXTENT, cells=NI_CELLS, near_m=100)
+ITM = "EPSG:2157"
+# The item's licenseInfo and accessInformation (credits), verbatim (read 2026-11-15)
+NI_CREDIT = Credit("2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)",
+                   "Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public sector "
+                   "information licensed under the Open Government Licence v3.0", *OGL)
+# The survey's orthophoto (item 9c0fd3d15cfd446a9678cd6ea4d54dc7, "Lot1_Ortho_NI": 0.1 m, the coast only, PNG tiles
+# in Web Mercator to level 20, transparent beyond the survey; OGL v3.0, the same credit, read 2026-11-15)
+NI_ORTHO = OrthoService(
+    "DAERA 2021 coastal survey orthophoto", None, "", "northern_ireland/ortho/live",
+    "Orthophoto: Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public sector "
+    "information licensed under the Open Government Licence v3.0", attribution_url=OGL[1],
+    base_url="https://tiles-eu1.arcgis.com/kswen6BYexuc1SUk/arcgis/rest/services/Lot1_Ortho_NI/MapServer/tile"
+             "/{z}/{y}/{x}", base_max_zoom=20)
+
+
 def _sct_extent(stem: str):
     """The 1 km square of a file (<tile>_50cm_...): None for any other name."""
     tile = stem.split("_", 1)[0]
@@ -109,7 +148,28 @@ def _sct_extent(stem: str):
     return extent if extent and extent[2] - extent[0] == 1000 else None
 
 SOURCES: List[Source] = [
-    # Scotland and Wales first: their offline boxes win where they overlap England's
+    # Northern Ireland first: its offline box holds the Ards peninsula and Islandmagee, which England's box and
+    # Scotland's third box hold too. Scotland and Wales next: their offline boxes win where they overlap England's
+    Source(
+        id="northern_ireland", name="DAERA 2021 coastal lidar DTM (Northern Ireland)",
+        description="DAERA's 2021 NI 3D Coastal Survey: the bare-earth DTM of its lidar (0.25 m, the coast and about "
+                    "200 m inland) from its elevation tile cache, reprojected onto Irish Transverse Mercator, "
+                    "Belfast Lough datum; inland FABDEM",
+        nmt=NI_DTM, countries=("gb",), regions=("gb-nir",), crs=ITM, ortho=NI_ORTHO, credits=(NI_CREDIT,),
+        listing=ReadmeRow("Northern Ireland (GB), its coast",
+                          "DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles)", "–",
+                          "DAERA 2021 coastal orthophoto"),
+        # Northern Ireland with Rathlin and the Copelands (also holding Donegal's Inishowen and Ireland's border
+        # counties, which have no source of their own: gb there offline, then europe as without data)
+        offline=(("gb-nir", (54.00, 55.32, -8.20, -5.40)),), sample=(55.2240, -6.1570),  # Fair Head (R74)
+        # Inland (Belfast's centre, the Mournes, Binevenagh) the DTM has nothing within 1 km: europe instead
+        instead_without_data="europe",
+        note="Data: DAERA, Bluesky, OGL v3.0. The 2021 coastal survey's DTM covers the coast only (the intertidal "
+             "zone and about 200 m inland; Fair Head's crag and plateau): elsewhere FABDEM fills the search, and "
+             "a search centred inland uses FABDEM alone. Its tiles hold heights within 0.1 m of the survey's. No "
+             "surface model: trees and buildings are not in the data.",
+        # Partial: the coast only
+        coverage=Coverage(provider="DAERA", added="2026-11-15", partial=True, rest=(30.0,), survey="2021")),
     Source(
         id="scotland", name="Scottish LiDAR (DTM / DSM 0.5 m)",
         description="Scottish Government LiDAR (Scottish Remote Sensing Portal): the National LiDAR Programme "

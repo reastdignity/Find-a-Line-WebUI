@@ -16,9 +16,9 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
+       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "rio_de_janeiro", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -788,6 +788,32 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                             'ttl_days': None,
                             'credit': 'ALS DTM / DSM Höhenraster 1 m (BEV, Austria)',
                             'shift': (0.0, 0.0)}},
+            'northern_ireland': {'crs': 'EPSG:2157',
+                                 'countries': ('gb',),
+                                 'bbox': None,
+                                 'fallbacks': ['europe'],
+                                 'grid_origin': (0.0, 0.0),
+                                 'default_resolution': 1.0,
+                                 'instead_without_data': 'europe',
+                                 'local_crs': 'utm_crs',
+                                 'ortho': 'northern_ireland/ortho/live',
+                                 'credits': ['2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)'],
+                                 'nmt': {'class': 'LercTiles',
+                                         'description': 'DAERA 2021 coastal lidar DTM (terrain)',
+                                         'folder': 'northern_ireland/coastal-dtm/live',
+                                         'prefix': None,
+                                         'native_res': 0.25,
+                                         'processing': 1,
+                                         'ttl_days': 730,
+                                         'credit': '2021 NI 3D Coastal Survey, 3D Elevation Layer (DTM 0.25 m; DAERA)',
+                                         'shift': (0.0, 0.0),
+                                         'url': 'https://tiles-eu1.arcgis.com/kswen6BYexuc1SUk/arcgis/rest/services/'
+                                                'Full_NI_Elevation/ImageServer',
+                                         'max_level': 19,
+                                         'floor': None,
+                                         'extent': (-815794.4751765616, 7171282.93937308, -600897.7231999885,
+                                                    7424282.448916508)},
+                                 'nmpt': None},
             'scotland': {'crs': 'EPSG:27700',
                          'countries': ('gb',),
                          'bbox': None,
@@ -1929,6 +1955,34 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                       'credit': 'DSM 2015 2 m (Umhvørvisstovan, the Faroe Islands)',
                                       'shift': (0.0, 0.0)},
                               'nmpt': None},
+            'rio_de_janeiro': {'crs': 'EPSG:31983',
+                               'countries': ('br',),
+                               'bbox': (-23.09, -22.75, -43.8, -43.09),
+                               'fallbacks': ['europe'],
+                               'grid_origin': (0.0, 0.0),
+                               'default_resolution': 5.0,
+                               'instead_without_data': 'europe',
+                               'local_crs': 'utm_crs',
+                               'ortho': None,
+                               'credits': ['Modelo Digital de Terreno (MDT) 5 m, município do Rio de Janeiro '
+                                           '(Instituto Pereira Passos)'],
+                               'nmt': {'class': 'LercTiles',
+                                       'description': 'IPP Rio de Janeiro lidar DTM 5 m (terrain)',
+                                       'folder': 'brazil/rio-mdt5m/live',
+                                       'prefix': None,
+                                       'native_res': 5.0,
+                                       'processing': 1,
+                                       'ttl_days': 730,
+                                       'credit': 'Modelo Digital de Terreno (MDT) 5 m, município do Rio de Janeiro '
+                                                 '(Instituto Pereira Passos)',
+                                       'shift': (0.0, 0.0),
+                                       'url': 'https://tiles.arcgis.com/tiles/OlP4dGNtIcnD3RYf/arcgis/rest/services/'
+                                              'Painel_de_Monitoramento_3D_Reviver_Centro__23032022__WEL/ImageServer',
+                                       'max_level': 15,
+                                       'floor': -5.0,
+                                       'extent': (-4875440.139568845, -2642643.245298926, -4797071.023591221,
+                                                  -2601291.8207240254)},
+                               'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -2030,6 +2084,8 @@ def _layer(layer):
                     corner=layer.index.corner, pixel=layer.index.pixel, size=layer.index.size)
     if isinstance(layer, src.GeoSheetTiles):
         info.update(crs=layer.crs, cell=layer.index.cell, origin=layer.index.origin, within=layer.index.within)
+    if isinstance(layer, src.LercTiles):
+        info.update(url=layer.url, max_level=layer.max_level, floor=layer.floor, extent=layer.index.extent)
     return info
 
 
@@ -2180,6 +2236,9 @@ PATHS = [
     ("australia", "nmt", (675, -465), "australia/dem5m/live/epsg4283-1000px-g81d4e2da/675_-465.tif",
      (675, -465)),
     ("uruguay", "nmt", (70, 48), "uruguay/mdt250/2018/E18D5.tif", (70, 48)),
+    ("northern_ireland", "nmt", (17, 41315, 63294), "northern_ireland/coastal-dtm/live/17/41315/63294.tif",
+     (17, 41315, 63294)),
+    ("rio_de_janeiro", "nmt", (15, 18531, 12455), "brazil/rio-mdt5m/live/15/18531/12455.tif", (15, 18531, 12455)),
 ]
 
 
@@ -2313,6 +2372,7 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),
          ("si", (45.85, 46.88, 15.65, 16.61)),
          ("at", (46.37, 49.02, 9.53, 17.17)),
+         ("gb-nir", (54.00, 55.32, -8.20, -5.40)),
          ("gb-sct", (55.82, 60.86, -8.65, -0.73)), ("gb-sct", (55.35, 55.82, -8.65, -5.85)),
          ("gb-sct", (54.63, 55.82, -5.85, -3.6)),
          ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77)),
@@ -2408,7 +2468,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("is", (63.2, 66.6, -24.6, -13.4)),
          ("au", (-39.20, -10.90, 114.10, 129.00)), ("au", (-39.20, -9.87, 129.00, 153.68)),
          ("uy", (-35.05, -30.08, -58.45, -53.10)),
-         ("fo", (61.38, 62.42, -7.72, -6.22))]
+         ("fo", (61.38, 62.42, -7.72, -6.22)),
+         ("br", (-23.09, -22.75, -43.80, -43.09))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -2596,6 +2657,9 @@ ATTRIBUTIONS = {
                     "in part "
                     "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "
                     "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
+    "northern_ireland": "Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; contains public "
+                        "sector information licensed under the Open Government Licence v3.0",
+    "rio_de_janeiro": "Instituto Pereira Passos (PCRJ)",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
@@ -2631,6 +2695,9 @@ ORTHOS = {  # source: (attribution, attribution_url)
                    "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/"
                    "LatestStateProgram_AllUsers/ImageServer/info/iteminfo"),
     "svalbard": ("© Norwegian Polar Institute, CC BY 4.0", "https://www.npolar.no/"),
+    "northern_ireland": ("Orthophoto: Department of Agriculture, Environment and Rural Affairs (DAERA), Bluesky; "
+                         "contains public sector information licensed under the Open Government Licence v3.0",
+                         "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"),
 }
 
 

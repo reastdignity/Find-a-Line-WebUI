@@ -366,7 +366,8 @@ def test_stac_pages_and_orthophoto_wait(http_server, monkeypatch):
 def test_published_limits():
     """The rates and slot caps of the providers' terms (the comments in net.py quote them)."""
     assert net.HOST_RATES_OF == {"data.geo.admin.ch": 36, "wmts.geo.admin.ch": 1080,
-                                 "environment.data.gov.uk": 180, "data.geopf.fr": 2160}
+                                 "environment.data.gov.uk": 180, "data.geopf.fr": 2160,
+                                 "tiles-eu1.arcgis.com": 54}
     assert net.HOST_SLOTS_OF == {"data.bev.gv.at": 2, "www.nic.funet.fi": 4, "mirrors.nic.funet.fi": 4,
                                  "servicios.idee.es": 4,
                                  "wcs-mds.idee.es": 4, "malta.coverage.wetransform.eu": 4,
@@ -384,7 +385,8 @@ def test_published_limits():
                                  "data.slackmap.com": 2, "api.slackmap.com": 1, "services.ga.gov.au": 2,
                                  "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
                                  "webgis.regione.sardegna.it": 2,
-                                 "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2}
+                                 "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
+                                 "tiles-eu1.arcgis.com": 2, "tiles.arcgis.com": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 
