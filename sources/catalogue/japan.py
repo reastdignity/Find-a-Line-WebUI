@@ -162,13 +162,16 @@ TK_CREDIT = Credit("Tokyo Digital Twin point cloud data, 0.5 m grids (Tokyo Metr
                    "（https://creativecommons.org/licenses/by/4.0/deed.ja）",
                    *CC_BY, notice=f"Tokyo Open Data terms of use: {TK_TERMS}")
 
-# Offline boxes (south, north, west, east): Tokyo's mainland in bands of 0.05 degrees of its outline (keeping off
-# Kanagawa's, Yamanashi's and Saitama's land where a band allows), and the Izu islands
+# Offline boxes (south, north, west, east): Tokyo's mainland in bands of 0.05 degrees of its outline and of its
+# sheets (keeping off Kanagawa's, Yamanashi's and Saitama's land where a band allows), and the Izu islands by groups
+# (Oshima; Toshima, Niijima, Shikinejima; Kozushima; Miyakejima, Mikurajima and the rocks west of them; Hachijojima
+# and Aogashima), clear of Shizuoka's boxes: every sheet of the table lies in them (tests/test_japan.py)
 TK_BOXES = tuple(("jp-13", box) for box in (
-    (35.48, 35.50, 139.82, 139.86), (35.50, 35.55, 139.42, 139.86), (35.54, 35.60, 139.35, 139.86),
-    (35.60, 35.65, 139.17, 139.89), (35.65, 35.70, 139.06, 139.92), (35.70, 35.75, 139.00, 139.92),
-    (35.75, 35.80, 138.97, 139.90), (35.79, 35.85, 138.94, 139.85), (35.85, 35.90, 138.94, 139.17),
-    (32.40, 34.82, 139.20, 140.00)))
+    (35.48, 35.55, 139.42, 139.86), (35.54, 35.60, 139.34, 139.86), (35.60, 35.65, 139.16, 139.89),
+    (35.65, 35.70, 139.05, 139.93), (35.70, 35.75, 138.99, 139.93), (35.75, 35.80, 138.97, 139.90),
+    (35.79, 35.85, 138.94, 139.85), (35.85, 35.91, 138.93, 139.18),
+    (34.60, 34.85, 139.33, 139.47), (34.30, 34.60, 139.17, 139.32), (34.15, 34.30, 139.05, 139.22),
+    (33.75, 34.15, 139.04, 139.65), (32.40, 33.20, 139.60, 139.90)))
 
 
 # --- Shizuoka ---------------------------------------------------------------------------------------------------

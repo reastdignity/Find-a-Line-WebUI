@@ -32,11 +32,12 @@ ZOOM = 12  # the finest zoom of the index tiles: lower ones drop features
 PAUSE_S = 1.0
 MAX_TILE_BYTES = 5_000_000
 # (folder, set, boxes as (south, north, west, east)): Tama and the 23 wards on the mainland, the Izu islands
-# (Ogasawara was not surveyed)
+# (Ogasawara was not surveyed), each grown until no tile of its outer ring holds a sheet (2026-11-15: the first
+# boxes, the offline boxes', had sheets in their outer tiles: Kozushima's and Niijima's west, Tama's edges)
 SETS: Tuple[Tuple[int, str, Tuple[Tuple[float, float, float, float], ...]], ...] = (
-    (2023, "tama", ((35.50, 35.90, 138.94, 139.93),)),
-    (2023, "toushobu", ((32.40, 34.82, 139.20, 140.00),)),
-    (2024, "23ku", ((35.50, 35.90, 139.50, 139.93),)),
+    (2023, "tama", ((35.35, 36.05, 138.75, 140.10),)),
+    (2023, "toushobu", ((32.25, 34.95, 138.95, 140.20),)),
+    (2024, "23ku", ((35.35, 36.05, 139.35, 140.10),)),
 )
 
 
@@ -163,4 +164,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    from progress import utf8_output
+    utf8_output()  # redirected output in UTF-8, not the Windows code page
     main()

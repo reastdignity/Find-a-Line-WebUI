@@ -161,6 +161,8 @@ def test_tokyo_table_decides(tokyo, tmp_path, http_server):
         with pytest.raises(RuntimeError, match=code):
             tokyo._download_and_record(japan.jp_cell(9, code), cache_dir)
         assert cache.due(cache_dir, tokyo.tile_path(cache_dir, japan.jp_cell(9, code)))  # nothing recorded
+    assert len(http_server.requests("/2023/dig/grd50/09RD8411.zip")) == 1  # a 403 is never asked again
+    assert len(http_server.requests("/2023/dig/grd50/09RD8319.zip")) == 1
     assert not any("09RD8412" in r.path for r in http_server.requests())
     assert tokyo.tile_url(japan.jp_cell(9, "09RD8412")) is None
 
@@ -171,7 +173,14 @@ def test_tokyo_table_shipped():
     assert table["09KC6361"] == (2023,) and table["09RD8412"] == (2023,) and table["09LD1649"] == (2024,)
     assert table["09KD8388"] == (2024, 2023)  # on the line between Tama and the wards: both, the newer first
     assert all(japan.jp_cell(9, code) is not None for code in table)
-    assert len(table) == 18845 and sum(len(f) == 2 for f in table.values()) == 85
+    assert len(table) == 18891 and sum(len(f) == 2 for f in table.values()) == 85
+    # every sheet lies in Tokyo's offline boxes (the islands' too: Kozushima's and the rocks west of Miyakejima)
+    from rasterio.warp import transform
+    cells = [japan.jp_cell(9, code) for code in table]
+    lons, lats = transform(japan.TK_CRS, "EPSG:4326", [(i + 0.5) * 400 for i, _ in cells],
+                           [(j + 0.5) * 300 for _, j in cells])
+    boxes = [box for _, box in japan.TK_BOXES]
+    assert all(any(s <= lat <= n and w <= lon <= e for s, n, w, e in boxes) for lat, lon in zip(lats, lons))
     assert japan.tk_files(*japan.jp_cell(9, "09LD1649")) == [
         ("2024_09LD1649", f"{japan.TK_BUCKET}/2024/dig/grd50/09LD1649.zip", 2024)]
 

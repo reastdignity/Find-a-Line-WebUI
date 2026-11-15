@@ -78,7 +78,10 @@ class SheetFile(Reader):
         """The answer of a sheet's URL; None for a 404 (no such sheet), an error for a 404 when the files are
         listed (listed) and for any other failure."""
         try:
-            response = net._get(tile.url, binary_types=("octet", "zip", "text", "image"))
+            if self.listed:  # a 403 for a listed file is that file's error, not asked again
+                response = net._get(tile.url, binary_types=("octet", "zip", "text", "image"), final=(403,))
+            else:
+                response = net._get(tile.url, binary_types=("octet", "zip", "text", "image"))
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: {e}")
         if response is None and self.listed:

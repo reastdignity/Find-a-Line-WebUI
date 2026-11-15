@@ -332,12 +332,14 @@ def verify(url: Optional[str]):
         return path
 
 
-def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
+def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart"),
+         final: Tuple[int, ...] = ()):
     """GET with retries; raises RuntimeError with the server message on failure (without the
     query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
     (rate_turn) and is counted (servicecounts, the host only; a 200 that is not data counts as
     `other`). A 429 or 503 (the server asks us to slow down) backs off longer: _sleep(attempt + 3),
-    about 8, 16 and 32 s."""
+    about 8, 16 and 32 s. A status in final is an error at once, never asked again (an S3 bucket that
+    denies listing answers 403 for a key it does not have: SheetFile(listed=True))."""
     last_error = None
     for attempt in range(RETRIES):
         slow_down = False
@@ -353,14 +355,23 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
                     if response.status_code == 200:
                         counted.outcome = "other"
                     slow_down = response.status_code in (429, 503)
+                    if response.status_code in final:
+                        raise _Final(f"HTTP {response.status_code}: {response.text[:300]}")
                     raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
             return response
+        except _Final as e:
+            last_error = e
+            break
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
             _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)
     raise RuntimeError(cache.clean_error(last_error))
+
+
+class _Final(RuntimeError):
+    """An answer _get does not ask again (its `final` statuses)."""
 
 
 def _sleep(attempt: int):
