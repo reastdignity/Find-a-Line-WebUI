@@ -58,6 +58,7 @@ import coast
 import grid as gd
 import helpers as sh
 import hypsometry as hy
+import linestore
 import mapping as mp
 import messages
 import obstacles
@@ -2384,13 +2385,20 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
                 ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
     map_path = None
+    # The store (linestore: lines.arrow, profiles.arrow) first, with or without a map, its head data.js's;
+    # run.json keeps its block "store", the text files never hold it (linestore.export leaves it out)
+    head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
+                       p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+    store = linestore.write(run["path"], results, head)
     # The line files of a large run are written by processes of their own (saving.py: one per file
     # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
     children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
                 if len(results) >= saving.MIN_LINES else [])
     if not children:
         progress.compute.start("saving results", len(results), unit="line")
-        rn.save_results(run["path"], results, spot_groups, meta, on_lines)
+        rn.save_results(run["path"], results, spot_groups, meta, on_lines, files=("lines.csv", "lines.geojson"))
+        meta["store"] = store
+        rn.save_results(run["path"], results, spot_groups, meta, on_lines, files=("ATTRIBUTION.txt", "run.json"))
         progress.compute.finish()
         saved()
         if not p.no_html:
@@ -2403,6 +2411,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
             ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
 
         def between():  # once the results' files are written, before the map's bar
+            meta["store"] = store  # after hand_over: the children's lines.geojson without it
             rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
             saved()
         saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)

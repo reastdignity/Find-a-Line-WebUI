@@ -2801,6 +2801,28 @@ def test_run_scripts_carry_their_size(run_people):
     assert web.SIZE_HEADER not in a.get(f"/runs/{RUN_A}/map.html").headers
 
 
+def test_run_store_for_its_owner(run_people, tmp_path):
+    """A run's store (lines.arrow, profiles.arrow) goes to its owner (and by the owner's share link) as a run's
+    other files, with its media type and its size before compression (web.SIZE_HEADER); to no one else. A run
+    of before, without a store, answers 404 for it and opens as before (its data.js; listed with its lines)."""
+    a, b, anonymous = run_people["a"], run_people["b"], run_people["anonymous"]
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for name in ("lines.arrow", "profiles.arrow"):
+        stored = (tmp_path / "runs" / RUN_A / name).read_bytes()
+        for client, path in ((a, f"/runs/{RUN_A}/{name}"), (anonymous, f"/s/{token}/{name}")):
+            answer = client.get(path)
+            assert answer.status_code == 200 and answer.content == stored, path
+            assert answer.headers[web.SIZE_HEADER] == str(len(stored)), path
+            assert answer.headers["content-type"] == "application/vnd.apache.arrow.file", path
+        for who in ("b", "pending", "blocked", "anonymous"):
+            assert run_people[who].get(f"/runs/{RUN_A}/{name}").status_code == 404, (who, name)
+        os.remove(tmp_path / "runs" / RUN_B / name)
+        assert b.get(f"/runs/{RUN_B}/{name}").status_code == 404
+    assert b.get(f"/runs/{RUN_B}/data.js").status_code == 200
+    import runs as rn
+    assert {r["id"]: r["has_lines"] for r in rn.list_runs(str(tmp_path / "runs"))}[RUN_B] is True  # its lines.js
+
+
 def test_referrer_is_the_origin_only(run_people):
     """Every answer, a share page's too, asks for the origin only as the Referer: the browser's own
     requests from /s/<token>/map.html (favicon, cached tiles) do not carry the token."""

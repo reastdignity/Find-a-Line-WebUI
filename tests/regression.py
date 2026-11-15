@@ -117,7 +117,28 @@ def measure(output: str, run_dir: str) -> dict:
         found["clearance_mean"] = round(sum(clearances) / len(clearances), 3) if clearances else 0.0
         found["clearance_max"] = max(clearances, default=0.0)
         found["over_trees"] = sum(r["over_trees_buildings"] == "True" for r in rows)
+        started = time.time()
+        found["store_problems"] = check_export(os.path.dirname(files[0]))
+        found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
     return found
+
+
+def check_export(folder: str) -> list:
+    """The CSV that linestore.export makes from the run's store is its lines.csv byte for byte (the
+    checksum the regression keeps, docs/line-volume/spec-store.md 1.7): problems as text."""
+    import linestore
+    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
+        return ["the run has no store (lines.arrow)"]
+    out = os.path.join(os.path.dirname(folder), "export.csv")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):  # the grouping's progress
+            linestore.export(folder, "csv", out)
+        with open(out, "rb") as f, open(os.path.join(folder, "lines.csv"), "rb") as g:
+            same = f.read() == g.read()
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(out)
+    return [] if same else ["the CSV exported from the store differs from lines.csv"]
 
 
 def count_in_region(run_dir: str, where: str, cache_dir: str) -> int:
@@ -131,22 +152,33 @@ def count_in_region(run_dir: str, where: str, cache_dir: str) -> int:
 
 
 def check_map(run_dir: str, found: dict) -> list:
-    """The map data agrees with lines.csv: problems as text."""
+    """The map data and the store agree with lines.csv: problems as text."""
+    import pyarrow as pa
+    import linestore
     folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
-    if not folders or not os.path.exists(os.path.join(folders[0], "data.js")):
+    if not folders:
         return []
     folder = folders[0]
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     circle = meta["params"].get("radius") is not None
     every = meta["summary"].get("profiles", "all" if circle else "representatives") == "all"
+    wanted = found.get("lines") if every else found.get("spots")
+    problems, counts = [], {}
+    for name in linestore.FILES:  # the store (also without a map): a row per line, a row per saved profile
+        with contextlib.suppress(OSError), pa.OSFile(os.path.join(folder, name), "rb") as f:
+            counts[name] = pa.ipc.open_file(f).read_all().num_rows
+    if counts.get(linestore.LINES_FILE) != found.get("lines"):
+        problems.append(f"lines.arrow has {counts.get(linestore.LINES_FILE)} lines, lines.csv {found.get('lines')}")
+    if counts.get(linestore.PROFILES_FILE) != wanted:
+        problems.append(f"profiles.arrow has {counts.get(linestore.PROFILES_FILE)} profiles, expected {wanted}")
+    if not os.path.exists(os.path.join(folder, "data.js")):
+        return problems
     rows = _script_value(os.path.join(folder, "data.js"))["lines"]
     others = _script_value(os.path.join(folder, "lines.js"))["lines"]
-    problems = []
     if len(rows) != found.get("lines"):
         problems.append(f"data.js has {len(rows)} lines, lines.csv {found.get('lines')}")
     profiles = sum(1 for r in rows if r[-1])
-    wanted = found.get("lines") if every else found.get("spots")
     if profiles != wanted:
         problems.append(f"data.js has {profiles} profiles, expected {wanted} "
                         f"({'circle' if circle else 'area'}, profiles of {'every line' if every else 'the spots'})")
@@ -232,7 +264,7 @@ def run(tests: dict, test_id: str, work: str, cache_dir: str, browser: bool) -> 
     found = measure(result.stdout, runs)
     found["exit"] = result.returncode
     if not result.returncode:
-        problems = check_map(runs, found)
+        problems = found.pop("store_problems", []) + check_map(runs, found)
         if tests[test_id].get("count_anchors_in"):
             found["lines_in_region"] = count_in_region(runs, tests[test_id]["count_anchors_in"], cache_dir)
         if tests[test_id].get("check_profiles"):
@@ -408,7 +440,8 @@ def main():
             found = run_osm(test, os.path.join(work, test_id), cache_dir)
         else:
             found = run(tests, test_id, work, cache_dir, args.browser)
-        seconds = time.time() - start
+        seconds = time.time() - start - found.pop("store_seconds", 0)  # the export check is not the search's
+        found.pop("store_problems", None)  # a failed search's: its exit code says it
         if "skipped" in found:
             print(f"{test_id}: skipped ({found['skipped']})")
             skipped.append(test_id)
