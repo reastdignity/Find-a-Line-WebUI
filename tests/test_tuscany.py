@@ -3,6 +3,7 @@
 owner (sources/readers/cartoteca.py), the credits per owner (sources/layers/cartoteca.py, Layer.used_entries) through
 the record of the data a run used, against tests/http_server.py; the catalogue's source (offline)."""
 
+import glob
 import io
 import json
 import os
@@ -337,6 +338,25 @@ def test_a_moved_file_is_asked_again(http_server, tmp_path, no_sleep):
     other = layer.index.versions.request(lost)
     assert other.urls != request.urls
     assert layer.download_tile(lost, layer.tile_path(cache_dir, lost)).received == 0
+
+
+def test_cache_update_reads_a_new_survey_of_a_cached_sheet(http_server, tmp_path, no_sleep):
+    """update_index_tile (cache update): a survey listed anew for a sheet with a cached file is downloaded, the
+    cached one kept (no pruning); a sheet without a cached file is not downloaded."""
+    _serve_index(http_server, _gml([FEATURES[0]]))  # 22d35: only Regione Toscana's survey of 2012 listed at first
+    _serve_files(http_server, FILES)
+    layer = _layer(http_server)
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((S35[0] + 1200, S35[1] + 100, S35[0] + 1300, S35[1] + 200), 1.0, "EPSG:3003")
+    src.prepare_layer(layer, grid, cache_dir, str(tmp_path / "t.npy"), "terrain")
+    assert [os.path.basename(os.path.dirname(p)) for p in layer.files(grid, cache_dir)] == ["005-2012"]
+    http_server.routes.clear()
+    _serve_index(http_server, _gml(FEATURES[:4]))  # now MATTM's survey of 22d35 and both surveys of 22d36 too
+    _serve_files(http_server, FILES)
+    assert layer.update_index_tile(cache_dir, LAT, LON)[0] == 1
+    cached = sorted(os.path.relpath(p, cache_dir).replace(os.sep, "/")
+                    for p in glob.glob(os.path.join(cache_dir, "test_it", "tos-dtm", "*", "*.tif")))
+    assert cached == ["test_it/tos-dtm/005-2012/22d35_1m.tif", "test_it/tos-dtm/007-2010/22d35_1m.tif"]
 
 
 def test_links_elsewhere_and_a_wrong_survey_are_not_taken(http_server, tmp_path):
