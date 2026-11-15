@@ -2243,27 +2243,27 @@
       "desertas/dtm/5m"
     ],
     "expected": {
-      "anchors": 23248,
-      "open": 18703,
-      "checked": 24705,
-      "lines": 785,
-      "spots": 131,
-      "csv_sha256": "c80843179fff88e04181ddc6402e28be3b1e41b241c9c55fc18296d1742829fc",
-      "length_km": 99.769,
+      "anchors": 22775,
+      "open": 18532,
+      "checked": 24697,
+      "lines": 784,
+      "spots": 130,
+      "csv_sha256": "9f5a43780aff956866616dd8eada76b1e12da9aa1a8b38659f34b9573e059b53",
+      "length_km": 99.734,
       "clearance_min": 0.0,
-      "clearance_mean": 2.013,
-      "clearance_max": 491.11,
+      "clearance_mean": 1.389,
+      "clearance_max": 9.37,
       "over_trees": 0,
-      "coverage": 72.86,
+      "coverage": 72.68,
       "empty_tiles": 1,
       "filled_km2": 0.0,
       "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 2.68,
-      "water_lines": 20,
-      "water_spots": 5
+      "sea_km2": 2.69,
+      "water_lines": 19,
+      "water_spots": 4
     },
-    "seconds": 152.6,
-    "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m; the Desertas' tiles keep 1 684 coast pixels of about -490 m (averaged with -999 by the provider; no floor set yet): one line of 491 m clearance over such a pixel; with a floor of -100 m 784 lines, clearance at most 9.37 m: re-baseline once the floor is decided"
+    "seconds": 170.8,
+    "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m"
   },
   "R88": {
     "place": "Selvagem Grande's cliffs, the Selvagens, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Selvagens, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), PTRA08 / UTM 28N",
@@ -2277,18 +2277,18 @@
       "selvagens/dtm/5m"
     ],
     "expected": {
-      "anchors": 3926,
-      "open": 2862,
+      "anchors": 3678,
+      "open": 2753,
       "checked": 9607,
       "lines": 972,
       "spots": 114,
-      "csv_sha256": "a2a43ca63a15632b1c73444dcad10ef06d63cc6d2ba8b00b19c1142988ba6914",
+      "csv_sha256": "6b73d80f00bec323115ddaf5e9f88509b040f32ee9752436509b60854acec9df",
       "length_km": 119.157,
       "clearance_min": 0.0,
-      "clearance_mean": 2.186,
+      "clearance_mean": 2.185,
       "clearance_max": 13.2,
       "over_trees": 0,
-      "coverage": 53.71,
+      "coverage": 53.6,
       "empty_tiles": 0,
       "filled_km2": 0.0,
       "filled_from": "FABDEM + Copernicus DEM",
@@ -2296,7 +2296,7 @@
       "water_lines": 414,
       "water_spots": 43
     },
-    "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m; the Selvagens' tiles keep 319 coast pixels of about -497 m (no floor set yet), none under a line here: re-check once the floor is decided",
-    "seconds": 51.2
+    "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m",
+    "seconds": 37.3
   }
 }
