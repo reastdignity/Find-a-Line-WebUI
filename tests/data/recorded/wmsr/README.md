@@ -23,3 +23,9 @@ added the reader (not kept in the repository): `requests.get` of each URL with t
 
 Licence: IGN's LiDAR HD and RGE ALTI, [Licence Ouverte / Open Licence 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence/)
 (Etalab): source IGN, data of the Géoplateforme as served on 2026-11-02.
+
+`overseas/` (recorded 2026-11-15 the same way, 1 s apart, for `tests/test_france_overseas.py`): Guadeloupe's RGE ALTI
+1 m (`RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS`, EPSG:32620) at the Soufrière (642912.5-642944.5 E, 1774240.5-1774272.5
+N: the layer's pixel edges lie on half metres): `001` the box at 1 m, `002` the same box at 0.5 m (each stored pixel
+repeated in a 2 x 2 block), `003` a box on Sint Maarten (493632.5 E, 1993504.5 N: HTTP 200, every pixel -99999).
+Licence as above (data of the Géoplateforme as served on 2026-11-15).

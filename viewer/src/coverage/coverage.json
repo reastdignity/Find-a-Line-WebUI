@@ -68,6 +68,23 @@
    "survey": "",
    "trees": "no"
   },
+  "bl": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
+   "survey": "",
+   "trees": "no"
+  },
   "ca": {
    "added": "2026-11-02",
    "level": 1,
@@ -425,6 +442,57 @@
    "survey": "lidar_hd",
    "trees": "yes"
   },
+  "fr-gf": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guiana",
+   "survey": "",
+   "trees": "no"
+  },
+  "fr-gp": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
+   "survey": "",
+   "trees": "no"
+  },
+  "fr-mq": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_martinique",
+   "survey": "",
+   "trees": "no"
+  },
   "gb-eng": {
    "added": "2026-11-01",
    "level": 1,
@@ -569,6 +637,23 @@
    "survey": "2024",
    "trees": "yes"
   },
+  "mf": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
+   "survey": "",
+   "trees": "no"
+  },
   "mt": {
    "added": "2026-10-23",
    "level": 1,
@@ -671,6 +756,23 @@
    "source": "geoportal",
    "survey": "sheets",
    "trees": "part"
+  },
+  "pm": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_spm",
+   "survey": "",
+   "trees": "no"
   },
   "pr": {
    "added": "2026-10-30",

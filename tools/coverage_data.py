@@ -30,7 +30,7 @@ WORLD = {"level": 3, "res": [30], "trees": "rough", "provider": "FABDEM / Copern
 # Fallbacks that fill gaps at 30 m: the world's level, no note of their own
 GLOBAL = ("europe", "nasadem")
 # Territories counted with their state
-TERRITORIES = {"pr": "us", "vi": "us", "ax": "fi"}
+TERRITORIES = {"pr": "us", "vi": "us", "ax": "fi", "bl": "fr", "mf": "fr", "pm": "fr"}
 
 
 def _number(value: float):
