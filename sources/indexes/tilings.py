@@ -1,9 +1,10 @@
 """Fixed tilings: the tiles over a grid computed from its bounds, no service asked."""
 
+import hashlib
 import math
 import os
 import re
-from typing import Callable, List, Optional, Sequence, Tuple, Union
+from typing import Callable, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from rasterio.transform import from_origin
@@ -358,3 +359,140 @@ class WcsTiling(Index):
     def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
         """(west, south, east, north) of a tile."""
         return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))
+
+
+class GeoCellTiling(Index):
+    """Cells of a fixed grid in a geographic CRS whose cells need not be square: cell (i, j) covers
+    [x0 + i w, x0 + (i + 1) w) x [y0 + j h, y0 + (j + 1) h) degrees of longitude and latitude from origin
+    (x0, y0), j growing northwards; only the cells within (i0, j0, i1, j1, both ends inclusive; None: any).
+    Cached as <folder>/<name(tile)>, which subclasses give (and parse back, for Layer.tile_of)."""
+
+    def __init__(self, crs: str, folder: str, cell: Tuple[float, float], origin: Tuple[float, float],
+                 within: Optional[Tuple[int, int, int, int]] = None):
+        self.crs, self.folder, self.cell, self.origin, self.within = crs, folder, cell, origin, within
+
+    def edges(self, tile) -> Tuple[float, float, float, float]:
+        """(left, bottom, right, top) of a cell in degrees."""
+        i, j = tile
+        (w, h), (x0, y0) = self.cell, self.origin
+        return x0 + i * w, y0 + j * h, x0 + (i + 1) * w, y0 + (j + 1) * h
+
+    def tiles(self, grid: Grid) -> list:
+        return remembered(self, grid, lambda: self._tiles(grid))
+
+    def _tiles(self, grid: Grid) -> list:
+        (w, h), (x0, y0) = self.cell, self.origin
+        west, south, east, north = transform_bounds(grid.crs, self.crs, *grid.bounds)
+
+        def cell(x, y):
+            return math.floor((x - x0) / w), math.floor((y - y0) / h)
+
+        (i0, j0), (i1, j1) = cell(west, south), cell(east, north)
+        if self.within is not None:
+            w_i0, w_j0, w_i1, w_j1 = self.within
+            i0, j0, i1, j1 = max(i0, w_i0), max(j0, w_j0), min(i1, w_i1), min(j1, w_j1)
+        if i0 > i1 or j0 > j1:
+            return []
+        shape = _outline(grid, self.crs)
+        if shape is not None:  # the cells of the grid's box under the outline, part by part
+            return cells_under(shape, cell, lambda ii, jj: (x0 + ii * w, y0 + jj * h, x0 + (ii + 1) * w,
+                                                            y0 + (jj + 1) * h), (i0, j0, i1, j1))
+        return [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1)]
+
+    def name(self, tile) -> str:
+        """The cached file of a cell, relative to the folder (with /)."""
+        raise NotImplementedError
+
+    def parse(self, name: str):
+        """The cell of a cached file's name (relative to the folder, with /), or None."""
+        raise NotImplementedError
+
+    def path(self, cache_dir: str, tile) -> str:
+        return os.path.join(cache_dir, self.folder, *self.name(tile).split("/"))
+
+    def tile_of(self, path: str):
+        prefix = self.folder + "/"
+        if not path.startswith(prefix):
+            return None
+        name = path[len(prefix):]
+        tile = self.parse(name)
+        return tile if tile is not None and self.name(tile) == name else None
+
+    def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
+        """(west, south, east, north) of a cell."""
+        return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))
+
+
+class GeoBox(NamedTuple):
+    """A box of a service's own pixels in a geographic CRS: its edges in degrees and its size in pixels."""
+    left: float
+    bottom: float
+    right: float
+    top: float
+    width: int
+    height: int
+
+
+class GeoPixelTiling(GeoCellTiling):
+    """Tiles of tile_px x tile_px pixels of a service's own grid in a geographic CRS whose pixels are not
+    square (pixel: dx, dy degrees), counted from the grid's north-west corner (west, north) and cut at its
+    size (columns, rows): tile (i, j) holds the columns i tile_px .. and the rows -(j + 1) tile_px .. from the
+    corner (j = -1 is the top row of tiles, so j grows northwards as in the other tilings). Each tile is asked
+    as a GeoBox whose edges are computed from whole pixels, so the service answers on its own pixels
+    (Geoscience Australia's 5 m lidar DEM: EPSG:4283, 5.506e-5 x 5.160e-5 degrees, which WcsTiling's square
+    metric pixels cannot express). Cached as <folder>/<crs>-<tile_px>px-g<grid>/<i>_<j>.tif, <grid> the first 8
+    hex digits of the sha256 of the corner, pixel and size (their repr), so tiles of a changed grid are never
+    taken for this one's (as WcsTiling names its origin)."""
+
+    def __init__(self, crs: str, folder: str, tile_px: int, corner: Tuple[float, float],
+                 pixel: Tuple[float, float], size: Tuple[int, int]):
+        (dx, dy), (west, north), (cols, rows) = pixel, corner, size
+        self.tile_px, self.corner, self.pixel, self.size = tile_px, corner, pixel, size
+        within = (0, -math.ceil(rows / tile_px), math.ceil(cols / tile_px) - 1, -1)
+        super().__init__(crs, folder, (tile_px * dx, tile_px * dy), (west, north), within)
+        grid = hashlib.sha256(repr((tuple(corner), tuple(pixel), tuple(size))).encode()).hexdigest()[:8]
+        self._dir = f"{crs.lower().replace(':', '')}-{tile_px}px-g{grid}"
+
+    def box(self, tile) -> GeoBox:
+        """The pixels of a tile within the grid, with their edges."""
+        i, j = tile
+        (dx, dy), (west, north), (cols, rows), px = self.pixel, self.corner, self.size, self.tile_px
+        c0, c1 = i * px, min((i + 1) * px, cols)
+        r0, r1 = -(j + 1) * px, min(-j * px, rows)
+        return GeoBox(west + c0 * dx, north - r1 * dy, west + c1 * dx, north - r0 * dy, c1 - c0, r1 - r0)
+
+    def edges(self, tile) -> Tuple[float, float, float, float]:
+        box = self.box(tile)
+        return box.left, box.bottom, box.right, box.top
+
+    def request(self, tile) -> GeoBox:
+        return self.box(tile)
+
+    def name(self, tile) -> str:
+        return f"{self._dir}/{tile[0]}_{tile[1]}.tif"
+
+    def parse(self, name: str):
+        match = re.fullmatch(rf"{re.escape(self._dir)}/(-?\d+)_(-?\d+)\.tif", name)
+        return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+class GeoSheetTiling(GeoCellTiling):
+    """Sheets that are the cells of a geographic grid, each a whole file at url(i, j) (None: the publisher has
+    no file for that cell, so its request is None and it is missing without one), cached as
+    <folder>/<sheet(i, j)>.tif; parse_sheet(name) gives a sheet's cell back (None: not a sheet's name). IDE
+    Uruguay's 2.5 m DTM: sheets of 0.06 x 0.045 degrees named by their place in the national grid."""
+
+    def __init__(self, crs: str, folder: str, cell: Tuple[float, float], origin: Tuple[float, float],
+                 sheet: Callable[[int, int], Optional[str]], parse_sheet: Callable[[str], Optional[Tuple[int, int]]],
+                 url: Callable[[int, int], Optional[str]], within: Optional[Tuple[int, int, int, int]] = None):
+        super().__init__(crs, folder, cell, origin, within)
+        self.sheet, self.parse_sheet, self.url = sheet, parse_sheet, url
+
+    def request(self, tile) -> Optional[Tuple[int, int]]:
+        return tile if self.url(*tile) is not None else None
+
+    def name(self, tile) -> str:
+        return f"{self.sheet(*tile)}.tif"
+
+    def parse(self, name: str):
+        return self.parse_sheet(name[:-4]) if name.endswith(".tif") else None

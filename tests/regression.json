@@ -1750,5 +1750,60 @@
     },
     "notes": "added 2026-11-15: 10 tiles of 1 km (about 2.4 MB each, 3 s); the centre moved from the research's point at the Soufriere (16.044, -61.664: 78 lines in one spot on the rim of the Gouffre Dupuy) onto the steepest 400 m cells of a 4 m slope map of the massif; the spots lie along both walls of the gorge, clearances up to 2.1 m over a model whose surface shows triangulation facets (no lidar here: smoother than LiDAR HD); the 0.10 km² filled from FABDEM lie in the grid's corners beyond the tiles of the circle",
     "seconds": 3.0
+  },
+  "R72": {
+    "place": "North Head, Sydney (AU-NSW): its sea cliffs of about 80 m, Geoscience Australia's national 5 m lidar DEM (WCS 1.0.0 in GDA94 geographic coordinates, on its own pixels) on GDA94 / MGA zone 56",
+    "args": "--lat -33.8200 --lon 151.2970 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "au"
+    ],
+    "expected": {
+      "anchors": 1647,
+      "open": 1254,
+      "checked": 3473,
+      "lines": 230,
+      "spots": 49,
+      "csv_sha256": "aaefbcf57391916f72681b618bdba24f181a0cb669ca9038feef53a34548d979",
+      "length_km": 42.469,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.927,
+      "clearance_max": 13.47,
+      "over_trees": 0,
+      "coverage": 79.28,
+      "empty_tiles": 0,
+      "filled_km2": 0.08,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 1.53,
+      "water_lines": 41,
+      "water_spots": 8
+    },
+    "seconds": 2.5,
+    "notes": "added 2026-11-15: --source auto picks australia (AU, outside AU-QLD and AU-TAS); one tile of 1000 x 1000 px of the WCS (about 2.4 MB, 13 s on an empty cache); the sea is 0 in the data (no data), filled as sea from the OSM coastline; 0.08 km² of land gaps from FABDEM; the spots on the eastern sea cliffs (151.295-151.302 E); a first run whose Overpass request failed (502) took the Copernicus water mask's shore instead and gave other numbers (sea 1.33 km², 48 lines over water): the coastline must come from OSM"
+  },
+  "R73": {
+    "place": "Cerro de Arequita, Lavalleja (UY): its rock walls of about 60 m over the Santa Lucía, IDE Uruguay's MDT 2.5 m (photogrammetric, 2017-2018) from four sheets resampled onto SIRGAS-ROU98 / UTM 21S",
+    "args": "--lat -34.2913 --lon -55.2673 --radius 800 --min-length 20 --max-length 200",
+    "sets": [
+      "sources",
+      "uy"
+    ],
+    "expected": {
+      "anchors": 4656,
+      "open": 1514,
+      "checked": 548,
+      "lines": 109,
+      "spots": 8,
+      "csv_sha256": "48264f7da80b94db63f2456cf7a1d4232d63c3a83e0b14ea71c2071f6d559750",
+      "length_km": 10.019,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.176,
+      "clearance_max": 7.44,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 1.9,
+    "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
   }
 }

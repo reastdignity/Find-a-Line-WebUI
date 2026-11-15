@@ -18,7 +18,7 @@ IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", 
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "iceland", "islandsdem10", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1624,6 +1624,35 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                  'origin': (0.0, 0.0),
                  'zones': ('EPSG:28355', 'EPSG:28354')},
                          'nmpt': None},
+            'australia': {'crs': None,
+                           'countries': ('au',),
+                           'bbox': None,
+                           'fallbacks': ['europe'],
+                           'grid_origin': (0.0, 0.0),
+                           'default_resolution': 5.0,
+                           'instead_without_data': 'europe',
+                           'local_crs': 'au_mga_crs',
+                           'ortho': None,
+                           'credits': ['Digital Elevation Model (DEM) of Australia derived from LiDAR 5 Metre Grid (Geoscience '
+                                       'Australia)'],
+                           'nmt': {'class': 'GeoWcsTiles',
+                                   'description': 'Geoscience Australia 5 m lidar DEM (terrain)',
+                                   'folder': 'australia/dem5m/live',
+                                   'prefix': None,
+                                   'native_res': 5.0,
+                                   'processing': 1,
+                                   'ttl_days': 730,
+                                   'credit': 'Digital Elevation Model (DEM) of Australia derived from LiDAR 5 Metre Grid '
+                                             '(Geoscience Australia)',
+                                   'shift': (0.0, 0.0),
+                                   'url': 'https://services.ga.gov.au/gis/services/DEM_LiDAR_5m_2025/MapServer/WCSServer',
+                                   'coverage': '1',
+                                   'crs': 'EPSG:4283',
+                                   'tile_px': 1000,
+                                   'corner': (114.09855219640832, -9.86608416402494),
+                                   'pixel': (5.50634781859571e-05, 5.160123252778703e-05),
+                                   'size': (718787, 651083)},
+                           'nmpt': None},
             'iceland': {'crs': None,
                         'countries': ('is',),
                         'bbox': None,
@@ -1664,6 +1693,30 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                      'credit': 'IslandsDEM v1.0 10 m (Natural Science Institute of Iceland)',
                                      'shift': (0.0, 0.0)},
                              'nmpt': None},
+            'uruguay': {'crs': None,
+                         'countries': ('uy',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 2.5,
+                         'instead_without_data': None,
+                         'local_crs': 'uy_crs',
+                         'ortho': 'uruguay/ortho/live',
+                         'credits': ['Modelo Digital del Terreno nacional 2,5 m, vuelo 2017-2018 (IDEuy)'],
+                         'nmt': {'class': 'GeoSheetTiles',
+                                 'description': 'IDE Uruguay MDT 2.5 m (terrain)',
+                                 'folder': 'uruguay/mdt250/2018',
+                                 'prefix': None,
+                                 'native_res': 2.5,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Modelo Digital del Terreno nacional 2,5 m, vuelo 2017-2018 (IDEuy)',
+                                 'shift': (0.0, 0.0),
+                                 'crs': 'EPSG:4326',
+                                 'cell': (0.06, 0.045),
+                                 'origin': (-58.68, -35.1),
+                                 'within': (0, 0, 95, 111)},
+                         'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -1760,6 +1813,11 @@ def _layer(layer):
         info.update(url=layer.url, crs=layer.crs, tile_px=layer.tile_px, origin=layer.origin)
         if layer.zones:
             info.update(zones=layer.zones)
+    if isinstance(layer, src.GeoWcsTiles):
+        info.update(url=layer.url, coverage=layer.coverage, crs=layer.crs, tile_px=layer.tile_px,
+                    corner=layer.index.corner, pixel=layer.index.pixel, size=layer.index.size)
+    if isinstance(layer, src.GeoSheetTiles):
+        info.update(crs=layer.crs, cell=layer.index.cell, origin=layer.index.origin, within=layer.index.within)
     return info
 
 
@@ -1902,6 +1960,9 @@ PATHS = [
     ("queensland_demh", "nmt", ("EPSG:28355", (30.0, 26, 512)),
      "queensland/dem-h/live/epsg28355-30m-500px-tif/26_512.tif", ("EPSG:28355", (30.0, 26, 512))),
     ("islandsdem10", "nmt", (563, 78), "iceland/islandsdem-v1.0-10m/11_1/563_78.tif", (563, 78)),
+    ("australia", "nmt", (675, -465), "australia/dem5m/live/epsg4283-1000px-g81d4e2da/675_-465.tif",
+     (675, -465)),
+    ("uruguay", "nmt", (70, 48), "uruguay/mdt250/2018/E18D5.tif", (70, 48)),
 ]
 
 
@@ -2056,7 +2117,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("au-tas", (-43.70, -39.45, 143.75, 148.55)),
          ("au-qld", (-29.00, -9.10, 138.00, 151.00)), ("au-qld", (-28.60, -9.10, 151.00, 152.50)),
          ("au-qld", (-28.20, -9.10, 152.50, 153.60)),
-         ("is", (63.2, 66.6, -24.6, -13.4))]
+         ("is", (63.2, 66.6, -24.6, -13.4)),
+         ("au", (-39.20, -10.90, 114.10, 129.00)), ("au", (-39.20, -9.87, 129.00, 153.68)),
+         ("uy", (-35.05, -30.08, -58.45, -53.10))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

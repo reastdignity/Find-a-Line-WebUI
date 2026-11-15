@@ -394,3 +394,57 @@ def _extract_multipart(content: bytes, content_type: str) -> bytes:
             eol = b"\r\n" if blank.group().startswith(b"\r") else b"\n"
             return body[:-len(eol)] if body.endswith(eol) else body
     raise RuntimeError("WCS response did not contain coverage data")
+
+
+class GeoWcsReader(Reader):
+    """GetCoverage (WCS 1.0.0) of a box of the service's own pixels in a geographic CRS (a GeoBox of a
+    GeoPixelTiling): CRS, BBOX in degrees to 17 significant digits (the metric WcsReader's millimetres would be
+    10 cm here), WIDTH and HEIGHT the box's pixels, so the service answers on its own pixels (resampled by nearest
+    neighbour when it does not). A 404 is missing, and so is an answer without a valid pixel (Geoscience
+    Australia's 5 m DEM answers inland, where it has no survey, with an all-zero TIFF, its zero being its no
+    data: zero_is_nodata): no file, so the fallback fills it and the tile is asked again after the missing
+    tiles' interval. params: more parameters of every GetCoverage (INTERPOLATION)."""
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
+
+    def __init__(self, description: str, url: str, coverage: str, crs: str, fmt: str = "GeoTIFF",
+                 zero_is_nodata: bool = False, params: Tuple[Tuple[str, str], ...] = ()):
+        self.description, self.service_url, self.coverage, self.crs = description, url, coverage, crs
+        self.fmt, self.zero_is_nodata, self.params = fmt, zero_is_nodata, tuple(params)
+
+    def url(self, request) -> Optional[str]:
+        return self.service_url
+
+    def coverage_params(self, box) -> List[Tuple[str, str]]:
+        """The parameters of the GetCoverage of a GeoBox."""
+        return [("SERVICE", "WCS"), ("VERSION", "1.0.0"), ("REQUEST", "GetCoverage"), ("COVERAGE", self.coverage),
+                ("CRS", self.crs), ("BBOX", ",".join(f"{v:.17g}" for v in (box.left, box.bottom, box.right, box.top))),
+                ("WIDTH", str(box.width)), ("HEIGHT", str(box.height)), ("FORMAT", self.fmt)] + list(self.params)
+
+    def fetch(self, box, path: str) -> Fetched:
+        where = f"{self.description} box {box.left:.5f},{box.top:.5f}"
+        try:
+            response = net._get(self.service_url, self.coverage_params(box))
+        except RuntimeError as error:
+            raise RuntimeError(f"Could not download {where}: {error}")
+        if response is None:  # outside the coverage
+            return Fetched(0, self.service_url)
+        data = response.content
+        content_type = response.headers.get("content-type", "")
+        if "multipart" in content_type:
+            data = _extract_multipart(data, content_type)
+        dx, dy = (box.right - box.left) / box.width, (box.top - box.bottom) / box.height
+        transform = from_origin(box.left, box.top, dx, dy)
+        with MemoryFile(data, ext=".tif") as memfile, memfile.open() as src:
+            band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
+            src_crs, src_transform = src.crs or self.crs, src.transform
+        # On its own pixels to a thousandth of a pixel (almost_equals' default of 1e-5 is a pixel in degrees)
+        if band.shape != (box.height, box.width) or not src_transform.almost_equals(transform, precision=dy / 1000):
+            resampled = np.full((box.height, box.width), np.nan, dtype=np.float32)
+            reproject(band, resampled, src_transform=src_transform, src_crs=src_crs, dst_transform=transform,
+                      dst_crs=self.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.nearest)
+            band = resampled
+        band = _clean(band, self.zero_is_nodata)
+        if not np.isfinite(band).any():  # no survey here: missing
+            return Fetched(0, self.service_url)
+        _write_tile(path, band, self.crs, transform)
+        return Fetched.of(response, self.service_url)

@@ -275,7 +275,8 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
 
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
-    if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
+    if isinstance(layer, (src.WcsTiles, src.GeoWcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer,
+                          src.OpenTopographyTiles)):
         return None  # a service's answer, a local file, or the API's limited calls
     if isinstance(layer, (src.TnmBlocks, src.S3Blocks)):
         return [url for _, url, _ in tile.files]

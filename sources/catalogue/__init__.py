@@ -12,6 +12,7 @@ from . import australia
 from . import slovenia
 from . import arctic
 from . import iceland
+from . import uruguay
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
@@ -19,8 +20,8 @@ from . import iceland
 # holding a point wins); Australia (Tasmania and Queensland, each its own region) anywhere before the global
 # ones; Slovenia before Austria: Austria's offline box reaches over Triglav; the Arctic (Greenland, Svalbard, Nunavut)
 # before Canada: Canada's offline box holds north-western Greenland, and Nunavut's boxes lie inside it; Iceland
-# anywhere before the global ones
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, spain, usa, arctic, canada, slovenia, austria, uk, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, world)
+# anywhere before the global ones; Uruguay anywhere before the global ones
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, spain, usa, arctic, canada, slovenia, austria, uk, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -41,4 +42,4 @@ AREA_NAMES: Dict[str, str] = {
     "pl": "Polska", "pr": "Puerto Rico", "si": "Slovenija", "sk": "Slovensko", "us": "United States",
     "us-ak": "Alaska", "vi": "United States Virgin Islands",
     "bl": "Saint-Barthélemy", "fr-gf": "Guyane", "fr-gp": "Guadeloupe", "fr-mq": "Martinique",
-    "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon"}
+    "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon", "au": "Australia", "uy": "Uruguay"}
