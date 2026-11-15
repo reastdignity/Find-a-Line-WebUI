@@ -3377,12 +3377,14 @@ columns, without a copy. T5 and T6 were measured again, as the user asked: "befo
   `lines.arrow` and `profiles.arrow` after, in every round. It forces a full collection after the changes
   (`HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`). It can open a run on the iPhone 13 profile (WebKit).
 - **Heap readings:** `usedJSHeapSize` counts the ArrayBuffers' backing stores. After the full collection it equals
-  the V8 heap plus the backing stores, in every round. So before and after are counted alike, although the store's
+  the V8 heap plus the backing stores, in every round (the full collection's reading is alike in every round; the
+  page's own `gc()` reading is not: BAH's first round from the store gave 228 MB, the next two 447 MB). So before and after are counted alike, although the store's
   columns are views of the downloaded bytes.
 - **Pass:** one exclusive pass on this PC, three rounds each, headless Chromium 156; the 2.5 M cut's rounds 2 and 3
   from the store in a second short exclusive pass (from `data.js` it shows the text, so once).
-  `perf_run_load.py` was not run: its scratch folder holds a run's `data.js`, `run.json` and `ATTRIBUTION.txt` and no
-  `runs.js`, so the page finds no store there and reads `data.js`, the "before" path, without a sign of it.
+  `perf_run_load.py` was not run: its scratch folder then held a run's `data.js`, `run.json` and `ATTRIBUTION.txt`
+  and no `runs.js`, so the page found no store there and read `data.js` without a sign of it. Since the fix round it
+  copies the store, writes `runs.js` and names the file read ("read").
 
 | run | code | round | first picture s | heap MB | heap after gc MB | filter change s | grouping change s |
 |---|---|---|---|---|---|---|---|

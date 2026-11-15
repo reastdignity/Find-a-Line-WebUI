@@ -1260,7 +1260,8 @@ def _store_bundle(tmp_path):
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ passes, range, dh, lowerAnchor, upperAnchor, wallAngle, prominence, drop }} '
                      f'from "{src}/filters";\n'
-                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, NewerStore, STORE_FORMAT }} '
+                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, NewerStore, '
+                     f'StoreFailed, TooLarge, STORE_FORMAT }} '
                      f'from "{src}/result/load";\n', encoding="utf-8")
     bundle = tmp_path / "store.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
@@ -1390,13 +1391,17 @@ for (const [name, folder] of Object.entries(cases)) {
   const fromStore = new m.ResultModel(store, {favourites: false, api}), fromRows = new m.ResultModel(data, {favourites: false, api});
   const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
   const mid = (f) => { const v = objects.map(f).filter((x) => x !== null && !Number.isNaN(x)).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+  // C1's 25 cases (test_model_from_columns_as_from_rows)
   const filters = {
-    none: {}, lenMin: {lenMin: mid((l) => l.len)}, clrMin: {clrMin: mid((l) => l.clr)}, clrNMin: {clrNMin: mid((l) => l.clrN)},
-    dhMax: {dhMax: mid(m.dh)}, elevMin: {elevMin: mid(m.lowerAnchor)}, pctMin: {pctMin: 30}, pctMax: {pctMax: 70},
+    none: {}, lenMin: {lenMin: mid((l) => l.len)}, lenMax: {lenMax: mid((l) => l.len)}, clrMin: {clrMin: mid((l) => l.clr)},
+    clrNMin: {clrNMin: mid((l) => l.clrN)}, dhMax: {dhMax: mid(m.dh)}, elevMin: {elevMin: mid(m.lowerAnchor)},
+    elevMax: {elevMax: mid(m.upperAnchor)}, pctMin: {pctMin: 30}, pctMax: {pctMax: 70},
     heightMin: {heightMin: mid((l) => l.hmax)}, meanMin: {meanMin: mid((l) => l.hmean)},
     highPctMin: {highPctMin: mid((l) => l.highPct)}, angleMax: {angleMax: mid(m.wallAngle)},
-    promMin: {promMin: mid((l) => m.prominence(l, Math.max))}, dropMin: {dropMin: mid(m.drop)}, water: {water: "water"},
-    hideFilled: {hideFilled: true}, liftMax: {liftMax: 1}, hideNeedLift: {hideNeedLift: true}, groupMin: {groupMin: 3},
+    promMin: {promMin: mid((l) => m.prominence(l, Math.max))}, promBothMin: {promBothMin: mid((l) => m.prominence(l, Math.min))},
+    dropMin: {dropMin: mid(m.drop)}, water: {water: "water"}, land: {water: "land"}, hideFilled: {hideFilled: true},
+    liftMax: {liftMax: 1}, liftNoZone: {liftMax: 1, liftNoZone: true}, hideNeedLift: {hideNeedLift: true},
+    hideNeedNone: {hideNeedNone: true, hideNeedZone: true}, groupMin: {groupMin: 3},
   };
   const state = (model) => JSON.stringify({shown: model.shown, count: model.count, groups: model.groups.map((g) => [key(g.rep)].concat(g.members.map(key)))});
   const differ = [];
@@ -1413,7 +1418,7 @@ for (const [name, folder] of Object.entries(cases)) {
     if (state(fromStore) !== state(fromRows)) differ.push(by);
   }
   if (JSON.stringify(fromStore.ranges) !== JSON.stringify(fromRows.ranges)) differ.push("ranges");
-  out[name].model = {differ, spots: fromStore.groups.length, lines: fromStore.shown.lines};
+  out[name].model = {differ, cases: Object.keys(filters).length, spots: fromStore.groups.length, lines: fromStore.shown.lines};
 }
 console.log(JSON.stringify(out));
 """
@@ -1454,7 +1459,7 @@ def test_store_gives_the_rows_values(tmp_path, store_cases):
         assert case["head"], name
         assert case["n"] == case["length"], name
         if case["n"]:
-            assert case["model"]["differ"] == [], (name, case["model"])
+            assert case["model"]["differ"] == [] and case["model"]["cases"] == 25, (name, case["model"])
             assert case["model"]["lines"] == case["n"], name
     assert out["empty"]["n"] == 0 and out["clip"]["n"] > 100 and out["clip"]["profiles"] > 10
     for name in ("plain", "zone", "square", "both", "nosurface", "wide"):
@@ -1509,25 +1514,27 @@ def test_store_of_a_newer_format_is_refused(tmp_path, store_cases):
     assert out["looseText"] == [True, None, None, "NaN and Infinity", 'q"NaN']  # JSON.stringify writes ±Infinity as null
 
 
-COMPARE_SCRIPT = r"""
+LOAD_PATHS_SCRIPT = r"""
 const fs = require("fs");
 const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
-// A made-up XMLHttpRequest serving the cases' files (http://test/runs/<name>/<file>) with web.SIZE_HEADER
-const asked = [];
+// A made-up XMLHttpRequest serving the cases' files (http://test/runs/<case>/<file>) with web.SIZE_HEADER; `gone`
+// answers 404, `nothing` answers 200 with a null response (an ArrayBuffer the browser could not allocate), `broken`
+// answers 500
+const asked = [], gone = new Set(), nothing = new Set(), broken = new Set();
 class FakeXHR {
   static HEADERS_RECEIVED = 2;
   open(method, url) { this.url = url; }
   setRequestHeader() {}
   getResponseHeader(name) { return name.toLowerCase() === "x-findaline-bytes" ? String(this.size) : null; }
   send() {
-    asked.push(this.url);
+    asked.push(this.url.replace("http://test", ""));
     const [, run, file] = /\/runs\/([^/]+)\/([^/]+)$/.exec(this.url), path = cases[run] + "/" + file;
     setTimeout(() => {
-      const b = fs.existsSync(path) ? fs.readFileSync(path) : null;
-      this.status = b ? 200 : 404;
+      const b = fs.existsSync(path) && !gone.has(file) ? fs.readFileSync(path) : null;
+      this.status = broken.has(file) ? 500 : b ? 200 : 404;
       const ab = new ArrayBuffer(b ? b.length : 0);
       if (b) new Uint8Array(ab).set(b);
-      this.response = ab;
+      this.response = nothing.has(file) ? null : this.responseType === "text" ? (b ? b.toString("utf-8") : "") : ab;
       this.size = ab.byteLength;
       this.readyState = 2;
       this.onreadystatechange && this.onreadystatechange();
@@ -1536,65 +1543,69 @@ class FakeXHR {
     });
   }
 }
+globalThis.window = globalThis;
 globalThis.XMLHttpRequest = FakeXHR;
-globalThis.location = {protocol: "http:", href: "http://test/", origin: "http://test"};
-const script = (p) => { const window = {}; new Function("window", fs.readFileSync(p, "utf-8"))(window); return window.FINDALINE_RUN; };
-const rowsOf = (data) => ({crs: data.crs, area: data.area, terrain: data.terrain, ends: data.ends,
-                           lines: data.lines.map((r) => r.slice(0, -1))});  // lines.js: data.js's rows without the profile
-const linesJs = (id) => Promise.resolve(rowsOf(script(cases[id] + "/data.js")));
-const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
+globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
+// data.js that JSON.parse refuses (NaN) is loaded as a script: evaluated here
+globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {
+  const [, run, file] = /\/runs\/([^/]+)\/([^/]+)$/.exec(s.src);
+  setTimeout(() => { new Function("window", fs.readFileSync(cases[run] + "/" + file, "utf-8"))(window); s.onload(); });
+}}};
+const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
 const info = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
-const runKey = (l) => (l.run ? l.run.info.id : "this") + "|" + m.lineCoords(l);
-const groupsOf = (model) => JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)));
+// the page's list of runs (map.html's ../runs.js): every case listed with its block, "older" with a newer format
+window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, block))
+  .concat([info("older", {...block, format: m.STORE_FORMAT + 1})]);
+const linesJs = (id) => Promise.resolve({lines: [], crs: "", area: null, from: "lines.js of " + id});
+const outcome = async (f) => {
+  asked.splice(0);
+  try { const d = await f(); return {ok: d.columns ? d.columns.length : d.from, asked: asked.splice(0)}; }
+  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0)}; }
+};
 (async () => {
-  const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
-  const here = script(cases.square + "/data.js");
-  // Compare: "zone" has a store (lines.arrow only, no profiles), "both" has none (its lines.js)
-  const withStore = await m.loadOtherRun(info("zone", block), "/runs/", linesJs);
-  const askedZone = asked.splice(0);
-  const without = await m.loadOtherRun(info("both"), "/runs/", linesJs);
-  const askedBoth = asked.splice(0);
-  const model = new m.ResultModel(here, {favourites: false, api}), reference = new m.ResultModel(here, {favourites: false, api});
-  model.addRun(info("zone", block), withStore);
-  model.addRun(info("both"), without);
-  reference.addRun(info("zone"), rowsOf(script(cases.zone + "/data.js")));
-  reference.addRun(info("both"), rowsOf(script(cases.both + "/data.js")));
-  const out = {askedZone, askedBoth, columns: "columns" in withStore, rows: "lines" in without,
-               total: [model.total, reference.total], groups: groupsOf(model) === groupsOf(reference),
-               profiles: Array.from({length: withStore.columns.length}, (_, i) => withStore.columns.profiles.get(i)).filter(Boolean).length};
-  // Toggled off and on again: the same groups
-  model.removeRun("zone");
-  model.addRun(info("zone", block), withStore);
-  reference.removeRun("zone");
-  reference.addRun(info("zone"), rowsOf(script(cases.zone + "/data.js")));
-  out.again = groupsOf(model) === groupsOf(reference);
-  // A store of a newer format is refused before anything is downloaded
-  try { await m.loadOtherRun(info("zone", {...block, format: m.STORE_FORMAT + 1}), "/runs/", linesJs); out.newer = "read"; }
-  catch (e) { out.newer = e.name; }
-  out.askedNewer = asked.splice(0);
-  // From disk (file://): lines.js whatever the run has
-  globalThis.location = {protocol: "file:", href: "file:///x/", origin: "null"};
-  const fromDisk = await m.loadOtherRun(info("zone", block), "../", linesJs);
-  out.disk = {rows: "lines" in fromDisk, asked: asked.splice(0)};
+  const out = {};
+  out.store = await outcome(() => m.loadRun("zone"));
+  gone.add("lines.arrow");
+  out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: data.js
+  out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/", linesJs));
+  gone.clear();
+  gone.add("profiles.arrow");
+  out.profilesGone = await outcome(() => m.loadRun("both"));
+  gone.clear();
+  nothing.add("lines.arrow");
+  out.nullBody = await outcome(() => m.loadRun("plain"));    // the body's ArrayBuffer not allocated: too large
+  nothing.clear();
+  broken.add("lines.arrow");
+  out.serverError = await outcome(() => m.loadRun("nosurface"));
+  broken.clear();
+  out.newer = await outcome(() => m.loadRun("older"));       // a newer store: refused, never data.js
+  out.texts = {tooLarge: new m.TooLarge().message, newer: new m.NewerStore().message};
   console.log(JSON.stringify(out));
 })();
 """
 
 
-def test_compare_reads_a_store_or_lines_js(tmp_path, store_cases):
-    """Compare's other runs (load.ts loadOtherRun, model.addRun): a run with a store from its lines.arrow (no
-    profiles.arrow, no profiles: as its lines.js), one without from its lines.js; shown with this run, the spots and
-    lines are those of both runs read from their rows, toggled off and on again too; a newer store is refused
-    before a download; from disk lines.js."""
+def test_store_failures_and_fallbacks(tmp_path, store_cases):
+    """load.ts over http with a made-up XMLHttpRequest: a run whose listed store is read asks for lines.arrow and
+    profiles.arrow only; a missing lines.arrow or profiles.arrow (404) falls back to data.js (Compare: to lines.js)
+    while runs keep it; a 200 with a null response (the browser could not allocate the body) is TooLarge with its
+    text; a server error is a StoreFailed, not data.js; a newer format is refused without any download and no
+    fallback."""
+    cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
+    cases["older"] = cases["plain"]
     cases_path = tmp_path / "cases.json"
-    cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
-                          encoding="utf-8")
-    out = _run_node(tmp_path, _store_bundle(tmp_path), COMPARE_SCRIPT, cases_path)
-    assert out["askedZone"] == ["http://test/runs/zone/lines.arrow"] and out["askedBoth"] == []
-    assert out["columns"] and out["rows"] and out["profiles"] == 0
-    assert out["total"] == [9000, 9000] and out["groups"] and out["again"]
-    assert out["newer"] == "NewerStore" and out["askedNewer"] == []
-    assert out["disk"] == {"rows": True, "asked": []}
+    cases_path.write_text(json.dumps(cases), encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), LOAD_PATHS_SCRIPT, cases_path)
+    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"]}
+    assert out["linesGone"] == {"ok": 3000, "asked": ["/runs/square/lines.arrow", "/runs/square/profiles.arrow",
+                                                      "/runs/square/data.js"]}
+    assert out["compareGone"] == {"ok": "lines.js of square", "asked": ["/runs/square/lines.arrow"]}
+    assert out["profilesGone"]["ok"] == 3000 and out["profilesGone"]["asked"][-1] == "/runs/both/data.js"
+    assert out["nullBody"]["error"] == "TooLarge" and out["nullBody"]["message"] == out["texts"]["tooLarge"]
+    assert "/runs/plain/data.js" not in out["nullBody"]["asked"]
+    assert out["serverError"]["error"] == "StoreFailed" and "/runs/nosurface/data.js" not in out["serverError"]["asked"]
+    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": []}
 
 
 WHICH_FILE_SCRIPT = r"""
@@ -1618,6 +1629,9 @@ const run = (id, store) => ({id, name: id, created: "", description: "", ...(sto
   await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: read afresh, then found
   await ask("unlisted", "../x/data.js");             // a share link's runs.js lists no runs: read afresh, none there
   await ask("notDataJs", "/runs/a/other.js");
+  await ask("shareLink", "/s/AbCdEf0123456789/data.js");  // a share link: its runs.js lists no runs, none asked for
+  window.FINDALINE_RUNS = [run("own", block)];           // map.html's own ../runs.js, loaded before the bundle
+  await ask("fromTag", "/runs/own/data.js");
   console.log(JSON.stringify(out));
 })();
 """
@@ -1627,7 +1641,8 @@ def test_which_file_a_run_is_read_from(tmp_path):
     """load.ts storeOf: a run is read from its store when its entry in runs.js (beside its folder) holds run.json's
     block "store"; a run listed without it (saved before the store, its store failed, or a store left by a stopped
     save) from data.js; a run missing from the page's list (saved since the page loaded it) is looked for in runs.js
-    read afresh; a run not listed at all (a share link) reads data.js."""
+    read afresh; a run not listed at all reads data.js. The list the page has (map.html's own runs.js) is used as it
+    is, with no request; a share link (/s/<token>/: its runs.js lists no runs) asks for none."""
     out = _run_node(tmp_path, _store_bundle(tmp_path), WHICH_FILE_SCRIPT)
     block = {"format": 1, "lines": 5, "bytes": 100, "sha256": "0123456789abcdef"}
     assert out["withStore"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
@@ -1635,6 +1650,8 @@ def test_which_file_a_run_is_read_from(tmp_path):
     assert out["savedSince"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
     assert out["unlisted"] == {"store": None, "loads": ["http://test/runs.js"]}
     assert out["notDataJs"] == {"store": None, "loads": []}
+    assert out["shareLink"] == {"store": None, "loads": []}
+    assert out["fromTag"] == {"store": block, "loads": []}
 
 
 PRUNE_SCRIPT = r"""

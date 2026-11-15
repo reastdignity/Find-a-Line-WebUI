@@ -75,7 +75,8 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   `storedColumns`, `NULL_WHEN_MISSING`: data.js's null for clrN, prom, drop, NaN for the others) and
   `linestore.COLUMNS`/`profiles_table`/`FORMAT`: a new column, type, null rule or format goes into both
   (`tests/test_viewer.py::test_store_gives_the_rows_values` compares every value with data.js's); the page reads a store
-  only when run.json's block `store` is in runs.js (`storeOf`), so `runs._listed` keeps that block.
+  only when run.json's block `store` is in runs.js (`storeOf`), so `runs._listed` keeps that block; a store's file
+  missing (404) falls back to data.js and lines.js, which runs keep until store wave 4.
 - A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine`, `lineColumns`' `ROW_FIELDS`
   or `EXTRA_FIELDS`, `lineAt` and `LineCursor` in `types.ts`); the head's
   `ends` names the values before the profile of a run with the no-fall zone or the A-frames (`runs.END_FIELDS` =

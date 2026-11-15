@@ -4,6 +4,8 @@ Where the time of opening a run's result and a line's 3D view goes in the browse
 cache are linked, never copied. Each run is opened in headless Chromium (Playwright, group `ui` of
 pyproject.toml), with a fresh profile every round. The page's User Timing measures (viewer/src/perf.ts:
 "fal:run:*", "fal:3d:*") give the loading phases. The main thread's long tasks and the JS heap come with them.
+A run with a store (run.json's block "store") is read from it, as the page reads it (its runs.js in the scratch
+folder lists the block); the report names the file read ("read": the store or data.js).
 
 On the same origin, a run's data.js is then loaded as a script and compared with fetch + JSON.parse of the
 same text. This shows whether parsing it as JSON is faster, and whether JSON.parse accepts the file at all
@@ -41,7 +43,9 @@ RATES_MBIT = (10, 50, 200)  # line rates of the gzipped download estimate
 GZIP_LEVEL = 5  # deploy/nginx/findaline.conf gzip_comp_level
 VIEWPORT = {"width": 1400, "height": 900}  # the desktop of tools/ui_shots.py: the result in columns
 HEAD_MAX = 32 * 1024 * 1024  # bytes of data.js read to find its first line
-RUN_COPY = ("data.js", "run.json", "ATTRIBUTION.txt")  # what the result and the 3D view read of a run
+# what the result and the 3D view read of a run: its store when it has one (run.json's block "store", listed in the
+# scratch folder's runs.js), else its data.js
+RUN_COPY = ("data.js", "lines.arrow", "profiles.arrow", "run.json", "ATTRIBUTION.txt")
 # data.js read as a script (before 2026-11-04, a map from disk, a file JSON.parse refuses) or fetched and parsed
 PHASES = ("fal:run:script", "fal:run:download", "fal:run:parse", "fal:run:lines", "fal:run:filter", "fal:run:group", "fal:run:ranges", "fal:run:rows")
 PHASES_3D = ("fal:3d:request", "fal:3d:body", "fal:3d:decode", "fal:3d:mesh", "fal:3d:first-frame",
@@ -156,7 +160,8 @@ def summarize_result(rounds: list) -> dict:
     longest task and the long tasks' sum, the heap; the line count from the phase "lines"."""
     detail = next((phase_detail(r["measures"], "fal:run:lines") for r in rounds if r.get("measures")), None) or {}
     out = {"count": detail.get("count"), "rounds": len(rounds),
-           "errors": sorted({e for r in rounds for e in r.get("errors", [])})}
+           "errors": sorted({e for r in rounds for e in r.get("errors", [])}),
+           "source": ", ".join(sorted({r["source"] for r in rounds if r.get("source")}))}
     for name in PHASES:
         out[name.split(":")[-1]] = median(phase_ms(r["measures"], name) for r in rounds)
     out["transfer"] = median(r["file"]["end"] - r["file"]["start"] if r.get("file") else None for r in rounds)
@@ -198,18 +203,20 @@ def markdown(results: dict) -> str:
     out = ["# Loading a run in the browser", "",
            f"Chromium {results['browser']}, {results['rounds']} rounds per run, medians; seconds unless named.", "",
            "## The result's page", "",
-           "| run | lines | data.js MB | gzip MB | " + " | ".join(f"gzip at {r} Mbit/s" for r in RATES_MBIT) +
+           "| run | lines | read | data.js MB | gzip MB | " + " | ".join(f"gzip at {r} Mbit/s" for r in RATES_MBIT) +
            " | transfer (loopback) | script | download | parse | lines | filter | group | ranges | rows | shown | longest task | "
            "long tasks | heap MB |",
-           "|" + "---|" * (17 + len(RATES_MBIT))]
+           "|" + "---|" * (18 + len(RATES_MBIT))]
     for run in results["runs"]:
         r, size = run["result"], run["size"]
         rates = [_s(size["gzip"] * 8 / (rate * 1e6) * 1000) for rate in RATES_MBIT]
-        out.append(f"| {run['id']} | {r['count']} | {size['bytes'] / 2 ** 20:.1f} | {size['gzip'] / 2 ** 20:.1f} | "
+        out.append(f"| {run['id']} | {r['count']} | {r.get('source') or ''} | {size['bytes'] / 2 ** 20:.1f} | "
+                   f"{size['gzip'] / 2 ** 20:.1f} | "
                    + " | ".join(rates) + " | " + " | ".join(_s(r[k]) for k in (
                        "transfer", "script", "download", "parse", "lines", "filter", "group", "ranges", "rows", "ready", "longest_task",
                        "long_tasks")) + f" | {'' if r['heap_mb'] is None else round(r['heap_mb'])} |")
-    out += ["", "*transfer*: data.js's resource timing; *script*: from the request to its load event (download and parse); "
+    out += ["", "*read*: the file the page read (the store, or data.js); *transfer*: that file's (lines.arrow's or "
+            "data.js's) resource timing; *script*: from the request to its load event (download and parse); "
             "*download*, *parse*: fetched with its bytes counted, then JSON.parse (result/load.ts); *shown*: from the "
             "page's start to the result drawn.", "",
             "## data.js as a script against fetch + JSON.parse (from the HTTP cache)", "",
@@ -243,8 +250,9 @@ def _unlink(path: str):
 
 
 def scratch_data(folder: str, runs_dir: str, cache_dir: str, runs: list) -> list:
-    """A data folder in `folder` with the cache linked and each run's files of RUN_COPY copied (the local app's
-    /runs follows no link out of its folder); the links made (for _unlink)."""
+    """A data folder in `folder` with the cache linked, each run's files of RUN_COPY copied (the local app's
+    /runs follows no link out of its folder) and its runs.js written (the page reads a run's store when its entry
+    there has run.json's block "store"); the links made (for _unlink)."""
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from regression import link
     os.makedirs(os.path.join(folder, "runs"), exist_ok=True)
@@ -258,6 +266,10 @@ def scratch_data(folder: str, runs_dir: str, cache_dir: str, runs: list) -> list
         for name in RUN_COPY:
             if os.path.isfile(os.path.join(source, name)):
                 shutil.copy2(os.path.join(source, name), target)
+    import runs as rn  # runs.js as runs.write_index writes it (without its index.html)
+    listed = [rn._listed(r) for r in rn.list_runs(os.path.join(folder, "runs"))]
+    with open(os.path.join(folder, "runs", "runs.js"), "w", encoding="utf-8") as f:
+        f.write("window.FINDALINE_RUNS = " + json.dumps(listed, ensure_ascii=False) + ";\n")
     return links
 
 
@@ -302,7 +314,12 @@ def open_result(browser, site: str, run: str, timeout: float, out: str, keep_pag
         page.screenshot(path=shot)
         context.close()
         raise SystemExit(f"{run}: the result did not show ({failed}; page errors {errors}; {shot})")
-    found = page.evaluate(COLLECT, "/data.js")
+    # which file the page read: the store (lines.arrow, profiles.arrow) or data.js
+    store = page.evaluate("() => performance.getEntriesByType('resource')"
+                          ".some((r) => new URL(r.name).pathname.endsWith('/lines.arrow'))")
+    found = page.evaluate(COLLECT, "/lines.arrow" if store else "/data.js")
+    found["source"] = "store" if store else "data.js"
+    print(f"{run}: read from {found['source']}", flush=True)
     found["errors"] = errors
     if keep_page:
         return found, context, page

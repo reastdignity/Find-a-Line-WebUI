@@ -119,7 +119,7 @@ def drop_store(data_dir, run_id: str):
     rn.write_index(runs)
 
 
-def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMALL) -> str:
+def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMALL, name: str = "Small run") -> str:
     """A copy of a run with its first `lines` lines only (SMALL): its data.js and lines.js, and its store when the
     run has one (the rows and their profiles cut, the head's run renamed); runs.js written again."""
     runs = os.path.join(str(data_dir), "runs")
@@ -129,7 +129,7 @@ def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMA
     with open(os.path.join(src, "data.js"), encoding="utf-8") as f:
         data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
     data["lines"] = data["lines"][:lines]
-    data["run"].update(id=small, name="Small run", created="2026-10-28T12:00:00")
+    data["run"].update(id=small, name=name, created="2026-10-28T12:00:00")
     with open(os.path.join(dst, "data.js"), "w", encoding="utf-8") as f:
         f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
     with open(os.path.join(src, "lines.js"), encoding="utf-8") as f:
@@ -139,7 +139,7 @@ def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMA
         f.write(f'(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})["{small}"] = {json.dumps(body)};\n')
     with open(os.path.join(dst, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
-    meta.update(id=small, name="Small run", created="2026-10-28T12:00:00")
+    meta.update(id=small, name=name, created="2026-10-28T12:00:00")
     meta["summary"] = {**meta.get("summary", {}), "lines": lines, "spots": 12}
     if meta.get("store"):
         import pyarrow.compute as pc
@@ -199,16 +199,10 @@ def big_clip(tmp_path_factory):
 
 
 def copy_clip(clip, data_dir, run_id: str, name: str):
-    """copy_run, and its lines.js and its store's head (as data.js) under the new id too."""
+    """copy_run (data.js and the store's head under the new id), and its lines.js under the new id too."""
     folder = copy_run(clip, data_dir, run_id, name)
     lines = (folder / "lines.js").read_text("utf-8").replace(clip.name, run_id)
     (folder / "lines.js").write_text(lines, "utf-8")
-    meta = json.loads((folder / "run.json").read_text("utf-8"))
-    if meta.get("store"):
-        (rows, profiles), store_meta = _store_files(folder)
-        store_meta = json.loads(json.dumps(store_meta).replace(clip.name, run_id))
-        meta["store"] = _write_store(folder, rows, profiles, store_meta)
-        (folder / "run.json").write_text(json.dumps(meta), "utf-8")
     rn.write_index(str(data_dir / "runs"))
     return folder
 
@@ -659,6 +653,7 @@ WHICH_FILE_JS = """
 const files = (id) => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname)
   .filter((p) => p.startsWith("/runs/" + encodeURIComponent(id) + "/")).map((p) => p.split("/").pop());
 const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+const credited = () => text(".leaflet-control-attribution").includes("FABDEM");
 const shown = (id) => ({files: files(id), lines: model().total, spots: model().groups.length,
                         first: model().lineLink(model().lineAt(0)), credits: text(".leaflet-control-attribution"),
                         downloads: performance.getEntriesByName("fal:run:download").map((e) => e.detail && e.detail.store === true)});
@@ -667,12 +662,13 @@ const shown = (id) => ({files: files(id), lines: model().total, spots: model().g
 WHICH_FILE_SCRIPT = WHICH_FILE_JS + """
 const SMALL = "%(small)s", OLD = "%(old)s";
 run({
-  store(next) { wait(() => model() && model().runId === SMALL && $(".c-col-list .r-rows .r-row"), () => {
+  // the credits come with the map (after the rows): waited for too
+  store(next) { wait(() => model() && model().runId === SMALL && $(".c-col-list .r-rows .r-row") && credited(), () => {
     result.store = shown(SMALL);
     location.hash = "#run=" + OLD;
     next();
   }); },
-  old(next) { wait(() => model() && model().runId === OLD && $(".c-col-list .r-rows .r-row"), () => {
+  old(next) { wait(() => model() && model().runId === OLD && $(".c-col-list .r-rows .r-row") && credited(), () => {
     result.old = shown(OLD);
     next();
   }); },
@@ -681,7 +677,7 @@ run({
 
 MAP_STORE_SCRIPT = WHICH_FILE_JS + """
 run({
-  map(next) { wait(() => model() && $(".r-rows .r-row"), () => { result.map = shown("%(small)s"); next(); }); },
+  map(next) { wait(() => model() && $(".r-rows .r-row") && credited(), () => { result.map = shown("%(small)s"); next(); }); },
 });
 """
 
@@ -722,6 +718,101 @@ def test_shell_c_store_or_data_js(data, tmp_path):
     assert store["spots"] == old["spots"] == map_["spots"] and store["first"] == old["first"] == map_["first"]
     for got in (store, old, map_):
         assert "FABDEM V1-2 © University of Bristol" in got["credits"], got
+
+
+COMPARED = "2026-10-30_120000_Compared_00000000000000e1"  # SMALL's lines again, with a store, for Compare
+
+COMPARE_SCRIPT = WHICH_FILE_JS + """
+const SMALL = "%(small)s", COMPARED = "%(compared)s", OLD = "%(old)s";
+run({
+  open(next) { wait(() => model() && model().runId === SMALL && $(".c-col-list .r-rows .r-row"), () => {
+    button("Compare").click();
+    wait(() => $$(".r-other").length >= 2, () => {
+      result.listed = $$(".r-other").map((o) => o.textContent.split(" · ")[0]);
+      $$(".r-other").filter((o) => /Compared run|Old run/.test(o.textContent)).forEach((o) => o.querySelector("input").click());
+      next();
+    });
+  }); },
+  shown(next) { wait(() => model().others.size === 2 && !$$(".r-other").some((o) => /loading/.test(o.textContent)), () => {
+    result.others = Object.fromEntries([...model().others.values()].map((o) => [o.info.id, o.count]));
+    result.files = {compared: files(COMPARED), old: files(OLD), small: files(SMALL)};
+    result.total = model().total;
+    result.mixed = model().groups.some((g) => g.members.some((l) => l.run && l.run.info.id === COMPARED)
+                                           && g.members.some((l) => !l.run));
+    next();
+  }); },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_compare_store_and_lines_js(data, tmp_path):
+    """Compare in the app's result (RunActions, the page's own path): another run with a store is read from its
+    lines.arrow (no profiles.arrow, no lines.js), one without a store from its lines.js; both shown with this run,
+    every line of each, grouped together; no CSP violations."""
+    small_copy(data, BIG, small=COMPARED, name="Compared run")
+    small_copy(data, BIG, small=OLD, name="Old run")
+    drop_store(data, OLD)
+    page = stub_page(data, "ccompare", COMPARE_SCRIPT % {"small": SMALL, "compared": COMPARED, "old": OLD})
+    with _server(data) as port:
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-compare")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert {"Compared run", "Old run"} <= set(r["listed"]), r
+    assert r["others"] == {COMPARED: SMALL_LINES, OLD: SMALL_LINES}, r
+    assert [f for f in r["files"]["compared"] if f in RUN_DATA] == ["lines.arrow"], r
+    assert [f for f in r["files"]["old"] if f in RUN_DATA] == ["lines.js"], r
+    assert sorted(f for f in r["files"]["small"] if f in RUN_DATA) == ["lines.arrow", "profiles.arrow"], r
+    assert r["total"] == 3 * SMALL_LINES and r["mixed"], r
+    assert r["csp"] == []
+
+
+NEWER = "2026-10-31_120000_Newer_00000000000000f1"    # a store of a newer format
+BROKEN = "2026-10-31_130000_Broken_00000000000000f2"  # a store whose lines.arrow is not an Arrow file
+
+MAP_ERROR_SCRIPT = """
+run({
+  shown(next) { wait(() => text(".c-result-wait .c-error"), () => {
+    result.text = text(".c-result-wait .c-error");
+    result.model = !!window.FINDALINE_RESULT;
+    next();
+  }); },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_map_says_why_a_store_failed(data, tmp_path):
+    """A run's own map.html over http shows a store's failure in its own words: a store of a newer format
+    "made by a newer Find-a-Line" (ui.result.newer_store), a store that cannot be read ui.result.store_failed;
+    neither blames data.js; no CSP violations."""
+    import mapping
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)
+    small_copy(data, BIG, small=NEWER, name="Newer run")
+    small_copy(data, BIG, small=BROKEN, name="Broken run")
+    path = data / "runs" / NEWER / "run.json"
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    meta["store"]["format"] += 1
+    path.write_text(json.dumps(meta), encoding="utf-8")
+    (data / "runs" / BROKEN / "lines.arrow").write_bytes(b"not an Arrow file " * 100)
+    rn.write_index(str(data / "runs"))
+    mapping.install_viewer(str(data / "runs"))
+    for run_id in (NEWER, BROKEN):
+        folder = data / "runs" / run_id
+        (folder / "why_stubs.js").write_text(C_STUBS, encoding="utf-8")
+        (folder / "why_test.js").write_text(HELPERS + MAP_ERROR_SCRIPT, encoding="utf-8")
+        html = (folder / "map.html").read_text(encoding="utf-8")
+        (folder / "why.html").write_text(html.replace("<head>", '<head><script src="why_stubs.js"></script>')
+                                         .replace("</body>", '<script src="why_test.js"></script></body>'),
+                                         encoding="utf-8")
+    with _server(data) as port:
+        newer = _edge(port, f"runs/{NEWER}/why.html", tmp_path / "edge-newer")
+        broken = _edge(port, f"runs/{BROKEN}/why.html", tmp_path / "edge-broken")
+    for r in (newer, broken):
+        assert "timeout" not in r and "error" not in r, json.dumps(r)
+        assert r["model"] is False and "data.js" not in r["text"] and r["csp"] == [], r
+    assert newer["text"] == words["ui.result.newer_store"], newer
+    assert broken["text"] == words["ui.result.store_failed"], broken
 
 
 def add_credits(data_dir, run_id: str):

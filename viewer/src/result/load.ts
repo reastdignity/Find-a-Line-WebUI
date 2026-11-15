@@ -4,8 +4,8 @@
 // JSON.parse (measured 2026-11-04: about 30 % faster than the script; tools/perf_run_load.py). A file JSON.parse refuses (NaN,
 // Infinity: runs.column_texts writes them) is loaded as a script instead, from the HTTP cache, so every value
 // stays as the script gives it. From disk (file://: no fetch) it is a script, which the CSP (script-src
-// 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs still come
-// from their lines.js (others.loadLines).
+// 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs come from their
+// store or their lines.js (loadOtherRun, others.loadLines).
 //
 // The rows are then read into columns (types.ts runData: docs/line-volume/spec-store.md 1.2, store wave 1) and
 // dropped: the page keeps the run's lines as typed arrays (RunData.columns). A body that arrives empty although its
@@ -16,10 +16,13 @@
 // A run with a store (store wave 2: run.json's block `store`, which runs.js lists) is read from it instead over
 // http(s): lines.arrow and profiles.arrow downloaded together (download.ts, as bytes), read with apache-arrow
 // (readStore) into the same columns without a copy, the head from the schema's metadata `findaline`. Which file is
-// read is decided by the run's entry in runs.js beside the run's folder (storeOf), read afresh when the run is not
-// in the list the page has: a store without that block (a save stopped before it wrote run.json) is never read; a
-// run without a store (saved before 2026-11-15, or its store failed) and a page from disk read data.js as before. A
-// share link's runs.js lists no runs: it reads data.js.
+// read is decided by the run's entry in runs.js beside the run's folder (storeOf: the list the page has, loaded or
+// read afresh only when the run is not in it): a store without that block (a save stopped before it wrote run.json)
+// is never read; a run without a store (saved before 2026-11-15, or its store failed) and a page from disk read
+// data.js as before. A share link's runs.js lists no runs: it reads data.js, without asking for a list. A store
+// whose file is missing (404) falls back to data.js while runs keep it (until store wave 4); a store of a newer
+// format never does (NewerStore), and a store that fails otherwise is a StoreFailed. A body the browser could not
+// hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is.
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
 import { download } from "../download";
@@ -53,6 +56,17 @@ export class TooLarge extends Error {
     this.name = "TooLarge";
   }
 }
+
+/** A run's store that could not be downloaded or read (not a missing file: that falls back to data.js). */
+export class StoreFailed extends Error {
+  constructor(key: string, why: string) {
+    super(`could not load the store of the run ${key} (${why})`);
+    this.name = "StoreFailed";
+  }
+}
+
+/** A store's file answered 404: the run is read from data.js (or lines.js) instead while runs keep them. */
+class StoreMissing extends Error {}
 
 /** A run whose store is of a higher format than STORE_FORMAT: made by a newer Find-a-Line. */
 export class NewerStore extends Error {
@@ -140,23 +154,30 @@ async function downloadRun(url: string, key: string, report: OnProgress): Promis
   return scriptRun(url, key, report);
 }
 
-/** A run over http(s): its store when its entry in runs.js has one, else its data.js (`url`). */
+/** A run over http(s): its store when its entry in runs.js has one, else (or when a store's file is missing) its
+ *  data.js (`url`). */
 async function fromServer(url: string, key: string, report: OnProgress): Promise<RunData> {
   report({phase: "download", fraction: null});
   const store = await storeOf(url);
   if (!store) return downloadRun(url, key, report);
-  return downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true);
+  try {
+    return await downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true);
+  } catch (e) {
+    if (e instanceof StoreMissing) return downloadRun(url, key, report);
+    throw e;
+  }
 }
 
 /** The block `store` of the run whose data.js is at `url` (its folder's name is the run's id), from the list of
- *  runs beside its folder (`../runs.js`: run.json's block), read afresh when the run is not in the list this page
- *  has (a run saved since the page loaded it); null when the run has none or is not listed (a share link). */
+ *  runs beside its folder (`../runs.js`: run.json's block): the list the page has (a map.html's own runs.js, or one
+ *  loaded before), else that list loaded, else read afresh (a run saved since the page loaded it); null when the run
+ *  has none or is not listed. A share link (/s/<token>/: its runs.js lists no runs) asks for no list. */
 export async function storeOf(url: string): Promise<StoreInfo | null> {
   const at = new URL(url, location.href), parts = at.pathname.split("/");
-  if (parts.length < 3 || parts[parts.length - 1] !== "data.js") return null;
+  if (parts.length < 3 || parts[parts.length - 1] !== "data.js" || at.pathname.startsWith("/s/")) return null;
   const id = decodeURIComponent(parts[parts.length - 2]), list = new URL("../runs.js", at).href;
-  const find = (runs: RunInfo[]) => runs.find((r) => r.id === id);
-  const run = find(await loadRunList(list)) ?? find(await loadRunList(list, true));
+  const find = (runs: RunInfo[] | undefined) => runs?.find((r) => r.id === id);
+  const run = find(window.FINDALINE_RUNS) ?? find(await loadRunList(list)) ?? find(await loadRunList(list, true));
   return run?.store ?? null;
 }
 
@@ -178,14 +199,21 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
   const answers = await Promise.all(names.map((name, k) => download(folder + name, "arraybuffer", {
     onHeaders: (total) => { totals[k] = total; if (totals.every((v) => v !== undefined)) progress(); },
     onBytes: (bytes) => { done[k] = bytes; if (totals.every((v) => v !== undefined)) progress(); },
-  }))).catch(() => { throw new Error("could not load the run " + key); });
+  }))).catch(() => { throw new StoreFailed(key, "the download failed"); });
+  if (answers.some((a) => a.status === 404)) throw new StoreMissing();
   for (const answer of answers) {
-    if (answer.status !== 200) throw new Error(`could not load the run ${key} (${answer.status})`);
+    if (answer.status !== 200) throw new StoreFailed(key, String(answer.status));
+    // The XHR gives null when it could not allocate the body's ArrayBuffer (XMLHttpRequest standard, "response")
+    if (!answer.body && answer.bytes > 0) throw new TooLarge();
   }
   measure("fal:run:download", start, {bytes: sum(answers.map((a) => a.bytes)), store: true});
   report({phase: "parse", fraction: null});
   await nextPaint();
-  return readStore(answers[0].body, profiles ? answers[1].body : null);
+  try {
+    return readStore(answers[0].body, profiles ? answers[1].body : null);
+  } catch (e) {
+    throw e instanceof NewerStore ? e : new StoreFailed(key, e instanceof Error ? e.message : String(e));
+  }
 }
 
 /** A store's Arrow file (`bytes`, the whole file) as its one record batch and its metadata `findaline`; a store of
@@ -339,12 +367,18 @@ export function storedProfiles(bytes: ArrayBuffer): ProfileSource {
 }
 
 /** Another run's lines for Compare (RunActions): from its store when its entry has one and the page is served
- *  (lines.arrow only: no profiles, as its lines.js), else its lines.js (`lines`: others.loadLines). */
-export function loadOtherRun<T>(run: RunInfo, base: string, lines: (id: string, base: string) => Promise<T>):
+ *  (lines.arrow only: no profiles, as its lines.js), else, or when lines.arrow is missing, its lines.js (`lines`:
+ *  others.loadLines). */
+export async function loadOtherRun<T>(run: RunInfo, base: string, lines: (id: string, base: string) => Promise<T>):
     Promise<RunData | T> {
   if (!run.store || !overHttp()) return lines(run.id, base);
   const folder = new URL(base + encodeURIComponent(run.id) + "/", location.href).href;
-  return downloadStore(folder, run.id, () => undefined, run.store, false);
+  try {
+    return await downloadStore(folder, run.id, () => undefined, run.store, false);
+  } catch (e) {
+    if (e instanceof StoreMissing) return lines(run.id, base);
+    throw e;
+  }
 }
 
 function scriptRun(url: string, key: string, report: OnProgress): Promise<RunData> {

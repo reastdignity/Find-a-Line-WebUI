@@ -345,9 +345,9 @@ def first_line(data: str, run: str, k: int = 0) -> str:
 
 
 def with_credits(path: str):
-    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js and run.json (a run of local
-    files has none), so the map's and the 3D view's attribution are as long as a real run's (on a phone: folded
-    behind their button)."""
+    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js, its store's head (the page reads
+    the store when the run has one) and run.json (a run of local files has none), so the map's and the 3D view's
+    attribution are as long as a real run's (on a phone: folded behind their button)."""
     import sources as src
     with open(path, encoding="utf-8") as f:
         prefix, _, text = f.read().partition(" = ")
@@ -360,8 +360,29 @@ def with_credits(path: str):
     with open(meta_path, encoding="utf-8") as f:
         meta = json.load(f)
     meta["attribution"] = data["attribution"]
+    if meta.get("store"):
+        meta["store"] = with_store_head(os.path.dirname(path), {"attribution": data["attribution"]})
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
+
+
+def with_store_head(folder: str, values: dict) -> dict:
+    """The run's lines.arrow written again with `values` in its head (the schema's metadata `findaline`, as
+    linestore.write writes it); run.json's block "store" of it."""
+    import hashlib
+    import pyarrow as pa
+    import linestore
+    path = os.path.join(folder, linestore.LINES_FILE)
+    with pa.OSFile(path, "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    meta = json.loads(table.schema.metadata[linestore.META_KEY])
+    meta["head"].update(values)
+    table = table.replace_schema_metadata({linestore.META_KEY: json.dumps(meta, ensure_ascii=False).encode("utf-8")})
+    linestore._write_file(path, table)
+    with open(path, "rb") as f:
+        sha = hashlib.sha256(f.read()).hexdigest()[:16]
+    return {"format": meta["format"], "lines": table.num_rows,
+            "bytes": sum(os.path.getsize(os.path.join(folder, name)) for name in linestore.FILES), "sha256": sha}
 
 
 def border_view(data: str) -> str:

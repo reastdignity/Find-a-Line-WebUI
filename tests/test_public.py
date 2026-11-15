@@ -692,15 +692,27 @@ def clip_run(tmp_path_factory):
 
 
 def copy_run(clip_run, data_dir, run_id: str, name: str):
-    """The clip's run as another run of a data folder (its id and name changed)."""
+    """The clip's run as another run of a data folder (its id and name changed; its id in data.js and in its
+    store's head too, as the page reads either)."""
+    import hashlib
     import shutil
+    import pyarrow as pa
+    import linestore
     folder = data_dir / "runs" / run_id
     shutil.copytree(clip_run, folder)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta.update(id=run_id, name=name)
-    (folder / "run.json").write_text(json.dumps(meta), "utf-8")
     data = (folder / "data.js").read_text("utf-8").replace(clip_run.name, run_id)
     (folder / "data.js").write_text(data, "utf-8")
+    if meta.get("store"):
+        path = folder / linestore.LINES_FILE
+        with pa.OSFile(str(path), "rb") as f:
+            table = pa.ipc.open_file(f).read_all()
+        head = table.schema.metadata[linestore.META_KEY].decode("utf-8").replace(clip_run.name, run_id)
+        linestore._write_file(str(path), table.replace_schema_metadata({linestore.META_KEY: head.encode("utf-8")}))
+        meta["store"].update(bytes=sum((folder / n).stat().st_size for n in linestore.FILES),
+                             sha256=hashlib.sha256(path.read_bytes()).hexdigest()[:16])
+    (folder / "run.json").write_text(json.dumps(meta), "utf-8")
     return folder
 
 
