@@ -252,11 +252,11 @@ GRID_MEMBER_BYTES = 100_000_000
 class InegiGrid(Reader):
     """A sheet's ZIP (one GET, streamed, at most max_bytes; a 404 is no data) holding an ArcInfo GRID
     (<MT|MS>_Grid/<sheet>_<mt|ms>/<sheet>_<mt|ms>/hdr.adf ...), saved next to the tile, its GRID unpacked into a
-    temporary folder and read by GDAL's AIG driver (_read), in the sheet's CRS (the GRID names none). Each file reaches 100-400 m beyond
-    its sheet's cell, and its last pixels there are the TIN's edge (up to 73 m off the neighbour's interior at
-    G14C15B1/B2, 2026-11-15), so only the pixels whose centres lie within margin_m of the cell (in degrees, its
-    edges projected densely) are kept: the neighbours' sheets meet without either's edge. Written through
-    _write_tile with the sheet's edition and name as tags."""
+    temporary folder and read by GDAL's AIG driver (_read), in the sheet's CRS (the GRID names none). Each file
+    reaches 100-400 m beyond its sheet's cell, and its last pixels there are the TIN's edge (up to 73 m off the
+    neighbour's interior at G14C15B1/B2, 2026-11-15), so only the pixels whose centres lie within margin_m of the
+    cell (in degrees, its edges projected densely) are kept: the neighbours' sheets meet without either's edge.
+    Written through _write_tile with the sheet's edition and name as tags."""
     rewrites = True
 
     def __init__(self, description: str, max_bytes: int = 50_000_000, margin_m: float = 10.0):
@@ -368,7 +368,7 @@ class InegiGrid(Reader):
         if rows.size == 0:
             return band[:1, :1], transform
         r0, r1, c0, c1 = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
-        return np.ascontiguousarray(band[r0:r1, c0:c1]), transform * Affine.translation(int(c0), int(r0))
+        return np.ascontiguousarray(band[r0:r1, c0:c1]), transform @ Affine.translation(int(c0), int(r0))
 
 
 _CELLS = GeoCellTiling("EPSG:4326", "", INEGI_CELL, INEGI_ORIGIN)  # the lattice's edges for InegiGrid._cut

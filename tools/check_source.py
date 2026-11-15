@@ -276,6 +276,41 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     return drop_below(values, layer.floor, layer.ring)
 
 
+def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndarray:
+    """An INEGI sheet's ZIP (downloaded whole by src.net._get: GDAL's /vsizip/ over /vsicurl/ would read it by ranges
+    outside sources.net, and the names carry backslashes) whose ArcInfo GRID is unpacked here by zipfile and read by
+    GDAL on the pixels of a cached tile, in the sheet's CRS (the GRID names none); the pixels outside the sheet's
+    cell grown by the reader's margin are left out, as the layer leaves them out (its cut, done again here from the
+    cell's edges)."""
+    import shutil
+    import tempfile
+    from rasterio.features import geometry_mask
+    from shapely.geometry import box
+    response = src.net._get(url, binary_types=("zip", "octet"))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    folder = tempfile.mkdtemp(prefix="inegi-")
+    try:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            names = {i.filename.replace("\\", "/"): i for i in archive.infolist() if not i.is_dir()}
+            grid = next(n for n in names if n.lower().endswith("/hdr.adf"))[:-len("hdr.adf")]
+            for name, info in names.items():
+                if name.startswith(grid) and "/" not in name[len(grid):]:
+                    with open(os.path.join(folder, name[len(grid):]), "wb") as out:
+                        out.write(archive.read(info))
+        with rio.open(folder) as source:
+            with WarpedVRT(source, src_crs=tile.crs, crs=profile["crs"], transform=profile["transform"],
+                           width=profile["width"], height=profile["height"], resampling=Resampling.nearest) as vrt:
+                values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    west, south, east, north = layer.index.edges(tile)
+    cell = ar.project(box(west, south, east, north).segmentize(0.002), "EPSG:4326", tile.crs)
+    values[geometry_mask([cell.buffer(layer.reader.margin_m)], values.shape, profile["transform"])] = np.nan
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, src.GeoWcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer,
@@ -370,6 +405,8 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_xyz(url, profile)
                 elif isinstance(layer, src.ZipMemberTiles):
                     source = _read_member(layer, tile, profile)
+                elif isinstance(layer, src.InegiSheets):
+                    source = _read_grid(layer, url, tile, profile)
                 else:
                     source = _read_source(url, profile, resampling)
                 geoid = getattr(layer, "geoid", None)
