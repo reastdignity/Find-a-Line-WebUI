@@ -5,11 +5,11 @@ constants kept: the user judged its pictures and asked for it as it is (2026-11-
 cannot see paths, fences, private land or trees, nor tell rock from grass, so "can walk" means "the ground allows a
 walk", and "cannot walk" means "the ground offers none" (an anchor that hangs in the face).
 
-Inputs: the search's filled terrain `z` (float32, NaN without data), its water, the pixels it filled from a coarser
-model (`filled`: no data for the walk unless they are water) and the resolution in metres. Output: a `uint8` grid of
-the same shape with an answer for every pixel (`access_grid`); a line takes its two anchors' pixels from it. A pixel
-without data holds what the measure gives an anchor there (cannot walk; cannot tell under the alpine variant where
-open ground is scarce): no anchor lies on one.
+Inputs: the search's filled terrain `z` (float32, NaN without data), its water, the pixels it filled (`filled`: no
+data for the walk unless they are water; the search passes its gaps and the shore faces taken from the surface model)
+and the resolution in metres. Output: a `uint8` grid of the same shape with an answer for every pixel (`access_grid`,
+or `block_grid` in blocks); a line takes its two anchors' pixels from it, the measure's own answer there (an anchor on
+a filled pixel or a shore face gets the answer of the data around it, as in the study; none lies on a NaN).
 
 The measure:
 - slope: the app's slope (np.gradient, degrees); a pixel beside a NaN along an axis has no slope and is neither
@@ -37,15 +37,20 @@ The measure:
   tell" where open ground is under ALPINE_SHARE of the land (pixels with data, not water) in the square of
   +-OPEN_AROUND_M around the pixel: on alpine walls the measure is not sure enough to say "cannot".
 
-Locality: every distance is in metres and bounded, so a window with a margin of MARGIN_M around a core gives the
-whole grid's answers in the core, except where a grid-wide judgement differs between the window and the grid: an
-open region (or a flat lake) cut by the window's edge that is smaller inside the window than the limit (the study's
-noted case: a thin strip reaching in from beyond the margin), and the whole-metre test, which samples the grid it is
-given. The search computes the grid once for the whole area (spec-search.md 3.2), so its tiles never meet these.
+Locality: every distance is in metres and bounded, so a window with a margin of MARGIN_M (and 6 pixels) around a
+core gives the whole grid's answers in the core, except for the grid-wide judgements: the whole-metre test (a sample
+of the grid), the flat lakes' and the open ground's regions (their size), and on whole metres the open ground's
+regions on the smoothed heights. The search (search._access_grid) computes the grid at once when it fits its memory;
+otherwise `block_grid` makes those judgements once on the whole grid, strip by strip, their masks memory-mapped, and
+every block from its window with them: the whole grid's answers, whatever the blocks (0 pixels differed on the Gozo
+coast, 126 Mpx). The search's tiles read their windows of that one grid.
 
 Results never depend on the number of threads: the walk is serial, and the parallel kernel writes each pixel's own
 answer. The study's numbers: about 0.3 s per megapixel (indicative).
 """
+import math
+import os
+
 import numpy as np
 from numba import njit, prange
 from scipy import ndimage
@@ -285,14 +290,28 @@ def _reaches(walk: np.ndarray, source: np.ndarray, z: np.ndarray, res: float, of
     return _stands_near(reached, walk, z, offsets[0], offsets[1], STAND_BELOW_M, STAND_ABOVE_M)
 
 
+def _smoothed(z: np.ndarray, data: np.ndarray) -> np.ndarray:
+    """The lightly smoothed heights of whole metres: a pixel without data takes its nearest data pixel's height
+    (local: the same in every window), a Gaussian of SMOOTH_SIGMA_PX, NaN again without data."""
+    near = ndimage.distance_transform_edt(~data, return_distances=False, return_indices=True)
+    zs = ndimage.gaussian_filter(z[near[0], near[1]].astype(np.float32), SMOOTH_SIGMA_PX)
+    del near
+    return np.where(data, zs, np.nan).astype(np.float32)
+
+
+def _check_size(pixels: int):
+    """The walk indexes its grid with int32: a grid (or a block's window) of 2^31 - 1 pixels or more is refused."""
+    if pixels >= np.iinfo(np.int32).max:
+        raise ValueError("grid too large for the access measure's walk")
+
+
 def access_grid(z: np.ndarray, water, res: float, filled=None, alpine: bool = True) -> np.ndarray:
-    """The answer for every pixel of the grid (uint8: CANNOT 0, UNSURE 1, CAN 2).
+    """The answer for every pixel of the grid (uint8: CANNOT 0, UNSURE 1, CAN 2), the grid in memory at once.
 
     z: the filled terrain (float32, NaN without data); water: bool or None; res: metres per pixel; filled: the
     pixels filled from a coarser model (bool or None); alpine: the alpine variant (the user's choice: on)."""
     z = np.ascontiguousarray(z, np.float32)
-    if z.size >= np.iinfo(np.int32).max:
-        raise ValueError("grid too large for the access measure's walk")
+    _check_size(z.size)
     water = np.zeros(z.shape, bool) if water is None else np.asarray(water, bool)
     data = np.isfinite(z)
     if filled is not None:
@@ -302,10 +321,20 @@ def access_grid(z: np.ndarray, water, res: float, filled=None, alpine: bool = Tr
     if not wm:
         water = water | flat_water(z, s, res)
     s = np.where(data, s, 90.0)
+    og = _open_ground(s, water, data, res)
+    return _answers(z, water, data, res, wm, og, alpine, s=s)
+
+
+def _answers(z: np.ndarray, water: np.ndarray, data: np.ndarray, res: float, wm: bool, og: np.ndarray, alpine: bool,
+             og2=None, s=None) -> np.ndarray:
+    """The answers of a grid or a block's window, the grid-wide judgements given: wm (the heights are whole metres),
+    water (with the flat lakes on float heights), og (the open ground) and, on whole metres, og2 (the open ground on
+    the smoothed heights; None: computed here, as on a whole grid). s: the slope with 90 where there is no data."""
+    if s is None:
+        s = np.where(data, slope_deg(z, res), 90.0)
     offsets = _offsets(res)
     strict = (s <= WALK_DEG) & ~water & data & ~crest(z, res, WALK_DEG)
     loose = (s <= LOOSE_DEG) & ~water & data
-    og = _open_ground(s, water, data, res)
     del s
     share = None
     if alpine:
@@ -318,7 +347,7 @@ def access_grid(z: np.ndarray, water, res: float, filled=None, alpine: bool = Tr
     del strict
     reach_loose = _reaches(loose, og, z, res, offsets)
     del og
-    # the end of the data: loose walkable pixels next to a pixel without data or on the grid's border
+    # the end of the data: loose walkable pixels next to a pixel without data or on the grid's (window's) border
     edge = ndimage.binary_dilation(~data, structure=_EIGHT) & loose
     edge[0, :] |= loose[0, :]
     edge[-1, :] |= loose[-1, :]
@@ -328,14 +357,11 @@ def access_grid(z: np.ndarray, water, res: float, filled=None, alpine: bool = Tr
     del loose, edge
     smooth_disagree = np.zeros(z.shape, bool)
     if wm:
-        # no data takes its nearest data pixel's height (local: the same in every window)
-        near = ndimage.distance_transform_edt(~data, return_distances=False, return_indices=True)
-        zs = ndimage.gaussian_filter(z[near[0], near[1]].astype(np.float32), SMOOTH_SIGMA_PX)
-        del near
-        zs = np.where(data, zs, np.nan).astype(np.float32)
+        zs = _smoothed(z, data)
         ss = np.where(data, slope_deg(zs, res), 90.0)
         strict2 = (ss <= WALK_DEG) & ~water & data & ~crest(zs, res, WALK_DEG)
-        og2 = _open_ground(ss, water, data, res)
+        if og2 is None:
+            og2 = _open_ground(ss, water, data, res)
         del ss
         smooth_disagree = _reaches(strict2, og2, zs, res, offsets) != can
         del strict2, og2, zs
@@ -355,3 +381,217 @@ def at(grid: np.ndarray, pixels) -> np.ndarray:
     if ((pixels < 0) | (pixels >= (h, w))).any():
         raise ValueError("a pixel outside the access grid")
     return grid[pixels[:, 0], pixels[:, 1]]
+
+
+# --- The grid in blocks (the search's: docs/line-volume/spec-search.md 3.2, the user's choice of 2026-11-15) ---
+
+STRIP_PX = 4_000_000  # pixels of a strip of the grid-wide pass
+HALO = 16  # rows around a strip for the smoothed heights (the nearest data pixel, the Gaussian's 4 pixels, the slope)
+
+
+def margin_px(res: float) -> int:
+    """A block's window reaches this many pixels beyond the block: MARGIN_M and 6 pixels (the window margin that gives
+    the whole grid's answers in its core up to the coarsest grids the search makes)."""
+    return int(math.ceil((MARGIN_M + 6 * res) / res))
+
+
+def _strips(h: int, w: int):
+    rows = max(64, STRIP_PX // max(w, 1))
+    for r0 in range(0, h, rows):
+        yield r0, min(h, r0 + rows)
+
+
+def _data_rows(z, water, filled, r0: int, r1: int):
+    """Rows r0..r1 of the heights (float32, in memory) and of the pixels with data (access_grid's `data`)."""
+    zz = np.asarray(z[r0:r1], np.float32)
+    data = np.isfinite(zz)
+    if filled is not None:
+        wet = np.asarray(water[r0:r1], bool) if water is not None else np.zeros(zz.shape, bool)
+        data &= ~(np.asarray(filled[r0:r1], bool) & ~wet)
+    return zz, data
+
+
+def _slope_rows(z, r0: int, r1: int, res: float) -> np.ndarray:
+    """slope_deg of rows r0..r1 of the whole grid (a row around them: the same central differences)."""
+    a, b = max(0, r0 - 1), min(z.shape[0], r1 + 1)
+    return slope_deg(np.asarray(z[a:b], np.float32), res)[r0 - a:r1 - a]
+
+
+def _new(path: str, shape, dtype):
+    return np.lib.format.open_memmap(path, mode="w+", dtype=dtype, shape=shape)
+
+
+def _remove(path: str):
+    """A grid of the work folder, removed right after its views are closed (Windows: until then it is held)."""
+    import gc
+    import time
+    gc.collect()
+    for _ in range(50):
+        try:
+            os.remove(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            time.sleep(0.1)
+
+
+def _region_areas(mask_path: str, labels_path: str, shape, res: float):
+    """The 8-connected regions of a memory-mapped mask: their labels (int32, memory-mapped) and areas (m2)."""
+    mask = np.load(mask_path, mmap_mode="r")
+    labels = _new(labels_path, shape, np.int32)
+    n = ndimage.label(mask, structure=_EIGHT, output=labels)
+    del mask
+    count = np.zeros(n + 1, np.int64)
+    for r0, r1 in _strips(*shape):
+        count += np.bincount(np.asarray(labels[r0:r1]).ravel(), minlength=n + 1)
+    return labels, n, count * res * res
+
+
+def _whole_metres_rows(z, water, filled) -> bool:
+    """whole_metres(z[data]) of the whole grid, strip by strip: the count of the pixels with data, then every k-th of
+    them in the same order (the very sample of whole_metres)."""
+    h, w = z.shape
+    n = sum(int(_data_rows(z, water, filled, r0, r1)[1].sum()) for r0, r1 in _strips(h, w))
+    if not n:
+        return False
+    step = max(1, n // WHOLE_METRE_SAMPLE)
+    seen, picked = 0, []
+    for r0, r1 in _strips(h, w):
+        zz, data = _data_rows(z, water, filled, r0, r1)
+        v = zz[data]
+        picked.append(v[(-seen) % step::step])
+        seen += len(v)
+    sample = np.concatenate(picked)
+    return bool(np.mean(sample == np.round(sample)) >= WHOLE_METRE_SHARE)
+
+
+def _flat_lakes_rows(z, res: float, work: str, out) -> None:
+    """flat_water of the whole grid, strip by strip, ORed into `out` (a memory-mapped bool grid): the regions'
+    areas by their labels, their spreads from each region's lowest and highest height, the exact percentiles of
+    flat_water only for the regions whose highest less lowest is over FLAT_WATER_SPREAD_M."""
+    h, w = z.shape
+    flat_path, labels_path = os.path.join(work, "access_flat.npy"), os.path.join(work, "access_flat_labels.npy")
+    flat = _new(flat_path, (h, w), bool)
+    for r0, r1 in _strips(h, w):
+        flat[r0:r1] = np.isfinite(np.asarray(z[r0:r1], np.float32)) & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG)
+    flat.flush()
+    del flat
+    labels, n, area = _region_areas(flat_path, labels_path, (h, w), res)
+    big = area >= FLAT_WATER_MIN_M2
+    big[0] = False
+    lo, hi = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
+    for r0, r1 in _strips(h, w):
+        lab = np.asarray(labels[r0:r1]).ravel()
+        sel = big[lab]
+        zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
+        np.minimum.at(lo, lab[sel], zz)
+        np.maximum.at(hi, lab[sel], zz)
+    keep = big & (hi - lo <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
+    unsure = big & ~keep
+    if unsure.any():
+        values = {}
+        for r0, r1 in _strips(h, w):
+            lab = np.asarray(labels[r0:r1]).ravel()
+            sel = unsure[lab]
+            if sel.any():
+                zz, ll = np.asarray(z[r0:r1], np.float32).ravel()[sel], lab[sel]
+                order = np.argsort(ll, kind="stable")
+                zz, ll = zz[order], ll[order]
+                for b in np.unique(ll).tolist():
+                    values.setdefault(b, []).append(zz[np.searchsorted(ll, b):np.searchsorted(ll, b, side="right")])
+        for b, parts in values.items():
+            v = np.concatenate(parts)
+            if np.percentile(v, 95) - np.percentile(v, 5) <= FLAT_WATER_SPREAD_M:
+                keep[b] = True
+    for r0, r1 in _strips(h, w):
+        out[r0:r1] |= keep[np.asarray(labels[r0:r1])]
+    del labels
+    _remove(labels_path)
+    _remove(flat_path)
+
+
+def _open_ground_rows(z, water, filled, wet, res: float, work: str, name: str, smoothed: bool) -> str:
+    """_open_ground of the whole grid (on the smoothed heights with `smoothed`), strip by strip, into a memory-mapped
+    bool grid of the work folder; wet: the memory-mapped water with the flat lakes. Returns its path."""
+    h, w = z.shape
+    g_path, labels_path = os.path.join(work, f"access_{name}_g.npy"), os.path.join(work, f"access_{name}_labels.npy")
+    g = _new(g_path, (h, w), bool)
+    for r0, r1 in _strips(h, w):
+        _, data = _data_rows(z, water, filled, r0, r1)
+        if smoothed:
+            a, b = max(0, r0 - HALO), min(h, r1 + HALO)
+            za, da = _data_rows(z, water, filled, a, b)
+            s = slope_deg(_smoothed(za, da), res)[r0 - a:r1 - a]
+        else:
+            s = _slope_rows(z, r0, r1, res)
+        s = np.where(data, s, 90.0)
+        g[r0:r1] = (s < OPEN_DEG) & ~np.asarray(wet[r0:r1]) & data
+    g.flush()
+    del g
+    labels, n, area = _region_areas(g_path, labels_path, (h, w), res)
+    big = area >= OPEN_MIN_M2
+    big[0] = False
+    path = os.path.join(work, f"access_{name}.npy")
+    out = _new(path, (h, w), bool)
+    for r0, r1 in _strips(h, w):
+        out[r0:r1] = big[np.asarray(labels[r0:r1])]
+    out.flush()
+    del out, labels
+    _remove(labels_path)
+    _remove(g_path)
+    return path
+
+
+def block_grid(z, water, res: float, filled, path: str, work: str, block_px: int, alpine: bool = True,
+               on_part=lambda name: None) -> dict:
+    """The answers of access_grid for every pixel of a grid too large to hold at once, written into the uint8 grid
+    `path` (memory-mapped): the grid-wide judgements once on the whole grid, strip by strip, their masks
+    memory-mapped in `work` (the whole-metre sample, the flat lakes on float heights, the open ground on the heights
+    and on whole metres on the smoothed heights); then every block of block_px x block_px pixels from its window of
+    margin_px(res) around it, by access_grid's own code (_answers) on the windows of those masks. Every other
+    distance of the measure is bounded by MARGIN_M, so each block's answers are the whole grid's, whatever the
+    blocks' size (tests/test_access_search.py). on_part(name): "grid-wide", then "blocks" (a progress bar's parts).
+    Returns the blocks' count and their largest window (pixels)."""
+    h, w = z.shape
+    margin = margin_px(res)
+    block_px = max(1, int(block_px))
+    _check_size(min(h, block_px + 2 * margin) * min(w, block_px + 2 * margin))
+    os.makedirs(work, exist_ok=True)
+    on_part("grid-wide")
+    wm = _whole_metres_rows(z, water, filled)
+    wet_path = os.path.join(work, "access_water.npy")
+    wet = _new(wet_path, (h, w), bool)
+    for r0, r1 in _strips(h, w):
+        wet[r0:r1] = np.asarray(water[r0:r1], bool) if water is not None else False
+    if not wm:
+        _flat_lakes_rows(z, res, work, wet)
+    wet.flush()
+    og_path = _open_ground_rows(z, water, filled, wet, res, work, "og", smoothed=False)
+    og2_path = _open_ground_rows(z, water, filled, wet, res, work, "og2", smoothed=True) if wm else None
+    og = np.load(og_path, mmap_mode="r")
+    og2 = np.load(og2_path, mmap_mode="r") if og2_path else None
+    out = _new(path, (h, w), np.uint8)
+    on_part("blocks")
+    blocks = largest = 0
+    for r0 in range(0, h, block_px):
+        for c0 in range(0, w, block_px):
+            r1, c1 = min(h, r0 + block_px), min(w, c0 + block_px)
+            a, b, c, d = max(0, r0 - margin), min(h, r1 + margin), max(0, c0 - margin), min(w, c1 + margin)
+            zz = np.array(z[a:b, c:d], np.float32)
+            data = np.isfinite(zz)
+            if filled is not None:
+                dry = np.asarray(water[a:b, c:d], bool) if water is not None else np.zeros(zz.shape, bool)
+                data &= ~(np.asarray(filled[a:b, c:d], bool) & ~dry)
+            answers = _answers(zz, np.array(wet[a:b, c:d]), data, res, wm, np.array(og[a:b, c:d]), alpine,
+                               og2=np.array(og2[a:b, c:d]) if og2 is not None else None)
+            out[r0:r1, c0:c1] = answers[r0 - a:r1 - a, c0 - c:c1 - c]
+            del zz, data, answers
+            blocks += 1
+            largest = max(largest, (b - a) * (d - c))
+    out.flush()
+    del out, wet, og, og2
+    for p in (wet_path, og_path, og2_path):
+        if p:
+            _remove(p)
+    return {"blocks": blocks, "window_px": largest, "whole_metres": wm}

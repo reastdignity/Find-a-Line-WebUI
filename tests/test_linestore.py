@@ -53,6 +53,8 @@ def _assert_read_back(lines, back):
             assert got.dtype == bool and np.array_equal(got, want), name
         elif decimals == "count":
             assert np.array_equal(got, want), name
+        elif decimals == "mark":  # the access mark: uint8 as the search's column
+            assert got.dtype == np.uint8 and np.array_equal(got, want), name
         else:
             if decimals is not None:
                 want = rn.round_floats(want, decimals)
@@ -61,11 +63,11 @@ def _assert_read_back(lines, back):
             assert same.all(), (name, np.flatnonzero(~same)[:5], got[~same][:5], want[~same][:5])
 
 
-def _hard_lines(n: int, ends: bool, square: bool, rng) -> sh.LineTable:
+def _hard_lines(n: int, ends: bool, square: bool, rng, access: bool = False) -> sh.LineTable:
     """n lines of _fake_lines with the hard floats in every column (those an integer of the column's decimals
     holds in the scaled ones, NaN only where a value may miss: clrN, hmean, highPct, angles, prom, drop),
-    water and filled metres at 0.1 m as the search saves them, the A-frame heights (ends) and the square
-    rule's count (square)."""
+    water and filled metres at 0.1 m as the search saves them, the A-frame heights (ends), the square
+    rule's count (square) and the access mark's two uint8 columns (access)."""
     lines = _fake_lines(n)
     for name in sh.PIXEL_COLUMNS:  # gone before saving (LineTable.without_pixels)
         lines.columns.pop(name)
@@ -93,6 +95,9 @@ def _hard_lines(n: int, ends: bool, square: bool, rng) -> sh.LineTable:
     if square:
         lines.columns[rn.STANDS_FOR] = rng.integers(1, 5000, n).astype(np.int64)
         lines.columns[rn.STANDS_FOR][:2] = [1, 2 ** 32 - 1]
+    if access:
+        for name in rn.ACCESS:
+            lines.columns[name] = rng.integers(0, 3, n).astype(np.uint8)
     return lines
 
 
@@ -124,8 +129,10 @@ def _profiles(n: int, rng) -> dict:
     return profiles
 
 
-def _meta(lines, ends: bool, square: bool, by: str) -> dict:
+def _meta(lines, ends: bool, square: bool, by: str, access: bool = False) -> dict:
     params = {"group_distance": 20, "group_by": by}
+    if access:
+        params["access"] = True
     if ends:
         params.update(end_zone=5, anchor_lift=2)
     if square:
@@ -152,19 +159,22 @@ def _exports_match(tmp_path, folder, lines, meta):
     assert not [p for p in os.listdir(tmp_path) if p.startswith(".export-")]  # its temporary folder removed
 
 
-@pytest.mark.parametrize("ends, square, by", [(False, False, "clearance"), (True, False, "longest"),
-                                              (False, True, "height"), (True, True, "clearance")],
-                         ids=["plain", "end-zone", "square", "end-zone-square"])
-def test_store_round_trip(tmp_path, ends, square, by):
+@pytest.mark.parametrize("ends, square, by, access", [(False, False, "clearance", False),
+                                                      (True, False, "longest", False), (False, True, "height", False),
+                                                      (True, True, "clearance", False), (False, False, "height", True),
+                                                      (True, True, "longest", True)],
+                         ids=["plain", "end-zone", "square", "end-zone-square", "access", "all"])
+def test_store_round_trip(tmp_path, ends, square, by, access):
     """50 000 lines with the hard floats (halfway cases, NaN, nulls, -0.0 in every integer column, both end
-    columns, stands_for): linestore.write, then read gives every value back (round(value, decimals) of the
-    scaled ones) and the profiles as helpers.Profiles' dicts; export gives the bytes runs.save_results
-    writes from the LineTable itself, CSV and GeoJSON (run.json's block "store" left out of "findaline")."""
+    columns, stands_for, the access mark's uint8 columns): linestore.write, then read gives every value back
+    (round(value, decimals) of the scaled ones) and the profiles as helpers.Profiles' dicts; export gives the bytes
+    runs.save_results writes from the LineTable itself, CSV and GeoJSON (run.json's block "store" left out of
+    "findaline")."""
     rng = np.random.default_rng(5)
     n = 50_000
-    lines = _hard_lines(n, ends, square, rng)
+    lines = _hard_lines(n, ends, square, rng, access)
     lines.profiles = _profiles(n, rng)
-    meta = _meta(lines, ends, square, by)
+    meta = _meta(lines, ends, square, by, access)
     folder = tmp_path / "run"
     folder.mkdir()
     head = {"run": {"id": "r", "name": meta["name"]}, "terrain": meta["terrain"], "distance": 20}
@@ -266,6 +276,25 @@ def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
         linestore.export(str(folder), fmt, str(tmp_path / name))
         assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
     assert b"e+38" in (folder / "lines.csv").read_bytes()
+
+
+def test_store_access_mark_kind(tmp_path):
+    """The access mark's columns ("mark" in linestore.COLUMNS, linestore.ACCESS = runs.ACCESS): uint8 fields
+    without decimals, only when the lines have them, read back as uint8; a value beyond uint8 is refused, not
+    wrapped."""
+    assert linestore.ACCESS == tuple(rn.ACCESS)
+    assert [c for c in linestore.COLUMNS if c[3] == "mark"] == [(n, n, None, "mark", False) for n in rn.ACCESS]
+    rng = np.random.default_rng(9)
+    lines = _hard_lines(200, False, False, rng, access=True)
+    table = linestore.lines_table(lines, {})
+    for name in rn.ACCESS:
+        field = table.schema.field(name)
+        assert field.type == pa.uint8() and not field.nullable and not field.metadata
+    assert set(rn.ACCESS).isdisjoint(linestore.lines_table(_hard_lines(200, False, False, rng), {}).schema.names)
+    lines.columns["access2"] = lines.columns["access2"].astype(np.int64)
+    lines.columns["access2"][3] = 256
+    with pytest.raises(ValueError):
+        linestore.lines_table(lines, {})
 
 
 def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):

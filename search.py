@@ -93,6 +93,18 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # of the pixels; the Tatras' 2.65 million, 6.1 %), step 3 at 16; was 100 before the temporaries
 # of step 1 were cut
 PIXEL_BYTES = 50
+# The access mark (--access, access.py) of the search's whole grid: in memory at once when ACCESS_WINDOW_BYTES per
+# pixel of the grid fit the search's memory (Plan.memory, else the memory free), else in blocks (access.block_grid):
+# ACCESS_AREA_BYTES per pixel of the whole grid for its grid-wide pass (strips, masks memory-mapped) plus
+# ACCESS_WINDOW_BYTES per pixel of a block's window (the block and access.margin_px around it); blocks at least
+# ACCESS_BLOCK_MIN_M wide. Measured (tools/perf_profile.py --cores 7, exclusive; docs/performance.md, "The access
+# grid's memory"): see the figures there
+ACCESS_AREA_BYTES = 16
+ACCESS_WINDOW_BYTES = 50
+ACCESS_BLOCK_MIN_M = 500
+# Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: access.npy (uint8),
+# the water, the open ground and its smoothed twin (bool) and a region mask with its int32 labels at a time
+ACCESS_DISK_BYTES = 9
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
 # 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
@@ -514,11 +526,13 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
         emit("info", line)
     for note in getattr(area, "notes", []):
         emit("warning", note)
-    return Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
+    plan = Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
                 emit, crs, (x, y), limits, tiles, core,
                 memory=memory if memory is not None else available_memory() if limits else None,
                 early_stop=limits.lines_early_stop if limits else True,
                 obstacles=dict(obstacles.RULE) if nmpt and source.obstacles and obstacles.RULE else None)
+    _check_access(plan)
+    return plan
 
 
 def _check_params(limits: Optional[Limits], params: SearchParams, resolution: Optional[float] = None):
@@ -817,8 +831,9 @@ def estimate_search(plan: Plan) -> Estimate:
         # The area's grids with step 1's temporaries, and the copies of one tile at a time (the
         # largest one's: a tile's folder is removed before the next tile's are made)
         largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
-        work += plan.grid.width * plan.grid.height * (AREA_TEMP_BYTES + bool(plan.params.access)) \
-            + largest.width * largest.height * tile_bytes(plan)  # with --access the area's access.npy (uint8)
+        work += plan.grid.width * plan.grid.height * AREA_TEMP_BYTES + largest.width * largest.height * tile_bytes(plan)
+    if plan.params.access:  # the access grid in blocks at most (_access_grid): its grids in the work folder
+        work += plan.grid.width * plan.grid.height * ACCESS_DISK_BYTES
     work_gb = work / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
@@ -1264,10 +1279,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
-    """Steps 2-4 of one grid: anchors, line search, coordinates and profiles, groups; with --access first the
-    access grid of the whole grid (_access_grid, kept in data.access), unless data has it."""
-    if plan.params.access and data.access is None:
-        data.access = _access_grid(plan, data)
+    """Steps 2-4 of one grid: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
     return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore, data.terrain_sources)
 
@@ -1296,6 +1308,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
         estimate, variance, _, _ = sample_estimate(plan, data, found, None, table, 0)
         _estimate_check(plan, estimate, math.sqrt(variance), grid.width * grid.height)
+    if p.access and data.access is None:  # one grid's access grid, after the anchors' limit and the estimate
+        data.access = _access_grid(plan, data)
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -2148,53 +2162,96 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
                 access=copy(data.access, "access.npy"))
 
 
-ACCESS_FILE = "access.npy"  # a tiled search's access grid in its work folder (removed with step 1's grids)
+ACCESS_FILE = "access.npy"  # the access grid in the work folder when it is made in blocks or for tiles
+
+
+def _access_budget(plan: Plan) -> int:
+    """The memory the access grid may take: the search's (Plan.memory: a compute slot's budget, or the memory free
+    when a search with limits was planned), else the memory free now (the command line)."""
+    return plan.memory if plan.memory is not None else available_memory()
+
+
+def _access_block_px(plan: Plan) -> Optional[int]:
+    """The side of the access grid's blocks in pixels, or None: the grid at once (access.access_grid) when
+    ACCESS_WINDOW_BYTES per pixel of the whole grid fit the budget (_access_budget) and the walk's int32 indices
+    hold it. Else the largest square block whose window (the block and access.margin_px around it) takes
+    ACCESS_WINDOW_BYTES per pixel of what the budget leaves after ACCESS_AREA_BYTES per pixel of the whole grid,
+    at least ACCESS_BLOCK_MIN_M wide (_check_access refuses a search with limits below it) and its window under
+    2^31 pixels. The blocks follow the memory only, never the tiles or the threads, and never the answers."""
+    import access
+    pixels = plan.grid.width * plan.grid.height
+    budget = _access_budget(plan)
+    if pixels * ACCESS_WINDOW_BYTES <= budget and pixels < np.iinfo(np.int32).max:
+        return None
+    margin = access.margin_px(plan.resolution)
+    room = max(0, budget - pixels * ACCESS_AREA_BYTES)
+    side = min(int(math.sqrt(room / ACCESS_WINDOW_BYTES)), int(math.sqrt(np.iinfo(np.int32).max - 1)))
+    return max(int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)), side - 2 * margin)
+
+
+def access_memory(plan: Plan) -> int:
+    """The least memory the access grid of this search needs: the whole grid at once if that is less, else the
+    grid-wide pass and a window of the smallest block (ACCESS_BLOCK_MIN_M)."""
+    import access
+    pixels = plan.grid.width * plan.grid.height
+    block = int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)) + 2 * access.margin_px(plan.resolution)
+    window = min(plan.grid.height, block) * min(plan.grid.width, block)
+    return min(pixels * ACCESS_WINDOW_BYTES, pixels * ACCESS_AREA_BYTES + window * ACCESS_WINDOW_BYTES)
+
+
+def _check_access(plan: Plan):
+    """Refuse a search with --access whose access grid cannot fit Plan.memory even in its smallest blocks
+    (access_memory), before anything is downloaded; nothing without the option or without Plan.memory."""
+    if not plan.params.access or plan.memory is None:
+        return
+    need = access_memory(plan)
+    if need > plan.memory:
+        mpx = plan.grid.width * plan.grid.height / 1e6
+        raise SearchError(f"marking the access to anchors (--access) over this search's grid of {mpx:.0f} million "
+                          f"pixels needs about {need / 2 ** 30:.1f} GiB, {plan.memory / 2 ** 30:.1f} GiB on this site: "
+                          f"a smaller area, a coarser --resolution, or no --access", "access_memory",
+                          mpx=round(mpx), need=round(need / 2 ** 30, 1), have=round(plan.memory / 2 ** 30, 1))
 
 
 def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarray:
-    """The access mark of every pixel of the search grid (--access; access.access_grid, the alpine variant
-    on: the user's choice), from step 1's filled terrain, its water and its filled pixels (Data.filled_pixels:
-    no data for the walk). Once per search on the whole grid, so a tiled search's tiles read one grid's
-    answers (_tile_data takes each tile's window; the measure's 533 m margin of a window, access.MARGIN_M,
-    never applies). path: saved there and returned memory-mapped (a tiled search's work folder), else in
-    memory. Its peak is per pixel of the whole grid, not of a tile (docs/performance.md, "The access grid's
-    memory")."""
+    """The access mark of every pixel of the search grid (--access; the alpine variant on: the user's choice), from
+    step 1's filled terrain, its water and its filled pixels (Data.filled_pixels: no data for the walk). Once per
+    search on the whole grid, so a tiled search's tiles read one grid's answers (_tile_data takes each tile's
+    window). At once (access.access_grid) when it fits, else in blocks (access.block_grid, _access_block_px: the
+    same answers). path: saved there and returned memory-mapped (a tiled search's work folder; blocks always write
+    into the work folder), else in memory."""
     import access  # numba: only where a search computes (see _lines)
+    block = _access_block_px(plan)
     progress.compute.start("access to anchors", 1, unit="step")
-    grid = access.access_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), alpine=True)
+    if block is None:
+        grid = access.access_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), alpine=True)
+    else:
+        path = path or os.path.join(plan.paths.work, ACCESS_FILE)
+        done = access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), path,
+                                 plan.paths.work, block, alpine=True,
+                                 on_part=lambda name: progress.compute.update(0, part=name))
+        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m (the "
+                          f"memory: {done['window_px'] / 1e6:.1f} Mpx a window)")
     progress.compute.update(1)
     progress.compute.finish()
-    if path is None:
-        return grid
-    np.save(path, grid)
-    del grid
+    if block is None:
+        if path is None:
+            return grid
+        np.save(path, grid)
+        del grid
     return np.load(path, mmap_mode="r")
 
 
 def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
     """access1, access2 of the lines (with their pixels "a1", "a2" of data's grid; in place): each anchor's
-    answer of the access grid (access.at, uint8). An anchor on a pixel the measure takes for no data (one of
-    Data.filled_pixels and not water: a gap filled from a coarser model, or a shore face taken from the surface
-    model, which is where such anchors stand: the cliff's top edge, R83; never NaN, where no anchor lies) holds
-    what the measure gives a pixel without data there, which is no answer about walking: "cannot tell" (UNSURE)
-    instead, never "hard access"."""
+    answer of the access grid (access.at, uint8), the measure's own as in the study: an anchor on a filled pixel or
+    a shore face taken from the surface model gets the answer of the data around it (its standing ground). An anchor
+    never lies on a pixel without heights."""
     import access
-    water, filled = data.water, data.filled_pixels()
-    mapped = 0
     for name, pixels in (("access1", "a1"), ("access2", "a2")):
         a = lines.columns[pixels]
-        answers = access.at(data.access, a)  # a copy (fancy indexing)
-        rows, cols = a[:, 0], a[:, 1]
-        no_data = ~np.isfinite(data.elevation[rows, cols])
-        if filled is not None:
-            no_data |= np.asarray(filled[rows, cols], bool) & (~np.asarray(water[rows, cols], bool)
-                                                                 if water is not None else True)
-        mapped += int((no_data & (answers != access.UNSURE)).sum())
-        answers[no_data] = access.UNSURE
-        lines.columns[name] = answers.astype(np.uint8, copy=False)
-    if mapped:
-        plan.emit("info", f"Access: {mapped} line ends on filled data or shore faces (no data for the walk) read "
-                          f"\"cannot tell\"")
+        assert np.isfinite(data.elevation[a[:, 0], a[:, 1]]).all(), "an anchor on a pixel without heights"
+        lines.columns[name] = access.at(data.access, a).astype(np.uint8, copy=False)
 
 
 def _remove_grids(work: str):
@@ -2254,8 +2311,6 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     todo = [k for k in range(len(plan.tiles)) if not os.path.exists(os.path.join(folder, TILE_FILE.format(k)))]
     area = prepare_data(plan, strips=True) if todo else None  # step 1 once, on the whole grid
-    if area is not None and plan.params.access:  # the access grid once too: one grid's answers in every tile
-        area.access = _access_grid(plan, area, os.path.join(plan.paths.work, ACCESS_FILE))
     shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
@@ -2266,6 +2321,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             json.dump(area.terrain_sources, f, separators=(",", ":"))
     if area is not None and _samples(plan):  # the size before the pairs, from every tile
         _estimate_tiles(plan, area)
+    if area is not None and plan.params.access:  # the access grid once, after the estimate: one grid's in every tile
+        area.access = _access_grid(plan, area, os.path.join(plan.paths.work, ACCESS_FILE))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))

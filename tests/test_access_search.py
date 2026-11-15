@@ -1,9 +1,10 @@
 """The access mark through the search (--access; docs/line-volume/spec-search.md 3, step 1d-2): access.py's grid
-computed once per search on step 1's grid, each line's two anchors' answers (access1, access2: 0 hard access, 1
-cannot tell, 2 easy access), the four text files, the store and the favourites with them, a search without the
-option as before, tiles that give one grid's answers, the store's coded note, the warm-up of the access kernels,
-the web process that never imports access.py, and today's page reading a run made with the option as one made
-without it."""
+computed once per search on step 1's grid, at once or in blocks (the same answers), each line's two anchors' answers
+(access1, access2: 0 hard access, 1 cannot tell, 2 easy access; the measure's own, as the study's), the inputs the
+search gives the measure (its water, its filled pixels, the alpine variant), the memory check and the blocks' size,
+the four text files, the store and the favourites with them, a search without the option as before, tiles that give
+one grid's answers, the store's coded note, the warm-up of the access kernels, the web process that never imports
+access.py, and today's page reading a run made with the option as one made without it."""
 
 import dataclasses
 import glob
@@ -141,26 +142,229 @@ def test_whole_metres_and_the_end_of_the_data(tmp_path, offline):
     assert (cols == WEST_RIM).any() and set(answers[cols == WEST_RIM].tolist()) == {access.UNSURE}
 
 
-def test_anchors_on_filled_data_cannot_tell():
-    """search._access_columns: an anchor the measure takes for no data (Data.filled_pixels and not water)
-    reads cannot tell whatever the grid holds there, with a note of how many; one on filled water or on the
-    source's data keeps the grid's answer."""
-    grid = np.zeros((4, 4), np.uint8)  # every pixel hard access
-    grid[0, 0] = access.CAN
+def test_anchors_take_the_measures_own_answer():
+    """search._access_columns: each anchor's answer is the access grid's at its pixel, also on a filled pixel or a
+    shore face (the answer of the data around it, as the study's); an anchor on a pixel without heights is refused."""
+    grid = np.array([[2, 0, 1, 0], [1, 2, 0, 1], [0, 1, 2, 0], [2, 2, 1, 0]], np.uint8)
     filled = np.zeros((4, 4), bool)
     filled[1, 1] = filled[2, 2] = filled[0, 0] = True
-    water = np.zeros((4, 4), bool)
-    water[2, 2] = True
-    data = search.Data(np.full((4, 4), 5.0, np.float32), None, water, filled, None, access=grid)
-    lines = sh.LineTable({"a1": np.array([[1, 1], [2, 2], [3, 3], [0, 0]]),
-                          "a2": np.array([[3, 3], [1, 1], [0, 0], [1, 1]])})
-    events = []
-    plan = type("Plan", (), {"emit": staticmethod(lambda kind, text: events.append((kind, text)))})
-    search._access_columns(plan, lines, data)
-    assert lines.columns["access1"].tolist() == [1, 0, 0, 1] and lines.columns["access2"].tolist() == [0, 1, 1, 1]
+    data = search.Data(np.full((4, 4), 5.0, np.float32), None, None, filled, None, access=grid)
+    a1, a2 = np.array([[1, 1], [2, 2], [3, 3], [0, 0]]), np.array([[3, 3], [1, 1], [0, 0], [0, 2]])
+    lines = sh.LineTable({"a1": a1, "a2": a2})
+    search._access_columns(None, lines, data)
+    assert lines.columns["access1"].tolist() == grid[a1[:, 0], a1[:, 1]].tolist() == [2, 2, 0, 2]
+    assert lines.columns["access2"].tolist() == grid[a2[:, 0], a2[:, 1]].tolist() == [0, 2, 2, 1]
     assert lines.columns["access1"].dtype == np.uint8
-    assert events == [("info", 'Access: 5 line ends on filled data or shore faces (no data for the walk) read '
-                                       '"cannot tell"')]
+    data.elevation[3, 3] = np.nan
+    with pytest.raises(AssertionError):
+        search._access_columns(None, sh.LineTable({"a1": a1, "a2": a2}), data)
+
+
+def _canyon(tilt: float = 0.02) -> np.ndarray:
+    """A canyon 40 m wide and 50 m deep between two meadows (open ground), the heights tilting so no flat region
+    reads as a lake held as data."""
+    z = np.full((SIZE, SIZE), 150.0)
+    z[:, 130:170] = 100.0
+    return z + tilt * np.arange(SIZE)[:, None] + 0.25
+
+
+def test_water_and_filled_reach_the_measure(tmp_path, monkeypatch):
+    """Through the search with the water filled and gaps filled from a fallback: the measure is given the search's
+    water and its filled pixels. Along each rim a band of meadow 3 m wide (the rim's standing ground) is cut off from
+    the meadow behind it by a strip 6 m wide closed at both ends: a lake (700 m2, too small to read as a flat lake
+    held as data) on the west, a gap filled from the fallback on the east. The west rim beside it is hard access (no
+    walk crosses the water), where without the water mask the lake's level would be walked on (easy access); the
+    east rim cannot tell (the filled gap is no data for the walk and an end of the data), where filled pixels taken
+    as data would be walked on (easy access). Elsewhere both rims are easy access."""
+    import sources as src
+    z = _canyon()
+    terrain = z.copy()
+    water = np.zeros((SIZE, SIZE), np.uint8)
+    for cols in (slice(120, 126), slice(174, 180)):  # the strips behind the bands (cols 126-128, 171-173)
+        terrain[100:200, cols] = np.nan
+    for cols in (slice(120, 129), slice(171, 180)):  # closed at both ends
+        terrain[100:104, cols] = terrain[196:200, cols] = np.nan
+    water[100:200, 120:129] = src.LAKE
+    water[104:196, 126:129] = 0  # the band is land with data
+    write_raster(tmp_path / "nmt.tif", terrain.astype(np.float32), LEFT, TOP)
+    _water_and_fallback(tmp_path, monkeypatch, water, z.astype(np.float32), LEFT, TOP)
+    params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
+                          radius=135, resolution=1, nmpt="off", water="fill", fill_gaps="on", coastline="copernicus",
+                          min_length=10, max_length=80, slope_threshold=60, prominence_span=10, drop_radius=10,
+                          ortho="never", name="inputs", access=True)
+    paths = search.Paths(str(tmp_path / "inputs"), str(tmp_path / "inputs" / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    lines, _ = search.search_lines(plan)
+    rows, cols, answers = _ends(lines.results)
+    beside = (rows >= 106) & (rows < 194)
+    away = (rows < 96) | (rows >= 204)
+    for rim, state in ((WEST_RIM, access.CANNOT), (EAST_RIM, access.UNSURE)):
+        assert (beside & (cols == rim)).sum() > 10 and set(answers[beside & (cols == rim)].tolist()) == {state}, rim
+        assert (away & (cols == rim)).any() and set(answers[away & (cols == rim)].tolist()) == {access.CAN}, rim
+
+
+def test_the_alpine_variant_through_the_search(tmp_path, offline):
+    """The search uses the alpine variant (the user's choice): two towers on a slope of 35 degrees with no open ground
+    within 250 m, whose tops no walk reaches: cannot tell (the share of open ground around them is under 5 %), where
+    the study's main measure says hard access."""
+    rows = width = SIZE
+    z = 100 + np.tan(np.radians(35)) * np.arange(rows)[:, None] + np.zeros((rows, width))
+    top = 100 + np.tan(np.radians(35)) * 150 + 50
+    z[146:154, 120:128] = top
+    z[146:154, 170:178] = top
+    z = (z + 0.25).astype(np.float32)
+    write_raster(tmp_path / "alpine.tif", z, LEFT, TOP)
+    params = SearchParams(elevation_file=str(tmp_path / "alpine.tif"), northing=TOP - rows / 2,
+                          easting=LEFT + width / 2, radius=135, resolution=1, nmpt="off", water="off",
+                          fill_gaps="off", min_length=10, max_length=80, slope_threshold=60, prominence_span=10,
+                          drop_radius=10, ortho="never", name="alpine", access=True)
+    paths = search.Paths(str(tmp_path / "alpine"), str(tmp_path / "alpine" / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    lines, _ = search.search_lines(plan)
+    c = lines.results.columns
+    ends = np.concatenate([c["a1_xy"], c["a2_xy"]])
+    answers = np.concatenate([c["access1"], c["access2"]])
+    on_top = np.isclose(np.concatenate([c["elev_a1"], c["elev_a2"]]), top + 0.25, atol=0.05)
+    assert on_top.sum() > 10 and set(answers[on_top].tolist()) == {access.UNSURE}
+    g = plan.grid
+    r = np.round((g.top - ends[on_top, 1]) / g.res - 0.5).astype(int)
+    k = np.round((ends[on_top, 0] - g.left) / g.res - 0.5).astype(int)
+    window = z[int(TOP - g.top):int(TOP - g.top) + g.height, int(g.left - LEFT):int(g.left - LEFT) + g.width]
+    assert set(access.access_grid(window, None, 1.0, alpine=False)[r, k].tolist()) == {access.CANNOT}
+
+
+def test_a_mid_face_ledge_is_hard_access(tmp_path, offline):
+    """Spec 3.7: a ledge halfway down both walls of a canyon (8 m wide, 200 m long, 25 m below the meadows' rims and
+    25 m above the floor): lines between the two ledges' edges read hard access at both ends, lines between the
+    rims easy access."""
+    z = np.full((SIZE, SIZE), 150.0)
+    z[:, 130:170] = 100.0
+    z[50:250, 122:130] = 125.0  # the west ledge
+    z[50:250, 170:178] = 125.0  # the east ledge
+    z = (z + 0.02 * np.arange(SIZE)[:, None] + 0.25).astype(np.float32)
+    _, lines, _ = _search(tmp_path, z, "ledge")
+    c = lines.results.columns
+    elev = np.concatenate([c["elev_a1"], c["elev_a2"]])
+    answers = np.concatenate([c["access1"], c["access2"]])
+    rows, cols, _ = _ends(lines.results)
+    ledge = (np.abs(elev - (125.25 + 0.02 * rows)) < 0.5) & ((cols == 129) | (cols == 170))
+    rim = (np.abs(elev - (150.25 + 0.02 * rows)) < 0.5) & ((rows < 46) | (rows >= 254))
+    assert ledge.sum() > 10 and set(answers[ledge].tolist()) == {access.CANNOT}
+    assert rim.sum() > 10 and set(answers[rim].tolist()) == {access.CAN}
+
+
+def _rough(whole: bool) -> np.ndarray:
+    """A made-up grid of 600 x 600 pixels at 5 m (3 km, over 2 x access.MARGIN_M): hills, two canyons, a few
+    meadows and a hole without data."""
+    from scipy import ndimage
+    if whole is None:
+        return _path()
+    rng = np.random.default_rng(11)
+    z = ndimage.gaussian_filter(rng.normal(0, 1, (600, 600)), 25) * 4000 + 400
+    z[:, 200:216] -= 80  # a canyon
+    z[380:396, :] -= 60  # another
+    z[40:120, 400:520] = 450.0 + 0.3 * np.arange(80)[:, None]  # a meadow
+    z[450:470, 60:90] = np.nan
+    z = z + 0.37
+    return (np.round(z) if whole else z).astype(np.float32)
+
+
+def _path() -> np.ndarray:
+    """600 x 600 pixels at 5 m: a slope of 35 degrees (walkable, no open ground) with a level path along it, the only
+    open ground (the middle row of three flat ones: 3 km x 5 m, 1.5 ha), from which the walk reaches the slope, and
+    a canyon (the lines). A window of a block holds less than 1 ha of the path: judged alone it has no open ground."""
+    z = 100 + np.tan(np.radians(35)) * 5 * np.arange(600)[:, None] + np.zeros((600, 600))
+    z[300:303] = z[301] + 0.1 * np.arange(600)  # rising 1 in 50 along it: no flat lake held as data
+    z[:250, 280:296] -= 40  # the canyon, ending 250 m before the path
+    return (z + 0.37).astype(np.float32)
+
+
+@pytest.mark.parametrize("whole", [False, True, None], ids=["float", "whole-metres", "path"])
+def test_blocks_give_one_grids_answers(tmp_path, offline, monkeypatch, whole):
+    """The access grid in blocks (access.block_grid: the grid-wide judgements once, every block from its window of
+    access.margin_px) equals the grid at once at every pixel, on made-up grids of 3 km at 5 m in blocks of 300 m
+    (many windows, most inside the grid), on float and on whole-metre heights, and where the only open ground is a
+    path whose part in any window is under 1 ha (a window judged alone would find none); and through the search the
+    lines' marks are the same."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    z = _rough(whole)
+    path = tmp_path / "rough.tif"
+    with rio.open(path, "w", driver="GTiff", width=600, height=600, count=1, dtype="float32", crs="EPSG:2180",
+                  transform=from_origin(LEFT, TOP, 5, 5), nodata=np.nan) as dst:
+        dst.write(z, 1)
+    params = SearchParams(elevation_file=str(path), northing=TOP - 1500, easting=LEFT + 1500, radius=1400,
+                          resolution=5, nmpt="off", water="off", fill_gaps="off", min_length=50, max_length=300,
+                          slope_threshold=55, prominence_span=10, drop_radius=10, ortho="never", name="rough",
+                          access=True)
+    runs = {}
+    for name, block in (("one", None), ("blocks", 60)):
+        events = []
+        monkeypatch.setattr(search, "_access_block_px", lambda plan, block=block: block)
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = search.plan_search(params, paths, lambda kind, text: events.append(str(text)))
+        data = search.prepare_data(plan)
+        runs[name] = np.array(search._access_grid(plan, data))
+        lines = search.find_lines(plan, data)
+        runs[name + "-lines"] = {k: lines.results.columns[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
+        if block:
+            blocks = [e for e in events if e.startswith("Access to anchors in ")]
+            assert blocks and int(blocks[0].split()[4]) > 50, blocks
+        del data
+    assert runs["one"].shape == (plan.grid.height, plan.grid.width) and len(set(runs["one"].ravel().tolist())) >= 2
+    assert np.array_equal(runs["one"], runs["blocks"])
+    for k, v in runs["one-lines"].items():
+        assert len(v) > 20 and np.array_equal(v, runs["blocks-lines"][k]), k
+    assert access.whole_metres(z[np.isfinite(z)]) == bool(whole)
+    if whole is None:  # the walk from the path (open ground of the whole grid only) reaches the slope around it
+        assert (runs["one"] == access.CAN).sum() > 10000
+
+
+def test_access_memory_refused_and_blocks_sized(tmp_path, offline):
+    """With --access a search whose access grid cannot fit Plan.memory even in its smallest blocks is refused before
+    step 1 (the coded error access_memory, its page text without option names); a search that fits keeps one block
+    or gets the largest blocks the memory leaves (search._access_block_px); without the option nothing changes."""
+    z = scene()
+    write_raster(tmp_path / "mem.tif", z, LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "mem.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
+                  radius=135, resolution=1, nmpt="off", water="off", fill_gaps="off", ortho="never", name="m")
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    plan = search.plan_search(SearchParams(**values, access=True), paths, lambda k, t: None, memory=10 ** 9)
+    h, w = plan.grid.height, plan.grid.width
+    pixels, block = h * w, 500 + 2 * access.margin_px(1.0)
+    need = min(pixels * search.ACCESS_WINDOW_BYTES,
+               pixels * search.ACCESS_AREA_BYTES + min(h, block) * min(w, block) * search.ACCESS_WINDOW_BYTES)
+    assert search.access_memory(plan) == need
+    assert search._access_block_px(plan) is None  # the grid at once
+    with pytest.raises(search.SearchError) as refused:
+        search.plan_search(SearchParams(**values, access=True), paths, lambda k, t: None, memory=need - 1)
+    assert refused.value.code == "access_memory" and "--" not in refused.value.web_text()
+    search.plan_search(SearchParams(**values), paths, lambda k, t: None, memory=1000)  # the option off: no check
+    big = dataclasses.replace(plan, memory=pixels * search.ACCESS_WINDOW_BYTES - 1)
+    side = int(np.sqrt((big.memory - pixels * search.ACCESS_AREA_BYTES) / search.ACCESS_WINDOW_BYTES))
+    assert search._access_block_px(big) == max(500, side - 2 * access.margin_px(1.0))
+
+
+def test_disk_estimate_counts_the_access_grid(tmp_path, offline):
+    """With --access the disk estimate counts the access grid's files of the whole grid (search.ACCESS_DISK_BYTES:
+    blocks at most) and a tile's copy of its window (search.tile_bytes, 1 B per pixel); off, nothing."""
+    write_raster(tmp_path / "disk.tif", scene(), LEFT, TOP)
+    area = _square(tmp_path / "square.geojson", LEFT + 20, TOP - SIZE + 20, LEFT + SIZE - 20, TOP - 20)
+    plans = {}
+    for on in (False, True):
+        params = SearchParams(elevation_file=str(tmp_path / "disk.tif"), area=area, max_length=80, nmpt="off",
+                              water="off", fill_gaps="off", ortho="never", tile_size=100, name="d", access=on,
+                              prominence_span=10, drop_radius=10)
+        plans[on] = search.plan_search(params, search.Paths(str(tmp_path), str(tmp_path / "work")),
+                                       lambda k, t: None)
+    assert plans[True].tiles and search.tile_bytes(plans[True]) == search.tile_bytes(plans[False]) + 1
+    pixels = plans[True].grid.width * plans[True].grid.height
+    largest = max(t.width * t.height for _, t in plans[True].tiles)
+    off, on = (search.estimate_search(plans[k]).work_gb for k in (False, True))
+    assert on - off == pytest.approx((pixels * search.ACCESS_DISK_BYTES + largest) / 1e9)
 
 
 @pytest.fixture(scope="module")

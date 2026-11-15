@@ -147,7 +147,7 @@ class SearchParams(BaseModel):
     drop_radius: float = field(50, "metres around an anchor in which its drop is measured", "search")
     access: bool = field(False, "mark whether an athlete can walk to each anchor: easy access (on foot), "
                                 "cannot tell, or hard access (from the terrain alone: no paths, fences, "
-                                "private land or trees; no line is left out)", "search")
+                                "private land or trees; no line is filtered out)", "search")
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
                                          "at most a container's CPU quota); from 2, the files of a large run are "
                                          "written by processes of their own (2 and 3: two, 4 and more: four)",

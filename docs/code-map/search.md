@@ -134,16 +134,21 @@ from `ACCEPT_FACTOR` (0.8) the warning `estimate_close`, else the note `estimate
 (a search refused for its lines: `jobs._write_refusal`'s rows); the full search's checks stay; the progress labels
 "Step 3/5: estimating the lines" and "Estimate, tile k/n · ..." are a phase of their own on the job page (`useJobs.ts`
 `jobProgress`); `count_tile` without a sag table takes `_sag_table`'s of the process; the access mark (`--access`,
-docs/line-volume/spec-search.md 3): `_access_grid` (`access.access_grid`, the alpine variant on, from step 1's
-filled terrain, water and `Data.filled_pixels`; the bar "access to anchors" of step 1) once per search on its
-whole grid, `Data.access`: in memory for one grid (`find_lines`, unless the data has it), a tiled search's
-`ACCESS_FILE` (`access.npy`) in its work folder, removed with step 1's grids, each tile's window copied by
-`_tile_data` (so a tile reads one grid's answers: the measure's window margin `access.MARGIN_M` never applies);
-`_lines` after `line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors'
-pixels), an anchor on a pixel the measure takes for no data (filled or a shore face, not water) set to
-`access.UNSURE` (cannot tell) with an info line of how many; `_run_params` (`access`) and `_search_hash` hold
-the option only when set; `tile_bytes` and `estimate_search` count the uint8 `access.npy` and a tile's copy; its
-memory is the whole grid's, not a tile's (docs/performance.md, "The access grid's memory"); `save_run`'s
+docs/line-volume/spec-search.md 3): `_access_grid` (the alpine variant on, from step 1's filled terrain, water
+and `Data.filled_pixels`; the bar "access to anchors", parts "grid-wide" and "blocks") once per search on its whole
+grid, `Data.access`, after the cheap refusals (one grid: in `_lines` after the anchors' limit and the estimate; a
+tiled search: in `search_lines` after `_estimate_tiles`): at once (`access.access_grid`, in memory) when
+`ACCESS_WINDOW_BYTES` per pixel of the grid fit `_access_budget` (`Plan.memory`, else the memory free), else in
+blocks (`access.block_grid`, `_access_block_px`: the largest square block whose window fits what
+`ACCESS_AREA_BYTES` per pixel of the grid leave, at least `ACCESS_BLOCK_MIN_M`, under 2^31 pixels; the same
+answers), `ACCESS_FILE` (`access.npy`) in the work folder for blocks and for a tiled search (removed with step 1's
+grids), each tile's window copied by `_tile_data` (a tile reads one grid's answers); `_check_access` (from
+`plan_search`, with `Plan.memory`) refuses before step 1 a search whose `access_memory` (the grid at once, or the
+grid-wide pass and the smallest block's window) does not fit (`access_memory`, a coded error); `_lines` after
+`line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors' pixels, the
+measure's own answer; an anchor on a pixel without heights asserted impossible); `_run_params` (`access`) and
+`_search_hash` hold the option only when set; `tile_bytes` (1 B) and `estimate_search` (`ACCESS_DISK_BYTES` of the
+whole grid) count its files (docs/performance.md, "The access grid's memory"); `save_run`'s
 warning of a store that failed is the `messages.Note` `store_failed` (the exception's text on the command line only)
 
 ## `area.py`
@@ -331,11 +336,14 @@ imported by the web process (`tests/test_linestore.py`)
 
 The access mark of three states (docs/line-volume/spec-search.md 3; part P3d's measure ported, its constants kept;
 the module's docstring has the whole measure): `access_grid(z, water, res, filled=None, alpine=True)` → uint8 per
-pixel, `CAN` 2 ("easy access"), `UNSURE` 1 ("cannot tell"), `CANNOT` 0 ("hard access"); a pixel without data
-holds what an anchor there would get (no anchor lies on one; the search maps an anchor on filled data to `UNSURE`:
-`search._access_columns`); `at(grid, pixels)` refuses pixels outside the grid; `MARGIN_M` (533 m) is the window
-margin that gives one grid's answers in a window's core up to about 7 m (whole metres) / 40 m (float) pixels, never
-needed by the search, which computes one grid. numba kernels (`_walk`, an indexed Dijkstra; `_stands_near`,
+pixel, `CAN` 2 ("easy access"), `UNSURE` 1 ("cannot tell"), `CANNOT` 0 ("hard access"); a filled pixel or a shore face
+gets the answer of the data around it (its standing ground), as in the study; `at(grid, pixels)` refuses pixels
+outside the grid; `access_grid` and the blocks share `_answers` (the local part, the grid-wide judgements given);
+`block_grid(z, water, res, filled, path, work, block_px)`: the grid-wide judgements once on the whole grid in strips
+(`_whole_metres_rows`, `_flat_lakes_rows`, `_open_ground_rows` on the heights and the smoothed heights; masks and
+int32 labels memory-mapped in `work`, removed after), then every block from its window of `margin_px(res)`
+(`MARGIN_M` + 6 pixels): the whole grid's answers; a grid or window of 2^31 pixels refused (`_check_size`: the
+walk's int32 indices). numba kernels (`_walk`, an indexed Dijkstra; `_stands_near`,
 parallel, each pixel its own answer: the answers never depend on the threads), compiled by `warmup`; never imported
 by the web process (`tests/test_access_search.py`). Tests: `tests/test_access.py` (made-up terrain),
 `tests/test_access_search.py` (through the search, the files, tiles)
