@@ -125,3 +125,73 @@ def test_no_other_search_resumes_the_run_of_before(tmp_path, params, owner):
     assert os.path.basename(run["path"]) not in ("local", "owner7")
     assert _state(os.path.join(runs, "local"))["search"] == BEFORE[None]
     assert _state(os.path.join(runs, "owner7"))["search"] == BEFORE[7]
+
+
+# --- the funnel counts of a search the square rule's early check stops ---
+
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+POINT = {"northing": 254608, "easting": 553966, "radius": 150}
+# Plan.funnel of the clip's search stopped by the early check, parts of 32 anchors and 50 pairs (its "estimate"
+# follows the seed of the search's hash, which holds the clip's path: left out). Without the square rule at a line
+# limit of 300 as on main c8a079a (before the fix); with it at 40 kept lines, where main c8a079a had only the first
+# three counts (find_valid_lines' sink stopped before adding its own)
+STOPPED_WITHOUT_RULE = {"grids": 1, "anchors": 6990, "anchors_kept": 6990, "open": 442, "todo": 442, "candidates": 4518,
+                        "checked": 2981, "found": 639, "valid": 350, "left_out": 0}
+STOPPED_WITH_RULE = {"grids": 1, "anchors": 6990, "anchors_kept": 6990, "open": 442, "todo": 442, "candidates": 2436,
+                     "checked": 1511, "found": 284, "valid": 284, "left_out": 0}
+
+
+def _stopped(tmp_path, name, limits=None, **values):
+    """A search of the clip in this process: (its Plan.funnel without "estimate", the SearchError or None)."""
+    import gc
+    from params import SearchParams
+    params = SearchParams(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"), max_length=150, water="off",
+                          fill_gaps="off", ortho="never", **POINT, **values)
+    paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+    os.makedirs(paths.work, exist_ok=True)
+    plan = search.plan_search(params, paths, lambda kind, text: None, limits=limits)
+    error = None
+    try:
+        lines, _ = search.search_lines(plan)
+        del lines
+    except search.SearchError as e:
+        error = e
+    gc.collect()  # the memory-mapped grids closed before the next search writes its own (Windows)
+    return {k: v for k, v in plan.funnel.items() if k != "estimate"}, error
+
+
+@pytest.fixture
+def small_parts(monkeypatch):
+    """The clip's search in many small parts, checked after each, and the estimate before the pairs refusing
+    nothing (the search's own checks decide)."""
+    import linesearch
+    import samelines
+    monkeypatch.setattr(linesearch, "SINK_CHUNK", 32)
+    monkeypatch.setattr(linesearch, "EVAL_PART", 50)
+    monkeypatch.setattr(samelines, "CHECK_ROWS", 1)
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))
+
+
+def test_funnel_of_a_search_the_square_rules_check_stops(tmp_path, small_parts):
+    """The square rule's reducer stops the search midway (the line limit, early): Plan.funnel has the line search's
+    counts up to the stop (all but "lines", which only a finished search counts), the same with one thread; the
+    refusal is today's."""
+    from settings import Limits
+    import jobs as jb
+    full, error = _stopped(tmp_path, "full", same_line_square=5)
+    assert error is None and full["lines"] == 122
+    funnel, error = _stopped(tmp_path, "stopped", Limits(lines_max=40), same_line_square=5)
+    assert error.code == "too_many_lines_early" and error.params["n"] == 56 and error.params["max"] == 40
+    assert funnel == STOPPED_WITH_RULE
+    assert set(funnel) == set(jb.FUNNEL_STEPS) - {"lines", "estimate"}
+    assert funnel["open"] == full["open"] and funnel["candidates"] < full["candidates"]  # stopped midway
+    assert error.params["n"] <= funnel["valid"] < full["valid"]  # the kept lines are among the valid ones
+    one_thread, error = _stopped(tmp_path, "one-thread", Limits(lines_max=40), same_line_square=5, threads=1)
+    assert one_thread == STOPPED_WITH_RULE and error.params["n"] == 56
+
+
+def test_funnel_of_a_search_stopped_without_the_rule_as_before(tmp_path, small_parts):
+    from settings import Limits
+    funnel, error = _stopped(tmp_path, "stopped", Limits(lines_max=300))
+    assert error.code == "too_many_lines_early" and error.params["n"] == 350
+    assert funnel == STOPPED_WITHOUT_RULE

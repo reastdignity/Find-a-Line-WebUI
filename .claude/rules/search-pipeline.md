@@ -91,8 +91,9 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `_check_lines` on the table; a tiled search counts its tiles' kept lines, held until the join: the Gozo coast 503 718
   against 503 651 after it). The option, the side and the lines found go into run.json only when set (`_run_params`,
   `summary.found`); a new column of the lines must pass the reducer's `LineTable.join` and `reorder` like the others.
-  `linesearch.find_valid_lines` takes a sink or a check, not both: a search the reducer's check stops adds no funnel
-  counts for that grid. The country layer's count mode never uses the rule (`count_tile` has its own sink).
+  `linesearch.find_valid_lines` takes a sink or a check, not both: when the reducer's check stops a search, the sink
+  path adds that grid's funnel counts up to the stop before the error goes on (as the check path does;
+  `tests/test_search_findings.py`); a refused job writes only REFUSED_STEPS to `job_funnel`. The country layer's count mode never uses the rule (`count_tile` has its own sink).
 
 ## Pitfalls
 

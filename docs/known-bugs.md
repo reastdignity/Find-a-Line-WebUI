@@ -121,13 +121,6 @@ than the same search on one grid. Not reachable today: such a tiled search crash
 before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
 indices.
 
-## A search stopped early by the square rule's check writes no funnel counts for that grid
-
-Seen 2026-11-14 (the line-volume task): when the early check inside the square rule's reducer refuses a search
-(the line limit or the memory budget during the pair search), `Plan.funnel` of that grid is not filled, so the job's
-`job_funnel` rows lack the line search's counts for it. The refusal itself is right. A fix would add the counts
-reached so far before the refusal is raised.
-
 ## The truth check has no reason for a known line the square rule dropped
 
 Seen 2026-11-14 in the truth check's pass with `--same-line-square 5` (docs/truth-check.md, "The square rule"):
