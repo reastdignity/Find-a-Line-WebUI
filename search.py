@@ -2460,8 +2460,10 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         emit("warning", f"The run is saved without its store (lines.arrow): {type(error).__name__}: {error}")
     else:
         meta["store"] = store
-        with open(os.path.join(run["path"], "run.json"), "w", encoding="utf-8") as f:
+        path = os.path.join(run["path"], "run.json")
+        with open(path + linestore.PART, "w", encoding="utf-8") as f:  # whole, then in place of the one of before
             json.dump(meta, f, ensure_ascii=False, indent=2)  # as runs.save_results writes it
+        os.replace(path + linestore.PART, path)
     if plan.index_runs:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")

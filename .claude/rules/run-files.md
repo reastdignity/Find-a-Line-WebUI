@@ -66,7 +66,7 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   export = `lines.csv` on every entry until the text files end). A new column of the lines goes into `COLUMNS` and that
   test too; a change of `map_rows`' decimals changes the store's. `lines.csv` prints `water_m`/`filled_m` unrounded:
   the export matches only while the search keeps them at 0.1 m (`covered_metres`). A column no integer holds exactly
-  is float64 without `decimals` (the reader takes both). `save_run` writes the store after the text files and adds
+  is float64 of round(value, decimals) without `decimals` (the reader takes both). `save_run` writes the store after the text files and adds
   run.json's block `store` then (never in `lines.geojson`: `export` leaves it out); a store that fails leaves the run
   without one. `has_lines` stays `lines.js` until the page reads the store (2b-C). The head is `mapping.map_head`'s. Its media type `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
 - A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine` in `types.ts`); the head's

@@ -16,7 +16,7 @@ and data.js comes back byte for byte. A missing value (NaN) is a null (validity 
 miss one; a value that rounds to -0.0 is listed in the schema's metadata (`negative_zero`), since an
 integer has no sign of zero and lines.csv prints "-0.0". A column whose values no integer holds exactly
 (beyond 2^53 once scaled, an infinity, NaN where a value never misses: e.g. undeclared no-data of
-3.4e38 in a terrain file) is float64 as it is, without `decimals`, as the grouping's values; a count
+3.4e38 in a terrain file) is float64 of round(value, decimals), without `decimals`; a count
 beyond uint32 is uint64: the store never refuses a run's values. The schema metadata `findaline` (JSON) holds
 {"format": FORMAT, "head": the head of data.js without the lines (mapping.map_head), "negative_zero":
 {column: [rows]}}; a reader refuses a higher format.
@@ -31,6 +31,7 @@ write and export, mapping (numba's grouping) only inside export, so reading a st
 process never imports this module.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -45,6 +46,7 @@ FORMAT = 1  # of the store; a reader refuses a higher one ("made by a newer Find
 LINES_FILE = "lines.arrow"
 PROFILES_FILE = "profiles.arrow"
 FILES = (LINES_FILE, PROFILES_FILE)
+PART = ".part"  # the files' names while write writes them
 META_KEY = b"findaline"  # the schema metadata's key of both files
 MEDIA_TYPE = "application/vnd.apache.arrow.file"  # of both files (web.py serves them with it)
 END_COLUMNS = ("lift_needed", "lift_no_zone")  # runs.END_COLUMNS = helpers.END_VALUES (tests/test_linestore.py)
@@ -93,8 +95,8 @@ def _narrowest(values: np.ndarray) -> pa.DataType:
 def _scaled(name: str, values: np.ndarray, decimals: int, nullable: bool) -> Tuple[pa.Array, List[int], bool]:
     """A column's values as integers of value x 10^decimals (round() of each: runs.round_floats), the rows
     whose value rounds to -0.0, and True; or, when no integer holds them exactly (NaN where a value never
-    misses, an infinity, beyond 2^53 once scaled, an anchor beyond int32), the values as float64 as they are,
-    no rows and False."""
+    misses, an infinity, beyond 2^53 once scaled, an anchor beyond int32), round(value, decimals) as float64
+    (what data.js shows), no rows and False."""
     import runs as rn
     rounded = rn.round_floats(values, decimals)
     missing = np.isnan(rounded)
@@ -107,8 +109,8 @@ def _scaled(name: str, values: np.ndarray, decimals: int, nullable: bool) -> Tup
         if name in FIXED:
             exact = kind.bit_width <= FIXED[name].bit_width
             kind = FIXED[name]
-    if not exact:
-        return pa.array(np.ascontiguousarray(values, dtype=np.float64), type=pa.float64()), [], False
+    if not exact:  # round(value, decimals) as a double: what data.js shows, and lines.csv's text again
+        return pa.array(rounded, type=pa.float64()), [], False
     negative_zero = np.flatnonzero((rounded == 0) & np.signbit(rounded)).tolist()
     array = pa.array(integers.astype(kind.to_pandas_dtype()), type=kind, mask=missing if missing.any() else None)
     return array, negative_zero, True
@@ -293,16 +295,26 @@ def _write_file(path: str, table: pa.Table):
 def write(run_path: str, lines, head: Dict) -> Dict:
     """lines.arrow and profiles.arrow of a run (lines: a helpers.LineTable after mapping.coordify, its
     profiles those the map keeps; head: mapping.map_head's). Returns run.json's block "store": the
-    format, the lines, the bytes of both files and the first 16 hex digits of lines.arrow's sha256."""
+    format, the lines, the bytes of both files and the first 16 hex digits of lines.arrow's sha256.
+    Both are written under temporary names (PART) and take their names only when both are whole,
+    profiles.arrow first: a process stopped meanwhile leaves no half store under the files' names."""
     paths = [os.path.join(run_path, name) for name in FILES]
-    _write_file(paths[0], lines_table(lines, head))
-    _write_file(paths[1], profiles_table(lines))
-    digest = hashlib.sha256()
-    with open(paths[0], "rb") as f:
-        for block in iter(lambda: f.read(1 << 24), b""):
-            digest.update(block)
-    return {"format": FORMAT, "lines": len(lines), "bytes": sum(os.path.getsize(p) for p in paths),
-            "sha256": digest.hexdigest()[:16]}
+    parts = [path + PART for path in paths]
+    try:
+        _write_file(parts[0], lines_table(lines, head))
+        _write_file(parts[1], profiles_table(lines))
+        digest = hashlib.sha256()
+        with open(parts[0], "rb") as f:
+            for block in iter(lambda: f.read(1 << 24), b""):
+                digest.update(block)
+        size = sum(os.path.getsize(p) for p in parts)
+        os.replace(parts[1], paths[1])
+        os.replace(parts[0], paths[0])
+    finally:
+        for part in parts:
+            with contextlib.suppress(OSError):
+                os.remove(part)
+    return {"format": FORMAT, "lines": len(lines), "bytes": size, "sha256": digest.hexdigest()[:16]}
 
 
 def _meta_of(schema: pa.Schema, path: str) -> Dict:

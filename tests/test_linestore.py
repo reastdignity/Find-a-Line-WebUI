@@ -39,17 +39,11 @@ def _values(lines, column, index):
     return values if index is None else values[:, index]
 
 
-def _assert_read_back(lines, back, folder=None):
+def _assert_read_back(lines, back):
     """Every column of the store read back as write took it: the floats bit for bit, the scaled ones as
-    round(value, decimals) (runs.round_floats) bit for bit, -0.0 and NaN included; with `folder`, a scaled
-    column its lines.arrow holds as float64 (no `decimals`: no integer held its values) as it is."""
-    raw = set()
-    if folder is not None:
-        with pa.OSFile(str(folder / linestore.LINES_FILE), "rb") as f:
-            raw = {field.name for field in pa.ipc.open_file(f).schema if pa.types.is_floating(field.type)}
+    round(value, decimals) (runs.round_floats: what data.js shows) bit for bit, -0.0 and NaN included, in the
+    integer form and in the float64 form of a column no integer holds alike."""
     for name, column, index, decimals, _ in linestore.COLUMNS:
-        if name in raw:
-            decimals = None
         if column not in lines.columns:
             assert column not in back.columns, name
             continue
@@ -245,7 +239,7 @@ def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
     """Undeclared no-data of float32's largest value (3.4e38) in two stripes of the clip's terrain: lines
     between them have e1/e2/prom/drop near 3.4e38 (the code review's input). The run saves with its store:
     those columns float64 as they are (no `decimals`), read back as written, and the export is the run's
-    lines.csv and lines.geojson byte for byte."""
+    lines.csv and lines.geojson byte for byte; the float64 columns hold round(value, decimals), data.js's values."""
     import rasterio
     with rasterio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as src:
         profile, z = src.profile, src.read(1)
@@ -267,11 +261,29 @@ def test_store_of_values_no_integer_holds(tmp_path, monkeypatch):
         assert schema.field(name).type == pa.float64() and not (schema.field(name).metadata or {}), name
     assert schema.field("lat1").type == pa.int32() and schema.field("lat1").metadata == {b"decimals": b"7"}
     back, _ = linestore.read(str(folder))
-    _assert_read_back(results, back, folder)
+    _assert_read_back(results, back)
     for fmt, name in linestore.EXPORTS.items():
         linestore.export(str(folder), fmt, str(tmp_path / name))
         assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
     assert b"e+38" in (folder / "lines.csv").read_bytes()
+
+
+def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):
+    """linestore.write writes under temporary names and gives both files their names only when both are whole:
+    a failure between the two files (profiles.arrow's table) leaves neither name, nor a temporary file."""
+    lines = _fake_lines(40)
+    for name in sh.PIXEL_COLUMNS:
+        lines.columns.pop(name)
+    def failing(lines):
+        assert (tmp_path / (linestore.LINES_FILE + linestore.PART)).is_file()  # lines.arrow written meanwhile
+        raise MemoryError("no memory for the profiles")
+    monkeypatch.setattr(linestore, "profiles_table", failing)
+    with pytest.raises(MemoryError):
+        linestore.write(str(tmp_path), lines, {})
+    assert os.listdir(tmp_path) == []
+    monkeypatch.undo()
+    store = linestore.write(str(tmp_path), lines, {})
+    assert sorted(os.listdir(tmp_path)) == sorted(linestore.FILES) and store["lines"] == 40
 
 
 def test_a_store_that_fails_never_costs_the_run(tmp_path, monkeypatch):
@@ -297,7 +309,7 @@ def test_store_schema(tmp_path):
     narrowest integer type with its decimals in the field's metadata, nulls by validity bits where a value
     may miss; the end columns only with them, stands_for (uint32) only with the square rule; the profiles'
     lists, pairs and nulls. A store of a newer format is refused; values no integer holds exactly are float64
-    as they are (without decimals) and a count beyond uint32 is uint64, read back as written."""
+    of round(value, decimals) (without decimals) and a count beyond uint32 is uint64, read back as written."""
     lines = _fake_lines(40)
     for name in sh.PIXEL_COLUMNS:
         lines.columns.pop(name)
@@ -416,7 +428,7 @@ def test_store_schema(tmp_path):
         kinds = {rn.STANDS_FOR: pa.uint64() if value > 0 else pa.int64()}
         assert field.type == kinds.get(name, pa.float64()) and not (field.metadata or {}), (name, value)
         back, _ = linestore.read(str(target))
-        _assert_read_back(wide, back, target)
+        _assert_read_back(wide, back)
         if column not in (rn.STANDS_FOR,):
             meta = {"params": {"group_distance": 20, "group_by": "clearance"}, "summary": {"lines": 40}}
             (target / "run.json").write_text(json.dumps(meta), encoding="utf-8")

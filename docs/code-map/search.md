@@ -307,8 +307,9 @@ refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the r
 rounds to -0.0). `write(run_path, lines, head)` → run.json's block `store` (format, lines, bytes, the first 16 hex of
 `lines.arrow`'s sha256); `lines_table`/`profiles_table` the two tables (a profile from any number of
 `helpers.Profiles` batches and dicts of `line_profile`); a scaled column whose values no integer holds exactly (beyond
-2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 as it is, without
-`decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values. `read(run_path,
+2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 of round(value,
+decimals), without `decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values; both files under `.part` names until both are
+whole. `read(run_path,
 profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
 with run.json's values without its `store`: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow
