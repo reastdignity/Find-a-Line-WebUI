@@ -96,14 +96,14 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 ## 4. All solutions
 | Solution | Decision | Tier | Where | Depends on | Effort |
 |---|---|---|---|---|---|
-| Basic form with 'My rig' and goals | G-11 a; D-10 a; N-01 | next | search 1 | the square rule (built); count 5.5 a; the rigs' migration (next free number) | medium (server), high (page) |
-| The size of a search from a sample | G-04 a; N-02, N-05 | next | search 2 | measurement 5.5 b for searches with the square rule (search U-6) | high |
+| Basic form with 'My rig' and goals | G-11 a; D-10 a; N-01 | built (c8a079a) | search 1 | the square rule (built); count 5.5 a; the rigs' migration (next free number) | medium (server), high (page) |
+| The size of a search from a sample | G-04 a; N-02, N-05 | built (4f468d3) | search 2 | measurement 5.5 b for searches with the square rule (search U-6) | high |
 | Access mark of three states | G-09 a; D-08 c | next | search 3 | a mock-up of where it shows; search U-9, U-11 | high |
 | Lip anchors against the known lines | G-07 a; search U-12 (98 %) | a measurement first | search 4 | the PC free | medium |
 | The memory constant `LINE_BYTES` | G-05 (finding) | next | search 5.1 | exclusive runs when the PC is free | medium |
-| `count_tile`'s sag table per tile | finding | next | search 5.2 | – | low |
-| 'Sea cliffs' without its wall-angle limit | G-11 a | next | search 5.4 | count 5.5 a; search U-2 | low |
-| Owed counts: goals with the rule; a sample of kept lines | G-11, G-04 | a measurement first | search 5.5 | 5.3 | medium each |
+| `count_tile`'s sag table per tile | finding | built (4f468d3) | search 5.2 | – | low |
+| 'Sea cliffs' without its wall-angle limit | G-11 a | built (c8a079a) | search 5.4 | count 5.5 a; search U-2 | low |
+| Owed counts: goals with the rule; a sample of kept lines | G-11, G-04 | measured (round 2) | search 5.5 | 5.3 | medium each |
 | Columns in the page from `data.js` | G-06 a; D-05 c | structural | store 1 (wave 1) | – | high |
 | The Arrow store beside today's files | G-06 a; D-04 a | structural | store 1 (wave 2) | pyarrow as a new dependency | medium ×2 |
 | Exports made per download, none kept | G-06 a; store U4 | structural | store 1 (wave 3) | wave 2 | medium |
@@ -112,7 +112,7 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 | What is sent: brotli at saving, immutable, size, warning | G-06 a; F-10, F-12, F-30, T-34; store U12 | structural | store 4 (wave 6) | wave 2; the brotli packages compared and one confirmed by the user; a small mock-up | medium |
 | The ranges of six values of a kept line | G-03 b; store U1 b | structural | store 3 (wave 7) | wave 2 | medium |
 | Renaming a run | the user, 2026-11-13 | next | store 5 (wave 8) | a small mock-up | low |
-| "Best" by mean height, tight mark, headline | gate 3 settled list; G-10 a | next | view A | view A-1 | low ("kept") or medium |
+| "Best" by mean height, tight mark, headline | gate 3 settled list; G-10 a | built (c5b07be) | view A | view A-1 | low ("kept") or medium |
 | The result view of mock-up 2 | D-11 d, D-12 a, N-04, N-06; G-08 a, G-12 a; view B-1 (K-17) | structural | view B | store wave 2 | B1 medium, B2 high, B3-B5 medium |
 
 ## 5. The order of building
@@ -140,6 +140,13 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 
 Steps 0 and 1 hold the next tier; steps 2 and 3 the structural one. Tests and searches run one after another under
 `tools/test_lock.py`; measurements that read seconds or memory wait until the user says the PC is free.
+
+**State on 2026-11-15.** Done (round 2, in `main`): 0a and 0b (the measurements of every goal with the square rule
+and of the estimator of kept lines); 1a (c5b07be: best by mean height, the tight mark, the headline); 1b (c8a079a:
+the Basic form, saved rigs as migration 18, with 5.4); 1c with 5.2 (4f468d3: the 2 % sample in the web worker); and,
+beside the plan, the shore chip on phones (c7ff76e) and the rig's factors at 6 m with the square rule (the size word's
+"?" and the rig window's cost line). Round 3 (from 2026-11-15) builds 2a, 2b, 1d and phase 4's findings (section 7),
+and measures 0c and 5.1. Open after it: 2c-2g and 3a-3d.
 
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
@@ -198,13 +205,23 @@ the sectors are computed in Python at saving.
 ### 6.3 Still open
 | Id | The question | Options | Recommendation | Blocks | Class |
 |---|---|---|---|---|---|
-| search U-2 | 'Sea cliffs' wall-angle limit | (a) none; (b) a wide one from the count | (a) | search 5.4 | measure (5.5 a) |
-| search U-6 | The sample for searches with the square rule | (a) only searches without it; (b) found estimate × kept share | on 5.5 b's numbers | search 2 | measure (5.5 b) |
-| search U-9 | The alpine variant of the access measure | (a) in; (b) out | (a) | search 3 | before |
-| search U-11 | The access study's pictures | the user looks at them first | look first | search 3 | before |
 | store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up |
 | store U12's package | Which brotli package | after the comparison of the maintained packages | – | store wave 6 | before |
 | store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before |
+
+### 6.4 Decided on 2026-11-15 (rounds 2 and 3)
+The user's answers, verbatim: round 2, on the counts of every goal and the estimator: "1. a) 2. 2% 3. a) 4. ok start
+it"; on the rig's factors: "1. ok 2. ok c)"; round 3, on its scope questions: "1. a 2. a 3. a 4. a 5. a 6. a 7. c".
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| search U-2 | (a) 'Sea cliffs' has no wall-angle limit | `main` c8a079a; `spec-search.md` 5.4 |
+| search U-6 | Neither option: with the square rule the sample counts 2 % of the rule's squares (part M2's candidate 1b) | `main` 4f468d3; `spec-search.md` 2.2 |
+| – | The sample is 2 %; no cap per spot (K-13 not built): the estimate refuses before the search, with the advice | `main` 4f468d3; `spec-search.md` 2.2, 6 |
+| – | The size word's "?" and the rig window's cost line carry the measured factors at 6 m with the square rule (middle values: sag ×1.6, no-fall zone ×4.1, A-frames ×1.6); no "Lighter" hint | `main` c8a079a; `spec-search.md` 1.2 |
+| search U-9 | (a) the alpine variant of the access measure is in | `spec-search.md` 3.2, 3.11 |
+| search U-11 | The user looked at part P3d's five pictures: the colours match; the measure is ported as it is | `spec-search.md` 3.8, 3.11 |
+| – | The store's libraries: pyarrow (Python) and apache-arrow 21.2.0 (the page) accepted ("2. a"); the brotli package (store U12) still waits for its comparison | `spec-store.md` 1.5, 1.10 |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
