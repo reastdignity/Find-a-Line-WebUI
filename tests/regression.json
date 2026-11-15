@@ -2231,26 +2231,24 @@
       "jp"
     ],
     "expected": {
-      "anchors": 14181,
-      "open": 1390,
-      "checked": 825,
-      "lines": 158,
-      "spots": 14,
-      "csv_sha256": "29b3aa05b73c293351f6d2c25e4c8a0058e51960af18f84d1334cf993f06b26a",
-      "length_km": 3.457,
-      "clearance_min": 0.01,
-      "clearance_mean": 1.009,
-      "clearance_max": 4.57,
+      "anchors": 14414,
+      "open": 1470,
+      "checked": 3063,
+      "lines": 1002,
+      "spots": 22,
+      "csv_sha256": "c4903694074260e4ae7b1047e18abe93d938249ea3c9c0ee031160663b351306",
+      "length_km": 44.34,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.238,
+      "clearance_max": 9.85,
       "over_trees": 0,
       "coverage": 55.95,
       "empty_tiles": 0,
-      "filled_km2": 0.01,
-      "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 1.22,
-      "water_lines": 48,
-      "water_spots": 10
+      "sea_km2": 1.24,
+      "water_lines": 917,
+      "water_spots": 20
     },
-    "seconds": 7.9,
-    "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only"
+    "seconds": 4.4,
+    "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only. Re-baselined 2026-11-16 (158 lines, 14 spots -> 1002, 22): the first baseline was taken while Overpass did not answer, so its sea came from the Copernicus mask (the fallback): with --coastline copernicus the code of now gives that lines.csv exactly (sha256 29b3aa05...), and the code of before gives these 1002 lines with the OSM coastline; most of them span the coves over the sea filled at 0 m"
   }
 }
