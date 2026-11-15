@@ -125,6 +125,36 @@ def drop_below(band: np.ndarray, floor: Optional[float], ring: int = 0) -> np.nd
     return band
 
 
+def xyz_rows(data: bytes) -> Optional[bytes]:
+    """An XYZ text member ("x y z" a line, after a header line or not) with its lines in rows, north to south and
+    west to east, for GDAL's XYZ driver: it reads points in columns only when none is missing ("does not support
+    datasets organized by columns with missing values", GDAL 3.12), and points in rows with any missing (no data
+    there). Bremerhaven's DGM1 and DOM1 are written in columns, and 41 of the DOM1's tiles hold part of their km. The
+    lines are kept as they are (no number written again). None when data is no such text (a GeoTIFF)."""
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    lines = [line for line in text.splitlines() if line.strip()]
+    header = []
+    if lines:
+        try:
+            [float(v) for v in lines[0].split()]
+        except ValueError:
+            header, lines = lines[:1], lines[1:]
+    if not lines:
+        return None
+    try:
+        values = np.array(" ".join(lines).split(), dtype=np.float64)
+    except ValueError:
+        return None
+    if values.size != 3 * len(lines):
+        return None
+    points = values.reshape(-1, 3)
+    order = np.lexsort((points[:, 0], -points[:, 1]))
+    return ("\n".join(header + [lines[i] for i in order]) + "\n").encode("ascii")
+
+
 class TransformFix(NamedTuple):
     """A correction of a member's georeferencing before its tile is written, for archives whose files lie on the
     right grid but say so imprecisely: offset (dx, dy) metres added to the origin first (Bremen's Bremerhaven XYZ
@@ -156,9 +186,10 @@ class ZipMember(Reader):
     lengths: 4.3.7; a second, small Range only when the first was short), deflated (8) or stored (0) members
     only (4.4.5; others and encrypted ones an error), inflated with zlib (raw deflate) and checked against the
     CRC-32 and size of the central directory (4.4.7-4.4.9): a mismatch is asked again (net.RETRIES), then an
-    error, never cached. The member (a GeoTIFF) is written again as a tile (float32, NaN for no data and below
-    layer.VALID_MIN), in crs's name if given; with floor, drop_below(floor, ring) first; with fix, its transform
-    corrected first (TransformFix: an offset, a rounding to the grid).
+    error, never cached. The member (a GeoTIFF, or XYZ text: one GDAL refuses is read again with its points in
+    rows, xyz_rows) is written again as a tile (float32, NaN for no data and below layer.VALID_MIN), in crs's name if
+    given; with floor, drop_below(floor, ring) first; with fix, its transform corrected first (TransformFix: an
+    offset, a rounding to the grid).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
@@ -241,14 +272,25 @@ class ZipMember(Reader):
 
     def _write(self, data: bytes, path: str, where: str):
         try:
-            with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
-                if src.count != 1:
-                    raise RuntimeError(f"{where}: {src.count} bands, one expected")
-                band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
-                crs, transform = self.crs or src.crs, src.transform
-                if self.fix is not None:
-                    transform = self.fix.apply(transform, where)
+            band, crs, transform = self._raster(data, where)
         except rio.errors.RasterioError as e:
-            raise RuntimeError(f"{where}: not a raster ({e})") from None
+            rows = xyz_rows(data)  # an XYZ member in columns with points missing: read again in rows
+            if rows is None:
+                raise RuntimeError(f"{where}: not a raster ({e})") from None
+            try:
+                band, crs, transform = self._raster(rows, where)
+            except rio.errors.RasterioError as again:
+                raise RuntimeError(f"{where}: not a raster ({again})") from None
         drop_below(band, self.floor, self.ring)
         _write_tile(path, band, crs, transform)
+
+    def _raster(self, data: bytes, where: str):
+        """(band, crs, transform) of a member's bytes: float32, NaN for no data, the transform fixed."""
+        with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
+            if src.count != 1:
+                raise RuntimeError(f"{where}: {src.count} bands, one expected")
+            band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
+            crs, transform = self.crs or src.crs, src.transform
+            if self.fix is not None:
+                transform = self.fix.apply(transform, where)
+        return band, crs, transform
