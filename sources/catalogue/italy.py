@@ -1,7 +1,8 @@
 """Italy: the Autonomous Province of Bolzano / South Tyrol (its DTM and DSM 2.5 m, WCS), the Autonomous Province
 of Trento (its LiDAR 2014 DTM and DSM 0.5 m, ASCII grids of 500 m), Sardinia (its coastal lidar DTM and DSM 1 m of
 2008, ZIPs of ASCII grids listed by a WFS of their footprints) and INGV's TINITALY 1.1 (10 m, WCS) for the rest of
-Italy, San Marino and the Vatican and for the gaps of the regional sources."""
+Italy, San Marino and the Vatican and for the gaps of the regional sources. Valle d'Aosta: the region's DTM 2005/2008
+2 m as our own 2 km tiles in the local mirror (tools/mirror_tiles.py); its DSM follows by hand later."""
 
 from typing import List
 

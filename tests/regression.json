@@ -1950,7 +1950,27 @@
       "pt"
     ],
     "needs_env": "FINDALINE_MIRROR",
-    "expected": {}
+    "expected": {
+      "anchors": 94845,
+      "open": 31107,
+      "checked": 184368,
+      "lines": 10458,
+      "spots": 132,
+      "csv_sha256": "67f2d8aeeb8f8697cd54661454e3dddfd9a43ea1e4ed435e65ac17d1ad0f193b",
+      "length_km": 1631.477,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.509,
+      "clearance_max": 12.9,
+      "over_trees": 0,
+      "coverage": 67.12,
+      "empty_tiles": 2,
+      "filled_km2": 0.03,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 1.81,
+      "water_lines": 2,
+      "water_spots": 1
+    },
+    "seconds": 35.8
   },
   "R81": {
     "place": "Arnad, the Machaby crags above the Dora Baltea, Valle d'Aosta, Italy: the region's DTM 2005/2008 2 m, our own 2 km tiles from the local mirror (x edges on even, y on odd metres), ED50 / UTM 32N",

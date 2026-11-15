@@ -49,6 +49,7 @@ SOURCES: List[Source] = [
         fallback="europe",
         listing=ReadmeRow("Madeira (PT)", "DROTe MDT 2 m, photogrammetry 2018–2019 (Madeira island; the other "
                                           "islands FABDEM)", "–", "DROTe orthophoto 2023"),
+        # Before Spain in FAMILIES: Spain's offline box (27-43.9 N, 18.6 W-4.4 E) holds Portugal and Madeira too
         offline=(("pt-30", (32.35, 33.15, -17.35, -16.25)),), sample=(32.8630, -17.1941),
         note="Madeira's terrain model (DROTe, 2 m, photogrammetry 2018-2019) covers Madeira island only; no surface "
              "model, so trees are not checked. Its tiles come from the local mirror (tools/mirror_tiles.py).",
