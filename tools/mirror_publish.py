@@ -86,6 +86,11 @@ LOG_FILE = re.compile(r"^access-(\d{4}-\d{2}-\d{2})\.log$")
 # What the server's log may hold in its free fields (a visitor sends them); anything else counts as "other"
 SAFE = {"ds": re.compile(r"^(-|[a-z0-9_-]{1,64})$"), "lim": re.compile(r"^[a-z0-9_-]{1,32}$"),
         "v": re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")}
+# rclone's own detection never adds sha256 (it tries md5 and sha1 only): the remote names it by hand
+NO_SHA256 = ("the remote reports no sha256 among its hashes: set in the remote's section of the rclone config "
+             "`shell_type = unix`, `hashes = sha256` and `sha256sum_command = sha256sum` (the server's shell must "
+             "have sha256sum); without a shell on the server, `shell_type = none` and --read-back, which reads the "
+             "files back instead")
 EXIT_MEANING = {1: "an error", 2: "a usage error", 3: "a folder not found", 4: "a file not found",
                 5: "a temporary error", 6: "a less serious error", 7: "a fatal error", 8: "the transfer limit",
                 9: "nothing transferred", 10: "the time limit"}
@@ -529,8 +534,7 @@ def verify(place: str, rc: Optional[Rclone], read_back: bool = False) -> int:
         rc = rc or make_rclone()
         remote = Remote(rc, parse_place(place))
         if not read_back and "sha256" not in remote.hashes():
-            raise Refused("the remote reports no sha256 among its hashes (the remote's hashes and "
-                          "sha256sum_command); --read-back reads the files back instead")
+            raise Refused(NO_SHA256)
         print("verify: <remote>", flush=True)
         faults, checked = verify_remote(remote, read_back)
     for fault in faults:
@@ -651,8 +655,7 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         raise Refused(f"{label} fails verify ({len(faults)} faults)")
     remote = Remote(rc, parse_place(to))
     if not read_back and "sha256" not in remote.hashes():
-        raise Refused("the remote reports no sha256 among its hashes (set its hashes and sha256sum_command); "
-                      "--read-back reads the files back instead")
+        raise Refused(NO_SHA256)
     lock = Lock(remote, f"publish {dataset}", break_lock)
     lock.check()
     published = remote.exists(f"{TILES}/{dataset}")
@@ -665,6 +668,8 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
     need = sum(size for path, (_, size) in files.items() if staged.get(path) != size) + len(card_bytes)
     free = remote.free()
     if free is None:
+        if not remote.exists(""):
+            raise Refused("<root> does not exist on the server (the mirror stack's install makes it)")
         raise Refused("the server does not tell its free space (rclone about)")
     if free < need + MARGIN_BYTES:
         raise Refused(f"<root> has {free / 1e9:.1f} GB free, {need / 1e9:.1f} GB to copy plus "
