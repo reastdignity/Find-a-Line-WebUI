@@ -197,3 +197,25 @@ def test_geo_sheet_tiles(http_server, tmp_path):
     x, y = to_utm.transform(east, north)
     assert len(layer.tiles(make_grid((x - 200, y - 200, x + 200, y + 200), 2.5, "EPSG:5382"))) == 4
     assert re.fullmatch(r"[A-R]\d\d[A-D][1-6]", uruguay.uy_sheet(*known))
+
+
+def test_probe_of_the_new_kinds(http_server, tmp_path):
+    """The probe: a GetCoverage of 16 x 16 own pixels for GeoWcsTiles, the first 8 bytes (never one) of a sheet for
+    GeoSheetTiles, which must be a TIFF's."""
+    from sources import probe
+    _wcs(http_server)
+    layer = _layer(http_server)
+    assert probe.strategy(layer) == "geowcs"
+    lat, lon = CORNER[1] - 500 * PIXEL[1], CORNER[0] + 1500 * PIXEL[0]
+    assert probe._geo_coverage(str(tmp_path), layer, lat, lon) == (probe.NONE, probe.OK)
+    asked = dict(http_server.requests("/wcs")[-1].query)
+    assert (asked["WIDTH"], asked["HEIGHT"]) == ("16", "16")
+    with pytest.raises(RuntimeError, match="GetCoverage: HTTP 404"):
+        probe._geo_coverage(str(tmp_path), layer, lat, lon + 1)
+    http_server.add("/s/a.tif", b"II*\x00" + bytes(100), "image/tiff")
+    http_server.add("/s/b.tif", b"<html>", "text/html")
+    assert probe.strategy(src.SOURCES["uruguay"].nmt) == "sheet"
+    assert probe._tiff_head(str(tmp_path), http_server.url("/s/a.tif")) == ""
+    assert http_server.requests("/s/a.tif")[-1].headers["range"] == "bytes=0-7"
+    with pytest.raises(RuntimeError, match="not a TIFF"):
+        probe._tiff_head(str(tmp_path), http_server.url("/s/b.tif"))

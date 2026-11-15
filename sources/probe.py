@@ -12,7 +12,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
   cache, or its address answering a HEAD with its size; never downloaded); blocks found through an index
   (LidarBcBlocks) their index asked, then 16 x 16 pixels at the centre of the first block from its newest file;
-  a local mirror is looked for on disk; a
+  a local mirror is looked for on disk; a WCS 1.0.0 in a geographic CRS (GeoWcsTiles) a GetCoverage of
+  16 x 16 of its own pixels at the sample (no index: a fixed tiling); a sheet of a geographic grid
+  (GeoSheetTiles) the first 8 bytes of its file, which must be a TIFF's (never a range of one byte); a
   plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers; a member
   of a remote ZIP archive (ZipMemberTiles) its local header, by a Range of a few hundred bytes (the index's
@@ -58,6 +60,7 @@ from .net import _gdal_http, _remote, host_slot
 from .layer import Layer
 from .source import OrthoService, Source
 from .layers.wcs import WcsTiles
+from .indexes.tilings import GeoBox
 from .layers.imageserver import ImageServerTiles
 from .layers.wmsr import WmsrTiles
 from .readers.imageserver import service_error
@@ -77,6 +80,8 @@ from .layers.geojson import GeoJsonTiles
 from .layers.zipmembers import ZipMemberTiles
 from .readers.zipmember import LOCAL_SIZE, ArchiveChanged, local_header, member_name, ranged
 from .layers.lidarbc import LidarBcBlocks
+from .layers.wcs import GeoWcsTiles
+from .layers.geosheets import GeoSheetTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -92,7 +97,8 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
-    (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"))
+    (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
+    (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -297,6 +303,32 @@ def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[
     return OK, OK
 
 
+def _geo_coverage(cache_dir: str, layer: GeoWcsTiles, lat: float, lon: float) -> Tuple[str, str]:
+    """A GetCoverage of 16 x 16 of the coverage's own pixels at the point, as the layer's reader asks it (the box of
+    those pixels in the tile holding the point); no index (a fixed tiling)."""
+    tiling = layer.index
+    (dx, dy), (west, north) = tiling.pixel, tiling.corner
+    (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
+    col, row = int((x - west) / dx) - 8, int((north - y) / dy) - 8
+    box = GeoBox(west + col * dx, north - (row + 16) * dy, west + (col + 16) * dx, north - row * dy, 16, 16)
+    status, kind, body = _ask(cache_dir, layer.url, layer.reader.coverage_params(box))
+    if status != 200 or body[:4] not in TIFF_MAGIC:
+        raise RuntimeError(f"GetCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
+    return NONE, OK
+
+
+def _tiff_head(cache_dir: str, url: Optional[str]) -> str:
+    """The first 8 bytes of a file (a Range of 8, never of one byte), which must be a TIFF's; raises with the
+    reason. A server answering the Range with the whole file is read for its first KB only (_http)."""
+    if not url:
+        raise RuntimeError("no address for the first tile")
+    status, _, body = _ask(cache_dir, url, headers={"Range": "bytes=0-7"})
+    if status not in (200, 206) or body[:4] not in TIFF_MAGIC:
+        not_tiff = ", not a TIFF" if status in (200, 206) else ""
+        raise RuntimeError(f"HTTP {status} for {cache.clean_url(url)}{not_tiff}")
+    return ""
+
+
 def _getmap(cache_dir: str, layer: WmsrTiles, tile) -> str:
     """A GetMap of WINDOW_PX x WINDOW_PX pixels at the top left of the first tile, as the layer's reader
     asks it (WmsrReader.getmap_params); raises with the reason when the answer is no GeoTIFF. A transient
@@ -363,14 +395,14 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             raise RuntimeError(f"no probe for a {type(layer).__name__}")
         if kind == "file":
             return row
-        if kind in ("wcs", "imageserver"):
+        if kind in ("wcs", "imageserver", "geowcs"):
             try:
-                ask = _coverage if kind == "wcs" else _image_service
+                ask = {"wcs": _coverage, "imageserver": _image_service, "geowcs": _geo_coverage}[kind]
                 row.index, row.read = ask(cache_dir, layer, lat, lon)
             except (requests.RequestException, RuntimeError) as e:
                 row.index = FAILED
                 row.notes.append(cache.clean_error(e))
-            if deep and row.index == OK:
+            if deep and row.read == OK:
                 tiles = layer.tiles(_grid(source))
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             return row
@@ -409,6 +441,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _xyz_head(cache_dir, layer, tiles[0])
             elif kind == "zip":
                 row.notes.append(_zip_header(cache_dir, layer, tiles[0]))
+            elif kind == "sheet":
+                _tiff_head(cache_dir, _first_url(layer, tiles[0]))
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:
