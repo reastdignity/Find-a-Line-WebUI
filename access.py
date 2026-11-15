@@ -27,9 +27,10 @@ The measure:
   CANNOT where the loose walk does not reach it and nothing below says the data cannot tell; UNSURE ("cannot tell
   here") otherwise: only the loose walk reaches it (ground of 40 to 50 degrees or a crest: it depends on the person
   and the rock); or the heights are whole metres (WHOLE_METRE_SHARE of a sample) and the strict walk on heights
-  smoothed by a Gaussian of SMOOTH_SIGMA_PX pixel gives the other answer; or it is not reached and its walkable
-  ground comes within REACH_M of the end of the data (a pixel without data, a filled gap, the grid's edge), so open
-  ground may lie beyond.
+  smoothed by a Gaussian of SMOOTH_SIGMA_PX pixel gives the other answer; or it is not reached and its loose
+  walkable ground comes within REACH_M of the end of the data, so open ground may lie beyond. The end of the data:
+  walkable pixels on the grid's edge or beside a pixel without data (8 neighbours); beside a filled gap that is its
+  whole rim, beside a NaN only a diagonal neighbour (the pixels across an axis have no slope), as in the study.
 - water: the app's water; on heights that are not whole metres also lakes held as flat data (FLAT_WATER_*: flat
   regions whose heights spread little).
 - the alpine variant (on by default; `alpine=False` gives the study's main measure): "cannot walk" becomes "cannot
