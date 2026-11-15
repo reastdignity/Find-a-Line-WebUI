@@ -47,3 +47,4 @@ def test_mirror_entries_name_their_folders():
         assert test.get("needs_path") and set(test["needs_path"]) <= folders, test_id
     assert tests["R80"]["needs_path"] == ["madeira/dtm/2m"] and tests["R81"]["needs_path"] == ["aosta/dtm/2m"]
     assert tests["R86"]["needs_path"] == ["porto-santo/dtm/5m"] and tests["R87"]["needs_path"] == ["desertas/dtm/5m"]
+    assert tests["R88"]["needs_path"] == ["selvagens/dtm/5m"]

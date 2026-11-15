@@ -2262,6 +2262,41 @@
       "water_lines": 20,
       "water_spots": 5
     },
-    "seconds": 152.6
+    "seconds": 152.6,
+    "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m; the Desertas' tiles keep 1 684 coast pixels of about -490 m (averaged with -999 by the provider; no floor set yet): one line of 491 m clearance over such a pixel; with a floor of -100 m 784 lines, clearance at most 9.37 m: re-baseline once the floor is decided"
+  },
+  "R88": {
+    "place": "Selvagem Grande's cliffs, the Selvagens, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Selvagens, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), PTRA08 / UTM 28N",
+    "args": "--lat 30.1512 --lon -15.8691 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "selvagens/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 3926,
+      "open": 2862,
+      "checked": 9607,
+      "lines": 972,
+      "spots": 114,
+      "csv_sha256": "a2a43ca63a15632b1c73444dcad10ef06d63cc6d2ba8b00b19c1142988ba6914",
+      "length_km": 119.157,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.186,
+      "clearance_max": 13.2,
+      "over_trees": 0,
+      "coverage": 53.71,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.98,
+      "water_lines": 414,
+      "water_spots": 43
+    },
+    "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m; the Selvagens' tiles keep 319 coast pixels of about -497 m (no floor set yet), none under a line here: re-check once the floor is decided",
+    "seconds": 51.2
   }
 }
