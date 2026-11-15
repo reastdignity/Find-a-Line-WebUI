@@ -26,7 +26,8 @@ OWNERS = ("RT", "MATTM")
 # Toscana's "Il dataset è rilasciato con licenza CC BY 4.0", the Ministry's "... CC BY-SA 3.0 Italia". The file's
 # own licence wins over the GetFeatureInfo's "Proprieta'": the 351 MATTM sheets "in cofinanziamento e comproprietà
 # con comuni pisani" are "RT" there but carry the Ministry's licence (16e05, lot 006, 2008)
-LICENCE_LINKS = ((b"creativecommons.org/licenses/by-sa/3.0/it", "MATTM"), (b"creativecommons.org/licenses/by/4.0", "RT"))
+LICENCE_LINKS = ((b"creativecommons.org/licenses/by-sa/3.0/it", "MATTM"),
+                 (b"creativecommons.org/licenses/by/4.0", "RT"))
 LICENCE_MEMBER = "licenza_dati_Lidar.pdf"
 # Only links to the cartoteca's own download folder are taken from a GetFeatureInfo's HTML
 DOWNLOADS = "https://www502.regione.toscana.it/geoscopio/download/altimetria/lidar/"

@@ -1949,8 +1949,22 @@
       "sources",
       "it"
     ],
-    "expected": {},
-    "seconds": 0,
+    "expected": {
+      "anchors": 416239,
+      "open": 22122,
+      "checked": 161130,
+      "lines": 29333,
+      "spots": 517,
+      "csv_sha256": "0724072319aea0151f785bdc37d0cf1457e60d352398090f3405c11619f8552a",
+      "length_km": 2557.131,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.504,
+      "clearance_max": 18.58,
+      "over_trees": 9493,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 6.3,
     "notes": "added 2026-11-15: --source auto picks tuscany (the centre is in IT-52); 9 sheets per model, all of Regione Toscana's survey of 2012 (lot 005: the run credits Regione Toscana, CC BY 4.0, no MATTM sheet), about 5.5 MB each, 104 MB with the water mask on an empty cache; nothing filled; the spots lie in the quarry pits and on their walls (Fossa di Colonnata, Fantiscritti, La Piastra)"
   }
 }

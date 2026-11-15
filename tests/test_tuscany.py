@@ -415,9 +415,9 @@ def test_a_run_is_credited_by_the_owners_of_its_sheets(http_server, tmp_path, mo
     features = {"RT": _feature("22d35", "005", 2012, S35), "MATTM": _feature("22d36", "007", 2010, S36)}
     _serve_index(http_server, _gml([features[o] for o in owners]))
     for owner in owners:
-        lot, year = ("005", 2012) if owner == "RT" else ("007", 2010)
-        _tile(os.path.join(cache_dir, "italy", "tos-dtm", f"{lot}-{year}", f"{'22d35' if owner == 'RT' else '22d36'}_1m.tif"),
-              corners[owner], owner, 100.0)
+        lot, year, sheet = ("005", 2012, "22d35") if owner == "RT" else ("007", 2010, "22d36")
+        _tile(os.path.join(cache_dir, "italy", "tos-dtm", f"{lot}-{year}", f"{sheet}_1m.tif"), corners[owner], owner,
+              100.0)
     halves = [make_grid((S35[0] + 1500, S35[1] + 500, S35[0] + 1600, S35[1] + 600), 1.0, "EPSG:3003"),
               make_grid((S36[0], S36[1] + 500, S36[0] + 100, S36[1] + 600), 1.0, "EPSG:3003")]
     layer._use(cache_dir)

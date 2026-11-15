@@ -345,17 +345,19 @@ class CartotecaVersions(Versions):
     def request(self, tile) -> CartotecaRequest:
         return CartotecaRequest(tile, getattr(tile, self.kind), self.urls_path(self._cache_dir or "", tile))
 
-    def _cached_sheet(self, path: str) -> Optional[LidarSheet]:
-        """The survey of a cached file (its extent the file's own, no names or points)."""
+    def _cached_sheet(self, path: str, extent: bool = True) -> Optional[LidarSheet]:
+        """The survey of a cached file by its path (no names or points), with the file's own extent (else 0s)."""
         version = re.fullmatch(r"(\d+)-(\d{4})", os.path.basename(os.path.dirname(path)))
         name = re.fullmatch(r"([0-9a-z]+)_(\d+(?:\.\d+)?)m\.tif", os.path.basename(path), re.IGNORECASE)
         if not version or not name:
             return None
-        import rasterio as rio
-        with rio.open(path) as src:
-            extent = tuple(src.bounds)
+        bounds = (0.0, 0.0, 0.0, 0.0)
+        if extent:
+            import rasterio as rio
+            with rio.open(path) as src:
+                bounds = tuple(src.bounds)
         return LidarSheet(int(version.group(2)), version.group(1), float(name.group(2)), name.group(1).lower(), "",
-                          "", extent)
+                          "", bounds)
 
     def cached(self, grid: Grid, cache_dir: str) -> list:
         """The cached surveys over the grid, best first (when the index cannot be reached)."""
@@ -383,12 +385,7 @@ class CartotecaVersions(Versions):
         return sorted(todo, key=sheet_rank, reverse=True), []
 
     def cached_sheets(self, cache_dir: str) -> List[LidarSheet]:
-        """Every cached survey of this model (names and points unknown)."""
-        out = []
-        for path in glob.glob(os.path.join(cache_dir, self.folder, "*", "*.tif")):
-            version = re.fullmatch(r"(\d+)-(\d{4})", os.path.basename(os.path.dirname(path)))
-            name = re.fullmatch(r"([0-9a-z]+)_(\d+(?:\.\d+)?)m\.tif", os.path.basename(path), re.IGNORECASE)
-            if version and name:
-                out.append(LidarSheet(int(version.group(2)), version.group(1), float(name.group(2)),
-                                      name.group(1).lower(), "", "", (0.0, 0.0, 0.0, 0.0)))
-        return out
+        """Every cached survey of this model (names, points and extents unknown)."""
+        paths = glob.glob(os.path.join(cache_dir, self.folder, "*", "*.tif"))
+        found = (self._cached_sheet(p, extent=False) for p in paths)
+        return [s for s in found if s is not None]
