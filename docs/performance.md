@@ -3762,3 +3762,98 @@ pair also compiled numba, so the second pair counts:
 The stage holds a strip's masks at a time, so it never sets the peak; `search.PIXEL_BYTES` stays. The Gozo
 coast's lines.csv was byte for byte the same in all four runs; the cove finds no line at 1 m in any (as `usgs10m`
 on its own 10 m grid: 529 lines in 119 spots at its default radius).
+
+## The memory constant (2026-11-15, branch `memory-constant`)
+
+The line-volume work's part 5.1 (docs/line-volume/spec-search.md). `search.LINE_BYTES` went from 450 to 900 B a line
+(the user's choice "a", 2026-11-15). It is the per-line term of `memory_needed`: the memory check of a compute slot
+(`_check_lines`, `_early_check`, `_estimate_check`), `memory_warning` at the worker's start, and the "fits" counts of
+their texts. No result changes.
+
+### How it was measured
+- **Machine and lock:** this PC (Windows, 24 logical cores), under `tools/test_lock.py run --exclusive`, one search
+  at a time, the code of `main` 47c5fa7 (the Arrow store written) and, for the store's share, 47c5fa7~1.
+- **Shape of a slot:** `tools/perf_profile.py --cores 7` (the VPS worker's CPUs, so saving takes 4 children) and
+  `--memory 4947666090` (a compute slot of three in 17 GiB free: the areas' tiles of a slot). The square rule's runs
+  marked "w" were planned as the web worker plans them (the public limits and that budget: the early check and the
+  2 % sample run). Every run was one grid.
+- **What was sampled:** the process tree every 0.2 s (the search's process and saving's children): the working sets
+  (rss), the unique sets (USS: the pages no other process maps), and the folder `saving.hand_over` writes. Hooks in
+  the search's process recorded the stages, `saving.save`, `linestore.write` and the square rule's
+  `BestPerSquarePair.counts()` (`peak_rows`). The scripts and the raw results are in the task's private folder
+  (`F7\p2`). 38 searches, 0.7-3.5 million lines; P4's nine case × configuration pairs (round 1) again, and four
+  goals with the square rule (M1's cases).
+- Windows' numbers: a container on Linux was not measured.
+
+### What the peak is
+Every search of a million lines or more peaks in step 5, while saving's children write the text files. The children
+memory-map the same hand-over files (every column of the lines, the groups, the profiles' arrays: about 220 B a line,
+250-275 B a kept line with the square rule), so the working sets summed count those pages once per child: the
+children's working sets grow 841 B a line while their private bytes stay flat (+2 B a line). A container charges a
+page once. So the constant counts the unique sets plus the hand-over files once. The machine's used memory rose more
+(4.9 GB on MGp-C4): its modified page list, the text files written and not yet on disk, grew by up to 2.5 GB
+(`typeperf`), the rest matched the unique sets plus the hand-over (1.86 GB).
+
+| Measure (without the square rule, 47c5fa7) | Fit over 0.7-3.5 M lines |
+|---|---|
+| Working sets summed (part P4's measure; P4 before the store: 558 MB + 1 082 B) | 595 MB + 1 063 B a line (9 runs, residuals −45 to +59 MB; repeats within 4 %) |
+| Unique sets (USS) at their own peak | about 360 MB + 265 B a line |
+| USS + the hand-over files once, at the working sets' peak | 399 MB + 440 B a line (7 runs) |
+
+The slope between two runs (USS + hand-over), on one grid or across the range:
+
+| From | To | Lines | B a line | Working sets' slope |
+|---|---|---|---:|---:|
+| KOB C2 | MGp C4 (no rule) | 0.70 → 3.53 M | 445 | 1 069 |
+| BAH C2 | BAH C3 (no rule) | 1.68 → 2.84 M | 470 | 1 098 |
+| STR C1 | MG0 C1 (no rule) | 0.73 → 1.53 M | 438 | 991 |
+| STR 'Long lines' | STR 'Everything' (square rule 5) | 0.83 → 1.71 M kept | 649 | 1 216 |
+| SCH 'Long lines' | SCH 'Everything' (square rule 5) | 0.83 → 1.24 M kept | 762 | 1 392 |
+
+A kept line costs more than a plain one: its hand-over is larger and, the kept lines being spread out, more of them
+are their spot's representative with a profile (an estimate of the cause, not measured apart; the two goals of a pair
+differ in their settings too). So 900 B: the largest slope, 762 B, and 18 %.
+
+### The store's share
+The same searches before the store (47c5fa7~1) and with it:
+
+| Case | Lines | Working sets' peak before | With the store |
+|---|---:|---:|---:|
+| KOB C2 | 696 319 | 1 273 MB | 1 270-1 279 MB |
+| BAH C3 | 2 843 776 | 3 550 MB | 3 518-3 537 MB |
+| MGp C4 | 3 525 979 | 4 205 MB | 4 136-4 166 MB |
+
+`linestore.write` runs after the children, in the search's process alone, and is that process's own highest point now
+(MGp C4: 1 518 MB against step 4's 1 214, about +86 B a line; USS 1 369 MB against 1 129 before the store, +68 B a
+line), below step 5's. When the text files end (store wave 4), the children and their hand-over go, and the store's
+write becomes the peak: about 310 B a line above step 2 there (estimate from MGp C4).
+
+### The square rule's step 3
+The reducer's rows held in step 3: the step's peak above step 2's, over its `peak_rows`, on runs of 1.05-2.4 million
+rows: 181-287 B a row (216 B counted from the dtypes in phase 4). The rows held were 1.05-1.27 times the kept lines
+with the early check (the web worker's way) and 1.05-1.13 without it (the command line), so step 3 holds at most
+about 360 B a kept line and never sets the peak.
+
+### What it changes
+The verdicts of M1's 112 searches with the square rule and P1's 15 reference cases in the target rig without it
+(18 GiB worker, 3 compute slots, a slot's budget 4.61 GiB, the public limits; the memory threshold recomputed from
+their stored pixels, equal to their stored one at 450 within 0.17 %):
+
+| `LINE_BYTES` | With the public line limit (1.5 M) | Without limits (the memory check alone) | `memory_warning` (1.5 M lines, 64 Mpx, 4.61 GiB) |
+|---|---|---|---|
+| 450 | – | – | none (3.61 GiB) |
+| 900 | no verdict changes (the tightest admitted search, V2 'Best lines', at 3.7 times its lines' threshold) | STR C4 (9.83 M lines) refused, admitted at 450 | none (4.24 GiB) |
+| 1 200 | no verdict changes | also MG0 'Everything' (4.65 M kept) and V1 'Everything' | none; from 1 165 B a warning |
+
+By the fit, STR C4 would need about 4.4 GiB (extrapolated beyond the 3.5 M lines measured). The "fits" counts the
+refusals and the warning name are half of those at 450. `tools/perf_country.py`'s copy of the constant
+(`lines_gb_today`) follows it.
+
+### Not measured
+- A container on Linux (its page cache, the writeback of the text files), the VPS's real slots (4.61 GiB is part
+  E1's estimate).
+- A tiled search's held lines and the join of its tiles, a grid near 64 Mpx, searches above 3.5 M lines.
+- The fixed part (the process and its imports, about 0.4 GB in the fits) is not in `memory_needed` and
+  `slot_memory` does not reserve it (left as it is, the user's choice).
+- `tools/perf_lines_memory.py` was not used: it traces the heap of one process, without saving's children, the store
+  or the square rule.

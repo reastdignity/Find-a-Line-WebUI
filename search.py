@@ -93,33 +93,19 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # of the pixels; the Tatras' 2.65 million, 6.1 %), step 3 at 16; was 100 before the temporaries
 # of step 1 were cut
 PIXEL_BYTES = 50
-# Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
-# columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
-# 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
-# worker killed on the VPS held 2.6 million lines of earlier tiles and 1.1 million of a tile).
-# Again 2026-11-01 after wave 4 (perf_lines_memory.py --call of the captures of swiss-long, 1.7
-# million lines, of the Gozo coast's large tile, 253 000, and of R9, 86 000): step 3 (the found
-# pairs held once, the tables joined and sorted column by column) 190-199 B per line, was 494-504;
-# step 4 at most 389-439 B (mapping.group_lines; its coordinates 234-305 B, was 306-553 with the
-# core's second table), 261-294 B held; step 5 327-459 B (and about 40 MiB whatever the number
-# of lines). After wave 5 (the same captures): the grouping 266-268 B (its cell index as arrays,
-# its loop in numba: grouping.py), was 380-439; 229-262 B held (the pixel columns dropped after
-# the profiles); step 5 246-315 B (the rows' order part by part, 1 000 lines a chunk: about 5 MiB
-# whatever the number of lines); the join of a tiled search's lines 319 B (the Gozo coast's 6
-# tiles column by column, was 560: concat held them twice). The largest is step 4's profiles,
-# 306-389 B: R9's 389 B, plus 16 % (its 22 lines per group make the representatives' profiles
-# weigh more per line than on the larger searches' 158-167; they are counted within this, so a
-# search of smaller groups holds more). The found pairs need no term of their own: as many
-# as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
-# --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
-# per line).
-# With the square rule (--same-line-square, samelines.py) step 3 holds the reducer's rows instead of the
-# found lines: 216 B a row (the columns of a part with the A-frame heights, its count and six key columns
-# of 8 B), about 260 B while a merge sorts them (two negated columns, the index, a column held twice); with
-# a check at most 9/8 of the lines the limits allow and one part are held (BestPerSquarePair merges at
-# once when the rows held would be refused), so step 3 stays below a kept line's 450 B, and steps 4-5 hold
-# 8 B more per kept line (the count). Counted from the dtypes, not measured with the tool (2026-11-14)
-LINE_BYTES = 450
+# The lines: the largest per-line peak of a search's process tree with a margin. Measured 2026-11-15 (the line-volume
+# task, part 5.1; docs/performance.md, "The memory constant"): full searches of 0.7-3.5 million lines, one at a time
+# on this PC, the process tree sampled every 0.2 s, 7 cores and a compute slot's tiles. The peak is step 5, while
+# saving's children write the text files: they memory-map the same hand-over files (about 220 B a line), so the
+# working sets summed count those pages once per child (595 MB + 1 063 B a line, as part P4's 1 082 B), a container
+# once. Counted as the unique sets of the processes (USS) plus the hand-over files once: 399 MB + 440 B a line
+# without the square rule (438-470 B a line between runs), 649-762 B a kept line with it (its kept lines carry a
+# larger hand-over and more representatives' profiles per line), so 900 B. The store (linestore.write, after the
+# children) moves no peak. With the square rule step 3 holds the reducer's rows: 181-287 B a row measured, at most
+# 1.27 rows a kept line, below a kept line's cost. The fixed part (the process, its imports: about 0.4 GB) is not in
+# memory_needed. Before, by the traced heap of one process (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at
+# most 389 B a line, so 450
+LINE_BYTES = 900
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
 # (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
