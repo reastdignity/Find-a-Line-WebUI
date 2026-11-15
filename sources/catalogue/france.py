@@ -44,13 +44,15 @@ FR_RGEALTI_CREDIT = Credit(
            "Open Licence 2.0 (Etalab).")
 
 
-def _lidar_hd(kind: str, description: str) -> WmsrTiles:
+def _lidar_hd(kind: str, description: str, projection: str = "LAMB93", crs: str = LAMBERT93, zone: str = "",
+              origin=FR_ORIGIN) -> WmsrTiles:
     # Tiles of 1 km, IGN's own (tile (res, i, j) is LHD_FXX_<i>_<j + 1>): 1000 px at 1 m (about 2.8 MB
-    # deflated), 2000 px at 0.5 m for a grid finer than 1 m
+    # deflated), 2000 px at 0.5 m for a grid finer than 1 m. An overseas region's layers: the suffix of its
+    # projection in the layer's name, its CRS, its folder's zone and its pixel edges
     return WmsrTiles(f"LiDAR HD {kind} {description}", FR_WMSR,
-                     f"IGNF_LIDAR-HD_{kind}_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93", LAMBERT93,
-                     f"france/lidarhd-{kind.lower()}/live", native_res=0.5, fetch_res=(0.5, 1.0), tile_m=1000,
-                     origin=FR_ORIGIN, bytes_per_tile=2.8e6)
+                     f"IGNF_LIDAR-HD_{kind}_ELEVATION.ELEVATIONGRIDCOVERAGE.{projection}", crs,
+                     f"france/lidarhd-{kind.lower()}{'-' + zone if zone else ''}/live", native_res=0.5,
+                     fetch_res=(0.5, 1.0), tile_m=1000, origin=origin, bytes_per_tile=2.8e6)
 
 
 FR_MNT = _lidar_hd("MNT", "0.5 m (terrain)")
@@ -102,6 +104,18 @@ def _rgealti_overseas(zone: str, where: str, layer: str, crs: str, origin=(0.0, 
     return WmsrTiles(f"RGE ALTI 1 m (terrain) {where}", FR_WMSR, layer, crs, f"france/rgealti-1m-{zone}/live",
                      native_res=1.0, fetch_res=(1.0,), tile_m=1000, origin=origin, bytes_per_tile=2e6)
 
+
+# La Réunion: LiDAR HD MNT and MNS in RGR92 / UTM 40S (EPSG:2975; the answers name EPSG:32740, forced to the
+# reader's CRS), 0.5 m true floats, nodata -9999 (all of the sea). As the service answered on 2026-11-15: unlike the
+# mainland's, the pixel EDGES lie on multiples of 0.5 m (a GetMap at 0.25 m repeats each value in 2 x 2 blocks
+# starting on the whole and half metres), and the 1 m answer on whole metres is the mean of the 2 x 2 pixels of
+# 0.5 m (within 1e-4 m: tests/test_france_overseas.py). Gaps from the island's RGE ALTI 1 m (vertical datum IGN 1989,
+# IGN's record; centres on whole metres like the Antilles'), then FABDEM / Copernicus
+REU_CRS = "EPSG:2975"
+REU_MNT = _lidar_hd("MNT", "0.5 m (terrain) La Réunion", "RGR92UTM40S", REU_CRS, "reu", (0.0, 0.0))
+REU_MNS = _lidar_hd("MNS", "0.5 m (trees, buildings) La Réunion", "RGR92UTM40S", REU_CRS, "reu", (0.0, 0.0))
+REU_RGEALTI = _rgealti_overseas("reu", "La Réunion", "RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS", REU_CRS, HALF_METRE)
+REU_BOX = (-21.42, -20.84, 55.20, 55.86)
 
 OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m has no surface model: trees and buildings "
                  "are not in the data, check the photo.")
