@@ -1,10 +1,11 @@
-"""WcsTiles: square tiles from an OGC WCS 2.0 (or 1.0) service on a fixed grid in the service's CRS."""
+"""WcsTiles: square tiles from an OGC WCS 2.0 (or 1.0) service on a fixed grid in the service's CRS; GeoWcsTiles:
+tiles of a WCS 1.0.0 coverage's own pixels in a geographic CRS."""
 
 from typing import Optional, Tuple
 
 from ..composed import ComposedLayer
-from ..indexes.tilings import WcsTiling
-from ..readers.wcsreader import WcsReader
+from ..indexes.tilings import GeoPixelTiling, WcsTiling
+from ..readers.wcsreader import GeoWcsReader, WcsReader
 
 
 class WcsTiles(ComposedLayer):
@@ -44,3 +45,21 @@ class WcsTiles(ComposedLayer):
     def coverage_extent(self) -> Optional[tuple]:
         """(left, bottom, right, top) of the coverage in the service CRS, or None if unknown."""
         return self.reader.coverage_extent()
+
+
+class GeoWcsTiles(ComposedLayer):
+    """Tiles of tile_px x tile_px pixels of a WCS 1.0.0 coverage in a geographic CRS, on its own pixels: the
+    grid's north-west corner (west, north), its pixel (dx, dy degrees, not square) and its size (columns, rows)
+    as its capabilities give them (GeoPixelTiling, read by GeoWcsReader; a tile without a valid pixel is
+    missing). native_res: the pixel's size in metres (the source's resolution). The mosaic reprojects the
+    tiles onto the working grid. Geoscience Australia's national 5 m lidar DEM (EPSG:4283)."""
+
+    def __init__(self, description: str, url: str, coverage: str, crs: str, folder: str, native_res: float,
+                 corner: Tuple[float, float], pixel: Tuple[float, float], size: Tuple[int, int],
+                 tile_px: int = 1000, fmt: str = "GeoTIFF", zero_is_nodata: bool = False,
+                 params: Tuple[Tuple[str, str], ...] = ()):
+        self.description, self.url, self.coverage, self.crs = description, url, coverage, crs
+        self.folder, self.native_res, self.tile_px = folder, native_res, tile_px
+        self._bytes = tile_px ** 2 * 4
+        self.index = GeoPixelTiling(crs, folder, tile_px, corner, pixel, size)
+        self.reader = GeoWcsReader(description, url, coverage, crs, fmt, zero_is_nodata, params)

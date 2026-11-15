@@ -1,13 +1,15 @@
 """Australia: Tasmania (the State's Tasmania 2 metre DEM, one cloud-optimized GeoTIFF read in blocks) and Queensland
 (the State's DEM time series ImageServer: its lidar projects, newest first, and Geoscience Australia's DEM-H for
-the gaps)."""
+the gaps), each in its region; the rest of Australia from Geoscience Australia's national 5 m lidar DEM (a WCS
+1.0.0 in GDA94 geographic coordinates), FABDEM where it has no survey."""
 
 from typing import List
 
-from ..credit import Credit
+from ..credit import CC_BY, Credit
 from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.fileblocks import FileBlocks
 from ..layers.imageserver import ImageServerTiles
+from ..layers.wcs import GeoWcsTiles
 
 # GDA94 / MGA zone 55, the CRS of the file: zone 55 spans 144-150° E, so King Island (143.8-144.2° E) lies just
 # west of it; the scale error stays within about -0.04 % (the zone's centre, 147° E) and +0.04 % (King Island)
@@ -147,6 +149,53 @@ QLD_NOTE = ("Data: State of Queensland, CC BY-SA. Results derived from Queenslan
             "surface model: trees and buildings are not in the data.")
 
 
+# --- Australia, national 5 m ---
+# Geoscience Australia's "Digital Elevation Model (DEM) of Australia derived from LiDAR 5 Metre Grid" (ecat
+# 22be4b55-2465-4320-e053-10a3070a5236, DOI 10.26186/89644): about 236 lidar surveys of 2001-2015 (> 245 000 km²,
+# about 3 % of Australia: mostly the coasts and towns of New South Wales, Victoria, South Australia and Western
+# Australia, little inland), the 1 m DEMs resampled to 5 m by a neighbourhood mean, AHD heights (vertical accuracy
+# 0.30 m, horizontal 0.80 m at 95 %). Served keyless by the WCS DEM_LiDAR_5m_2025 (ArcGIS Server), coverage "1",
+# WCS 1.0.0 only (2.0.1 lists MGA but answers GetCoverage with 400) in EPSG:4283 (GDA94 geographic) or 4326:
+# its grid is 718 787 x 651 083 pixels of 5.506e-5 x 5.160e-5 degrees from 114.0986 E / 9.8661 S, float32 with
+# no nodata tag: the sea and everywhere without a survey are 0 (an all-zero TIFF of 682 bytes inland). A box on
+# the grid's own pixel edges is answered on exactly those pixels (wave 0 of 2026-11-15: a box equals its halves,
+# bilinear equals nearest), so tiles are asked on them (GeoWcsTiles) and the mosaic reprojects them onto MGA.
+# "New data will be added to the service as it becomes available": a live folder. Limits: none published (the
+# capabilities, ecat's record and GA's copyright page, read 2026-11-15); maxImageWidth/Height 4096; CloudFront's
+# firewall answers 403 to other paths of the server (rest/services): only the WCS's own requests are sent.
+AU_WCS = "https://services.ga.gov.au/gis/services/DEM_LiDAR_5m_2025/MapServer/WCSServer"
+AU_CRS = "EPSG:4283"
+AU_CORNER = (114.09855219640832, -9.86608416402494015)       # the grid's west and north edges (DescribeCoverage)
+AU_PIXEL = (5.5063478185957097e-05, 5.16012325277870332e-05)  # degrees of longitude and latitude
+AU_SIZE = (718787, 651083)                                    # columns, rows
+# Tiles of 1000 x 1000 px (about 5.5 x 5.7 km, 4 MB uncompressed per request)
+AU_DEM = GeoWcsTiles("Geoscience Australia 5 m lidar DEM (terrain)", AU_WCS, "1", AU_CRS, "australia/dem5m/live",
+                     native_res=5.0, corner=AU_CORNER, pixel=AU_PIXEL, size=AU_SIZE, tile_px=1000, fmt="GeoTIFF",
+                     zero_is_nodata=True)
+# The WCS's AccessConstraints, verbatim (GetCapabilities, read 2026-11-15)
+AU_ATTRIBUTION = ("© Commonwealth of Australia (Geoscience Australia) 2025. This product is released under the "
+                  "Creative Commons Attribution 4.0 International Licence.")
+AU_CREDIT = Credit("Digital Elevation Model (DEM) of Australia derived from LiDAR 5 Metre Grid (Geoscience Australia)",
+                   AU_ATTRIBUTION, *CC_BY,
+                   notice="Dataset: https://doi.org/10.26186/89644 (Geoscience Australia, eCat 22be4b55-2465-4320-"
+                          "e053-10a3070a5236), read from its WCS DEM_LiDAR_5m_2025.")
+# The mainland and the coastal islands north of Bass Strait (Wilsons Promontory 39.13 S), clear of Tasmania's box
+AU_BOX = (-39.20, -9.87, 114.10, 153.68)
+
+
+def au_mga_crs(lat: float, lon: float) -> str:
+    """GDA94 / MGA zone of a point in Australia (49-56: 108-156° E; a point outside takes the nearest): the datum
+    of the 5 m DEM, so the mosaic only projects it. EPSG:28349-28356."""
+    zone = min(56, max(49, int((lon + 180) // 6) + 1))
+    return f"EPSG:{28300 + zone}"
+
+
+AU_NOTE = ("Data: © Commonwealth of Australia (Geoscience Australia) 2025, CC BY 4.0. The 5 m DEM joins lidar "
+           "surveys of 2001-2015 (resampled from 1 m by a mean, which softens the edges of walls); it covers about "
+           "3 % of Australia, mostly coasts and towns: elsewhere (the Blue Mountains, the Grampians, Arapiles) the "
+           "gaps come from FABDEM 30 m. No surface model: trees and buildings are not in the data.")
+
+
 SOURCES: List[Source] = [
     Source(
         id="tasmania", name="Tasmania 2 metre DEM (The LIST)",
@@ -187,4 +236,17 @@ SOURCES: List[Source] = [
         sample=(-26.927, 152.947),
         note="Data: Geoscience Australia and the State of Queensland, CC BY-SA. DEM-H is SRTM of 2000 (30 m): only "
              "long lines can be found, its cliffs are smoothed."),
+    Source(
+        id="australia", name="Geoscience Australia 5 m lidar DEM",
+        description="Geoscience Australia: DEM of Australia derived from lidar, 5 m grid (surveys of 2001-2015, "
+                    "about 3 % of the country), WCS in GDA94, reprojected onto GDA94 / MGA of the place, AHD heights",
+        # After Tasmania and Queensland: they win in their regions whatever the order; elsewhere in Australia
+        nmt=AU_DEM, countries=("au",), local_crs=au_mga_crs, default_resolution=5.0, credits=(AU_CREDIT,),
+        listing=ReadmeRow("Australia (outside Queensland and Tasmania), where it has lidar",
+                          "Geoscience Australia DEM from lidar, 5 m (2001-2015, WCS)"),
+        offline=(("au", AU_BOX),), sample=(-33.8200, 151.2970),
+        note=AU_NOTE,
+        # Partial: lidar on about 3 % of the country, FABDEM 30 m elsewhere
+        coverage=Coverage(provider="Geoscience Australia", added="2026-11-15", partial=True, rest=(30.0,),
+                          survey="2001–2015")),
 ]

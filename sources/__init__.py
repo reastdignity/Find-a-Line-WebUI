@@ -59,6 +59,8 @@ from .catalogue import arctic
 from . import vertical
 from .vertical import EGM2008, Geoid, GeoidMissing
 from .catalogue import iceland
+from .layers import geosheets
+from .catalogue import uruguay
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
@@ -82,6 +84,8 @@ from .layers.metalink import MetalinkTiles
 from .layers.s3blocks import S3Blocks
 from .layers.geojson import GeoJsonTiles
 from .layers.zipmembers import ZipMemberTiles
+from .layers.wcs import GeoWcsTiles
+from .layers.geosheets import GeoSheetTiles
 from .layers.lidarbc import LidarBcBlocks
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
@@ -103,4 +107,4 @@ __all__ = ["SOURCES", "AREA_NAMES", "MIN_RESOLUTION", "Source", "Coverage", "Ort
            "shore_rows", "shore_segments",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
            "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing",
-           "ZipMemberTiles"]
+           "ZipMemberTiles", "GeoWcsTiles", "GeoSheetTiles"]

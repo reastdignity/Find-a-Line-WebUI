@@ -111,6 +111,15 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # published limit: a courtesy cap
     "data.slackmap.com": 2,
     "api.slackmap.com": 1,
+    # Geoscience Australia's WCS of the national 5 m lidar DEM (Australia): no published limits (the WCS's
+    # capabilities, https://services.ga.gov.au/gis/services/DEM_LiDAR_5m_2025/MapServer/WCSServer?service=WCS&
+    # request=GetCapabilities, its eCat record and https://www.ga.gov.au/copyright, read 2026-11-15; CloudFront's
+    # firewall guards the server): courtesy, two at once
+    "services.ga.gov.au": 2,
+    # IDE Uruguay's file server (the national 2.5 m DTM's sheets, about 20 MB each): no published limits (its
+    # Licencia de Datos Abiertos and the download pages, https://visualizador.ide.uy/descargas/datos/, read
+    # 2026-11-15): courtesy, two at once
+    "visualizador.ide.uy": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
