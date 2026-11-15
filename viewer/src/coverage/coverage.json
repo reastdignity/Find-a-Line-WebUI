@@ -301,6 +301,19 @@
    "survey": "",
    "trees": "yes"
   },
+  "de-hh": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGV",
+   "res": [
+    1
+   ],
+   "source": "hamburg",
+   "survey": "2022",
+   "trees": "yes"
+  },
   "de-mv": {
    "added": "2026-11-01",
    "level": 1,
@@ -582,6 +595,26 @@
    "source": "france_martinique",
    "survey": "",
    "trees": "no"
+  },
+  "fr-re": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_reunion",
+   "survey": "",
+   "trees": "yes"
   },
   "gb-eng": {
    "added": "2026-11-01",
@@ -1250,6 +1283,7 @@
    "de-bw",
    "de-by",
    "de-he",
+   "de-hh",
    "de-mv",
    "de-ni",
    "de-nw",

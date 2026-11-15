@@ -2197,5 +2197,31 @@
     },
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
+  },
+  "R83": {
+    "place": "The rampart of the Cilaos cirque above Ilet Dijoux and the Bras Rouge, La Reunion (FR, Nominatim's \"fr\", chosen by the island's box): IGN's LiDAR HD MNT / MNS (0.5 m, fetched at 1 m: the mean of 2 x 2 pixels) by WMS-R GetMaps in RGR92 / UTM 40S (EPSG:2975, pixel edges on multiples of 0.5 m), RGE ALTI 1 m the gap filler",
+    "args": "--lat -21.1310 --lon 55.4510 --radius 300 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 118412,
+      "open": 8131,
+      "checked": 16658,
+      "lines": 4226,
+      "spots": 50,
+      "csv_sha256": "d740b3357608f7dd02add932480746294f41b57fc2331f555bccd071dd05b800",
+      "length_km": 460.401,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.263,
+      "clearance_max": 29.15,
+      "over_trees": 3480,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "IGN (LiDAR HD MNT / MNS, La Réunion)"
+    },
+    "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
+    "seconds": 3.4
   }
 }

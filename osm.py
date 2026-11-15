@@ -329,7 +329,9 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      "it-52": "centro",
                      # Northern Ireland lies in Geofabrik's "united-kingdom" (about 2 GB) and in the much smaller
                      # "ireland-and-northern-ireland" (checked in Geofabrik's index, 2026-11-15)
-                     "gb-nir": "ireland-and-northern-ireland"}
+                     "gb-nir": "ireland-and-northern-ireland",
+                     # Hamburg: Geofabrik's "hamburg" (europe/germany/hamburg, checked 2026-11-15)
+                     "de-hh": "hamburg"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        # France's overseas territories (checked in Geofabrik's index, 2026-11-15): its "france"
@@ -341,7 +343,10 @@ GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        "france_guiana": ("guyane",), "france_spm": ("canada",),
                        # The city of Rio de Janeiro: Geofabrik's "sudeste" of Brazil, not the whole country (checked
                        # in Geofabrik's index, 2026-11-15)
-                       "rio_de_janeiro": ("sudeste",)}
+                       "rio_de_janeiro": ("sudeste",),
+                       # La Réunion: Geofabrik's "reunion" (europe/france/reunion, without an ISO code in its index;
+                       # checked 2026-11-15)
+                       "france_reunion": ("reunion",)}
 
 
 def catalogue_extracts(cache_dir: str) -> Tuple[List[str], List[str]]:

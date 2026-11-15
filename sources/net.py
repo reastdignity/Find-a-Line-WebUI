@@ -173,6 +173,12 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
+    # LGV Hamburg's open-data downloads (the DGM1 and bDOM1 archives, read by Range: Hamburg): no published limits
+    # (the Transparenzportal's records https://suche.transparenz.hamburg.de/dataset/gelaendemodelle-hamburg-dgm2
+    # and https://suche.transparenz.hamburg.de/dataset/digitales-hoehenmodell-hamburg-bdom8, as CKAN's
+    # https://suche.transparenz.hamburg.de/api/3/action/package_show?id=<name>: dl-de/by-2.0, "is_free_to_use", no
+    # limits; https://www.daten-hamburg.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
+    "www.daten-hamburg.de": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
