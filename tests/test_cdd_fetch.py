@@ -49,6 +49,7 @@ class Fake:
         self.searches = []        # the bodies of the searches
         self.logins = 0
         self.posts = 0
+        self.form_fails = 0
         self.active = self.most = 0
         self.lock = threading.Lock()
         self.plain = {}           # /wal/<name> -> bytes
@@ -128,6 +129,10 @@ class Fake:
                                                       "Set-Cookie": "site=%s; Path=/" % self.secret("site")})
         elif method == "GET" and path == "/auth/login":
             self.send(h, 302, headers={"Location": "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"})
+        elif method == "POST" and path.endswith("/authenticate") and self.form_fails:
+            self.form_fails -= 1
+            h.rfile.read(int(h.headers.get("Content-Length") or 0))
+            self.send(h, 500, b"down", {"Content-Type": "text/plain"})
         elif method == "GET" and path.startswith("/realms/") and path.endswith("/auth"):
             self.send(h, 200, self.form_page(), {"Content-Type": "text/html",
                                                  "Set-Cookie": "AUTH_SESSION_ID=%s; Path=/" % self.secret("auth")})
@@ -157,8 +162,10 @@ class Fake:
                 self.send(h, 404, b"no such address", {"Content-Type": "text/plain"})
                 return
             action = self.next_action(item_id)
-            if action == "expire":
+            if action in ("expire", "expire-down"):
                 self.sessions.clear()
+            if action == "expire-down":  # the next sign-in's form answers 500
+                self.form_fails = 1
             if action in ("429", "503"):
                 self.send(h, int(action), b"slow down", {"Content-Type": "text/plain", "Retry-After": "7"})
             elif action == "404":
@@ -244,6 +251,16 @@ class Fake:
             answer["links"].append({"rel": "next", "method": "POST", "href": self.base + "/dgt-be/v1/search?undefined",
                                     "body": following})
         return answer
+
+
+@pytest.fixture(autouse=True)
+def nowhere(monkeypatch):
+    """Every test: fake credentials and a dead address for the site, so no test can reach the real CDD or read
+    the real CDD_USER / CDD_PASSWORD, with or without the fake server."""
+    monkeypatch.setenv("CDD_USER", USER)
+    monkeypatch.setenv("CDD_PASSWORD", PASSWORD)
+    monkeypatch.setattr(cf, "SITE", "http://127.0.0.1:9")
+    monkeypatch.setattr(cf, "AUTH_URL", "http://127.0.0.1:9/realms/x/auth")
 
 
 @pytest.fixture
@@ -439,6 +456,38 @@ def test_a_session_that_ends_mid_run_is_renewed(fake, tmp_path):
     planned(fake, tmp_path)
     assert fetch(tmp_path) == 0
     assert len(done_rows(tmp_path)) == 3 and fake.logins == 3
+
+
+def test_a_failed_sign_in_mid_run_is_that_files_failure(fake, tmp_path):
+    mainland(fake, 3)
+    fake.actions["MDT-50cm-090201-07-2024"] = ["expire-down"]
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert len(done_rows(tmp_path)) == 3 and fake.logins == 2
+    failed = [json.loads(line) for line in open(tmp_path / "portugal" / "failed.jsonl", encoding="utf-8")]
+    assert [f["id"] for f in failed] == ["MDT-50cm-090201-07-2024"] and "sign-in failed" in failed[0]["error"]
+
+
+def test_the_disk_is_checked_and_the_status_saved_within_a_long_file(fake, tmp_path, monkeypatch):
+    fake.add("MDT-50cm", "MDT-50cm-090200-07-2024", size=5000)
+    fake.add("MDT-50cm", "MDT-50cm-090201-07-2024", size=5000)
+    planned(fake, tmp_path)
+    monkeypatch.setattr(cf, "DISK_EVERY", 1500)
+    saved = []
+    real_save = cf.Run.save
+    monkeypatch.setattr(cf.Run, "save", lambda self, current=None: (saved.append(current), real_save(self, current)))
+    calls = []
+    real_usage = cf.shutil.disk_usage
+
+    def usage(path):  # plenty before the files and for the first one, then nothing
+        calls.append(path)
+        free = 10 ** 15 if len(calls) <= 5 else 0
+        return real_usage(path)._replace(free=free)
+    monkeypatch.setattr(cf.shutil, "disk_usage", usage)
+    assert fetch(tmp_path) == cf.EXIT_DISK
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090200-07-2024"]
+    assert ("MDT-50cm-090200-07-2024", 1544) in saved  # bytes so far: 8 + three chunks of 512
+    assert not [p for p in tifs(tmp_path) if p.endswith(".part")]
 
 
 def test_three_sign_ins_without_a_file_stop(fake, tmp_path):

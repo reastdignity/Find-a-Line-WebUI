@@ -548,9 +548,10 @@ def _login_form(body):
     return html.unescape(action.group(1).decode()), hidden
 
 
-def download(http, url, part, size, magic, min_free, sign_aware):
+def download(http, url, part, size, magic, min_free, sign_aware, progress=None):
     """One GET of url into part, checked: (bytes, sha256). Raises SessionLost, Throttled, Stale, BadFile,
-    DiskLow, Stopped; the .part is removed on any failure."""
+    DiskLow, Stopped; the .part is removed on any failure. Every DISK_EVERY bytes the free space is checked and
+    progress(bytes so far) called."""
     answer = http.open(url)
     with answer:
         status = answer.getcode()
@@ -594,6 +595,8 @@ def download(http, url, part, size, magic, min_free, sign_aware):
                         checked = done
                         if shutil.disk_usage(os.path.dirname(part)).free < min_free:
                             raise DiskLow()
+                        if progress is not None:
+                            progress(done)
             expected = size if size is not None else int(length) if length and length.isdigit() else None
             if expected is not None and done != expected:
                 raise BadFile("cut short: %d of %d bytes" % (done, expected))
@@ -660,7 +663,7 @@ class Run:
         self.last_error = {"time": now(), "id": item["id"], "error": text}
         _append_jsonl(os.path.join(self.job.area, "failed.jsonl"), dict(self.last_error))
 
-    def status(self):
+    def status(self, current=None):
         groups = {}
         for item in self.job.items:
             g = groups.setdefault(item["group"], {"files": 0, "done": 0, "bytes_done": 0, "bytes_left": 0,
@@ -673,15 +676,17 @@ class Run:
                 g["bytes_left"] += item["size"] or 0
                 g["failed_this_run"] += item["id"] in self.failed
         elapsed = time.monotonic() - self.started
-        rate = self.bytes / elapsed if self.bytes and elapsed > 0 else None
-        left = sum(g["bytes_left"] for g in groups.values())
+        moved = self.bytes + (current[1] if current else 0)  # a long file's bytes count while it comes
+        rate = moved / elapsed if moved and elapsed > 0 else None
+        left = sum(g["bytes_left"] for g in groups.values()) - (current[1] if current else 0)
         return {"updated": now(), "state": self.state, "groups": groups, "last_error": self.last_error,
+                "current": {"id": current[0], "bytes": current[1]} if current else None,
                 "this_run": {"files": self.files, "bytes": self.bytes, "seconds": round(elapsed),
                              "bytes_per_second": round(rate) if rate else None},
                 "seconds_left": round(left / rate) if rate else None}
 
-    def save(self):
-        _write_json(os.path.join(self.job.area, "status.json"), self.status())
+    def save(self, current=None):
+        _write_json(os.path.join(self.job.area, "status.json"), self.status(current))
 
 
 def _check_disk(area, need):
@@ -714,6 +719,7 @@ def fetch_run(job, args, http, log):
     if args.limit is not None:
         pending = deque(list(pending)[:args.limit])
     log("%d files to fetch, %d done before" % (len(pending), len(run.done)))
+    run.save()
     attempts, failed_in_row, signins, code = {}, 0, 0, EXIT_OK
     min_free = args.min_free_gb * 1e9
     try:
@@ -740,7 +746,7 @@ def fetch_run(job, args, http, log):
                 try:
                     url = job.address(http, item, pending)
                     size, sha = download(http, url, path + ".part", item["size"], job.magic, min_free,
-                                         job.signin_needed)
+                                         job.signin_needed, lambda n, i=item["id"]: run.save(current=(i, n)))
                     break
                 except Throttled as t:
                     throttled += 1
@@ -763,7 +769,11 @@ def fetch_run(job, args, http, log):
                     log(item["id"], ": the session has ended, signing in again")
                     renewed = True
                     signins += 1
-                    job.signin(http, log)
+                    try:
+                        job.signin(http, log)
+                    except BadFile as e:  # a network error: this file's failure, the rules above bound it
+                        error = "the sign-in failed: %s" % e
+                        break
                 except Stale as e:
                     if renewed:
                         error = str(e)
@@ -919,6 +929,8 @@ def _area_status(area, items):
             name, n, files, done_bytes / 1e9, left / 1e9))
     rate = (saved.get("this_run") or {}).get("bytes_per_second")
     lines.append("  state: %s (%s)" % (saved.get("state", "not started"), saved.get("updated", "-")))
+    if saved.get("current"):
+        lines.append("  now: %s, %.1f GB so far" % (saved["current"]["id"], saved["current"]["bytes"] / 1e9))
     if rate:
         lines.append("  measured rate %.1f MB/s with pauses: about %.1f days left" % (
             rate / 1e6, left_bytes / rate / 86400))
@@ -999,4 +1011,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 whatever the console's code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main())
