@@ -57,8 +57,9 @@ def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
     first and ends at last (or at the end of the file, when last lies beyond it) with as many bytes; anything else
     (an answer cut short, another range, a 5xx) asked again up to net.RETRIES times, a 429 or 503 after a longer
     pause, then RuntimeError. Raises Missing for a 404. The answer is streamed and never read beyond the bytes asked:
-    a server answering 200 to the Range (the whole file) is closed unread, an answer longer than its range is cut
-    off there, and another status's text is read for its first ERROR_BYTES only."""
+    a server answering 200 to the Range (the whole file) or 206 with a Content-Range other than the one asked (a
+    wider one would claim megabytes) is closed unread, an answer longer than its range is cut off there, and
+    another status's text is read for its first ERROR_BYTES only."""
     last_error = None
     for attempt in range(net.RETRIES):
         slow_down = False
@@ -74,11 +75,15 @@ def get_range(url: str, first: int, last: int) -> Tuple[bytes, int]:
                     match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("content-range", ""))
                     if response.status_code == 206 and match:
                         start, end, size = (int(g) for g in match.groups())
-                        expected = end - start + 1
+                        counted.outcome = "connection"  # unless returned: another range, or another length
+                        if start != first or end != min(last, size - 1):  # another range: its body never read
+                            raise RuntimeError(f"HTTP 206 for bytes {first}-{last}: "
+                                               f"{response.headers['content-range']} (not read)")
+                        expected = end - start + 1  # at most the bytes asked
                         body = _read_at_most(response, expected + 1, counted)
-                        if start == first and end == min(last, size - 1) and len(body) == expected:
+                        if len(body) == expected:
+                            counted.outcome = None
                             return body, size
-                        counted.outcome = "connection"  # another range, or fewer (more) bytes than it names
                         raise RuntimeError(f"HTTP 206 for bytes {first}-{last}: {response.headers['content-range']}, "
                                            f"{len(body)} bytes")
                     slow_down = response.status_code in (429, 503)
