@@ -121,15 +121,6 @@ than the same search on one grid. Not reachable today: such a tiled search crash
 before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
 indices.
 
-## An unfinished tiled sag job starts over after migration 17
-
-Seen 2026-11-14 (the sag model's fall zone default of 6 m): migration 17 of `jobs.sqlite` writes 3 into stored sag
-requests that had no `fall_zone`, and the worker validates it as the float 3.0, while the job's hash of before
-(`search._search_hash`) was taken with the default's int 3. The hashes differ, so a tiled sag job of the web app that
-was unfinished at the deploy, searched again, starts over instead of resuming from its finished tiles; its results
-are the same. Not normalised: that would move the hash of command-line sag searches given `--fall-zone 3`. Only jobs
-unfinished at that one deploy are affected.
-
 ## A search stopped early by the square rule's check writes no funnel counts for that grid
 
 Seen 2026-11-14 (the line-volume task): when the early check inside the square rule's reducer refuses a search
