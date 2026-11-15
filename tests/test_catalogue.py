@@ -17,7 +17,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "tinitaly", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
@@ -1307,7 +1307,7 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
             'south_tyrol': {'crs': 'EPSG:25832',
                             'countries': ('it',),
                             'bbox': None,
-                            'fallbacks': ['europe'],
+                            'fallbacks': ['tinitaly', 'europe'],
                             'grid_origin': (1.25, 1.25),
                             'default_resolution': 2.5,
                             'instead_without_data': None,
@@ -1349,7 +1349,7 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
             'trento': {'crs': 'EPSG:25832',
                        'countries': ('it',),
                        'bbox': None,
-                       'fallbacks': ['europe'],
+                       'fallbacks': ['tinitaly', 'europe'],
                        'grid_origin': (0.0, 0.0),
                        'default_resolution': 1.0,
                        'instead_without_data': None,
@@ -1374,6 +1374,63 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                 'ttl_days': None,
                                 'credit': 'LiDAR PAT 2014 DTM / DSM 0.5 m (Autonomous Province of Trento)',
                                 'shift': (0.0, 0.0)}},
+            'sardinia': {'crs': 'EPSG:32632',
+                         'countries': ('it',),
+                         'bbox': None,
+                         'fallbacks': ['tinitaly', 'europe'],
+                         'grid_origin': (0.5, 0.5),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': None,
+                         'credits': ['DTM / DSM 1 m fascia costiera 2008 (Regione Autonoma della Sardegna)'],
+                         'nmt': {'class': 'WfsFeatureTiles',
+                                 'description': 'DTM 1 m (terrain) Sardinia',
+                                 'folder': 'italy/sar-dtm/2008',
+                                 'prefix': 'sar-dtm',
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'DTM / DSM 1 m fascia costiera 2008 (Regione Autonoma della Sardegna)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://webgis.regione.sardegna.it/geoserver/ows'},
+                         'nmpt': {'class': 'WfsFeatureTiles',
+                                  'description': 'DSM 1 m (trees, buildings) Sardinia',
+                                  'folder': 'italy/sar-dsm/2008',
+                                  'prefix': 'sar-dsm',
+                                  'native_res': 1.0,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'DTM / DSM 1 m fascia costiera 2008 (Regione Autonoma della Sardegna)',
+                                  'shift': (0.0, 0.0),
+                                  'index_url': 'https://webgis.regione.sardegna.it/geoserver/ows'}},
+            'tinitaly': {'crs': 'EPSG:32632',
+                         'countries': ('it', 'sm', 'va'),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 10.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': None,
+                         'credits': ['TINITALY 1.1 10 m (INGV)'],
+                         'nmt': {'class': 'WcsTiles',
+                                 'description': 'TINITALY 1.1 10 m (terrain)',
+                                 'folder': 'italy/tinitaly/1.1',
+                                 'prefix': None,
+                                 'native_res': 10.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'TINITALY 1.1 10 m (INGV)',
+                                 'shift': (0.0, 0.0),
+                                 'url': 'https://tinitaly.pi.ingv.it/TINItaly_1_1/wcs',
+                                 'coverage': 'TINItaly_1_1__tinitaly_dem',
+                                 'crs': 'EPSG:32632',
+                                 'axes': ('E', 'N'),
+                                 'fmt': 'image/tiff',
+                                 'fetch_res': 10.0,
+                                 'tile_px': 1000},
+                         'nmpt': None},
             'luxembourg': {'crs': 'EPSG:2169',
                            'countries': ('lu',),
                            'bbox': None,
@@ -1844,6 +1901,8 @@ SHEET = dict(year=2023, name="77532_1356765_M-34-64-D-a-1-1", godlo="M-34-64-D-a
              crs="EPSG:2180", res=1.0)
 STAC = dict(year=2025, name="26000-12000", godlo="26000-12000", url="https://example/b.tif", crs="EPSG:2056", res=2.0)
 LGLN = dict(year=2018, name="599-5748", godlo="599-5748/1m", url="https://example/c.tif", crs="EPSG:25832", res=1.0)
+SAR = dict(year=2008, name="500120_03", godlo="500120_03", crs="EPSG:32632", res=1.0,
+           url="https://webgis.regione.sardegna.it/scaricocartografiaETL/modelliDigitali/Fascia_costiera_2008_DTM1m/500120_03.ZIP")
 BLOCK = dict(crs="EPSG:26913", i=532, j=4211, size=1000.0, year=2020, key="ab12cd34")
 # (source, layer, tile, its path in the cache, what tile_of gives for that path)
 PATHS = [
@@ -1950,6 +2009,9 @@ PATHS = [
      (1.0, 207, 2908)),
     ("schleswig_holstein", "nmt", "sha-sh", "schleswig_holstein/dgm1/42_600/426_6005_2025_0123abcd.tif", None),
     ("trento", "nmpt", (1292, 10174), "italy/tn-dsm/2014/129_1017/1292_10174.tif", (1292, 10174)),
+    ("tinitaly", "nmt", (10.0, 87, 471), "italy/tinitaly/1.1/epsg32632-10m-1000px-tif/87_471.tif", (10.0, 87, 471)),
+    ("sardinia", "nmt", "sar", "italy/sar-dtm/2008/2008_500120_03.tif", None),
+    ("sardinia", "nmpt", "sar", "italy/sar-dsm/2008/2008_500120_03.tif", None),
     ("slovenia", "nmt", (411, 48), "slovenia/lss-dmr1/2011-2015/41_4/411_48.tif", (411, 48)),
     ("greenland", "nmt", (-1135, -1694), "arcticdem/mosaic-v4.1-2m-egm08/-23_-34/-1135_-1694.tif", (-1135, -1694)),
     ("copernicus", "nmt", (60, -45), "copernicus30/2021/dem/N60W045.tif", None),
@@ -1973,7 +2035,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "block": lambda: src.Block(**BLOCK), "sha": lambda: ShaTile(673, 5516, 0, "0123abcd"),
             "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd"),
             "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd"),
-            "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd")}.get(tile, lambda: tile)()
+            "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd"),
+            "sar": lambda: src.Sheet(**SAR)}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -2011,6 +2074,8 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("saarland", "nmpt", 49.46, 6.86, "saarland/sheet-index/dom1/N49.46_E006.86.json"),
     ("schleswig_holstein", "nmt", 54.18, 7.88, "schleswig_holstein/sheet-index/dgm1/N54.18_E007.88.json"),
     ("alaska_ifsar", "nmt", 61.2, -149.9, "usa/sheet-index/ifsar5m/N61.20_W149.90.json"),
+    ("sardinia", "nmt", 40.25, 9.5, "italy/sheet-index/sar-dtm/N40.25_E009.50.json"),
+    ("sardinia", "nmpt", 40.25, 9.5, "italy/sheet-index/sar-dsm/N40.25_E009.50.json"),
 ])
 def test_index_paths(tmp_path, sid, kind, lat, lon, path):
     layer = getattr(src.SOURCES[sid], kind)
@@ -2041,14 +2106,16 @@ def test_layer_surface():
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
-                       "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia"}
+                       "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia",
+                       "sardinia"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
-                   "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg"}
+                   "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg",
+                   "tinitaly"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks, src.MetalinkTiles,
-                src.S3Blocks):
+                src.S3Blocks, src.WfsFeatureTiles):
         assert issubclass(cls, src.IndexedTiles)
     for cls in (src.WcsTiles, src.GridTiles, src.DegreeTiles, src.DegreeBlocks, src.FileLayer, src.IndexedTiles):
         assert issubclass(cls, src.Layer)
@@ -2070,7 +2137,7 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("fr", (47.85, 49.00, 5.90, 7.50)), ("fr", (49.00, 49.40, 5.90, 6.50)),
          ("fr", (43.00, 45.80, 5.90, 6.60)), ("fr", (43.00, 44.10, 6.60, 7.40)),
          ("fr", (42.50, 43.40, 2.00, 5.90)), ("fr", (43.05, 43.40, -1.00, 2.00)),
-         ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.30, 43.05, 8.50, 9.60)),
+         ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.32, 43.05, 8.50, 9.60)),
          ("fr", (15.80, 16.55, -61.85, -60.95)), ("fr", (17.85, 17.98, -62.95, -62.77)),
          ("fr", (18.04, 18.13, -63.16, -62.95)), ("fr", (14.38, 14.89, -61.24, -60.80)),
          ("fr", (2.10, 5.80, -54.60, -51.60)), ("fr", (46.74, 47.15, -56.53, -56.11)),
@@ -2106,6 +2173,27 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("de-sh", (53.36, 54.56, 7.85, 11.32)), ("de-sh", (54.56, 54.84, 7.85, 10.15)),
          ("de-sh", (54.84, 55.06, 8.27, 8.60)),
          ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("it-tn", (45.67, 46.54, 10.45, 11.97)),
+         ("it-88", (38.85, 41.32, 8.10, 9.85)),
+         ("it", (45.45, 46.40, 7.06, 13.37)), ("it", (45.20, 45.45, 7.20, 13.37)), ("it", (45.00, 45.20, 7.10, 13.37)),
+         ("it", (44.70, 45.00, 7.05, 13.37)), ("it", (44.30, 44.70, 7.10, 13.37)), ("it", (44.15, 44.30, 7.30, 13.37)),
+         ("it", (43.95, 44.15, 7.75, 13.37)), ("it", (43.60, 43.95, 7.56, 15.00)), ("it", (41.90, 43.60, 8.00, 15.40)),
+         ("it", (41.90, 42.25, 15.40, 16.25)), ("it", (39.70, 41.90, 8.00, 18.60)), ("it", (36.60, 39.70, 11.90, 17.30)),
+         ("it", (38.85, 41.32, 8.10, 9.85)), ("it", (35.45, 35.90, 12.30, 12.90)), ("it", (46.37, 47.1, 8.3, 13.712)),
+         ("it", (45.45, 46.40, 13.37, 13.95)), ("it", (44.15, 44.20, 7.17, 7.80)), ("it", (44.20, 44.25, 6.99, 7.80)),
+         ("it", (44.25, 44.30, 6.95, 7.80)), ("it", (44.30, 44.35, 6.92, 7.80)), ("it", (44.35, 44.40, 6.88, 7.80)),
+         ("it", (44.40, 44.45, 6.89, 7.80)), ("it", (44.45, 44.50, 6.86, 7.80)), ("it", (44.50, 44.55, 6.85, 7.80)),
+         ("it", (44.55, 44.60, 6.87, 7.80)), ("it", (44.60, 44.65, 6.93, 7.80)), ("it", (44.65, 44.70, 6.94, 7.80)),
+         ("it", (44.70, 44.75, 7.02, 7.80)), ("it", (44.75, 44.80, 6.99, 7.80)), ("it", (44.80, 44.85, 6.86, 7.80)),
+         ("it", (44.85, 44.90, 6.77, 7.80)), ("it", (44.90, 44.95, 6.74, 7.80)), ("it", (44.95, 45.00, 6.73, 7.80)),
+         ("it", (45.00, 45.05, 6.66, 7.80)), ("it", (45.05, 45.10, 6.63, 7.80)), ("it", (45.10, 45.15, 6.62, 7.80)),
+         ("it", (45.15, 45.20, 6.75, 7.80)), ("it", (45.20, 45.25, 6.96, 7.80)), ("it", (45.25, 45.30, 7.12, 7.80)),
+         ("it", (45.30, 45.35, 7.10, 7.80)), ("it", (45.35, 45.40, 7.13, 7.80)), ("it", (45.40, 45.45, 7.10, 7.80)),
+         ("it", (45.45, 45.50, 7.00, 7.80)), ("it", (45.50, 45.55, 6.99, 7.80)), ("it", (45.55, 45.60, 6.97, 7.80)),
+         ("it", (45.60, 45.65, 6.92, 7.80)), ("it", (45.65, 45.70, 6.84, 7.80)), ("it", (45.70, 45.85, 6.80, 7.80)),
+         ("it", (45.85, 45.90, 6.94, 7.80)), ("it", (45.90, 45.95, 7.00, 7.80)), ("it", (44.10, 44.15, 7.26, 7.45)),
+         ("it", (43.85, 44.00, 7.59, 7.80)), ("it", (44.00, 44.05, 7.66, 7.80)), ("it", (44.05, 44.10, 7.69, 7.80)),
+         ("it", (43.75, 43.80, 7.52, 7.60)), ("it", (43.80, 43.85, 7.51, 7.60)), ("it", (43.85, 43.92, 7.51, 7.60)),
+         ("it", (43.72, 43.75, 7.53, 7.60)), ("it", (44.10, 44.15, 7.66, 7.80)), ("it", (44.135, 44.15, 7.45, 7.66)),
          ("lu", (49.44, 50.19, 5.73, 6.54)),
          ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
          ("fi", (59.7, 70.1, 19.3, 31.6)),
@@ -2292,6 +2380,10 @@ ATTRIBUTIONS = {
                 "v3.0",
     "north_rhine_westphalia": "Geobasis NRW, Daten geändert",
     "trento": "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014",
+    "sardinia": "Regione Autonoma della Sardegna, DTM e DSM passo 1 m fascia costiera 2008, CC BY 4.0",
+    "tinitaly": "Tarquini S., I. Isola, M. Favalli, A. Battistini, G. Dotta (2023). TINITALY, a digital elevation "
+                "model of Italy with a 10 meters cell size (Version 1.1). Istituto Nazionale di Geofisica e "
+                "Vulcanologia (INGV). https://doi.org/10.13127/tinitaly/1.1",
     "slovenia": "Agencija Republike Slovenije za okolje, LiDAR DMR 1 m, 2011-2015",
     "brandenburg": "© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)",
     "schleswig_holstein": "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)",

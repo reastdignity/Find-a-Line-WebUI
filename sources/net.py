@@ -120,6 +120,15 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Licencia de Datos Abiertos and the download pages, https://visualizador.ide.uy/descargas/datos/, read
     # 2026-11-15): courtesy, two at once
     "visualizador.ide.uy": 2,
+    # INGV's GeoServer of TINITALY (Italy's 10 m WCS): no published limits (the WCS's capabilities, Fees and
+    # AccessConstraints NONE; https://tinitaly.pi.ingv.it/ and its Download_Area1_1.html, read 2026-11-15): a
+    # research institute's server, two at once
+    "tinitaly.pi.ingv.it": 2,
+    # Regione Sardegna's GeoServer (the WFS of the coastal lidar's tiles) and its download folder on the same host
+    # (the tiles' ZIPs): no published limits (the WFS's capabilities, Fees and AccessConstraints none; the
+    # geoportal's legal notes, https://www.sardegnageoportale.it/note-legali/, and the record R_SARDEG:BFPNM, read
+    # 2026-11-15): courtesy, two at once
+    "webgis.regione.sardegna.it": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

@@ -89,7 +89,7 @@ def test_xyz_tile(http_server, tmp_path):
 
 def test_declaration():
     assert SI.grid_origin == (0.5, 0.5) and SI.crs == "EPSG:3794" and SI.nmpt is None
-    assert SI.neighbours == ("austria",) and "slovenia" in src.SOURCES["austria"].neighbours
+    assert SI.neighbours == ("austria", "tinitaly") and "slovenia" in src.SOURCES["austria"].neighbours
     assert src.net.HOST_SLOTS_OF["gis.arso.gov.si"] == 2
     assert SI.ortho.wms_version == "1.1.1"
     # Slovenia's offline boxes before Austria's (which reaches over Triglav)

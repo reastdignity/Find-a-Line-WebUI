@@ -212,6 +212,71 @@ class WfsSheets(Listing):
         return {"layers": layers, "sheets": sheets}
 
 
+# The most features a WfsFeatures answer may hold (the COUNT asked): a 0.25° tile of Sardinia's coast holds at most a
+# few dozen of its 2963 tiles; an answer that says it matched more than it returned is an error (a cut listing)
+WFS_FEATURES_MAX = 2000
+
+
+class WfsFeatures(Listing):
+    """The tiles of one WFS 2.0 feature type of tile footprints (GeoServer; Sardinia's coastal lidar), asked as
+    GeoJSON over each 0.25° tile (BBOX in EPSG:4326) with their footprints in the files' own CRS (SRSNAME), so a
+    listed extent is the file's: a feature per file, its URL the attribute `link`, its name `name`, one survey
+    (year, resolution, crs) for all. A feature without a link (an http(s) URL) or a footprint is left out. An
+    exception report (also with HTTP 200), an answer that is no FeatureCollection or one that matched more
+    features than it returned is IndexUnavailable, an HTTP error a RequestException: nothing is cached then.
+    The request takes a slot of its host (net.host_slot, once use() gave the data folder) and a turn
+    (net.rate_turn); use() gives the folder."""
+
+    def __init__(self, url: str, typename: str, link: str, name: str, crs: str, res: float, year: int):
+        self.url, self.typename, self.link, self.name = url, typename, link, name
+        self.crs, self.res, self.year = crs, res, year
+        self._cache_dir: Optional[str] = None
+
+    def use(self, index, cache_dir: str, update: Optional[str] = None):
+        """The data folder of the index asking (the host slots)."""
+        self._cache_dir = cache_dir
+
+    def fetch(self, lat: float, lon: float) -> Dict:
+        import shapely.geometry
+        code = self.crs.split(":")[-1]
+        params = {"SERVICE": "WFS", "VERSION": "2.0.0", "REQUEST": "GetFeature", "TYPENAMES": self.typename,
+                  "OUTPUTFORMAT": "application/json", "SRSNAME": f"urn:ogc:def:crs:EPSG::{code}",
+                  "COUNT": str(WFS_FEATURES_MAX),
+                  "BBOX": f"{lat},{lon},{lat + osm.TILE_DEG},{lon + osm.TILE_DEG},urn:ogc:def:crs:EPSG::4326"}
+        slot = net.host_slot(self._cache_dir, self.url) if self._cache_dir else contextlib.nullcontext()
+        with slot:
+            net.rate_turn(self.url)
+            response = servicecounts.call(self.url, lambda: net.session().get(
+                self.url, timeout=300, headers=cache.http_headers(), params=params, verify=net.verify(self.url)))
+        response.raise_for_status()
+        error = ows_exception(response.content)
+        if error:  # answered with HTTP 200: not an answer to cache
+            raise IndexUnavailable(f"WFS GetFeature: {error}")
+        try:
+            document = json.loads(response.content)
+            features = document["features"]
+            if document.get("type") != "FeatureCollection" or not isinstance(features, list):
+                raise ValueError("not a FeatureCollection")
+        except (ValueError, KeyError, TypeError) as e:
+            raise IndexUnavailable(f"WFS GetFeature: not a GeoJSON FeatureCollection ({str(e)[:100]})") from e
+        matched, returned = document.get("numberMatched"), document.get("numberReturned", len(features))
+        if isinstance(matched, int) and matched > returned:
+            raise IndexUnavailable(f"WFS GetFeature: {matched} features matched, {returned} returned")
+        sheets = []
+        for feature in features:
+            properties = feature.get("properties") or {}
+            url, name = _text(properties.get(self.link)), _text(properties.get(self.name))
+            geometry = feature.get("geometry")
+            if not (url.startswith(("http://", "https://")) and name and geometry):
+                continue
+            shape = shapely.geometry.shape(geometry)
+            if shape.is_empty:
+                continue
+            sheets.append({"year": self.year, "godlo": name, "url": url, "crs": self.crs, "res": self.res,
+                           "extent": [round(float(v), 3) for v in shape.bounds]})
+        return {"sheets": sheets}
+
+
 # The item ids of swisstopo's collections: <product>_<year>_<E>-<N>, E and N in km
 SWISSTOPO_ITEM = r"_(?P<year>\d{4})_(?P<east>\d+)-(?P<north>\d+)$"
 

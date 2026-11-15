@@ -593,10 +593,66 @@
    "survey": "",
    "trees": "surface"
   },
+  "it": {
+   "added": "2026-11-15",
+   "level": 3,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "smoothed"
+    },
+    {
+     "code": "short",
+     "params": {
+      "m": 60
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "INGV",
+   "res": [
+    10
+   ],
+   "source": "tinitaly",
+   "survey": "mosaic",
+   "trees": "no"
+  },
+  "it-88": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2008"
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Regione Sardegna",
+   "res": [
+    1,
+    10
+   ],
+   "source": "sardinia",
+   "survey": "2008",
+   "trees": "yes"
+  },
   "it-bz": {
    "added": "2026-11-01",
    "level": 2,
    "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    },
     {
      "code": "old_survey",
      "params": {
@@ -622,7 +678,14 @@
   "it-tn": {
    "added": "2026-11-02",
    "level": 1,
-   "notes": [],
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
    "partial": false,
    "provider": "Provincia di Trento",
    "res": [
@@ -963,10 +1026,6 @@
    "gb-eng",
    "gb-sct",
    "gb-wls"
-  ],
-  "it": [
-   "it-bz",
-   "it-tn"
   ]
  },
  "start": "2025-11-05",

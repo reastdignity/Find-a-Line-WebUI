@@ -77,7 +77,7 @@ SOURCES: List[Source] = [
         id="slovenia", name="Slovenia (ARSO LiDAR DMR 1 m)",
         description="ARSO's lidar survey of 2011-2015: terrain model DMR 1 m, D96/TM",
         nmt=SI_DMR, countries=("si",), crs=SI_CRS, grid_origin=(0.5, 0.5), ortho=SI_ORTHO, credits=(SI_CREDIT,),
-        neighbours=("austria",),
+        neighbours=("austria", "tinitaly"),
         listing=ReadmeRow("Slovenia", "ARSO LiDAR DMR 1 m (2011-2015)", "–", "GURS DOF050"),
         # Before Austria's box (it reaches 46.37 N, over Triglav): Slovenia up to the Karawanks (46.48 N), the
         # Pohorje and Maribor up to 46.62 N, Prekmurje east of 15.65 E; little of Austria, Italy (Trieste) and

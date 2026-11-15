@@ -382,7 +382,8 @@ def test_published_limits():
                                  "ftp.natt.is": 4, "gis.natt.is": 4,
                                  "www.shop.lvgl.saarland.de": 2, "nrs.objectstore.gov.bc.ca": 4,
                                  "data.slackmap.com": 2, "api.slackmap.com": 1, "services.ga.gov.au": 2,
-                                 "visualizador.ide.uy": 2}
+                                 "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
+                                 "webgis.regione.sardegna.it": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

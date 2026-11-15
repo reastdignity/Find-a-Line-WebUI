@@ -82,6 +82,7 @@ from .readers.zipmember import LOCAL_SIZE, ArchiveChanged, local_header, member_
 from .layers.lidarbc import LidarBcBlocks
 from .layers.wcs import GeoWcsTiles
 from .layers.geosheets import GeoSheetTiles
+from .layers.sheets import WfsFeatureTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -95,6 +96,7 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
     (ZipMemberTiles, "zip"),  # the same
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
+    (WfsFeatureTiles, "zipfile"),  # before IndexedTiles, of which it is one: the first KB, never a byte range 0-0
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
@@ -214,6 +216,17 @@ def _xyz_head(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
     except ValueError:
         numbers = False
     if status != 200 or not kind.startswith("text/plain") or not numbers:
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return ""
+
+
+def _zip_head(cache_dir: str, layer: IndexedTiles, tile) -> str:
+    """The first KB of a tile's whole ZIP file (no Range: the stream is closed after it); raises unless it starts
+    with a ZIP's local file header (a missing file answers 404, an error page HTML)."""
+    url = layer.index.request(tile).url
+    status, kind, body = _ask(cache_dir, url)
+    if status != 200 or not body.startswith(b"PK"):
         text = " ".join(body[:200].decode("utf-8", "replace").split())
         raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
@@ -415,7 +428,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text", "zip", "blocks"):
+        if kind in ("index", "text", "zip", "blocks", "zipfile"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -439,6 +452,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _getmap(cache_dir, layer, tiles[0])
             elif kind == "text":
                 _xyz_head(cache_dir, layer, tiles[0])
+            elif kind == "zipfile":
+                _zip_head(cache_dir, layer, tiles[0])
             elif kind == "zip":
                 row.notes.append(_zip_header(cache_dir, layer, tiles[0]))
             elif kind == "sheet":
