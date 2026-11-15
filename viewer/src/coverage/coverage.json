@@ -559,6 +559,12 @@
    "level": 2,
    "notes": [
     {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    },
+    {
      "code": "old_survey",
      "params": {
       "years": "2004–2006"
@@ -583,7 +589,14 @@
   "it-tn": {
    "added": "2026-11-02",
    "level": 1,
-   "notes": [],
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
    "partial": false,
    "provider": "Provincia di Trento",
    "res": [

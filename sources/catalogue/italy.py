@@ -141,6 +141,13 @@ IT_BOXES = (("it", (45.45, 46.40, 7.06, 13.37)), ("it", (45.20, 45.45, 7.20, 13.
             ("it", (39.70, 41.90, 8.00, 18.60)), ("it", (36.60, 39.70, 11.90, 17.30)),
             ("it", (38.85, 41.32, 8.10, 9.85)), ("it", (35.45, 35.90, 12.30, 12.90)))
 
+# Italy's land along the French, Swiss, Austrian and Slovenian borders that the boxes above leave out (the Aosta
+# valley's and Piedmont's west, Ventimiglia, Val Formazza to Livigno north of 46.35 N, the Carnic Alps, the Slovenian
+# border down to Muggia), for the neighbours' border gaps only: they hold the neighbours' land too
+IT_BORDER = ((45.40, 46.00, 6.75, 7.30), (44.60, 45.45, 6.60, 7.30), (44.10, 44.70, 6.80, 7.45),
+             (43.75, 44.20, 7.40, 7.80), (46.35, 46.65, 8.35, 10.50), (46.35, 46.70, 12.25, 13.75),
+             (45.45, 46.55, 13.30, 13.95))
+
 SOURCES: List[Source] = [
     Source(
         id="south_tyrol", name="South Tyrol (DTM / DSM 2.5 m)",
@@ -150,6 +157,9 @@ SOURCES: List[Source] = [
         nmpt=_bz_layer("DigitalElevationModel", "DSM 2.5 m (trees, buildings)"),
         countries=("it",), regions=("it-bz",), crs="EPSG:25832", grid_origin=BZ_ORIGIN,
         ortho=BZ_ORTHO, credits=(BZ_CREDIT,),
+        # Its neighbours first at its borders; the rest of Italy from TINITALY, what that leaves (beyond Italy,
+        # the sea) from FABDEM / Copernicus
+        fallback="tinitaly", more_fallbacks=("europe",),
         neighbours=("austria", "swisstopo", "trento"),
         listing=ReadmeRow("South Tyrol (IT)", "Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006)",
                           "Province of Bolzano DSM, 2.5 m", "Province of Bolzano 2023"),
@@ -165,6 +175,7 @@ SOURCES: List[Source] = [
         nmt=_tn_layer("2014_lidar_dtm_asc", "DTM", "dtm", "DTM 0.5 m (terrain)"),
         nmpt=_tn_layer("2014_lidar_dsmfirst_asc", "DSMFirst", "dsm", "DSM 0.5 m (trees, buildings)"),
         countries=("it",), regions=("it-tn",), crs="EPSG:25832", credits=(TN_CREDIT,),
+        fallback="tinitaly", more_fallbacks=("europe",),
         neighbours=("south_tyrol",),
         listing=ReadmeRow("Trento (IT)", "Province of Trento LiDAR 2014 DTM, 0.5 m", "Province of Trento DSM, 0.5 m",
                           "– (no open orthophoto service)"),
@@ -203,9 +214,11 @@ SOURCES: List[Source] = [
         # a 10 m terrain would stand above every wall's smoothed foot; a regional source's surface gaps it fills
         # take its terrain (as RGE ALTI's for France's LiDAR HD)
         nmt=TINITALY_DEM, countries=("it", "sm", "va"), crs="EPSG:32632", credits=(TINITALY_CREDIT,),
+        # After the regional sources' own neighbours (South Tyrol's before it at Switzerland's and Austria's grids)
+        neighbours=("swisstopo", "austria", "france", "slovenia"),
         listing=ReadmeRow("Italy, San Marino, Vatican City (and the gaps of the Italian regional sources)",
                           "INGV TINITALY 1.1, 10 m (WCS)"),
-        offline=IT_BOXES, sample=(42.4700, 13.5600),  # Corno Piccolo, Gran Sasso
+        offline=IT_BOXES, border_boxes=IT_BORDER, sample=(42.4700, 13.5600),  # Corno Piccolo, Gran Sasso
         note="Data: INGV, TINITALY 1.1, CC BY 4.0. TINITALY is a terrain model at 10 m interpolated from contour "
              "lines, spot heights and other surveys: walls come out less steep than they are, lines shorter than "
              "about 60 m are not reliable, and a line over a forest looks clear. The working grid is WGS 84 / UTM "
