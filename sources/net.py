@@ -143,6 +143,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
     # continued provision of data": courtesy, two at once
     "cdn.foroyakort.fo": 2,
+    # INEGI's site (Mexico's 5 m lidar sheets: the download viewer's JSON per sheet and the ZIPs): no published limits
+    # (its terms, https://www.inegi.org.mx/inegi/terminos.html, read 2026-11-15, ask for "buen uso del sitio ... y a no
+    # causar daños en el mismo"; robots.txt allows /app and /contenidos/productos): courtesy, two at once
+    "www.inegi.org.mx": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

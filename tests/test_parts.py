@@ -82,7 +82,8 @@ def _recorded(case):
         return json.load(f)
 
 
-ANSWER_CASES = [case for case in CASES if "raises" not in _recorded(case)]
+# A case of one request per sheet (INEGI: no 0.25° tile, "sheets" in its case) has its own test (tests/test_mexico.py)
+ANSWER_CASES = [case for case in CASES if "raises" not in _recorded(case) and "sheets" not in _recorded(case)["case"]]
 ERROR_CASES = [case for case in CASES if "raises" in _recorded(case)]
 
 
@@ -113,7 +114,7 @@ def _on_server(layer, server, years=None):
 
 
 def test_recorded_cases_exist():
-    assert CASES == ["arcgis/lidarbc-dem", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
+    assert CASES == ["arcgis/lidarbc-dem", "inegi/mexico-dtm", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
                      "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt", "wfs/sardinia-dtm"]
     assert ERROR_CASES == ["wfs/geoportal-error"]
 

@@ -13,9 +13,10 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.indexes.metalink import ShaTile  # noqa: E402
+from sources.layers.inegi import InegiSheet  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
-       "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
+       "france_spm", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "tinitaly", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "europe", "copernicus", "nasadem"]
@@ -483,6 +484,46 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                'fmt': 'application/asc',
                                'fetch_res': 5.0,
                                'tile_px': 2000}},
+            'mexico': {'crs': None,
+                        'countries': ('mx',),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 5.0,
+                        'instead_without_data': 'europe',
+                        'local_crs': 'mx_crs',
+                        'ortho': None,
+                        'credits': ['Modelos Digitales de Elevación de Alta Resolución LiDAR, 5 m (INEGI)'],
+                        'nmt': {'class': 'InegiSheets',
+                                'description': 'INEGI MDE LiDAR 5 m (terrain)',
+                                'folder': 'mexico/mde-lidar5m/t',
+                                'prefix': None,
+                                'native_res': 5.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'Modelos Digitales de Elevación de Alta Resolución LiDAR, 5 m (INEGI)',
+                                'shift': (0.0, 0.0),
+                                'mod': 'T',
+                                'index_url': 'https://www.inegi.org.mx/app/geo2/elevacionesmex/getF10KDescarga.do',
+                                'url_prefix': 'https://www.inegi.org.mx/contenidos/productos/',
+                                'cell': (1 / 18, 1 / 16),
+                                'top': 'mexico/mde-lidar5m',
+                                'sheet_ttl': 365},
+                        'nmpt': {'class': 'InegiSheets',
+                                 'description': 'INEGI MDE LiDAR 5 m (surface)',
+                                 'folder': 'mexico/mde-lidar5m/s',
+                                 'prefix': None,
+                                 'native_res': 5.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Modelos Digitales de Elevación de Alta Resolución LiDAR, 5 m (INEGI)',
+                                 'shift': (0.0, 0.0),
+                                 'mod': 'S',
+                                 'index_url': 'https://www.inegi.org.mx/app/geo2/elevacionesmex/getF10KDescarga.do',
+                                 'url_prefix': 'https://www.inegi.org.mx/contenidos/productos/',
+                                 'cell': (1 / 18, 1 / 16),
+                                 'top': 'mexico/mde-lidar5m',
+                                 'sheet_ttl': 365}},
             'alaska': {'crs': None,
                        'countries': ('us',),
                        'bbox': (51.0, 71.5, -180.0, -129.9),
@@ -2030,6 +2071,9 @@ def _layer(layer):
                     corner=layer.index.corner, pixel=layer.index.pixel, size=layer.index.size)
     if isinstance(layer, src.GeoSheetTiles):
         info.update(crs=layer.crs, cell=layer.index.cell, origin=layer.index.origin, within=layer.index.within)
+    if isinstance(layer, src.InegiSheets):
+        info.update(mod=layer.index.mod, index_url=layer.index.index_url, url_prefix=layer.index.url_prefix,
+                    cell=layer.index.cell, top=layer.index.top, sheet_ttl=layer.index.ttl_days)
     return info
 
 
@@ -2058,6 +2102,8 @@ STAC = dict(year=2025, name="26000-12000", godlo="26000-12000", url="https://exa
 LGLN = dict(year=2018, name="599-5748", godlo="599-5748/1m", url="https://example/c.tif", crs="EPSG:25832", res=1.0)
 SAR = dict(year=2008, name="500120_03", godlo="500120_03", crs="EPSG:32632", res=1.0,
            url="https://webgis.regione.sardegna.it/scaricocartografiaETL/modelliDigitali/Fascia_costiera_2008_DTM1m/500120_03.ZIP")
+INEGI_SHEET = InegiSheet(1431, 415, "G14C15B2", 2011, "https://www.inegi.org.mx/contenidos/productos/x_gr.zip",
+                         "EPSG:4487")
 BLOCK = dict(crs="EPSG:26913", i=532, j=4211, size=1000.0, year=2020, key="ab12cd34")
 # (source, layer, tile, its path in the cache, what tile_of gives for that path)
 PATHS = [
@@ -2180,6 +2226,8 @@ PATHS = [
     ("australia", "nmt", (675, -465), "australia/dem5m/live/epsg4283-1000px-g81d4e2da/675_-465.tif",
      (675, -465)),
     ("uruguay", "nmt", (70, 48), "uruguay/mdt250/2018/E18D5.tif", (70, 48)),
+    ("mexico", "nmt", "inegi", "mexico/mde-lidar5m/t/2011_G14C15B2.tif", None),
+    ("mexico", "nmpt", "inegi", "mexico/mde-lidar5m/s/2011_G14C15B2.tif", None),
 ]
 
 
@@ -2191,7 +2239,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd"),
             "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd"),
             "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd"),
-            "sar": lambda: src.Sheet(**SAR)}.get(tile, lambda: tile)()
+            "sar": lambda: src.Sheet(**SAR),
+            "inegi": lambda: INEGI_SHEET}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -2297,7 +2346,10 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("fr", (18.04, 18.13, -63.16, -62.95)), ("fr", (14.38, 14.89, -61.24, -60.80)),
          ("fr", (2.10, 5.80, -54.60, -51.60)), ("fr", (46.74, 47.15, -56.53, -56.11)),
          ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
-         ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", (18.8, 22.3, -160.3, -154.7)),
+         ("ch", (45.8, 47.85, 5.9, 10.5)),
+         # Mexico before the usa (its box holds Monterrey)
+         ("mx", (28.0, 32.52, -117.3, -117.0)), ("mx", (28.0, 32.53, -117.0, -116.5)), ("mx", (28.0, 32.57, -116.5, -116.0)), ("mx", (28.0, 32.61, -116.0, -115.5)), ("mx", (28.0, 32.65, -115.5, -115.0)), ("mx", (22.8, 32.39, -115.0, -114.5)), ("mx", (22.8, 32.24, -114.5, -114.0)), ("mx", (22.8, 32.08, -114.0, -113.5)), ("mx", (22.8, 31.92, -113.5, -113.0)), ("mx", (22.8, 31.77, -113.0, -112.5)), ("mx", (22.8, 31.61, -112.5, -112.0)), ("mx", (22.8, 31.45, -112.0, -111.5)), ("mx", (22.8, 31.31, -111.5, -108.2)), ("mx", (22.8, 31.76, -108.2, -106.48)), ("mx", (22.8, 31.73, -106.48, -106.42)), ("mx", (22.8, 31.66, -106.42, -106.36)), ("mx", (22.8, 31.6, -106.36, -106.3)), ("mx", (22.8, 31.33, -106.3, -106.0)), ("mx", (25.8, 30.98, -106.0, -105.5)), ("mx", (25.8, 30.63, -105.5, -105.0)), ("mx", (25.8, 29.69, -105.0, -104.5)), ("mx", (25.8, 29.32, -104.5, -104.0)), ("mx", (25.8, 29.1, -104.0, -103.5)), ("mx", (25.8, 28.99, -103.5, -103.0)), ("mx", (25.8, 29.11, -103.0, -102.5)), ("mx", (25.8, 29.76, -102.5, -102.0)), ("mx", (25.8, 29.78, -102.0, -101.5)), ("mx", (25.8, 29.39, -101.5, -101.0)), ("mx", (25.8, 28.77, -101.0, -100.5)), ("mx", (25.8, 28.03, -100.5, -100.0)), ("mx", (25.8, 27.61, -100.0, -99.6)), ("mx", (25.8, 27.54, -99.6, -99.51)), ("mx", (25.8, 27.04, -99.51, -99.45)), ("mx", (25.8, 26.39, -99.45, -99.0)), ("mx", (25.8, 26.19, -99.0, -98.5)), ("mx", (25.8, 26.06, -98.5, -98.0)), ("mx", (25.8, 25.91, -98.0, -97.5)), ("mx", (25.8, 25.86, -97.5, -97.0)), ("mx", (18.5, 25.8, -106.0, -86.7)), ("mx", (17.82, 18.5, -106.0, -89.15)), ("mx", (14.5, 17.82, -106.0, -91.0)),
+         ("us", (24.4, 49.4, -125.0, -66.9)), ("us", (18.8, 22.3, -160.3, -154.7)),
          ("us", ALASKA),
          ("pr", (17.8, 18.6, -67.4, -65.2)),
          ("gl", (59.7, 67.5, -58.0, -30.0)), ("gl", (67.5, 73.0, -58.0, -18.0)), ("gl", (73.0, 76.0, -70.0, -15.0)),
@@ -2540,6 +2592,8 @@ QLD_COPYRIGHT = ("Includes material © State of Queensland (Department of Natura
                   "Australian Hydrographic Office); © www.deepreef.org 2026")
 # The wording each provider's terms ask for (the audit of 2026-11-01): a change needs its terms read again
 ATTRIBUTIONS = {
+    "mexico": ("Fuente: INEGI, Modelos Digitales de Elevación de Alta Resolución LiDAR, 5 m (Terreno / Superficie), "
+               "ediciones 2011-2012"),
     "slovakia": "© ÚGKK SR",
     "malta": "Planning Authority, Malta: Digital Terrain / Surface Model 2018, CC BY 4.0",
     "malta2012": "Planning Authority, Malta: Digital Terrain / Surface Model 2012, CC BY 4.0",

@@ -384,7 +384,8 @@ def test_published_limits():
                                  "data.slackmap.com": 2, "api.slackmap.com": 1, "services.ga.gov.au": 2,
                                  "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
                                  "webgis.regione.sardegna.it": 2,
-                                 "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2}
+                                 "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
+                                 "www.inegi.org.mx": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

@@ -51,6 +51,9 @@ RECIPES = {
     "arcgis-lidarbc": ("arcgis", "lidarbc-dem", "british_columbia", "nmt", 48.25, -124.5),
     # Sardinia: its WFS of the coastal lidar's tiles (GeoJSON, footprints in EPSG:32632) over Cala Gonone
     "wfs-sardinia": ("wfs", "sardinia-dtm", "sardinia", "nmt", 40.25, 9.5),
+    # Mexico: INEGI's JSON of one sheet per request (InegiSheets: no 0.25° tile), the sheet at the point (El Potrero
+    # Chico, G14C15B2) and its western neighbour
+    "inegi-mexico": ("inegi", "mexico-dtm", "mexico", "nmt", 25.95, -100.473),
 }
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
 YEARS = {"wfs-geoportal-error": ["gugik:SkorowidzNMT1900"]}
@@ -94,19 +97,30 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
     if years:
         case["years"] = years
         layer = with_years(layer, years)
-    listing = layer.index.listing
+    listing = getattr(layer.index, "listing", None)
     if hasattr(listing, "threads"):  # a WFS listing's year layers one after another: answers.json in their order
         listing.threads = 1
     requests.Session.send = recording
+    if isinstance(layer, src.InegiSheets):
+        try:
+            case["sheets"], expected = _inegi_sheets(layer, cache_dir, lat, lon)
+        finally:
+            requests.Session.send = original
+        with open(os.path.join(folder, "expected.json"), "wb") as f:
+            f.write(expected)
+        raises = "-"  # done: no 0.25° tile below
     try:
-        layer.update_index_tile(cache_dir, lat, lon)
+        if raises is None:
+            layer.update_index_tile(cache_dir, lat, lon)
     except requests.RequestException as e:
         if not years:
             raise
         raises = type(e).__name__
     finally:
         requests.Session.send = original
-    if raises is None:
+    if raises == "-":
+        raises = None
+    elif raises is None:
         with open(layer.index_path(cache_dir, lat, lon), "rb") as f:
             expected = f.read()
         with open(os.path.join(folder, "expected.json"), "wb") as f:
@@ -119,8 +133,27 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
                    "hosts": hosts, "answers": answers}, f, indent=1)
         f.write("\n")
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
-    result = f"raised {raises}" if raises else f"{len(json.loads(expected)['sheets'])} listed"
+    if raises:
+        result = f"raised {raises}"
+    else:  # expected exists only when nothing was raised
+        listed = json.loads(expected)
+        result = f"{len(listed['sheets'] if 'sheets' in listed else listed)} listed"
     return f"{recipe}: {len(answers)} answers, {result}, {size / 1e3:.0f} kB"
+
+
+def _inegi_sheets(layer, cache_dir: str, lat: float, lon: float):
+    """The sheets of an InegiSheets layer at a point and west of it asked (InegiIndex.answer); (their names, the
+    cached answers as one JSON {sheet: items}, as the test reads them back)."""
+    from sources.layers.inegi import inegi_sheet
+    (w, h), (x0, y0) = layer.index.cell, layer.index.origin
+    i, j = int((lon - x0) // w), int((lat - y0) // h)
+    names = [inegi_sheet(i, j), inegi_sheet(i - 1, j)]
+    found = {}
+    for name in names:
+        layer.index.answer(cache_dir, name, "all")
+        with open(layer.index.answer_path(cache_dir, name), encoding="utf-8") as f:
+            found[name] = json.load(f)
+    return names, json.dumps(found, sort_keys=True).encode()
 
 
 def with_years(layer, years):

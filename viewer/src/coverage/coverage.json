@@ -775,6 +775,27 @@
    "survey": "2018",
    "trees": "yes"
   },
+  "mx": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "smoothed"
+    }
+   ],
+   "partial": true,
+   "provider": "INEGI",
+   "res": [
+    5,
+    30
+   ],
+   "source": "mexico",
+   "survey": "2006–2012",
+   "trees": "yes"
+  },
   "nl": {
    "added": "2026-11-15",
    "level": 1,
@@ -1077,7 +1098,7 @@
    "trees": "no"
   }
  },
- "countries": 26,
+ "countries": 27,
  "partly": {
   "de": [
    "de-bb",

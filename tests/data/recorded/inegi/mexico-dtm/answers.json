@@ -1,0 +1,33 @@
+{
+ "recipe": "inegi-mexico",
+ "recorded": "2026-11-15",
+ "case": {
+  "source": "mexico",
+  "layer": "nmt",
+  "lat": 25.95,
+  "lon": -100.473,
+  "sheets": [
+   "G14C15B2",
+   "G14C15B1"
+  ]
+ },
+ "hosts": [
+  "https://www.inegi.org.mx"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://www.inegi.org.mx/app/geo2/elevacionesmex/getF10KDescarga.do?res=5&mod=T&cve=G14C15B2",
+   "status": 200,
+   "content_type": "text/html;charset=UTF-8",
+   "body": "001.html"
+  },
+  {
+   "method": "GET",
+   "url": "https://www.inegi.org.mx/app/geo2/elevacionesmex/getF10KDescarga.do?res=5&mod=T&cve=G14C15B1",
+   "status": 200,
+   "content_type": "text/html;charset=UTF-8",
+   "body": "002.html"
+  }
+ ]
+}
