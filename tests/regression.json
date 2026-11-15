@@ -1731,15 +1731,52 @@
       "sources",
       "au"
     ],
-    "expected": {}
+    "expected": {
+      "anchors": 1647,
+      "open": 1254,
+      "checked": 3473,
+      "lines": 230,
+      "spots": 49,
+      "csv_sha256": "aaefbcf57391916f72681b618bdba24f181a0cb669ca9038feef53a34548d979",
+      "length_km": 42.469,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.927,
+      "clearance_max": 13.47,
+      "over_trees": 0,
+      "coverage": 79.28,
+      "empty_tiles": 0,
+      "filled_km2": 0.08,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 1.53,
+      "water_lines": 41,
+      "water_spots": 8
+    },
+    "seconds": 2.5,
+    "notes": "added 2026-11-15: --source auto picks australia (AU, outside AU-QLD and AU-TAS); one tile of 1000 x 1000 px of the WCS (about 2.4 MB, 13 s on an empty cache); the sea is 0 in the data (no data), filled as sea from the OSM coastline; 0.08 km² of land gaps from FABDEM; the spots on the eastern sea cliffs (151.295-151.302 E); a first run whose Overpass request failed (502) took the Copernicus water mask's shore instead and gave other numbers (sea 1.33 km², 48 lines over water): the coastline must come from OSM"
   },
   "R73": {
-    "place": "Quebrada de los Cuervos, Treinta y Tres (UY): the gorge's short walls, IDE Uruguay's MDT 2.5 m (photogrammetric, 2017-2018) resampled from its sheet onto SIRGAS-ROU98 / UTM 21S",
-    "args": "--lat -32.9210 --lon -54.4670 --radius 800 --min-length 20 --max-length 200",
+    "place": "Cerro de Arequita, Lavalleja (UY): its rock walls of about 60 m over the Santa Lucía, IDE Uruguay's MDT 2.5 m (photogrammetric, 2017-2018) from four sheets resampled onto SIRGAS-ROU98 / UTM 21S",
+    "args": "--lat -34.2913 --lon -55.2673 --radius 800 --min-length 20 --max-length 200",
     "sets": [
       "sources",
       "uy"
     ],
-    "expected": {}
+    "expected": {
+      "anchors": 4656,
+      "open": 1514,
+      "checked": 548,
+      "lines": 109,
+      "spots": 8,
+      "csv_sha256": "48264f7da80b94db63f2456cf7a1d4232d63c3a83e0b14ea71c2071f6d559750",
+      "length_km": 10.019,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.176,
+      "clearance_max": 7.44,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 1.9,
+    "notes": "added 2026-11-15: --source auto picks uruguay (UY); four sheets (G26A6, G26B4, G26C3, G26D1, the centre at their common corner, about 20 MB each, 26 s on an empty cache); the spots on Arequita's escarpment (34.2914-34.2929 S, 55.2638-55.2671 W); the brief's place, Quebrada de los Cuervos (-32.9210, -54.4670, radius 800 m, 20-200 m), finds 10 390 anchors, 78 with an open direction and no line: its walls of 46 m within 20 m are too smoothed at 2.5 m for the default rule"
   }
 }
