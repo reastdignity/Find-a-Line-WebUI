@@ -348,9 +348,10 @@ SOURCES: List[Source] = [
                     "the local mirror (the DSM follows later)",
         nmt=VDA_DTM, countries=("it",), regions=("it-23",), crs="EPSG:23032", default_resolution=2.0,
         grid_origin=VDA_ORIGIN, credits=(VDA_CREDIT,),
-        # Gaps and the land beyond the region from TINITALY, then FABDEM / Copernicus. No neighbours: France
-        # declares six already (the country layer's cap); swisstopo declares five, and its one free slot is left
-        # unused pending the user's decision
+        # Gaps and the land beyond the region from TINITALY, then FABDEM / Copernicus. Neighbour of swisstopo (its
+        # sixth and last slot, the user's decision of 2026-11-15); not of France, which declares six already (the
+        # country layer's cap)
+        neighbours=("swisstopo",),
         fallback="tinitaly", more_fallbacks=("europe",),
         listing=ReadmeRow("Valle d'Aosta (IT)", "Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar)",
                           "– (the DSM follows by hand later)", "– (no open orthophoto service)"),

@@ -31,7 +31,9 @@ SOURCES: List[Source] = [
                        "ch.swisstopo.swisssurface3d-raster", "switzerland/swisssurface3d", "EPSG:2056",
                        sizes={0.5: 17e6}),
         countries=("ch", "li"), crs="EPSG:2056", ortho=SWISSIMAGE, credits=(SWISSTOPO_CREDIT,),
-        neighbours=("austria", "south_tyrol", "france", "baden_wurttemberg", "tinitaly"),
+        # Neighbours fill in turn: aosta_valley (2 m) before tinitaly (10 m), whose box holds Valle d'Aosta. Put
+        # before the last instead of appended: no Switzerland cube exists yet (country.COUNTRIES, 2026-11-15)
+        neighbours=("austria", "south_tyrol", "france", "baden_wurttemberg", "aosta_valley", "tinitaly"),
         listing=ReadmeRow("Switzerland, Liechtenstein",
                         "swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey",
                         "swissSURFACE3D Raster, 0.5 m", "SWISSIMAGE (swisstopo)"),

@@ -1073,6 +1073,6 @@ worker reads them from `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the fold
 
 Without a dataset's folder its source is unavailable and `--source auto` takes the next source of
 the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m); the run's text
-names the missing folder. On 2026-11-15 the VPS has none of the new folders, so Madeira and Valle
-d'Aosta run on those fallbacks there. The regression entries R80 and R81 are skipped without
+names the missing folder. On 2026-11-15 the VPS's mirror holds `slovakia/` only, so Madeira and
+Valle d'Aosta run on those fallbacks there until their folders are copied. The regression entries R80 and R81 are skipped without
 their folders (`needs_path`).

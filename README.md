@@ -93,7 +93,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `france_martinique` | Martinique (France) | FR | IGN RGE ALTI, 1 m (WMS-R) | – | IGN BD ORTHO | 1 m | `europe` |
 | `france_guiana` | French Guiana (France) | FR | IGN RGE ALTI, 1 m (WMS-R) | – | IGN BD ORTHO | 1 m | `europe` |
 | `france_spm` | Saint-Pierre-et-Miquelon (France) | FR | IGN RGE ALTI, 1 m (WMS-R) | – | IGN BD ORTHO | 1 m | `europe` |
-| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `austria`, `south_tyrol`, `france`, `baden_wurttemberg`, `tinitaly` at the border, then `europe` |
+| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `austria`, `south_tyrol`, `france`, `baden_wurttemberg`, `aosta_valley`, `tinitaly` at the border, then `europe` |
 | `slovakia` | Slovakia | SK | ÚGKK SR DMR 5.0, ALS 1 m (2017–2023) | ÚGKK SR DMP 1.0, 1 m | ZBGIS (ÚGKK SR) | 1 m | `geoportal`, `austria`, `czechia` at the border, then `europe` |
 | `malta` | Malta | MT | MSDI DTM 2018, LiDAR 1 m (heights in whole metres) | MSDI DSM 2018, 1 m | MSDI 2018 | 1 m | `europe` |
 | `malta2012` | Malta | – | MSDI DTM 2012, centimetre heights | MSDI DSM 2012 | MSDI 2018 | 1 m | `malta` |
@@ -138,7 +138,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `south_tyrol` | South Tyrol (IT) | IT | Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006) | Province of Bolzano DSM, 2.5 m | Province of Bolzano 2023 | 2.5 m | `austria`, `swisstopo`, `trento` at the border, then `tinitaly`, then `europe` |
 | `trento` | Trento (IT) | IT | Province of Trento LiDAR 2014 DTM, 0.5 m | Province of Trento DSM, 0.5 m | – (no open orthophoto service) | 1 m | `south_tyrol` at the border, then `tinitaly`, then `europe` |
 | `sardinia` | Sardinia (IT) | IT | Regione Sardegna lidar DTM 2008, 1 m (the coastal strip; inland TINITALY 10 m) | Regione Sardegna lidar DSM 2008, 1 m | – (no open orthophoto service) | 1 m | `tinitaly`, then `europe` |
-| `aosta_valley` | Valle d'Aosta (IT) | IT | Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar) | – (the DSM follows by hand later) | – (no open orthophoto service) | 2 m | `tinitaly`, then `europe` |
+| `aosta_valley` | Valle d'Aosta (IT) | IT | Regione Valle d'Aosta DTM 2005/2008, 2 m (lidar) | – (the DSM follows by hand later) | – (no open orthophoto service) | 2 m | `swisstopo` at the border, then `tinitaly`, then `europe` |
 | `tuscany` | Tuscany (IT) | IT | Regione Toscana / MATTM lidar DTM 2004-2017, 1 m (some 2 m; the rest TINITALY 10 m) | Regione Toscana / MATTM lidar DSM, 1 m | – (no open orthophoto service) | 1 m | `tinitaly`, then `copernicus` |
 | `tinitaly` | Italy, San Marino, Vatican City (and the gaps of the Italian regional sources) | IT, SM, VA | INGV TINITALY 1.1, 10 m (WCS) | – | – | 10 m | `swisstopo`, `slovenia` at the border, then `europe` |
 | `luxembourg` | Luxembourg | LU | ACT BD-L-Lidar2024 MNT, 0.5 m | ACT BD-L-Lidar2024 MNS, 0.5 m | geoportail.lu orthophoto | 1 m | `france`, `rhineland_palatinate`, `saarland` at the border, then `europe` |

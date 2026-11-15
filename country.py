@@ -278,7 +278,8 @@ NEIGHBOUR_CUBES = {
     "spain": "spain", "swisstopo": "switzerland", "trento": "trento", "usa": "usa", "wales": "wales",
     "tinitaly": "italy",
     "netherlands": "netherlands",
-    "mexico": "mexico"}
+    "mexico": "mexico",
+    "aosta_valley": "aosta_valley"}
 
 
 def neighbour_cubes(source_id: str) -> List[str]:

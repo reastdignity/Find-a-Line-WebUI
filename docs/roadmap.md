@@ -1209,13 +1209,17 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   check*); OSNI's 10 m DTM for inland Northern Ireland follows the user's words of 2026-11-15 (above).
 - **Open from wave 2**:
   - Valle d'Aosta's DSM (DSM0508_002) comes by hand later (the user, 2026-11-14).
-  - Valle d'Aosta and Madeira need the local mirror (`FINDALINE_MIRROR`, docs/deployment.md section 16): without it,
-    and so on the VPS today, Valle d'Aosta falls back to TINITALY and Madeira to europe.
-  - swisstopo declares five neighbours: its one free slot (for `aosta_valley`, north of 45.8 N) waits for the user.
+  - Valle d'Aosta and Madeira need their folders in the local mirror (`FINDALINE_MIRROR`, docs/deployment.md section
+    16): the VPS's mirror holds Slovakia's only (the user, 2026-11-15), so there Valle d'Aosta falls back to TINITALY
+    and Madeira to europe until `madeira/` and `aosta/` are copied next to `slovakia/`.
+  - Done 2026-11-15 (the user's gate 2): `aosta_valley` and `swisstopo` are neighbours both ways, swisstopo's sixth
+    and last slot; in swisstopo's list before `tinitaly` (neighbours fill in turn and TINITALY's box holds Valle
+    d'Aosta; no Switzerland cube exists, so no partner index moved). `tools/border_study.py boxes`: 100 % both ways.
   - Tuscany: the share-alike notice's wording (the text in `TOS_MATTM_CREDIT`, for the user to confirm), the 2021
     image-correlation DSM (EPSG:7791) as an option, and the noRT layer (the 2019-2021 lidar, for public bodies only).
   - Mexico's DSM has crest spikes (1 259 px more than 30 m above the DTM at R76; 22 % of its lines marked over
-    obstacles, median surface clearance -32 m): whether obstacles stay on for `mexico` is the user's question. A new
+    obstacles, median surface clearance -32 m). The user's decision (2026-11-15): search for a fix of the spikes
+    (cleaning the DSM against the DTM, or another rule for this source); obstacles stay on until then. A new
     INEGI edition comes only through a search with `--update` (`cache update` never touches the frozen sheets).
   - Rio covers the city only; IPP's layer is a project's and may vanish (the source then falls back to europe); its
     1 m and 2024 files are asked by mail 28.
