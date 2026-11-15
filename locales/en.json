@@ -569,6 +569,7 @@
   "ui.result.loading_parse": "Reading the lines…",
   "ui.result.loading_groups": "Grouping the lines…",
   "ui.result.too_large": "This result is too large for this browser.",
+  "ui.result.newer_store": "This result was made by a newer Find-a-Line. Update Find-a-Line to open it.",
   "ui.result.spots_one": "{{n}} spot",
   "ui.result.spots_other": "{{n}} spots",
   "ui.result.lines_one": "{{n}} line",

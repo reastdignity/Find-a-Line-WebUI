@@ -525,17 +525,10 @@ def test_ortho_attribution_url(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def clip_data(tmp_path_factory):
+def clip_data(clip_folder):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),
     computed once, offline: (its JSON text, the value)."""
-    import clip_runs  # the search once per session, this module's own copy
-    tests_data = os.path.join(REPO, "tests", "data")
-    data = clip_runs.data_copy(tmp_path_factory, "clip", [
-        "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
-        "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
-        "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
-        "--ortho", "never"])
-    path = next((data / "runs").glob("*/data.js"))
+    path = clip_folder / "data.js"
     text = path.read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";")
     return text, json.loads(text)
 
@@ -1259,6 +1252,386 @@ def test_model_from_columns_as_from_rows(tmp_path, clip_data):
     assert out["emptyGone"] == {"others": 0, "total": len(lines)}
 
 
+def _store_bundle(tmp_path):
+    """The columns' bundle (_columns_bundle) with result/load.ts's store reader."""
+    entry = tmp_path / "store_entry.ts"
+    src = os.path.join(VIEWER, "src").replace("\\", "/")
+    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+                     f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
+                     f'export {{ passes, range, dh, lowerAnchor, upperAnchor, wallAngle, prominence, drop }} '
+                     f'from "{src}/filters";\n'
+                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, NewerStore, STORE_FORMAT }} '
+                     f'from "{src}/result/load";\n', encoding="utf-8")
+    bundle = tmp_path / "store.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=VIEWER, check=True)
+    return bundle
+
+
+def _store_head(lines, ends: bool, square: bool, nan_mean: bool = False) -> dict:
+    """A head of mapping.map_head's keys for made-up lines (the A-frames' and the square rule's keys by
+    mapping._ends), with terrain statistics (their mean NaN with nan_mean: Python's json writes NaN)."""
+    params = {**({"end_zone": 5, "anchor_lift": 2} if ends else {}), **({"same_line_side": 5} if square else {})}
+    run = {"params": params, "summary": {"found": int(lines.columns["stands_for"].sum()) if square else 0}}
+    return {"run": {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-11-15T10:00:00+00:00", "description": ""},
+            "center": [49.2, 19.9], "area": {"type": "Polygon", "coordinates": [[[19.9, 49.2], [19.91, 49.2],
+                                                                                  [19.91, 49.21], [19.9, 49.2]]]},
+            "crs": "EPSG:2180", "ortho": None, "attribution": [], "distance": 20, "by": "clearance", "model": "sag",
+            "rigging": {"pretension": 2.0, "stretch": 5.0, "webbing_weight": 60.0, "athlete_mass": 75.0,
+                        "fall_zone": 6.0},
+            "slope": 0.15, "leash_fall": 6, **mapping._ends(run), "high_above": 20, "max_zoom": 19,
+            "terrain": {"mean": float("nan") if nan_mean else 412.5,
+                        "quantiles": [round(-50 + 4.5 * p, 1) for p in range(101)], "km2": 1.5},
+            "shore": None}
+
+
+def _store_and_script(folder, lines, head) -> dict:
+    """lines.arrow and profiles.arrow (linestore.write) and data.js (mapping.write_map_scripts) of one LineTable
+    in `folder`; returns run.json's block "store"."""
+    import linestore
+    folder.mkdir(parents=True, exist_ok=True)
+    block = linestore.write(str(folder), lines, head)
+    heads = (mapping._script_head("window.FINDALINE_RUN", {**head, "lines": None}),
+             mapping._script_head("window.X", {"lines": None}))
+    mapping.write_map_scripts(lines, str(folder), heads, files=("data.js",))
+    return block
+
+
+@pytest.fixture(scope="module")
+def store_cases(tmp_path_factory, clip_folder):
+    """Runs of one LineTable each as a store and as data.js (folder by name): the hard floats of test_linestore
+    (halfway cases, NaN, nulls, -0.0 in every integer column, -0.0 rows) plain, with the A-frames' columns, with the
+    square rule's count and with both; one without a surface model (clrN missing everywhere, profiles without `s`);
+    one whose values no int32 holds (float64 columns: e1 and prom1 at 3.4e38 and missing, hmean infinite; int64: e2
+    at 10^8 m; uint64: a count beyond uint32); a run of no lines; and the clip's own run (store and data.js as the
+    search wrote them)."""
+    import numpy as np
+    import linestore
+    from test_linestore import _hard_lines, _profiles
+    root = tmp_path_factory.mktemp("stores")
+    rng = np.random.default_rng(7)
+    n = 3000
+    cases = {}
+    for name, ends, square in (("plain", False, False), ("zone", True, False), ("square", False, True),
+                               ("both", True, True)):
+        lines = _hard_lines(n, ends, square, rng)
+        lines.profiles = _profiles(n, rng)
+        _store_and_script(root / name, lines, _store_head(lines, ends, square, nan_mean=name == "plain"))
+        cases[name] = root / name
+    lines = _hard_lines(n, False, False, rng)
+    lines.columns["clearance_nmpt"][:] = np.nan
+    bare = _profiles(n, rng)
+    lines.profiles = {k: p for k, p in bare.items() if not isinstance(p, dict) and p.batch.s is None}
+    _store_and_script(root / "nosurface", lines, _store_head(lines, False, False))
+    cases["nosurface"] = root / "nosurface"
+    lines = _hard_lines(n, True, True, rng)
+    lines.profiles = _profiles(n, rng)
+    lines.columns["elev_a1"][:3] = 3.4028234663852886e38
+    lines.columns["prom1"][:3], lines.columns["prom1"][3:6] = 3.4028234663852886e38, np.nan
+    lines.columns["height_mean"][7] = np.inf
+    lines.columns["elev_a2"][:4] = [1e8, -1e8, 123456789.25, -0.001]
+    lines.columns["stands_for"][:2] = [2 ** 40, 3]
+    _store_and_script(root / "wide", lines, _store_head(lines, True, True))
+    cases["wide"] = root / "wide"
+    lines = _hard_lines(n, False, False, rng).take(np.zeros(0, dtype=np.int64))
+    _store_and_script(root / "empty", lines, _store_head(lines, False, False))
+    cases["empty"] = root / "empty"
+    cases["clip"] = clip_folder
+    assert all((folder / linestore.LINES_FILE).is_file() and (folder / "data.js").is_file() for folder in cases.values())
+    return cases
+
+
+STORE_SCRIPT = r"""
+const fs = require("fs");
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+// A file's bytes in an ArrayBuffer of their own, as an XHR gives them (a Buffer of Node's pool may start unaligned)
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+// data.js evaluated as the script it is (NaN, Infinity: JSON.parse refuses them)
+const script = (p) => { const window = {}; new Function("window", fs.readFileSync(p, "utf-8"))(window); return window.FINDALINE_RUN; };
+// Object.is for numbers (-0, NaN), the same keys (undefined ones left out), deeply
+function same(a, b) {
+  if (typeof a === "number" || typeof b === "number") return Object.is(a, b);
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return a === b;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = (o) => Object.keys(o).filter((k) => o[k] !== undefined).sort();
+  if (JSON.stringify(keys(a)) !== JSON.stringify(keys(b))) return false;
+  return keys(a).every((k) => same(a[k], b[k]));
+}
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const key = (l) => m.lineCoords(l);
+const out = {};
+for (const [name, folder] of Object.entries(cases)) {
+  const linesBytes = bytes(folder + "/lines.arrow");
+  const store = m.readStore(linesBytes, bytes(folder + "/profiles.arrow"));
+  const data = script(folder + "/data.js"), cols = store.columns, bad = [], cursor = new m.LineCursor(cols);
+  const {columns, ...head} = store, {lines, ...want} = data;
+  data.lines.forEach((row, i) => {
+    const expected = m.toLine(row, undefined, data.terrain, data.ends), got = m.lineAt(cols, i);
+    if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(expected))) bad.push([i, "keys"]);
+    cursor.i = i;
+    for (const k of Object.keys(expected)) {
+      if (k === "prof") { if (!same(got.prof, expected.prof)) bad.push([i, "prof", JSON.stringify(expected.prof), JSON.stringify(got.prof)]); continue; }
+      if (!Object.is(got[k], expected[k])) bad.push([i, k, String(expected[k]), String(got[k])]);
+      if (k !== "run" && !Object.is(cursor[k], expected[k])) bad.push([i, "cursor " + k, String(expected[k]), String(cursor[k])]);
+    }
+    if (key(got) !== key(expected) || key(cursor) !== key(expected)) bad.push([i, "coords"]);
+  });
+  const types = {};
+  for (const [k, v] of Object.entries(cols)) if (v && v.values) types[k] = v.values.constructor.name;
+  // Without a copy: the columns are views of the downloaded bytes (only int64/uint64 ones are copied)
+  const shared = Object.entries(cols).filter(([, v]) => v && v.values && v.values.length && v.values.buffer === linesBytes)
+    .map(([k]) => k).concat(cols.over.buffer === linesBytes ? ["over"] : []);
+  out[name] = {bad: bad.slice(0, 20), n: data.lines.length, length: cols.length, head: same(head, want), types, shared,
+               profiles: data.lines.filter((r) => r[r.length - 1] !== null && typeof r[r.length - 1] === "object").length};
+  if (!data.lines.length) continue;
+  // The page's model on the store and on data.js's rows (the columns of wave 1): the same spots, lines and counts
+  // under every filter and every grouping, the same ranges
+  const fromStore = new m.ResultModel(store, {favourites: false, api}), fromRows = new m.ResultModel(data, {favourites: false, api});
+  const objects = data.lines.map((r) => m.toLine(r, undefined, data.terrain, data.ends));
+  const mid = (f) => { const v = objects.map(f).filter((x) => x !== null && !Number.isNaN(x)).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+  const filters = {
+    none: {}, lenMin: {lenMin: mid((l) => l.len)}, clrMin: {clrMin: mid((l) => l.clr)}, clrNMin: {clrNMin: mid((l) => l.clrN)},
+    dhMax: {dhMax: mid(m.dh)}, elevMin: {elevMin: mid(m.lowerAnchor)}, pctMin: {pctMin: 30}, pctMax: {pctMax: 70},
+    heightMin: {heightMin: mid((l) => l.hmax)}, meanMin: {meanMin: mid((l) => l.hmean)},
+    highPctMin: {highPctMin: mid((l) => l.highPct)}, angleMax: {angleMax: mid(m.wallAngle)},
+    promMin: {promMin: mid((l) => m.prominence(l, Math.max))}, dropMin: {dropMin: mid(m.drop)}, water: {water: "water"},
+    hideFilled: {hideFilled: true}, liftMax: {liftMax: 1}, hideNeedLift: {hideNeedLift: true}, groupMin: {groupMin: 3},
+  };
+  const state = (model) => JSON.stringify({shown: model.shown, count: model.count, groups: model.groups.map((g) => [key(g.rep)].concat(g.members.map(key)))});
+  const differ = [];
+  for (const [f, set] of Object.entries(filters)) {
+    fromStore.setFilters({...m.NO_FILTERS, ...set});
+    fromRows.setFilters({...m.NO_FILTERS, ...set});
+    if (state(fromStore) !== state(fromRows)) differ.push(f);
+  }
+  fromStore.setFilters({...m.NO_FILTERS});
+  fromRows.setFilters({...m.NO_FILTERS});
+  for (const by of ["clearance", "height", "longest"]) {
+    fromStore.setState({...fromStore.state, by});
+    fromRows.setState({...fromRows.state, by});
+    if (state(fromStore) !== state(fromRows)) differ.push(by);
+  }
+  if (JSON.stringify(fromStore.ranges) !== JSON.stringify(fromRows.ranges)) differ.push("ranges");
+  out[name].model = {differ, spots: fromStore.groups.length, lines: fromStore.shown.lines};
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def clip_folder(tmp_path_factory):
+    """The run folder of the Żabi Koń clip's run of clip_data (its own copy): data.js and the store the search
+    wrote."""
+    import clip_runs  # the search once per session, this module's own copy
+    tests_data = os.path.join(REPO, "tests", "data")
+    data = clip_runs.data_copy(tmp_path_factory, "clip", [
+        "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
+        "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
+        "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+        "--ortho", "never"])
+    return next((data / "runs").glob("*/data.js")).parent
+
+
+def test_store_gives_the_rows_values(tmp_path, store_cases):
+    """result/load.ts readStore: a run's store (lines.arrow, profiles.arrow) gives every Line value, the profile
+    and the head data.js of the same lines gives (Object.is: -0, NaN, null as data.js shows them: clrN, prom, drop
+    null, hmean, highPct, angles NaN), the same keys.lineCoords (favourites, links), the columns as views of the
+    downloaded bytes; the page's model on it gives data.js's spots, lines and counts under every filter and
+    grouping, and its ranges: for the hard floats, the A-frames' columns, the square rule's count, a run without a
+    surface model, values no int32 holds (float64, int64, uint64 columns), no lines, and the clip's run."""
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
+                          encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases_path)
+    for name, case in out.items():
+        assert case["bad"] == [], (name, case["bad"])
+        assert case["head"], name
+        assert case["n"] == case["length"], name
+        if case["n"]:
+            assert case["model"]["differ"] == [], (name, case["model"])
+            assert case["model"]["lines"] == case["n"], name
+    assert out["empty"]["n"] == 0 and out["clip"]["n"] > 100 and out["clip"]["profiles"] > 10
+    for name in ("plain", "zone", "square", "both", "nosurface", "wide"):
+        assert out[name]["n"] == 3000 and out[name]["profiles"] > 500, name
+    # the hard floats' -0.0 rows (negative_zero) and the nulls are read from the store, not from a copy
+    for name in ("plain", "both", "clip"):
+        types, shared = out[name]["types"], out[name]["shared"]
+        assert types["x1"] == types["len"] == types["hmax"] == "Float64Array" and types["lat1"] == "Int32Array", name
+        assert {"x1", "y1", "len", "clr", "hmax", "lat1", "lon2", "e1", "hmean", "over"} <= set(shared), (name, shared)
+    assert out["both"]["types"]["stands_for"] == "Uint32Array"
+    wide = out["wide"]["types"]
+    assert wide["e1"] == wide["prom1"] == wide["hmean"] == "Float64Array"  # no integer holds them: float64 in the store
+    assert wide["e2"] == wide["stands_for"] == "Float64Array"  # int64 and uint64: copied into doubles
+    assert "e2" not in out["wide"]["shared"] and "e1" in out["wide"]["shared"]
+
+
+NEWER_SCRIPT = r"""
+const fs = require("fs");
+const [linesPath, profilesPath] = process.argv.slice(2);
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+const out = {format: m.STORE_FORMAT};
+try { m.readStore(bytes(linesPath), null); out.lines = "read"; } catch (e) { out.lines = [e.name, e.message]; }
+try { m.storedProfiles(bytes(profilesPath)); out.profiles = "read"; } catch (e) { out.profiles = [e.name, e.message]; }
+out.loose = m.parseLoose('{"a":NaN,"b":[Infinity,-Infinity,1.5],"c":"NaN and Infinity","d":"q\\"NaN"}');
+out.looseText = [Number.isNaN(out.loose.a), out.loose.b[0], out.loose.b[1], out.loose.c, out.loose.d];
+console.log(JSON.stringify({...out, loose: undefined}));
+"""
+
+
+def test_store_of_a_newer_format_is_refused(tmp_path, store_cases):
+    """A store whose metadata says a higher format than the page reads (linestore.FORMAT + 1) is refused with
+    the text "made by a newer Find-a-Line" (locales/en.json ui.result.newer_store), lines.arrow and profiles.arrow
+    alike; a head with NaN or Infinity (Python's json writes them) is read as data.js's script reads it."""
+    import pyarrow as pa
+    import linestore
+    paths = []
+    for name in linestore.FILES:
+        with pa.OSFile(str(store_cases["plain"] / name), "rb") as f:
+            table = pa.ipc.open_file(f).read_all()
+        meta = json.loads(table.schema.metadata[linestore.META_KEY])
+        meta["format"] = linestore.FORMAT + 1
+        table = table.replace_schema_metadata({linestore.META_KEY: json.dumps(meta).encode("utf-8")})
+        path = tmp_path / name
+        linestore._write_file(str(path), table)
+        paths.append(path)
+    out = _run_node(tmp_path, _store_bundle(tmp_path), NEWER_SCRIPT, *paths)
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        text = json.load(f)["ui.result.newer_store"]
+    assert "made by a newer Find-a-Line" in text
+    assert out["format"] == linestore.FORMAT
+    assert out["lines"] == ["NewerStore", text] and out["profiles"] == ["NewerStore", text]
+    assert out["looseText"] == [True, None, None, "NaN and Infinity", 'q"NaN']  # JSON.stringify writes ±Infinity as null
+
+
+COMPARE_SCRIPT = r"""
+const fs = require("fs");
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+// A made-up XMLHttpRequest serving the cases' files (http://test/runs/<name>/<file>) with web.SIZE_HEADER
+const asked = [];
+class FakeXHR {
+  static HEADERS_RECEIVED = 2;
+  open(method, url) { this.url = url; }
+  setRequestHeader() {}
+  getResponseHeader(name) { return name.toLowerCase() === "x-findaline-bytes" ? String(this.size) : null; }
+  send() {
+    asked.push(this.url);
+    const [, run, file] = /\/runs\/([^/]+)\/([^/]+)$/.exec(this.url), path = cases[run] + "/" + file;
+    setTimeout(() => {
+      const b = fs.existsSync(path) ? fs.readFileSync(path) : null;
+      this.status = b ? 200 : 404;
+      const ab = new ArrayBuffer(b ? b.length : 0);
+      if (b) new Uint8Array(ab).set(b);
+      this.response = ab;
+      this.size = ab.byteLength;
+      this.readyState = 2;
+      this.onreadystatechange && this.onreadystatechange();
+      this.onprogress && this.onprogress({loaded: ab.byteLength});
+      this.onload({loaded: ab.byteLength});
+    });
+  }
+}
+globalThis.XMLHttpRequest = FakeXHR;
+globalThis.location = {protocol: "http:", href: "http://test/", origin: "http://test"};
+const script = (p) => { const window = {}; new Function("window", fs.readFileSync(p, "utf-8"))(window); return window.FINDALINE_RUN; };
+const rowsOf = (data) => ({crs: data.crs, area: data.area, terrain: data.terrain, ends: data.ends,
+                           lines: data.lines.map((r) => r.slice(0, -1))});  // lines.js: data.js's rows without the profile
+const linesJs = (id) => Promise.resolve(rowsOf(script(cases[id] + "/data.js")));
+const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
+const info = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
+const runKey = (l) => (l.run ? l.run.info.id : "this") + "|" + m.lineCoords(l);
+const groupsOf = (model) => JSON.stringify(model.groups.map((g) => [g.rep, ...g.members].map(runKey)));
+(async () => {
+  const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
+  const here = script(cases.square + "/data.js");
+  // Compare: "zone" has a store (lines.arrow only, no profiles), "both" has none (its lines.js)
+  const withStore = await m.loadOtherRun(info("zone", block), "/runs/", linesJs);
+  const askedZone = asked.splice(0);
+  const without = await m.loadOtherRun(info("both"), "/runs/", linesJs);
+  const askedBoth = asked.splice(0);
+  const model = new m.ResultModel(here, {favourites: false, api}), reference = new m.ResultModel(here, {favourites: false, api});
+  model.addRun(info("zone", block), withStore);
+  model.addRun(info("both"), without);
+  reference.addRun(info("zone"), rowsOf(script(cases.zone + "/data.js")));
+  reference.addRun(info("both"), rowsOf(script(cases.both + "/data.js")));
+  const out = {askedZone, askedBoth, columns: "columns" in withStore, rows: "lines" in without,
+               total: [model.total, reference.total], groups: groupsOf(model) === groupsOf(reference),
+               profiles: Array.from({length: withStore.columns.length}, (_, i) => withStore.columns.profiles.get(i)).filter(Boolean).length};
+  // Toggled off and on again: the same groups
+  model.removeRun("zone");
+  model.addRun(info("zone", block), withStore);
+  reference.removeRun("zone");
+  reference.addRun(info("zone"), rowsOf(script(cases.zone + "/data.js")));
+  out.again = groupsOf(model) === groupsOf(reference);
+  // A store of a newer format is refused before anything is downloaded
+  try { await m.loadOtherRun(info("zone", {...block, format: m.STORE_FORMAT + 1}), "/runs/", linesJs); out.newer = "read"; }
+  catch (e) { out.newer = e.name; }
+  out.askedNewer = asked.splice(0);
+  // From disk (file://): lines.js whatever the run has
+  globalThis.location = {protocol: "file:", href: "file:///x/", origin: "null"};
+  const fromDisk = await m.loadOtherRun(info("zone", block), "../", linesJs);
+  out.disk = {rows: "lines" in fromDisk, asked: asked.splice(0)};
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_compare_reads_a_store_or_lines_js(tmp_path, store_cases):
+    """Compare's other runs (load.ts loadOtherRun, model.addRun): a run with a store from its lines.arrow (no
+    profiles.arrow, no profiles: as its lines.js), one without from its lines.js; shown with this run, the spots and
+    lines are those of both runs read from their rows, toggled off and on again too; a newer store is refused
+    before a download; from disk lines.js."""
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
+                          encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), COMPARE_SCRIPT, cases_path)
+    assert out["askedZone"] == ["http://test/runs/zone/lines.arrow"] and out["askedBoth"] == []
+    assert out["columns"] and out["rows"] and out["profiles"] == 0
+    assert out["total"] == [9000, 9000] and out["groups"] and out["again"]
+    assert out["newer"] == "NewerStore" and out["askedNewer"] == []
+    assert out["disk"] == {"rows": True, "asked": []}
+
+
+WHICH_FILE_SCRIPT = r"""
+// runs.js as the server has it now (`listed`), loaded by a made-up script tag; each load counted
+let listed = [], loads = [];
+globalThis.window = globalThis;
+globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
+globalThis.document = {
+  createElement: () => ({remove() {}}),
+  head: {appendChild(script) { setTimeout(() => { loads.push(script.src); window.FINDALINE_RUNS = listed; script.onload(); }); }},
+};
+const block = {format: 1, lines: 5, bytes: 100, sha256: "0123456789abcdef"};
+const run = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
+(async () => {
+  const out = {};
+  const ask = async (name, url) => { loads = []; out[name] = {store: await m.storeOf(url), loads: loads.slice()}; };
+  listed = [run("a", block), run("b")];
+  await ask("withStore", "/runs/a/data.js");          // the list loaded once: its block
+  await ask("without", "/runs/b/data.js");            // the list the page has: no store (a store without the block)
+  listed = [run("a", block), run("b"), run("new id", block)];
+  await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: read afresh, then found
+  await ask("unlisted", "../x/data.js");             // a share link's runs.js lists no runs: read afresh, none there
+  await ask("notDataJs", "/runs/a/other.js");
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_which_file_a_run_is_read_from(tmp_path):
+    """load.ts storeOf: a run is read from its store when its entry in runs.js (beside its folder) holds run.json's
+    block "store"; a run listed without it (saved before the store, its store failed, or a store left by a stopped
+    save) from data.js; a run missing from the page's list (saved since the page loaded it) is looked for in runs.js
+    read afresh; a run not listed at all (a share link) reads data.js."""
+    out = _run_node(tmp_path, _store_bundle(tmp_path), WHICH_FILE_SCRIPT)
+    block = {"format": 1, "lines": 5, "bytes": 100, "sha256": "0123456789abcdef"}
+    assert out["withStore"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
+    assert out["without"] == {"store": None, "loads": []}
+    assert out["savedSince"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
+    assert out["unlisted"] == {"store": None, "loads": ["http://test/runs.js"]}
+    assert out["notDataJs"] == {"store": None, "loads": []}
+
+
 PRUNE_SCRIPT = r"""
 // 60 000 made-up lines in a few clusters: without grouping every line is a spot and gets its Line; grouped again,
 // the Lines nothing shows are dropped (prune), and the chosen and selected line stays the same object
@@ -1308,9 +1681,14 @@ def test_made_lines_dropped_after_regrouping(tmp_path):
 TOO_LARGE_SCRIPT = r"""
 // result/load.ts over http with a fake XMLHttpRequest and document: what a body makes of the load
 globalThis.window = globalThis;
-globalThis.location = {protocol: "http:"};
-const made = [];
+globalThis.location = {protocol: "http:", href: "http://test/app/"};
+const made = [], lists = [];
 globalThis.document = {querySelector: () => null, head: {appendChild(s) {
+  if (s.src.endsWith("/runs.js")) {  // the list of runs (load.ts storeOf): none of these runs has a store
+    lists.push(s.src);
+    setTimeout(() => { window.FINDALINE_RUNS = [{id: "big"}, {id: "ok"}, {id: "nan"}]; s.onload(); });
+    return;
+  }
   made.push(s.src);  // a script: data.js as the script would set it
   setTimeout(() => { window.FINDALINE_RUN = {run: {id: "nan"}, lines: [[1, 2]]}; s.onload(); });
 }}, createElement: () => ({remove() {}})};
@@ -1332,6 +1710,7 @@ globalThis.XMLHttpRequest = class {
   const nan = await m.loadRun("nan");
   out.nan = {columns: nan.columns.length, scripts: made.length, cleared: window.FINDALINE_RUN === undefined};
   out.words = [m.tooLarge("", 1), m.tooLarge("", 0), m.tooLarge("x", 1)];
+  out.lists = lists;
   console.log(JSON.stringify(out));
 })();
 """
@@ -1349,6 +1728,7 @@ def test_too_large_body(tmp_path):
     assert found["ok"] == {"columns": 2, "lines": False, "scripts": 0}
     assert found["nan"] == {"columns": 1, "scripts": 1, "cleared": True}
     assert found["words"] == [True, False, False]
+    assert found["lists"] == ["http://test/runs/runs.js"]  # runs.js read once: no store, data.js read
 
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
