@@ -69,7 +69,7 @@ from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
-from .readers.windows import _forget, _read_window, _same_crs
+from .readers.windows import _forget, _read_window, _same_crs, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
@@ -267,7 +267,7 @@ def _window(cache_dir: str, layer: FileBlocks, tile, centre: bool = False) -> st
         with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
             net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
             with rio.open(_remote(url)) as remote:
-                if remote.crs is not None and not _same_crs(remote.crs, request.crs):
+                if _wrong_crs(remote, request.crs, getattr(layer.reader, "force_crs", False)):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
                 values = _read_window(remote, transform, (WINDOW_PX, WINDOW_PX))
         if errors:

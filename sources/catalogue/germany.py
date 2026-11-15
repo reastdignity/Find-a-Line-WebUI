@@ -494,7 +494,7 @@ SOURCES: List[Source] = [
         nmpt=_nw("dom", "DOM1 (trees, buildings)", True, (("GEOTIFF:COMPRESSION", "DEFLATE"),)),
         countries=("de",), regions=("de-nw",), crs="EPSG:25832", ortho=NW_DOP,
         credits=(NW_CREDIT,),
-        neighbours=("hesse", "lower_saxony", "rhineland_palatinate"),
+        neighbours=("hesse", "lower_saxony", "rhineland_palatinate", "netherlands"),
         listing=ReadmeRow("North Rhine-Westphalia (DE)", "Geobasis NRW DGM1, 1 m (WCS)", "Geobasis NRW DOM1, 1 m (WCS)",
                           "Geobasis NRW DOP"),
         # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)

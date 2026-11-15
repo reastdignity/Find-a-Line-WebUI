@@ -1808,6 +1808,85 @@
     "seconds": 10.2,
     "notes": "--source auto picks sardinia (the centre is in IT-88); 4 lidar tiles per model (ZIPs of 3-4.4 MB, about 1.45 x 1.15 km each) listed by the WFS's answer of one 0.25° tile; nothing filled (the lidar strip covers the circle; inland of it TINITALY fills, 1.87 km² of a circle of 2500 m around 40.275, 9.625); the spots cross the gullies and walls of the coast between Cala Gonone and the Bue Marino grotto (40.252-40.264 N, 9.608-9.624 E), where a circle of 2500 m around the bay found most of its 957 spots; Cala Gonone's own centre (40.285, 9.630, radius 1000 m) gave 417 lines in 7 spots, all in one gully: moved onto the steep pixels"
   },
+  "R69": {
+    "place": "The ENCI quarry at Maastricht, the Netherlands (benched marl walls of up to 60 m): PDOK's AHN4 DTM and DSM (0.5 m, lidar 2020-2022) from its WCS in 1 km tiles, averaged to 1 m, Amersfoort / RD New",
+    "args": "--lat 50.8258 --lon 5.6866 --radius 500 --min-length 15 --max-length 300",
+    "sets": [
+      "sources",
+      "nl"
+    ],
+    "expected": {
+      "anchors": 33345,
+      "open": 1574,
+      "checked": 23367,
+      "lines": 2724,
+      "spots": 56,
+      "csv_sha256": "b4c45d72224fdf3ea9579dedb303c9b2b814e17a0a53ada90e6cfad66ec373c6",
+      "length_km": 570.699,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.364,
+      "clearance_max": 7.21,
+      "over_trees": 229,
+      "coverage": 92.17,
+      "empty_tiles": 0,
+      "filled_km2": 0.34,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "seconds": 6.7
+  },
+  "R70": {
+    "place": "The Quill on Sint Eustatius, Caribbean Netherlands (a forested crater rim): the AHN's whole-island DTM and DSM of 2023 (0.5 m lidar, LOCAL_CS forced to EPSG:10745, Sint Eustatius DPnet long) read in 1 km blocks, on a 2 m grid",
+    "args": "--lat 17.4783 --lon -62.9600 --radius 500 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "nl"
+    ],
+    "expected": {
+      "anchors": 30069,
+      "open": 4699,
+      "checked": 4415,
+      "lines": 299,
+      "spots": 31,
+      "csv_sha256": "33f480f91f28a686d4b8ea4629f47287f7b563805e3187997319eb3155958de9",
+      "length_km": 34.071,
+      "clearance_min": 0.01,
+      "clearance_mean": 1.183,
+      "clearance_max": 5.06,
+      "over_trees": 292,
+      "coverage": 96.92,
+      "empty_tiles": 0,
+      "filled_km2": 0.04,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "seconds": 3.9
+  },
+  "R71": {
+    "place": "Enniberg, Vidoy, the Faroe Islands (sea cliffs of 750 m): Umhvorvisstovan's DSM 2015 2 m (ArcticDEM's surface) as terrain, blocks of 2 km from the file's fractional corner, ETRS89 / Faroe TM, gaps from Copernicus",
+    "args": "--lat 62.385 --lon -6.560 --radius 600 --min-length 30 --max-length 200",
+    "sets": [
+      "sources",
+      "fo"
+    ],
+    "expected": {
+      "anchors": 91797,
+      "open": 12210,
+      "checked": 11263,
+      "lines": 1039,
+      "spots": 30,
+      "csv_sha256": "71bd080c0d15bca9cad918210f5177ff7362f32f7aebde4fd538885769a5f9b9",
+      "length_km": 86.953,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.865,
+      "clearance_max": 5.66,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "Copernicus DEM GLO-30",
+      "sea_km2": 0.35
+    },
+    "seconds": 13.0
+  },
   "R72": {
     "place": "North Head, Sydney (AU-NSW): its sea cliffs of about 80 m, Geoscience Australia's national 5 m lidar DEM (WCS 1.0.0 in GDA94 geographic coordinates, on its own pixels) on GDA94 / MGA zone 56",
     "args": "--lat -33.8200 --lon 151.2970 --radius 800 --min-length 30 --max-length 300",

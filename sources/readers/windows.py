@@ -68,6 +68,19 @@ def _same_crs(a, b) -> bool:
         for k, v in pa.items())
 
 
+def _local(crs: rio.crs.CRS) -> bool:
+    """Whether a file's CRS is a bare local one (a LOCAL_CS / engineering CRS: metres with no projection or datum,
+    as Caribbean Netherlands' AHN files of 2023 carry)."""
+    return not crs.is_projected and not crs.is_geographic and crs.to_wkt().startswith(("LOCAL_CS", "ENGCRS",
+                                                                                        "ENGINEERINGCRS"))
+
+
+def _wrong_crs(src, crs: str, force_crs: bool) -> bool:
+    """Whether an open file's CRS rules it out for a block in crs: another CRS (_same_crs), unless force_crs and the
+    file names only a local one (_local), which is then taken as crs; a file without a CRS is taken as it is."""
+    return src.crs is not None and not _same_crs(src.crs, crs) and not (force_crs and _local(src.crs))
+
+
 def _scan_directories(src, window: Window):
     """Make GDAL read a remote file's directories (its overviews and masks) in a call that releases the GIL, before
     src.read(..., masked=True) reads window. rasterio (1.5.2) asks the mask flags on every read, masked or not,
@@ -158,14 +171,15 @@ class WrongCrs(RuntimeError):
 
 
 def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], name: str,
-               what: str) -> np.ndarray:
+               what: str, force_crs: bool = False) -> np.ndarray:
     """The values of one file on a block's pixels (_read_window). Raises WrongCrs when the file is in
-    another CRS, Incomplete when GDAL signalled an error while opening or reading it: values it could
-    not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
+    another CRS (with force_crs, a file naming only a local CRS is taken in crs: _wrong_crs), Incomplete
+    when GDAL signalled an error while opening or reading it: values it could not fetch come back as
+    nodata or zeros without an exception (net.gdal_errors)."""
     with net.gdal_errors() as errors:
         src = rio.open(_remote(url))
     with src:
-        if src.crs is not None and not _same_crs(src.crs, crs):
+        if _wrong_crs(src, crs, force_crs):
             raise WrongCrs(what, name, src.crs.to_string(), crs)
         with net.gdal_errors() as reading:
             values = _read_window(src, transform, shape)
@@ -175,7 +189,8 @@ def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], na
 
 
 def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affine, shape: Tuple[int, int],
-                path: str, what: str, geoid: Optional[Geoid] = None, serial: bool = False) -> Fetched:
+                path: str, what: str, geoid: Optional[Geoid] = None, serial: bool = False,
+                force_crs: bool = False) -> Fetched:
     """Compose a block from windows of remote files (name, url, survey year), newest first:
     each file fills only the pixels still without data, and the next one is read only while
     some remain. Saved to path with the names and years of the files used (tags "sources",
@@ -189,7 +204,8 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     With geoid (heights above the ellipsoid: ArcticDEM), the block is saved as h - N, heights above that geoid
     (tag "vertical": its name); N is computed first, so a missing grid (GeoidMissing) asks no file. serial: the
     ranges one after another through GDAL's cache of ranges (net._gdal_http). A file in another CRS is not
-    used (said); when no file of the block could be read for that reason, the block raises (WrongCrs)."""
+    used (said); when no file of the block could be read for that reason, the block raises (WrongCrs).
+    force_crs: a file naming only a local CRS is read in the block's CRS (_wrong_crs)."""
     undulation = geoid.undulation(crs, transform, shape) if geoid is not None and files else None
     block = np.full(shape, np.nan, dtype=np.float32)
     used, years = [], []
@@ -202,7 +218,7 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                 # GDAL's own HTTP requests, their bytes and its retries are not seen)
                 with servicecounts.request(url) as counted:
                     try:
-                        values = _read_file(url, crs, transform, shape, name, what)
+                        values = _read_file(url, crs, transform, shape, name, what, force_crs)
                         read += 1
                         break
                     except WrongCrs as e:
@@ -347,8 +363,8 @@ def _group_values(src, blocks: Sequence[BlockRequest], file=None) -> Iterator[Tu
             yield k, values
 
 
-def read_group(blocks: Sequence[BlockRequest], what: str,
-               geoid: Optional[Geoid] = None) -> List[Tuple[Optional[np.ndarray], Optional[Dict[str, str]]]]:
+def read_group(blocks: Sequence[BlockRequest], what: str, geoid: Optional[Geoid] = None,
+               force_crs: bool = False) -> List[Tuple[Optional[np.ndarray], Optional[Dict[str, str]]]]:
     """Compose blocks as _read_block composes each one (files newest first, each filling only the pixels still
     without data, the next one read only for the blocks with some left; tags "sources" and "years"; with geoid
     h - N), reading each file once for the blocks that need it: one window through our own range requests
@@ -356,7 +372,7 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
     those of one CRS. Returns (values, tags) per block, (None, None) where no file has data. A file of another
     CRS is not used (said) and a missing one (404) skipped, as there; a block none of whose files could be read
     for its CRS, and anything else, raises RuntimeError (the caller then reads the group's blocks one by one,
-    where such a block fails alone)."""
+    where such a block fails alone). force_crs: as _read_block's."""
     from . import ranges
     state = [[np.full(r.shape, np.nan, dtype=np.float32), [], [], None, not r.files] for r in blocks]
     for s, r in zip(state, blocks):
@@ -374,7 +390,8 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
             for (name, url, year), members in need.items():
                 if url not in opened:
                     try:
-                        opened[url] = _open_for_group(stack, ranges, url, blocks[members[0]].crs, name, what)
+                        opened[url] = _open_for_group(stack, ranges, url, blocks[members[0]].crs, name, what,
+                                                      force_crs)
                     except WrongCrs as e:
                         print(f"{e}; not used")
                         wrong[url], opened[url] = e, None
@@ -399,9 +416,10 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
     return [((s[0], tags) if (tags := _finish(s[0], s[1], s[2], s[3], geoid)) else (None, None)) for s in state]
 
 
-def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, name: str, what: str):
+def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, name: str, what: str,
+                    force_crs: bool = False):
     """A file of a group opened through ranges.open_remote (a local path as it is), or None when it is missing;
-    WrongCrs when it is in another CRS (as _read_file raises it)."""
+    WrongCrs when it is in another CRS (as _read_file raises it, force_crs too)."""
     try:
         with net.gdal_errors() as errors:
             if re.match(r"https?://", url):
@@ -415,7 +433,7 @@ def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, nam
     if errors or (file is not None and file.error is not None):
         raise RuntimeError(f"Could not open {what} {name} completely: "
                            f"{cache.clean_error((file and file.error) or '; '.join(dict.fromkeys(errors)))}")
-    if src.crs is not None and not _same_crs(src.crs, crs):
+    if _wrong_crs(src, crs, force_crs):
         raise WrongCrs(what, name, src.crs.to_string(), crs)
     return src, file or _LocalFile()
 
@@ -437,19 +455,22 @@ class Windows(Reader):
     FileBlocks). serial: the ranges of a block one after another through GDAL's cache of ranges, and
     download_layers hands the layer's blocks to its pool in squares, so a tile shared by neighbours is fetched
     once: fewer bytes, more requests; chosen per source where that was faster too (docs/performance.md,
-    "Window reads": Austria, Luxembourg, British Columbia)."""
+    "Window reads": Austria, Luxembourg, British Columbia). force_crs: files that name only a local CRS
+    (LOCAL_CS: Caribbean Netherlands' AHN files) are read in their block's CRS; a file with a real CRS is
+    checked as ever."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
-    def __init__(self, description: str, geoid: Optional[Geoid] = None, serial: bool = False):
-        self.description, self.geoid, self.serial = description, geoid, serial
+    def __init__(self, description: str, geoid: Optional[Geoid] = None, serial: bool = False,
+                 force_crs: bool = False):
+        self.description, self.geoid, self.serial, self.force_crs = description, geoid, serial, force_crs
 
     def url(self, request: BlockRequest) -> Optional[str]:
         return request.files[0][1] if request.files else None
 
     def fetch(self, request: BlockRequest, path: str) -> Fetched:
         return _read_block(request.files, request.crs, request.transform, request.shape, path, self.description,
-                           self.geoid, self.serial)
+                           self.geoid, self.serial, self.force_crs)
 
     def fetch_group(self, requests: Sequence[BlockRequest]) -> List[Tuple[Optional[np.ndarray], Optional[Dict]]]:
         """Several blocks of one CRS composed in memory, each file read once over them (read_group)."""
-        return read_group(requests, self.description, self.geoid)
+        return read_group(requests, self.description, self.geoid, self.force_crs)
