@@ -299,9 +299,12 @@ def _smoothed(z: np.ndarray, data: np.ndarray) -> np.ndarray:
     return np.where(data, zs, np.nan).astype(np.float32)
 
 
+WALK_PX_MAX = np.iinfo(np.int32).max  # the walk indexes its grid with int32
+
+
 def _check_size(pixels: int):
-    """The walk indexes its grid with int32: a grid (or a block's window) of 2^31 - 1 pixels or more is refused."""
-    if pixels >= np.iinfo(np.int32).max:
+    """A grid (or a block's window) of WALK_PX_MAX pixels or more is refused: the walk's indices are int32."""
+    if pixels >= WALK_PX_MAX:
         raise ValueError("grid too large for the access measure's walk")
 
 
@@ -437,7 +440,8 @@ def _remove(path: str):
 
 
 def _region_areas(mask_path: str, labels_path: str, shape, res: float):
-    """The 8-connected regions of a memory-mapped mask: their labels (int32, memory-mapped) and areas (m2)."""
+    """The 8-connected regions of a memory-mapped mask: their labels (int32, memory-mapped), their count and their
+    pixels (by label)."""
     mask = np.load(mask_path, mmap_mode="r")
     labels = _new(labels_path, shape, np.int32)
     n = ndimage.label(mask, structure=_EIGHT, output=labels)
@@ -445,7 +449,7 @@ def _region_areas(mask_path: str, labels_path: str, shape, res: float):
     count = np.zeros(n + 1, np.int64)
     for r0, r1 in _strips(*shape):
         count += np.bincount(np.asarray(labels[r0:r1]).ravel(), minlength=n + 1)
-    return labels, n, count * res * res
+    return labels, n, count
 
 
 def _whole_metres_rows(z, water, filled) -> bool:
@@ -466,10 +470,75 @@ def _whole_metres_rows(z, water, filled) -> bool:
     return bool(np.mean(sample == np.round(sample)) >= WHOLE_METRE_SHARE)
 
 
+GATHER_PX = 4_000_000  # heights of flat regions gathered at a time for their exact percentiles (a larger region alone)
+
+
+def _region_bounds(labels, z, big: np.ndarray, n: int):
+    """The lowest and highest height of each region marked in `big` (float64, by label), strip by strip; every strip's
+    labels copied out of the map, so no view of it outlives the loop (Windows could not remove the file)."""
+    lo, hi = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
+    for r0, r1 in _strips(*z.shape):
+        lab = np.array(labels[r0:r1]).ravel()
+        sel = big[lab]
+        zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
+        np.minimum.at(lo, lab[sel], zz)
+        np.maximum.at(hi, lab[sel], zz)
+    return lo, hi
+
+
+def _batches(regions: np.ndarray, count: np.ndarray):
+    """The regions in batches of at most GATHER_PX pixels (a larger region alone), in label order."""
+    batch, size = [], 0
+    for b in regions.tolist():
+        if batch and size + count[b] > GATHER_PX:
+            yield np.array(batch)
+            batch, size = [], 0
+        batch.append(b)
+        size += int(count[b])
+    if batch:
+        yield np.array(batch)
+
+
+def _spread_flat(labels, z, regions: np.ndarray, count: np.ndarray, keep: np.ndarray):
+    """flat_water's test of the regions' heights (p95 - p5 at most FLAT_WATER_SPREAD_M) for `regions`, setting keep:
+    a batch's heights gathered into one float32 array, each region's judged in place (np.percentile with
+    overwrite_input: no copy; two calls with scalar q, as flat_water, whose spread they give to the last bit) and
+    released with its batch."""
+    n = len(count) - 1
+    for batch in _batches(regions, count):
+        sizes = count[batch]
+        start = np.concatenate([[0], np.cumsum(sizes)])
+        slot = np.full(n + 1, -1, np.int64)
+        slot[batch] = np.arange(len(batch))
+        heights = np.empty(int(start[-1]), np.float32)
+        filled = np.zeros(len(batch), np.int64)
+        for r0, r1 in _strips(*z.shape):
+            k = slot[np.array(labels[r0:r1]).ravel()]
+            sel = k >= 0
+            if not sel.any():
+                continue
+            k = k[sel]
+            zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
+            order = np.argsort(k, kind="stable")
+            k, zz = k[order], zz[order]
+            got = np.bincount(k, minlength=len(batch))
+            first = np.cumsum(got) - got  # where each region's pixels begin in this strip's sorted k
+            heights[start[k] + filled[k] + np.arange(len(k)) - first[k]] = zz
+            filled += got
+            del k, zz, order, sel
+        for j, b in enumerate(batch.tolist()):
+            v = heights[start[j]:start[j + 1]]
+            p95 = np.percentile(v, 95, overwrite_input=True)
+            if p95 - np.percentile(v, 5, overwrite_input=True) <= FLAT_WATER_SPREAD_M:
+                keep[b] = True
+        del heights
+
+
 def _flat_lakes_rows(z, res: float, work: str, out) -> None:
     """flat_water of the whole grid, strip by strip, ORed into `out` (a memory-mapped bool grid): the regions'
     areas by their labels, their spreads from each region's lowest and highest height, the exact percentiles of
-    flat_water only for the regions whose highest less lowest is over FLAT_WATER_SPREAD_M."""
+    flat_water only for the regions whose highest less lowest is over FLAT_WATER_SPREAD_M (_spread_flat: their
+    heights GATHER_PX at a time, a larger region alone)."""
     h, w = z.shape
     flat_path, labels_path = os.path.join(work, "access_flat.npy"), os.path.join(work, "access_flat_labels.npy")
     flat = _new(flat_path, (h, w), bool)
@@ -477,35 +546,16 @@ def _flat_lakes_rows(z, res: float, work: str, out) -> None:
         flat[r0:r1] = np.isfinite(np.asarray(z[r0:r1], np.float32)) & (_slope_rows(z, r0, r1, res) < FLAT_WATER_DEG)
     flat.flush()
     del flat
-    labels, n, area = _region_areas(flat_path, labels_path, (h, w), res)
-    big = area >= FLAT_WATER_MIN_M2
+    labels, n, count = _region_areas(flat_path, labels_path, (h, w), res)
+    big = count * res * res >= FLAT_WATER_MIN_M2
     big[0] = False
-    lo, hi = np.full(n + 1, np.inf), np.full(n + 1, -np.inf)
-    for r0, r1 in _strips(h, w):
-        lab = np.asarray(labels[r0:r1]).ravel()
-        sel = big[lab]
-        zz = np.asarray(z[r0:r1], np.float32).ravel()[sel]
-        np.minimum.at(lo, lab[sel], zz)
-        np.maximum.at(hi, lab[sel], zz)
+    lo, hi = _region_bounds(labels, z, big, n)
     keep = big & (hi - lo <= FLAT_WATER_SPREAD_M - 1e-6)  # p95 - p5 lies within the lowest and highest
-    unsure = big & ~keep
-    if unsure.any():
-        values = {}
-        for r0, r1 in _strips(h, w):
-            lab = np.asarray(labels[r0:r1]).ravel()
-            sel = unsure[lab]
-            if sel.any():
-                zz, ll = np.asarray(z[r0:r1], np.float32).ravel()[sel], lab[sel]
-                order = np.argsort(ll, kind="stable")
-                zz, ll = zz[order], ll[order]
-                for b in np.unique(ll).tolist():
-                    values.setdefault(b, []).append(zz[np.searchsorted(ll, b):np.searchsorted(ll, b, side="right")])
-        for b, parts in values.items():
-            v = np.concatenate(parts)
-            if np.percentile(v, 95) - np.percentile(v, 5) <= FLAT_WATER_SPREAD_M:
-                keep[b] = True
+    unsure = np.flatnonzero(big & ~keep)
+    if len(unsure):
+        _spread_flat(labels, z, unsure, count, keep)
     for r0, r1 in _strips(h, w):
-        out[r0:r1] |= keep[np.asarray(labels[r0:r1])]
+        out[r0:r1] |= keep[np.array(labels[r0:r1])]
     del labels
     _remove(labels_path)
     _remove(flat_path)
@@ -529,8 +579,8 @@ def _open_ground_rows(z, water, filled, wet, res: float, work: str, name: str, s
         g[r0:r1] = (s < OPEN_DEG) & ~np.asarray(wet[r0:r1]) & data
     g.flush()
     del g
-    labels, n, area = _region_areas(g_path, labels_path, (h, w), res)
-    big = area >= OPEN_MIN_M2
+    labels, n, count = _region_areas(g_path, labels_path, (h, w), res)
+    big = count * res * res >= OPEN_MIN_M2
     big[0] = False
     path = os.path.join(work, f"access_{name}.npy")
     out = _new(path, (h, w), bool)

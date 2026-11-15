@@ -323,6 +323,199 @@ def test_blocks_give_one_grids_answers(tmp_path, offline, monkeypatch, whole):
         assert (runs["one"] == access.CAN).sum() > 10000
 
 
+# --- The grid-wide judgements of the blocks, each on a grid where it decides answers (code review 2 of 1d-2) ---
+
+def _hills(n: int, m: int, res: float, seed: int, relief: float = 60.0) -> np.ndarray:
+    """Made-up hills with two canyons and a block of rock (walls), n x m pixels at res."""
+    from scipy import ndimage
+    rng = np.random.default_rng(seed)
+    z = ndimage.gaussian_filter(rng.normal(0, 1, (n, m)), 30 / res * 5) * relief * 400 / res + 300
+    z[:, m // 3:m // 3 + max(3, int(40 / res))] -= 70
+    z[n // 2:n // 2 + max(3, int(30 / res)), :] -= 50
+    z[n // 5:n // 5 + 40, m // 2:m // 2 + 40] += 60
+    return z
+
+
+def _lakes(z: np.ndarray) -> np.ndarray:
+    """Flat lakes held as data on float heights: a long thin one crossing the blocks (spread 0.1 m: kept by the
+    lowest/highest), one with a cone of 0.8 m on 3 % of it (p95 - p5 under 0.3 m: kept by the exact percentiles)
+    across a strip's edge, and a large flat region rising 0.5 m (refused by them)."""
+    n, m = z.shape
+    rng = np.random.default_rng(1)
+    z[40:46, 20:m - 20] = 250.0 + rng.uniform(0, 0.1, (6, m - 40))
+    k = n - 140
+    z[k:k + 40, 30:200] = 240.0 + rng.uniform(0, 0.2, (40, 170))
+    rr, cc = np.mgrid[0:40, 0:170]
+    z[k:k + 40, 30:200] += np.maximum(0.0, 0.8 * (1 - np.hypot(rr - 20, cc - 60) / 8.0))
+    z[100:300, m - 260:m - 60] = 260.0 + np.linspace(0, 0.5, 200)[:, None]
+    return z
+
+
+def _mixed() -> np.ndarray:
+    """Heights whole metres over 90 % of the grid but not in its west part: whole metres only as a whole."""
+    z = _hills(640, 700, 5.0, 4)
+    mixed = np.round(z)
+    mixed[:, :60] = z[:, :60] + 0.37
+    return mixed.astype(np.float32)
+
+
+def _smoothed_path() -> np.ndarray:
+    """Whole metres on a slope of 35 degrees with a level path 5 pixels wide (its middle open ground on the smoothed
+    heights too, 1.5 ha only as a whole: a window holds less than 1 ha of it), at 5 m."""
+    z = 100 + np.tan(np.radians(35)) * 5 * np.arange(600)[:, None] + np.zeros((600, 600))
+    z[298:303] = z[300] + 0.1 * np.arange(600)
+    return np.round(z).astype(np.float32)
+
+
+GRID_CASES = {
+    "lakes": lambda: _lakes(_hills(760, 820, 5.0, 2)).astype(np.float32),
+    "mixed": _mixed,
+    "smoothed-path": _smoothed_path,
+    "path": lambda: _path(),
+}
+
+
+@pytest.mark.parametrize("case", list(GRID_CASES))
+def test_block_grid_equals_one_grid_where_the_whole_grid_decides(tmp_path, monkeypatch, case):
+    """access.block_grid = access.access_grid at every pixel on grids where a grid-wide judgement decides answers
+    that a window alone would get wrong: flat lakes held as data crossing blocks and strips (kept by the lowest and
+    highest, by the exact percentiles, one refused), heights whole metres only as a whole, open ground on the smoothed
+    heights only the whole grid sees, open ground only the whole grid sees; the grid-wide pass in strips of 64 rows
+    (their halos), blocks of 60 pixels (300 m at 5 m) and few flat heights gathered at a time
+    (access.GATHER_PX). The work folder holds only the grid afterwards (no scratch file left)."""
+    z = GRID_CASES[case]()
+    res = 5.0
+    one = access.access_grid(z, None, res, alpine=True)
+    monkeypatch.setattr(access, "STRIP_PX", 1)  # 64 rows a strip
+    monkeypatch.setattr(access, "GATHER_PX", 5_000)
+    work = tmp_path / "work"
+    done = access.block_grid(z, None, res, None, str(work / "access.npy"), str(work), 60, alpine=True)
+    blocks = np.array(np.load(work / "access.npy", mmap_mode="r"))
+    assert done["blocks"] > 50 and np.array_equal(blocks, one), int((blocks != one).sum())
+    assert os.listdir(work) == ["access.npy"]
+    if case == "lakes":  # the lakes decide answers: without them the grid differs
+        s = access.slope_deg(z, res)
+        assert access.flat_water(z, s, res).sum() > 3000
+        assert not access.whole_metres(z[np.isfinite(z)])
+    if case == "mixed":  # whole metres only as a whole
+        assert access.whole_metres(z[np.isfinite(z)]) and not access.whole_metres(z[:, :300].ravel())
+    if case in ("smoothed-path", "path"):
+        assert (one == access.CAN).sum() > 10000
+
+
+@pytest.mark.parametrize("whole", [False, True], ids=["float", "whole-metres"])
+def test_block_grid_leaves_no_scratch_file(tmp_path, whole):
+    """After access.block_grid the work folder holds the grid only (the grid-wide masks and labels removed: no view of
+    a map left at its removal), on float and on whole-metre heights, with lakes held as data on float."""
+    z = _lakes(_hills(400, 420, 5.0, 8))
+    z = (np.round(z) if whole else z).astype(np.float32)
+    work = tmp_path / "work"
+    access.block_grid(z, None, 5.0, None, str(work / "access.npy"), str(work), 100, alpine=True)
+    assert os.listdir(work) == ["access.npy"]
+
+
+def test_a_walk_too_large_is_refused(tmp_path, monkeypatch):
+    """A grid at once, or a block's window, of access.WALK_PX_MAX pixels or more is refused (the walk's int32
+    indices); the search's block rule keeps every window under it."""
+    monkeypatch.setattr(access, "WALK_PX_MAX", 400)
+    z = _hills(30, 30, 5.0, 3).astype(np.float32)
+    with pytest.raises(ValueError):
+        access.access_grid(z, None, 5.0)
+    with pytest.raises(ValueError):
+        access.block_grid(z, None, 5.0, None, str(tmp_path / "a.npy"), str(tmp_path), 10)
+    small = z[:19, :20]
+    assert access.access_grid(small, None, 5.0).shape == small.shape
+
+
+def test_blocks_from_the_free_memory(tmp_path, offline, monkeypatch):
+    """Without Plan.memory (the command line) the access grid's budget is the memory free (search.available_memory):
+    a small one gives blocks, the same answers as at once."""
+    z = _rough(False)
+    path = tmp_path / "rough.tif"
+    _write_5m(path, z)
+    params = SearchParams(elevation_file=str(path), northing=TOP - 1500, easting=LEFT + 1500, radius=1400,
+                          resolution=5, nmpt="off", water="off", fill_gaps="off", min_length=50, max_length=300,
+                          slope_threshold=55, prominence_span=10, drop_radius=10, ortho="never", name="free",
+                          access=True)
+    grids = {}
+    for name, free in (("at-once", 10 ** 12), ("blocks", 8_000_000)):
+        monkeypatch.setattr(search, "available_memory", lambda free=free: free)
+        events = []
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = search.plan_search(params, paths, lambda kind, text: events.append(str(text)))
+        assert plan.memory is None
+        grids[name] = np.array(search._access_grid(plan, search.prepare_data(plan)))
+        made = [e for e in events if e.startswith("Access to anchors in ")]
+        assert bool(made) == (name == "blocks"), made
+    assert np.array_equal(grids["at-once"], grids["blocks"])
+
+
+def _write_5m(path, z):
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    with rio.open(path, "w", driver="GTiff", width=z.shape[1], height=z.shape[0], count=1, dtype="float32",
+                  crs="EPSG:2180", transform=from_origin(LEFT, TOP, 5, 5), nodata=np.nan) as dst:
+        dst.write(z, 1)
+
+
+def test_a_tiled_search_in_blocks(tmp_path, offline, monkeypatch):
+    """A tiled search whose access grid is made in blocks (a small budget of free memory) gives the lines and marks of
+    the same tiled search with the grid at once; no grid of the work folder is left after the tiles."""
+    z = _rough(False)
+    path = tmp_path / "rough.tif"
+    _write_5m(path, z)
+    area = _square(tmp_path / "square.geojson", LEFT + 300, TOP - 2700, LEFT + 2700, TOP - 300)
+    params = SearchParams(elevation_file=str(path), area=area, resolution=5, nmpt="off", water="off",
+                          fill_gaps="off", min_length=50, max_length=300, slope_threshold=55, prominence_span=10,
+                          drop_radius=10, ortho="never", tile_size=800, name="tiled", access=True)
+    tables = {}
+    for name, free in (("at-once", 10 ** 12), ("blocks", 6_000_000)):
+        monkeypatch.setattr(search, "available_memory", lambda free=free: free)
+        events = []
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = dataclasses.replace(search.plan_search(params, paths, lambda kind, text: events.append(str(text))),
+                                   index_runs=False)
+        assert plan.tiles and len(plan.tiles) > 1
+        lines, run = search.search_lines(plan)
+        made = [e for e in events if e.startswith("Access to anchors in ")]
+        assert bool(made) == (name == "blocks"), made
+        assert not glob.glob(os.path.join(paths.work, "*.npy"))
+        c = lines.results.columns
+        tables[name] = {k: c[k] for k in ("a1_xy", "a2_xy", "access1", "access2")}
+    for k, v in tables["at-once"].items():
+        assert len(v) > 20 and np.array_equal(v, tables["blocks"][k]), k
+
+
+@pytest.mark.parametrize("tiled", [False, True], ids=["one-grid", "tiles"])
+def test_the_access_stage_after_the_estimate(tmp_path, offline, monkeypatch, tiled):
+    """The access grid is made after the cheap refusals: a search the 2 % estimate refuses (the line limit) never
+    computes it, as one grid and as tiles."""
+    import settings
+    calls = []
+    real = search._access_grid
+    monkeypatch.setattr(search, "_access_grid", lambda *a, **k: calls.append(1) or real(*a, **k))
+    z = scene()
+    write_raster(tmp_path / "est.tif", z, LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "est.tif"), resolution=1, nmpt="off", water="off", fill_gaps="off",
+                  min_length=10, max_length=80, slope_threshold=60, prominence_span=10, drop_radius=10,
+                  ortho="never", name="est", access=True)
+    if tiled:
+        values.update(area=_square(tmp_path / "sq.geojson", LEFT + 20, TOP - SIZE + 20, LEFT + SIZE - 20, TOP - 20),
+                      tile_size=100)
+    else:
+        values.update(northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2, radius=135)
+    paths = search.Paths(str(tmp_path / "est"), str(tmp_path / "est" / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(SearchParams(**values), paths, lambda kind, text: None,
+                              limits=settings.Limits(lines_max=1))
+    assert bool(plan.tiles) == tiled
+    with pytest.raises(search.SearchError) as refused:
+        search.search_lines(plan)
+    assert refused.value.code == "too_many_lines_estimate" and calls == []
+
+
 def test_access_memory_refused_and_blocks_sized(tmp_path, offline):
     """With --access a search whose access grid cannot fit Plan.memory even in its smallest blocks is refused before
     step 1 (the coded error access_memory, its page text without option names); a search that fits keeps one block

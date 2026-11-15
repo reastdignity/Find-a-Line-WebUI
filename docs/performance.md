@@ -3785,14 +3785,32 @@ budget) for the whole Gozo coast search; one run each.
 | Gozo coast, 126.05 Mpx at 1 m, whole metres | 30.9-36.3 s, 43.0-43.2 | 4.95 GB: 6 blocks of 6 578 m, windows of 58.6 Mpx | 12.7 s, 6.1 (2.8) | 41.1 s, 2 564 MB, 45.9 (40.1) | 0 pixels differ |
 | Tatras circle, 43.57 Mpx at 1 m, float | 12.5-13.3 s, 28.4-29.0 | 1.5 GB: 9 blocks of 2 929 m, windows of 16.1 Mpx | 7.4 s, 6.6 (3.9) | 18.2 s, 576 MB, 37.6 (30.2) | 0 |
 
+After the second code review (N1: the flat lakes' heights were all held until the end, about 12 B per pixel of the
+grid on flat float ground) the flat regions' heights are gathered GATHER_PX (4 Mpx) at a time, a larger region alone,
+each judged in place (`np.percentile(..., overwrite_input=True)`, twice with scalar q: one call with [5, 95] computes in
+float64 and moves the spread's last bit) and released; measured again (exclusive, `facts\measure3.py`, the same way),
+with a float case whose flat regions are large: the Gozo coast at 2 m (R16's and R83's source and resolution, the whole
+island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill joined by beaches to flat land):
+
+| Grid | At once: s, peak B/px | Budget, blocks | Grid-wide pass: s, B per pixel of the grid (private); flat heights gathered | Blocks: s, B per pixel of the window (private) | Answers |
+| --- | --- | --- | --- | --- | --- |
+| Gozo coast at 2 m, 31.5 Mpx, float | 4.2 s, 28.8 | 1.0 GB: 6 blocks of 6 642 m | 3.6 s, 9.5 (6.9); 17.4 Mpx in 2 batches, the largest region 14.6 Mpx (46 % of the grid) | 4.5 s, 34.1 (29.2) | 0 pixels differ |
+| Gozo coast at 1 m, 126.05 Mpx, whole metres | 30.3 s, 42.9 | 4.95 GB: 4 blocks of 7 798 m | 9.7 s, 6.1 (3.2); none (whole metres) | 32.5 s, 42.2 (39.0) | 0 |
+| Tatras circle, 43.57 Mpx, float | 12.8 s, 28.4 | 1.5 GB: 4 blocks of 3 720 m | 2.5 s, 6.7 (3.9); 1.7 Mpx in 1 batch | 14.0 s, 27.3 (24.7) | 0 |
+
+- `ACCESS_AREA_BYTES` 8 -> **12**: the largest grid-wide pass measured, 9.5 B per pixel (the Gozo coast at 2 m), with a
+  margin for a flat region over most of a grid (its heights gathered alone: 4 B per pixel of it, beside the masks and
+  labels). The strips' own temporaries (4 Mpx of rows at a time) are a constant of about 100 MB inside these figures.
+  `ACCESS_WINDOW_BYTES` stays 50 (42.9 at once, 42.2 a window).
+
 - The constants (`search.py`): `ACCESS_WINDOW_BYTES` 50 per pixel of the grid at once or of a block's window (43.2
-  and 45.9 measured; the window's figure holds the grid-wide masks' resident pages too), `ACCESS_AREA_BYTES` 8 per
-  pixel of the whole grid for the grid-wide pass (6.1 and 6.6), `ACCESS_BLOCK_MIN_M` 500, `ACCESS_DISK_BYTES` 9 (the
-  work folder's files at most: access.npy, three masks, a region mask and its labels).
+  and 45.9 measured; the window's figure holds the grid-wide masks' resident pages too), `ACCESS_AREA_BYTES` 12 per
+  pixel of the whole grid for the grid-wide pass (8 before the third measurement), `ACCESS_BLOCK_MIN_M` 500,
+  `ACCESS_DISK_BYTES` 9 (the work folder's files at most: access.npy, three masks, a region mask and its labels).
 - The rule (`_access_block_px`): the grid at once when 50 B a pixel of it fit the budget (`Plan.memory`, a compute
   slot's, else the memory free), else the largest square block whose window takes 50 B a pixel of what 8 B a pixel of
-  the grid leave; `_check_access` refuses before step 1 (coded `access_memory`) a search with `Plan.memory` whose
-  smallest blocks do not fit (the grid-wide pass and a window of 500 m and its margins). The measured Gozo run's
+  the grid leave (12 since the third measurement); `_check_access` refuses before step 1 (coded `access_memory`) a
+  search with `Plan.memory` whose smallest blocks do not fit (the grid-wide pass and a window of 500 m and its margins). The measured Gozo run's
   blocks were sized with 16 B for the grid-wide pass (the figure before this measurement): its windows of 58.6 Mpx and
   the pass count 8 x 126 Mpx + 50 x 58.6 Mpx = 3.9 GB against 2.6 GB measured; with 8 B the same budget gives blocks
   of 7 798 m.

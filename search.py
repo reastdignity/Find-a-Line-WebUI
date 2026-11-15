@@ -98,9 +98,10 @@ PIXEL_BYTES = 50
 # ACCESS_AREA_BYTES per pixel of the whole grid for its grid-wide pass (strips, masks memory-mapped) plus
 # ACCESS_WINDOW_BYTES per pixel of a block's window (the block and access.margin_px around it); blocks at least
 # ACCESS_BLOCK_MIN_M wide. Measured 2026-11-15 (exclusive; docs/performance.md, "The access grid's memory"): at once
-# 43 B per pixel of the grid on whole metres (the Gozo coast), 29 on float heights (the Tatras); in blocks 6.1-6.6 B
-# per pixel of the grid for the grid-wide pass and 38-46 per pixel of the largest window
-ACCESS_AREA_BYTES = 8
+# 43 B per pixel of the grid on whole metres (the Gozo coast), 29 on float heights (the Tatras); in blocks the
+# grid-wide pass 6.1-6.7 B per pixel of the grid, 9.5 where flat float heights join the sea's fill (the Gozo coast at
+# 2 m: 55 % of its pixels in flat regions whose heights are gathered), and 27-46 per pixel of the largest window
+ACCESS_AREA_BYTES = 12
 ACCESS_WINDOW_BYTES = 50
 ACCESS_BLOCK_MIN_M = 500
 # Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: access.npy (uint8),
@@ -2182,11 +2183,11 @@ def _access_block_px(plan: Plan) -> Optional[int]:
     import access
     pixels = plan.grid.width * plan.grid.height
     budget = _access_budget(plan)
-    if pixels * ACCESS_WINDOW_BYTES <= budget and pixels < np.iinfo(np.int32).max:
+    if pixels * ACCESS_WINDOW_BYTES <= budget and pixels < access.WALK_PX_MAX:
         return None
     margin = access.margin_px(plan.resolution)
     room = max(0, budget - pixels * ACCESS_AREA_BYTES)
-    side = min(int(math.sqrt(room / ACCESS_WINDOW_BYTES)), int(math.sqrt(np.iinfo(np.int32).max - 1)))
+    side = min(int(math.sqrt(room / ACCESS_WINDOW_BYTES)), int(math.sqrt(access.WALK_PX_MAX - 1)))
     return max(int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)), side - 2 * margin)
 
 
@@ -2223,6 +2224,9 @@ def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarr
     into the work folder), else in memory."""
     import access  # numba: only where a search computes (see _lines)
     block = _access_block_px(plan)
+    # a step text of its own (after the estimate's: the job page's phase and jobs.StepClock book it to step 2, the
+    # anchors')
+    progress.set_step(f"{plan.tile_label}Step 2/{STEPS}: access to anchors")
     progress.compute.start("access to anchors", 1, unit="step")
     if block is None:
         grid = access.access_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), alpine=True)
