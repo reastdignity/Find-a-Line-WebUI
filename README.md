@@ -136,9 +136,9 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `queensland_demh` | Queensland (AU) | – | Geoscience Australia DEM-H 30 m (from Queensland's service) | – | – | 30 m | – |
 | `iceland` | Iceland | IS | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | Grunnkort - Loftmynd (Natural Science Institute of Iceland), 25 cm | 2 m | `islandsdem10`, then `copernicus` |
 | `islandsdem10` | Iceland | – | IslandsDEM v1.0, 10 m | – | Grunnkort - Loftmynd (Natural Science Institute of Iceland), 25 cm | 10 m | `copernicus` |
-| `saba` | Saba (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 1 m | `europe` |
-| `sint_eustatius` | Sint Eustatius (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 1 m | `europe` |
-| `bonaire` | Bonaire (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 1 m | `europe` |
+| `saba` | Saba (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
+| `sint_eustatius` | Sint Eustatius (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
+| `bonaire` | Bonaire (Caribbean Netherlands) | NL | AHN Caribisch Nederland DTM, 0.5 m | AHN Caribisch Nederland DSM, 0.5 m | Beeldmateriaal orthophoto 2024 | 2 m | `europe` |
 | `netherlands` | Netherlands (European part) | NL | PDOK AHN4 DTM, 0.5 m (WCS) | PDOK AHN4 DSM, 0.5 m (WCS) | PDOK aerial photo (Beeldmateriaal) | 1 m | `north_rhine_westphalia`, `lower_saxony` at the border, then `europe` |
 | `faroe_islands` | Faroe Islands | FO | Umhvorvisstovan DSM 2015, 2 m (a surface model) | – | Umhvorvisstovan orthophoto | 2 m | `copernicus` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |

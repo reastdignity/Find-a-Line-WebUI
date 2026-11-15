@@ -621,12 +621,12 @@
   },
   "nl-bq1": {
    "added": "2026-11-15",
-   "level": 1,
+   "level": 2,
    "notes": [],
    "partial": false,
    "provider": "Het Waterschapshuis",
    "res": [
-    1
+    2
    ],
    "source": "bonaire",
    "survey": "2023–2024",
@@ -634,12 +634,12 @@
   },
   "nl-bq2": {
    "added": "2026-11-15",
-   "level": 1,
+   "level": 2,
    "notes": [],
    "partial": false,
    "provider": "Het Waterschapshuis",
    "res": [
-    1
+    2
    ],
    "source": "saba",
    "survey": "2023–2024",
@@ -647,12 +647,12 @@
   },
   "nl-bq3": {
    "added": "2026-11-15",
-   "level": 1,
+   "level": 2,
    "notes": [],
    "partial": false,
    "provider": "Het Waterschapshuis",
    "res": [
-    1
+    2
    ],
    "source": "sint_eustatius",
    "survey": "2023–2024",

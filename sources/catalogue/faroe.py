@@ -16,8 +16,11 @@ FO_TM = "EPSG:5316"
 # windows only), nodata 3.4e38 (the sea), heights above the sea in sub-centimetres; its pixel edges lie off whole
 # metres (the file starts at 161 177.791 m E, 923 243.743 m N), so the blocks and the working grid start there.
 # It is ArcticDEM's 2015 surface upsampled (a grid pattern in hillshades, artefacts): snow, the few trees and the
-# buildings are in it, there is no terrain model without them but a 10 m DTM of 2009 (FO_DTM_2009_10m.tif:
-# compared at Enniberg, docs/roadmap.md batch 5), so the DSM is the terrain here as ArcticDEM is in the Arctic.
+# buildings are in it, there is no terrain model without them but a 10 m DTM of 2009 (FO_DTM_2009_10m.tif,
+# PixelIsPoint, -32767, the sea at 0). Compared on 2026-11-15: within 1.5 km of Torshavn the DSM lies on the DTM
+# (best shift (0, 0) +-2 m, median -0.3 m on slopes below 35 deg); at Enniberg (600 m around, 30-200 m) the DSM gives
+# 38 662 pixels steeper than 60 deg at 2 m (the DTM 1 165 at 10 m) and a search 1 039 lines in 30 spots, the DTM
+# 373 lines in 112 spots smoothed by its 10 m: so the DSM is the terrain here, as ArcticDEM is in the Arctic.
 # A new upload is a new folder (the Last-Modified date) here and in the cache
 FO_RELEASE = "20241112"
 FO_DSM_URL = "https://cdn.foroyakort.fo/geodata/raster/DSM/2015/FO_DSM_2015_FOTM_2M.tif"

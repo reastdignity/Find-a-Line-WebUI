@@ -52,7 +52,8 @@ NL_ORTHO = OrthoService("PDOK aerial photo (Beeldmateriaal Nederland)", None, ""
 # own CRS (EPSG:10641 Saba DPnet, 10745 Sint Eustatius DPnet long, 10759 Bonaire DPnet, PROJ 9.8; checked at The
 # Quill and Mount Scenery), so the layers force it (FileBlocks(force_crs=True)). The addresses (dated 2025-03-19)
 # answer 307 to Hetzner's object storage. The DTM has pinholes under forest (at The Quill 43 % of 0.5 m pixels
-# valid, 79 % at 1 m, 97 % at 2 m): the working grid averages them away, what stays is filled from europe.
+# valid, 81 % at 1 m, 97 % at 2 m; Saba's summit 54 % at 1 m): the 2 m working grid averages them away, what
+# stays is filled from europe.
 BQ_FILES = "https://basisdata.nl/hwh-ortho/Caribisch_NL/LiDAR/caribisch"
 BQ_DATAROOM = "https://www.beeldmateriaal.nl/dataroom-caribisch-nederland"
 BQ_CREDIT = Credit("AHN Caribisch Nederland 2023-2024 DTM / DSM 0.5 m (Het Waterschapshuis / Beeldmateriaal)",
@@ -101,11 +102,13 @@ STATIA = Island("sint_eustatius", "statia", "St_Eustatius", "Sint Eustatius", "E
 BONAIRE = Island("bonaire", "bonaire", "Bonaire", "Bonaire", "EPSG:10759", (4000.0, 4000.0, 30000.0, 36000.0),
                  (11.97, 12.32, -68.43, -68.18), "nl-bq1", "07a0f368-478f-4377-a753-c66d7b0c3f6f",
                  "f462790a-88ab-404c-9e6c-83fca88ccfb3_e0ed4080-c898-43e0-965c-a4310de2da31")
-# Its DTM's pinholes under forest are averaged on a 1 m grid (or 2 m: tools/check_source.py at The Quill)
-BQ_RESOLUTION = 1.0
+# A working grid of 2 m: at 1 m the DTM's pinholes under forest (19 % of The Quill's pixels within 500 m, 46 % at
+# Saba's summit) are filled from 30 m data and no anchor stands at a filled seam, so a search at The Quill found 20
+# lines in 5 spots at 1 m and 299 lines at 2 m (3 % filled; 2026-11-15, radius 500 m, 20-150 m)
+BQ_RESOLUTION = 2.0
 BQ_NOTE = ("Data: AHN Caribisch Nederland 2023-2024 (Het Waterschapshuis / Beeldmateriaal Nederland), CC BY 4.0. "
-           "Its terrain model has small holes under forest, averaged on the working grid; the rest is filled from "
-           "30 m data.")
+           "Its terrain model has small holes under forest, averaged on the 2 m working grid; the rest is filled "
+           "from 30 m data.")
 
 
 def _island(island: Island, sample) -> Source:
@@ -136,7 +139,7 @@ SOURCES: List[Source] = [
         countries=("nl",), bbox=NL_BOX, crs=RD_NEW, ortho=NL_ORTHO, credits=(NL_CREDIT,),
         listing=ReadmeRow("Netherlands (European part)", "PDOK AHN4 DTM, 0.5 m (WCS)", "PDOK AHN4 DSM, 0.5 m (WCS)",
                           "PDOK aerial photo (Beeldmateriaal)"),
-        offline=(("nl", NL_BOX),), sample=(50.8335, 5.6830),  # the ENCI quarry at Maastricht (R69)
+        offline=(("nl", NL_BOX),), sample=(50.8258, 5.6866),  # the ENCI quarry at Maastricht (R69)
         neighbours=("north_rhine_westphalia", "lower_saxony"),
         note="Data: AHN4, PDOK, CC0. Surveyed 2020-2022. Water and the buildings removed from the terrain model are "
              "holes, filled from 30 m data.",

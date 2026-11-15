@@ -79,7 +79,8 @@ def test_printed_texts_in_cp1250():
     (17.6350, -63.2370, "saba"),             # Mount Scenery
     (12.2830, -68.3900, "bonaire"),          # Brandaris
     (50.8335, 5.6830, "netherlands"),        # the ENCI quarry
-    (12.10, -68.90, "europe"),               # nl outside every box (Curaçao is cw: never asked)
+    (12.10, -68.90, "europe"),               # nl outside every box
+    (18.04, -63.06, "europe"),               # Sint Maarten: nl at Nominatim's zoom 3 (NL-SX), in no box
 ])
 def test_chosen_by_box(monkeypatch, tmp_path, lat, lon, expected):
     """Caribbean Netherlands is country nl to Nominatim: each island's source by its box, the European part by its
