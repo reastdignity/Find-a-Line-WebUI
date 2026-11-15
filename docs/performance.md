@@ -3372,16 +3372,17 @@ columns, without a copy. T5 and T6 were measured again, as the user asked: "befo
 `data.js`), "after" is 1275215 (it reads the store).
 - **Runs:** C1's three runs above. Each got the store the search would write: `linestore.write` of the run's own
   `data.js` rows. Those rows are already round(value, decimals), and the store keeps them so. BAH-C4's store exported
-  its `lines.csv` byte for byte. The rows of each store equal those of its `data.js`.
+  its `lines.csv` byte for byte (the cuts have no `lines.csv`). Each store has as many rows as its `data.js`.
 - **Method:** C1's `t56.py` with three additions. It records the run's files the page asked for: `data.js` before,
   `lines.arrow` and `profiles.arrow` after, in every round. It forces a full collection after the changes
   (`HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`). It can open a run on the iPhone 13 profile (WebKit).
 - **Heap readings:** `usedJSHeapSize` counts the ArrayBuffers' backing stores. After the full collection it equals
   the V8 heap plus the backing stores, in every round. So before and after are counted alike, although the store's
   columns are views of the downloaded bytes.
-- **Pass:** one exclusive pass on this PC: three rounds each, the 2.5 M cut once, headless Chromium 156.
-  `perf_run_load.py` was not run: it copies a run's `data.js`, `run.json` and `ATTRIBUTION.txt` only, so a run with a
-  store asks for a `lines.arrow` it lacks.
+- **Pass:** one exclusive pass on this PC, three rounds each, headless Chromium 156; the 2.5 M cut's rounds 2 and 3
+  from the store in a second short exclusive pass (from `data.js` it shows the text, so once).
+  `perf_run_load.py` was not run: its scratch folder holds a run's `data.js`, `run.json` and `ATTRIBUTION.txt` and no
+  `runs.js`, so the page finds no store there and reads `data.js`, the "before" path, without a sign of it.
 
 | run | code | round | first picture s | heap MB | heap after gc MB | filter change s | grouping change s |
 |---|---|---|---|---|---|---|---|
@@ -3390,7 +3391,7 @@ columns, without a copy. T5 and T6 were measured again, as the user asked: "befo
 | 2.29 M cut | data.js | 1 / 2 / 3 | 7.17 / 7.08 / 7.11 | 2007 / 2010 / 2009 | 661 / 661 / 661 | 1.77 / 1.73 / 1.65 | 1.91 / 1.83 / 1.80 |
 | 2.29 M cut | store | 1 / 2 / 3 | 3.76 / 3.83 / 3.69 | 538 / 538 / 538 | 521 / 521 / 521 | 1.81 / 1.78 / 1.76 | 1.74 / 1.78 / 1.78 |
 | 2.5 M cut | data.js | 1 | "This result is too large for this browser." | | | | |
-| 2.5 M cut | store | 1 | 4.43 | 313 | 290 | 1.84 | 2.08 |
+| 2.5 M cut | store | 1 / 2 / 3 | 4.43 / 4.55 / 4.25 | 313 / 291 / 601 | 290 / 290 / 565 | 1.84 / 1.91 / 1.69 | 2.08 / 2.25 / 2.10 |
 
 **The load's phases** (medians, s; *parse*: reading the files' tables, *lines*: the columns and percentile ranks):
 
@@ -3424,7 +3425,8 @@ added (89.5 MB) or wave 6 sends brotli.
   over loopback takes 0.6 s and reading the files almost nothing. The rest is the grouping, 1.8 s.
 - **T6: not changed.** A filter change takes 1.2 s and a grouping change 1.5 s at BAH, as before: both are the greedy
   grouping, which view B1's stored spots take out of a filter change.
-- **The 2.5 M cut now opens** in desktop Chromium (4.4 s, 313 MB) and on the iPhone 13 profile (WebKit, desktop
+- **The 2.5 M cut now opens** in desktop Chromium (4.3-4.6 s, 291-601 MB: the garbage of the load is collected
+  before that frame or not) and on the iPhone 13 profile (WebKit, desktop
   machine): the result showed after 10.6 s of wall time. C1 saw it neither open nor refuse there from `data.js`.
 - **Indicative:** the seconds (one exclusive pass, loopback, this PC) and WebKit on Windows (not a phone). The heap
   readings are measured.
