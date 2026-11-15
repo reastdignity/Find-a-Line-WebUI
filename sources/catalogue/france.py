@@ -108,7 +108,9 @@ def _rgealti_overseas(zone: str, where: str, layer: str, crs: str, origin=(0.0, 
 
 
 # La Réunion: LiDAR HD MNT and MNS in RGR92 / UTM 40S (EPSG:2975; the answers name EPSG:32740, forced to the
-# reader's CRS), 0.5 m true floats, nodata -9999 (all of the sea). As the service answered on 2026-11-15: unlike the
+# reader's CRS), 0.5 m true floats, nodata -9999 (the open sea; along the coast the sea has heights: the water at
+# about 0 to -2 m, and single pixels far below, down to -235 m at Cap Méchant, measured 2026-11-15: they count as
+# water inside the sea zone, their heights kept). As the service answered on 2026-11-15: unlike the
 # mainland's, the pixel EDGES lie on multiples of 0.5 m (a GetMap at 0.25 m repeats each value in 2 x 2 blocks
 # starting on the whole and half metres), and the 1 m answer on whole metres is the mean of the 2 x 2 pixels of
 # 0.5 m (within 1e-4 m: tests/test_france_overseas.py). Gaps from the island's RGE ALTI 1 m (vertical datum IGN 1989,
@@ -220,7 +222,8 @@ SOURCES: List[Source] = [
                           "IGN LiDAR HD MNS, 0.5 m (WMS-R, fetched at 1 m)", "IGN BD ORTHO"),
         sample=(-21.1300, 55.4550),  # the Cilaos rampart
         note="Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the working grid). Where LiDAR HD has no "
-             "data, gaps are filled from RGE ALTI 1 m. The sea has no data in either: it is filled as water.",
+             "data, gaps are filled from RGE ALTI 1 m. Along the coast LiDAR HD gives the sea heights of about 0 to "
+             "-2 m, with single pixels far deeper; farther out the sea has no data and is filled as water.",
         coverage=Coverage(provider="IGN", added="2026-11-15", areas=("fr-re",))),
     Source(
         id="france_reunion_rgealti", name="IGN (RGE ALTI 1 m, La Réunion)",
