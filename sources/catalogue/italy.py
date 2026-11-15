@@ -132,7 +132,7 @@ VDA_CREDIT = Credit("DTM 2005/2008 2 m (Regione Autonoma Valle d'Aosta)",
 VDA_ORIGIN = (0.0, 1.0)  # x edges on even, y edges on odd metres (tools/mirror_tiles.py DATASETS["aosta"])
 # The tile's size measured over the mirror's tiles with data (tools/mirror_tiles.py cut, 2026-11-15)
 VDA_DTM = GridTiles("Valle d'Aosta DTM 2 m (terrain)", [], "EPSG:23032", "italy/aosta-dtm0508-2m/2008/epsg23032-2m-2km",
-                    2000, 2.0, 1.8e6, mirror="aosta/dtm/2m", origin=VDA_ORIGIN)
+                    2000, 2.0, 1.6e6, mirror="aosta/dtm/2m", origin=VDA_ORIGIN)
 # The region's offline boxes: the brief's box (45.46-45.99 N, 6.80-7.94 E) in bands whose west edges keep off
 # France (the westernmost Italian land in each band, as IT_BOXES' bands along the French border); north of 45.8 N
 # Switzerland's box comes first in SOURCES

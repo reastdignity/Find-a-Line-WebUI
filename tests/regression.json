@@ -1980,6 +1980,21 @@
       "it"
     ],
     "needs_env": "FINDALINE_MIRROR",
-    "expected": {}
+    "expected": {
+      "anchors": 111409,
+      "open": 9857,
+      "checked": 1925,
+      "lines": 123,
+      "spots": 29,
+      "csv_sha256": "b38b3ae79f2509f00a24aabe5f8f6a73171dee6ac6a7bc8fcba7692ef8993b55",
+      "length_km": 8.523,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.706,
+      "clearance_max": 3.35,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 6.6
   }
 }
