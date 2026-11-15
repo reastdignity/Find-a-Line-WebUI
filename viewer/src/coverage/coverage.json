@@ -106,6 +106,29 @@
    "survey": "",
    "trees": "no"
   },
+  "br": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "smoothed"
+    },
+    {
+     "code": "city_only"
+    }
+   ],
+   "partial": false,
+   "provider": "Instituto Pereira Passos",
+   "res": [
+    5
+   ],
+   "source": "rio_de_janeiro",
+   "survey": "2019",
+   "trees": "no"
+  },
   "ca": {
    "added": "2026-11-02",
    "level": 1,
@@ -181,6 +204,19 @@
    ],
    "source": "swisstopo",
    "survey": "newest",
+   "trees": "yes"
+  },
+  "cy": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "DLS",
+   "res": [
+    1
+   ],
+   "source": "cyprus",
+   "survey": "2014–2019",
    "trees": "yes"
   },
   "cz": {
@@ -386,6 +422,19 @@
    "survey": "",
    "trees": "yes"
   },
+  "ee": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Maa- ja Ruumiamet",
+   "res": [
+    1
+   ],
+   "source": "estonia",
+   "survey": "2021–2024",
+   "trees": "yes"
+  },
   "es": {
    "added": "2026-10-23",
    "level": 2,
@@ -547,6 +596,27 @@
    "survey": "2000–2022",
    "trees": "yes"
   },
+  "gb-nir": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "DAERA",
+   "res": [
+    1,
+    10
+   ],
+   "source": "northern_ireland",
+   "survey": "2021",
+   "trees": "no"
+  },
   "gb-sct": {
    "added": "2026-11-02",
    "level": 1,
@@ -638,6 +708,59 @@
    "source": "tinitaly",
    "survey": "mosaic",
    "trees": "no"
+  },
+  "it-23": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2005–2008"
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Regione Valle d'Aosta",
+   "res": [
+    2
+   ],
+   "source": "aosta_valley",
+   "survey": "2005–2008",
+   "trees": "no"
+  },
+  "it-52": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2004–2017"
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Regione Toscana",
+   "res": [
+    1,
+    10
+   ],
+   "source": "tuscany",
+   "survey": "2004–2017",
+   "trees": "yes"
   },
   "it-88": {
    "added": "2026-11-15",
@@ -773,6 +896,27 @@
    ],
    "source": "malta",
    "survey": "2018",
+   "trees": "yes"
+  },
+  "mx": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "smoothed"
+    }
+   ],
+   "partial": true,
+   "provider": "INEGI",
+   "res": [
+    5,
+    30
+   ],
+   "source": "mexico",
+   "survey": "2006–2012",
    "trees": "yes"
   },
   "nl": {
@@ -953,6 +1097,27 @@
    "survey": "projects",
    "trees": "no"
   },
+  "pt-30": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "DROTe",
+   "res": [
+    2,
+    30
+   ],
+   "source": "madeira",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
   "si": {
    "added": "2026-11-03",
    "level": 1,
@@ -1077,7 +1242,7 @@
    "trees": "no"
   }
  },
- "countries": 26,
+ "countries": 31,
  "partly": {
   "de": [
    "de-bb",
@@ -1096,8 +1261,12 @@
   ],
   "gb": [
    "gb-eng",
+   "gb-nir",
    "gb-sct",
    "gb-wls"
+  ],
+  "pt": [
+   "pt-30"
   ]
  },
  "start": "2025-11-05",

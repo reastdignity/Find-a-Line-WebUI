@@ -143,6 +143,36 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
     # continued provision of data": courtesy, two at once
     "cdn.foroyakort.fo": 2,
+    # INEGI's site (Mexico's 5 m lidar sheets: the download viewer's JSON per sheet and the ZIPs): no published limits
+    # (its terms, https://www.inegi.org.mx/inegi/terminos.html, read 2026-11-15, ask for "buen uso del sitio ... y a no
+    # causar daños en el mismo"; robots.txt allows /app and /contenidos/productos): courtesy, two at once
+    "www.inegi.org.mx": 2,
+    # DLS's INSPIRE download folder (Cyprus' 2019 DTM and DSM tiles): no published limits (the dataset's page on
+    # data.gov.cy, https://www.data.gov.cy/el/dataset/ypsometria-inspire, and the folder, read 2026-11-15; DLS's
+    # e-service limits of 1 GB a day are of another channel); a slow server (about 0.8 MB/s): two at once
+    "eservices.dls.moi.gov.cy": 2,
+    # The Estonian geoportal's download address (the DTM and DSM sheets; Cloudflare): no limit in numbers; its guide
+    # to mass downloads (https://geoportaal.maaruum.ee/est/abi-ja-juhised/andmed/kuidas-on-voimalik-palju-
+    # kaardilehti-korraga-alla-laadida/86, updated 15.05.2026, read 2026-11-15) says "Piirangut kaardilehtede arvus
+    # ei ole" (no limit on the number of sheets), at one's own risk: courtesy, two at once (the catalogue uses this
+    # host only: geoportaal.maaamet.ee answers 302 to it)
+    "geoportaal.maaruum.ee": 2,
+    # Regione Toscana's cartoteca (Tuscany's lidar sheets: the WFS index, the GetFeatureInfo of their URLs and the
+    # ZIPs, all on one host): no published limits (the WMS's and WFS's capabilities, Fees and AccessConstraints
+    # none; the GetFeatureInfo's licence notes and licenza_dati_Lidar.pdf of the ZIPs, read 2026-11-15): courtesy,
+    # two at once
+    "www502.regione.toscana.it": 2,
+    # DAERA's tile caches on ArcGIS Online (Northern Ireland's 2021 coastal DTM, Full_NI_Elevation, and its
+    # orthophoto): no published limits (the items 442cbde42ebe49a3b0d46cd7ce5c8ea2 and 9c0fd3d15cfd446a9678cd6ea4d54dc7,
+    # the services and OpenDataNI's pages, read 2026-11-15); the mail to DAERA of 2026-11-15 promises "at most one
+    # request per second": two at once (and HOST_RATES_OF) until DAERA answers
+    "tiles-eu1.arcgis.com": 2,
+    # ArcGIS Online's shared tile host (Rio de Janeiro's 5 m DTM, IPP's elevation tiles): no published limits (the
+    # item 4dd8af31ff8f4486802613a8d1a22f33 and its service, read 2026-11-15): courtesy, two at once
+    "tiles.arcgis.com": 2,
+    # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
+    # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
+    "admin.opendatani.gov.uk": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -175,6 +205,10 @@ HOST_RATES_OF: Dict[str, int] = {
     # bannissement de 5 minutes"), HTTP 429 above them for 5 s. Our turns are per host: the WMS-R's 40/s less
     # 10 %, which the orthophoto's WMTS on the same host shares (France's tiles; no WFS or download API is used)
     "data.geopf.fr": 2160,
+    # Not a published limit: DAERA's tile caches (Northern Ireland, tiles-eu1.arcgis.com) at the rate the mail to DAERA
+    # of 2026-11-15 promises, "at most one request per second" (less 10 %), until DAERA answers (no limits published:
+    # the items, the services and OpenDataNI's pages, read 2026-11-15)
+    "tiles-eu1.arcgis.com": 54,
 }
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn

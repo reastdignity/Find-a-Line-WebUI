@@ -15,6 +15,28 @@ When basisdata.nl stopped answering TCP (2026-11-15), `tools/check_source.py` on
 waited more than 10 min (GDAL's connect timeout times its retries) before failing; the probe gave up at its 120 s.
 A shorter connect timeout for `/vsicurl/` in `net._gdal_http` would bound it. Found by agent NL.
 
+## `tests/regression.py --update` cannot add a new entry without "expected", nor one without lines
+
+A new entry in `tests/regression.json` without an `"expected"` object crashes `--update` with a `KeyError`
+(`compare(test["expected"], found)` runs before the update), so a new entry needs `"expected": {}` by hand; and a
+search that finds no lines stops with `SearchError` "no_lines" (no map, an exit code or problems), so `--update`
+stores nothing for it and says nothing about it beyond the comparison's output. Found 2026-11-15 by agent CE (batch 5 wave 2, R78 and R79); not changed.
+
+## The test lock fails with a relative path to the program
+
+`tools/test_lock.py run -- .venv\Scripts\python.exe ...` (a relative executable path) fails, while the same command
+with an absolute path runs. Seen 2026-11-15 by agents LT and TO (batch 5 wave 2), not reproduced or traced; give the program by its
+absolute path.
+
+## Clock-bound tests fail under a parallel full pytest
+
+Two tests assert wall-clock times that a loaded PC misses; each passed when run alone (2026-11-15, batch 5 wave 2:
+not caused by its changes; the tests are unchanged):
+- `tests/test_web.py::test_quick_lane_idle_and_prompt` asserts each of five quick-lane answers within 0.5 s
+  (`time.monotonic() - started < 0.5`): 0.85 s in the CE agent's full suite and again in the merged wave 2 suite.
+- `tests/test_probe.py::test_timeout` runs the probe with `timeout=0.5` over a slow source (3 s) and a fast one and
+  asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE).
+
 ## Five tests fail on macOS (arm64) on `main` itself
 
 Seen 2026-11-08 on a MacBook (Apple silicon, macOS 26.6.1; Python 3.15.2 from uv, numpy 2.5.4, numba 0.68.0,

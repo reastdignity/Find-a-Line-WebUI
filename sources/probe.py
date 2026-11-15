@@ -18,7 +18,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers; a member
   of a remote ZIP archive (ZipMemberTiles) its local header, by a Range of a few hundred bytes (the index's
-  estimate read the archives' ends and directories);
+  estimate read the archives' ends and directories); a tile of an Esri elevation tile cache (LercTiles) the first
+  KB of the tile holding the sample at the level of the source's resolution, which must start with the LERC1
+  magic (no Range, no index: a fixed tiling);
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -69,7 +71,7 @@ from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
-from .readers.windows import _forget, _read_window, _same_crs, _wrong_crs
+from .readers.windows import _forget, _read_ranged, _same_crs, _values_on, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
@@ -83,6 +85,13 @@ from .layers.lidarbc import LidarBcBlocks
 from .layers.wcs import GeoWcsTiles
 from .layers.geosheets import GeoSheetTiles
 from .layers.sheets import WfsFeatureTiles
+from .layers.inegi import InegiSheets
+from .layers.metricsheets import MetricSheetTiles
+from .layers.cartoteca import CartotecaTiles
+from .layers.lerc import LercTiles
+from .layers.zipsheets import ZipSheetTiles, signed_location
+from .indexes.mercator import level_for
+from .readers.lerc import LERC1_MAGIC
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -97,10 +106,12 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (ZipMemberTiles, "zip"),  # the same
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WfsFeatureTiles, "zipfile"),  # before IndexedTiles, of which it is one: the first KB, never a byte range 0-0
+    (CartotecaTiles, "cartoteca"),  # the same, its URL from a GetFeatureInfo first
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
-    (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"))
+    (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"), (MetricSheetTiles, "sheet"),
+    (LercTiles, "lerc"), (ZipSheetTiles, "zipsheets"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -232,6 +243,21 @@ def _zip_head(cache_dir: str, layer: IndexedTiles, tile) -> str:
     return ""
 
 
+def _cartoteca_head(cache_dir: str, layer: CartotecaTiles, tile) -> str:
+    """The first tile's URL from a GetFeatureInfo (written to the probe's own folder only), then the first KB of its
+    ZIP (no Range); raises unless one names it and the file starts with a ZIP's local file header."""
+    request = layer.index.request(tile)
+    with host_slot(cache_dir, layer.index_url):
+        urls = layer.reader.resolve(request)
+    if not (urls or {}).get(layer.kind):
+        raise RuntimeError(f"no GetFeatureInfo names {request.name}")
+    status, kind, body = _ask(cache_dir, urls[layer.kind])
+    if status != 200 or not body.startswith(b"PK"):
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return f"{request.name} ({urls.get('owner')})"
+
+
 def _zip_header(cache_dir: str, layer: ZipMemberTiles, tile) -> str:
     """The local file header of the first tile's member, by one Range of its fixed part, its name and 64 bytes
     (never the member's data); raises unless it is the member's (the archive was replaced, or moved: a 404)."""
@@ -263,13 +289,24 @@ def _window(cache_dir: str, layer: FileBlocks, tile, centre: bool = False) -> st
     if not request.files:
         raise RuntimeError("no file for the first block")
     name, url, _ = request.files[0]
+    force_crs, warp = getattr(layer.reader, "force_crs", False), getattr(layer.reader, "warp", None)
+    if getattr(layer.reader, "ranged", False) and url.startswith(("http://", "https://")):
+        with host_slot(cache_dir, url):  # our own range requests (Windows(ranged=True)), each taking its turn
+            values = _read_ranged(url, request.crs, transform, (WINDOW_PX, WINDOW_PX), name, "window", force_crs,
+                                  warp)
+        if values is None:
+            raise RuntimeError(f"{name} not found")
+        share = float(np.isfinite(values).mean())
+        if not share:
+            raise RuntimeError(f"no data in a window of {name}")
+        return f"window {100 * share:.0f}% with data"
     try:
         with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
             net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
             with rio.open(_remote(url)) as remote:
-                if _wrong_crs(remote, request.crs, getattr(layer.reader, "force_crs", False)):
+                if _wrong_crs(remote, request.crs, force_crs, warp):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
-                values = _read_window(remote, transform, (WINDOW_PX, WINDOW_PX))
+                values = _values_on(remote, request.crs, transform, (WINDOW_PX, WINDOW_PX), warp)
         if errors:
             raise RuntimeError(f"{name} not read completely: " + "; ".join(dict.fromkeys(errors)))
     except (RuntimeError, rio.errors.RasterioError):
@@ -328,6 +365,46 @@ def _geo_coverage(cache_dir: str, layer: GeoWcsTiles, lat: float, lon: float) ->
     if status != 200 or body[:4] not in TIFF_MAGIC:
         raise RuntimeError(f"GetCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     return NONE, OK
+
+
+def _lerc_tile(source: Source, layer: LercTiles) -> Tuple[int, int, int]:
+    """The tile of an Esri elevation tile cache holding the sample, at the level of the source's default resolution."""
+    lat, lon = source.sample
+    level = level_for(source.default_resolution, lat, layer.max_level)
+    n = 2 ** level
+    row = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
+    return level, row, int((lon + 180) / 360 * n)
+
+
+def _lerc_head(cache_dir: str, source: Source, layer: LercTiles) -> Tuple[str, str]:
+    """The first KB of the tile holding the sample (no Range: the stream is closed after it), which must start with
+    the LERC1 magic; no index (a fixed tiling)."""
+    url = layer.reader.url(_lerc_tile(source, layer))
+    status, kind, body = _ask(cache_dir, url)
+    if status != 200 or not body.startswith(LERC1_MAGIC):
+        raise RuntimeError(f"HTTP {status} {kind} for {cache.clean_url(url)}"
+                           + (", not a LERC1 tile" if status == 200 else ""))
+    return NONE, OK
+
+
+def _zip_sheet_header(cache_dir: str, layer: ZipSheetTiles, tile) -> str:
+    """The local file header of the first sheet's first member, by one Range of its fixed part, its name and 64
+    bytes on the address its archive's link sends to now (never the member's data); raises unless it is the
+    member's."""
+    member = tile.members[0]
+    with host_slot(cache_dir, member.url):
+        url = signed_location(member.url)
+        last = member.offset + LOCAL_SIZE + len(member.member.encode("utf-8")) + 63
+        try:
+            body, total, _ = ranged(url, member.offset, last, REQUEST_TIMEOUT_S)
+        except ArchiveChanged as e:
+            raise RuntimeError(str(e)) from None
+    _, name_length, _ = local_header(body)
+    if member_name(body[LOCAL_SIZE:LOCAL_SIZE + name_length], member.flags) != member.member:
+        raise RuntimeError(f"the local header at {member.offset} is not {member.member}'s")
+    if total is not None and member.length and total != member.length:
+        raise RuntimeError(f"the archive has {total} bytes, its directory was read from {member.length}")
+    return f"sheet {tile.sheet}, member {member.member.rsplit('/', 1)[-1]} ({member.size / 1e6:.1f} MB)"
 
 
 def _tiff_head(cache_dir: str, url: Optional[str]) -> str:
@@ -419,6 +496,15 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 tiles = layer.tiles(_grid(source))
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             return row
+        if kind == "lerc":
+            try:
+                row.index, row.read = _lerc_head(cache_dir, source, layer)
+            except (requests.RequestException, RuntimeError) as e:
+                row.read = FAILED
+                row.notes.append(cache.clean_error(e))
+            if deep and row.read == OK:
+                row.notes.append(_deep(cache_dir, layer, _lerc_tile(source, layer), folder))
+            return row
         grid = _grid(source)
         printed = io.StringIO()
         try:
@@ -428,7 +514,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text", "zip", "blocks", "zipfile"):
+        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca", "zipsheets"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -454,8 +540,12 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _xyz_head(cache_dir, layer, tiles[0])
             elif kind == "zipfile":
                 _zip_head(cache_dir, layer, tiles[0])
+            elif kind == "cartoteca":
+                row.notes.append(_cartoteca_head(cache_dir, layer, tiles[0]))
             elif kind == "zip":
                 row.notes.append(_zip_header(cache_dir, layer, tiles[0]))
+            elif kind == "zipsheets":
+                row.notes.append(_zip_sheet_header(cache_dir, layer, tiles[0]))
             elif kind == "sheet":
                 _tiff_head(cache_dir, _first_url(layer, tiles[0]))
             else:

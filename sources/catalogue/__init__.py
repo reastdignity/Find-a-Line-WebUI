@@ -15,6 +15,11 @@ from . import iceland
 from . import uruguay
 from . import netherlands
 from . import faroe
+from . import mexico
+from . import cyprus
+from . import estonia
+from . import portugal
+from . import brazil
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
@@ -24,8 +29,10 @@ from . import faroe
 # before Canada: Canada's offline box holds north-western Greenland, and Nunavut's boxes lie inside it; Iceland
 # anywhere before the global ones; Uruguay anywhere before the global ones; the Netherlands before Germany:
 # North Rhine-Westphalia's and Lower Saxony's offline boxes hold the eastern Netherlands, its own keep clear
-# of German land; the Faroe Islands anywhere before the global ones
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, spain, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, world)
+# of German land; the Faroe Islands anywhere before the global ones; Mexico before the USA: the usa's offline box
+# holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
+# (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -41,7 +48,7 @@ AREA_NAMES: Dict[str, str] = {
     "de-rp": "Rheinland-Pfalz", "de-sh": "Schleswig-Holstein", "de-sl": "Saarland", "de-sn": "Sachsen",
     "de-st": "Sachsen-Anhalt", "dk": "Danmark", "es": "España", "es-cn": "Canarias", "fi": "Suomi", "fr": "France",
     "gb-eng": "England", "gb-sct": "Scotland", "gb-wls": "Wales", "gl": "Kalaallit Nunaat", "is": "Ísland",
-    "it": "Italia", "it-88": "Sardegna",
+    "it": "Italia", "it-88": "Sardegna", "it-52": "Toscana",
     "it-bz": "Provincia autonoma di Bolzano", "it-tn": "Provincia autonoma di Trento", "li": "Liechtenstein",
     "lu": "Luxembourg", "mt": "Malta", "no": "Norge", "no-21": "Svalbard", "no-22": "Jan Mayen", "nz": "New Zealand",
     "pl": "Polska", "pr": "Puerto Rico", "si": "Slovenija", "sk": "Slovensko", "us": "United States",
@@ -49,4 +56,5 @@ AREA_NAMES: Dict[str, str] = {
     "bl": "Saint-Barthélemy", "fr-gf": "Guyane", "fr-gp": "Guadeloupe", "fr-mq": "Martinique",
     "mf": "Saint-Martin (France)", "pm": "Saint-Pierre-et-Miquelon", "au": "Australia", "uy": "Uruguay",
     "nl": "Nederland", "nl-bq1": "Bonaire, Nederland", "nl-bq2": "Saba, Nederland", "nl-bq3": "Sint Eustatius, Nederland",
-    "fo": "Føroyar"}
+    "fo": "Føroyar", "mx": "México", "cy": "Κύπρος", "ee": "Eesti", "pt-30": "Madeira, Portugal",
+    "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil"}

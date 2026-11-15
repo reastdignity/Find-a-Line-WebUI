@@ -7,7 +7,7 @@
 # Before `docker compose up -d --build`:
 # - findaline.env: the settings of the site (copy findaline.env.example);
 # - secrets/: one file per secret (secrets/README.md), readable by uid 10001;
-# - optionally .env next to this file (copy .env.example): resources and the Slovak mirror.
+# - optionally .env next to this file (copy .env.example): resources and the local mirror.
 #
 # Networks (docs/deployment.md, sections 2 and 4): nginx on the host reaches the web service on
 # 127.0.0.1:8765 (WEB_PORT in .env changes the host's side), Telegraf its metrics on 127.0.0.1:8766
@@ -122,8 +122,9 @@ services:
       - nls_api_key
     volumes:
       - data:/data
-      # The local mirror of the Slovak tiles (the folder above slovakia/), read-only; without
-      # FINDALINE_MIRROR_DIR an empty volume, and --source auto takes `europe` for Slovakia
+      # The local mirror (the folder above slovakia/, madeira/, aosta/), read-only; without
+      # FINDALINE_MIRROR_DIR an empty volume, and --source auto takes `europe` for Slovakia and
+      # Madeira, `tinitaly` for Valle d'Aosta (docs/deployment.md sections 10 and 16)
       - ${FINDALINE_MIRROR_DIR:-no-mirror}:/mirror:ro
       - type: tmpfs
         target: /tmp

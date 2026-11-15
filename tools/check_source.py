@@ -187,8 +187,10 @@ def _spread(items: List, n: int) -> List:
 
 
 def _gdal_path(url: str) -> str:
+    """GDAL's path of a source file: a remote one by /vsicurl/, a ZIP (or a member of one: <zip>/<member>) by
+    /vsizip/."""
     path = f"/vsicurl/{url}" if url.startswith(("http://", "https://")) else url
-    return f"/vsizip/{path}" if url.lower().endswith(".zip") else path
+    return f"/vsizip/{path}" if url.lower().endswith(".zip") or ".zip/" in url.lower() else path
 
 
 def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
@@ -217,6 +219,22 @@ def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.ne
         if url.startswith(("http://", "https://")):
             rio.cache.invalidate(url)  # not the short answer again from GDAL's cache
         raise
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
+def _read_ranged(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
+    """A source file of a layer that reads its files through our own range requests (Windows(ranged=True):
+    Estonia's PHP download address, which GDAL's /vsicurl/ does not take for a .tif) on the pixels of a cached tile,
+    through ranges.open_remote (the first bytes a TIFF's) and a WarpedVRT; NaN without data. Raises RuntimeError
+    when a range could not be read whole."""
+    from sources.readers import ranges
+    with src.net.gdal_errors() as errors, ranges.open_remote(url, tiff_only=True) as (source, file):
+        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                       height=profile["height"], resampling=resampling) as vrt:
+            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    if errors or file.error is not None:
+        raise RuntimeError("not read completely: " + cache.clean_error(file.error or "; ".join(dict.fromkeys(errors))))
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
     return values
 
@@ -276,10 +294,45 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     return drop_below(values, layer.floor, layer.ring)
 
 
+def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndarray:
+    """An INEGI sheet's ZIP (downloaded whole by src.net._get: GDAL's /vsizip/ over /vsicurl/ would read it by ranges
+    outside sources.net, and the names carry backslashes) whose ArcInfo GRID is unpacked here by zipfile and read by
+    GDAL on the pixels of a cached tile, in the sheet's CRS (the GRID names none); the pixels outside the sheet's
+    cell grown by the reader's margin are left out, as the layer leaves them out (its cut, done again here from the
+    cell's edges)."""
+    import shutil
+    import tempfile
+    from rasterio.features import geometry_mask
+    from shapely.geometry import box
+    response = src.net._get(url, binary_types=("zip", "octet"))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    folder = tempfile.mkdtemp(prefix="inegi-")
+    try:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            names = {i.filename.replace("\\", "/"): i for i in archive.infolist() if not i.is_dir()}
+            grid = next(n for n in names if n.lower().endswith("/hdr.adf"))[:-len("hdr.adf")]
+            for name, info in names.items():
+                if name.startswith(grid) and "/" not in name[len(grid):]:
+                    with open(os.path.join(folder, name[len(grid):]), "wb") as out:
+                        out.write(archive.read(info))
+        with rio.open(folder) as source:
+            with WarpedVRT(source, src_crs=tile.crs, crs=profile["crs"], transform=profile["transform"],
+                           width=profile["width"], height=profile["height"], resampling=Resampling.nearest) as vrt:
+                values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    west, south, east, north = layer.index.edges(tile)
+    cell = ar.project(box(west, south, east, north).segmentize(0.002), "EPSG:4326", tile.crs)
+    values[geometry_mask([cell.buffer(layer.reader.margin_m)], values.shape, profile["transform"])] = np.nan
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
-    if isinstance(layer, (src.WcsTiles, src.GeoWcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer,
-                          src.OpenTopographyTiles)):
+    if isinstance(layer, (src.WcsTiles, src.GeoWcsTiles, src.LercTiles, src.ZipSheetTiles, WmsrTiles,
+                          src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
         return None  # a service's answer, a local file, or the API's limited calls
     if isinstance(layer, (src.TnmBlocks, src.S3Blocks)):
         return [url for _, url, _ in tile.files]
@@ -287,6 +340,8 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
         base = layer.tile_url(tile)
         return [f"{base}/{src.grid_tile_name(*tile[1:])}"] if base else None  # a tile (res, i, j)
     url = layer.tile_url(tile)
+    if isinstance(layer, src.CartotecaTiles) and url:  # its ZIP holds the grid and the owner's licence (a PDF)
+        return [f"{url}/{layer.index.request(tile).name}.asc"]
     return [url] if url else None
 
 
@@ -363,6 +418,8 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         for url in _sources_of(layer, tile):
             try:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
+                # A layer that warps its files onto its blocks (Cyprus: nearest for the DTM, average for the DSM)
+                resampling = getattr(getattr(layer, "reader", None), "warp", None) or resampling
                 # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
                 if isinstance(layer, src.ZippedTiles) and layer.members is not None:
                     source = _read_zip(layer, url, profile)
@@ -370,6 +427,10 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_xyz(url, profile)
                 elif isinstance(layer, src.ZipMemberTiles):
                     source = _read_member(layer, tile, profile)
+                elif isinstance(layer, src.InegiSheets):
+                    source = _read_grid(layer, url, tile, profile)
+                elif getattr(getattr(layer, "reader", None), "ranged", False) and url.startswith("http"):
+                    source = _read_ranged(url, profile, resampling)
                 else:
                     source = _read_source(url, profile, resampling)
                 geoid = getattr(layer, "geoid", None)

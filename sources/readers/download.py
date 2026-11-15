@@ -3,6 +3,7 @@ written again: in another CRS's name, or averaged to coarser pixels."""
 
 import hashlib
 import os
+import re
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -14,6 +15,8 @@ from .. import net
 from ..net import RETRIES, _part
 from ..layer import Fetched, VALID_MIN, _write_tile, copied_tags, float_band
 from ..composed import Reader
+from . import TIFF_MAGIC
+from .ranges import page_text
 
 # The rows of the coarser pixels averaged at a time (average): a band of factor * AVERAGE_ROWS rows of the
 # file is read, so a 5000 x 5000 float32 file is never held whole as an array (about 30 MB at its peak for
@@ -41,7 +44,12 @@ class Download(Reader):
     _write_tile profile; its overviews dropped, its nodata and values below VALID_MIN as NaN, its CRS,
     transform and tags kept), after the checksum was checked on the bytes downloaded.
 
-    url_of gives a tile's URL; label names it in messages ("tile 50,19")."""
+    url_of gives a tile's URL; label names it in messages ("tile 50,19").
+
+    tiff_only: an answer that is not a TIFF (by its first bytes) is never kept: asked again (RETRIES times, with
+    backoff), then an error; with not_found (a regex), such an answer whose text matches it means the server has no
+    file there, missing like a 404 (Estonia's download address answers a sheet in the sea with an HTML page "Map
+    sheet not found." and HTTP 200; its binary_types must then take text/html, or net._get refuses the page)."""
     # A float raster of one band is written again by _write_tile whatever its file was (the cached file is no
     # longer the provider's byte for byte); an integer raster (NASADEM, the water mask), a raster of several bands
     # and anything that is not a raster are kept as they came. So reencode / cache migrate may convert a file of
@@ -51,12 +59,14 @@ class Download(Reader):
     def __init__(self, description: str, url_of: Callable[[object], str], label: Callable[[object], str],
                  binary_types: Optional[Sequence[str]] = None,
                  sha256: Optional[Callable[[object], Optional[str]]] = None,
-                 average: int = 1, crs: Optional[str] = None):
+                 average: int = 1, crs: Optional[str] = None, tiff_only: bool = False,
+                 not_found: Optional[str] = None):
         if not isinstance(average, int) or average < 1:
             raise ValueError(f"average must be a positive integer, not {average!r}")
         self.description, self.url_of, self.label = description, url_of, label
         self.binary_types, self.sha256 = binary_types, sha256
         self.average, self.crs = average, crs
+        self.tiff_only, self.not_found = tiff_only, not_found
 
     def url(self, tile) -> Optional[str]:
         return self.url_of(tile)
@@ -72,11 +82,18 @@ class Download(Reader):
                 raise RuntimeError(f"Could not download {self.description} {self.label(tile)}: {e}")
             if response is None:  # no tile there (sea)
                 return Fetched(0, url)
-            if not expected or hashlib.sha256(response.content).hexdigest() == expected:
+            if self.tiff_only and response.content[:4] not in TIFF_MAGIC:
+                text = page_text(response.content)
+                if self.not_found and re.search(self.not_found, text):
+                    return Fetched(0, url)  # the server's page for a file it does not have
+                problem = f"not a TIFF: {text}"
+            elif expected and hashlib.sha256(response.content).hexdigest() != expected:
+                problem = "wrong checksum"
+            else:
                 break
             net._sleep(attempt)
         else:
-            raise RuntimeError(f"{self.description} {self.label(tile)}: wrong checksum")
+            raise RuntimeError(f"{self.description} {self.label(tile)}: {problem}")
         fetched = Fetched.of(response, url)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = _part(path + ".raw")  # _write_tile writes the tile through _part(path)

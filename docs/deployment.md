@@ -621,7 +621,8 @@ The Slovak tiles (`tools/sk_tiles.py`) are not downloaded by the site: copy the 
 (the folder above `slovakia/`) to the server, e.g. `/srv/findaline-mirror`, make it readable
 (`sudo chmod -R a+rX /srv/findaline-mirror`), set `FINDALINE_MIRROR_DIR=/srv/findaline-mirror`
 in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror`; without it
-`--source auto` takes `europe` for Slovakia.
+`--source auto` takes `europe` for Slovakia. Madeira's and Valle d'Aosta's tiles live in the
+same mirror: section 16.
 
 **Country cubes (the highline explorer).** The page `#layer` (administrators only on the public
 site) reads `/data/countries/<id>/cube/` of the data volume. The server never counts countries
@@ -1061,3 +1062,17 @@ The four containers and Telegraf may take about 2.3 GB of memory together (their
 volumes) and `sudo systemctl disable --now telegraf findaline-facts.timer findaline-check.timer
 findaline-heartbeat.timer`; the SSH login notice stops when its line is removed from
 `/etc/pam.d/sshd` (`setup` and `update` add it again).
+
+## 16. The local mirror's other datasets
+The local mirror holds our own tiles of three sources, none of which the site downloads: Slovakia
+(`slovakia/`, `tools/sk_tiles.py`), Madeira (`madeira/dtm/2m`) and Valle d'Aosta (`aosta/dtm/2m`),
+both cut by `tools/mirror_tiles.py` from one file each (about 0.33 and 1.46 GB, 2026-11-15). The
+worker reads them from `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the folder that
+`FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10); copy the folders you want next to
+`slovakia/` with the same layout and make them readable as in section 10.
+
+Without a dataset's folder its source is unavailable and `--source auto` takes the next source of
+the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m); the run's text
+names the missing folder. On 2026-11-15 the VPS has none of the new folders, so Madeira and Valle
+d'Aosta run on those fallbacks there. The regression entries R80 and R81 are skipped without
+their folders (`needs_path`).

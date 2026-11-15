@@ -81,7 +81,7 @@ class HttpServer:
         self.answers: Dict[Key, Answer] = {}
         self.routes: List[Tuple[str, Callable[[Request], Optional[Answer]]]] = []
         self.log: List[Request] = []
-        self.faults: Dict[str, Tuple[str, Callable[[int, str], bool]]] = {}
+        self.faults: Dict[str, Tuple[str, Callable[[int, str], bool], bool]] = {}
         self._ranges_asked: Dict[str, int] = {}
         self._lock = threading.Lock()
         server = self
@@ -155,23 +155,26 @@ class HttpServer:
 
     FAULTS = ("truncate", "close")
 
-    def fault(self, path: str, kind: str, when: Callable[[int, str], bool]):
+    def fault(self, path: str, kind: str, when: Callable[[int, str], bool], plain: bool = False):
         """Break range answers (206) to path: `when(n, range)` of the n-th range request to path
         (from 1) and its Range header decides. `truncate`: the headers of the whole answer, half
         of its body, then the connection closed (curl: "end of response with ... bytes
         missing"); `close`: the connection closed without an answer (curl: "Empty reply from
-        server", no HTTP status)."""
+        server", no HTTP status). With plain, whole answers (200) to requests without a Range header are
+        broken too (`when(n, "")`): a download cut short, its Content-Length larger than the bytes sent."""
         if kind not in self.FAULTS:
             raise ValueError(kind)
-        self.faults[path] = (kind, when)
+        self.faults[path] = (kind, when, plain)
 
     def _fault_of(self, request: Request) -> Optional[str]:
-        if request.path not in self.faults or "range" not in request.headers:
+        if request.path not in self.faults:
             return None
-        kind, when = self.faults[request.path]
+        kind, when, plain = self.faults[request.path]
+        if "range" not in request.headers and not plain:
+            return None
         with self._lock:
             self._ranges_asked[request.path] = n = self._ranges_asked.get(request.path, 0) + 1
-        return kind if when(n, request.headers["range"]) else None
+        return kind if when(n, request.headers.get("range", "")) else None
 
     # The log
 
@@ -229,7 +232,7 @@ class HttpServer:
                                  + body[first:last + 1] + b"\r\n")
                 status, body = 206, b"".join(parts) + f"--{self.BOUNDARY}--\r\n".encode()
                 headers["Content-Type"] = f"multipart/byteranges; boundary={self.BOUNDARY}"
-        fault = self._fault_of(request) if status == 206 else None
+        fault = self._fault_of(request) if status == 206 or (status == 200 and "range" not in request.headers) else None
         if fault == "close":
             handler.close_connection = True
             return

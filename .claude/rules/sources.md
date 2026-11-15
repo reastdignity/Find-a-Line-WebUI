@@ -40,9 +40,17 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   no pixel is not credited (FABDEM too). `filling.terrain_origins` tells the fallbacks apart by `fill_gaps_chain`'s
   `steps` (the first mask the union, the later ones disjoint): a chain that writes its masks otherwise changes both.
   Help texts name no countries, they point to the table.
+- Credits per owner: a layer whose files have owners of different licences (`Layer.credits_by_pixels`,
+  `used_entries`: Tuscany) records one entry per owner whose files wrote a pixel (`build_mosaic(wrote=)`), each with
+  its own name and credit; every writer of `used_data` goes through `prepare_layer`, and `fill_gaps` drops all of a
+  filler's entries when it filled nothing (`_forget_entries`). A per-sheet index that is not an `IndexedTiles`
+  (INEGI's JSON per sheet) is skipped by `update.py` and by record_answers' generic test (`tests/test_parts.py`
+  `ANSWER_CASES` leave out "sheets" cases): it brings its own update path and test.
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
-  its sha256 check; integer files, NASADEM and the water mask, as they came), `tools/sk_tiles.py` `_write_averaged`
+  its sha256 check; integer files, NASADEM and the water mask, as they came), the mirror's tiles (`tools/sk_tiles.py`
+  `_write`, which `tools/mirror_tiles.py` reuses for Madeira and Valle d'Aosta: its `DATASETS` origin is the
+  catalogue's `GridTiles(origin=)`, `tests/test_mirror_tiles.py`), `tools/sk_tiles.py` `_write_averaged`
   (lossless ZSTD, `AVERAGED_PROFILE`: `test_slovak_tiles_averaged` pins the mirror's profile and bits; such a tile is
   one float band that is not LERC, which `old_encoding` calls old by its header alone: only `GridTiles`' `rewrites`
   False keeps the mirror's copies from `reencode` and `cache migrate`,
@@ -62,7 +70,13 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   m lost 40% of its lines). Comparing rasters from two services needs the same care. A neighbour's data at a border
   lie off the grid by construction (another CRS, another origin): at the grid's own resolution they are reprojected by
   nearest, never bilinearly (`filling.NEIGHBOUR_SAME_RESOLUTION`), and coarser data never by nearest (a staircase of
-  false walls).
+  false walls). The mosaic chooses average or bilinear by the raster's pixel in metres (`mosaic.src_pixel_m`):
+  EPSG:3857 at its ground size (times the cosine of the grid centre's latitude), degrees still as 111 320 m both
+  ways (existing results rest on it; docs/roadmap.md, "To check"); a change moves results.
+- **`/vsicurl/` only for `.tif`/`.tiff` URLs** (`net._gdal_http`'s `CPL_VSIL_CURL_ALLOWED_EXTENSIONS`): another
+  download address is read through our own ranges (`Windows(ranged=True)`). A server may answer an error as an HTML
+  page with HTTP 206 and the page's own Content-Range (Estonia's): check the TIFF magic (`ranges.NotTiff`,
+  `Download(tiff_only=True)`), never cache it.
 - **Telling surveys apart**: two services resample differently, so compare their difference with the difference of the
   candidate source files (difference of differences); a residual around 0 shows which survey each serves (used for
   KRON86 vs EVRF2007).
@@ -70,13 +84,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   `application/*`), formats (some GeoTIFFs are whole metres; ASCII grids keep centimetres), server limits (~2000×2000
   px), interpolation support. Malta's WCS answers 404 to a request that reaches beyond the coverage, which once made
   the whole north coast of Gozo "missing": `WcsTiles` clips such a request to the DescribeCoverage extent. A `missing`
-  tile at the edge of a country's data deserves suspicion. Seen since: the Environment Agency answers HTTP 500 (not 404)
-  for a tile wholly outside its coverage; Mecklenburg-Vorpommern's MapServer answers 400 for one wholly outside and
-  stores the sea and the extent outside the Land as 0 in both layers, Hesse's rasdaman answers 404 beyond its extent
-  and stores 0 outside the Land in its DOM (-9999 in its DGM); Saxony-Anhalt's ArcGIS WCS writes its multipart headers
-  with bare LF, refuses more than about 2000 px (400) and answers 0 without nodata outside the Land; South Tyrol's
-  GeoServer refuses SCALESIZE, clips partial requests, takes `GEOTIFF:COMPRESSION=DEFLATE`, and blends the pixels next
-  to its nodata edge with 0 (`edge_px=3`).
+  tile at the edge of a country's data deserves suspicion. Other services' answers beyond their extent (500, 400, 0
+  without nodata, blended edges): docs/data-sources.md, section 5.
 - **Patched names** (`_get`, `_sleep` of `sources.net`, `country_code` of `sources.choose`, `DOWNLOAD_THREADS` of
   `sources.layer`): call and patch them through their module (`net._get(...)`,
   `monkeypatch.setattr(src.net, "_get", ...)`), never import them by name; the package does not re-export them, so a
@@ -120,15 +129,11 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **GDAL's warper on Windows** (GDAL up to 3.13; rasterio 1.5.2's wheels hold 3.12.2): `reproject(num_threads > 1)` is
   GDAL's `ChunkAndWarpMulti`, one joinable thread per chunk, and `CPLCreateJoinableThread`'s race (OSGeo/gdal#15452,
   fixed on GDAL's master by #15451, in no 3.12 or 3.13 release) frees a thread's record twice when the thread ends
-  before `CreateThread` returned: exit code 3221226356 (0xC0000374), no traceback, a worker's log stops mid-tile. A
-  strip its source covers in part (a mosaic of two degree tiles: the water mask, FABDEM) is split into 40-55 chunks,
-  many without a source pixel, so the country layer's workers died at about 1.4 of 1000 such stitches (32 times in 81
-  550 tiles of rounds 4 and 5, never at a stitch of one tile; a stress of 12 processes 41 times in 15 minutes, 0 with
-  `mosaic.WARP_KWARGS`, 2026-11-08). Never pass `num_threads > 1` to `reproject`: `num_threads=1` with the warp option
-  `NUM_THREADS=N` keeps the kernel's N threads (`mosaic.WARP_KWARGS`). `faulthandler` sees a heap corruption: it
-  prints `Windows fatal exception: code 0xc0000374` and each thread's Python stack, never a C stack (checked with a
-  double free of ucrtbase's and in the warper's stress); the country workers have it on (`country._worker_env`);
-  re-measured when a release carries #15451: docs/roadmap.md, "To check".
+  before `CreateThread` returned: exit code 3221226356 (0xC0000374), no traceback, a worker's log stops mid-tile
+  (the measurements: docs/data-sources.md, section 5). Never pass `num_threads > 1` to `reproject`: `num_threads=1`
+  with the warp option `NUM_THREADS=N` keeps the kernel's N threads (`mosaic.WARP_KWARGS`). `faulthandler` prints
+  `Windows fatal exception: code 0xc0000374` and each thread's Python stack, never a C stack; the country workers
+  have it on (`country._worker_env`); re-measured when a release carries #15451: docs/roadmap.md, "To check".
 - **Heights above the ellipsoid** (ArcticDEM: the sea at 27-32 m in Greenland and Svalbard): a layer of them names its
   geoid (`FileBlocks(geoid=EGM2008)`) and caches its blocks above it, so the water filling, the sea at 0 m and the
   heights shown stay as for every other model. Never PROJ for the geoid: pyproj's transformation to EGM2008 heights
@@ -142,10 +147,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **A grid smaller than its outline**: `grid.area_shape` may be more than the grid (a country layer's tile carries the
   whole country's outline, `search.tile_grid`; a border tile's footprint, cube-v2's `reach_shape`, reaches beyond its
   box), so whatever picks data tiles, index tiles or cells under an outline also stays within the grid's box
-  (`tilings.cells_under`'s `within`, `cached.index_tiles`). 04e91b0 (2026-11-08) dropped the box: until 2026-11-11
-  every interior tile of Slovakia listed the 12 715 files of each layer of the whole country and the mosaic opened
-  each (about 33 s a tile, 31 of the lead profile's 32 stitching hours), the counts unchanged (files outside the
-  window are skipped). A test of such code takes grids inside, across and outside the outline
+  (`tilings.cells_under`'s `within`, `cached.index_tiles`; without it every tile of Slovakia opened the whole
+  country's files: docs/data-sources.md, section 5). A test of such code takes grids inside, across and outside the outline
   (`tests/test_units.py::test_tilings_within_the_grids_box`).
 - **Updates** (`update.py`): a dataset that can change needs a TTL (`cache.TTL_DAYS`, `Layer.ttl_days` from `/live` in
   the folder) and a way back from its path to its tile (`Layer.tile_of`), otherwise `cache update` skips it.
