@@ -1979,6 +1979,31 @@
     "seconds": 17.5,
     "notes": "added 2026-11-15: --source auto picks mexico (MX); the circle lies within one sheet, G14C15B2 (terrain edition 2011, surface 2012, about 4 MB each, about 4 s a model on an empty cache), on its own pixels in EPSG:4487 (no resampling); the spots along the canyon's walls (25.946-25.951 N, 100.471-100.475 W); 13 374 lines are over obstacles: the surface model stands 10-40 m above the terrain along the walls' crests (1259 pixels over 30 m within 1 km, the most 138 m), where the terrain's mesh cuts the walls, and blocks lines across the canyon's entrance (their clearance over the surface model a median -32 m)"
   },
+  "R77": {
+    "place": "The Carrara marble basins between Colonnata and Fantiscritti, the Apuan Alps, Tuscany (IT-52): Regione Toscana's lidar DTM and DSM 1 m (2012), ZIPs of ASCII grids listed by the cartoteca's WFS, their URLs from its GetFeatureInfo",
+    "args": "--lat 44.085 --lon 10.150 --radius 800 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {
+      "anchors": 416239,
+      "open": 22122,
+      "checked": 161130,
+      "lines": 29333,
+      "spots": 517,
+      "csv_sha256": "0724072319aea0151f785bdc37d0cf1457e60d352398090f3405c11619f8552a",
+      "length_km": 2557.131,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.504,
+      "clearance_max": 18.58,
+      "over_trees": 9493,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 6.3,
+    "notes": "added 2026-11-15: --source auto picks tuscany (the centre is in IT-52); 9 sheets per model, all of Regione Toscana's survey of 2012 (lot 005: the run credits Regione Toscana, CC BY 4.0, no MATTM sheet), about 5.5 MB each, 104 MB with the water mask on an empty cache; nothing filled; the spots lie in the quarry pits and on their walls (Fossa di Colonnata, Fantiscritti, La Piastra)"
+  },
   "R78": {
     "place": "Avakas gorge, Akamas (CY): the limestone gorge's walls in its narrows, DLS's 2019 DTM 1 m (tiles in ETRS89 degrees warped back onto CGRS93 / Cyprus LTM by nearest) and DSM 0.5 m (averaged)",
     "args": "--lat 34.920 --lon 32.335 --radius 800 --min-length 15 --max-length 80",

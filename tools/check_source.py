@@ -187,8 +187,10 @@ def _spread(items: List, n: int) -> List:
 
 
 def _gdal_path(url: str) -> str:
+    """GDAL's path of a source file: a remote one by /vsicurl/, a ZIP (or a member of one: <zip>/<member>) by
+    /vsizip/."""
     path = f"/vsicurl/{url}" if url.startswith(("http://", "https://")) else url
-    return f"/vsizip/{path}" if url.lower().endswith(".zip") else path
+    return f"/vsizip/{path}" if url.lower().endswith(".zip") or ".zip/" in url.lower() else path
 
 
 def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
@@ -338,6 +340,8 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
         base = layer.tile_url(tile)
         return [f"{base}/{src.grid_tile_name(*tile[1:])}"] if base else None  # a tile (res, i, j)
     url = layer.tile_url(tile)
+    if isinstance(layer, src.CartotecaTiles) and url:  # its ZIP holds the grid and the owner's licence (a PDF)
+        return [f"{url}/{layer.index.request(tile).name}.asc"]
     return [url] if url else None
 
 

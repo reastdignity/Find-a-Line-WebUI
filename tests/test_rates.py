@@ -385,7 +385,7 @@ def test_published_limits():
                                  "visualizador.ide.uy": 2, "tinitaly.pi.ingv.it": 2,
                                  "webgis.regione.sardegna.it": 2,
                                  "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
-                                 "www.inegi.org.mx": 2, "eservices.dls.moi.gov.cy": 2, "geoportaal.maaruum.ee": 2}
+                                 "www.inegi.org.mx": 2, "eservices.dls.moi.gov.cy": 2, "geoportaal.maaruum.ee": 2, "www502.regione.toscana.it": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

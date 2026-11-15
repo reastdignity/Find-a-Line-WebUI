@@ -157,6 +157,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # ei ole" (no limit on the number of sheets), at one's own risk: courtesy, two at once (the catalogue uses this
     # host only: geoportaal.maaamet.ee answers 302 to it)
     "geoportaal.maaruum.ee": 2,
+    # Regione Toscana's cartoteca (Tuscany's lidar sheets: the WFS index, the GetFeatureInfo of their URLs and the
+    # ZIPs, all on one host): no published limits (the WMS's and WFS's capabilities, Fees and AccessConstraints
+    # none; the GetFeatureInfo's licence notes and licenza_dati_Lidar.pdf of the ZIPs, read 2026-11-15): courtesy,
+    # two at once
+    "www502.regione.toscana.it": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

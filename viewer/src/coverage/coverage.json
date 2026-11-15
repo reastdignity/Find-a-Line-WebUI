@@ -694,6 +694,30 @@
    "survey": "2005–2008",
    "trees": "no"
   },
+  "it-52": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2004–2017"
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Regione Toscana",
+   "res": [
+    1,
+    10
+   ],
+   "source": "tuscany",
+   "survey": "2004–2017",
+   "trees": "yes"
+  },
   "it-88": {
    "added": "2026-11-15",
    "level": 1,

@@ -54,6 +54,9 @@ RECIPES = {
     # Mexico: INEGI's JSON of one sheet per request (InegiSheets: no 0.25° tile), the sheet at the point (El Potrero
     # Chico, G14C15B2) and its western neighbour
     "inegi-mexico": ("inegi", "mexico-dtm", "mexico", "nmt", 25.95, -100.473),
+    # Tuscany: the cartoteca's WFS of the lidar sheets (GML, footprints in EPSG:3003) at the Umbrian border by
+    # Cortona: surveys of both owners, 1 m and 2 m, sheets of more than one survey
+    "wfs-tuscany": ("wfs", "tuscany-lidar", "tuscany", "nmt", 43.0, 12.0),
 }
 # The year layers a WFS recipe asks instead of those of the capabilities (none: GetFeature only)
 YEARS = {"wfs-geoportal-error": ["gugik:SkorowidzNMT1900"]}

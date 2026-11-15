@@ -198,6 +198,8 @@ class Layer:
     description = ""
     folder = ""
     credit: Optional[Credit] = None  # the source's, unless set for this layer (Source.__post_init__)
+    # Whether a run credits its files by the pixels they gave (used_entries gets which files wrote into the mosaic)
+    credits_by_pixels = False
     # Correction (east, north) in metres of the layer CRS for data whose service is
     # georeferenced wrongly; applied when tiles are placed on the grid
     shift: Tuple[float, float] = (0.0, 0.0)
@@ -311,6 +313,13 @@ class Layer:
         if self.credit:
             info["credit"] = self.credit.as_dict()
         return info
+
+    def used_entries(self, grid: Grid, cache_dir: str, wrote: Optional[Dict[str, bool]] = None) -> List[Dict]:
+        """The entries a run records of the data it used from this layer (sources.used_data): used() alone, or
+        one per owner of the files where they are credited apart (Tuscany's sheets: Regione Toscana's CC BY,
+        the Ministry's CC BY-SA), each with its own credit. wrote: whether each file wrote a pixel into the
+        mosaic (prepare_layer, for a layer with credits_by_pixels)."""
+        return [self.used(grid, cache_dir)]
 
 
 def each_layer(layers: Sequence[Layer], call: Callable[[Layer], Any]) -> list:
