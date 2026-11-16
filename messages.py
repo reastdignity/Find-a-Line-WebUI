@@ -158,16 +158,23 @@ class Coded:
             key = f"{key}_public"
         return text(key, language, **web_params(self.params, language))
 
-    def info(self) -> Optional[Dict]:
-        """{"code", "params"} for the page, None without a code."""
-        return {"code": self.code, "params": self.params} if self.code else None
+    def info(self, public: bool = False) -> Optional[Dict]:
+        """{"code", "params"} for the page, None without a code; public, where the catalogue has the public site's
+        reading ("error.<code>_public", web_text): {"code", "key": that key, "params": {}}, the code as it is (the
+        page reads it) and no params (what the public reading leaves out never leaves the server)."""
+        if not self.code:
+            return None
+        key = f"error.{self.code}_public"
+        if public and key in catalogue(LANGUAGE):
+            return {"code": self.code, "key": key, "params": {}}
+        return {"code": self.code, "params": self.params}
 
-    def detail(self):
-        """The detail of an HTTP error answer: {"message": the English web text, "code", "params"}, or
-        the plain text without a code."""
+    def detail(self, public: bool = False):
+        """The detail of an HTTP error answer: {"message": the English web text, "code", "params"} (public: the
+        public site's reading and info), or the plain text without a code."""
         if not self.code:
             return str(self)
-        return {"message": self.web_text(), "code": self.code, "params": self.params}
+        return {"message": self.web_text(public=public), **self.info(public=public)}
 
 
 def _coded(instance: Coded, code: Optional[str], params: Dict):

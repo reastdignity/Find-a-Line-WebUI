@@ -678,16 +678,22 @@ def test_too_wide_for_the_mark_runs_without_it(tmp_path, offline, monkeypatch):
         assert ("access1" in schema.names) == (name == "marked"), name
 
 
+def _estimate_request(tmp_path) -> dict:
+    write_raster(tmp_path / "est.tif", scene(), LEFT, TOP)
+    return {"params": dict(elevation_file=str(tmp_path / "est.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
+                           radius=135, resolution=1, nmpt="off", water="off", fill_gaps="off", ortho="never",
+                           access=True)}
+
+
 def test_estimate_of_a_search_too_wide_for_the_mark(tmp_path, offline, monkeypatch):
     """The web app's estimate (jobs.quick_estimate, a compute slot's budget) of a search too wide for the access grid:
-    nothing refused, its messages carry the note with its code and params; with the budget large enough, no note. The
-    note's two readings (the user's word of 2026-11-16): locally with the memory (error.access_skipped), on the public
-    site without it (error.access_skipped_public, the quick lane's jobs.PUBLIC_TEXTS), the code and params on both."""
+    nothing refused, its messages carry the note with its code; with the budget large enough, no note. The note's two
+    readings (the user's word of 2026-11-16): locally with the memory (error.access_skipped, its info the code and
+    params need, have), on the public site without it (the quick lane's jobs.PUBLIC_TEXTS): the text and the info's
+    "key" error.access_skipped_public and no params, so no figure of the server's memory anywhere in the answer's
+    JSON (code review 4, F1: the page reads info.key)."""
     import jobs
-    write_raster(tmp_path / "est.tif", scene(), LEFT, TOP)
-    request = {"params": dict(elevation_file=str(tmp_path / "est.tif"), northing=TOP - SIZE / 2,
-                              easting=LEFT + SIZE / 2, radius=135, resolution=1, nmpt="off", water="off",
-                              fill_gaps="off", ortho="never", access=True)}
+    request = _estimate_request(tmp_path)
     for budget, noted, public in ((10_000, True, False), (10_000, True, True), (10 ** 10, False, False)):
         monkeypatch.setattr(jobs, "SLOT_MEMORY", budget)
         monkeypatch.setattr(jobs, "PUBLIC_TEXTS", public)
@@ -696,9 +702,169 @@ def test_estimate_of_a_search_too_wide_for_the_mark(tmp_path, offline, monkeypat
         assert len(coded) == int(noted), result["messages"]
         if noted:
             kind, text, info = coded[0]
-            assert kind == "warning" and set(info["params"]) == {"need", "have"} and "--" not in text
-            key = "error.access_skipped_public" if public else "error.access_skipped"
-            assert text == messages.text(key, **info["params"]) and ("GiB" in text) != public
+            assert kind == "warning" and "--" not in text
+            if public:
+                assert info == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}
+                assert text == messages.text("error.access_skipped_public") and "GiB" not in text
+                assert "need" not in json.dumps(result["messages"]) and "have" not in json.dumps(info)
+            else:
+                assert set(info) == {"code", "params"} and set(info["params"]) == {"need", "have"}
+                assert text == messages.text("error.access_skipped", **info["params"]) and "GiB" in text
+
+
+def test_the_boundary_of_the_mark(tmp_path, offline):
+    """The mark is made when its least memory (search.access_memory) fits the budget exactly, and left out a byte
+    below it."""
+    z = scene()
+    write_raster(tmp_path / "edge.tif", z, LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "edge.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
+                  radius=135, resolution=1, nmpt="off", water="off", fill_gaps="off", ortho="never", name="e",
+                  access=True)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    need = search.access_memory(search.plan_search(SearchParams(**values), paths, lambda k, t: None, memory=10 ** 10))
+    for memory, skipped in ((need, None), (need - 1, "memory")):
+        events = []
+        plan = search.plan_search(SearchParams(**values), paths, lambda k, t: events.append(t), memory=memory)
+        assert plan.access_skipped == skipped and plan.access_on == (skipped is None), memory
+        assert len([t for t in events if getattr(t, "code", None) == "access_skipped"]) == int(skipped is not None)
+
+
+def test_a_tiled_search_without_the_mark(tmp_path, offline, monkeypatch):
+    """A tiled search too wide for the mark (the code review's probe, cr3): no access columns in any tile, its
+    progress.json records the choice, the same request with enough memory never resumes it (a run of its own, the same
+    search hash) and a later skipped one does; once saved, the key only on the skipped run (run.json, every head)."""
+    import pyarrow as pa
+    z = _rough(False)
+    path = tmp_path / "rough.tif"
+    _write_5m(path, z)
+    area = _square(tmp_path / "square.geojson", LEFT + 300, TOP - 2700, LEFT + 2700, TOP - 300)
+    params = SearchParams(elevation_file=str(path), area=area, resolution=5, nmpt="off", water="off",
+                          fill_gaps="off", min_length=50, max_length=300, slope_threshold=55, prominence_span=10,
+                          drop_radius=10, ortho="never", tile_size=800, name="tiled", access=True)
+    paths = search.Paths(str(tmp_path / "d"), str(tmp_path / "d" / "work"))
+    os.makedirs(paths.work)
+    calls = []
+    real = search._access_grid
+    monkeypatch.setattr(search, "_access_grid", lambda *a, **k: calls.append(1) or real(*a, **k))
+
+    def planned(free):
+        monkeypatch.setattr(search, "available_memory", lambda: free)
+        return dataclasses.replace(search.plan_search(params, paths, lambda k, t: None), index_runs=False)
+
+    def state(run):
+        return json.load(open(os.path.join(run["path"], "progress.json"), encoding="utf-8"))
+    plan = planned(10_000)
+    assert plan.tiles and len(plan.tiles) > 1 and plan.access_skipped == "memory"
+    run = search._open_run(plan)
+    assert state(run).get("access_skipped") == "memory"
+    lines, run_s = search.search_lines(plan)
+    assert run_s["id"] == run["id"] and "access1" not in lines.results.columns and calls == []
+    plan_m = planned(10 ** 12)
+    assert plan_m.access_skipped is None and search._search_hash(plan_m) == search._search_hash(plan)
+    run_m = search._open_run(plan_m)
+    assert run_m["id"] != run["id"] and "access_skipped" not in state(run_m)
+    assert search._open_run(planned(10_000))["id"] == run["id"]  # skipped again: the skipped run, not the marked
+    search.save_run(plan, lines, run_s)
+    monkeypatch.setattr(search, "available_memory", lambda: 10 ** 12)
+    lines_m, run_m2 = search.search_lines(plan_m)
+    assert run_m2["id"] == run_m["id"] and "access1" in lines_m.results.columns and calls == [1]
+    search.save_run(plan_m, lines_m, run_m2)
+    for r, key in ((run_s, "memory"), (run_m2, None)):
+        folder = r["path"]
+        meta = json.load(open(os.path.join(folder, "run.json"), encoding="utf-8"))
+        assert meta.get("access_skipped") == key and ("access" in meta["params"]) == (key is None)
+        heads = [_head(os.path.join(folder, "data.js")), _head(os.path.join(folder, "lines.js"))]
+        with pa.OSFile(os.path.join(folder, "lines.arrow"), "rb") as source:
+            schema = pa.ipc.open_file(source).schema
+        heads.append(json.loads(schema.metadata[b"findaline"])["head"])
+        assert [h.get("access_skipped") for h in heads] == [key] * 3 and ("access1" in schema.names) == (key is None)
+
+
+@pytest.mark.parametrize("public", [True, False], ids=["public", "local"])
+def test_a_jobs_note_once_in_the_sites_reading(tmp_path, offline, monkeypatch, public):
+    """A job too wide for the mark (jobs.run_phase, a compute slot's budget): one note access_skipped in its events,
+    from the compute phase (the download phase plans too and says nothing: code review 4, F2), in the site's reading
+    (Jobs.public: error.access_skipped_public without the memory; locally error.access_skipped with it); the events
+    store the text only."""
+    import jobs as jb
+    import osm
+    import progress
+    import servicecounts
+    monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase in this process: what it changes is put back
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
+    for name in ("ACCESS_AREA_BYTES", "ACCESS_WINDOW_BYTES"):  # too wide for the mark, the lines fitting the memory
+        monkeypatch.setattr(search, name, 10 ** 9)
+    jobs = jb.Jobs(str(tmp_path), public=public)
+    request = {**_estimate_request(tmp_path), "geometry": None}
+    request["params"].update(min_length=10, max_length=80, slope_threshold=60, prominence_span=10, drop_radius=10)
+    job = jobs.add(request, "wide", user_id=7)
+    try:
+        jobs.claim("queued", "downloading", "w1")
+        jb.run_phase(str(tmp_path), job, "download", None, public)
+        downloaded = [e["data"] for e in jobs.events(0, job) if e["kind"] in ("info", "warning")]
+        jobs.claim("ready", "computing", "w1")
+        jb.run_phase(str(tmp_path), job, "compute", None, public)
+    finally:
+        servicecounts.disable()
+    assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
+    said = [e["data"] for e in jobs.events(0, job) if e["kind"] in ("info", "warning")]
+    notes = [t for t in said if isinstance(t, str) and t.startswith("The anchors' access will not be marked")]
+    assert len(notes) == 1 and not [t for t in downloaded if t in notes], said
+    if public:
+        assert notes[0] == messages.text("error.access_skipped_public") and "GiB" not in notes[0]
+    else:
+        assert notes[0].startswith(messages.text("error.access_skipped_public").split(":")[0]) and "GiB" in notes[0]
+
+
+def test_the_quick_lane_reads_the_sites_texts(tmp_path, offline, monkeypatch):
+    """jobs.run_quick sets the lane's reading (PUBLIC_TEXTS) and budget (SLOT_MEMORY) from its worker: an estimate it
+    serves on the public site carries the note's public reading and no figure of the memory."""
+    import psutil
+    import jobs as jb
+    import servicecounts
+    monkeypatch.setattr(jb, "PUBLIC_TEXTS", False)
+    monkeypatch.setattr(jb, "SLOT_MEMORY", None)
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(psutil, "pid_exists", lambda pid: False)  # its worker gone: it ends after the task
+    jobs = jb.Jobs(str(tmp_path), public=True)
+    task = jobs.quick_add("estimate", _estimate_request(tmp_path))
+
+    def failing(data_dir, request, limits):  # a coded error with a public reading: the lane's answer reads it so
+        raise messages.UserError("cli", "access_skipped", need=4.2, have=2.5)
+    monkeypatch.setitem(jb.QUICK, "failing", failing)
+    refused = jobs.quick_add("failing", {})
+    try:
+        jb.run_quick(str(tmp_path), "w1", 1, None, public=True, memory=10_000)
+    finally:
+        servicecounts.disable()
+    assert jb.PUBLIC_TEXTS is True and jb.SLOT_MEMORY == 10_000
+    answer = jobs.quick_take(task)
+    assert answer["code"] == 200, answer
+    coded = [m for m in answer["body"]["messages"] if len(m) == 3 and m[2]["code"] == "access_skipped"]
+    assert [m[2] for m in coded] == [{"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}]
+    assert coded[0][1] == messages.text("error.access_skipped_public") and "GiB" not in json.dumps(answer)
+    assert jobs.quick_take(refused) == {"code": 400, "body": {"message": messages.text("error.access_skipped_public"),
+                                                              "code": "access_skipped",
+                                                              "key": "error.access_skipped_public", "params": {}}}
+
+
+@pytest.mark.parametrize("public", [True, False], ids=["public", "local"])
+def test_a_jobs_coded_error_in_the_sites_reading(tmp_path, public):
+    """Jobs.set of a coded error with a public reading: on the public site its text and error_info as the note's
+    (the key, no params), locally the code's own with its params."""
+    import jobs as jb
+    jobs = jb.Jobs(str(tmp_path), public=public)
+    job = jobs.add({"params": {}}, "e", user_id=7)
+    jobs.set(job, "failed", error=messages.UserError("cli", "access_skipped", need=4.2, have=2.5))
+    row = jobs.get(job)
+    info = json.loads(row["error_info"])
+    if public:
+        assert row["error"] == messages.text("error.access_skipped_public")
+        assert info == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}
+    else:
+        assert "4.2 GiB" in row["error"] and info == {"code": "access_skipped", "params": {"need": 4.2, "have": 2.5}}
 
 
 def test_the_public_reading_of_a_coded_note():
@@ -710,6 +876,12 @@ def test_the_public_reading_of_a_coded_note():
     assert public == messages.text("error.access_skipped_public") and public.startswith(local.split(" (about")[0])
     other = messages.Note("cli", "store_failed")
     assert other.web_text(public=True) == other.web_text() == messages.text("error.store_failed")
+    assert note.info() == {"code": "access_skipped", "params": {"need": 4.2, "have": 2.5}}
+    assert note.info(public=True) == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}
+    assert other.info(public=True) == other.info() == {"code": "store_failed", "params": {}}
+    error = messages.UserError("cli", "access_skipped", need=4.2, have=2.5)  # the same for an error (a job's, the lane's)
+    assert error.detail(public=True) == {"message": public, **note.info(public=True)}
+    assert error.detail() == {"message": local, "code": "access_skipped", "params": {"need": 4.2, "have": 2.5}}
 
 
 def test_disk_estimate_counts_the_access_grid(tmp_path, offline):

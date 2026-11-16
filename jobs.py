@@ -730,9 +730,9 @@ class Jobs:
         if "error" in fields:
             error = fields["error"]
             coded = messages.user_error(error) if isinstance(error, BaseException) else None
-            info = coded.info() if coded is not None else None
+            info = coded.info(public=self.public) if coded is not None else None
             fields["error"] = None if error is None else self.redact(
-                coded.web_text() if coded is not None else cache.clean_error(error))
+                coded.web_text(public=self.public) if coded is not None else cache.clean_error(error))
             fields["error_info"] = self.redact(info)
         if fields.get("error_info") is not None:
             fields["error_info"] = json.dumps(fields["error_info"])
@@ -1551,6 +1551,8 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             jobs.event(job_id, "progress", state)
 
     def on_event(kind: str, text: str):  # a messages.Note in its web text (the public site's reading there)
+        if phase != "compute" and getattr(text, "code", None) == "access_skipped":
+            return  # the compute phase's choice is the run's: one note per job, never above a marked run
         jobs.event(job_id, kind, text.web_text(public=jobs.public) if getattr(text, "code", None) else text)
 
     progress.subscribe(on_progress)
@@ -1672,7 +1674,7 @@ def quick_estimate(data_dir: str, request: Dict, limits: Optional[Limits] = None
 def _message(kind: str, text: str) -> list:
     """A message of an estimate: [kind, text], and {"code", "params"} of a coded one (messages.Note)
     with its web text (the public site's reading in the public quick lane: PUBLIC_TEXTS)."""
-    info = getattr(text, "info", lambda: None)()
+    info = text.info(public=PUBLIC_TEXTS) if hasattr(text, "info") else None
     return [kind, text.web_text(public=PUBLIC_TEXTS), info] if info else [kind, str(text)]
 
 
@@ -1793,7 +1795,8 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
             internal(task["id"], e)
         except (ValueError, search.SearchError, requests.RequestException) as e:  # ValueError: parameters
             coded = messages.user_error(e)  # {"message", "code", "params"} (web.error_detail)
-            jobs.quick_answer(task["id"], 400, coded.detail() if coded is not None else cache.clean_error(e))
+            jobs.quick_answer(task["id"], 400, coded.detail(public=public) if coded is not None else
+                              cache.clean_error(e))
         except Exception as e:
             internal(task["id"], e)
         finally:
