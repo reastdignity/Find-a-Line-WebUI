@@ -53,7 +53,9 @@ loads with `deploy/monitoring/` too.
   `nginx.conf` and the client's `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (at most half of one visitor's); the log's keys
   `t s b rt ds a lim v` and 14 days, `mirror_publish.py stats`, the privacy texts (spec section 7, README, the landing
   page, `mirror_check.sh`'s `PRIVACY`, CLAUDE.md's exception): another key or period changes the texts, with the
-  user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form.
+  user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form; the door's
+  rclone settings in `deploy/mirror/README.md` (`shell_type`, `hashes`, `sha256sum_command`, `known_hosts_file`, the
+  top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
 - SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
   monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 75 min: `--timeout 7200` under the lock.
 - Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env

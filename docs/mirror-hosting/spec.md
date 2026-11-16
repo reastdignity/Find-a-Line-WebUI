@@ -3,7 +3,7 @@
 2026-11-15, second version (after a scope review and a builder's read of the first). The specification of a data
 server ("the mirror") from which every Find-a-Line installation downloads the tiles of the sources that cannot be
 read from their provider on demand. Built on 2026-11-16 (the task `mirror-hosting-build`); the text describes what
-exists, the sentences the build changed name the decision (U27-U45) or the planner's ruling behind them. What is
+exists, the sentences the build changed name the decision (U27-U49) or the planner's ruling behind them. What is
 still open is listed in section 9, never hidden.
 
 ## 1. How to read it
@@ -14,7 +14,7 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U45 are the user's decisions (U27-U45 taken during the build),
+**Names.** "A.5" is behaviour 5 of solution A. U1-U49 are the user's decisions (U27-U49 taken during the build),
 P1-P28 the planner's, S1-S17 the
 security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U45 during the build, 2026-11-15 and 16)
+### 2.1 By the user (2026-11-15; U27-U49 during the build, 2026-11-15 and 16)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |

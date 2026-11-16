@@ -410,7 +410,7 @@ def test_telegraf_checks_the_data_server():
     """C7, C8 (docs/mirror-hosting/spec.md D.2, D.3): the data server's list every minute (status 200 and a body
     naming "datasets") and its certificate, as measurements of their own (mirror_http_response, mirror_x509_cert):
     the site's rules and panels (C5, C6) and G2's read http_response and x509_cert, never the mirror's, and the
-    mirror's rules read only theirs. "Data server not answering" waits 45 minutes (P26) and alerts on a vanished
+    mirror's rules read only theirs. "Mirror down" waits 45 minutes (P26) and alerts on a vanished
     series too; its host is the client's (tests/test_mirror_pairs.py)."""
     config = _telegraf()
     checks = [i for i in config["inputs"]["http_response"] if i.get("name_override") == "mirror_http_response"]
@@ -433,6 +433,7 @@ def test_telegraf_checks_the_data_server():
         else:
             assert "mirror_" not in expr, uid
     down = rules["c7-mirror-down"]
+    assert down["title"] == "C7 Mirror down" and rules["c8-mirror-certificate"]["title"] == "C8 Mirror certificate"
     assert down["for"] == "45m" and down["noDataState"] == "OK"
     expr = down["data"][0]["model"]["expr"]
     assert "min_over_time(mirror_http_response_result_code[3m])) > 0" in expr

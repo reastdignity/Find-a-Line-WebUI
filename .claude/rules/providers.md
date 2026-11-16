@@ -123,3 +123,9 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   host): `off`. `reach` only where the specification's C.3 passes `reach=True`; a later phase takes the job's stored
   source (`plan_search(source_id=)`). `net._get(stop_on=)` is the start check's 429 rule; `_server_failed`'s text
   reaches the page through `error.download_failed`.
+- An index's rules (null: no data; beyond a complete index's extent: no data; `partial`; `"block"` 10) are what
+  `sk_tiles`/`mirror_tiles` write, what `mirror_publish verify` checks and what `tilebases` reads
+  (`test_the_tools_indexes_pass_the_check`, `test_indexes_written_by_the_tools_pass_verify`). `REACH_TIMEOUT`
+  (10 s, 20 s a read) rests on the server's 10 s header timeout and storage that never spins down (spec A's risks).
+  The later phase's "Data: <name> (chosen when the search started)" keeps the form `tests/regression.py` `PATTERNS`
+  and `tools/obstacle_study.py` read; `regression.py --mirror-url` runs the `needs_path` entries without the folder.

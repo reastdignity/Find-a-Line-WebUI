@@ -642,7 +642,7 @@ groups:
       # good answer (result_code 0) within the last 3 minutes keeps it quiet; a series that vanished
       # (the input gone) counts as no answer, as G2's rule on silent sources does
       - uid: c7-mirror-down
-        title: "C7 Data server not answering"
+        title: "C7 Mirror down"
         condition: C
         data:
           - refId: A
@@ -674,7 +674,7 @@ groups:
           __panelId__: "50"
         isPaused: false
       - uid: c8-mirror-certificate
-        title: "C8 Data server's certificate expires"
+        title: "C8 Mirror certificate"
         condition: C
         data:
           - refId: A
