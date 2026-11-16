@@ -139,6 +139,20 @@ def test_code_and_catalogue_counts(tree):
         ("viewer/src/ui/Gallery.tsx", "×"), ("viewer/src/ui/Gallery.tsx", "·"), ("viewer/src/ui/Gallery.tsx", "✓")]
 
 
+def test_set_attribute_is_not_shown(tmp_path):
+    """A character in a setAttribute of aria-label or title (DOM code, not JSX) is not shown; one set as text is."""
+    (tmp_path / "viewer" / "src" / "ui").mkdir(parents=True)
+    (tmp_path / "locales").mkdir()
+    (tmp_path / "viewer" / "src" / "ui" / "tokens.css").write_text("", encoding="utf-8")
+    (tmp_path / "locales" / "en.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "viewer" / "src" / "dom.ts").write_text(
+        'button.setAttribute("aria-label", "Close ×");\nbutton.setAttribute("title", `Next ›`);\n'
+        'button.textContent = "×";\n', encoding="utf-8")
+    r = ui_metrics.static(str(tmp_path))
+    assert [(x["line"], x["char"]) for x in r["chars_not_shown"]] == [(1, "×"), (2, "›")]
+    assert [(x["line"], x["char"]) for x in r["chars_in_code"]] == [(3, "×")]
+
+
 def test_static_is_deterministic(tree, tmp_path_factory):
     """The same tree gives the same JSON and Markdown."""
     first, second = tmp_path_factory.mktemp("a"), tmp_path_factory.mktemp("b")
