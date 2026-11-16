@@ -470,10 +470,18 @@ def test_the_data_servers_panels_read_what_telegraf_writes():
                  if p.get("targets") and re.search(r"\(C[78]\)", p["title"])}
     assert mine == {"rule c7-mirror-down", "rule c8-mirror-certificate", "site 50", "site 51", "site 52",
                     "overview 46", "overview 47"}
+    kept = {f"{i['name_override']}_{field}": set(i["taginclude"]) for name in ("http_response", "x509_cert")
+            for i in config["inputs"][name] if i.get("name_override", "").startswith("mirror_") for field in i["fieldinclude"]}
     for where, expr in _queries():
         if where in mine:
             names = _metrics(expr)[0]
             assert names and names <= written, (where, names - written)
+            # its label filters: only tags the input keeps, and a certificate's type as the rule C8 pins it ("leaf")
+            for metric, matchers in re.findall(r"([a-zA-Z_:][\w:]*)\{([^}]*)\}", expr):
+                pairs = re.findall(r'(\w+)\s*(=~|!~|!=|=)\s*"([^"]*)"', matchers)
+                assert {label for label, _, _ in pairs} <= kept[metric], (where, metric, pairs)
+                if metric == "mirror_x509_cert_expiry":
+                    assert pairs == [("type", "=", "leaf")], (where, pairs)
     assert asked == written - {"mirror_http_response_http_response_code", "mirror_x509_cert_verification_code"}
     assert "mirror_http_response_result_code" in LIVE_METRICS   # written on every outcome, the DNS failure's too
 

@@ -132,7 +132,7 @@ SITE_PLACES = {os.path.join("deploy", "mirror", "landing", "index.html")}
 # Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
 FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",
                 "rules", "js", "geojson", "csv", "example", "env", "toml", "tif", "arrow", "pem", "sample", "lock", "in",
-                "pub", "key", "yml"}
+                "pub", "key"}
 
 
 def _host_names(text: str) -> set:
@@ -161,7 +161,8 @@ def test_one_host_everywhere():
     site's own host only where a file means the site (SITE_PLACES); a --live target is the data server (or the
     loopback). One of the README's six names changed to another domain, or to a name ending in a file ending such
     as .md, fails here. In the larger docs and the client's modules every name under the project's domain is the
-    data server's or the site's."""
+    data server's or the site's. Not seen: the specification's host names (only its --live targets are checked), and
+    a port added to an address (the URL pattern stops at ":")."""
     import glob
     import tomllib
     assert tilebases.MIRROR_URL == f"https://{HOST}"
@@ -457,7 +458,8 @@ def test_test_stacks_never_ask_the_data_server():
     copy, and checks after `up` that the worker sees it: commands of the job's steps, not comments. The worker reads
     findaline.env (compose's env_file), which is how the line reaches it. The tests' own processes:
     tests/conftest.py (tests/test_mirror_client.py test_the_processes_of_the_tests_ask_no_data_server);
-    tests/regression.py sets `off` unless --mirror-url."""
+    tests/regression.py sets `off` unless --mirror-url. Not seen: a step whose shell ignores a failing command
+    (`shell: bash {0}`, `set +e` in its run text), so the check in the middle of the step would not fail the job."""
     import yaml
     compose = yaml.safe_load(_read("compose.yaml"))
     worker = compose["services"]["worker"]
@@ -493,7 +495,8 @@ def test_no_test_sets_the_data_server_empty():
     `off`). Found, line by line: monkeypatch.setenv and os.putenv with the name or the module's constant (qualified
     or not, `value=` too), os.environ[...] = "", a mapping's "name": "", the keyword form (dict(os.environ, ...),
     os.environ.update(...)) and a shell assignment of nothing in quotes or at the line's end. Out of its reach: a
-    variable holding the name, and the shell's inline form (`FINDALINE_MIRROR_URL= python ...`).
+    variable holding the name, the shell's inline form (`FINDALINE_MIRROR_URL= python ...`),
+    os.environ.setdefault(...), monkeypatch.setitem(os.environ, ...) and a call whose arguments stand on the next line.
     tests/test_mirror_client.py's set_url("") cases test the empty value in the test's own process on purpose, and its
     fixture puts `off` back."""
     name = r"""(?:["']FINDALINE_MIRROR_URL["']|[\w.]*MIRROR_URL_ENV)"""

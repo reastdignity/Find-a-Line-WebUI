@@ -15,9 +15,10 @@ is in `.claude/rules/deploy.md`, the VPS's checks of it (C7, C8) in `metrics.md`
 
 ## Must stay in sync
 
-- `tools/mirror_publish.py` `PUBLISHABLE`: its datasets are `mirror_tiles.DATASETS`' folders and Slovakia, each
-  `source_id` a catalogue source (its credit is the row's attribution), its required folders `GridTiles(averaged=)`,
-  each card states the changes; a new dataset needs its row with the user's approval and date. A recut with other
+- `tools/mirror_publish.py` `PUBLISHABLE`: every row names a dataset the tools cut (`mirror_tiles.DATASETS` or
+  Slovakia) with its product folders among `GridTiles(averaged=)`'s required ones, and a catalogue `source_id` (its
+  credit is the row's attribution); each card states the changes. A cut dataset gets a row only with the user's
+  approval and date, and until then is not published (the islets of batch 6 today; the pair test names them). A recut with other
   values is a new edition (a new folder name, U24). `BLOCK` 10 in `sk_tiles`, `mirror_tiles`, `mirror_publish` and
   `tilebases` (`tests/test_mirror_pairs.py`).
 - The client (`tilebases.py`): `MIRROR_URL`'s host is the key of `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (another address
