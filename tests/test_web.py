@@ -2765,6 +2765,21 @@ DESKTOP = {"viewport": {"width": 1280, "height": 900}}
 SHOWN_JS = "(sel) => { const e = document.querySelector(sel); return e ? [e.textContent.trim(), e.getClientRects().length > 0] : null; }"
 
 
+HTML_EN = '<!doctype html>\n<html lang="en">'  # a page's first two lines
+
+
+def test_pages_say_their_language(tmp_path):
+    """Every page the app writes or serves names its language, English (report defect 11: the app, the 3D view and
+    a run's own map had no lang): the templates, and the app's page as served."""
+    import mapping
+    for name in ("APP_HTML", "COVERAGE_HTML", "VIEW3D_HTML", "SIGNIN_HTML", "PAGE_HTML"):
+        assert getattr(web, name).startswith(HTML_EN), name
+    assert mapping.MAP_HTML.startswith(HTML_EN)
+    app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
+    with TestClient(app, base_url=LOCAL) as client:
+        assert '<html lang="en">' in client.get("/").text
+
+
 # The controls whose own font rule loses to the base rule `.ui button, .ui input, ...` (ui.css): their computed font
 # with the base rule weakened to :where(.ui) in the CSSOM differs from the font the page shows
 SHRUNK_JS = """() => {

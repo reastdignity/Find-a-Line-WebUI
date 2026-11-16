@@ -2125,7 +2125,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
 
 APP_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-token" content="{token}">
 <meta name="findaline-user" content="{user}">
 <meta name="findaline-contact" content="{contact}">{keys}
@@ -2156,7 +2156,7 @@ COVERAGE_HTML = """<!doctype html>
 # The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring is "off" or the
 # tile URL template of the coarse ring of terrain around the patch, HTML-escaped (settings.ViewSettings)
 VIEW3D_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-user" content="{user}">{keys}
 <meta name="findaline-3d-ring" content="{ring}">
 <title>Find-a-Line 3D</title>
