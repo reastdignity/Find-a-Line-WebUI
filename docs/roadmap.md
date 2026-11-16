@@ -105,6 +105,48 @@ Rules for every step:
    - *To do*: read the failed requests' settings by class (`tools/job_stats.py` could list failed jobs by code
      and class), then what the form could offer when a search finds nothing (the message names the settings to
      widen today), and whether the slope threshold of priority 2 is part of it.
+4. **`tools/ui_shots.py` is slow** (added by the user, 2026-11-16, during the UX and UI design task; a task of
+   its own).
+   - *What is seen*: the user: "tools/ui_shots.py seems to be slow". Every review of a UI change runs it
+     (.claude/rules/viewer.md), and the design task runs it more often (rendered checks, contact sheets, the
+     screenshots the image comps start from).
+   - *Known from the code*: one process shows one page at a time (device, then theme, then page). Each of the
+     90 states opens a fresh page and waits a fixed 2.5 s (the event stream keeps the network busy, so there is
+     no "network idle" to wait for), 0.4 to 0.6 s after every step, up to 10 s for map tiles and up to 60 s for
+     the 3D view. Three devices and both themes are up to 540 page loads: about 22 minutes of fixed waiting
+     alone (an estimate from these numbers). The site, its users and the clip's run are set up anew at every
+     start.
+   - *Measured* (2026-11-16, two runs of the design task under the shared test lock with other sessions at
+     work, so indicative):
+     - Screenshots of the main flows, three devices, both themes: 262 pictures in 38.8 min; 33 s until the
+       first picture; a median of 5.5 s per picture.
+     - Every state through the same loop, measured instead of photographed (the design task's
+       `tools/ui_metrics.py`, about 0.2 s of measuring per state): 502 states in 62.5 min. Of the 3011 s spent
+       inside the states, loading the page took 1672 s (56 %) and the steps 1235 s (41 %); a median of 4.5 s
+       per state, 7.7 s at the 90th percentile.
+     - **Waits for things the sample run cannot show** are the largest single loss: `c-result-rigging` waits
+       its full 60 s in each of the six passes (about 390 s), the three `c-result-shore*` states wait 20 s each
+       before they are left out (about 360 s), `c-basic-sea` on the desktop waited 48 and 68 s for the
+       estimate. In the screenshot run this was about a third of the whole time.
+     - 38 of the 540 states are never shown: 24 need another run (the shore states, `c-result-why`), 14 exist
+       on one kind of device only.
+   - *Decided* (the user, 2026-11-16, on the task's report: "Go with recomended route"): first no dead waits,
+     times and fail-fast; then a measured run of the whole set; then waits that follow the page instead of fixed
+     ones, in the tool only (no ready mark in the viewer). Not built now: map tiles recorded and replayed, passes
+     in parallel, a site kept between runs, both themes from one load.
+   - *Stage 1, done* (2026-11-16, tag `history/ui-shots-speed`): a page whose feature the run lacks is left out
+     before any load (`run_features`, `NEEDS`); a summary of seconds per part and page, `--timings`, exit code 1
+     after a timeout or a failed step; a wait that timed out shortens its later limits in the pass, `--strict`
+     stops the run; a kept `--data-dir` keeps its clip run and cubes (about 4 s of a 13 s start: the search takes
+     about 3 s on a warm PC); `--list`, `--exclude`, `--themes`; `tools/shots_diff.py` compares two folders of
+     pictures. Measured on the result pages (`--only c-result,c-line,map --dark`, three devices, the same data
+     folder, shared test lock): 1253 s before, 375 to 411 s after in three runs, 95 of the 96 pictures still
+     shot the same (one map without tiles); of 404 s, 256 s are the fixed 2.5 s after each load. Found on the
+     way: the coverage page's whole-page picture on the iPhone is over WebKit's 32 767 pixels; it is taken at
+     one pixel per CSS pixel now, and the tool as it was could not get past that page.
+   - *Open*: stage 2 (two runs of the whole set: the real split, each wait's longest time as the basis for its
+     limit, what differs between two runs' pictures); stage 3 (the fixed waits replaced, the pictures compared
+     with stage 2's); `c-basic-sea` on the desktop takes 43 to 68 s in every run, cause not known.
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
