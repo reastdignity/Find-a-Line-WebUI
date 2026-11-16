@@ -1,13 +1,16 @@
 // The actions of a run: Measure (two points on the map; the profile opens in ProfileDock), Compare
 // (other runs nearby shown with this one), Share (the public site: a link shown once) and Download
-// (the run's lines.csv and lines.geojson, which web.RUN_FILES serves).
+// (the run's lines as CSV and GeoJSON: of a run read from its store made by the worker for each download, where
+// the page can ask for it (mayExport); of a run without a store its lines.csv and lines.geojson, which
+// web.RUN_FILES serves).
 
 import { useEffect, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { api, user, type RunListed } from "../../app/api";
+import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
+import { t } from "../../i18n";
 import { listOthers, loadLines, NEARBY_KM, colorOf } from "../../others";
-import type { Line, RunInfo } from "../../types";
+import type { Line, RunData, RunInfo } from "../../types";
 import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
 import type { ResultMap } from "../ResultMap";
@@ -159,8 +162,78 @@ function Share({model, compact}: RunActionsProps) {
   </Popover>;
 }
 
-/** Download: the lines of the run as CSV and GeoJSON. */
-function Download({model, compact, base, folder}: RunActionsProps) {
+/** May this page ask the server to make this run's files (POST /api/runs/<id>/export)? The run was read from its
+ *  store and the page can send changes: the app's page, where the user is signed in (or the local app's one user).
+ *  A run's map.html has no token (a share link's page, a visitor's demo run, a run opened by its own address):
+ *  the server would refuse, so a run with a store has no Download there. The one place of this rule. */
+export const mayExport = (data: RunData): boolean => canChange && data.fromStore === true;
+
+type Format = "csv" | "geojson";
+const FORMATS: [Format, string, string][] = [["csv", "CSV", "table, every line"], ["geojson", "GeoJSON", "for GIS and map apps"]];
+// Refusals the server words itself (their texts are the catalogue's, by the answer's code)
+const WORDED = ["quick_waiting", "rate_export", "busy", "export_disk_full"];
+
+/** The line a failed export shows: the two "no worker" cases in the export's own words, the server's text of a
+ *  rate, a busy lane or a full disk, and one text for everything else (no network too). */
+function exportError(e: unknown): string {
+  const code = e instanceof ApiError ? e.info?.code : undefined;
+  if (code === "no_worker") return t("ui.result.export_no_worker");
+  if (code === "no_worker_local") return t("ui.result.export_no_worker_local");
+  return e instanceof ApiError && code !== undefined && WORDED.includes(code) ? e.message : t("error.export_failed");
+}
+
+/** The browser saves the file at `url` (same origin, sent as an attachment): a link's click, never a fetch (a
+ *  file may be over 1 GB), and the page stays whatever the address answers. */
+function save(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";  // the name is the answer's (Content-Disposition)
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Download of a run read from its store: each row asks the worker for the file and waits ("Preparing the
+ *  file…" in the pressed row, the other row off, the ring on the button while the menu is closed), then the
+ *  browser saves it; a failure is a red line under the rows, in a menu that opens again if it was closed. */
+function Export({model, compact}: RunActionsProps) {
+  const id = model.runId;
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<Format | null>(null);
+  const [error, setError] = useState("");
+  const press = (format: Format) => {
+    if (busy) return;
+    setBusy(format);
+    setError("");
+    api.exportRun(id, format).then((r) => { setBusy(null); save(r.url); },
+                                   (e) => { setBusy(null); setError(exportError(e)); setOpen(true); });
+  };
+  const opened = (now: boolean) => { setOpen(now); if (!now) setError(""); };
+  const waiting = busy ? t("ui.result.export_preparing_label") : undefined;
+  const ring = <span class="r-spin r-spin-ic" />;
+  return <Popover label="Download" align="right" open={open} onOpen={opened}
+                  button={(isOpen, toggle) => compact
+                    ? busy ? <button type="button" class={isOpen ? "u-ib u-on" : "u-ib"} aria-label={waiting} title={waiting}
+                                     aria-expanded={isOpen} onClick={toggle}>{ring}</button>
+                      : <IconButton icon="download" label="Download" expanded={isOpen} onClick={toggle} />
+                    : busy ? <Button aria-expanded={isOpen} aria-label={waiting} onClick={toggle}>{ring}Download</Button>
+                      : <Button icon="download" aria-expanded={isOpen} onClick={toggle}>Download</Button>}>
+    <div class="r-downloads">
+      <b class="u-h4">Download the lines</b>
+      {FORMATS.map(([format, name, what]) =>
+        <button type="button" class="u-btn" key={format} aria-busy={busy === format} disabled={busy !== null && busy !== format}
+                onClick={() => press(format)}>{busy === format ? ring : <Icon name="download" />}
+          {name} <span class="u-small">{busy === format ? t("ui.result.export_preparing") : what}</span></button>)}
+      {error && <p class="u-small r-error" role="alert">{error}</p>}
+    </div>
+  </Popover>;
+}
+
+/** Download: the lines of the run as CSV and GeoJSON. A run read from its store: made for each download where the
+ *  page may ask (Export), no button elsewhere; a run without a store: its two kept files. */
+function Download(props: RunActionsProps) {
+  const {model, compact, base, folder} = props;
+  if (model.data.fromStore) return mayExport(model.data) ? <Export {...props} /> : null;
   const id = model.runId, files = runFolder(id, base, folder);
   return <Popover label="Download" align="right"
                   button={(open, toggle) => compact ? <IconButton icon="download" label="Download" expanded={open} onClick={toggle} />

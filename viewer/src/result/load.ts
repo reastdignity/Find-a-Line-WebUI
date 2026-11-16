@@ -161,7 +161,7 @@ async function fromServer(url: string, key: string, report: OnProgress): Promise
   const store = await storeOf(url);
   if (!store) return downloadRun(url, key, report);
   try {
-    return await downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true);
+    return Object.assign(await downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true), {fromStore: true});
   } catch (e) {
     if (e instanceof StoreMissing) return downloadRun(url, key, report);
     throw e;
