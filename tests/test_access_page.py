@@ -88,7 +88,9 @@ LIST = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...do
             // the cell's content stays inside the cell (no overlap with its neighbours)
             inside: cell ? cell.scrollWidth <= cell.clientWidth + 1 : null}; });
   return {classes: table.className.split(' ').sort(), width: Math.round(table.getBoundingClientRect().width),
-          head: $$('.r-table .r-head > *').map((c) => [c.tagName, c.textContent.replace(/[\\u00a0 ]*[↓↑]$/, ''), c.classList.contains('r-cell-acc')]),
+          // the heading as shown: its visually hidden part (the sorted column's order, said in its name) left out
+          head: $$('.r-table .r-head > *').map((c) => [c.tagName, [...c.childNodes]
+            .filter((n) => !n.classList?.contains('u-sr')).map((n) => n.textContent).join('').trim().replace(/[\\u00a0 ]*[↓↑]$/, ''), c.classList.contains('r-cell-acc')]),
           rows, hasAccess: model.hasAccess, legend: !!$('.r-legend-acc'),
           scroll: [document.documentElement.scrollWidth, innerWidth]}; }"""
 
