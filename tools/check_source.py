@@ -10,11 +10,12 @@ For each layer of the source (terrain: nmt, surface: nmpt), on a grid built as a
 it (search.plan_search without margin, water and gap filling), downloading through the
 layer's own path into the cache of --data-dir:
 
-1. shift: the layer mosaicked over the grid enlarged by --shift-range, compared with a
+1. shift: the layer mosaicked over the grid enlarged by --shift-range (sources.prepare_layer: with the layer's
+   floor and height offset, the heights a search uses), compared with a
    reference on the grid (auto: the terrain with FABDEM, the surface with Copernicus GLO-30;
    or a raster file) at whole-pixel shifts; the best shift is the correction to add to the
    layer's `shift` (data placed 56 m east needs -56). WARN if it is more than 30 m away.
-2. valid: the share of pixels with data inside the circle (at most 500 m) at 1 m and at 5 m;
+2. valid: the share of pixels with data (after the layer's floor) inside the circle (at most 500 m) at 1 m and at 5 m;
    WARN if 5 m is more than 1 percentage point below 1 m (a server that loses data when it
    downsamples).
 3. files: --samples cached tiles against their source files read through GDAL (/vsicurl/,
@@ -22,7 +23,9 @@ layer's own path into the cache of --data-dir:
    data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
    against the files after its geoid's correction, as it caches them; a member of a remote ZIP
    (ZipMemberTiles, PackageTiles) read again by Range and opened by GDAL, with the layer's floor rule applied, in
-   the tile's own CRS when it names one). n/a for WCS tiles and local files.
+   the tile's own CRS when it names one). n/a for WCS tiles and local files. Both sides as the provider gave them:
+   a floor or a height offset applied where the tiles are read onto the grid (Layer.floor_of,
+   Layer.height_offset) is on neither.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).

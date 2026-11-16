@@ -446,7 +446,8 @@ only, `floor_of`; `TK_BOXES` the mainland's and the islands' boxes) and `shizuok
 EPSG:6676, `sz_prefixes`, `sz_key`; region jp-22); `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
 `sheet_name` name the plane rectangular grid's sheets. `hong_kong` (new): `hong_kong` (`CellSheetTiles` of 750 ×
 600 m sheets of the Hong Kong 1980 Grid, EPSG:2326, DTM and DSM over `hong_kong_sheets.npz`; `hk_sheet`, `hk_cell`,
-`hk_name`, `hk_files`; region cn-hk, `HK_BOXES` along the boundary). `canada` gains `ontario` (Geospatial Ontario's
+`hk_name`, `hk_files`; region cn-hk, `HK_BOXES` along the boundary; both models lowered by `HK_DATUM_OFFSET`,
+`CellSheetTiles(height_offset=)`). `canada` gains `ontario` (Geospatial Ontario's
 DTM / DSM, `PackageTiles` per model in the zones of `ON_ZONES`, `ON_PROJECT_DATES`, `ON_EXCLUDE`, `on_utm_crs` the
 working CRS, `ON_BOXES` region boxes inside Canada's; fallback and `instead_without_data` `canada`, then
 `canada_2m`, `mrdem30`; neighbour of `usa`, which declares it last). FAMILIES ends `..., brazil, japan, hong_kong,
@@ -562,7 +563,10 @@ Batch 6: `build_mosaic(below=)` (from `prepare_layer`: `Layer.floor_of` of each 
 makes heights below it no data in each raster's own pixels before any resampling, so a tile cached before the floor
 and one fetched now give the same grid (nothing is written with the floor; `tests/test_sea_floor.py`); `below` is
 one number for every file or one floor (or None) per file: `japan.TokyoSheets.floor_of` floors the Izu islands'
-sheets only (`tk_island`: south of `TK_ISLANDS_NORTH`).
+sheets only (`tk_island`: south of `TK_ISLANDS_NORTH`). `build_mosaic(offset=)` (from `prepare_layer`:
+`Layer.height_offset`, a datum's offset: `hong_kong.HK_DATUM_OFFSET` -1.30 m on both models) adds a constant to each
+raster's values on the grid after the floor (`_lifted`), so the mosaic is the one without it plus the constant in
+float32 on every path; never on a categorical mosaic; the cache keeps the provider's heights.
 
 ## `sources/probe.py`
 

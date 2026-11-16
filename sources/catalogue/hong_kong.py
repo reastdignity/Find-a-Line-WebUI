@@ -88,6 +88,9 @@ HK_BULK = "https://bulkdata.csdi.gov.hk/cedd/lidar"
 HK_FOLDERS = {"dtm": "2020dtm", "dsm": "2020dsm"}
 HK_SHEETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hong_kong_sheets.npz")
 HK_YEAR = 2020
+# Metres added to every height of both models (Layer.height_offset): mean sea level "is about 1.30m above HKPD" (the
+# Lands Department's Explanatory Notes on Geodetic Datums in Hong Kong, quoted below)
+HK_DATUM_OFFSET = -1.30
 
 
 @lru_cache(maxsize=None)
@@ -112,19 +115,25 @@ def hk_files(layer: str, i: int, j: int) -> List[Tuple[str, str, int]]:
 # Geotechnical Engineering Office, the second survey "from ... a Helicopter between 20th December 2019 and 2nd
 # February 2020", covering all of Hong Kong; its layers DTM_2020 and DSM_2020. Each ZIP holds one GeoTIFF of 1500 x
 # 1200 px of float32 at 0.5 m on its sheet's box (EPSG:2326, "Area", pixel edges on whole metres: grid_origin 0;
-# uncompressed, 128 px tiles, 7 868 582 B), nodata -9999. Heights above the Hong Kong Principal Datum, kept as they
-# are: the Lands Department's "Explanatory Notes on Geodetic Datums in Hong Kong"
+# uncompressed, 128 px tiles, 7 868 582 B), nodata -9999. Heights above the Hong Kong Principal Datum (HKPD), which
+# the app's sea at 0 m does not match: the Lands Department's "Explanatory Notes on Geodetic Datums in Hong Kong"
 # (https://www.geodetic.gov.hk/common/data/pdf/explanatorynotes.pdf, read 2026-11-16): "Based on the tide data
 # recorded by Quarry Bay tide gauge station in Victoria Harbour during the recent 19-year cycle (1997 to 2015), the
-# mean sea level is about 1.30m above HKPD." The sea and the land beyond Hong Kong's boundary are nodata in both models (2NE20D on the Shenzhen
-# River: 73.9 % nodata, the same pixels in both; 12SW22A's surface off Tung Lung Chau: 97.1 %, its lowest pixel
-# 0.738 m), with a fringe of water at +1.1 to +1.3 m along the shore and a few pixels below 0 m at the sea's edge
-# (16NW3A: 1 796 in [-1, 0) m, 115 below -1 m, the lowest -2.07 m, within 19 m of the nodata; at 1 m around it 500 of
-# the 514 below 0 m lie in the OSM coastline's sea zone). No constant, no seabed. Land below -1 m exists: three
-# hollows in Kowloon's 11NE6D and 11NE7C (954 m² down to -2.97 m; 388 and 402 m² down to -6.57 and -6.02 m among
-# heights of 5-6 m; in both models), so no floor (Layer.nodata_below) is set: a floor at -1 m would take them and
-# change 24 px of the sea zone at 16NW3A (the 51 sheets cached at Lion Rock and Tung Lung Chau, 2026-11-16). The data
-# are frozen (Last-Modified 2022-01-14): a versioned folder, the table refreshed by hand.
+# mean sea level is about 1.30m above HKPD." So every height, terrain and surface alike, is lowered by
+# HK_DATUM_OFFSET (the user's decision of 2026-11-16) where the tiles are read onto the grid (Layer.height_offset,
+# mosaic.prepare_layer): heights about mean sea level; the cache keeps CEDD's heights, so nothing is fetched again
+# (2026-11-16: R91 the same 8 lines, each anchor 1.30 m lower; at Cape D'Aguilar, radius 400 m, the same 8 lines and
+# clearances, 1 988 anchors fewer: the fringe's step down to the sea's 0 m fill is gone, its pixels now water).
+# The sea and the land beyond Hong Kong's boundary are nodata in both models (2NE20D on the Shenzhen River: 73.9 %
+# nodata, the same pixels in both; 12SW22A's surface off Tung Lung Chau: 97.1 %, its lowest pixel 0.738 m), with a
+# fringe of water at +1.1 to +1.3 m above HKPD along the shore (-0.2 to 0 m once lowered: water, as is any data in
+# the sea zone at most filling.SEA_LEVEL_TOLERANCE high) and a few pixels below 0 m at the sea's edge (above
+# HKPD, 16NW3A: 1 796 in [-1, 0) m, 115 below -1 m, the lowest -2.07 m, within 19 m of the nodata; at 1 m around it
+# 500 of the 514 below 0 m lie in the OSM coastline's sea zone). No constant, no seabed. Land below -1 m exists: three
+# hollows in Kowloon's 11NE6D and 11NE7C (954 m² down to -2.97 m; 388 and 402 m² down to -6.57 and -6.02 m above
+# HKPD among heights of 5-6 m; in both models), so no floor (Layer.nodata_below) is set: a floor at -1 m would take
+# them and change 24 px of the sea zone at 16NW3A (the 51 sheets cached at Lion Rock and Tung Lung Chau,
+# 2026-11-16). The data are frozen (Last-Modified 2022-01-14): a versioned folder, the table refreshed by hand.
 #
 # The CSDI Portal's Terms and Conditions of Use (https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, read 2026-11-16):
 # "You are allowed to browse, download, distribute, reproduce, hyperlink to and print the Data for both commercial
@@ -160,10 +169,10 @@ HK_CREDIT = Credit("LiDAR Data 2020, DTM and DSM (Civil Engineering and Developm
 # side of more
 HK_DTM = CellSheetTiles("CEDD lidar DTM 2020 0.5 m (terrain)", "hong_kong/dtm-2020", HK_CRS, HK_SHEET, 0.5,
                         lambda i, j: hk_name(hk_sheet(i, j)), hk_cell_of_name, lambda i, j: hk_files("dtm", i, j),
-                        r"\.tif$", origin=(HK_LEFT, HK_BOTTOM), bytes_per_tile=5.8e6)
+                        r"\.tif$", origin=(HK_LEFT, HK_BOTTOM), bytes_per_tile=5.8e6, height_offset=HK_DATUM_OFFSET)
 HK_DSM = CellSheetTiles("CEDD lidar DSM 2020 0.5 m (surface)", "hong_kong/dsm-2020", HK_CRS, HK_SHEET, 0.5,
                         lambda i, j: hk_name(hk_sheet(i, j)), hk_cell_of_name, lambda i, j: hk_files("dsm", i, j),
-                        r"\.tif$", origin=(HK_LEFT, HK_BOTTOM), bytes_per_tile=5.8e6)
+                        r"\.tif$", origin=(HK_LEFT, HK_BOTTOM), bytes_per_tile=5.8e6, height_offset=HK_DATUM_OFFSET)
 
 # No orthophoto: the Lands Department's Imagery Map API (XYZ tiles, https://portal.csdi.gov.hk/csdi-webpage/apidoc/
 # ImageryMapAPI, read 2026-11-16) requires "Lands Department logo on the map face and Copyright Notice", which the map's
@@ -203,16 +212,19 @@ SOURCES: List[Source] = [
         id="hong_kong", name="Hong Kong (CEDD lidar 0.5 m)",
         description="Civil Engineering and Development Department (CEDD): LiDAR Data 2020 (helicopter survey "
                     "2019-12-20 to 2020-02-02), terrain (DTM) and surface (DSM) 0.5 m, Hong Kong 1980 Grid; heights "
-                    "above the Hong Kong Principal Datum (mean sea level is about 1.30 m above it, Lands "
-                    "Department), no datum shift applied; the sea and the land beyond the boundary have no data; 57 "
-                    "coastal sheets have a surface model only",
+                    "above the Hong Kong Principal Datum lowered by 1.30 m to about mean sea level (mean sea level "
+                    "is about 1.30 m above HKPD, Lands Department); the sea and the land beyond the boundary have "
+                    "no data; 57 coastal sheets have a surface model only",
         nmt=HK_DTM, nmpt=HK_DSM, countries=("cn",), regions=("cn-hk",), crs=HK_CRS, credits=(HK_CREDIT,),
-        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020; heights above HKPD, about 1.30 m below "
-                                            "mean sea level, not shifted)",
-                          "CEDD lidar DSM 0.5 m (2020; 57 coastal sheets without terrain: europe's under it)", "–"),
+        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020; heights above HKPD lowered by 1.30 m to "
+                                            "about mean sea level)",
+                          "CEDD lidar DSM 0.5 m (2020, lowered alike; 57 coastal sheets without terrain: europe's "
+                          "under it)", "–"),
         offline=HK_BOXES, sample=(22.352, 114.187),  # Lion Rock (R91)
         note="Data: Civil Engineering and Development Department, LiDAR Data (2020), from the CSDI Portal under its "
-             "terms and conditions. Heights above the Hong Kong Principal Datum (about 1.30 m below mean sea level). "
-             "57 coastal sheets have a surface model and no terrain: there the terrain comes from the fallback.",
+             "terms and conditions (processed: every height lowered by 1.30 m). Heights are about mean sea level: "
+             "the data give them above the Hong Kong Principal Datum, and the Lands Department puts mean sea level "
+             "about 1.30 m above it. 57 coastal sheets have a surface model and no terrain: there the terrain comes "
+             "from the fallback.",
         coverage=Coverage(provider="CEDD", added="2026-11-16", areas=("hk",), survey="2019–2020")),
 ]

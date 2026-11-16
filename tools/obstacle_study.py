@@ -22,7 +22,10 @@ surface on its files' lattice, the terrain interpolated onto it) and warps onto 
 GDAL's Resampling.max (what sources.mosaic would give with max instead of average) the fine surface
 (s-max) and the fine surface minus terrain (h-max): fine-nmpt.npy, fine-nmt.npy, s-max.npy,
 h-max.npy and fine.json in the call's folder. GDAL's max takes every fine pixel overlapping a grid
-pixel at all, also by half (fine_grid). The surface variants avg (the grid's), max (s-max) and h
+pixel at all, also by half (fine_grid). The fine grids are built from the cached files as the provider gave
+them, without a layer's floor or height offset (Layer.floor_of, Layer.height_offset): h-max (the surface less
+the terrain) stays right where both models are lowered alike (Hong Kong's 1.30 m), but there s-max stands 1.30 m
+above the grid's surface and the lines' limits. The surface variants avg (the grid's), max (s-max) and h
 (the terrain plus h-max) are each counted under VARIANT_RULES (the rules below and A2+T: A2, and
 every pixel where CHMv2 sees a tree on WorldCover's tree cover stays an obstacle), each line's
 limit the same, the pixels above it the variant's; the kernel checks A2 on every variant.

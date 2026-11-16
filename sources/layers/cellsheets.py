@@ -47,14 +47,16 @@ class CellSheetTiles(ComposedLayer):
     has holes (Tokyo's sheets on the line between Tama's and the wards' surveys are in both folders, each partial).
     A cell without a file in the table is no tile, never asked; a file of the table the server does not give
     (403, 404 or any other error) is an error of that tile, asked again by the next search, never recorded as
-    missing. Cached as <folder>/<name(i, j)>.tif (MetricCellTiling)."""
+    missing. Cached as <folder>/<name(i, j)>.tif (MetricCellTiling). height_offset: Layer.height_offset (Hong Kong's
+    datum), applied where the tiles are read onto the grid, never to the cached files."""
 
     def __init__(self, description: str, folder: str, crs: str, cell: Tuple[float, float], native_res: float,
                  name: Callable[[int, int], Optional[str]], parse: Callable[[str], Optional[Tuple[int, int]]],
                  files: CellFiles, members: str, origin: Tuple[float, float] = (0.0, 0.0),
-                 bytes_per_tile: float = 2e6):
+                 bytes_per_tile: float = 2e6, height_offset: float = 0.0):
         self.description, self.folder, self.crs, self.cell = description, folder, crs, cell
         self.native_res, self._bytes, self.members = native_res, bytes_per_tile, members
+        self.height_offset = height_offset
         self.index = CellSheetTiling(crs, folder, cell, name, parse, native_res, files, origin)
         self.reader = SheetSetFile(description, members)
 

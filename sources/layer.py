@@ -207,6 +207,10 @@ class Layer:
     # are read onto the grid (mosaic.prepare_layer, each file's floor_of), never when one is written, so a tile cached
     # before and one fetched now give the same grid; None: none (every other layer)
     nodata_below: Optional[float] = None
+    # Metres added to every height where the tiles are read onto the grid (mosaic.prepare_layer), after the floor,
+    # which judges the provider's own heights: a datum's offset (Hong Kong's heights above HKPD, which lies about
+    # 1.30 m below mean sea level). The cache keeps the provider's heights; 0: none (every other layer)
+    height_offset: float = 0.0
     # Version of what download_tile does with the data; tiles made by another version are fetched again
     processing = 1
     # The secrets the layer's service needs (field names of settings.ServiceKeys, read when used):

@@ -170,7 +170,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `rio_de_janeiro` | Rio de Janeiro city (BR) | BR | Instituto Pereira Passos lidar DTM 2019, 5 m (elevation tiles) | – | – | 5 m | `europe` |
 | `tokyo` | Tokyo (JP) | JP | Tokyo Digital Twin lidar grid 0.5 m (Tama, Izu islands 2022-2023; 23 wards 2023) | – (point clouds only) | – | 1 m | `europe` |
 | `shizuoka` | Shizuoka (JP) | JP | VIRTUAL SHIZUOKA lidar grid 0.5 m (FY2019-2022, FY2025) | – (point clouds only) | – | 1 m | `europe` |
-| `hong_kong` | Hong Kong (CN) | CN | CEDD lidar DTM 0.5 m (2020; heights above HKPD, about 1.30 m below mean sea level, not shifted) | CEDD lidar DSM 0.5 m (2020; 57 coastal sheets without terrain: europe's under it) | – | 1 m | `europe` |
+| `hong_kong` | Hong Kong (CN) | CN | CEDD lidar DTM 0.5 m (2020; heights above HKPD lowered by 1.30 m to about mean sea level) | CEDD lidar DSM 0.5 m (2020, lowered alike; 57 coastal sheets without terrain: europe's under it) | – | 1 m | `europe` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `copernicus` | anywhere (the gap filler of the Arctic sources) | – | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m (a surface model) | – | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |

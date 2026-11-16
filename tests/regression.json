@@ -2436,7 +2436,7 @@
     "seconds": 6.5
   },
   "R91": {
-    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD",
+    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD lowered by 1.30 m to about mean sea level",
     "args": "--lat 22.3518 --lon 114.1872 --radius 600 --min-length 20 --max-length 150",
     "sets": [
       "sources",
@@ -2448,7 +2448,7 @@
       "checked": 126,
       "lines": 8,
       "spots": 3,
-      "csv_sha256": "02a93e778650cc230e80c13c8c0f75f7e2c70156c6847928300a91db3f1445d4",
+      "csv_sha256": "9d002a1fe75f4a7f8a055620de0e276c21d4d13f8239c118e56b096b3891cddc",
       "length_km": 0.206,
       "clearance_min": 0.19,
       "clearance_mean": 0.545,
@@ -2457,7 +2457,7 @@
       "coverage": 100.0,
       "empty_tiles": 0
     },
-    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run",
+    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run. Re-baselined 2026-11-16 for Hong Kong's datum (hong_kong.HK_DATUM_OFFSET, the user's decision of 2026-11-16: every height lowered by 1.30 m where the tiles are read onto the grid): the same 8 lines in 3 spots, every count and total the same, lines.csv differing only in the anchors' heights, each 1.30 m lower (02a93e77... -> 9d002a1f...)",
     "seconds": 35.1
   },
   "R92": {
