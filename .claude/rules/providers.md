@@ -29,9 +29,10 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   cached per 0.25° tile in `cache/poland/sheet-index/`. The sheet files on opendata.geoportal.gov.pl download at ~17
   MB/s; the geoportal pages give no request limits (technical contact sigservicedesk@geoportal.gov.pl). Sheet
   attributes and coverage are in docs/roadmap.md ("To check").
-- **Our own Slovak tiles** come from the local mirror (`FINDALINE_MIRROR`, the folder above `slovakia/`) until they
-  are on Hugging Face (`SLOVAK_TILES` in `sources/catalogue/slovakia.py`); without it `--source auto` falls back to
-  `europe` and the Slovak regression test is skipped. `tools/sk_tiles.py extract` unpacks the TIFF first (GDAL's
+- **Our own Slovak tiles** come from a local copy (`FINDALINE_MIRROR`, the folder above `slovakia/`) when it holds
+  them, else from the project's data server (`FINDALINE_MIRROR_URL`, `off` for none: then `--source auto` falls back
+  to `europe` and the Slovak regression test is skipped without the folder; `SLOVAK_TILES` in
+  `sources/catalogue/slovakia.py`). `tools/sk_tiles.py extract` unpacks the TIFF first (GDAL's
   `/vsizip/` reads it about 60 times slower than Python's `zipfile` inflates it); `cut` reads full-width 2 km bands
   (several GB of RAM) and writes tiles on all cores: one cut at a time. `tools/sk_tiles.py average` writes `dmr5/2m`,
   `dmr5/5m` (and `dmp1/...`) next to `1m` in about 6.5 min per product on all cores (12 826 tiles with data: 23.6 and

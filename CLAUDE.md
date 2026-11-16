@@ -17,6 +17,8 @@ Read the section you need, not the whole file (several are over 200 KB).
   `tests/nginx_check.sh`), [docs/monitoring.md](docs/monitoring.md).
 - [docs/data-sources.md](docs/data-sources.md) (adding a source), docs/3d-view-contract.md,
   docs/country-precompute/contract.md, docs/truth-check.md.
+- docs/mirror-hosting/spec.md: the project's data server ("the mirror", on the home server): its stack, the
+  publishing, the client, the monitoring.
 - docs/code-map/: what each module and tool holds, in detail, one file per area (table below).
 - [docs/workflow.md](docs/workflow.md): the environment, finishing a task (squash, tag), the test lock's
   modes and the conventions, in full.
@@ -53,6 +55,7 @@ Read the section you need, not the whole file (several are over 200 KB).
 | Coverage map | `viewer/src/coverage/`, `tools/coverage_*.py` | coverage-map | viewer.md, tools.md |
 | Country layer | `country.py`, `countcube.py`, `countkernels.py`, `relief.py` | country-layer | country.md |
 | Docker, the VPS, CI | `Dockerfile`, `compose.yaml`, `deploy/`, `.github/workflows/ci.yml` | deploy | deploy.md |
+| The data server: its stack, publishing, the client | `deploy/mirror/`, `tools/mirror_publish.py`, `sources/readers/tilebases.py` | deploy, mirror | deploy.md, tools.md, sources.md |
 | Tools run by hand | `tools/` (each tool's docstring says what it does) | the rule of its area | tools.md |
 
 ## Rules of an area
@@ -69,7 +72,8 @@ before. Planning without opening those files, or briefing a subagent: read the r
   in the worker.
 - Stored data (cache layout, runs, SQLite databases): every change decides "automatic migration" or
   "none" and states it in the commit message.
-- Keys, tokens and personal data never in the repository, a run's files, a printed text or a log.
+- Keys, tokens and personal data never in the repository, a run's files, a printed text or a log; the one
+  exception: the mirror's request log (`deploy/mirror`) holds addresses, for at most 14 days.
 - Before adding a dependency: the current docs of the version that gets installed, and the tests with
   deprecation warnings visible.
 - Libraries first: before an own implementation look for a popular, maintained library and present a

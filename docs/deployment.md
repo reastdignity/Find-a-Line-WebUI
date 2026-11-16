@@ -20,7 +20,8 @@ What the site needs from the outside, and what stays closed:
 | Telegraf on the host | `web` on `127.0.0.1:8766` | the application's metrics (section 15); never through nginx |
 | the internet | the host (22) | SSH, with a key only |
 | `web` | the internet (HTTPS) | sign-in: the token endpoints of GitHub, Google and Microsoft, Google's and Microsoft's OpenID metadata and keys |
-| `worker` | the internet (HTTP/HTTPS) | the data services, Nominatim, Overpass, OpenStreetMap extracts |
+| `worker` | the internet (HTTP/HTTPS) | the data services, Nominatim, Overpass, OpenStreetMap extracts, the project's data server (section 17) |
+| Telegraf on the host | the project's data server (HTTPS) | its list of datasets every minute and its certificate (section 15) |
 | `web`, `worker` | the host, private addresses (the provider's private network, its metadata service), other containers | nothing: the firewall rules of section 2 |
 | `worker` | `web` | nothing: they share no network (they talk through the data volume) |
 
@@ -592,7 +593,7 @@ as British Columbia's, in `OSM_EXTRACTS_SKIP` of `deploy/vps.sh` and its pin in 
 
 The containers' logs are rotated by Docker (10 MB, 5 files each: compose.yaml, `logging`).
 
-## 10. The volumes and the Slovak mirror
+## 10. The volumes and a local copy of the mirror
 What the site keeps is in two named volumes (under `/var/lib/docker/volumes/` on the host):
 - `findaline_data`, both services, at `/data`: `cache/` (downloaded data, re-downloadable),
   `runs/` (the users' runs), `work/` (temporary), `jobs.sqlite` (the queue, through which the
@@ -623,12 +624,18 @@ and change or delete the runs, the cache and the queue. The viewer itself (its s
 styles) comes from the image, not from the volume. Keeping the worker from being compromised
 (the image's updates, section 13) and its network isolation (section 2) are the defence here.
 
-The Slovak tiles (`tools/sk_tiles.py`) are not downloaded by the site: copy the local mirror
-(the folder above `slovakia/`) to the server, e.g. `/srv/findaline-mirror`, make it readable
+Our own tiles of Slovakia, Madeira and Valle d'Aosta (`tools/sk_tiles.py`, `tools/mirror_tiles.py`)
+come from the project's data server (section 17): the worker downloads them like any source's
+tiles, with nothing to set (`FINDALINE_MIRROR_URL` stays unset in `findaline.env`; `off` would
+turn the data server off). A local copy on the server is optional: copy the mirror folder (the
+folder above `slovakia/`) to the server, e.g. `/srv/findaline-mirror`, make it readable
 (`sudo chmod -R a+rX /srv/findaline-mirror`), set `FINDALINE_MIRROR_DIR=/srv/findaline-mirror`
-in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror`; without it
-`--source auto` takes `europe` for Slovakia. Madeira's and Valle d'Aosta's tiles live in the
-same mirror: section 16.
+in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror` and reads a
+dataset the folder holds from there, asking the data server for nothing of it. Without the folder
+and with the data server not answering when a search starts, `--source auto` takes the next
+source of the place (`europe` for Slovakia): section 16. The site's own copy, kept while the data
+server is new, is taken out of `.env` and then deleted on the operator's word (the specification's
+rollout, docs/mirror-hosting/spec.md section 11).
 
 **Country cubes (the highline explorer).** The page `#layer` (administrators only on the public
 site) reads `/data/countries/<id>/cube/` of the data volume. The server never counts countries
@@ -947,7 +954,9 @@ units, fail2ban, the backup, the site seen from outside, the application (its qu
 outside services, routes, housekeeping and coverage), SSH logins and the logs of `web`, `worker`
 and nginx's error log. Alerts arrive as push messages through a secret [ntfy](https://ntfy.sh)
 topic, the channel of a failed backup (section 11). Nothing new is open to the internet:
-everything listens on the host's loopback.
+everything listens on the host's loopback. Telegraf also asks the project's data server (section 17)
+for its list of datasets every minute and reads its certificate (rows C7 and C8: an alert after 45 minutes
+without a good answer, and below 14 days).
 
 | Part | Where | What it does |
 | --- | --- | --- |
@@ -1069,16 +1078,19 @@ volumes) and `sudo systemctl disable --now telegraf findaline-facts.timer findal
 findaline-heartbeat.timer`; the SSH login notice stops when its line is removed from
 `/etc/pam.d/sshd` (`setup` and `update` add it again).
 
-## 16. The local mirror's other datasets
-The local mirror holds our own tiles of six sources, none of which the site downloads: Slovakia
-(`slovakia/`, `tools/sk_tiles.py`), Madeira (`madeira/dtm/2m`), Valle d'Aosta (`aosta/dtm/2m`)
-and, since batch 6, Madeira's other island groups: Porto Santo (`porto-santo/dtm/5m`), the
-Desertas (`desertas/dtm/5m`) and the Selvagens (`selvagens/dtm/5m`). All but Slovakia's are cut
-by `tools/mirror_tiles.py`: Madeira and Valle d'Aosta from one file each (about 0.33 and 1.46 GB,
-2026-11-15), the three islets from DROTe's 5 m ZIP (3.4 MB of tiles together, final and verified,
-2026-11-16). The worker reads them from `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the
-folder that `FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10); copy the folders you
-want next to `slovakia/` with the same layout and make them readable as in section 10.
+## 16. Our own datasets: the data server and a local copy
+Our own tiles of six sources: Slovakia (`slovakia/`, `tools/sk_tiles.py`), Madeira (`madeira/dtm/2m`),
+Valle d'Aosta (`aosta/dtm/2m`) and, since batch 6, Madeira's other island groups: Porto Santo
+(`porto-santo/dtm/5m`), the Desertas (`desertas/dtm/5m`) and the Selvagens (`selvagens/dtm/5m`).
+All but Slovakia's are cut by `tools/mirror_tiles.py`: Madeira and Valle d'Aosta from one file each
+(about 0.33 and 1.46 GB, 2026-11-15), the three islets from DROTe's 5 m ZIP (3.4 MB of tiles
+together, final and verified, 2026-11-16). The worker takes a dataset from the first place that
+holds it: the folder of `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the folder that
+`FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10), then the project's data server
+(section 17), which serves a dataset once it is published there (`tools/mirror_publish.py`, only a
+dataset with its approved row in `PUBLISHABLE`: Slovakia, Madeira and Valle d'Aosta today). A local
+copy keeps the mirror's layout; copy the folders you want next to `slovakia/` and make them
+readable as in section 10.
 
 What the cutting tool leaves: in a product's folder (`<dataset>/<product>/<res>m/`) the tiles,
 `index.json`, `inputs.jsonl` (the rasters the cut read) and, once `verify` ran, `verify.json`;
@@ -1090,15 +1102,53 @@ container of the project's image with the clone's `tools/` mounted (`.dockerigno
 of the image; the tool's docstring has the command); the image has no 7-Zip, which a Deflate64
 ZIP would need.
 
-Without a dataset's folder its source is unavailable and `--source auto` takes the next source of
-the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto Santo, the
-Desertas and the Selvagens Madeira's source, then `europe`; the run's text names the missing
-folder. On 2026-11-15 the VPS's mirror holds `slovakia/` only, so Madeira and Valle d'Aosta run
-on those fallbacks there until their folders are copied. The regression entries R80, R81 and
-R86-R88 are skipped without their folders (`needs_path`).
+When no folder holds the dataset, the first planning of a search asks the data server for the
+dataset's index. No answer, a 5xx, or a 404 (the dataset is not published there: the islets today,
+which have no `PUBLISHABLE` row) all count as not answering: the source is unavailable, the run's
+text says why ("<layer>: the data copy at mirror.findaline.lukawski.org does not answer (HTTP 404:
+not published there)" for a 404), and `--source auto` takes the next source of the place:
+Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto Santo, the Desertas and
+the Selvagens Madeira's source (published, but its tiles do not reach the islets: the gap filling,
+`europe`, fills the area, and the run names Madeira's source). Later phases of the same
+search keep the source chosen at its start and fail if a tile still missing cannot be downloaded
+(running it again resumes from the cache). On 2026-11-15 the VPS's local copy holds `slovakia/`
+only. The regression entries R80, R81 and R86-R88 are skipped without their folders (`needs_path`)
+unless `tests/regression.py --mirror-url` names a data server.
 
-The public site is to read the mirror's datasets only through the hosted mirror (its
-specification: `docs/mirror-hosting/` in `main`); the three islet datasets wait for it, and so
-do Portugal's and Wallonia's, fetched and cut on the user's server (not built yet:
-docs/new-sources-6/spec.md). Hong Kong (`hong_kong`) is read from its provider and never a
-mirror dataset on today's terms (a copy needs CEDD's written yes).
+The public site reads the mirror's datasets through the data server once they are published there
+(the rollout: docs/mirror-hosting/spec.md, section 11). The three islet datasets have no
+`PUBLISHABLE` row yet (a row needs the user's approval), and Portugal's and Wallonia's are to be
+fetched and cut on the user's server (not built yet: docs/new-sources-6/spec.md). Hong Kong
+(`hong_kong`) is read from its provider and never a mirror dataset on today's terms (a copy needs
+CEDD's written yes).
+
+## 17. The project's data server (the mirror machine)
+The tiles of section 16 are served by a data server of the project at
+`https://mirror.findaline.lukawski.org`, on the home server, not on the VPS: a compose project of
+its own behind the home server's SWAG, and a second one, the SFTP door the PC publishes through
+(docs/mirror-hosting/spec.md). How to install it, attach SWAG to its network, add its name to
+SWAG's certificate in a planned stop, set up the door and check it all: `deploy/mirror/README.md`.
+Publishing a dataset from the PC that holds the master: `tools/mirror_publish.py` (README, "The
+project's data server"). The VPS watches it (section 15: C7 when it gives no good answer for 45
+minutes, C8 for its certificate); its request log holds the addresses of the installations that
+download, for at most 14 days (README's privacy note). Set the data server up and see it answer
+before the VPS gets the update whose Telegraf checks it: otherwise "Mirror down" pages after its
+45 minutes (the rollout's order, docs/mirror-hosting/spec.md section 11).
+
+**The monthly item** (nothing reminds of it):
+1. The base images: the file server's (`deploy/mirror/Dockerfile`, `ARG NGINX_IMAGE`) and the
+   door's (`deploy/mirror/publish/Dockerfile`, `ARG ALPINE_IMAGE`) are pinned by digest, so they
+   get no automatic updates. Check each for a newer digest, change it in the repository with the
+   test images that go with it (`.claude/rules/deploy.md`), let CI's workflow `mirror`
+   (`.github/workflows/mirror.yml`) pass, then
+   rebuild on the home server (`deploy/mirror/README.md`, "Updating").
+2. On the PC, with the rclone config file that holds the remote (`<file>`: deploy/mirror/README.md,
+   "The rclone remote on the PC"):
+   `python tools/mirror_publish.py stats --config <file> --from findaline-mirror:/mirror/logs`
+   (requests and bytes per day and dataset, refusals per limit, client versions; no address) and
+   `python tools/mirror_publish.py clean --config <file> --to findaline-mirror:/mirror` (the trash
+   of replaced datasets older than 7 days).
+3. After every update of SWAG (and whenever C7 fires): attach SWAG to the mirror's network again
+   (`docker network connect findaline-mirror_mirror swag`) and run the README's check (it prints
+   `NOT ATTACHED` when the attachment is missing): a recreated SWAG container loses its second
+   network.

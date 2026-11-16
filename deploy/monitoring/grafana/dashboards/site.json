@@ -1,7 +1,7 @@
 {
   "uid": "site",
   "title": "Site",
-  "description": "The public site seen from its server: nginx, the application's routes, services, security, backup (docs/monitoring.md, rows C, F12, D, E, G1).",
+  "description": "The public site seen from its server: nginx, the application's routes, services, security, backup (docs/monitoring.md, rows C (C7, C8: the data server), F12, D, E, G1).",
   "tags": [
     "findaline"
   ],
@@ -2445,6 +2445,255 @@
             ]
           },
           "noValue": "none yet",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 108,
+      "type": "row",
+      "title": "The data server (C7, C8)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 76,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Data server answers (C7)",
+      "description": "The data server's list of datasets (/v1/datasets.json), asked from this server every minute: the last answer within 3 min. Alert when no answer was good for 45 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 77,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time(mirror_http_response_result_code[3m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "answers",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "not the list",
+                  "color": "red"
+                },
+                "2": {
+                  "text": "unreadable",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "no connection",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "timeout",
+                  "color": "red"
+                },
+                "5": {
+                  "text": "no DNS name",
+                  "color": "red"
+                },
+                "6": {
+                  "text": "not 200",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "decimals": 0,
+          "noValue": "no samples"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 51,
+      "type": "timeseries",
+      "title": "Data server's answer time (C7)",
+      "description": "Seconds until the list of datasets arrived, asked from this server.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 77,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(mirror_http_response_response_time)",
+          "legendFormat": "answer time",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Data server's certificate (C8)",
+      "description": "Days until the data server's certificate expires (SWAG's); it renews from 30. Alert below 14.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 77,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(mirror_x509_cert_expiry{type=\"leaf\"}) / 86400",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: days",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 25
+              }
+            ]
+          },
           "decimals": 0
         },
         "overrides": []

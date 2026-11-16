@@ -3740,6 +3740,209 @@
           "url": "/d/logs?${__url_time_range}"
         }
       ]
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "The data server (C7, C8)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 46,
+      "type": "stat",
+      "title": "Data (C7)",
+      "description": "The data server's list of datasets (/v1/datasets.json), asked from this server every minute: the last answer within 3 min. Alert when no answer was good for 45 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time(mirror_http_response_result_code[3m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "answers",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "not the list",
+                  "color": "red"
+                },
+                "2": {
+                  "text": "unreadable",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "no connection",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "timeout",
+                  "color": "red"
+                },
+                "5": {
+                  "text": "no DNS name",
+                  "color": "red"
+                },
+                "6": {
+                  "text": "not 200",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "decimals": 0,
+          "noValue": "no samples",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Data cert (C8)",
+      "description": "Days until the data server's certificate expires (SWAG's); it renews from 30. Alert below 14.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 27,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(mirror_x509_cert_expiry{type=\"leaf\"}) / 86400",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: days",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 25
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
     }
   ]
 }

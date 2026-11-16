@@ -60,7 +60,15 @@ What each part holds: docs/code-map/web.md (`metrics.py`, `servicecounts.py`), d
   itself; G2's alert on missing samples does); a unit renamed or added in `deploy/monitoring/systemd/` or `vps.sh`
   (`MONITORING_TIMERS`, `backups`) changes the alert too.
 
+- The data server's checks (C7, C8): `mirror_http_response` and `mirror_x509_cert` in `telegraf.conf`, measurements of
+  their own (the site's C5, C6 and G2 read `http_response`/`x509_cert` by host), their address the client's
+  `tilebases.MIRROR_URL` (`tests/test_mirror_pairs.py`), the rules `c7-mirror-down` (45 min, P26) and
+  `c8-mirror-certificate`, the *Site* row and the Overview's tiles go together (`test_telegraf_checks_the_data_server`).
+
 ## Pitfalls
+
+- **The committed `telegraf.conf` asks the real data server**: never run it off the VPS (CI's monitoring job does, a
+  few requests: accepted); a trial runs a copy with the address of a local test stack (`deploy/mirror/compose.test.yaml`).
 
 - **Testing the monitoring's host side**: systemd does not start in a container on Docker Desktop (cgroup v1): test
   `vps.sh`'s monitoring step in a privileged ubuntu:26.04 with dockerd started by hand and a `systemctl` stand-in; the
