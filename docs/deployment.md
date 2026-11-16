@@ -1108,10 +1108,12 @@ download, for at most 14 days (README's privacy note).
    get no automatic updates. Check each for a newer digest, change it in the repository with the
    test images that go with it (`.claude/rules/deploy.md`), let CI's job `mirror` pass, then
    rebuild on the home server (`deploy/mirror/README.md`, "Updating").
-2. On the PC: `python tools/mirror_publish.py stats --from <remote>:<root>/logs` (requests and
-   bytes per day and dataset, refusals per limit, client versions; no address) and
-   `python tools/mirror_publish.py clean --to <remote>:<root>` (the trash of replaced datasets
-   older than 7 days).
+2. On the PC, with the rclone config file that holds the remote (`<file>`: deploy/mirror/README.md,
+   "The rclone remote on the PC"):
+   `python tools/mirror_publish.py stats --config <file> --from findaline-mirror:/mirror/logs`
+   (requests and bytes per day and dataset, refusals per limit, client versions; no address) and
+   `python tools/mirror_publish.py clean --config <file> --to findaline-mirror:/mirror` (the trash
+   of replaced datasets older than 7 days).
 3. After every update of SWAG (and whenever C7 fires): attach SWAG to the mirror's network again
    (`docker network connect findaline-mirror_mirror swag`) and run the README's check (it prints
    `NOT ATTACHED` when the attachment is missing): a recreated SWAG container loses its second

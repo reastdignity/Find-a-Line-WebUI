@@ -129,3 +129,6 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   (10 s, 20 s a read) rests on the server's 10 s header timeout and storage that never spins down (spec A's risks).
   The later phase's "Data: <name> (chosen when the search started)" keeps the form `tests/regression.py` `PATTERNS`
   and `tools/obstacle_study.py` read; `regression.py --mirror-url` runs the `needs_path` entries without the folder.
+- `tests/http_server.py` `peak()` counts a request from its arrival to just before its answer's headers leave; the
+  client's connection tests read the host's 2 connections from it (`test_two_connections_whatever_address`,
+  `test_a_tile_falling_through_a_local_folder_takes_a_slot`): where a request ends changes them together.

@@ -482,8 +482,10 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    waits `net`'s usual pause (`net._sleep`), fetches the index again once and the tile once more (this heals a
    dataset being swapped, B); if that fails the next base is tried, and after the last base the search fails
    with a text naming the tile and the data server by its host only, with the kind of failure in fixed words
-   ("Could not download <layer> tile <name>: the data server at <host> does not answer (HTTP n | no answer)", or
-   "is busy (HTTP 429)"; U40). An index is fetched when a download first needs it (under a lock
+   ("Could not download <layer> tile <name>: the data server at <host> does not answer (<kind>)", or "is busy
+   (HTTP 429)" after a 429; U40). The kinds (`tilebases._failure_kind`): "HTTP <status>", "its answer was not the
+   data" (a 200 that was not), "its certificate was refused", "no answer in time", "the connection broke",
+   "waited too long for its turn" (the host's rate turn) and "no answer". An index is fetched when a download first needs it (under a lock
    per base: eight threads download) or by the start check (3), is kept in memory for 300 s (P11) and then taken
    again. Index requests take the host's rate turn; tile requests take the host's slot as today.
 3. **The start check** (U6, U7, P10). `unavailable()` stays as it is today: no request, and it knows only "no
@@ -655,8 +657,11 @@ U4, U13, U15, U16; P3, P26.
 3. **The rules** (to the site's contact point; ids the next free ones of the site's group, titles starting with
    the id as the pinned set requires): "Mirror down", no good answer for 45 minutes (P26: short maintenance stops
    of the home server are normal and must not page), written so that a vanished series alerts too, as the
-   existing "source silent" rule is; "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
-   answer time, certificate days. The VPS's own traffic to the mirror shows in the existing per-host counts.
+   existing "source silent" rule is, and as one alert instance (one series without labels: the worst result
+   code of 3 minutes, or 1 when the series vanished), so that one wait runs through a gap of the samples in an
+   outage (the code review's S1); "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
+   answer time, certificate days; the *Overview* has two tiles of them beside the site's (its test asks a tile
+   for every row with a rule). The VPS's own traffic to the mirror shows in the existing per-host counts.
 4. **The monthly item** in `docs/deployment.md`: check the mirror's base image for a newer digest (the door's
    too), run `mirror_publish.py stats` and `clean`; after every SWAG update, attach SWAG to the mirror's network
    again and run the README's check (U42). Nothing reminds automatically.
@@ -689,7 +694,7 @@ refused"; the log has no other key than the sentence names.)
 No stored data changes on the site. `findaline.env.example` gains the commented `FINDALINE_MIRROR_URL`.
 
 ### Files and pairs
-`deploy/monitoring/telegraf.conf`, `grafana/provisioning/alerting/rules.yaml`, the *Site* dashboard,
+`deploy/monitoring/telegraf.conf`, `grafana/provisioning/alerting/rules.yaml`, the *Site* and *Overview* dashboards,
 `tests/test_monitoring.py` (its pinned sets of rules, inputs and tags), a new `tests/test_mirror_pairs.py` (the
 server's limits against the client's entries; Telegraf's address against `MIRROR_URL`; the SWAG conf's and the
 server config's host) and the one line of `tests/conftest.py` that exempts that module from the emptying of the
