@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import rasterio as rio
 import rasterio.warp
 import requests
 from rasterio.transform import from_origin
@@ -241,24 +242,49 @@ class SheetSets(Versions):
         return named
 
     def cached(self, grid: Grid, cache_dir: str) -> list:
-        """The cached sheets over the grid (the index cannot be asked): a set the owner's last known answer names
-        before one it no longer names (an older upload, a set whose newest file is gone), then newest first."""
+        """The cached sheets over the grid (the index cannot be asked), by survey as a search orders them (newest
+        first, then level and place). A set the owner's last known answer no longer names goes behind a named set
+        only when that one is the newer upload of the same files (the same sheet, file names and years, another
+        ETag); otherwise it keeps its place by year (an upload whose newer download is not cached yet is read)."""
         sheets = self._within([s for s in (self._sheet_of(p) for p in self._cached_paths(cache_dir)) if s is not None],
                               grid)
         named = self._named(cache_dir, sheets)
-        return sorted(sheets, key=lambda s: (s.key not in named.get((s.level, s.i, s.j), {s.key}), -s.year, s.level,
-                                             -s.j, s.i))
+        stems: Dict[SheetSet, frozenset] = {}
+
+        def stems_of(s: SheetSet) -> frozenset:
+            if s not in stems:
+                try:
+                    with rio.open(self.path(cache_dir, s)) as src:
+                        tags = src.tags()
+                    stems[s] = frozenset(n.split("@", 1)[0] for n in (tags.get("files") or tags.get("sources", ""))
+                                         .split(",") if n)
+                except rio.errors.RasterioIOError:
+                    stems[s] = frozenset()
+            return stems[s]
+
+        def superseded(s: SheetSet) -> bool:
+            keys = named.get((s.level, s.i, s.j))
+            if keys is None or s.key in keys:
+                return False
+            return any(o.key in keys and (o.level, o.i, o.j) == (s.level, s.i, s.j) and o.year == s.year
+                       and stems_of(o) == stems_of(s) for o in sheets)
+        return sorted(sheets, key=lambda s: (-s.year, s.level, -s.j, s.i, superseded(s)))
 
     def prune(self, cache_dir: str, tiles: List[SheetSet]) -> int:
-        """Once every current set of a sheet (tiles: those of its owner's answer) is cached, delete the sheet's
+        """Once every current set of a sheet (tiles: those of its owner's answer) is cached (or recorded as without
+        data), delete the sheet's
         other cached files (an older upload, a set whose newest file is gone, a file of before a split); never
         before the current ones are in place, never a file of another sheet; how many."""
         current: Dict[Tuple[str, int, int], List[SheetSet]] = {}
         for s in tiles:
             current.setdefault((s.level, s.i, s.j), []).append(s)
         older = []
-        for place, sheets in current.items():
-            if not all(os.path.exists(self.path(cache_dir, s)) for s in sheets):
+        places = list(current.items())
+        paths = [self.path(cache_dir, s) for _, sheets in places for s in sheets]
+        # in place: a file, or recorded as missing (a current set without data: nothing more will come)
+        due = dict(zip(paths, cache.due_many(cache_dir, paths))) if paths else {}
+        for place, sheets in places:
+            if not all(os.path.exists(self.path(cache_dir, s)) or not due[self.path(cache_dir, s)] for s in sheets):
                 continue
             keys = {s.key for s in sheets}
             folder = os.path.dirname(self.path(cache_dir, sheets[0]))

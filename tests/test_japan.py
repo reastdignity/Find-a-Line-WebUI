@@ -643,19 +643,23 @@ def test_metric_cell_tiling_edges_on_cell_edges():
 
 # --- round 3 (2026-11-16): one owner index tile per sheet -----------------------------------------------------------
 def _edge_sheets():
-    """A 1/500 sheet (S) whose box reaches across the 0.25 degree line at 139.0 E (about 34.88 N) while its centre
-    lies west of it (so it is owned by the west tile and within 250 m of the east one), and a sheet (N) 2 km east,
-    inside the east tile; their owners."""
+    """A 1/500 sheet (S, 08NF1133) whose box reaches across the 0.25 degree line at 139.0 E while its centre lies west
+    of it, so before the owner rule it was in both tiles' answers, and a sheet (N) 2 km east, inside the east tile;
+    their owners (the tiles of their centres, computed here, not by the code under test)."""
     from rasterio.warp import transform
-    versions = japan.SZ_DTM.index.versions
-    xs, ys = transform("EPSG:4326", japan.SZ_CRS, [139.0], [34.88])
     tiling = japan.SZ_LEVELS["s"]
-    cell = tiling.cell_of(xs[0] - 150, ys[0])  # its box reaches over the line, its centre west of it
-    left, _, right, _ = tiling.edges(cell)
-    assert right > xs[0] - 250 and (left + right) / 2 < xs[0]  # within 250 m of the line, its centre west
-    n_cell = tiling.cell_of(xs[0] + 2000, ys[0])
-    (owner_s, owner_n) = versions.owners("s", [cell, n_cell])
-    assert owner_s != owner_n
+    cell = japan.jp_cell(8, "08NF1133")
+    left, bottom, right, top = tiling.edges(cell)
+    lons, lats = transform(japan.SZ_CRS, "EPSG:4326", [left, left, right, right, (left + right) / 2],
+                           [bottom, top, bottom, top, (bottom + top) / 2])
+    assert max(lons[:2]) < 139.0 < min(lons[2:4]) and lons[4] < 139.0  # the box across the line, the centre west
+    n_cell = tiling.cell_of((left + right) / 2 + 2000, (bottom + top) / 2)
+
+    def owner(c):
+        lo, la = transform(japan.SZ_CRS, "EPSG:4326", [(c[0] + 0.5) * 400], [(c[1] + 0.5) * 300])
+        return math.floor(la[0] / 0.25) * 0.25, math.floor(lo[0] / 0.25) * 0.25
+    owner_s, owner_n = owner(cell), owner(n_cell)
+    assert owner_s[1] == 138.75 and owner_n[1] == 139.0
     return cell, n_cell, owner_s, owner_n
 
 
@@ -722,11 +726,15 @@ def test_acceptance_b_removed_object_three_rounds(shizuoka, http_server, tmp_pat
     grid = _box_grid(cell)
     shizuoka._use(cache_dir)
     (sheet,) = shizuoka.tiles(grid)  # listed with both surveys
+    neighbour = shizuoka.index.index_path(cache_dir, owner[0], owner[1] + 0.25)  # the east tile's answer
+    assert os.path.exists(neighbour)  # the grid reaches into the east tile: listed too
     del objects[k20]
     with pytest.raises(RuntimeError, match=r"404.*answer of its tile .* was dropped: a new search lists it anew"):
         shizuoka._download_and_record(sheet, cache_dir)
     assert not os.path.exists(shizuoka.index.index_path(cache_dir, *owner))
-    _search(shizuoka, grid, cache_dir)  # lists anew: the older survey only
+    assert os.path.exists(neighbour)  # only the owner's answer is dropped
+    shizuoka.download(grid, cache_dir, None, "terrain")  # no clear of the listings here: the handler's own
+    shizuoka.downloaded(grid, cache_dir)
     (path,) = shizuoka.files(grid, cache_dir)
     assert [n.split("@")[0] for n, _, _ in gave_pixels(path)] == [f"2019_{code}"]
     before = _zips(http_server)
@@ -910,3 +918,95 @@ def test_estimate_falls_back_to_bytes_per_tile(shizuoka, http_server, tmp_path, 
     cache_dir = str(tmp_path)
     tiles, todo, mb = shizuoka.estimate(_sheet_grid("08OF0485"), cache_dir, None)
     assert (tiles, todo) == (1, 1) and mb == pytest.approx(shizuoka.bytes_per_tile() / 1e6)
+
+
+# --- round 4 (2026-11-16) ------------------------------------------------------------------------------------------
+def _three_sets(shizuoka, http_server, cache_dir):
+    """A 1/500 sheet of FY2021 and FY2025 under the FY2022 quadrant sheet 08LD3341, searched: three cached sets."""
+    quad = japan.jp_quad_cell(8, "08LD3341")
+    left, _, _, top = japan.SZ_LEVELS["q"].edges(quad)
+    small = japan.SZ_LEVELS["s"].cell_of(left + 450, top - 150)
+    code = japan.jp_sheet(8, *small)
+    letters = f"{code[2:4]}/{code[4:6]}"
+    k25 = f"2025/LP/Grid/08/{letters}/{code}.zip"
+    objects = {
+        "2022/LP/Grid/08/LD/33/08LD3341.zip": _zip("08LD3341.txt",
+                                                    _sheet_text("08LD3341", 2022.0, range(20), level="q")),
+        f"2021/LP/Grid/08/{letters}/{code}.zip": _zip(f"{code}_DEM.txt", _sheet_text(code, 2021.0)),
+        k25: _zip(f"{code}_0.5g.txt", _sheet_text(code, 2025.0, range(100, 120), csv=True)),
+    }
+    _bucket(http_server, objects)
+    sl, sb, sr, st = japan.SZ_LEVELS["s"].edges(small)
+    grid = make_grid((sl + 10, sb + 10, sr - 10, st - 10), 0.5, japan.SZ_CRS)
+    _search(shizuoka, grid, cache_dir)
+    return objects, k25, code, grid
+
+
+def test_offline_order_by_survey(shizuoka, http_server, tmp_path):
+    """Offline, the cached sets keep their order by survey (FY2025, FY2022, FY2021) when the owner's answer no longer
+    names the FY2025 set (re-uploaded, its new download not cached yet): it is still read in its place by year. Once
+    the new upload is cached too, it goes first and the old one right behind it (the same files, another ETag)."""
+    cache_dir = str(tmp_path)
+    objects, k25, code, grid = _three_sets(shizuoka, http_server, cache_dir)
+    versions = shizuoka.index.versions
+    assert [(s.level, s.year) for s in versions.cached(grid, cache_dir)] == [("s", 2025), ("q", 2022), ("s", 2021)]
+    objects[k25] = _zip(f"{code}_0.5g.txt", _sheet_text(code, 2025.5, range(100, 120), csv=True))  # uploaded again
+    for f in glob.glob(os.path.join(cache_dir, "shizuoka", "sheet-index", "lp-grid", "*.json")):
+        cache.forget(cache_dir, [f])
+    shizuoka.index._listed.clear()
+    now = shizuoka.tiles(grid)  # listed anew (its answer names the new upload), nothing downloaded
+    old = [s for s in versions.cached(grid, cache_dir) if s.year == 2025]
+    assert [(s.level, s.year) for s in versions.cached(grid, cache_dir)] == [("s", 2025), ("q", 2022), ("s", 2021)]
+    assert old[0].key not in {s.key for s in now}
+    new = next(s for s in now if s.year == 2025)
+    shizuoka._download_and_record(new, cache_dir)  # the new upload cached, the old not pruned yet
+    order = versions.cached(grid, cache_dir)
+    assert [(s.year, s.key) for s in order[:2]] == [(2025, new.key), (2025, old[0].key)]
+    assert [(s.level, s.year) for s in order[2:]] == [("q", 2022), ("s", 2021)]
+
+
+def test_prune_with_a_current_set_without_data(shizuoka, http_server, tmp_path):
+    """A sheet uploaded again as an empty member: its current set is recorded as missing (no data), which counts as
+    in place for the prune, so the old upload's file is deleted and offline no longer read."""
+    key = "2019/LP/Grid/08/OF/04/08OF0485.zip"
+    objects = {key: _zip("08OF0485_DEM.txt", _sheet_text("08OF0485", 10.0))}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    grid = _sheet_grid("08OF0485")
+    _search(shizuoka, grid, cache_dir)
+    assert len(shizuoka.files(grid, cache_dir)) == 1
+    objects[key] = _zip("08OF0485_DEM.txt", b"\r\n")
+    for f in glob.glob(os.path.join(cache_dir, "shizuoka", "sheet-index", "lp-grid", "*.json")):
+        cache.forget(cache_dir, [f])
+    _search(shizuoka, grid, cache_dir)
+    (sheet,) = shizuoka.tiles(grid)
+    assert not os.path.exists(shizuoka.tile_path(cache_dir, sheet))
+    assert not cache.due(cache_dir, shizuoka.tile_path(cache_dir, sheet))  # recorded: no data
+    assert shizuoka.files(grid, cache_dir) == [] and shizuoka.index.versions.cached(grid, cache_dir) == []
+
+
+@pytest.mark.parametrize("kind", ["strip", "ring"])
+def test_tiles_to_ask_under_an_outline(kind):
+    """With an outline (a strip across the 139.0 E tile line, a ring around a point on it), the owner of every sheet
+    of both levels the outline keeps is among the tiles query asks (computed, no request)."""
+    from rasterio.warp import transform
+    from shapely.geometry import LineString, Point
+    versions = japan.SZ_DTM.index.versions
+    xs, ys = transform("EPSG:4326", japan.SZ_CRS, [139.0], [35.15])
+    x, y = xs[0], ys[0]
+    if kind == "strip":
+        shape = LineString([(x - 3000, y - 40), (x + 3000, y + 40)]).buffer(15)
+    else:
+        shape = Point(x, y).buffer(1500).difference(Point(x, y).buffer(1450))
+    left, bottom, right, top = shape.bounds
+    grid = make_grid((left - 100, bottom - 100, right + 100, top + 100), 1.0, japan.SZ_CRS)
+    grid.area_shape = shape
+    asked = set(versions.tiles_to_ask(grid))
+    for level, tiling in japan.SZ_LEVELS.items():
+        cells = tiling.cells(grid)
+        assert cells
+        lons, lats = transform(japan.SZ_CRS, "EPSG:4326", [tiling.edges(c)[0] + tiling.cell[0] / 2 for c in cells],
+                               [tiling.edges(c)[1] + tiling.cell[1] / 2 for c in cells])
+        owners = {(math.floor(a / 0.25) * 0.25, math.floor(o / 0.25) * 0.25) for a, o in zip(lats, lons)}
+        assert owners <= asked, (level, owners - asked)
+    assert len({lon for _, lon in asked}) == 2  # both sides of the line
