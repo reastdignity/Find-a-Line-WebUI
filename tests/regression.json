@@ -2412,11 +2412,9 @@
       "coverage": 73.18,
       "empty_tiles": 0,
       "source": "IGN (RGE ALTI 1 m, Martinique)",
-      "filled_km2": 0.0,
-      "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 0.69
+      "sea_km2": 0.7
     },
-    "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines)",
+    "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines); the summary re-baselined 2026-11-16 on the OSM world water polygons (cache/osm/water-polygons, which a search takes instead of Overpass once a data folder holds it): sea 0.70 km2 and nothing filled from the fallback, where Overpass's coastline of 2026-11-15 gave 0.69 km2 and 0.00 km2 filled from FABDEM; lines.csv is the same with both",
     "seconds": 3.2
   },
   "R90": {
