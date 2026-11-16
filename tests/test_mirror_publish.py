@@ -74,7 +74,7 @@ def world(tmp_path, monkeypatch):
     config = tmp_path / "rclone.conf"
     config.write_text(f"[{REMOTE}]\ntype = alias\nremote = {server.as_posix()}\n", encoding="utf-8")
     monkeypatch.delenv("FINDALINE_MIRROR", raising=False)
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", "")
+    monkeypatch.setenv("FINDALINE_MIRROR_URL", "off")
     monkeypatch.setenv("RCLONE_CONFIG", str(config))  # also for a call that would forget --config
     monkeypatch.setenv(mp.RCLONE_ENV, RCLONE)
     monkeypatch.setattr(mp, "MARGIN_BYTES", 1000)  # the real 10 GB margin is its own test
