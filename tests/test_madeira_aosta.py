@@ -1,5 +1,5 @@
 """Madeira (portugal.py) and Valle d'Aosta (italy.py): our own 2 km tiles (tools/mirror_tiles.py) from the local mirror
-folder or the project's data server (FINDALINE_MIRROR_URL: empty in the tests, so the folder alone here).
+folder or the project's data server (FINDALINE_MIRROR_URL: off in the tests, so the folder alone here).
 --source auto takes them in their regions when the mirror holds them; without it says why and takes the next source
 of the place (TINITALY in Valle d'Aosta, europe in Madeira, as Slovakia); the offline boxes keep Valle d'Aosta off
 France."""
