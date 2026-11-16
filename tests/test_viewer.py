@@ -3401,3 +3401,25 @@ def test_profile_label_contrast():
             assert contrast(colours[name], themes[theme]["--surface"]) >= 4.5, (theme, name, colours[name])
     profile = open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8").read()
     assert all(c in profile for c in ('envelope: "#6a3d9a"', 'trees: "#3f8f35"', 'terrain: "#8a7656"'))
+
+
+def _mix(a: str, b: str, share: float) -> str:
+    """CSS color-mix(in srgb, a share, b) of two #rrggbb colours."""
+    channels = [round(int(a[i:i + 2], 16) * share + int(b[i:i + 2], 16) * (1 - share)) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(channels)
+
+
+def test_view3d_trees_text_contrast():
+    """The 3D view's readout over trees (view3d.css --v3-trees-text) reads at 4.5:1 or more on the bar's --surface:
+    the line's orange darkened towards the ink in the light theme, the orange itself in the dark one, while --trees
+    (the line's colour) stays (report defect 14: 2.65:1 in the light theme)."""
+    text = open(os.path.join(VIEWER, "src", "view3d", "view3d.css"), encoding="utf-8").read()
+    light = re.search(r"#view3d \{ --v3-trees-text: color-mix\(in srgb, var\(--trees\) (\d+)%, var\(--ink\)\); \}", text)
+    assert light and len(re.findall(r"--v3-trees-text: var\(--trees\)", text)) == 2
+    assert ".v3-read.v3-trees { color: var(--v3-trees-text); }" in text
+    themes = _themes()
+    shown = {"light": _mix(themes["light"]["--trees"], themes["light"]["--ink"], int(light.group(1)) / 100),
+             "dark": themes["dark"]["--trees"]}
+    for theme, colour in shown.items():
+        assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
+    assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
