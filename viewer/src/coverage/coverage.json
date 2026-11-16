@@ -739,6 +739,19 @@
    "survey": "",
    "trees": "surface"
   },
+  "hk": {
+   "added": "2026-11-16",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "CEDD",
+   "res": [
+    1
+   ],
+   "source": "hong_kong",
+   "survey": "2019–2020",
+   "trees": "yes"
+  },
   "is": {
    "added": "2026-11-03",
    "level": 2,
@@ -1352,7 +1365,7 @@
    "trees": "no"
   }
  },
- "countries": 32,
+ "countries": 33,
  "partly": {
   "de": [
    "de-bb",
