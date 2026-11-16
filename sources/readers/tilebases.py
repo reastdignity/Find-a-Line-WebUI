@@ -46,6 +46,11 @@ class MirrorUrlError(ValueError):
     """FINDALINE_MIRROR_URL is neither an http:// or https:// address nor off (or empty)."""
 
 
+def _masked(value: str) -> str:
+    """A value of the setting with whatever stands before an "@" of its address (a user, a password) as ***."""
+    return re.sub(r"^((?:[a-zA-Z][\w+.-]*:)?//)?[^/@\s]*@", r"\g<1>***@", value)
+
+
 def mirror_url() -> Optional[str]:
     """The data server's origin (MIRROR_URL, or FINDALINE_MIRROR_URL when set); None when that is off or empty
     (the user's U37: "off" too, since on Windows an empty value deletes the variable and the default would be
@@ -55,10 +60,15 @@ def mirror_url() -> Optional[str]:
     origin = os.environ.get(MIRROR_URL_ENV, MIRROR_URL).strip().rstrip("/")
     if not origin or origin.lower() == OFF:
         return None
-    if not re.match(r"https?://[^/\s]+", origin):
-        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {origin[:60]!r}: it must be an http:// or https:// address, or "
-                             f"{OFF} (or empty) for no data server")
-    address = urlsplit(origin).netloc.lower()
+    parts = urlsplit(origin) if re.match(r"(?i)https?://", origin) else None
+    if parts is None or not parts.hostname or re.search(r"\s", origin):
+        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_masked(origin)[:60]!r}: it must be an http:// or https:// "
+                             f"address, or {OFF} (or empty) for no data server")
+    if "@" in parts.netloc:  # the data server is anonymous (U1): a user or password would stand in texts and rows
+        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_masked(origin)[:60]!r}: an address with a user or a password "
+                             f"is not supported (the data server needs none)")
+    origin = parts.scheme.lower() + origin[len(parts.scheme):]  # HTTPS://host as https://host
+    address = parts.netloc.lower()
     if urlsplit(origin).hostname != MIRROR_HOST and net.LIMITS_AS.get(address) != MIRROR_HOST:
         net.LIMITS_AS[address] = MIRROR_HOST
     return origin
@@ -124,13 +134,35 @@ def _checked_index(found) -> Tuple[Dict, Optional[Tuple[int, int, int, int]]]:
     return tiles, _key_extent(tiles, found.get("partial"))
 
 
+def _failure_kind(error: BaseException) -> str:
+    """What went wrong with a request, in a few fixed words: never a path, a query or the library's own text."""
+    import requests
+    status = getattr(error, "status", None)
+    last = getattr(error, "last", error)
+    if isinstance(last, net.TurnTimeout):
+        return "waited too long for its turn"
+    if status == 200:
+        return "its answer was not the data"
+    if status:
+        return f"HTTP {status}"
+    if isinstance(last, requests.exceptions.SSLError):
+        return "its certificate was refused"
+    if isinstance(last, requests.Timeout):
+        return "no answer in time"
+    reason = last.args[0] if isinstance(last, requests.ConnectionError) and last.args else None
+    if isinstance(last, (requests.exceptions.ChunkedEncodingError, requests.exceptions.ContentDecodingError)) or (
+            reason is not None and type(reason).__name__ == "ProtocolError"):
+        return "the connection broke"
+    return "no answer"
+
+
 def _server_failed(base: str, error: RuntimeError) -> RuntimeError:
-    """The error of a remote base whose requests failed (net._get's attempts spent), naming its host only: the
-    text reaches the pages (a 3D view's "The data could not be downloaded: ..."), so no path or query."""
+    """The error of a remote base whose requests failed (net._get's attempts spent), naming its host only and the
+    kind of failure (_failure_kind): the text reaches the pages (a 3D view's "The data could not be downloaded:
+    ..."), so no path, query or the library's text."""
     status = getattr(error, "status", None)
     state = "is busy" if status == 429 else "does not answer"
-    found = RuntimeError(f"the data server at {urlsplit(base).hostname} {state} "
-                         f"({f'HTTP {status}' if status else 'no answer'})")
+    found = RuntimeError(f"the data server at {urlsplit(base).hostname} {state} ({_failure_kind(error)})")
     found.status = status
     return found
 

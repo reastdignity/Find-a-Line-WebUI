@@ -76,7 +76,7 @@ from .layers.fileblocks import FileBlocks
 from .readers.windows import _forget, _read_ranged, _same_crs, _values_on, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
-from .readers.tilebases import grid_tile_name
+from .readers.tilebases import MirrorUrlError, grid_tile_name, mirror_url
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
@@ -669,6 +669,11 @@ def run(cache_dir: str, ids: Sequence[str] = (), deep: bool = False, key: Option
     if unknown:
         raise ValueError(f"unknown source: {', '.join(unknown)} (one of {', '.join(sources)})")
     OpenTopographyTiles.api_key = key or OpenTopographyTiles.api_key
+    try:
+        mirror_url()  # a FINDALINE_MIRROR_URL that is neither an address nor off: its text alone, exit code 1
+    except MirrorUrlError as e:
+        print(e, file=sys.stderr)
+        return 1
     folder = tempfile.mkdtemp(prefix="findaline-probe-")
     done: Dict[int, Row] = {}
     checked = failed = skipped = 0

@@ -1758,9 +1758,13 @@ def _check_reach(country: Country):
     useless). Never in band_plan, which the workers share: they plan without it."""
     import sources as src
     from sources.choose import source_unreachable
+    from sources.readers.tilebases import MirrorUrlError
     if country.options.get("elevation_file") or country.source not in src.SOURCES:
         return  # local files (band_plan builds that source), or a name band_plan refuses itself
-    why = source_unreachable(src.SOURCES[country.source])
+    try:
+        why = source_unreachable(src.SOURCES[country.source])
+    except MirrorUrlError as e:  # FINDALINE_MIRROR_URL neither an address nor off: the run's message, not a traceback
+        raise CountryError(str(e)) from None
     if why:
         raise CountryError(f"{country.source} cannot be used now: {why}")
 

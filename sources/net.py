@@ -251,6 +251,10 @@ def limits_host(url: Optional[str]) -> Optional[str]:
     return LIMITS_AS.get(urlsplit(url).netloc.lower(), host) if host else None
 
 
+class TurnTimeout(RuntimeError):
+    """No turn of a host's rate within RATE_WAIT_S (rate_turn): this machine's other searches use it."""
+
+
 def rate_turn(url: Optional[str], share: float = 1.0):
     """Wait for this request's turn when the host of url has a rate (HOST_RATES_OF), the turns
     spread evenly (one every 60/n s) over every thread and process of the machine: a pyrate-limiter
@@ -294,7 +298,7 @@ def _turn(host: str, per_minute: int):
     deadline = time.monotonic() + RATE_WAIT_S
     while not limiter.try_acquire(host, timeout=0):
         if time.monotonic() > deadline:
-            raise RuntimeError(f"{host} is busy with the requests of other searches "
+            raise TurnTimeout(f"{host} is busy with the requests of other searches "
                                f"(waited {RATE_WAIT_S // 60} min); try again later")
         time.sleep(interval * (0.1 + 0.2 * random.random()))  # waiters spread; late, never early
 
@@ -377,6 +381,7 @@ def _get(url: str, params=None, timeout=300, binary_types=("image", "octet", "ti
     # server's answer may echo the token of its request: settings.redact through clean_error)
     error = RuntimeError(cache.clean_error(last_error))
     error.status = status  # the last attempt's (the data server's start check tells a busy server apart)
+    error.last = last_error  # the last attempt's own error, for its kind (tilebases names it without its text)
     raise error
 
 

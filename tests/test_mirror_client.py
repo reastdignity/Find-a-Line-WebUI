@@ -190,6 +190,7 @@ class Mirror:
         self.server, self.root = http_server, root
         self.status, self.once, self.delay, self.fail = None, {}, 0.0, {}
         self.gate = None  # a threading.Event the answers to index.json wait for (at most 10 s)
+        self.statuses = {}  # path -> the status every request to it gets
         http_server.route("/v1/tiles/", self._answer)
 
     @property
@@ -207,7 +208,7 @@ class Mirror:
         if self.fail.get(request.path):
             self.fail[request.path] -= 1
             return Answer(503, b"down", {"Content-Type": "text/plain"})
-        status = self.once.pop(request.path, None) or self.status
+        status = self.once.pop(request.path, None) or self.statuses.get(request.path) or self.status
         if status:
             return Answer(status, b"refused", {"Content-Type": "text/plain"})
         path = os.path.join(self.root, *request.path[len("/v1/tiles/"):].split("/"))
@@ -1098,3 +1099,125 @@ def test_the_tools_indexes_pass_the_check(tmp_path, monkeypatch):
         assert index["block"] == tilebases.BLOCK == 10, path
         tiles, extent = tilebases._checked_index(index)
         assert tiles == index["tiles"] and any(tiles.values()) and extent is not None, path
+
+
+def test_an_address_with_a_user_or_password(tmp_path, mirror, monkeypatch, two_sources, capsys):
+    """R1: an address with a user or a password is refused (the data server is anonymous, U1), and no text, cache
+    row or file holds the password: the refusal masks what stands before the "@", also of a mistyped value."""
+    import search
+    from sources import probe
+    port = mirror.url.rsplit(":", 1)[1]
+    set_url(f"http://user:secret@127.0.0.1:{port}")
+    layer = mirrored_layer()
+    with pytest.raises(tilebases.MirrorUrlError) as refused:
+        layer.bases()
+    assert "secret" not in str(refused.value) and "'http://***@127.0.0.1:" in str(refused.value)
+    assert "a user or a password is not supported" in str(refused.value)
+    with pytest.raises(ValueError) as chosen:
+        src.choose_source("auto", *CENTRE, str(tmp_path))
+    paths = search.Paths(str(tmp_path / "data"), str(tmp_path / "data" / "work"))
+    with pytest.raises(search.SearchError) as planned:
+        search.plan_search(search.SearchParams(**_request()["params"]), paths, lambda kind, text: None, reach=True)
+    with pytest.raises(tilebases.MirrorUrlError) as downloaded:
+        _download(layer, tmp_path / "cache")
+    assert probe.run(str(tmp_path / "probe"), ["test_mirrored"]) == 1
+    texts = [str(chosen.value), str(planned.value), str(downloaded.value), capsys.readouterr().err]
+    assert all("***@" in text and "secret" not in text for text in texts), texts
+    assert mirror.asked() == [] and net.LIMITS_AS == {}
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert not any(b"secret" in p.read_bytes() for p in written)
+    for wrong, shown in (("htps://user:secret@host", "'htps://***@host'"), ("user:secret@host", "'***@host'")):
+        set_url(wrong)
+        with pytest.raises(tilebases.MirrorUrlError, match="must be an http") as refused:
+            tilebases.mirror_url()
+        assert shown in str(refused.value) and "secret" not in str(refused.value)
+
+
+def test_addresses_at_the_edges(tmp_path, mirror):
+    """R5: a value with no host is refused like any other wrong value; the scheme in any case is an address."""
+    for wrong in ("https://?x", "https:///path", "http://", "https:// host"):
+        set_url(wrong)
+        with pytest.raises(tilebases.MirrorUrlError, match="must be an http:// or https:// address"):
+            tilebases.mirror_url()
+    set_url(mirror.url.replace("http://", "HTTP://"))
+    assert tilebases.mirror_url() == mirror.url
+    assert mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif")).received > 0
+
+
+def test_a_tiles_429_keeps_its_attempts(tmp_path, mirror, no_mirror_settings):
+    """R2: only the start check stops at the first 429; a tile's 429 keeps net._get's three attempts and the longer
+    back-off between them (_sleep(attempt + 3)), as every download did before."""
+    name = f"/v1/tiles/{MIRROR}/{src.grid_tile_name(*DATA_TILES[0])}"
+    mirror.statuses[name] = 429
+    with pytest.raises(RuntimeError, match=r"the data server at 127.0.0.1 is busy \(HTTP 429\)"):
+        mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif"))
+    assert mirror.asked() == [f"/v1/tiles/{MIRROR}/index.json"] + [name] * net.RETRIES
+    assert no_mirror_settings == [3, 4, 5]
+    mirror.statuses[f"/v1/tiles/{MIRROR}/index.json"] = 429
+    assert mirrored_layer().reach() is None and mirror.asked()[-1].endswith("index.json")
+    assert len(mirror.asked()) == 1 + net.RETRIES + 1 and no_mirror_settings == [3, 4, 5]
+
+
+def _broken(kind):
+    """The error requests.get raises for a kind of failure (the text holds the URL, as requests' own do)."""
+    from urllib3.exceptions import ProtocolError
+    text = "HTTPConnectionPool(host='127.0.0.1'): Max retries exceeded with url: /v1/tiles/secret/path"
+    return {"refused": requests.ConnectionError(text), "timeout": requests.ReadTimeout(text),
+            "certificate": requests.exceptions.SSLError(text),
+            "broken": requests.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError())),
+            "cut short": requests.exceptions.ChunkedEncodingError(text)}[kind]
+
+
+@pytest.mark.parametrize("kind, words", [("refused", "no answer"), ("timeout", "no answer in time"),
+                                         ("certificate", "its certificate was refused"),
+                                         ("broken", "the connection broke"), ("cut short", "the connection broke"),
+                                         ("turn", "waited too long for its turn"),
+                                         ("not data", "its answer was not the data")])
+def test_the_kind_of_failure(tmp_path, mirror, monkeypatch, kind, words):
+    """R3: a download from the server that fails says which kind of failure in a few fixed words, by the host's
+    name: never a path, a query or the library's text."""
+    if kind == "turn":
+        def no_turn(url, share=1.0):
+            raise net.TurnTimeout("127.0.0.1 is busy with the requests of other searches (waited 10 min); try again")
+        monkeypatch.setattr(net, "rate_turn", no_turn)
+    elif kind == "not data":
+        mirror.statuses = {}
+        http_text = b"<html>a login page</html>"
+        mirror.server.route("/v1/tiles/", lambda request: Answer(200, http_text, {"Content-Type": "text/html"}))
+        mirror.server.routes.reverse()  # before the mirror's own route
+    else:
+        def broken(url, **kwargs):
+            raise _broken(kind)
+        monkeypatch.setattr(requests, "get", broken)
+    with pytest.raises(RuntimeError) as failed:
+        mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif"))
+    text = str(failed.value)
+    assert text.endswith(f"the data server at 127.0.0.1 does not answer ({words})"), text
+    assert "/v1/tiles" not in text and "http" not in text.lower() and "Pool" not in text and "login" not in text
+
+
+def test_a_wrong_setting_ends_with_its_text(tmp_path, two_sources, capsys):
+    """R4: with a FINDALINE_MIRROR_URL that is neither an address nor off, `sources check` and a country run end
+    with the clear text and a non-zero exit, as a search does, never a traceback."""
+    import country
+    from sources import probe
+    set_url("mirror.example.org")
+    assert probe.run(str(tmp_path / "probe"), ["test_mirrored"]) == 1
+    assert capsys.readouterr().err.strip() == ("FINDALINE_MIRROR_URL is 'mirror.example.org': it must be an http:// "
+                                               "or https:// address, or off (or empty) for no data server")
+    lat, lon = CENTRE
+    area = tmp_path / "area.geojson"
+    d = 0.001
+    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [[
+        [lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d], [lon - d, lat - d]]]}}))
+    config = {"id": "zz", "name": "Testland", "source": "test_mirrored", "area": str(area),
+              "bands": [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula",
+                         "slope_threshold": 45, "core_m": 200, "layer": True}],
+              "options": {"nmpt": "off", "water": "off", "fill_gaps": "off"}}
+    (tmp_path / "data" / "countries" / "zz").mkdir(parents=True)
+    (tmp_path / "data" / "countries" / "zz" / "country.json").write_text(json.dumps({"config": config}))
+    assert country.run("zz", str(tmp_path / "data"), processes=0, yes=True) == 1
+    out = capsys.readouterr()
+    assert "FINDALINE_MIRROR_URL is 'mirror.example.org': it must be" in out.out + out.err
+    assert "Traceback" not in out.out + out.err
+
