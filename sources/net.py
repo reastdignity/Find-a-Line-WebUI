@@ -194,6 +194,15 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # https://github.com/aigidjp/opendata_virtualshizuoka, the AWS registry's virtual_shizuoka.yaml and the
     # prefecture's page https://www.pref.shizuoka.jp/machizukuri/1049255/1052183.html, read 2026-11-15): two at once
     "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
+    # The CSDI Portal's bulk-data host (CEDD's 2020 lidar sheets of Hong Kong) and the portal (the FeatureServer of
+    # their index, asked by tools/hong_kong_sheets.py only): no published limits (the CSDI Portal's Terms and
+    # Conditions of Use, https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, its FAQ,
+    # https://portal.csdi.gov.hk/csdi-webpage/info/FAQ, and the GEO Data Portal's terms,
+    # https://www.ginfo.cedd.gov.hk/GEOOpenData/eng/TnC.aspx, read 2026-11-16, give no numbers and say nothing of
+    # automated downloads; bulkdata.csdi.gov.hk has no robots.txt, the portal's disallows /geoportal/, /portal/ and
+    # /notice/ only): courtesy, two at once
+    "bulkdata.csdi.gov.hk": 2,
+    "portal.csdi.gov.hk": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

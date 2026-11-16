@@ -1,0 +1,218 @@
+[
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.352,
+   "lon": 114.187,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-16T07:32:40+00:00",
+  "answer": {
+   "place_id": 241445789,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 270056,
+   "lat": "34.5412252",
+   "lon": "108.9237067",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9041723947646134,
+   "addresstype": "country",
+   "name": "中国",
+   "display_name": "中国",
+   "address": {
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "8.6650385",
+    "53.5608154",
+    "73.4997347",
+    "134.7734492"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.352,
+   "lon": 114.187,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-16T07:32:42+00:00",
+  "answer": {
+   "place_id": 427315365,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 8477820,
+   "lat": "22.3915971",
+   "lon": "114.2081364",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.5559760485501172,
+   "addresstype": "suburb",
+   "name": "沙田區 Sha Tin District",
+   "display_name": "沙田區 Sha Tin District, 新界 New Territories, 香港 Hong Kong, 中国",
+   "address": {
+    "suburb": "沙田區 Sha Tin District",
+    "region": "新界 New Territories",
+    "city": "香港 Hong Kong",
+    "ISO3166-2-lvl3": "CN-HK",
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "22.3441715",
+    "22.4389855",
+    "114.1413094",
+    "114.2544451"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.308,
+   "lon": 113.918,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-16T07:32:45+00:00",
+  "answer": {
+   "place_id": 241450776,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 270056,
+   "lat": "34.5412252",
+   "lon": "108.9237067",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9041723947646134,
+   "addresstype": "country",
+   "name": "中国",
+   "display_name": "中国",
+   "address": {
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "8.6650385",
+    "53.5608154",
+    "73.4997347",
+    "134.7734492"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.308,
+   "lon": 113.918,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-16T07:32:46+00:00",
+  "answer": {
+   "place_id": 237019060,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 8191142,
+   "lat": "22.2281667",
+   "lon": "113.9876167",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.5498390932361973,
+   "addresstype": "suburb",
+   "name": "離島區 Islands District",
+   "display_name": "離島區 Islands District, 新界 New Territories, 香港 Hong Kong, 中国",
+   "address": {
+    "suburb": "離島區 Islands District",
+    "region": "新界 New Territories",
+    "city": "香港 Hong Kong",
+    "ISO3166-2-lvl3": "CN-HK",
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "22.1367222",
+    "22.3246312",
+    "113.8171111",
+    "114.3092500"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.25,
+   "lon": 114.29,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-16T07:32:43+00:00",
+  "answer": {
+   "place_id": 241707992,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 270056,
+   "lat": "34.5412252",
+   "lon": "108.9237067",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9041723947646134,
+   "addresstype": "country",
+   "name": "中国",
+   "display_name": "中国",
+   "address": {
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "8.6650385",
+    "53.5608154",
+    "73.4997347",
+    "134.7734492"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 22.25,
+   "lon": 114.29,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-16T07:32:44+00:00",
+  "answer": {
+   "place_id": 237041943,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 8189562,
+   "lat": "22.3070096",
+   "lon": "114.3713299",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.557044651236839,
+   "addresstype": "suburb",
+   "name": "西貢區 Sai Kung District",
+   "display_name": "西貢區 Sai Kung District, 新界 New Territories, 香港 Hong Kong, 中国",
+   "address": {
+    "suburb": "西貢區 Sai Kung District",
+    "region": "新界 New Territories",
+    "city": "香港 Hong Kong",
+    "ISO3166-2-lvl3": "CN-HK",
+    "country": "中国",
+    "country_code": "cn"
+   },
+   "boundingbox": [
+    "22.1484722",
+    "22.4662238",
+    "114.2211199",
+    "114.5024444"
+   ]
+  }
+ }
+]

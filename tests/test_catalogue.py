@@ -22,7 +22,7 @@ IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", 
        "france_spm", "france_mayotte", "france_reunion", "france_reunion_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "madeira", "spain_canarias", "spain", "mexico", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "hamburg", "bremen", "bremerhaven", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "hong_kong", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -2428,6 +2428,45 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                                          'VIRTUAL SHIZUOKA point cloud data, LP grids FY2022 '
                                                          '(Shizuoka Prefecture)')}},
                          'nmpt': None},
+            'hong_kong': {'crs': 'EPSG:2326',
+                          'countries': ('cn',),
+                          'bbox': None,
+                          'fallbacks': ['europe'],
+                          'grid_origin': (0.0, 0.0),
+                          'default_resolution': 1.0,
+                          'instead_without_data': None,
+                          'local_crs': 'utm_crs',
+                          'ortho': None,
+                          'credits': ['LiDAR Data 2020, DTM and DSM (Civil Engineering and Development Department, '
+                                      'Hong Kong)'],
+                          'nmt': {'class': 'CellSheetTiles',
+                                  'description': 'CEDD lidar DTM 2020 0.5 m (terrain)',
+                                  'folder': 'hong_kong/dtm-2020',
+                                  'prefix': None,
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'LiDAR Data 2020, DTM and DSM (Civil Engineering and Development '
+                                            'Department, Hong Kong)',
+                                  'shift': (0.0, 0.0),
+                                  'crs': 'EPSG:2326',
+                                  'cell': (750, 600),
+                                  'origin': (800000, 800000),
+                                  'members': '\\.tif$'},
+                          'nmpt': {'class': 'CellSheetTiles',
+                                   'description': 'CEDD lidar DSM 2020 0.5 m (surface)',
+                                   'folder': 'hong_kong/dsm-2020',
+                                   'prefix': None,
+                                   'native_res': 0.5,
+                                   'processing': 1,
+                                   'ttl_days': None,
+                                   'credit': 'LiDAR Data 2020, DTM and DSM (Civil Engineering and Development '
+                                             'Department, Hong Kong)',
+                                   'shift': (0.0, 0.0),
+                                   'crs': 'EPSG:2326',
+                                   'cell': (750, 600),
+                                   'origin': (800000, 800000),
+                                   'members': '\\.tif$'}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -2725,6 +2764,8 @@ PATHS = [
     ("northern_ireland_10m", "nmt", "zipsheet", "northern_ireland/osni-dtm10m/046_0123abcd.tif", None),
     ("tokyo", "nmt", (-169, -67), "tokyo/grd50/2022-2023/KC/63/09KC6361.tif", (-169, -67)),
     ("shizuoka", "nmt", "sheetset", "shizuoka/lp-grid/s/OF/04/2019_08OF0485_0123abcd.tif", None),
+    ("hong_kong", "nmt", (48, 40), "hong_kong/dtm-2020/7SW/7SW25C.tif", (48, 40)),
+    ("hong_kong", "nmpt", (49, 39), "hong_kong/dsm-2020/11NW/11NW5B.tif", (49, 39)),
 ]
 
 
@@ -3047,7 +3088,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("jp-22", (35.29, 35.35, 137.99, 139.02)), ("jp-22", (35.35, 35.40, 138.09, 139.02)),
          ("jp-22", (35.40, 35.45, 138.11, 139.01)), ("jp-22", (35.45, 35.50, 138.11, 138.26)),
          ("jp-22", (35.50, 35.55, 138.13, 138.27)), ("jp-22", (35.54, 35.60, 138.14, 138.26)),
-         ("jp-22", (35.60, 35.65, 138.20, 138.25))]
+         ("jp-22", (35.60, 35.65, 138.20, 138.25)),
+         ("cn-hk", (22.14, 22.57, 113.82, 114.45))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -3256,6 +3298,10 @@ ATTRIBUTIONS = {
               "区部点群データ、東京都、クリエイティブ・コモンズ・ライセンス 表示4.0国際（https://creativecommons.org/licenses/by/4.0/"
               "deed.ja）"),
     "shizuoka": "VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture), CC BY 4.0",
+    "hong_kong": "LiDAR Data (2020), Civil Engineering and Development Department; intellectual property rights of the "
+                 "Government of the Hong Kong Special Administrative Region and the Civil Engineering and Development "
+                 "Department; source: Common Spatial Data Infrastructure (CSDI) Portal, available under the CSDI terms "
+                 "and conditions",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
