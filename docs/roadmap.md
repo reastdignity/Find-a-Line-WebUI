@@ -1252,7 +1252,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     its country's group there; the Canary Islands, Madeira, Svalbard and Jan Mayen stay in Europe ("Windows ok",
     gate 0). 84 rows.
   - *La Réunion and Mayotte*: `france_reunion` (IGN's LiDAR HD MNT / MNS 0.5 m by WMS-R, fetched at 1 m, gaps from
-    `france_reunion_rgealti`, RGE ALTI 1 m), R83 Cilaos (4 226 lines in 50 spots); `france_mayotte` (RGE ALTI 1 m),
+    `france_reunion_rgealti`, RGE ALTI 1 m), R93 Cilaos (4 226 lines in 50 spots); `france_mayotte` (RGE ALTI 1 m),
     built with the sea floor rule below; no entry (no line).
   - *Hamburg* (`hamburg`: LGV's DGM1 and image-matching bDOM1 2022, members of two ZIP archives by Range) and *Bremen
     and Bremerhaven* (`bremen`, `bremerhaven`: Landesamt GeoInformation Bremen's DGM1 / DOM1 of 2017 and 2015, XYZ
