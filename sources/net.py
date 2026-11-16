@@ -179,6 +179,15 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # https://suche.transparenz.hamburg.de/api/3/action/package_show?id=<name>: dl-de/by-2.0, "is_free_to_use", no
     # limits; https://www.daten-hamburg.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
     "www.daten-hamburg.de": 2,
+    # Geospatial Ontario's package host (Ontario's DTM and DSM, Lidar-Derived: 1 km members of its package ZIPs,
+    # read by Range): no published limits. Read 2026-11-16: the Open Government Licence – Ontario
+    # (https://www.ontario.ca/page/open-government-licence-ontario: "Copy, modify, publish, translate, adapt,
+    # distribute or otherwise use the Information in any medium, mode or format for any lawful purpose"), the DTM
+    # and DSM user guides (https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DTM-Lidar-Derived-User-Guide.docx,
+    # section 2.2), the GeoHub's "Access and terms of use" (no number) and ontario.ca's terms of use
+    # (https://www.ontario.ca/page/terms-use: "you must not: interfere with or disrupt this website or any of our
+    # computer systems"); the host's robots.txt answers 404. Two at once
+    "ws.gisetl.lrc.gov.on.ca": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

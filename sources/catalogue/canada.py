@@ -1,5 +1,5 @@
-"""Canada: British Columbia's LidarBC surveys (a region source), NRCan's HRDEM national mosaic (1 m, then 2 m) and
-MRDEM-30 for the gaps, read in blocks from their COGs (no key)."""
+"""Canada: British Columbia's LidarBC surveys and Ontario's lidar models from its package ZIPs (region sources),
+NRCan's HRDEM national mosaic (1 m, then 2 m) and MRDEM-30 for the gaps, read in blocks from their COGs (no key)."""
 
 from typing import Dict, List, Tuple
 
@@ -7,6 +7,7 @@ from ..credit import Credit
 from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 from ..layers.lidarbc import LidarBcBlocks, bc_utm_crs
+from ..layers.packages import PackageTiles
 from .arctic import ARCTIC_ACKNOWLEDGEMENT
 from .world import COPERNICUS_NOTICE
 
@@ -139,6 +140,86 @@ BC_BOXES = (("ca-bc", (49.0, 60.0, -139.1, -120.0)), ("ca-bc", (48.2, 49.0, -125
 # The 49th parallel itself (an outline may draw it a kilometre south) and the Flathead east of 114.6 W
 BC_BORDER = ((48.95, 49.1, -123.35, -114.0),)
 
+# Ontario: Geospatial Ontario's (Ministry of Natural Resources) Digital Terrain Model and Digital Surface Model
+# (Lidar-Derived), the province's lidar projects of 2009-2026 compiled: 1 km tiles of 0.5 m (1 m for LEAP 2009 and
+# Muskoka) in NAD83(CSRS) / UTM of the project's zone 15-18 (the zone in every member's name: Cataraqui 2024 is in
+# zone 18, not 17 as the user guide's table 3 says), CGVD2013 heights but for LEAP 2009 (CGVD28 only: the DSM user
+# guide's Appendix C shows "a consistent vertical offset" against the newer projects; kept, the oldest project) and
+# the Muskoka copies in CGVD28 (left out: exclude). The tiles are members (GeoTIFF, LZW, nodata -32767 or ±3.4e38,
+# "Area" or "PixelIsPoint" with the tie point at the first pixel's centre; ERDAS Imagine .img for the older
+# projects and most of the DSM) of the package ZIPs of the province's official download route, about 3 GB each
+# (420 DTM and 451 DSM packages, 1.2 TB of DTM; 2026-11-16: the directories 65 kB in one tail Range, members of
+# 1-12 MB), listed by the GeoHub's package index layers (ArcGIS Online FeatureServers of the packages' footprints,
+# OGL - Ontario; the footprints miss some of their tiles by up to 968 m: PackageListing grows the box). Measured
+# against NRCan's HRDEM mosaic (wave 0 of batch 6): the same lidar on land to 1-3 cm, at twice the resolution, on the
+# surveys' own grid (no 1.8-2.6 % length error), more of the small walls (Rattlesnake Point: 84 pixels over 80° at
+# 1 m against 9), but fewer projects: canada fills the gaps (its HRDEM mosaic has projects the province does not
+# publish). Two projects cover 19.4 % of the province's 157 093 tiles (the tile index of 2026-10-28): the newer
+# project's tile is used whole (16.6 % of those lie at its edge, likely partial: their holes go to canada).
+# Licence: OGL - Ontario 1.0; the user guides (section 2.2): "you must use the following attribution statement
+# “Contains information licensed under the Open Government Licence – Ontario”"; the licence grants no right to
+# suggest an official status or the province's endorsement. Limits: none published (net.HOST_SLOTS_OF: two at
+# once on the package host). The province's ImageServers (Ontario_DTM/DSM_LidarDerived) are not used: their guide
+# calls them "not a data distribution tool".
+ON_INDEX = "https://services1.arcgis.com/TJH5KDher0W13Kgo/arcgis/rest/services"
+ON_DTM_INDEX = f"{ON_INDEX}/Ontario_Digital_Terrain_Model_Lidar_Derived_WFL1/FeatureServer/0"
+ON_DSM_INDEX = f"{ON_INDEX}/Ontario_DSM_Lidar_Derived_Package_Map_WFL1/FeatureServer/0"
+ON_PACKAGES = "https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/"
+# NAD83(CSRS) / UTM zones 15-18
+ON_ZONES = {15: "EPSG:3159", 16: "EPSG:3160", 17: "EPSG:2958", 18: "EPSG:2959"}
+# Muskoka's copies in CGVD28 (Muskoka-2021-CGVD2013-DTM.zip holds both: 1km...LMuskoka_CGVD28_DTM.tif)
+ON_EXCLUDE = r"(?i)CGVD28(?!\d)"
+# The end of each project's acquisition (the DTM user guide's table 1, version 2324.1; a project of the index named
+# as it is there): the newer project of a tile wins. GTA 2014-18 and OMAFRA 2016-18 are several surveys, their
+# members' names carry each one's year (within a project the newer year wins); Lower Thames 2025-26 has a first
+# delivery of 2025 and tiles named 2026. tests/test_ontario.py: every project of the index is here
+ON_PROJECT_DATES = {
+    "LEAP 2009": "2009-12-31", "GTA 2014-18": "2018-06-30", "OMAFRA Lidar 2016-18": "2018-05-31",
+    "Muskoka 2018": "2018-05-24", "CLOCA Lidar 2018": "2018-12-10", "SNC Lidar 2018-19": "2019-04-22",
+    "York-LakeSimcoe 2019": "2019-09-20", "Haliburton 2019": "2019-10-09", "Ottawa River 2019-20": "2020-05-22",
+    "Ottawa-Gatineau 2019-20": "2020-05-02", "Lake Nipissing 2020": "2020-06-19",
+    "Hamilton-Niagara 2021": "2021-05-25", "Huron Shores 2021": "2021-10-28", "Muskoka 2021": "2021-11-10",
+    "Eastern Ontario 2021-22": "2022-04-30", "OMAFRA Lidar 2022": "2022-05-07", "Belleville 2022": "2022-10-25",
+    "DEDSFM Huron-Georgian Bay 2022-23": "2023-11-16", "GTA 2023": "2023-05-11",
+    "DEDSFM Kawartha Lakes 2023": "2023-05-10", "Muskoka 2023": "2023-05-27", "DEDSFM Sudbury 2023-24": "2024-04-16",
+    "DEDSFM Sault Ste Marie 2023-24": "2024-04-24", "DEDSFM Thunder Bay 2023-24": "2024-05-06",
+    "DEDSFM Manitoulin 2024": "2024-04-16", "DEDSFM Timmins 2024": "2024-05-09", "DEDSFM Dryden 2024": "2024-10-31",
+    "DEDSFM Sioux Lookout 2024": "2024-11-08", "DEDSFM Atikokan 2024": "2024-11-01",
+    "DEDSFM Ignace 2024": "2024-11-01", "DEDSFM Cataraqui 2024": "2024-11-03", "DEDSFM Chapleau 2024": "2024-11-09",
+    "DEDSFM Northeastern Ontario 2024-25": "2025-06-02", "DEDSFM Central East 2025": "2025-04-23",
+    "DEDSFM Upper Thames-Grand River 2025": "2025-11-14", "DEDSFM Kenora 2025": "2025-05-05",
+    "DEDSFM Rainy River 2025": "2025-06-03", "DEDSFM Wasauksing-Parry Sound 2025": "2025-10-28",
+    "DEDSFM Lower Thames 2025-26": "2025-11-19"}
+OGL_ON = ("OGL - Ontario 1.0", "https://www.ontario.ca/page/open-government-licence-ontario")
+ON_CREDIT = Credit("Ontario DTM / DSM (Lidar-Derived) 0.5 m (Geospatial Ontario, Ministry of Natural Resources)",
+                   "Contains information licensed under the Open Government Licence – Ontario.", *OGL_ON)
+
+
+def on_utm_crs(lat: float, lon: float) -> str:
+    """NAD83(CSRS) / UTM zone of a point in Ontario (15-18; a point outside them takes the nearest), e.g.
+    EPSG:2958 (zone 17): the CRS of most of the province's tiles there."""
+    zone = min(18, max(15, int((lon + 180) // 6) + 1))
+    return ON_ZONES[zone]
+
+
+def _ontario(kind: str, index: str, description: str, bytes_per_tile: float) -> PackageTiles:
+    # A member's compressed size, the mean over one package's directory (2026-11-16): GTA2023-DTM-01 9.04 MB
+    # (378 members), GTA-Halton-DSM-01 6.02 MB (369); the directories' answers kept 60 days (new projects come
+    # several times a year)
+    return PackageTiles(description, index, ON_PACKAGES, f"ontario/{kind}", f"ontario-{kind}", ON_ZONES,
+                        ON_PROJECT_DATES, exclude=ON_EXCLUDE, native_res=0.5, bytes_per_tile=bytes_per_tile,
+                        ttl_days=60)
+
+
+# Ontario in region boxes inside Canada's (they come first), stepped to keep off Quebec (the Ottawa River, then
+# 79.52° W) and Manitoba (95.15° W, then its border's diagonal to Hudson Bay); they hold US land along the lakes and
+# rivers, which the USA's box takes first. The Ottawa valley north of 45.45° N east of 77.2° W lies in none
+ON_BOXES = (("ca-on", (41.6, 45.0, -83.3, -74.34)), ("ca-on", (45.0, 45.45, -81.8, -74.34)),
+            ("ca-on", (45.45, 46.0, -84.0, -77.2)), ("ca-on", (46.0, 46.18, -79.52, -77.6)),
+            ("ca-on", (46.0, 52.83, -95.15, -79.52)), ("ca-on", (52.83, 54.0, -93.35, -80.0)),
+            ("ca-on", (54.0, 55.0, -91.82, -80.0)), ("ca-on", (55.0, 56.0, -90.28, -80.0)),
+            ("ca-on", (56.0, 56.9, -88.9, -80.0)))
+
 CA_SCALE_NOTE = ("Lengths are measured on NRCan's grid, Canada Atlas Lambert (EPSG:3979), whose scale makes them "
                  "about 0.3 % short at Squamish, 0.7 % short at Canmore, 1.7 % long on the Niagara Escarpment and "
                  "3 % short around 60-65° N.")
@@ -168,6 +249,30 @@ SOURCES: List[Source] = [
              "on bare ground; where only the gap filler has one, the surface is another survey. No open orthophoto "
              "of British Columbia: the map shows its own base layers.",
         coverage=Coverage(provider="GeoBC", added="2026-11-03", partial=True, rest=(2.0, 30.0), survey="lidar")),
+    Source(
+        id="ontario", name="Ontario DTM / DSM (Lidar-Derived) 0.5 m",
+        description="Geospatial Ontario's lidar terrain and surface models 0.5 m (1 m for LEAP 2009 and Muskoka) of "
+                    "the province's projects 2009-2026, 1 km tiles of its package ZIPs, the newest project first, "
+                    "NAD83(CSRS) / UTM zones 15-18, CGVD2013 heights (LEAP 2009 in CGVD28); gaps from NRCan's "
+                    "HRDEM mosaic 1 m, then 2 m, then MRDEM-30",
+        nmt=_ontario("dtm", ON_DTM_INDEX, "Ontario DTM (Lidar-Derived) 0.5 m (terrain)", 9e6),
+        nmpt=_ontario("dsm", ON_DSM_INDEX, "Ontario DSM (Lidar-Derived) 0.5 m (trees, buildings)", 6e6),
+        countries=("ca",), regions=("ca-on",), local_crs=on_utm_crs, credits=(ON_CREDIT,),
+        # As british_columbia: never FABDEM; canada is no neighbour (either way), it is the first gap filler. Where
+        # the province has no tile within 2 km of the centre (the far north, Sleeping Giant, Agawa Rock, Calabogie:
+        # wave 0) --source auto takes canada itself, on its own grid
+        fallback="canada", more_fallbacks=("canada_2m", "mrdem30"), instead_without_data="canada",
+        neighbours=("usa",),
+        listing=ReadmeRow("Ontario (CA), where it has lidar", "Geospatial Ontario DTM (Lidar-Derived) 2009-2026, 0.5 m",
+                          "Geospatial Ontario DSM (Lidar-Derived), 0.5 m", CA_NO_ORTHO),
+        offline=ON_BOXES, sample=(44.9055, -77.1899),  # Mazinaw Rock, Bon Echo
+        note="Data: Geospatial Ontario, Open Government Licence - Ontario. The province's lidar covers much of the "
+             "south and parts of the north; gaps are filled from NRCan's HRDEM mosaic (1 m, then 2 m), then from "
+             "MRDEM-30 (30 m). Where two projects cover a 1 km tile the newer is used whole. LEAP 2009 (Kingston, "
+             "Prince Edward County) is in CGVD28 heights, off the newer data by the two datums' difference. No open "
+             "orthophoto of Ontario here: the map shows its own base layers.",
+        coverage=Coverage(provider="Geospatial Ontario", added="2026-11-16", partial=True, rest=(2.0, 30.0),
+                          survey="lidar")),
     Source(
         id="canada", name="NRCan HRDEM mosaic (DTM / DSM 1 m)",
         description="NRCan HRDEM national mosaic: lidar terrain and surface models 1 m, NAD83(CSRS) / Canada Atlas "

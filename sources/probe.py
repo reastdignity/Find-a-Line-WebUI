@@ -17,8 +17,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   (GeoSheetTiles) the first 8 bytes of its file, which must be a TIFF's (never a range of one byte); a
   plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers; a member
-  of a remote ZIP archive (ZipMemberTiles) its local header, by a Range of a few hundred bytes (the index's
-  estimate read the archives' ends and directories); a tile of an Esri elevation tile cache (LercTiles) the first
+  of a remote ZIP archive (ZipMemberTiles, PackageTiles) its local header, by a Range of a few hundred bytes (the
+  index's estimate read the archives' ends and directories); a tile of an Esri elevation tile cache (LercTiles) the first
   KB of the tile holding the sample at the level of the source's resolution, which must start with the LERC1
   magic (no Range, no index: a fixed tiling);
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
@@ -90,6 +90,7 @@ from .layers.metricsheets import MetricSheetTiles
 from .layers.cartoteca import CartotecaTiles
 from .layers.lerc import LercTiles
 from .layers.zipsheets import ZipSheetTiles, signed_location
+from .layers.packages import PackageTiles
 from .indexes.mercator import level_for
 from .readers.lerc import LERC1_MAGIC
 from .catalogue import SOURCES
@@ -104,6 +105,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
     (ZipMemberTiles, "zip"),  # the same
+    (PackageTiles, "zip"),  # the same: a member's local header
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WfsFeatureTiles, "zipfile"),  # before IndexedTiles, of which it is one: the first KB, never a byte range 0-0
     (CartotecaTiles, "cartoteca"),  # the same, its URL from a GetFeatureInfo first
