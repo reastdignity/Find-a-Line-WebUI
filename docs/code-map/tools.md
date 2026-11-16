@@ -55,29 +55,26 @@ grid with decimal commas: their index keys and published cards `MADEIRA_CARD`/`A
 one product). Madeira's 5 m ZIP gives three datasets: `porto-santo` (EPSG:3061, the sea 0), `desertas` (EPSG:5016
 over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. Inputs: `Url` (one GET at a time under a
 lock in `--work`, through the app's headers, rate and counting; a resume by `Range: bytes=N-` only below
-`resume_below`: Aosta's firewall answers 500 beyond about 1e8 bytes; a 200 to a Range rewrites from the start; never
-past the known size, `SizeChanged`), `Placed` (one file matching a glob in `--inputs`; `.part`/`.crdownload` never),
-`Folder` (many rasters, each checked once against `done.jsonl`'s sha256, `done_digests`: a torn line skipped, a file
-not named yet no input this run; complete at `expected` files), each Url or Placed ZIP with its raster `members`
-(fnmatch); patterns in either case (`_any_case`). Steps `download`, `extract` (zipfile for Deflate, 7-Zip `7z e -so`
-for Deflate64, CRC checked; an ASCII grid, and full-width strips whose row of tiles would not fit half of GDAL's
-cache, copied into a tiled GeoTIFF in `--work/tiled`; every such file recorded in `WorkFiles` with its source's
-stamp, made again when the source changed), `cut` (tile by tile, rows from the top: `assemble` reads every raster
-covering a tile, masks it (`mask`: files' nodata, `nodata`, `sea`, `floor`) and joins them by `overlap` "first" or
-"agree" (`Overlap` names the tile); `--threads` writers and GDAL's cache within `--max-memory-gb`, an estimate,
-`_workers`; tools/sk_tiles.py's layout and encoding, whose `_write`, `_sha256`, `_mark_partial` and `tile_name` it
-reuses; the work's `State` (SQLite in `--work/state`) keeps footprints, checked files and the rasters that fed each
-tile with their stamps; `_todo` cuts a listed tile again only when a new raster covers it and every feeder is
-present and unchanged, else `Stale` before writing anything, and a tile without a record is final; a product of many
-inputs is `index.partial.json` until complete, then `index.json` (the old datasets keep "partial" in their
-index.json); the dataset card `card_text` written whole), `verify` (every sha256, files the index does not list,
-sampled tiles (1 %, 8 to 500, `--seed`) re-assembled and, apart from the cut's code, `POINTS` pixels read straight
-from the inputs (`_point_problems`); tiles whose feeders are gone are not checkable, not failures; `verify.json` with
-the index's sha256 beside it), `status`, `clean` (only `WorkFiles`' files, through `_remove`, which refuses paths
-outside `--work` or the product's folder), `all` (download, extract, cut, verify, clean; a product complete and
-verified on its index skipped). One run at a time per `--work` and per product's folder (`_locked`: `Busy`).
-Replacing a file on the mirror's network share is tried again for 60 s (`_replace`: Windows refused one replace on
-Z:). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its source's default
+`resume_below`; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`), `Placed` (one file
+matching a glob in `--inputs`, either case), `Fetched` (a folder tools/cdd_fetch.py fills: manifest.jsonl's rows of a
+collection, or a fetch-list group counted in status.json, each file an input once done.jsonl records it whole, its
+sha256 checked when read), each with its ZIP `members`. A product is cut once, when `resolve` finds it complete
+(`--without <ids>`: sheets never delivered, recorded as `missing_inputs`), in a staging folder (`staging_folder`:
+`--work/staging/...`, or `<out>/.staging/...` when a folder does not rename from `--work` into `--out`), with an
+append-only journal (`Journal`, `--work/journals/`: a line per finished tile after its file is synced); a restart keeps
+a tile whose file matches its line and whose feeders are the same, and cuts every other one again (`_cut_staged`);
+`_finalize` writes index.json, renames the folder into the mirror in one `os.replace`, then writes the card. A final
+product is never cut again. `WRITE_SITES` names every write a stop could interrupt (`_site`, `HOOK`: the tests stop
+the run at each). `assemble` reads every raster covering a tile, masks it (`mask`) and joins them by `overlap`;
+`--threads` writers and GDAL's cache within `--max-memory-gb` (an estimate, `_workers`); tools/sk_tiles.py's encoding.
+Caches only: `State` (footprints, checked files) and `WorkFiles` (unpacked members, tiled copies of ASCII grids and of
+wide strips, made again when their source changed; `clean` removes only these, through `_remove`). `check_folders`
+keeps `--work`, `--inputs` and `--out` apart. `verify` (final products): every sha256, unlisted files, the tiles the
+inputs' own bounds touch against the index, the inputs against the journal's feeders, sampled tiles (1 %, 8 to 500,
+`--seed`) re-assembled and `POINTS` pixels read straight from the inputs (`_point_problems`); tiles whose inputs are
+gone are not checkable. `status` (final / cutting / ready / waiting), `all` (cuts every complete product, a waiting
+one is no failure; a final verified one skipped). One run at a time per `--work` and per product (`_locked`:
+`Busy`). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its source's default
 resolution a whole multiple of its pixel and at least 1 m (`tests/test_mirror_tiles.py`).
 
 ## `tools/source_docs.py`
