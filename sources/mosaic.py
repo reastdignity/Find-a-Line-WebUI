@@ -2,7 +2,7 @@
 
 import math
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import rasterio as rio
@@ -88,7 +88,7 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
     # Which files wrote a pixel, for a layer that credits its files' owners by the pixels they gave (Tuscany's)
     wrote: Optional[List[bool]] = [] if layer.credits_by_pixels else None
     build_mosaic(files, grid, out_path, label, shift=layer.shift, rows=rows, resampling=resampling,
-                 same_resolution=same_resolution, wrote=wrote, below=layer.nodata_below)
+                 same_resolution=same_resolution, wrote=wrote, below=[layer.floor_of(p) for p in files])
     used_data.extend(layer.used_entries(grid, cache_dir, None if wrote is None else dict(zip(files, wrote))))
     return out_path
 
@@ -97,7 +97,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
                  categorical: bool = False, shift: Tuple[float, float] = (0.0, 0.0),
                  rows: Optional[int] = None, resampling: Optional[str] = None,
                  same_resolution: Optional[str] = None, wrote: Optional[List[bool]] = None,
-                 below: Optional[float] = None) -> np.ndarray:
+                 below: Union[None, float, Sequence[Optional[float]]] = None) -> np.ndarray:
     """Stitch rasters into a memory-mapped array covering the grid.
 
     Tiles already on the grid are copied; others are reprojected, averaging when
@@ -115,12 +115,16 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     bilinear reprojection at one resolution smooths (filling.NEIGHBOUR_SAME_RESOLUTION).
     wrote: a list given, whether each file wrote at least one pixel (one more pass over each part it covers: off
     unless asked; the mosaic's values the same either way) is appended to it, in the order of files.
-    below: heights below it are no data, in each raster's own pixels before any resampling (Layer.nodata_below);
-    None: none.
+    below: heights below it are no data, in each raster's own pixels before any resampling; None: none. A number
+    is the floor of every file; a sequence one floor (or None) per file, in the order of files (prepare_layer:
+    Layer.floor_of of each, Tokyo's island sheets floored and its mainland's not).
     """
     for method in (resampling, same_resolution):
         if method is not None and (categorical or method not in RESAMPLINGS):
             raise ValueError(f"resampling must be one of {', '.join(RESAMPLINGS)} for a mosaic of heights")
+    floors = list(below) if isinstance(below, (list, tuple)) else [below] * len(files)
+    if len(floors) != len(files):
+        raise ValueError(f"{len(floors)} floors for {len(files)} files")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8 if categorical else np.float32,
                                        shape=(grid.height, grid.width))
@@ -131,7 +135,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
             mosaic[r0:r0 + rows] = NODATA if categorical else np.nan
     progress.compute.start(f"stitching {label}", len(files), unit="tile")
     written: List[Tuple[int, int, int, int]] = []  # the parts of the mosaic the rasters wrote into (_first_here)
-    for path in files:
+    for path, floor in zip(files, floors):
         progress.compute.update(1)
         # The cached files' blocks decoded on WARP_THREADS (GDAL reads it when the file is opened;
         # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http).
@@ -141,7 +145,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
         with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS), GDAL_DISABLE_READDIR_ON_OPEN="TRUE"), \
                 rio.open(path) as src:
             gave = _place(src, grid, mosaic, categorical, shift, rows, resampling, same_resolution, written,
-                          count=wrote is not None, below=below)
+                          count=wrote is not None, below=floor)
         if wrote is not None:
             wrote.append(gave)
     flush_grid(mosaic)
@@ -163,7 +167,7 @@ def _read_band(src, window, clean: bool = False, below: Optional[float] = None) 
     with NaN below VALID_MIN (layer._clean). A float32 band whose nodata is NaN (_nan_nodata) is
     read without GDAL's mask, which decodes every block a second time to find the pixels that are
     NaN already: its NaN pixels set to np.nan (the masked read's bits), with clean in the same pass. below:
-    NaN below it too (Layer.nodata_below)."""
+    NaN below it too (the file's floor, Layer.floor_of)."""
     if _nan_nodata(src):
         values = src.read(1, window=window)
         np.copyto(values, np.nan, where=~(values >= VALID_MIN) if clean else np.isnan(values))
@@ -222,7 +226,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
     (_first_here): a part no raster wrote into is copied, and a raster on the grid of float32 heights with
     NaN as nodata is read straight into it (no array of its own; its NaN pixels and those below VALID_MIN
     set to np.nan in place, _read_band's values). count: whether it wrote a pixel is returned (else False).
-    below: heights below it are no data (build_mosaic's), before any resampling."""
+    below: heights below it are no data (build_mosaic's floor of this raster), before any resampling."""
     clean = not categorical
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src.crs or grid_crs

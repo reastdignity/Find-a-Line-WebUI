@@ -288,6 +288,159 @@ def test_tokyo_sheet_in_two_folders(tokyo, http_server, tmp_path, monkeypatch):
                                                              (f"2023_{code}", 2023, 400_000)]
 
 
+# --- Tokyo's island floor (the user's decision of 2026-11-16) ---------------------------------------------------------
+def _in_boxes(lats, lons, boxes):
+    return [any(s <= lat <= n and w <= lon <= e for s, n, w, e in boxes) for lat, lon in zip(lats, lons)]
+
+
+def test_tokyo_island_sheets_over_the_whole_table(tmp_path):
+    """Every sheet of the table both ways, by the catalogue's own layer on the paths its files() gives: a sheet inside
+    an island box of TK_BOXES has the floor -1 m, a sheet inside a mainland box none, and the two sets are the table.
+    The constant northing lies in the sea between the mainland's southernmost sheet (y -55 500) and Oshima's
+    northernmost (y -132 900); a file that is no sheet is an error, never a file without a floor."""
+    from rasterio.warp import transform
+    assert japan.TK_BOXES == tuple(("jp-13", b) for b in japan.TK_MAINLAND_BOXES + japan.TK_ISLAND_BOXES)
+    table = japan._tk_table()
+    cells = {code: japan.jp_cell(9, code) for code in table}
+    lons, lats = transform(japan.TK_CRS, "EPSG:4326", [(i + 0.5) * 400 for i, _ in cells.values()],
+                           [(j + 0.5) * 300 for _, j in cells.values()])
+    mainland = {code for code, inside in zip(cells, _in_boxes(lats, lons, japan.TK_MAINLAND_BOXES)) if inside}
+    islands = {code for code, inside in zip(cells, _in_boxes(lats, lons, japan.TK_ISLAND_BOXES)) if inside}
+    assert not mainland & islands and mainland | islands == set(table)
+    assert len(mainland) == 15637 and len(islands) == 3254
+    cache_dir = str(tmp_path)
+    floors = {code: japan.TK_DTM.floor_of(japan.TK_DTM.tile_path(cache_dir, cell)) for code, cell in cells.items()}
+    assert {code for code, floor in floors.items() if floor == -1.0} == islands
+    assert {code for code, floor in floors.items() if floor is None} == mainland
+    assert min((j * 300 for code, (_, j) in cells.items() if code in mainland)) == -55_500       # 09LD8148's bottom
+    assert max(((j + 1) * 300 for code, (_, j) in cells.items() if code in islands)) == -132_900  # 09OC4931's top
+    assert -132_900 < japan.TK_ISLANDS_NORTH < -55_500
+    assert japan.TK_DTM.nodata_below is None and japan.TK_ISLAND_FLOOR == -1.0
+    with pytest.raises(ValueError, match="no sheet"):
+        japan.TK_DTM.floor_of(os.path.join(cache_dir, "tokyo", "grd50", "2022-2023", "RD", "84", "x.tif"))
+
+
+def _plain_tif(path, values, left, top, res, crs="EPSG:6677"):
+    with rio.open(path, "w", driver="GTiff", width=values.shape[1], height=values.shape[0], count=1, dtype="float32",
+                  crs=crs, nodata=np.nan, transform=from_origin(left, top, res, res)) as dst:
+        dst.write(values.astype(np.float32), 1)
+    return path
+
+
+class _Floored(src.Layer):
+    """Local files with a floor each (floor_of by the file), crediting by pixels: the mosaic's `wrote` kept."""
+    description, credits_by_pixels = "floored files", True
+
+    def __init__(self, floors):
+        self.floors, self.wrote = floors, None
+
+    def files(self, grid, cache_dir):
+        return list(self.floors)
+
+    def tiles(self, grid):
+        return []
+
+    def floor_of(self, path):
+        return self.floors[path]
+
+    def used_entries(self, grid, cache_dir, wrote=None):
+        self.wrote = wrote
+        return []
+
+
+# The files of the per-file floor on a 16 x 12 m grid: the west half (floored at -1 m) and the east half (no floor),
+# heights of -3 to 4 m, and a 4 x 4 m file of heights below -1 m only (floored) in the east half's north-east corner,
+# under the east file (the file placed first wins): it writes no pixel; alone and without a floor it writes
+_RNG = np.random.default_rng(11)
+WEST, EAST = (_RNG.uniform(-3, 4, (12, 8)).astype(np.float32) for _ in range(2))
+NOISE = _RNG.uniform(-0.2, 0.2, (24, 16)).astype(np.float32)
+
+
+@pytest.mark.parametrize("rows", [None, 3])
+@pytest.mark.parametrize("path", ["copied", "bilinear", "averaged"])
+def test_a_floor_per_file_through_prepare_layer(tmp_path, path, rows):
+    """prepare_layer gives build_mosaic each file's floor (Layer.floor_of): on every path (on the grid, half a pixel
+    off, 0.5 m data averaged), whole and in strips, the mosaic has the bits of the same files floored first and
+    mosaicked without a floor; the west file (floor -1 m) has nothing below it on the grid, the east file (none)
+    keeps its heights below -1 m. `wrote` still says which files wrote a pixel: a file whose every height lies below
+    its floor wrote none."""
+    res = 0.5 if path == "averaged" else 1.0
+    off = 0.5 if path == "bilinear" else 0.0
+    grid = make_grid((-1000.0, -20012.0, -984.0, -20000.0), 1.0, "EPSG:6677")
+    twice = np.ones((2, 2), np.float32)
+    west, east = (WEST, EAST) if res == 1.0 else (np.kron(WEST, twice) + NOISE, np.kron(EAST, twice))
+    deep = np.full((int(4 / res), int(4 / res)), -5.0, np.float32)
+    raw = [_plain_tif(str(tmp_path / "w.tif"), west, -1000.0 - off, -20000.0 + off, res),
+           _plain_tif(str(tmp_path / "e.tif"), east, -992.0 - off, -20000.0 + off, res),
+           _plain_tif(str(tmp_path / "d.tif"), deep, -988.0 - off, -20000.0 + off, res)]
+    floors = dict(zip(raw, (-1.0, None, -1.0)))
+    first = [_plain_tif(str(tmp_path / f"f{k}.tif"), np.where(v < f, np.nan, v) if f is not None else v,
+                        -1000.0 + 8 * (k > 0) + 4 * (k > 1) - off, -20000.0 + off, res)
+             for k, (v, f) in enumerate(zip((west, east, deep), floors.values()))]
+    layer = _Floored(floors)
+    got = np.load(src.prepare_layer(layer, grid, str(tmp_path), str(tmp_path / "m.npy"), "t", download=False,
+                                    rows=rows))
+    reference = _Floored(dict.fromkeys(first))
+    want = np.load(src.prepare_layer(reference, grid, str(tmp_path), str(tmp_path / "r.npy"), "t", download=False,
+                                     rows=rows))
+    assert np.array_equal(got.view(np.uint32), want.view(np.uint32)), path
+    assert layer.wrote == dict(zip(raw, (True, True, False)))
+    unfloored = np.load(src.prepare_layer(_Floored(dict.fromkeys(raw)), grid, str(tmp_path), str(tmp_path / "u.npy"),
+                                          "t", download=False, rows=rows))
+    cut = 7 if path == "bilinear" else 8  # the west file's columns (bilinear: the east file may fill its last)
+    assert (unfloored[:, :cut] < -1).any() and not (got[:, :cut] < -1).any()
+    assert (got[:, 9:] < -1).any()
+    alone = _Floored({raw[2]: -1.0})
+    assert np.isnan(np.load(src.prepare_layer(alone, grid, str(tmp_path), str(tmp_path / "a.npy"), "t",
+                                              download=False, rows=rows))).all()
+    assert alone.wrote == {raw[2]: False}
+    kept = _Floored({raw[2]: None})
+    np.load(src.prepare_layer(kept, grid, str(tmp_path), str(tmp_path / "k.npy"), "t", download=False, rows=rows))
+    assert kept.wrote == {raw[2]: True}
+
+
+def _sheet_tif(code, values):
+    """A sheet of Tokyo's as published (800 x 600 float32 on its box, nodata -32767), zipped."""
+    from rasterio.io import MemoryFile
+    left, bottom, right, top = japan.TK_DTM.index.edges(japan.jp_cell(9, code))
+    with MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=800, height=600, count=1, dtype="float32", crs="EPSG:6677",
+                          nodata=-32767, transform=from_origin(left, top, 0.5, 0.5)) as dst:
+            dst.write(values.astype(np.float32), 1)
+        return _zip(f"{code}.tif", memfile.read())
+
+
+def test_tokyo_floors_the_islands_sheets_only(tokyo, http_server, tmp_path, monkeypatch):
+    """The catalogue's layer on the local server: an island sheet's heights below -1 m are no data on the grid, its
+    water above the floor and its land kept; a mainland sheet with the same heights keeps them all (the wards' land
+    goes down to -4.42 m); the recorded sheet off Mikurajima (seabed only) gives the grid nothing. The cached files
+    keep the provider's heights (the floor is applied when read)."""
+    values = np.full((600, 800), 30.0, np.float32)
+    values[:, :200] = -4.42    # below the floor
+    values[:, 200:300] = -0.5  # above it
+    island, mainland = "09RD8412", "09LD1648"
+    http_server.add(f"/2023/dig/grd50/{island}.zip", _sheet_tif(island, values))
+    http_server.add(f"/2024/dig/grd50/{mainland}.zip", _sheet_tif(mainland, values))
+    monkeypatch.setattr(japan, "_tk_table", lambda: {island: (2023,), mainland: (2024,), "09RD8410": (2023,)})
+    cache_dir = str(tmp_path / "cache")
+    out = {}
+    for code in (island, mainland, "09RD8410"):
+        left, bottom, right, top = tokyo.index.edges(japan.jp_cell(9, code))
+        grid = make_grid((left, bottom, right, top), 1.0, japan.TK_CRS)
+        out[code] = np.load(src.prepare_layer(tokyo, grid, cache_dir, str(tmp_path / f"{code}.npy"), "terrain"))
+        assert tokyo.files(grid, cache_dir) and len(tokyo.tiles(grid)) == 1
+    assert np.isnan(out[island][:, :100]).all()
+    assert np.allclose(out[island][:, 100:150], -0.5, atol=0.0051)
+    assert np.allclose(out[island][:, 150:], 30.0, atol=0.0051)
+    assert np.allclose(out[mainland][:, :100], -4.42, atol=0.0051)
+    assert np.allclose(out[mainland][:, 100:150], -0.5, atol=0.0051)
+    assert np.allclose(out[mainland][:, 150:], 30.0, atol=0.0051)
+    assert np.isnan(out["09RD8410"]).all()
+    for code in (island, "09RD8410"):  # cached as they came
+        with rio.open(tokyo.tile_path(cache_dir, japan.jp_cell(9, code))) as cached:
+            assert float(np.nanmin(cached.read(1))) < -4
+
+
 # --- the CSV variant of the text grids -----------------------------------------------------------------------------
 def test_csv_points():
     """ "n,x,y,z,flag" lines: columns 2-4, every row kept whatever its flag (0, 1, -9999); "x y z" lines as before."""

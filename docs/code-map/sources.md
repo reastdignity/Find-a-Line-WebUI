@@ -440,8 +440,9 @@ model, `HB_DATA`; Bremen with `grid_origin` 0.5, Bremerhaven with `BHV_FIX`; bot
 staircases of boxes, areas `de-hb` and `de-hb-bhv`). `portugal` gains `porto_santo`, `desertas` and `selvagens`
 (`_madeira_island`: DROTe's 5 m tiles of the mirror, `GridTiles` with origin (2.5, 2.5), region pt-30, before
 `madeira`, chosen by their boxes; Porto Santo in EPSG:3061, the others EPSG:5016). `japan` (new): `tokyo`
-(`CellSheetTiles` of 400 × 300 m sheets in zone IX, EPSG:6677, over the static table `tokyo_sheets.npz`, `tk_files`
-newest folder first; region jp-13) and `shizuoka` (`S3SheetSets` of the 1/500 and quadrant sheets in zone VIII,
+(`TokyoSheets`, a `CellSheetTiles` of 400 × 300 m sheets in zone IX, EPSG:6677, over the static table
+`tokyo_sheets.npz`, `tk_files` newest folder first; region jp-13; `TK_ISLAND_FLOOR` -1 m on the Izu islands' sheets
+only, `floor_of`; `TK_BOXES` the mainland's and the islands' boxes) and `shizuoka` (`S3SheetSets` of the 1/500 and quadrant sheets in zone VIII,
 EPSG:6676, `sz_prefixes`, `sz_key`; region jp-22); `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
 `sheet_name` name the plane rectangular grid's sheets. `hong_kong` (new): `hong_kong` (`CellSheetTiles` of 750 ×
 600 m sheets of the Hong Kong 1980 Grid, EPSG:2326, DTM and DSM over `hong_kong_sheets.npz`; `hk_sheet`, `hk_cell`,
@@ -557,9 +558,11 @@ file wrote a pixel, for a layer with `Layer.credits_by_pixels`; `_put`/`_place(c
 `Layer.used_entries` (default `[used()]`; Tuscany one per owner), and `fill_gaps`/`_fill_gaps_rows` drop every
 entry of a filler that filled nothing (`_forget_entries`).
 
-Batch 6: `build_mosaic(below=)` (from `prepare_layer`: `Layer.nodata_below`) makes heights below it no data in each
-raster's own pixels before any resampling, so a tile cached before the floor and one fetched now give the same grid
-(nothing is written with the floor; `tests/test_sea_floor.py`).
+Batch 6: `build_mosaic(below=)` (from `prepare_layer`: `Layer.floor_of` of each file, by default `nodata_below`)
+makes heights below it no data in each raster's own pixels before any resampling, so a tile cached before the floor
+and one fetched now give the same grid (nothing is written with the floor; `tests/test_sea_floor.py`); `below` is
+one number for every file or one floor (or None) per file: `japan.TokyoSheets.floor_of` floors the Izu islands'
+sheets only (`tk_island`: south of `TK_ISLANDS_NORTH`).
 
 ## `sources/probe.py`
 

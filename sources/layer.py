@@ -204,8 +204,8 @@ class Layer:
     # georeferenced wrongly; applied when tiles are placed on the grid
     shift: Tuple[float, float] = (0.0, 0.0)
     # Heights below this many metres are no data (the sea floor of IGN's overseas RGE ALTI): applied where the tiles
-    # are read onto the grid (mosaic.prepare_layer), never when one is written, so a tile cached before and one
-    # fetched now give the same grid; None: none (every other layer)
+    # are read onto the grid (mosaic.prepare_layer, each file's floor_of), never when one is written, so a tile cached
+    # before and one fetched now give the same grid; None: none (every other layer)
     nodata_below: Optional[float] = None
     # Version of what download_tile does with the data; tiles made by another version are fetched again
     processing = 1
@@ -220,6 +220,12 @@ class Layer:
     def ttl_days(self) -> Optional[int]:
         """Days between update checks; None for a release that never changes (see cache.py)."""
         return cache.TTL_DAYS["live"] if "/live" in self.folder else None
+
+    def floor_of(self, path: str) -> Optional[float]:
+        """The floor of one cached file of the layer (heights below it are no data on the grid: prepare_layer gives
+        build_mosaic one per file): nodata_below, unless the layer's floor depends on the file (Tokyo's: the Izu
+        islands' sheets only, japan.TokyoSheets)."""
+        return self.nodata_below
 
     def tiles(self, grid: Grid) -> list:
         raise NotImplementedError

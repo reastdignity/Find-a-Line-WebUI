@@ -113,14 +113,20 @@ def code_of_name(name: str) -> str:
 # "Area", nodata 1.70141e38; the wards' name a PROJCS "JGD2011 / Japan Plane Rectangular CS IX" without an EPSG code,
 # AREA_OR_POINT=Point (GDAL's transform lands on the sheet's box: tests/test_japan.py) and nodata -32767: read in
 # EPSG:6677 whatever they name. Island coasts hold bathymetry (Mikurajima's 09RD8410: -12.2 to -6.5 m on 1.6 % of
-# the sheet): no floor is built. The water handling keeps such data as water at their heights and fills the sea
-# without data at 0 m; at Mikurajima (radius 800 m, 2026-11-15) 12 % of the data lay below 0 m, 49 of 341 lines (4
-# of 26 spots) joined two points of that 0 m fill across the seabed: a floor is being decided (wave 1's report). The
-# bucket denies listing, so a missing key answers 403: a static table of the sheets (tools/tokyo_sheets.py, from the
-# publisher's index vector tiles) says which exist, a sheet outside it is never asked, a 403 or 404 for one in it is
-# an error of that tile. Files may be smaller than their sheet (the edge of a survey), and the sheets along the line
-# between Tama and the wards are in both folders: each sheet is composed on its box (CellSheetTiles), the newer
-# folder first. The surveys are frozen: a versioned folder, the table refreshed by hand.
+# the sheet): kept as water at their heights next to the sea filled at 0 m where a sheet has no data, it made false
+# lines (at Mikurajima, radius 800 m, 2026-11-15: 12 % of the data below 0 m, 49 of 341 lines, 4 of 26 spots, joined
+# two points of that 0 m fill across the seabed). So heights below TK_ISLAND_FLOOR are no data on the Izu islands'
+# sheets (the user's decision of 2026-11-16, the rule of france.OVERSEAS_FLOOR): inside the sea zone the sea fill puts
+# 0 m there, outside it they are gaps on land filled from the fallback; the water above the floor and the land are
+# kept (R92 at Mikurajima, 2026-11-16: 310 lines in 24 spots without the floor, 47 of them on that fill; 263 in 20
+# with it, the same lines but those 47). Applied where the tiles are read onto the grid (TokyoSheets.floor_of, mosaic.prepare_layer), never when one
+# is written: a sheet cached before gives what a fresh one gives. Not on the mainland's sheets: the eastern wards
+# hold real land down to -4.42 m. The bucket denies listing, so a missing key answers 403: a static table of the
+# sheets (tools/tokyo_sheets.py, from the publisher's index vector tiles) says which exist, a sheet outside it is
+# never asked, a 403 or 404 for one in it is an error of that tile. Files may be smaller than their sheet (the edge
+# of a survey), and the sheets along the line between Tama and the wards are in both folders: each sheet is composed
+# on its box (CellSheetTiles), the newer folder first. The surveys are frozen: a versioned folder, the table
+# refreshed by hand.
 TK_BUCKET = "https://gic-tokyo.s3.ap-northeast-1.amazonaws.com"
 TK_CRS = "EPSG:6677"
 TK_ZONE = 9
@@ -146,12 +152,37 @@ def tk_files(i: int, j: int) -> List[Tuple[str, str, int]]:
     return [(f"{folder}_{code}", f"{TK_BUCKET}/{folder}/dig/grd50/{code}.zip", folder) for folder in folders]
 
 
+# The Izu islands' sheets lie south of TK_ISLANDS_NORTH (metres north of zone IX's origin: the northern edge of the
+# 1/50000 row N), the mainland's north of it: the mainland's southernmost sheet (09LD8148) ends at y = -55 500,
+# Oshima's northernmost (09OC4931) at y = -132 900, 77.4 km of sea between them (tests/test_japan.py checks every
+# sheet of the table against TK_MAINLAND_BOXES and TK_ISLAND_BOXES)
+TK_ISLANDS_NORTH = -90_000
+TK_ISLAND_FLOOR = -1.0
+
+
+def tk_island(i: int, j: int) -> bool:
+    """Whether the sheet of cell (i, j) is one of the Izu islands' (its box south of TK_ISLANDS_NORTH)."""
+    return (j + 1) * SHEET_500[1] <= TK_ISLANDS_NORTH
+
+
+class TokyoSheets(CellSheetTiles):
+    """Tokyo's grid sheets, with heights below TK_ISLAND_FLOOR as no data on the Izu islands' sheets only."""
+
+    def floor_of(self, path: str) -> Optional[float]:
+        """The floor of a cached sheet by its code (the file's name): TK_ISLAND_FLOOR on an island's sheet, none on
+        the mainland's; a file that is no sheet of zone IX is an error."""
+        cell = jp_cell(TK_ZONE, os.path.splitext(os.path.basename(path))[0])
+        if cell is None:
+            raise ValueError(f"{os.path.basename(path)}: no sheet of Tokyo's grid")
+        return TK_ISLAND_FLOOR if tk_island(*cell) else None
+
+
 # bytes_per_tile: the ZIPs of a land sheet are 1.4-1.9 MB (wave 0's samples); 169 MB for 117 sheets at Okutama
 # (tools/check_source.py, 2026-11-15): 1.45 MB a sheet; 1.7 MB, in the upper part of the samples' range, so the
 # estimate (and the quota) errs on the side of more
-TK_DTM = CellSheetTiles("Tokyo Digital Twin grid 0.5 m (terrain)", "tokyo/grd50/2022-2023", TK_CRS, SHEET_500, 0.5,
-                        lambda i, j: sheet_name(jp_sheet(TK_ZONE, i, j)),
-                        lambda name: jp_cell(TK_ZONE, code_of_name(name)), tk_files, r"\.tif$", bytes_per_tile=1.7e6)
+TK_DTM = TokyoSheets("Tokyo Digital Twin grid 0.5 m (terrain)", "tokyo/grd50/2022-2023", TK_CRS, SHEET_500, 0.5,
+                     lambda i, j: sheet_name(jp_sheet(TK_ZONE, i, j)),
+                     lambda name: jp_cell(TK_ZONE, code_of_name(name)), tk_files, r"\.tif$", bytes_per_tile=1.7e6)
 
 # The Tokyo Open Data terms (東京都オープンデータ利用規約, https://portal.data.metro.tokyo.lg.jp/terms/, of 2017-03-24, read
 # 2026-11-15): CC BY 4.0, credited as 「【ライセンスされている著作物のタイトル】、東京都・【その他の著作権者】、クリエイティブ・コモンズ・
@@ -171,12 +202,14 @@ TK_CREDIT = Credit("Tokyo Digital Twin point cloud data, 0.5 m grids (Tokyo Metr
 # sheets (keeping off Kanagawa's, Yamanashi's and Saitama's land where a band allows), and the Izu islands by groups
 # (Oshima; Toshima, Niijima, Shikinejima; Kozushima; Miyakejima, Mikurajima and the rocks west of them; Hachijojima
 # and Aogashima), clear of Shizuoka's boxes: every sheet of the table lies in them (tests/test_japan.py)
-TK_BOXES = tuple(("jp-13", box) for box in (
+TK_MAINLAND_BOXES = (
     (35.48, 35.55, 139.42, 139.86), (35.54, 35.60, 139.34, 139.86), (35.60, 35.65, 139.16, 139.89),
     (35.65, 35.70, 139.05, 139.93), (35.70, 35.75, 138.99, 139.93), (35.75, 35.80, 138.97, 139.90),
-    (35.79, 35.85, 138.94, 139.85), (35.85, 35.91, 138.93, 139.18),
+    (35.79, 35.85, 138.94, 139.85), (35.85, 35.91, 138.93, 139.18))
+TK_ISLAND_BOXES = (
     (34.60, 34.85, 139.33, 139.47), (34.30, 34.60, 139.17, 139.32), (34.15, 34.30, 139.05, 139.22),
-    (33.75, 34.15, 139.04, 139.65), (32.40, 33.20, 139.60, 139.90)))
+    (33.75, 34.15, 139.04, 139.65), (32.40, 33.20, 139.60, 139.90))
+TK_BOXES = tuple(("jp-13", box) for box in TK_MAINLAND_BOXES + TK_ISLAND_BOXES)
 
 
 # --- Shizuoka ---------------------------------------------------------------------------------------------------
@@ -269,14 +302,16 @@ SOURCES: List[Source] = [
         id="tokyo", name="Tokyo (Digital Twin lidar 0.5 m)",
         description="Tokyo Metropolitan Government: Tokyo Digital Twin point cloud grids 0.5 m (terrain) of Tama "
                     "(2022-2023), the Izu islands (2022-2023) and the 23 wards (2023), JGD2011 / Japan Plane "
-                    "Rectangular CS IX; no surface model; island coasts carry some seabed heights",
+                    "Rectangular CS IX; no surface model; on the Izu islands' sheets heights below -1 m (the seabed "
+                    "along their coasts) are taken as no data",
         nmt=TK_DTM, countries=("jp",), regions=("jp-13",), crs=TK_CRS, credits=(TK_CREDIT,),
         listing=ReadmeRow("Tokyo (JP)", "Tokyo Digital Twin lidar grid 0.5 m (Tama, Izu islands 2022-2023; "
                                         "23 wards 2023)", "– (point clouds only)", "–"),
         offline=TK_BOXES, sample=(35.8179, 139.0875),  # Okutama (R84)
         note="Data: Tokyo Metropolitan Government, Tokyo Digital Twin point cloud data, CC BY 4.0 (Tokyo Open Data "
              "terms). Terrain only (no surface model: trees and buildings are not in the data). Ogasawara was not "
-             "surveyed. Near the islands' coasts the grids hold some seabed heights below 0 m.",
+             "surveyed. Near the Izu islands' coasts the grids hold some seabed heights: there heights below -1 m are "
+             "taken as no data, so the sea is filled at 0 m.",
         coverage=Coverage(provider="Tokyo Metropolitan Government", added="2026-11-15", partial=True,
                           survey="2022–2023")),
     Source(

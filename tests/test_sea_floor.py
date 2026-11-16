@@ -1,6 +1,7 @@
-"""Heights below a layer's floor are no data where its tiles are read onto the grid (Layer.nodata_below,
-mosaic.build_mosaic's below): the sea floor of IGN's overseas RGE ALTI 1 m (sources/catalogue/france.py
-OVERSEAS_FLOOR). The cache is LERC within 5 mm, so the floor holds within that: the tests use heights clearly on
+"""Heights below a layer's floor are no data where its tiles are read onto the grid (Layer.nodata_below, or one floor
+per file by Layer.floor_of; mosaic.build_mosaic's below): the sea floor of IGN's overseas RGE ALTI 1 m
+(sources/catalogue/france.py OVERSEAS_FLOOR) and of the Tokyo Digital Twin's Izu islands' sheets (japan.TokyoSheets:
+tests/test_japan.py). The cache is LERC within 5 mm, so the floor holds within that: the tests use heights clearly on
 either side of it. Every path of the mosaic (a tile on the grid copied, a tile filling another's holes, a tile
 reprojected bilinearly, a finer tile averaged, each also in strips of rows) against independent references (the
 mosaic of tiles floored before they are read; without a floor, test_units' _place_before), a tile cached before the
@@ -17,8 +18,8 @@ from rasterio.transform import from_origin
 import sources as src
 from grid import make_grid
 from sources import mosaic, net
-from sources.catalogue import france
-from sources.layer import _write_tile
+from sources.catalogue import france, japan
+from sources.layer import Layer, _write_tile
 from test_units import _place_before
 
 CRS = "EPSG:32620"
@@ -132,14 +133,39 @@ def test_the_floor_comes_before_the_resampling(tmp_path):
 
 
 def test_the_default_of_a_layer():
-    """No floor unless a layer says so: of every layer of the catalogue, only the overseas RGE ALTI ones."""
-    floored = {s.id: layer.nodata_below for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt)
-               if layer is not None and layer.nodata_below is not None}
+    """No floor unless a layer says so: of every layer of the catalogue, only the overseas RGE ALTI ones have one for
+    every file (nodata_below), and only Tokyo's one that depends on the file (Layer.floor_of: its Izu islands' sheets
+    floored, its mainland's not, tests/test_japan.py); every other layer's floor_of is Layer's own, nodata_below."""
+    layers = [(s.id, layer) for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt) if layer is not None]
+    floored = {sid: layer.nodata_below for sid, layer in layers if layer.nodata_below is not None}
     assert floored == {"france_guadeloupe": -1.0, "france_martinique": -1.0, "france_guiana": -1.0,
                        "france_spm": -1.0, "france_reunion_rgealti": -1.0, "france_mayotte": -1.0}
-    assert src.WATER_MASK.nodata_below is None
+    per_file = {sid for sid, layer in layers if getattr(layer.floor_of, "__func__", None) is not Layer.floor_of}
+    assert per_file == {"tokyo"}
+    assert japan.TK_DTM.nodata_below is None and type(japan.TK_DTM).floor_of is japan.TokyoSheets.floor_of
+    assert japan.TK_ISLAND_FLOOR == -1.0
+    assert src.WATER_MASK.nodata_below is None and src.WATER_MASK.floor_of.__func__ is Layer.floor_of
     for layer in (france.FR_RGEALTI, france.FR_MNT, france.FR_MNS, france.REU_MNT, france.REU_MNS):
         assert layer.nodata_below is None
+
+
+@pytest.mark.parametrize("rows", [None, 3])
+def test_one_floor_per_file(tmp_path, rows):
+    """build_mosaic's below as one floor per file: the same floor for each is the bits of that floor given once; a
+    file without one (None) keeps its heights while the others are floored; a count of floors that is not the
+    count of files is an error."""
+    grid = make_grid(GRID, 1.0, CRS)
+    files = _files(tmp_path, "holes", PATHS["holes filled"])
+    once = np.asarray(mosaic.build_mosaic(files, grid, str(tmp_path / "o.npy"), "t", below=-1.0, rows=rows))
+    each = np.asarray(mosaic.build_mosaic(files, grid, str(tmp_path / "e.npy"), "t", below=[-1.0, -1.0], rows=rows))
+    assert np.array_equal(once.view(np.uint32), each.view(np.uint32))
+    second = np.asarray(mosaic.build_mosaic(files, grid, str(tmp_path / "s.npy"), "t", below=[-1.0, None], rows=rows))
+    first = _files(tmp_path, "holes", PATHS["holes filled"][:1], below=-1.0) + files[1:]
+    reference = np.asarray(mosaic.build_mosaic(first, grid, str(tmp_path / "r.npy"), "t", rows=rows))
+    assert np.array_equal(second.view(np.uint32), reference.view(np.uint32))
+    assert np.nanmin(second[3:7, 4:9]) < -1  # the second file's heights in the first's holes, not floored
+    with pytest.raises(ValueError, match="2 floors for 1 files"):
+        mosaic.build_mosaic(files[:1], grid, str(tmp_path / "x.npy"), "t", below=[-1.0, None])
 
 
 def _serve(server, layer, tile, values, nodata):
