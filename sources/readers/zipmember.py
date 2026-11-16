@@ -156,9 +156,12 @@ class ZipMember(Reader):
     lengths: 4.3.7; a second, small Range only when the first was short), deflated (8) or stored (0) members
     only (4.4.5; others and encrypted ones an error), inflated with zlib (raw deflate) and checked against the
     CRC-32 and size of the central directory (4.4.7-4.4.9): a mismatch is asked again (net.RETRIES), then an
-    error, never cached. The member (a GeoTIFF) is written again as a tile (float32, NaN for no data and below
-    layer.VALID_MIN), in crs's name if given; with floor, drop_below(floor, ring) first; with fix, its transform
-    corrected first (TransformFix: an offset, a rounding to the grid).
+    error, never cached. The member (a raster GDAL reads from memory: a GeoTIFF, an ERDAS Imagine file) is written
+    again as a tile (float32, NaN for no data and below layer.VALID_MIN), in crs's name if given, else in that of
+    the request's own crs if it has one (a tile of a package in several UTM zones), else as the member says; with
+    floor, drop_below(floor, ring) first; with fix, its transform corrected first (TransformFix: an offset, a
+    rounding to the grid); then placed(transform, width, height, request, where) may refuse it (a subclass's
+    check of where the member lies; none here).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
@@ -186,7 +189,7 @@ class ZipMember(Reader):
                 data, received = self._member(request, where)
             except ArchiveChanged as again:
                 raise RuntimeError(f"Could not download {where}: {again}") from None
-        self._write(data, path, where)
+        self._write(data, path, where, request)
         return Fetched(received, request.url)
 
     def _member(self, request, where: str) -> Tuple[bytes, int]:
@@ -239,15 +242,19 @@ class ZipMember(Reader):
             raise ValueError(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
         return data
 
-    def _write(self, data: bytes, path: str, where: str):
+    def placed(self, transform: Affine, width: int, height: int, request, where: str):
+        """Raise RuntimeError when the member does not lie where its tile is (a subclass's check; none here)."""
+
+    def _write(self, data: bytes, path: str, where: str, request=None):
         try:
             with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
                 if src.count != 1:
                     raise RuntimeError(f"{where}: {src.count} bands, one expected")
                 band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
-                crs, transform = self.crs or src.crs, src.transform
+                crs, transform = self.crs or getattr(request, "crs", None) or src.crs, src.transform
                 if self.fix is not None:
                     transform = self.fix.apply(transform, where)
+                self.placed(transform, src.width, src.height, request, where)
         except rio.errors.RasterioError as e:
             raise RuntimeError(f"{where}: not a raster ({e})") from None
         drop_below(band, self.floor, self.ring)
