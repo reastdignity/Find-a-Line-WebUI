@@ -392,16 +392,18 @@ HB_CREDIT = Credit("DGM1 / DOM1 (Landesamt GeoInformation Bremen)", f"{HB_ATTRIB
 # - Bremerhaven: eastings with the zone (32466000.5: TransformFix's offset). The DGM1 (dgm1_32<E>__<N>_1_hb.xyz, a
 #   double underscore; 188 tiles, E 466-477, N 5924-5940, Lower Saxony's land around the city in them) at x.5, columns
 #   north to south, millimetres: its values are samples at those points (against LGLN's DGM1 of 2020-2025 on five
-#   tiles: at 474_5936 RMS 0.150 m at no shift, 0.19-0.24 at half a pixel), so its edges lie on whole metres (grid_origin
-#   0). The DOM1 (dom1_32<E>_<N>_1_hb.xyz, one underscore; 114 tiles of the city only, 41 with fewer points than a
-#   full km: the 12 read so far each a rectangle of part of it; a full one 1001 x 1000 points) at whole metres, columns
-#   south to north: its values sit at those points (against LGLN's DOM1 of 2025, the NCC of the high-passed rasters at
-#   no shift and the best at half a pixel on both axes: 474_5936 0.400 / 0.371, 472_5938 0.282 / 0.265, 471_5938
-#   0.165 / 0.159; two small partial tiles of NCC 0.12-0.17 scatter, neither peak at half a pixel on both axes), half a
-#   pixel off its own terrain: written as it lies and interpolated onto the terrain's grid by the mosaic (bilinear, as
-#   any off-grid raster; a choice for the user). Outside the city each partial tile's rectangle is filled with
-#   constant planes (475_5937: 3.19 m over 23 ha, 1.4 m below the terrain, and 17.35 m over 15 ha, 13 m above it),
-#   left as they are
+#   tiles, the NCC of the high-passed rasters peaking within a quarter of a pixel of no shift on each; at 474_5936 RMS
+#   0.150 m at no shift, 0.19-0.25 at half a pixel), so its edges lie on whole metres (grid_origin 0). The DOM1
+#   (dom1_32<E>_<N>_1_hb.xyz, one underscore; 114 tiles of the city only, 41 with fewer points than a full km, each a
+#   rectangle of part of it, read 2026-11-16; a full one 1001 x 1000 points) at whole metres, columns south to north:
+#   its values sit at those points (against LGLN's DOM1 of 2025, the NCC at no shift and the best at half a pixel on
+#   both axes: 474_5936 0.404 / 0.375, 472_5938 0.283 / 0.267, 471_5938 0.164 / 0.159, 475_5937 0.085 / 0.068; two
+#   small partial tiles of NCC 0.12-0.18 scatter, neither peak at half a pixel on both axes), half a pixel off its own
+#   terrain: written as it lies and interpolated onto the terrain's grid by the mosaic (bilinear, as any off-grid
+#   raster; a choice for the user). The 41 partial tiles hold 402 ha of exactly constant planes of 1 ha or more, 245 ha
+#   of them beyond the Land (filling each rectangle beyond the boundary), 83 ha more than 3 m above the terrain (475_5937
+#   17.35 m over 15 ha, 13 m above it, beyond the boundary; 468_5937 23.85 m over 13 ha, 26 m above it, and 469_5935
+#   88.14 m over 2.5 ha, 90 m above it, in the port and on the Weser inside the Land), left as they are
 HB_DATA = "https://gdi2.geo.bremen.de/inspire/download/{kind}/data/Gitternetz_{kind}1_{year}_{city}_ASCII_XYZ.zip"
 HB_NAME = r"(?i)(?:^|/){kind}1_32(?P<east>\d{{3}})_{{1,2}}(?P<north>\d{{4}})_1_hb\.xyz$"
 BHV_ZONE = -32_000_000.0  # Bremerhaven's eastings less the zone 32's prefix
@@ -542,9 +544,10 @@ SOURCES: List[Source] = [
         sample=(53.5400, 8.5800),  # the centre, by the Geeste
         note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid; the surface model, whose "
              f"pixels lie half a pixel off the terrain's, interpolated onto it). Laser scanning of 2015. The surface "
-             f"model covers the city; its tiles at the city's edge hold flat planes of a constant height beyond the "
-             f"boundary (up to 13 m above the terrain over 15 ha), which mark lines over them as over trees or "
-             f"buildings; beyond those tiles lines are checked against the bare terrain.",
+             f"model covers the city. Its tiles at the city's edge hold flat planes of a constant height (about 400 "
+             f"ha, most of it beyond the boundary; 83 ha more than 3 m above the terrain, up to 90 m, in the port and "
+             f"on the Weser too), which mark lines over them as over trees or buildings; beyond those tiles lines are "
+             f"checked against the bare terrain.",
         coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb-bhv",), survey="2015")),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
