@@ -6,6 +6,8 @@ are parameters). Two commands, each writing JSON and a Markdown summary into --o
     python tools/ui_metrics.py static --out <folder>
     uv sync --group ui; uv run playwright install chromium webkit; cd viewer; npm ci   (once, for "pages")
     uv run tools/ui_metrics.py pages --out <folder> [--only c-home,c-result] [--devices desktop,iphone,pixel] [--dark]
+                                     [--data-dir <scratch>] [--controls 44,24] [--text 12,11,10]
+    python tools/ui_metrics.py pages --out <folder> --summarise [--controls 40] [--text 11]   (from a kept log)
 
 "static" reads the source only (static.json, static.md): in the CSS of viewer/src every distinct font size (also of
 the `font:` shorthand), border radius and z-index, the colour literals (hex, rgb(), hsl()) outside ui/tokens.css (and,
@@ -24,7 +26,10 @@ viewer has none), a `font:` whose size is var() or calc() is counted as "unresol
 left_out_by_run and shoot_all with `act`: the same site, users, waits and steps; a data folder of its own, one run at
 a time per folder) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line a
 state as it ends; then pages.json, pages.md). A state whose wait timed out or whose load, steps or measuring failed
-is recorded as not measured, with its reason, and counts in no total:
+is recorded as not measured, with its reason, and counts in no total; a state the device does not show (a click
+finds nothing) or the run lacks the feature of is recorded as left out, with its reason. Every control's and text's
+size is kept in the log, so `--summarise` with other `--controls`/`--text` bounds answers them without a new pass
+(pages-c<..>-t<..>.json/.md); the summary also gives the page families by the prefix of their names (FAMILIES):
 - the visible, enabled controls (only an open modal dialog's when one is open) and the size of each one's target:
   its own box joined with the boxes of its absolutely positioned ::before and ::after (computed from their insets,
   sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
