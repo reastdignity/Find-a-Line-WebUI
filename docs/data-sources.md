@@ -223,11 +223,13 @@ The rules in `.claude/rules/sources.md` point here for their measurements and ex
   PixelIsPoint, ERDAS .img) and two projects' terrain members are Deflate64, which zlib cannot read.
 - **A datum that is not mean sea level** (batch 6, Hong Kong): CEDD's heights are above the Hong Kong Principal Datum,
   about 1.30 m below mean sea level, while the app fills the sea at 0 m: find the vertical datum before the first
-  search; the data's water fringe (+1.1 to +1.3 m there) shows it.
+  search; the data's water fringe (+1.1 to +1.3 m there) shows it. A constant difference is the layer's
+  `height_offset` (added where its tiles are read onto the grid; the cache keeps the provider's heights).
 - **Seabed in island and coastal data** (batch 6): lidar grids may hold the seabed near coasts (Tokyo's Izu islands;
   IGN's overseas RGE ALTI down to -38 m at Mayotte), and the sea's 0 m fill beside it makes false walls. Look at the
   lowest values along a coast first; a floor (`Layer.nodata_below`) only where no real land lies below it (Tokyo's
-  eastern wards go down to -4.42 m, Kowloon to about -6 m).
+  eastern wards go down to -4.42 m, Kowloon to about -6 m); where only part of a layer may take one, a floor per
+  cached file (`Layer.floor_of`: Tokyo's island sheets).
 - **A URL captured from a program's output** (batch 6): copied from a Windows program's output it keeps a trailing
   CR, so the file it names seems missing: a "missing listed file" was once concluded from it and a mistaken sweep of
   2 857 HEAD requests followed. Ask again with a clean URL before concluding anything. A sweep of HEAD requests is still a bulk

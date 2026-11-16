@@ -110,8 +110,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   member origins carry float noise (552999.9999999999: `TransformFix(snap=)`); the Elbe is a constant 2.00 m. Bremen
   and Bremerhaven are two sources on two grids, both DE-HB, chosen by bbox, each its own area (`de-hb`, `de-hb-bhv`):
   Bremen's XYZ points on whole metres are pixel centres (`grid_origin` 0.5); Bremerhaven's DGM1 lies at x.5 with the
-  zone in its eastings (`TransformFix(offset=-32 000 000)`), its DOM1 on whole metres, half a pixel off the terrain
-  (the mosaic interpolates it; open). GDAL's XYZ driver refuses columns with points missing (`xyz_rows`) and keeps
+  zone in its eastings (`TransformFix(offset=-32 000 000)`), its DOM1 on whole metres is moved half a pixel onto it
+  (`TransformFix.shift`, clipped to its km: neighbours' shared columns differ). GDAL's XYZ driver refuses columns with points missing (`xyz_rows`) and keeps
   one column cache per process (`COLUMNS_LOCK`). Lower Saxony declares six neighbours already: none added. The city
   of Bremen's overseas port (7.6 km², inside Bremerhaven) is in neither download row. Madeira's 5 m ZIP holds a raster
   per island group, each its own mirror dataset: Porto Santo's is EPSG:3061 with the sea written as 0, the Desertas'
@@ -125,7 +125,9 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   place (they are in the sheet's key); the CSV variant "n,x,y,z,flag" keeps every row. `MetricCellTiling(cell=(w,
   h))` serves Japan's and Hong Kong's sheets; its right and top edges are exclusive. Hong Kong: Nominatim "cn" with
   CN-HK (zoom 8), the map area `hk`; map 17's file names are a kilometre off their boxes (kept as published);
-  heights above HKPD, not shifted; the credit names the Government and the CSDI Portal as source, the terms linked;
+  heights above HKPD, lowered 1.30 m on the grid (`height_offset`: the user's decision; no floor, Kowloon has land
+  to -6 m); Tokyo's island sheets take a -1 m floor (`TokyoSheets.floor_of`), the mainland never (land to -4.42 m);
+  the credit names the Government and the CSDI Portal as source, the terms linked;
   no hosted copy without CEDD's yes; no orthophoto (LandsD's API requires its logo on the map). A URL captured from
   a Windows program's output keeps a trailing CR: re-ask a "missing listed file" with a clean URL before concluding.
 - **Batch 6, Ontario** (2026-11-16): package ZIPs read by Range (420 terrain, 451 surface packages; a directory of

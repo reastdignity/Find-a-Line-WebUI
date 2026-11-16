@@ -141,9 +141,9 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **Water/gap filling order**: sea zone first, then gaps on land outside it, then the shore faces from the surface
   model (`fill_shore_from_surface`: docs/regression-tests.md, "Shore faces"), then water. Gap offsets are matched on
   gentle slopes only and limited to ±3 m from the overall offset; no anchors at gap seams. Cliffs can be vertical:
-  high land next to water is normal. A layer's floor (`Layer.nodata_below`) applies in `build_mosaic(below=)` on each
-  raster's pixels, never when a tile is written (cached and fresh tiles give one grid); `check_source` and
-  `obstacle_study` read tiles without it.
+  high land next to water is normal. A layer's floor (`Layer.floor_of(path)`, default `nodata_below`) and its
+  `height_offset` apply in `build_mosaic`, never when a tile is written (cached and fresh tiles give one grid);
+  `check_source`'s file checks read tiles raw.
 - **A grid smaller than its outline**: `grid.area_shape` may be more than the grid (a country layer's tile carries the
   whole country's outline, `search.tile_grid`; a border tile's footprint, cube-v2's `reach_shape`, reaches beyond its
   box), so whatever picks data tiles, index tiles or cells under an outline also stays within the grid's box

@@ -1266,8 +1266,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     R87 Deserta Grande (784 in 130), R88 Selvagem Grande (972 in 114), skipped without the folders.
   - *Hong Kong* (`hong_kong`): CEDD's 2020 lidar DTM and DSM 0.5 m read on demand from the CSDI Portal's sheet ZIPs
     of 750 × 600 m over a static table of the index (`tools/hong_kong_sheets.py`: 3 253 terrain and 3 310 surface
-    sheets; 57 sheets have a surface model and no terrain); heights above HKPD, not shifted (open, below). R91 Lion
-    Rock (8 lines in 3 spots).
+    sheets; 57 sheets have a surface model and no terrain); heights above HKPD, lowered by 1.30 m on the grid (the
+    decisions below). R91 Lion Rock (8 lines in 3 spots).
   - *Ontario* (`ontario`): to the user's question "Ontario - can we check if it is better data?" wave 0 measured the
     province's data against `canada`'s HRDEM mosaic: the same lidar on land to 1-3 cm, at twice the resolution and on
     the surveys' own grid (canada's EPSG:3979 reads lengths 1.8-2.6 % long), more of the small walls (Rattlesnake
@@ -1314,20 +1314,22 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     folder of the script; this PC and the site read them only through the hosted mirror; the tools delete no fetched
     file; the code reaches the server from GitHub (main and a push first, each on the user's word). Their catalogue
     entries are not built (spec).
+  - On five open questions (2026-11-16: "1. a) and add it to repo anyway; 15+TB free", "2. a", "3. a", "4. a",
+    "5. a"): the user copies `tools/cdd_fetch.py` to the server by hand (it is in the repository as well; the server
+    folder has more than 15 TB free, so nothing is deleted for space); *Bremerhaven's surface model shifted half a
+    pixel* onto its terrain's grid, copied, not interpolated (`TransformFix.shift`; (+0.5, +0.5) m by convention, a
+    measurement against the city's own terrain did not decide; each tile cut to its kilometre); *Tokyo's island
+    sheets floored at -1 m*, the mainland never (`Layer.floor_of`, a floor per cached file; R92 Mikurajima: 263 lines
+    in 20 spots, the 47 lines across the seabed gone); Bremerhaven's *constant planes left*, a known finding; *Hong
+    Kong's heights lowered by 1.30 m* on the grid (`Layer.height_offset`; R91 re-baselined: the same 8 lines, each
+    anchor 1.30 m lower). What each leaves behind: docs/known-bugs.md.
 - **Decided by the coordinator** (2026-11-16, after two code reviews of the cutting tool found wrong or stuck states
   in the cut-while-fetching path): `tools/mirror_tiles.py` cuts a product once, when every input is there, in a
   staging folder, and makes it final by one rename into `<dataset>/<product>/<res>m/` (`sources.TileBases` takes a
   dataset as there once that folder exists); changed inputs are a new edition. A product's fetched files stay until
   it is final and verified. Madeira 2 m, Valle d'Aosta and Slovakia are byte for byte unchanged.
-- **Open** (the first five are the user's decisions, specified in the spec's "Open decisions"; the last two are
+- **Open** (the first two are the user's decisions, specified in the spec's "Open decisions"; the last two are
   noted, not asked):
-  - Tokyo's island sheets hold seabed (Mikurajima: 49 of 341 lines false; a floor of -1, -0.5 or 0 m leaves 292,
-    none false); real land in the eastern wards goes down to -4.42 m, so a floor only for the island sheets (needs
-    `nodata_below` per sheet).
-  - Hong Kong's heights are above HKPD, about 1.30 m below mean sea level: shift them or not (at Cape D'Aguilar a
-    shift of 1.30 m left the same 8 lines and removed 1 988 anchors).
-  - Bremerhaven's surface model: shift it half a pixel, keep it interpolated, or no surface model; its constant
-    planes (402 ha): leave or mask.
   - A Deflate64 reader for Ontario's two projects (a library: the user's decision after a comparison).
   - A guard in `tests/regression.py --update` against a baseline on the coastline fallback (proposed as a separate
     small change; docs/regression-tests.md, item 5).

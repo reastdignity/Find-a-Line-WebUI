@@ -309,19 +309,11 @@ before `tinitaly`. Nothing settled beyond that.
 
 Each is the user's, recorded as open in docs/known-bugs.md or docs/roadmap.md ("Batch 6").
 
-1. **Tokyo's island floor.** Mikurajima: 49 of 341 lines false (both anchors on the sea's 0 m fill across the
-   seabed); a floor of -1, -0.5 or 0 m leaves 292 lines, none false. The eastern wards hold real land down to
-   -4.42 m, so the floor is for the island sheets only (rows N-Z of zone IX). Work: `Layer.nodata_below` per sheet (a
-   floor chosen by the tile, applied in `build_mosaic(below=)` as today; never when a tile is written, so no
-   migration); tests in `tests/test_sea_floor.py` and `tests/test_japan.py`. Acceptance: Mikurajima 292 lines, none
-   false; R84 unchanged by checksum; the wards' land below 0 kept.
-2. **Hong Kong's datum.** Heights are above HKPD; LandsD: "the mean sea level is about 1.30m above HKPD" (read
-   2026-11-16). A shift of -1.30 m where the tiles are read onto the grid (a vertical offset of the layer, new code
-   beside `nodata_below`). Measured at Cape D'Aguilar: the same 8 lines, 1 988 anchors fewer. Acceptance: R91
-   re-baselined with the reason; no floor (Kowloon's real land goes down to about -6 m).
-3. **Bremerhaven's surface model.** Options: shift it half a pixel onto the terrain's grid (its `TransformFix`), keep
-   it interpolated (today), or no surface model; and its 402 ha of constant planes: leave or mask. No regression
-   entry exists (no line), so `check_source` and the unit tests carry it.
+1. **Tokyo's island floor**, 2. **Hong Kong's datum**, 3. **Bremerhaven's surface model**: decided on 2026-11-16
+   ("3. a", "5. a", "2. a" and "4. a") and built: a floor of -1 m on the island sheets only (`Layer.floor_of`, R92),
+   every height lowered by 1.30 m on the grid (`Layer.height_offset`, R91 re-baselined), the surface shifted half a
+   pixel onto the terrain's grid with the constant planes left (`TransformFix.shift`). The decisions:
+   docs/roadmap.md, "Batch 6"; what each leaves behind: docs/known-bugs.md.
 4. **A Deflate64 reader for Ontario's two projects.** CLOCA 2018's and SNC 2018-19's terrain packages (1 404
    members) are Deflate64, which zlib and zipfile do not read: their tiles come from older surveys or `canada`. A
    library is needed: the candidates are compared first (CLAUDE.md, "Libraries first") and the user decides; then
