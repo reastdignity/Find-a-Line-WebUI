@@ -178,7 +178,8 @@ SOURCES: List[Source] = [
                     "above the Hong Kong Principal Datum (mean sea level is about 1.3 m above it), no datum shift "
                     "applied; the sea and the land beyond the boundary have no data",
         nmt=HK_DTM, nmpt=HK_DSM, countries=("cn",), regions=("cn-hk",), crs=HK_CRS, credits=(HK_CREDIT,),
-        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020)", "CEDD lidar DSM 0.5 m (2020)", "–"),
+        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020; heights above HKPD, about 1.3 m below "
+                                            "mean sea level, not shifted)", "CEDD lidar DSM 0.5 m (2020)", "–"),
         offline=HK_BOXES, sample=(22.352, 114.187),  # Lion Rock (R91)
         note="Data: Civil Engineering and Development Department, LiDAR Data (2020), from the CSDI Portal under its "
              "terms and conditions. Heights above the Hong Kong Principal Datum (about 1.3 m below mean sea level).",
