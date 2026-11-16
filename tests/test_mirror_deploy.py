@@ -226,8 +226,15 @@ def test_limits_and_timeouts():
     assert re.search(r'if \(\$request_uri ~ "\\\?"\) \{ rewrite \^ /__refused/400\? last; \}', conf)
     assert re.search(r"if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ rewrite \^ /__refused/405\? last; \}", conf)
     for code in (400, 405, 416):
-        assert f"location = /__refused/{code} {{ try_files /.none ={code}; }}" in conf
-    assert "location / { try_files /.none =404; }" in conf and "location = /__not_found { try_files /.none =404; }" in conf
+        assert f"location = /__refused/{code} {{ root /nonexistent; try_files /.none ={code}; }}" in conf
+    assert "location / { root /nonexistent; try_files /.none =404; }" in conf
+    assert "location = /__not_found { root /nonexistent; try_files /.none =404; }" in conf
+    # The name try_files tests never lies under a root anybody can write (code review round 2, R1)
+    assert len(re.findall(r"try_files /\.none", conf)) == 5 == len(re.findall(r"root /nonexistent; try_files /\.none", conf))
+    start = _load("start.sh")
+    # A failing cleanup pass or day switch does not end the loop (R2)
+    assert '( cleanup ) 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2' in start
+    assert '_size=$(stat -c %s "$_file" 2> /dev/null) || continue' in start
     assert not re.search(r"\breturn\b", conf) and not re.search(r"\binternal\b", conf)
     # The healthcheck's class on the connection's own address, before X-Real-IP (code review F3)
     assert re.search(r"geo \$realip_remote_addr \$mirror_local \{\s*default 0;\s*127\.0\.0\.1 1;\s*\}", conf)

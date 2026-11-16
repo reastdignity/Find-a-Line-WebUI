@@ -164,7 +164,9 @@ What the door is:
   `authorized_keys` and the door's host key mounted read-only, nothing else of the host. Files it writes get
   mode 644 and folders 755, so the file server (uid 101) reads them; it reads `<root>/logs` through group 101
   (`tools/mirror_publish.py stats`). On the host they belong to uid 1000, whichever user that is there (on many
-  systems the first person's account): that user can change the published files.
+  systems the first person's account): that user can change the published files. The key's holder can also leave
+  a setuid file of uid 1000 in the mirror's folders (SFTP keeps the mode a chmod sets); it matters only if another
+  user of the home server runs it. Whoever wants that closed mounts the file system of `<root>` with `nosuid`.
 - no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
 
 The door's own log (Docker's json-file log of `findaline-mirror-publish-sftp-1`, `docker compose logs` in

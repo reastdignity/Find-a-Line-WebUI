@@ -161,13 +161,15 @@ cap_logs() {
     _total=0
     for _file in "$LOGS"/access-*.log; do
         [ -f "$_file" ] && log_day "$_file" > /dev/null || continue
-        _total=$((_total + $(stat -c %s "$_file")))
+        # A file gone between the listing and the stat is skipped
+        _size=$(stat -c %s "$_file" 2> /dev/null) || continue
+        _total=$((_total + _size))
     done
     for _file in "$LOGS"/access-*.log; do
         [ "$_total" -gt "$_cap" ] || break
         [ -f "$_file" ] && log_day "$_file" > /dev/null || continue
         [ "${_file##*/}" = "access-$_today.log" ] && continue
-        _size=$(stat -c %s "$_file")
+        _size=$(stat -c %s "$_file" 2> /dev/null) || continue
         rm -f -- "$_file"
         _total=$((_total - _size))
     done
@@ -202,12 +204,15 @@ cleanup_loop() {
     _last=0
     while :; do
         _now=$(date -u +%s)
+        # A step that fails (a file that cannot be removed, say) must not end the loop, or the day's
+        # switch, the 14-day rule and the size bound would stop while nginx serves on: each pass runs
+        # in a subshell, its own messages (they would name files) dropped, a fixed line instead
         if [ $((_now - _last)) -ge $CLEANUP_SECONDS ]; then
-            cleanup
+            ( cleanup ) 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2
             _last=$_now
         fi
-        if [ "$(date -u +%F)" != "$(cat "$RUN/log.day")" ]; then
-            switch_day
+        if [ "$(date -u +%F)" != "$(cat "$RUN/log.day" 2> /dev/null)" ]; then
+            ( switch_day ) 2> /dev/null || echo "findaline-mirror: the day's switch failed; the next turn tries again" >&2
         fi
         touch "$RUN/heartbeat"
         # Wake at midnight too, so the new day's file starts within a second of it

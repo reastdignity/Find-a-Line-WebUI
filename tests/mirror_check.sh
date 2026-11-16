@@ -74,6 +74,14 @@ ua() {  # [tag]: this run's User-Agent; the log's "v" is "<MARK>.<tag's number>"
 }
 has() { printf '%s\n' "$1" | grep -qiE "$2"; }
 hasnt() { ! printf '%s\n' "$1" | grep -qiE "$2"; }
+poll() {  # <seconds> <command string>: until the command succeeds, at most that long (true if it did)
+    local end=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$end" ]; do
+        eval "$2" > /dev/null 2>&1 && return 0
+        sleep 2
+    done
+    return 1
+}
 between() { awk -v v="$1" -v lo="$2" -v hi="$3" 'BEGIN { exit !(v + 0 >= lo + 0 && v + 0 <= hi + 0) }'; }
 hostpath() { if command -v cygpath > /dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 # The host's curl on Windows is a native program: /dev/null is NUL there
@@ -333,6 +341,19 @@ g_paths() {
     info "traversals: $(printf '%s' "$out" | tr '\n' ' ' | head -c 200)"
     check N12 "../ and %2e%2e traversals to an existing /etc/passwd, outside and inside the root: not served" \
         eval '! printf "%s" "$out" | grep -qE "root:|fixture-inside" && ! printf "%s" "$out" | grep -qE " 2[0-9][0-9](\||$)"'
+    # A file named .none in the public folder (the publishing account could write one) changes no
+    # refusal: the name the refusals test lies under a root nobody can write
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig" \
+        -c 'echo NONE-FILE > /f/.none' > /dev/null
+    out="$(cx a -w ' %{http_code}|' -A "$UA" "$P/nothing")$(cx a -w ' %{http_code}|' -A "$UA" "$P/?x")"
+    out="$out$(cx a -w ' %{http_code}|' -A "$UA" -H 'Range: bytes=0-1,3-4' "$P$T/0_0/1_2.tif")"
+    out="$out$(cx inside -w ' %{http_code}|' -A "$UA" -X DELETE "$M/v1/tiles/madeira/README.md")"
+    out="$out$(cx a -w ' %{http_code}|' -A "$UA" "$P/v1/tiles/madeira/.secret")"
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig" \
+        -c 'rm -f /f/.none' > /dev/null
+    info "with a .none file in the public folder: $(printf '%s' "$out" | grep -o ' [0-9]\{3\}|' | tr -d '\n')"
+    check N13 "a .none file in the public folder: /nothing 404, /?x 400, two ranges 416, DELETE 405, a dot-file 404, none with its body" \
+        eval '[ "$(printf "%s" "$out" | grep -o " [0-9]\{3\}|" | tr -d "\n")" = " 404| 400| 416| 405| 404|" ] && ! printf "%s" "$out" | grep -q NONE-FILE'
     eq Q01 "a query string: 400 (also an empty one, also on the landing page)" \
         "$(code "$P$T/index.json?x=1") $(code "$P/v1/datasets.json?") $(code "$P/?a")" "400 400 400"
     # The mirror's own method rule, straight to it, on a path no file answers
@@ -703,12 +724,14 @@ g_cleanup() {
     # A reload that fails (today's file made a folder, so nginx cannot open it) is not taken as
     # the switch: the day in effect stays, and the next turn tries again
     csh files-1 "cd /var/log/mirror && mv access-$day.log access-$day.log.moved && mkdir access-$day.log && echo 2000-01-03 > /tmp/mirror/log.day"
-    sleep 35
+    # Until a loop turn has tried the switch (its log.conf names today), at most 75 s; the day stays
+    poll 75 'csh files-1 "grep -q access-$day.log /tmp/mirror/log.conf"'
+    sleep 3
     check E09 "a failed reload at a new day is not taken as the switch (the day in effect stays)" \
         eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = 2000-01-03 ]'
     csh files-1 "cd /var/log/mirror && rmdir access-$day.log && mv access-$day.log.moved access-$day.log"
-    sleep 35
-    check E10 "the next turn tries again and switches" eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
+    poll 75 '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
+    check E10 "the next turn tries again and switches (within 75 s)" eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
     csh files-1 'rm -f /var/log/mirror/access-2000-01-02.log'
     # The size bound, through the start script's hook (one cleanup pass with a small cap): files of
     # three earlier days of 100 kB and today's; other names beside them
@@ -734,6 +757,22 @@ g_cleanup() {
             [ "$t" -gt 0 ] && [ "$t" -lt 1000 ] && csh files-1 "grep -q \"$MARK.$(tag day)\" /var/log/mirror/access-$day.log" &&
             docker exec "$FILES" /usr/local/bin/mirror-start health'
     csh files-1 'rm -f /var/log/mirror/notes.txt /var/log/mirror/access-x.log'
+    # A cleanup pass that fails (a file 15 days back that cannot be removed: the log folder made
+    # read-only for a while) leaves the loop alive: the start's pass fails, the container still
+    # becomes healthy, a fixed line on stderr, a stale heartbeat renewed, the day's switch done
+    local since
+    csh files-1 "cd /var/log/mirror && touch access-$d15.log && chmod 0555 /var/log/mirror"
+    since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    docker restart "$FILES" > /dev/null
+    wait_healthy || info "not healthy after the restart with a failing cleanup pass"
+    csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat; echo 2000-01-04 > /tmp/mirror/log.day"
+    poll 75 'docker exec "$FILES" /usr/local/bin/mirror-start health && [ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
+    out=$(docker logs --since "$since" "$FILES" 2>&1)
+    info "after a failing cleanup pass: $(printf '%s\n' "$out" | grep -c 'a cleanup pass failed') fixed lines; the day in effect $(csh files-1 'cat /tmp/mirror/log.day')"
+    check E13 "a failing cleanup pass leaves the loop alive: a fixed line on stderr (no file name), the heartbeat renewed, the day's switch done" \
+        eval 'printf "%s\n" "$out" | grep -q "findaline-mirror: a cleanup pass failed; the loop goes on" && ! printf "%s\n" "$out" | grep -q "access-" &&
+            docker exec "$FILES" /usr/local/bin/mirror-start health && [ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
+    csh files-1 "chmod 0755 /var/log/mirror && rm -f /var/log/mirror/access-$d15.log"
     csh files-1 'kill $(cat /tmp/mirror/cleanup.pid)'
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
     sleep 35
@@ -938,9 +977,10 @@ rename /mirror/staging/x /mirror/public/v1/tiles/x")
 
 # <name> @@ <file in deploy/mirror> @@ <sed expression> @@ <groups> @@ <check ids that must FAIL>
 VARIANTS=(
-    'allow-list off @@ nginx.conf @@ s#location / { try_files /.none =404; }#location / { autoindex on; }# @@ paths @@ N01 N02 N03 N04 N06 N07 N08'
-    'served root / @@ nginx.conf @@ s#location / { try_files /.none =404; }#location / { root /; }# @@ paths @@ N12'
-    'refusals before the limits @@ nginx.conf @@ s#rewrite ^ /__refused/\([0-9]*\)? last;#return \1;#; s#location / { try_files /.none =404; }#location / { return 404; }# @@ refusals @@ X01 X02 X03 X04'
+    'allow-list off @@ nginx.conf @@ s#location / { root /nonexistent; try_files /.none =404; }#location / { autoindex on; }# @@ paths @@ N01 N02 N03 N04 N06 N07 N08'
+    'served root / @@ nginx.conf @@ s#location / { root /nonexistent; try_files /.none =404; }#location / { root /; }# @@ paths @@ N12'
+    'refusals look under the served root @@ nginx.conf @@ s# root /nonexistent;##g @@ paths @@ N13'
+    'refusals before the limits @@ nginx.conf @@ s#rewrite ^ /__refused/\([0-9]*\)? last;#return \1;#; s#location / { root /nonexistent; try_files /.none =404; }#location / { return 404; }# @@ refusals @@ X01 X02 X03 X04'
     'symlinks followed @@ nginx.conf @@ s#disable_symlinks on;#disable_symlinks off;# @@ paths @@ N09 N10'
     'folders redirected @@ nginx.conf @@ /error_page 301 =404/d @@ paths @@ N05'
     'other methods allowed @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET|HEAD|POST|PUT|DELETE|OPTIONS)$)# @@ paths @@ M01 M02'
@@ -980,6 +1020,7 @@ VARIANTS=(
     'no reload at a new day @@ start.sh @@ s#kill -HUP "$_master" 2> /dev/null || return 0#true# @@ cleanup @@ E08'
     'a failed reload taken as the switch @@ start.sh @@ s#if \[ -f "$LOGS/access-$_today.log" \] && \[ -n "$_after" \] && \[ "$_after" != "$_before" \]; then#if true; then# @@ cleanup @@ E09'
     'impossible dates cleaned @@ start.sh @@ /Only a real date/{n;d} @@ cleanup @@ E04'
+    'a failing pass ends the loop @@ start.sh @@ s#( cleanup ) 2> /dev/null || echo .*$#cleanup# @@ cleanup @@ E13'
     'no size bound @@ start.sh @@ s#^    cap_logs "${1:-$LOG_CAP_BYTES}"$#    true# @@ cleanup @@ E11 E12'
     'the newest day first @@ start.sh @@ s#for _file in "$LOGS"/access-\*.log; do$#for _file in $(ls -r "$LOGS"/access-*.log); do# @@ cleanup @@ E11'
     'today deleted by the bound @@ start.sh @@ /\[ "${_file##\*\/}" = "access-$_today.log" \] && continue/d @@ cleanup @@ E12'
@@ -1079,6 +1120,8 @@ self_test() {
     for spec in "${VARIANTS[@]}"; do
         name=$(field "$spec" 1); file=$(field "$spec" 2); expr=$(field "$spec" 3)
         groups=$(field "$spec" 4); ids=$(field "$spec" 5)
+        # MIRROR_CHECK_VARIANTS: only the variants whose name matches (for working on the script)
+        printf '%s' "$name" | grep -qE "${MIRROR_CHECK_VARIANTS:-.}" || continue
         echo "== self-test: $name ($file)"
         if ! variant "$file" "$expr"; then
             bad=$((bad + 1))
@@ -1170,6 +1213,11 @@ if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
     case " $MIRROR_CHECK_GROUPS " in *" door "*) door_down; door_up || exit 100 ;; esac
     # shellcheck disable=SC2086
     run_checks $MIRROR_CHECK_GROUPS
+    if [ "$MODE" = selftest ]; then
+        declare -A MAIN=()
+        for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
+        self_test
+    fi
     echo "== done, failures: $FAILS"
     exit 0
 fi
