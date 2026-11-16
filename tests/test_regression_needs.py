@@ -36,24 +36,34 @@ def test_unmet_needs(tmp_path, monkeypatch):
     assert regression.unmet_needs({"needs_env": "OPENTOPOGRAPHY_API_KEY"}, "http://127.0.0.1:8080") is not None
 
 
+def _empty_url():
+    """FINDALINE_MIRROR_URL empty as tests/conftest.py leaves it, also at the OS level on Windows (where os.environ's
+    "" deletes it for the processes started later: they would ask the default address)."""
+    os.environ["FINDALINE_MIRROR_URL"] = ""
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.kernel32.SetEnvironmentVariableW("FINDALINE_MIRROR_URL", "")
+
+
 def test_the_data_server_only_when_named(tmp_path, monkeypatch):
     """regression.py asks the project's data server only with --mirror-url: FINDALINE_MIRROR_URL empty otherwise, for
-    its searches and for itself."""
+    its searches and for itself. (Not monkeypatch.setenv: its undo would delete the empty value on Windows.)"""
+    import subprocess
     import sys
-    monkeypatch.setattr(sys, "argv", ["regression.py", "--write-doc", "--mirror-url", "http://127.0.0.1:9"])
     monkeypatch.setattr(regression, "write_doc", lambda tests: None)
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", "https://elsewhere.example")
     try:
-        regression.main()
-    except SystemExit:
-        pass
-    assert os.environ["FINDALINE_MIRROR_URL"] == "http://127.0.0.1:9"
-    monkeypatch.setattr(sys, "argv", ["regression.py", "--write-doc"])
-    try:
-        regression.main()
-    except SystemExit:
-        pass
-    assert os.environ["FINDALINE_MIRROR_URL"] == ""
+        os.environ["FINDALINE_MIRROR_URL"] = "https://elsewhere.example"
+        for argv, expected in ((["--mirror-url", "http://127.0.0.1:9"], "http://127.0.0.1:9"), ([], "")):
+            monkeypatch.setattr(sys, "argv", ["regression.py", "--write-doc", *argv])
+            try:
+                regression.main()
+            except SystemExit:
+                pass
+            assert os.environ["FINDALINE_MIRROR_URL"] == expected
+    finally:
+        _empty_url()
+    code = "import os; print(repr(os.environ.get('FINDALINE_MIRROR_URL', 'unset')))"
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "''"
 
 
 def test_mirror_entries_name_their_folders():
