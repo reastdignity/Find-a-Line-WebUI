@@ -1666,10 +1666,20 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """(the export's file, renamed for its one download, so a second request finds nothing; the name of
         its download: run.json's name of the run, else its id, and the extension; the file's stat), or None:
         no such export, or it cannot be taken (a rename refused on Windows while a scanner holds the file).
-        The name is read first; the taken file's mtime is set to now, so no clean-up deletes it while it is
-        sent (remove_old_exports goes by mtime)."""
+        A file older than jobs.EXPORT_KEEP_SECONDS is deleted and never sent (the privacy page's "for one hour
+        at most", also while no worker sweeps). The name is read first; the taken file's mtime is set to now,
+        so no clean-up deletes it while it is sent (remove_old_exports goes by mtime); a refused mtime (Windows)
+        sends it all the same."""
         path = os.path.join(exports_dir, f"{run_id}-{name}")
+        try:
+            made = os.stat(path)
+        except OSError:
+            return None
         if not os.path.isfile(path):
+            return None
+        if time.time() - made.st_mtime > jb.EXPORT_KEEP_SECONDS:  # older than the hour: never sent
+            with contextlib.suppress(OSError):
+                os.remove(path)
             return None
         try:
             with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
@@ -1684,6 +1694,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return None
         try:
             os.utime(taken)
+        except FileNotFoundError:  # deleted between the rename and now
+            return None
+        except OSError:  # refused (Windows: a scanner): the file is sent all the same
+            pass
+        try:
             return taken, f"{stem}.{name.rpartition('.')[2]}", os.stat(taken)
         except OSError:  # deleted between the rename and now
             with contextlib.suppress(OSError):

@@ -1763,12 +1763,19 @@ def exports_folder(data_dir: str) -> str:
     return os.path.join(data_dir, *EXPORTS)
 
 
+def export_sweep_age() -> float:
+    """The age (s) from which remove_old_exports deletes a file: EXPORT_KEEP_SECONDS less two EXPORT_SWEEPs.
+    The worker sweeps every EXPORT_SWEEP seconds (Scheduler._loop, after TICK at most), so a file made at t is
+    gone by t + KEEP - 2 SWEEP + SWEEP + TICK (3600 - 120 + 60 + 0.5 = 3540.5 s), a minute before the hour of
+    the privacy page ("for one hour at most"), with that minute for a slow loop (its lock, a slow listing)."""
+    return EXPORT_KEEP_SECONDS - 2 * EXPORT_SWEEP
+
+
 def remove_old_exports(data_dir: str) -> int:
-    """Delete what the exports' folder holds since EXPORT_KEEP_SECONDS less EXPORT_SWEEP or longer, so a
-    worker that sweeps every EXPORT_SWEEP seconds keeps none longer than EXPORT_KEEP_SECONDS (the privacy
-    page: "for one hour at most"): exports nobody fetched, files whose sending broke off and could not be
-    deleted then, the temporary folders of a lane killed while it wrote (linestore.export's). Their number."""
-    return _remove_old(exports_folder(data_dir), (EXPORT_KEEP_SECONDS - EXPORT_SWEEP) / 86400)
+    """Delete what the exports' folder holds since export_sweep_age() or longer: exports nobody fetched,
+    files whose sending broke off and could not be deleted then, the temporary folders of a lane killed
+    while it wrote (linestore.export's). Their number; a folder that cannot be listed removes nothing."""
+    return _remove_old(exports_folder(data_dir), export_sweep_age() / 86400)
 
 
 def export_bytes(run_folder: str, fmt: str) -> int:
@@ -1888,7 +1895,11 @@ def _remove_old(folder: str, days: float, keep: Iterable[str] = ()) -> int:
     limit, keep, removed = time.time() - days * 86400, set(keep), 0
     if not os.path.isdir(folder):
         return 0
-    for entry in os.scandir(folder):
+    try:
+        entries = list(os.scandir(folder))
+    except OSError:  # a listing that fails (a network drive, the folder replaced): nothing this time; never
+        return 0     # ends the worker's loop, which sweeps the exports with it
+    for entry in entries:
         with contextlib.suppress(OSError):
             if entry.name not in keep and entry.stat().st_mtime < limit:
                 shutil.rmtree(entry.path) if entry.is_dir() else os.remove(entry.path)
@@ -2074,6 +2085,7 @@ class Scheduler:
         started = time.monotonic()
         data = self.jobs.data_dir
         removed = dict.fromkeys(("parts", "events", "quick", "usage", "audit", "work"), 0)
+        removed["work"] = remove_old_exports(data)  # first: the cache's walk below may take minutes
         removed["parts"] = cache.remove_stale_parts(os.path.join(data, "cache"))
         write_cache_sizes(data)
         import audit
@@ -2083,10 +2095,9 @@ class Scheduler:
         removed["quick"] = self.jobs.forget_quick()
         removed["usage"] = self.jobs.forget_usage()
         unfinished = {job["id"] for job in self.jobs.waiting_or_running()}
-        removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
+        removed["work"] += _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
         for name in ("estimates", "profiles", "warmup"):  # warmup: warmup.FOLDER
             removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
-        removed["work"] += remove_old_exports(data)  # exports nobody fetched (also at the start, before each export)
         try:
             _write_json(data, COVERAGE_FILE, coverage(self.jobs))
         except Exception:  # the statistics never stop the housekeeping
@@ -2123,11 +2134,11 @@ class Scheduler:
         cleaned, swept = 0.0, time.time()  # _begin removed the old exports
         while not self.stopped.wait(TICK):
             if time.time() - cleaned >= HOUSEKEEPING:  # in a thread: it walks the whole cache
-                cleaned = swept = time.time()
+                cleaned = time.time()
                 threading.Thread(target=self.housekeeping, daemon=True).start()
-            elif time.time() - swept >= EXPORT_SWEEP:  # between the rounds: one folder's listing
+            if time.time() - swept >= EXPORT_SWEEP:  # every EXPORT_SWEEP, rounds or not (export_sweep_age)
                 swept = time.time()
-                remove_old_exports(self.jobs.data_dir)
+                remove_old_exports(self.jobs.data_dir)  # one folder's listing; never raises
             with self.lock:
                 if self.stopped.is_set():
                     break

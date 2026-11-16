@@ -249,21 +249,64 @@ def test_quick_export_writes_once_and_cleans_up(clip_store, tmp_path, monkeypatc
     assert len(exports_of(data)) == 3
 
 
-def test_housekeeping_sweeps_the_exports(tmp_path):
-    """The worker's regular housekeeping (and its sweep between rounds, remove_old_exports) deletes what
-    work/exports/ holds since EXPORT_KEEP_SECONDS, a broken-off sending's leftover too, and keeps the rest."""
-    exports = os.path.join(str(tmp_path), *jb.EXPORTS)
-    os.makedirs(exports)
-    old = time.time() - jb.EXPORT_KEEP_SECONDS - 60
+def _old_and_young_exports(data_dir) -> str:
+    """Three files in work/exports/: an export and a broken-off sending's leftover just past export_sweep_age(),
+    and an export 30 s short of it, which stays; the young one's name."""
+    exports = os.path.join(str(data_dir), *jb.EXPORTS)
+    os.makedirs(exports, exist_ok=True)
+    old, young = time.time() - jb.export_sweep_age() - 5, time.time() - jb.export_sweep_age() + 30
     for name, when in (("r-" + "A" * 22 + ".csv", old), ("r-" + "B" * 22 + ".csv.0a1b2c3d.sending", old),
-                       ("r-" + "C" * 22 + ".geojson", None)):
+                       ("r-" + "C" * 22 + ".geojson", young)):
         with open(os.path.join(exports, name), "w") as f:
             f.write("x")
-        if when:
-            os.utime(os.path.join(exports, name), (when, when))
+        os.utime(os.path.join(exports, name), (when, when))
+    return "r-" + "C" * 22 + ".geojson"
+
+
+def test_housekeeping_sweeps_the_exports(tmp_path):
+    """A housekeeping round of the worker (every HOUSEKEEPING s) deletes what work/exports/ holds since
+    export_sweep_age(), a broken-off sending's leftover too, and keeps the younger files."""
+    young = _old_and_young_exports(tmp_path)
     jb.Scheduler(jb.Jobs(str(tmp_path)), limits=Limits()).housekeeping()
-    assert exports_of(tmp_path) == ["r-" + "C" * 22 + ".geojson"]
-    assert jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS
+    assert exports_of(tmp_path) == [young]
+
+
+def test_the_worker_loop_sweeps_the_exports(tmp_path, monkeypatch):
+    """Between housekeeping rounds the worker's loop (Scheduler._loop) sweeps work/exports/ every EXPORT_SWEEP
+    seconds, so no file is kept longer than the privacy page's hour: export_sweep_age() + EXPORT_SWEEP + TICK <
+    EXPORT_KEEP_SECONDS. Here housekeeping does nothing and the loop's sweep comes after 0.2 s."""
+    assert jb.EXPORT_KEEP_SECONDS == 3600 and jb.export_sweep_age() + jb.EXPORT_SWEEP + jb.TICK < 3600
+    monkeypatch.setattr(jb, "EXPORT_SWEEP", 0.2)
+    young = _old_and_young_exports(tmp_path)
+    scheduler = jb.Scheduler(jb.Jobs(str(tmp_path)), worker_id="w-loop", limits=Limits())
+    for name in ("housekeeping", "_heartbeat", "_check_quick", "_check"):  # nothing else: no processes, no rounds
+        monkeypatch.setattr(scheduler, name, lambda: None)
+    loop = threading.Thread(target=scheduler._loop, daemon=True)
+    loop.start()
+    try:
+        deadline = time.monotonic() + 30
+        while len(exports_of(tmp_path)) > 1 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert exports_of(tmp_path) == [young]
+    finally:
+        scheduler.stopped.set()
+        loop.join(10)
+    assert not loop.is_alive()
+
+
+def test_a_listing_error_never_stops_the_sweep(tmp_path, monkeypatch):
+    """jobs._remove_old: a folder whose listing raises (a network drive's hiccup) removes nothing and raises
+    nothing, so the worker's loop, which sweeps the exports every EXPORT_SWEEP seconds, goes on."""
+    _old_and_young_exports(tmp_path)
+    exports = os.path.join(str(tmp_path), *jb.EXPORTS)
+    real = os.scandir
+
+    def failing(folder="."):
+        if os.path.abspath(str(folder)) == os.path.abspath(exports):
+            raise OSError(5, "Input/output error", str(folder))
+        return real(folder)
+    monkeypatch.setattr(jb.os, "scandir", failing)
+    assert jb.remove_old_exports(str(tmp_path)) == 0 and len(exports_of(tmp_path)) == 3
 
 
 def test_the_lane_sets_its_safeguards(clip_store, tmp_path, monkeypatch):
@@ -327,7 +370,9 @@ def test_export_routes_of_the_local_app(clip_store, tmp_path, monkeypatch):
             assert refused.status_code == 409 and refused.json()["detail"]["code"] == "export_failed"
             other = post("other-run", {"format": "geojson"}).json()["url"]
         name = other.rsplit("/", 1)[1]
-        for path in (f"/api/runs/{run_id}/export/{name}", f"/api/runs/other-run/export/x{name[1:]}",
+        # another token, whatever the random one (another letter, not only another case: Windows' file names)
+        changed = ('y' if name[0].lower() == 'x' else 'x') + name[1:]
+        for path in (f"/api/runs/{run_id}/export/{name}", f"/api/runs/other-run/export/{changed}",
                      f"/api/runs/other-run/export/{name[:-8]}.csv", "/api/runs/other-run/export/..%2Fjobs.sqlite",
                      f"/api/runs/other-run/export/{name}.sending"):
             assert client.get(path).status_code == 404, path
@@ -511,8 +556,10 @@ def test_web_process_never_imports_the_store(clip_store, tmp_path):
 
 def test_taking_an_export_never_fails_with_500(clip_store, tmp_path, monkeypatch):
     """take_export: a rename refused (Windows: a scanner holds the file) answers 404 and leaves the export for a
-    later request; a run.json that cannot be read names the download by the run id; a file gone between its
-    rename and its opening answers 404 and leaves nothing behind."""
+    later request; a file gone between its rename and its opening answers 404 and leaves nothing behind; a
+    refused mtime after the rename still sends the file; a file older than EXPORT_KEEP_SECONDS is never sent
+    and is deleted (the privacy page's hour, also while no worker sweeps); a run.json that cannot be read names
+    the download by the run id."""
     data, run_id, folder = copy_data(clip_store, tmp_path)
     exports = os.path.join(str(data), *jb.EXPORTS)
     os.makedirs(exports)
@@ -540,6 +587,20 @@ def test_taking_an_export_never_fails_with_500(clip_store, tmp_path, monkeypatch
         monkeypatch.setattr(web.os, "utime", gone)
         assert client.get(url).status_code == 404 and exports_of(data) == []
         monkeypatch.setattr(web.os, "utime", real_utime)
+
+        put()
+
+        def refused(target, *args, **kwargs):
+            raise PermissionError(13, "Access is denied", target)
+        monkeypatch.setattr(web.os, "utime", refused)  # the rename went through, the mtime not: sent all the same
+        sent = client.get(url)
+        assert sent.status_code == 200 and sent.content == b"x" and exports_of(data) == []
+        monkeypatch.setattr(web.os, "utime", real_utime)
+
+        put()
+        old = time.time() - jb.EXPORT_KEEP_SECONDS - 1
+        os.utime(path, (old, old))  # past the hour (no worker swept it): never sent, deleted
+        assert client.get(url).status_code == 404 and exports_of(data) == []
 
         put()
         (folder / "run.json").write_text("{not json", "utf-8")
