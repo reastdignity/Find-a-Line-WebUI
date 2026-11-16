@@ -332,7 +332,8 @@ connections (zooming a map asks for a few hundred tiles within seconds), 10 requ
 burst of 10 for `/login/` and `/auth/` (beyond them: 429); `/api/events` (the live event stream)
 without buffering and with a read timeout of an hour, other requests 620 s (an estimate may wait
 for the worker's quick lane); gzip for scripts, JSON, CSS and CSV (a run's `data.js` shrinks about
-4.7 times); HTTP/2; HSTS; no nginx version in the `Server` header; `www.` + the site's name sent
+4.7 times) and for a run's store (`lines.arrow`, `profiles.arrow`, `application/vnd.apache.arrow.file`: about 2.3
+times, BAH's 207.8 MB to 89.5 MB, docs/performance.md "From the store"); HTTP/2; HSTS; no nginx version in the `Server` header; `www.` + the site's name sent
 to the site's name with 301 (on port 80 directly to https). A request for any other name (or
 for the bare address of the server) gets no answer: port 80 closes the connection, port 443
 refuses the TLS handshake, so scanners of the address never see the site's certificate.

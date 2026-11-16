@@ -7,6 +7,7 @@ paths:
   - "linestore.py"
   - "hypsometry.py"
   - "viewer/src/types.ts"
+  - "viewer/src/result/load.ts"
   - "viewer/src/grouping.ts"
   - "viewer/src/keys.ts"
   - "viewer/src/favourites.ts"
@@ -68,8 +69,16 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   the export matches only while the search keeps them at 0.1 m (`covered_metres`). A column no integer holds exactly
   is float64 of round(value, decimals) without `decimals` (the reader takes both). `save_run` writes the store after the text files and adds
   run.json's block `store` then (never in `lines.geojson`: `export` leaves it out); a store that fails leaves the run
-  without one. `has_lines` stays `lines.js` until the page reads the store (2b-C). The head is `mapping.map_head`'s. Its media type `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
-- A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine` in `types.ts`); the head's
+  without one. `has_lines`: `lines.arrow` or `lines.js`. The head is `mapping.map_head`'s. Its media type
+  `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
+- The page's reader of the store (`result/load.ts` `readStore`, `storedProfiles`, `STORE_FORMAT`; `types.ts`
+  `storedColumns`, `NULL_WHEN_MISSING`: data.js's null for clrN, prom, drop, NaN for the others) and
+  `linestore.COLUMNS`/`profiles_table`/`FORMAT`: a new column, type, null rule or format goes into both
+  (`tests/test_viewer.py::test_store_gives_the_rows_values` compares every value with data.js's); the page reads a store
+  only when run.json's block `store` is in runs.js (`storeOf`), so `runs._listed` keeps that block; a store's file
+  missing (404) falls back to data.js and lines.js, which runs keep until store wave 4.
+- A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine`, `lineColumns`' `ROW_FIELDS`
+  or `EXTRA_FIELDS`, `lineAt` and `LineCursor` in `types.ts`); the head's
   `ends` names the values before the profile of a run with the no-fall zone or the A-frames (`runs.END_FIELDS` =
   `helpers.END_VALUES` = `types.ts` `END_VALUES`: `lift_needed`, `lift_no_zone`; a run without them has no such key,
   no such columns in `lines.csv`/`lines.geojson`, and today's bytes). A run made with the square rule

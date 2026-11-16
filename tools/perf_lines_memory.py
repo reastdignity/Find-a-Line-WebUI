@@ -1,5 +1,8 @@
 """
-Run by hand: the memory of the lines of a search per line (docs/performance.md; search.LINE_BYTES).
+Run by hand: the traced heap of the lines of a search per line, in one process (docs/performance.md). Since
+2026-11-15 search.LINE_BYTES is measured on the whole process tree, saving's children included, with
+tools/perf_slot_memory.py ("The memory constant"); this one does not see the children, the store or the square
+rule.
 
 Two modes, both measuring the traced heap (tracemalloc) above what was there before, divided by
 the number of lines (and for step 3 also by the pairs found), with the code of --repo (this

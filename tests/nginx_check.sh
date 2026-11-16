@@ -94,6 +94,10 @@ echo "$headers" | grep -qi '^server: nginx\s*$' || fail "the server header names
 echo "== gzip, Upgrade, http, unknown names"
 "${C[@]}" -o /dev/null -D - -H 'Accept-Encoding: gzip' "https://$SITE/app/app.js" | grep -qi '^content-encoding: gzip' \
   || fail "app.js not compressed"
+# A run's store (lines.arrow, profiles.arrow: linestore.MEDIA_TYPE) is gzipped too; no run is served here, so the
+# configuration nginx loaded is read
+nginx -T 2>/dev/null | tr '\n' ' ' | grep -Eq 'gzip_types[^;]*application/vnd\.apache\.arrow\.file' \
+  || fail "a run's store not in gzip_types"
 [ "$(code --http1.1 -H 'Upgrade: websocket' -H 'Connection: Upgrade' "https://$SITE/")" = 400 ] \
   || fail "Upgrade not refused"  # HTTP/1.1 only: HTTP/2 has no Upgrade
 [ "$(code "http://$SITE/app/")" = 301 ] || fail "http not sent to https"
