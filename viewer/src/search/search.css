@@ -143,7 +143,7 @@
    up while the receipt is folded (it opens above the line) and down when it is unfolded */
 .ui .s-sum .s-sum-mark { width: 14px; height: 14px; stroke-width: 2.2; color: var(--ink-2); transform: rotate(-90deg); }
 .ui .s-sum[aria-expanded="true"] .s-sum-mark { transform: rotate(90deg); }
-.ui .s-sum:hover .s-sum-mark { color: var(--accent); }
+@media (hover: hover) { .ui .s-sum:hover .s-sum-mark { color: var(--accent); } }  /* not after a finger's tap */
 .ui .s-sum.s-bad { color: var(--bad); font-weight: 500; cursor: default; }
 .ui .s-sum.s-bad .u-grow { white-space: normal; }
 .ui .s-bar.s-compact .s-size { max-width: none; }

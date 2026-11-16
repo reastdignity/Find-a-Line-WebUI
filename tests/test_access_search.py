@@ -869,17 +869,22 @@ const off = read(process.argv[2]), on = read(process.argv[3]);
 const lines = (d) => d.lines.map((r) => m.toLine(r, undefined, d.terrain, d.ends));
 const columns = (d) => { const c = m.lineColumns(d.lines, d.terrain, d.ends); return d.lines.map((_, i) => m.lineAt(c, i)); };
 const text = (ls) => JSON.stringify(ls);
-console.log(JSON.stringify({n: on.lines.length, rows: text(lines(on)) === text(lines(off)),
-                            cols: text(columns(on)) === text(columns(off)), same: text(columns(on)) === text(lines(on))}));
+// a line without its two marks, and the marks met (as text: "0", "1", "2", or "null" in a run without them)
+const bare = (ls) => ls.map(({access1, access2, ...rest}) => rest);
+const marks = (ls) => [...new Set(ls.flatMap((l) => [String(l.access1), String(l.access2)]))].sort();
+console.log(JSON.stringify({n: on.lines.length, rows: text(bare(lines(on))) === text(bare(lines(off))),
+                            cols: text(bare(columns(on))) === text(bare(columns(off))), same: text(columns(on)) === text(lines(on)),
+                            on: [marks(lines(on)), marks(columns(on))], off: [marks(lines(off)), marks(columns(off))]}));
 """
 
 
 @pytest.mark.skipif(shutil.which("node") is None or not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
                     reason="needs Node and `npm install` in viewer/")
-def test_todays_page_reads_the_run_as_without_the_option(tmp_path, scene_runs):
-    """Today's page (viewer/src/types.ts toLine and lineColumns/lineAt, what the result's page reads a run with)
-    gives every line of a run made with --access the very values of the run made without it: the access values,
-    named by the head's "ends", are values it does not read (the page that shows them is step 1d-P's)."""
+def test_the_page_reads_the_run_as_without_the_option_and_its_marks(tmp_path, scene_runs):
+    """The page (viewer/src/types.ts toLine and lineColumns/lineAt, what the result's page reads a run with) gives
+    every line of a run made with --access the very values of the run made without it, and beside them the two
+    access values its head's "ends" names (step 1d-P: `Line.access1`/`access2`, 0, 1 or 2), the same from the rows
+    and from the columns; the run made without the option reads null for both."""
     bundle = tmp_path / "types.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/types.ts'], bundle: true, "
                                   f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
@@ -890,7 +895,9 @@ def test_todays_page_reads_the_run_as_without_the_option(tmp_path, scene_runs):
         result = subprocess.run(["node", str(script), str(scene_runs["off"] / file), str(scene_runs["on"] / file)],
                                 capture_output=True, text=True, encoding="utf-8", check=True)
         out = json.loads(result.stdout)
-        assert out == {"n": out["n"], "rows": True, "cols": True, "same": True} and out["n"] > 50, (file, out)
+        assert (out["rows"], out["cols"], out["same"]) == (True, True, True) and out["n"] > 50, (file, out)
+        assert out["on"][0] == out["on"][1] and set(out["on"][0]) <= {"0", "1", "2"} and out["on"][0], (file, out)
+        assert out["off"] == [["null"], ["null"]], (file, out)
         assert re.search(r'"ends":\["access1","access2"\]', (scene_runs["on"] / file).read_text(encoding="utf-8"))
 
 
