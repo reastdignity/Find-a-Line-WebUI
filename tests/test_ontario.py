@@ -16,6 +16,7 @@ import os
 import re
 import time
 import zipfile
+import zlib
 
 import numpy as np
 import pytest
@@ -411,12 +412,12 @@ def test_member_beyond_its_box_cut_to_it(http_server, layer, tmp_path):
 
 
 @pytest.mark.parametrize("kind", ["half a pixel", "a pixel short", "a 500th of a pixel", "the next km",
-                                  "not a raster", "two bands"])
+                                  "two bands"])
 def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys, kind):
     """A member off its tile's box (half a pixel: a tie point read as the corner; a column short; its origin a 500th
-    of a pixel off, 1 mm at 0.5 m; lying in the next kilometre), one GDAL cannot open, one of two bands: never
-    cached, its tile recorded as missing with one warning naming the package, the member and the reason, the search
-    goes on (the gap filler fills it); the next search does not ask it again."""
+    of a pixel off, 1 mm at 0.5 m; lying in the next kilometre), one of two bands: never cached, its tile recorded
+    as missing with one warning naming the package, the member and the reason, the search goes on (the gap filler
+    fills it); the next search does not ask it again."""
     reason = "the member lies off its tile's box"
     if kind in ("a pixel short", "two bands"):
         width, count = (9, 1) if kind == "a pixel short" else (10, 2)
@@ -426,8 +427,6 @@ def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys,
                 dst.write(np.full((count, 10, width), 200.0, np.float32))
             member = memfile.read()
         reason = reason if count == 1 else "2 bands, one expected"
-    elif kind == "not a raster":
-        member, reason = b"<html>not a raster</html>" * 40, "not a raster"
     else:
         shift = {"half a pixel": TEN / 2, "a 500th of a pixel": TEN / 500, "the next km": 1000.0}[kind]
         member = _raster(EAST, NORTH, 200.0, shift=shift)
@@ -445,6 +444,25 @@ def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys,
     asked = len(http_server.requests(PACKAGES))
     src.download_layers([(layer, "terrain")], grid, cache_dir, None)
     assert len(http_server.requests(PACKAGES)) == asked and "left to the gap filler" not in capsys.readouterr().out
+
+
+def test_unreadable_member_fails_this_search_only(http_server, layer, tmp_path, capsys):
+    """A member GDAL cannot open (its CRC-32 and length were checked: rare, maybe this PC's fault): that tile's error
+    in this search, never recorded as refused, so the next search asks it again."""
+    _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), b"<html>not a raster</html>" * 40)])
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    with pytest.raises(RuntimeError, match="not a raster"):
+        src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert "left to the gap filler" not in capsys.readouterr().out
+    (tile,) = layer.tiles(grid)
+    path = layer.tile_path(cache_dir, tile)
+    assert not os.path.exists(path) and cache.state(cache_dir, path) != "missing"
+    asked = len(http_server.requests(PACKAGES))
+    with pytest.raises(RuntimeError, match="not a raster"):
+        src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert len(http_server.requests(PACKAGES)) == asked + 1  # the member asked again
 
 
 def test_pixel_is_point_header():
@@ -549,12 +567,131 @@ def test_renamed_package_listed_anew(http_server, layer, tmp_path):
     assert layer.tiles(grid)[0].url.endswith("/A2.zip") and layer.has_data_near(LAT, LON, cache_dir) is True
 
 
+def test_dead_link_over_a_kept_directory(http_server, layer, tmp_path, capsys):
+    """The reviewer's sequence: A listed and its directory kept, then A answers 404 while the index still lists it.
+    Search 1 fails the tile and forgets A's kept directory (and the answers); search 2 (an update) lists A anew: gone,
+    left out with its marker, the search goes on; search 3 asks nothing (the marker's day); the marker's time come,
+    search 4 asks A again (still gone: left out again); A answers again and the second marker's time come, search 5
+    lists A, removes the marker and reads the tile. Before, every search failed, for ever."""
+    members = [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))]
+    _package(http_server, "A", members)
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    assert len(layer.tiles(grid)) == 1
+    kept = layer.listing.directory_path(cache_dir, http_server.url(f"{PACKAGES}A.zip"))
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    marker = layer.listing.retry_path(cache_dir, lat, lon)
+    assert os.path.exists(kept)
+    http_server.answers.pop(("GET", f"{PACKAGES}A.zip", ()))
+
+    def search(update=None):
+        layer.index._listed.clear()
+        before = len(http_server.log)
+        src.download_layers([(layer, "terrain")], grid, cache_dir, update)
+        return [r.path for r in http_server.log[before:]]
+
+    def retry_at() -> float:
+        with open(marker, encoding="utf-8") as f:
+            return float(f.read())
+
+    def marker_time_come():
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write(str(time.time() - 1))
+
+    with pytest.raises(RuntimeError, match="Could not download"):
+        search()
+    assert not os.path.exists(kept)
+    capsys.readouterr()
+    asked = search("all")
+    assert asked.count(f"{PACKAGES}A.zip") == 1 and "A.zip left out" in capsys.readouterr().out
+    assert layer.tiles(grid) == [] and retry_at() > time.time() and not os.path.exists(kept)
+    assert search() == [] and layer.tiles(grid) == []  # the third: within the marker's day nothing asked
+    marker_time_come()
+    asked = search()
+    assert asked.count(f"{PACKAGES}A.zip") == 1 and any(p.startswith(FS) for p in asked)
+    assert layer.tiles(grid) == [] and retry_at() > time.time()  # still gone: a new marker
+    _package(http_server, "A", members)  # A answers again
+    marker_time_come()
+    search()
+    assert not os.path.exists(marker) and os.path.exists(kept)
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        assert np.nanmax(np.abs(tile.read(1) - 200.0)) <= TILE_EPS
+
+
+@pytest.mark.parametrize("kind", ["429 once", "403", "408", "an HTML page by Range (206)",
+                                  "an HTML page whole (200)"])
+def test_package_errors_are_not_gone(http_server, layer, tmp_path, monkeypatch, kind):
+    """Only a 404 or a 410 makes a package gone. A 429 is asked again after a longer wait (net._sleep(attempt + 3)),
+    and read; a 403, a 408 or a maintenance page answering the directory's Range (as 206, or whole as 200) leave the
+    whole answer unavailable: nothing kept, no marker, and the package is read as soon as it answers well."""
+    body = _zip([(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))])
+    _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), b"")])  # its footprint
+    http_server.answers.pop(("GET", f"{PACKAGES}A.zip", ()))
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    page = b"<html><body>Down for maintenance</body></html>" * 30
+    state = {"broken": True}
+
+    def package(request):
+        if not state["broken"]:
+            return Answer(200, body, {"Content-Type": "application/zip", "ETag": '"p1"'})
+        if kind == "429 once":
+            state["broken"] = False
+            return Answer(429, b"slow down", {"Content-Type": "text/plain"})
+        if kind in ("403", "408"):
+            return Answer(int(kind), b"no", {"Content-Type": "text/plain"})
+        return Answer(200, page, {"Content-Type": "text/html"}, ranges=kind.endswith("(206)"))
+    http_server.route(f"{PACKAGES}A.zip", package)
+    waits = []
+    monkeypatch.setattr(net, "_sleep", waits.append)
+    cache_dir = str(tmp_path)
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    kept = layer.listing.directory_path(cache_dir, http_server.url(f"{PACKAGES}A.zip"))
+    if kind == "429 once":
+        assert [i["east"] for i in layer.index.answers(cache_dir, lat, lon)] == [EAST] and waits == [3]
+        return
+    with pytest.raises(IndexUnavailable) as raised:
+        layer.index.answers(cache_dir, lat, lon)
+    assert not isinstance(raised.value, pk.PackageGone)
+    assert not os.path.exists(layer.index.index_path(cache_dir, lat, lon)) and not os.path.exists(kept)
+    assert not os.path.exists(layer.listing.retry_path(cache_dir, lat, lon))
+    state["broken"] = False
+    layer.listing._asked.clear()
+    assert [i["east"] for i in layer.index.answers(cache_dir, lat, lon)] == [EAST]
+
+
+def test_shorter_package_416_reads_the_directory_again(http_server, layer, tmp_path):
+    """A package replaced by a shorter one (its first member removed): the member's old place lies beyond the new
+    end, a 416 ("bytes */<size>"), which is a changed archive: the directory is read again at once and the member
+    read from its new place in the same search (before: three 416s and the tile failed)."""
+    member = (_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))
+    filler = (_name(17, EAST + 5, NORTH, 2023), np.random.default_rng(0).bytes(60_000))
+    _package(http_server, "A", [filler, member])
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023", box=AROUND)])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    (tile,) = layer.tiles(grid)
+    shorter = _package(http_server, "A", [member], etag='"p2"')
+    assert tile.offset > len(shorter)
+    before = len(http_server.requests(PACKAGES))
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    asked = [r.method for r in http_server.requests(PACKAGES)[before:]]
+    assert asked == ["GET", "HEAD", "GET", "GET"]  # the 416, the directory again (HEAD, tail), the member
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as cached:
+        assert np.nanmax(np.abs(cached.read(1) - 200.0)) <= TILE_EPS
+
+
 def test_one_tile_lock_never_blocks_itself(http_server, layer, tmp_path, monkeypatch):
     """With a single tile lock file (every answer's and tile's lock the same), the listing (the answer's lock, then
     a package directory's own lock) and a renewal inside a tile's download (its lock and a host slot, then the
-    directory's lock) finish: a directory's lock is never a tile lock."""
+    directory's lock) finish: a directory's lock is never a tile lock (a lock waiting for itself would time out after
+    LOCK_WAIT_S, an error of the download)."""
     monkeypatch.setattr(net, "TILE_LOCKS", 1)
-    monkeypatch.setattr(net, "LOCK_WAIT_S", 5)
+    monkeypatch.setattr(net, "LOCK_WAIT_S", 1)
     first = (_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))
     other = (_name(17, EAST + 5, NORTH, 2023), _raster(EAST + 5, NORTH, 1.0))
     _package(http_server, "A", [first, other])
@@ -564,16 +701,17 @@ def test_one_tile_lock_never_blocks_itself(http_server, layer, tmp_path, monkeyp
     layer.index.use(cache_dir)
     assert len(layer.tiles(grid)) == 1
     _package(http_server, "A", [other, first], etag='"p2"')  # moved: the download renews inside the tile's lock
-    started = time.monotonic()
     src.download_layers([(layer, "terrain")], grid, cache_dir, None)
-    assert len(layer.files(grid, cache_dir)) == 1 and time.monotonic() - started < 5
+    (path,) = layer.files(grid, cache_dir)
+    assert os.path.exists(path)
+    assert [r.method for r in http_server.requests(PACKAGES)].count("HEAD") == 2  # the directory read again
 
 
 def test_changed_member_reads_the_directory_again(http_server, layer, tmp_path):
     """The package replaced under the same name, its first member made again (another CRC-32 and size at offset 0,
     where a header of the same name still stands): the first read's CRC-32 is not the directory's, so the directory
-    is read again at once and the answers forgotten; that search fails the tile (the member is another tile now),
-    the next lists the new member and reads it."""
+    is read again at once and the answers forgotten; it lists the member with another CRC-32 (another tile), so that
+    search fails the tile at once (one read of the member, not three); the next lists the new member and reads it."""
     name = _name(17, EAST, NORTH, 2023)
     _package(http_server, "A", [(name, _raster(EAST, NORTH, 200.0))])
     _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
@@ -583,10 +721,10 @@ def test_changed_member_reads_the_directory_again(http_server, layer, tmp_path):
     assert len(layer.tiles(grid)) == 1
     _package(http_server, "A", [(name, _raster(EAST, NORTH, 205.5, holes=True))], etag='"p2"')
     before = len(http_server.requests(PACKAGES))
-    with pytest.raises(RuntimeError, match="Could not download"):
+    with pytest.raises(RuntimeError, match="Could not download .* made again"):
         src.download_layers([(layer, "terrain")], grid, cache_dir, None)
-    asked = [(r.method, r.headers.get("range", "")) for r in http_server.requests(PACKAGES)[before:]]
-    assert ("HEAD", "") in asked  # the directory read again after the first read
+    asked = [r.method for r in http_server.requests(PACKAGES)[before:]]
+    assert asked == ["GET", "HEAD", "GET"]  # the member once, then the directory again (its HEAD, its tail)
     src.download_layers([(layer, "terrain")], grid, cache_dir, None)
     (path,) = layer.files(grid, cache_dir)
     with rio.open(path) as tile:
@@ -649,14 +787,16 @@ def test_tile_outside_every_package(http_server, layer, tmp_path):
     assert len(http_server.requests(PACKAGES)) == 2
 
 
-def _noisy(east: int, north: int, valid_cols: int = 100, seed: int = 0) -> bytes:
-    """A member of 100 x 100 px of 10 m: random heights (they do not compress), no data from column valid_cols on
-    (no data compresses to almost nothing: a partial member is a small one)."""
-    values = (200.0 + np.random.default_rng(seed).uniform(0, 50, (100, 100))).astype(np.float32)
+def _noisy(east: int, north: int, valid_cols: int = 100, seed: int = 0, px: int = 100) -> bytes:
+    """A member of px x px pixels (100: of 10 m; 50: of 20 m, a quarter of the pixels): random heights (they do not
+    compress), no data from column valid_cols on (no data compresses to almost nothing: a partial member is a small
+    one)."""
+    values = (200.0 + np.random.default_rng(seed).uniform(0, 50, (px, px))).astype(np.float32)
     values[:, valid_cols:] = -32767.0
     with rio.io.MemoryFile() as memfile:
-        with memfile.open(driver="GTiff", width=100, height=100, count=1, dtype="float32", crs="EPSG:2958",
-                          nodata=-32767.0, transform=from_origin(east * 1000, (north + 1) * 1000, 10.0, 10.0)) as dst:
+        with memfile.open(driver="GTiff", width=px, height=px, count=1, dtype="float32", crs="EPSG:2958",
+                          nodata=-32767.0,
+                          transform=from_origin(east * 1000, (north + 1) * 1000, 1000 / px, 1000 / px)) as dst:
             dst.write(values, 1)
         return memfile.read()
 
@@ -706,6 +846,57 @@ def test_one_years_members_the_larger_wins(http_server, layer, tmp_path):
                       pk.PackageTile("EPSG:2958", 1, 1, 2023, "00000000", "2023-05-11", size=20, member="b")],
                      key=pk._order, reverse=True)
     assert [t.size for t in ordered] == [20, 10]
+
+
+@pytest.mark.parametrize("newest_res, older_res, share, filler", [(1.0, 0.5, 1.0, False), (0.5, 1.0, 0.4, True)])
+def test_fillers_compared_per_pixel(http_server, layer, tmp_path, newest_res, older_res, share, filler):
+    """Versions of two resolutions at a place compared by bytes per pixel (size x res²): a complete newest at 1 m (a
+    quarter of the pixels: about a quarter of the bytes) over a complete older one at 0.5 m is not partial (the
+    older is not read); a newest at 0.5 m with data in 40 % of it over a complete older one at 1 m is, though it has
+    more bytes (the older fills its holes). Compared by bytes alone, each would go the other way."""
+    px = {0.5: 100, 1.0: 50}
+    newest = _noisy(EAST, NORTH, int(px[newest_res] * share), seed=1, px=px[newest_res])
+    older = _noisy(EAST, NORTH, px[older_res], seed=2, px=px[older_res])
+    _package(http_server, "Old", [(_name(17, EAST, NORTH, 2018, "Halton_DTM"), older)])
+    _package(http_server, "New", [(_name(17, EAST, NORTH, 2023), newest)])
+    _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18", res=older_res),
+                                 _feature(http_server, "New", "GTA 2023", res=newest_res)])
+    cache_dir = str(tmp_path)
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    size = {i["year"]: i["size"] for i in layer.index.answers(cache_dir, lat, lon)}
+    assert (size[2023] < pk.HOLE_SHARE * size[2018]) is not filler  # by bytes alone: the other way
+    layer.index.use(cache_dir)
+    assert [t.year for t in layer.tiles(_grid(half=100))] == ([2023, 2018] if filler else [2023])
+
+
+def test_offline_order_as_online(http_server, layer, tmp_path):
+    """Two versions of one year at a place, ordered by their projects' dates (GTA 2023 after DEDSFM Kawartha Lakes
+    2023, its member partial: the other fills its holes), their CRC-32s the other way: with the index unreachable
+    the cached files come in the same order as online (the date and the size in their names), so the mosaic is the
+    same (before, by CRC-32 offline: the complete older one first, over the newest's data)."""
+    partial = _noisy(EAST, NORTH, 40, seed=1)
+    seed = next(s for s in range(2, 100) if zlib.crc32(_noisy(EAST, NORTH, seed=s)) > zlib.crc32(partial))
+    complete = _noisy(EAST, NORTH, seed=seed)
+    _package(http_server, "KL", [(_name(17, EAST, NORTH, 2023, "KAWARTHALAKES_DTM"), complete)])
+    _package(http_server, "GTA", [(_name(17, EAST, NORTH, 2023), partial)])
+    _featureserver(http_server, [_feature(http_server, "KL", "DEDSFM Kawartha Lakes 2023"),
+                                 _feature(http_server, "GTA", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = make_grid((EAST * 1000, NORTH * 1000, (EAST + 1) * 1000, (NORTH + 1) * 1000), 10.0, "EPSG:2958")
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert [t.project for t in layer.tiles(grid)] == ["GTA 2023", "DEDSFM Kawartha Lakes 2023"]
+    online = layer.files(grid, cache_dir)
+    _featureserver(http_server, [], status=503)  # the index unreachable, its answers forgotten
+    answers = os.path.join(cache_dir, "ontario", "sheet-index", "ontario-dtm")
+    for name in os.listdir(answers):
+        os.remove(os.path.join(answers, name))
+    layer.index._listed.clear()
+    offline = layer.files(grid, cache_dir)
+    assert layer.tiles(grid) is None and offline == online
+    mosaic = build_mosaic(offline, grid, str(tmp_path / "m.npy"), "test")
+    with rio.io.MemoryFile(partial) as m1, m1.open() as a, rio.io.MemoryFile(complete) as m2, m2.open() as b:
+        want = np.where(np.arange(100) < 40, a.read(1), b.read(1))
+    assert np.abs(mosaic - want).max() <= TILE_EPS
 
 
 def test_has_data_near_across_a_tiles_edge(http_server, layer, tmp_path, monkeypatch):

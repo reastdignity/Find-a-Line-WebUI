@@ -156,8 +156,9 @@ BC_BORDER = ((48.95, 49.1, -123.35, -114.0),)
 # 1 m against 9), but fewer projects: canada fills the gaps (its HRDEM mosaic has projects the province does not
 # publish). Two projects cover 19.4 % of the province's 157 093 tiles (the tile index of 2026-10-28): the newest
 # survey's tile is used first, and an older one fills its holes where the newest member is under 75 % of the older
-# one's size (PackageVersions, HOLE_SHARE: 58 of 676 places in two projects in the four 0.25° tiles cached on
-# 2026-11-16, about +2.5 % tiles); what neither covers goes to canada. CLOCA Lidar 2018's and SNC Lidar 2018-19's DTM
+# one's size per pixel (PackageVersions, HOLE_SHARE: 58 of 676 places in two projects in the four 0.25° tiles cached
+# on 2026-11-16, counted by compressed size before the comparison per pixel, about +2.5 % tiles); what neither covers
+# goes to canada. CLOCA Lidar 2018's and SNC Lidar 2018-19's DTM
 # packages are Deflate64, which is not read: their terrain comes from older surveys or canada (their DSM is read).
 # Licence: OGL - Ontario 1.0; the user guides (section 2.2): "you must use the following attribution statement
 # “Contains information licensed under the Open Government Licence – Ontario”"; the licence grants no right to

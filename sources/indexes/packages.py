@@ -48,14 +48,16 @@ HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
 # A package that answers but cannot be read (a 404 of a renamed or removed one, not a ZIP archive) is left out of
 # a 0.25° tile's answer, with a warning; that answer is asked again after this many seconds (not on every search)
 GONE_RETRY_S = 24 * 3600
-# Where two versions cover a place and the newest one's member is under this share of another's size (compressed,
-# from the directory: no data compresses to almost nothing), that other is used too and fills the newest's holes
+GONE_STATUSES = (404, 410)  # only these mean a package is gone; any other answer leaves the answer unavailable
+# Where two versions cover a place and the newest one's member is under this share of another's size per pixel
+# (compressed, from the directory, x res²: no data compresses to almost nothing), that other is used too and fills
+# the newest's holes
 HOLE_SHARE = 0.75
 
 
 class PackageGone(IndexUnavailable):
-    """A package that answers but cannot be read: an HTTP status (a 404 of a renamed or removed package), not a ZIP
-    archive, a Range answered with the whole file. Not the network's failure (an IndexUnavailable)."""
+    """A package that answers 404 or 410 (renamed or removed). Not the network's failure, another status or a
+    maintenance page (an IndexUnavailable: nothing remembered)."""
 
 
 def _readable(method: int, flags: int) -> bool:
@@ -146,23 +148,33 @@ class PackageListing(Listing):
 
     def _read(self, url: str, previous: Optional[Dict]) -> Dict:
         """The package's directory as kept: its HEAD (length, ETag), then its directory unless previous holds it
-        for the same ETag and length. PackageGone when the package answers but cannot be read, IndexUnavailable
-        when the host cannot be reached."""
+        for the same ETag and length. PackageGone only for a 404 or a 410 (renamed or removed); a 429 or 503 is
+        asked again after a longer wait (net._sleep(attempt + 3), as net._get); any other status, an answer that is
+        no ZIP archive (a maintenance page, with 206 or a whole 200) or no connection is IndexUnavailable: the
+        answer waits, nothing is remembered."""
         where = f"package {cache.clean_url(url)}"
-        try:
-            length, etag = head(url)
-        except IndexUnavailable as e:
-            status = re.search(r"HTTP (\d{3})", str(e))
-            if e.__cause__ is None and status and 400 <= int(status.group(1)) < 500:  # 404, 410, 403: gone
-                raise PackageGone(str(e)) from None
-            raise  # the network, or a server's error (5xx): the whole answer waits
+        for attempt in range(net.RETRIES):
+            try:
+                length, etag = head(url)
+                break
+            except IndexUnavailable as e:
+                status = re.search(r"HTTP (\d{3})", str(e)) if e.__cause__ is None else None
+                code = int(status.group(1)) if status else None
+                if code in GONE_STATUSES:
+                    raise PackageGone(str(e)) from None
+                if code in (429, 503) and attempt < net.RETRIES - 1:
+                    net._sleep(attempt + 3)
+                    continue
+                raise
         if previous and etag and previous.get("etag") == etag and previous.get("length") == length:
             return previous
         try:
             listed = read_directory(url, length)
-        except (ValueError, ArchiveChanged, RangeRefused) as e:  # not a ZIP archive, a 404, the whole file
+        except ArchiveChanged as e:  # its tail answered 404: gone since its HEAD
             raise PackageGone(f"{where}: {cache.clean_error(e)}") from e
-        except (RuntimeError, requests.RequestException) as e:
+        except (ValueError, RangeRefused, RuntimeError, requests.RequestException) as e:
+            if re.search(r"HTTP 410\b", str(e)):
+                raise PackageGone(f"{where}: {cache.clean_error(e)}") from e
             raise IndexUnavailable(f"{where}: {cache.clean_error(e)}") from e
         members = [list(m) for m in listed if self._wanted(m.name)]
         unreadable = collections.Counter(m[1] for m in members if not _readable(m[1], m[2]))
@@ -206,13 +218,27 @@ class PackageListing(Listing):
             with (net.host_slot(cache_dir, url) if slot else contextlib.nullcontext()), \
                     self._directory_lock(cache_dir, path):  # another search may be reading it now
                 if due():
-                    self._store(path, self._read(url, self._kept(path)))
+                    try:
+                        kept = self._read(url, self._kept(path))
+                    except PackageGone:
+                        self.forget(path)  # never served again until the package answers
+                        raise
+                    self._store(path, kept)
             with self._lock:
                 self._asked.add(path)
         kept = self._kept(path)
         if kept is None:
             raise IndexUnavailable(f"{cache.relative(cache_dir, path)} cannot be read")
         return kept
+
+    def forget(self, path: str):
+        """Forget a package's kept directory (a 404 or 410 of it: renamed or removed), so no listing serves it."""
+        with self._lock:
+            self._asked.discard(path)
+        try:
+            cache.forget(self.cache_dir, [path])
+        except OSError:  # another process forgot it now
+            pass
 
     def retry_path(self, cache_dir: str, lat: float, lon: float) -> str:
         """The marker beside a 0.25° tile's answer that left out a package: when to ask that answer again."""
@@ -318,34 +344,44 @@ class PackageTile:
     size: int = 0
     usize: int = 0
     length: int = 0
+    res: float = 0.0  # the package's resolution (the index's Resolution): bytes compared per pixel
 
     @property
     def godlo(self) -> str:
         return f"{self.crs.split(':')[-1]}_{self.east}_{self.north}"
 
 
-# A cached tile: <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<crc8>.tif
-PACKAGE_FILE = re.compile(r"[\\/]epsg(\d+)[\\/]-?\d+_-?\d+[\\/](-?\d+)_(-?\d+)_(\d{4})_([0-9a-f]{8})\.tif$")
+# A cached tile: <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<date8>_<size>_<crc8>.tif, the
+# project's date and the member's compressed size in its name, so the cached tiles are ordered as the listed ones
+# (cached(), the index unreachable)
+PACKAGE_FILE = re.compile(r"[\\/]epsg(\d+)[\\/]-?\d+_-?\d+[\\/](-?\d+)_(-?\d+)_(\d{4})_(\d{8})_(\d+)_([0-9a-f]{8})"
+                          r"\.tif$")
 
 
 def _order(tile: PackageTile) -> tuple:
     """Newer first: the member's year (its survey's: a project of several years names each tile's), then the
     project's date (two projects of one year), then the larger member (its compressed size in the directory: of two
-    members of one project and year at a place, a partial copy in a neighbouring package loses), then its name.
-    Ontario's tile index (2026-10-28): of 30 414 places in two or more projects, 54 would go the other way by the
-    project's date first, each to the older survey (Huron-Georgian Bay's tiles of 2022 against GTA 2023's)."""
-    return tile.year, tile.date, tile.size, tile.member, tile.key
+    members of one project and year at a place, a partial copy in a neighbouring package loses), then its CRC-32
+    (equal sizes: arbitrary, the same online and offline). Ontario's tile index (2026-10-28): of 30 414 places in
+    two or more projects, 54 would go the other way by the project's date first, each to the older survey."""
+    return tile.year, tile.date, tile.size, tile.key
+
+
+def _per_pixel(tile: PackageTile) -> float:
+    """A member's compressed bytes per pixel of its 1 km tile, up to a constant: size x res² (a 1 m member holds a
+    quarter of a 0.5 m one's pixels); res unknown (0) taken as 0.5 m."""
+    return tile.size * (tile.res or 0.5) ** 2
 
 
 class PackageVersions(Versions):
     """The versions of each place (a 1 km tile of a zone) that are used: the newest survey's (_order: the member's
     year, then the project's date from the catalogue's table, then the larger member), and each other whose member
-    the newest's is under HOLE_SHARE of in size (the newest is partial there: no data compresses to almost
-    nothing), which fills the newest's holes; what neither covers goes to the source's gap filler. The tiles are
-    used newest first (the mosaic writes a pixel from the first file holding it: the newest, then its fillers), of
-    equal ones those in the working CRS first (copied as they are). A member is known by its CRC-32: a changed
-    member has another name in the cache and is read again, and the cached files of a place's versions no longer
-    used are deleted (prune). Cached as <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<crc8>.tif."""
+    the newest's is under HOLE_SHARE of in bytes per pixel (_per_pixel: the newest is partial there, no data
+    compresses to almost nothing), which fills the newest's holes; what neither covers goes to the source's gap
+    filler. The tiles are used newest first (the mosaic writes a pixel from the first file holding it: the newest,
+    then its fillers), of equal ones those in the working CRS first (copied as they are). A member is known by its
+    CRC-32: a changed member has another name in the cache and is read again, and the cached files of a place's
+    versions no longer used are deleted (prune). Cached as PACKAGE_FILE says; offline (cached) in the same order."""
 
     def __init__(self, folder: str):
         self.folder = folder
@@ -365,7 +401,7 @@ class PackageVersions(Versions):
         for versions in cls._places(tiles).values():
             newest = versions[0]
             used.append(newest)
-            used += [other for other in versions[1:] if newest.size < HOLE_SHARE * other.size]
+            used += [other for other in versions[1:] if _per_pixel(newest) < HOLE_SHARE * _per_pixel(other)]
         return used
 
     @staticmethod
@@ -373,7 +409,7 @@ class PackageVersions(Versions):
         return PackageTile(item["crs"], item["east"], item["north"], item["year"], f"{item['crc']:08x}",
                            item.get("date", ""), item.get("project", ""), item["url"], item["member"],
                            item["offset"], item["method"], item["flags"], item["crc"], item["size"], item["usize"],
-                           item["length"])
+                           item["length"], float(item.get("res") or 0.0))
 
     @classmethod
     def _newest(cls, tiles: Sequence[PackageTile]) -> Dict[Tuple[str, int, int], PackageTile]:
@@ -382,8 +418,9 @@ class PackageVersions(Versions):
     @staticmethod
     def _sorted(tiles, grid_crs: str) -> List[PackageTile]:
         same = {crs: _same_crs(crs, grid_crs) for crs in {t.crs for t in tiles}}
-        return sorted(tiles, key=lambda t: (t.year, t.date, same[t.crs], t.size, t.member, t.key, t.crs, t.north,
-                                            t.east), reverse=True)
+        # only what a cached file's name keeps (_of): offline the same order as online
+        return sorted(tiles, key=lambda t: (t.year, t.date, same[t.crs], t.size, t.key, t.crs, t.north, t.east),
+                      reverse=True)
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
         """The used versions of each place over the grid (and the area's shape: _used), newest first."""
@@ -413,15 +450,17 @@ class PackageVersions(Versions):
     def path(self, cache_dir: str, tile) -> str:
         code = tile.crs.split(":")[-1]
         return os.path.join(cache_dir, self.folder, f"epsg{code}", f"{tile.east // 10}_{tile.north // 10}",
-                            f"{tile.east}_{tile.north}_{tile.year}_{tile.key}.tif")
+                            f"{tile.east}_{tile.north}_{tile.year}_{tile.date.replace('-', '') or '0' * 8}_"
+                            f"{tile.size}_{tile.key}.tif")
 
     @staticmethod
     def _of(path: str) -> Optional[PackageTile]:
         match = PACKAGE_FILE.search(path)
         if not match:
             return None
+        day = match.group(5)
         return PackageTile(f"EPSG:{match.group(1)}", int(match.group(2)), int(match.group(3)), int(match.group(4)),
-                           match.group(5))
+                           match.group(7), f"{day[:4]}-{day[4:6]}-{day[6:]}", size=int(match.group(6)))
 
     def _others(self, cache_dir: str, tile: PackageTile) -> List[str]:
         """The cached files of the same place but another version."""

@@ -3,6 +3,7 @@ FeatureServer of the packages' footprints and read one member at a time by HTTP 
 Lidar-Derived)."""
 
 import threading
+from dataclasses import replace
 from typing import Dict, Optional, Tuple
 
 import requests
@@ -15,7 +16,7 @@ from grid import Grid
 from ..indexes.packages import (TILE_M, PackageIndex, PackageListing, PackageTile, PackageVersions, forget_answers,
                                 package_years)
 from ..layer import Fetched
-from ..readers.zipmember import ZipMember
+from ..readers.zipmember import MEMBER_REMADE, WrongShape, ZipMember
 from .indexed import IndexedTiles
 
 # How far a member's origin and size may lie off its tile's box, in pixels (float noise of the files' transforms)
@@ -34,11 +35,10 @@ class PackageMember(ZipMember):
     1.2 km, 100 m around their tile), the transform's float noise is dropped (Muskoka's 627999.9999999998), and a
     member that does not cover the box on whole pixels is refused ("PixelIsPoint" files with their tie point at the
     first pixel's centre land on the box as GDAL places them; one with the tie point at the corner would lie half a
-    pixel off). A refused member (off its box, not a raster GDAL reads, more than one band) is never cached: its
-    tile is "missing" (one warning naming the package, the member and the reason), so the source's gap filler fills
-    it and the search goes on. The tile's path carries the
-    member's CRC-32, so the same bytes are not asked again; a changed member is another tile, and a change of this
-    rule changes the layer's `processing`, which asks the missing tiles again."""
+    pixel off). A refused member (off its box, more than one band) is never cached: its tile is "missing" (one
+    warning naming the package, the member and the reason), so the source's gap filler fills it and the search goes
+    on. The tile's path carries the member's CRC-32, so the same bytes are not asked again; a changed member is
+    another tile, and a change of this rule changes the layer's `processing`, which asks the missing tiles again."""
 
     def fetch(self, request, path: str) -> Fetched:
         try:
@@ -49,13 +49,12 @@ class PackageMember(ZipMember):
             return Fetched(0, request.url)
 
     def _write(self, data: bytes, path: str, where: str, request=None):
-        """ZipMember's, a member GDAL cannot open or of more than one band refused as one off its box: what its
-        bytes are (the read itself, network and CRC-32, is done before)."""
+        """ZipMember's, a member of more than one band refused as one off its box (what its bytes are: the read,
+        network and CRC-32, is done before). One GDAL cannot open or read stays that tile's error in this search,
+        never recorded (a GDAL fault may be this PC's)."""
         try:
             super()._write(data, path, where, request)
-        except MemberRefused:
-            raise
-        except RuntimeError as e:
+        except WrongShape as e:
             raise MemberRefused(str(e).replace(f"{where}: ", "", 1)) from None
 
     def placed(self, transform: Affine, width: int, height: int, request,
@@ -86,12 +85,14 @@ class PackageTiles(IndexedTiles):
     first, an older one filling its holes where the newest's member is much smaller: PackageVersions); exclude:
     members left out (a copy in another height datum). The packages over a
     0.25° tile and their directories are kept for ttl_days (PackageListing); a member is read by one Range of its
-    local header and data (PackageMember) and known by its CRC-32. Cached in
-    <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<crc8>.tif at the member's own resolution.
+    local header and data (PackageMember) and known by its CRC-32. Cached in <folder>/epsg<code>/<east // 10>_<north
+    // 10>/<east>_<north>_<year>_<date8>_<size>_<crc8>.tif (the project's date and the member's compressed size order
+    the cached tiles as the listed ones) at the member's own resolution.
 
     A 404 of a package, a member not where its directory said or not what it said (its CRC-32) makes that
-    package's directory be read again and the member tried once more from there; the 0.25° answers are forgotten
-    then, also when the package cannot be read again (renamed or removed: the next search lists anew)."""
+    package's directory be read again and the member tried once more from there (a member the directory now lists
+    with another CRC-32 fails at once: _renew); the 0.25° answers are forgotten then, also when the package cannot
+    be read again (renamed or removed: the next search lists anew)."""
 
     def __init__(self, description: str, featureserver: str, packages: str, folder: str, prefix: str,
                  zones: Dict[int, str], dates: Dict[str, str], exclude: Optional[str] = None,
@@ -107,12 +108,14 @@ class PackageTiles(IndexedTiles):
         self.reader = PackageMember(description, renew=self._renew)
         self._renew_lock = threading.Lock()
 
-    def _renew(self, tile: PackageTile) -> Optional[PackageTile]:
+    def _renew(self, tile: PackageTile):
         """After a 404, a moved or a changed member: the member where its package's directory, read again now, says
-        it is (None when it says the same, or lists it no more, or its CRC-32 changed: the tile's key is its CRC-32,
-        or the package cannot be read again). The 0.25° answers are forgotten either way, so the next search lists
-        the packages anew (a renamed package under its new name). The download holds a tile's lock and a slot of
-        the host: the directory's own lock comes last, as everywhere."""
+        it is; MEMBER_REMADE when the directory lists it with another CRC-32 (the tile's key and cached name are its
+        CRC-32: the remade member is another tile, which the next search lists and reads, so this one fails at once
+        instead of asking the old bytes again); None when it says the same, lists it no more or the package cannot
+        be read again. The 0.25° answers are forgotten either way, so the next search lists the packages anew (a
+        renamed package under its new name). The download holds a tile's lock and a slot of the host: the
+        directory's own lock comes last, as everywhere."""
         cache_dir = self.index.cache_dir
         if not cache_dir:
             return None
@@ -129,9 +132,13 @@ class PackageTiles(IndexedTiles):
         if kept is None:
             return None
         for name, method, flags, crc, size, usize, offset in kept["members"]:
-            if name == tile.member and crc == tile.crc and (offset, kept["length"]) != (tile.offset, tile.length):
-                return PackageTile(tile.crs, tile.east, tile.north, tile.year, tile.key, tile.date, tile.project,
-                                   tile.url, name, offset, method, flags, crc, size, usize, kept["length"])
+            if name != tile.member:
+                continue
+            if crc != tile.crc:
+                return MEMBER_REMADE
+            if (offset, kept["length"]) != (tile.offset, tile.length):
+                return replace(tile, offset=offset, method=method, flags=flags, size=size, usize=usize,
+                               length=kept["length"])
         return None
 
     def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
