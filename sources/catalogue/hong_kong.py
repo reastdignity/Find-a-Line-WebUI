@@ -133,7 +133,7 @@ def hk_files(layer: str, i: int, j: int) -> List[Tuple[str, str, int]]:
 # https://www.ginfo.cedd.gov.hk/GEOOpenData/eng/TnC.aspx, grant the same). The terms do not name modifying. Our use
 # is downloading and reproducing: each sheet is downloaded once into the user's own cache, its heights re-encoded
 # within 5 mm (LERC), and lines, profiles and maps are computed from them (credit.PROCESSED_NOTE says so with every
-# run); nothing is redistributed (no mirror copy: the user's mail to CEDD asks about one). The FAQ
+# run); nothing is redistributed (no mirror copy: a mail to CEDD, drafted for the user, asks about one). The FAQ
 # (https://portal.csdi.gov.hk/csdi-webpage/info/FAQ): "Attribution must be to “Common Spatial Data Infrastructure
 # (CSDI) Portal”. Attribution must also make it clear that the data is available under the CSDI terms and
 # conditions. This may be done by making the text “CSDI Portal” linked to
@@ -160,6 +160,11 @@ HK_DTM = CellSheetTiles("CEDD lidar DTM 2020 0.5 m (terrain)", "hong_kong/dtm-20
 HK_DSM = CellSheetTiles("CEDD lidar DSM 2020 0.5 m (surface)", "hong_kong/dsm-2020", HK_CRS, HK_SHEET, 0.5,
                         lambda i, j: hk_name(hk_sheet(i, j)), hk_cell_of_name, lambda i, j: hk_files("dsm", i, j),
                         r"\.tif$", origin=(HK_LEFT, HK_BOTTOM), bytes_per_tile=5.8e6)
+
+# No orthophoto: the Lands Department's Imagery Map API (XYZ tiles, https://portal.csdi.gov.hk/csdi-webpage/apidoc/
+# ImageryMapAPI, read 2026-11-16) requires "Lands Department logo on the map face and Copyright Notice", which the map's
+# text attribution cannot give, under terms of its own behind an "I have read and agreed" (its domain
+# mapapi.geodata.gov.hk is deprecated on 2027-03-15 for mapapi.hkmapservice.gov.hk)
 
 # Offline box (south, north, west, east): every sheet of the table whole (their corners reach 22.149-22.567 N,
 # 113.832-114.445 E); it holds some of Shenzhen's land north of the boundary (no source there: europe either way)
