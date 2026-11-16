@@ -743,6 +743,7 @@
   "ui.view3d.stop": "Stop",
   "ui.view3d.speed": "Speed",
   "ui.view3d.speed_value": "×{{times}}",
+  "ui.view3d.speed_name": "Speed {{value}}",
   "ui.view3d.reduced_motion": "The walk is off: your system asks for reduced motion.",
   "ui.view3d.length": "{{m}} m long",
   "ui.view3d.sag": "{{m}} m of sag with the athlete",
