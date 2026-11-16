@@ -43,7 +43,7 @@ def _clock() -> float:
     return time.monotonic()
 
 
-def _remote(base: str) -> bool:
+def _is_remote(base: str) -> bool:
     return bool(re.match(r"https?://", base))
 
 
@@ -53,7 +53,7 @@ def grid_tile_name(i: int, j: int, block: int = 10) -> str:
     return f"{i // block}_{j // block}/{i}_{j}.tif"
 
 
-def _extent(tiles: Dict, partial: bool) -> Optional[Tuple[int, int, int, int]]:
+def _key_extent(tiles: Dict, partial: bool) -> Optional[Tuple[int, int, int, int]]:
     """The rectangle of an index's keys (i0, j0, i1, j1); None without keys or for a "partial" index."""
     if not tiles or partial:
         return None
@@ -150,7 +150,7 @@ class TileBases(Reader):
                 with open(path, encoding="utf-8") as f:
                     index = json.load(f)
                 tiles = index["tiles"]
-                extent = _extent(tiles, index.get("partial"))
+                extent = _key_extent(tiles, index.get("partial"))
             self._extents[base] = extent  # before the index: a thread that sees the index sees its extent
             self._indexes[base] = tiles  # whole: the download threads read it meanwhile
         return self._indexes[base]
@@ -216,7 +216,7 @@ class TileBases(Reader):
                 kept.index, kept.error = None, e
                 kept.generation += 1  # after the fetch: the threads that waited for it see that it moved
                 raise
-            kept.index, kept.error = (tiles, _extent(tiles, found.get("partial")), _clock()), None
+            kept.index, kept.error = (tiles, _key_extent(tiles, found.get("partial")), _clock()), None
             kept.generation += 1
             return kept.index[0], kept.index[1], kept.generation
 
@@ -259,7 +259,7 @@ class TileBases(Reader):
         """Whether the kept index of the first base, a remote one, says a tile has no data (an estimate does
         not count it); False without a kept index, or for a local folder first."""
         bases = self.bases()
-        kept = self._kept.get(bases[0]) if bases and _remote(bases[0]) else None
+        kept = self._kept.get(bases[0]) if bases and _is_remote(bases[0]) else None
         index = kept.fresh() if kept is not None else None
         return index is not None and _listed(index[0], index[1], tile) is OUTSIDE
 
@@ -271,10 +271,10 @@ class TileBases(Reader):
         kept: no HTTP answer, any 5xx and a 404 of the index are "does not answer", remembered for
         UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers."""
         bases = self.bases()
-        if not bases or not _remote(bases[0]):
+        if not bases or not _is_remote(bases[0]):
             return None
         reasons = []
-        for base in (b for b in bases if _remote(b)):
+        for base in (b for b in bases if _is_remote(b)):
             why = self._reach(base)
             if why is None:
                 return None
@@ -306,7 +306,7 @@ class TileBases(Reader):
     def fetch(self, tile, path: str) -> Fetched:
         name, error = grid_tile_name(*tile), None
         for base in self.bases():  # the first that has it
-            if not _remote(base):
+            if not _is_remote(base):
                 fetched = self._copy(base, tile, path)
                 if fetched is not None:
                     return fetched
