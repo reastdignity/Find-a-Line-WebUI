@@ -6,6 +6,7 @@ import contextlib
 import dataclasses
 import html
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +19,7 @@ import cache
 from grid import Grid
 from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
 from progress import progress
-from runs import ACCESS, STANDS_FOR, column_texts
+from runs import ACCESS, STANDS_FOR, column_texts, round_floats
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
@@ -200,6 +201,141 @@ def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Gro
     grouping.gather(members, start, order, out)
     del members
     return Groups(rep[order], out, np.concatenate([[0], np.cumsum(sizes[order], dtype=np.int64)]).astype(np.int64))
+
+
+# The result view's columns (view_columns; docs/line-volume/spec-view.md B.3, spec-store.md 1.3)
+SECTORS_MAX = 10  # sectors of a run's spots at most
+SECTOR_WORDS = ("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
+SECTOR_CENTRE_M = 150.0  # a sector whose shown lines' middle lies nearer the run's centre than this is "centre",
+SECTOR_CENTRE_SHARE = 0.12  # or nearer than this share of the lines' extent in a small run
+STACK_CELL = 8.0  # m: the plan cells of the top-level flag (K-17 'Higher wins on a face', tools/prune_study.py)
+STACK_STEP = 10.0  # m: a stack spans this much mean anchor height or more; its top level is this thick
+VIEW_COLUMNS = ("spot", "top", "by_spot")  # the store's columns view_columns gives (linestore.VIEW_COLUMNS)
+
+
+def _stored(values: np.ndarray, decimals: int) -> np.ndarray:
+    """A value as the run's store holds it (linestore: round() to map_rows' decimals; NaN stays NaN)."""
+    return round_floats(np.asarray(values, dtype=np.float64), decimals)
+
+
+def _in_spot_order(spot: np.ndarray, mean: np.ndarray, clearance: np.ndarray, length: np.ndarray) -> np.ndarray:
+    """The rows by spot, inside a spot by mean height, clearance, length (each highest first; NaN last), then
+    the row."""
+    with np.errstate(invalid="ignore"):
+        keys = [np.where(np.isnan(v), np.inf, -v) for v in (length, clearance, mean)]  # -NaN would be NaN: last too
+    return np.lexsort((np.arange(len(spot)), *keys, spot))
+
+
+def _ward_sectors(ends: np.ndarray) -> np.ndarray:
+    """A sector per spot (0 .. k-1, unnumbered) from the ends of the spots' shown lines (a row per spot: west end
+    x, y, east end x, y): Ward's clustering (scipy) cut into at most SECTORS_MAX clusters; a run of at most
+    SECTORS_MAX spots has a sector per spot (the accepted mock-up's data, P7's tree_lib.sectors)."""
+    if len(ends) <= SECTORS_MAX:
+        return np.arange(len(ends), dtype=np.int64)
+    from scipy.cluster.hierarchy import fcluster, linkage
+    return fcluster(linkage(ends, method="ward"), SECTORS_MAX, criterion="maxclust").astype(np.int64) - 1
+
+
+def top_level(x1: np.ndarray, y1: np.ndarray, x2: np.ndarray, y2: np.ndarray, e1: np.ndarray, e2: np.ndarray,
+              cell: float = STACK_CELL, step: float = STACK_STEP) -> np.ndarray:
+    """The top-level flag of every line (K-17 'Higher wins on a face', tools/prune_study.py's rule
+    higher_wins): the lines whose two ends fall into the same plan cells (`cell` m, a corner at (0, 0), the
+    ends in the order of stack_buckets) form a bucket; in a bucket whose mean anchor heights ((e1 + e2) / 2)
+    span `step` m or more, a line whose mean anchor height lies `step` m or more below the bucket's highest is
+    not top level. Every other line is. Neighbouring buckets are not compared."""
+    n = len(x1)
+    if not n:
+        return np.zeros(0, dtype=bool)
+    swap = (x1 > x2) | ((x1 == x2) & (y1 < y2))
+    cell_of = lambda v: np.floor(v / float(cell)).astype(np.int64)  # noqa: E731
+    cx1, cy1, cx2, cy2 = cell_of(x1), cell_of(y1), cell_of(x2), cell_of(y2)
+    keys = (np.where(swap, cx2, cx1), np.where(swap, cy2, cy1), np.where(swap, cx1, cx2), np.where(swap, cy1, cy2))
+    del cx1, cy1, cx2, cy2
+    order = np.lexsort(keys[::-1])
+    new = np.zeros(n, dtype=bool)
+    for key in keys:
+        s = key[order]
+        new[1:] |= s[1:] != s[:-1]
+    starts = np.flatnonzero(np.concatenate([[True], new[1:]]))
+    bucket = np.empty(n, dtype=np.int64)
+    bucket[order] = np.cumsum(new)
+    height = (np.asarray(e1, dtype=np.float64) + np.asarray(e2, dtype=np.float64)) / 2
+    highest = np.maximum.reduceat(height[order], starts)[bucket]
+    lowest = np.minimum.reduceat(height[order], starts)[bucket]
+    return ~(((highest - lowest) >= float(step)) & (height <= highest - float(step)))
+
+
+def view_columns(lines: LineTable, groups: Groups, centre: Tuple[float, float]) -> Tuple[Dict[str, np.ndarray], Dict]:
+    """The result view's columns of a run's lines (docs/line-volume/spec-store.md 1.3, spec-view.md B.3), computed
+    once at saving from the values as the run's store holds them (mean height and the anchors' elevations at
+    map_rows' 2 decimals, the rest unrounded), so the page that reads them sees the same order; deterministic
+    and the same on every number of threads (numpy and scipy, no threads of their own here).
+
+    lines: a LineTable after coordify; groups: its spots (group_lines at the run's distance and value: their
+    members never change, only their numbers); centre: the run's centre (run.json's center x, y) in the grid
+    CRS. Returns ({"spot", "top", "by_spot"}, {"sectors", "box", "lengths"}):
+      spot     uint32 per line: its spot's number. The spots are numbered from 0 in the order of their sectors,
+               inside a sector by their first line's mean height, highest first (NaN last), then group_lines'
+               order; a spot's label is "<sector>.<k>" (k = its number less its sector's first, plus one).
+      top      uint8 per line: 1 when it is top level (top_level).
+      by_spot  uint32: the rows by spot, inside a spot by mean height, clearance, length (each highest first,
+               NaN last), then the row: a spot's lines are one run of it, its first line the spot's shown line.
+      sectors  [{"word": ..., "spots": n}, ...] in sector order: Ward's clustering of each spot's shown line's
+               ends (the west end first; _ward_sectors) into at most SECTORS_MAX sectors, numbered by their best
+               spot's mean height (then group_lines' order); the word one of SECTOR_WORDS by the bearing from
+               the centre to the mean of its shown lines' middles, "centre" within min(SECTOR_CENTRE_M,
+               SECTOR_CENTRE_SHARE x the lines' extent), the extent the larger side of the box.
+      box      [x min, y min, x max, y max] of every anchor (m, grid CRS); lengths [shortest, longest] (m).
+    A run without lines: empty columns, no sectors, box and lengths None."""
+    c, n = lines.columns, len(lines)
+    head: Dict = {"sectors": [], "box": None, "lengths": None}
+    if not n:
+        empty = np.zeros(0, dtype=np.uint32)
+        return {"spot": empty, "top": np.zeros(0, dtype=np.uint8), "by_spot": empty.copy()}, head
+    x1, y1 = c["a1_xy"][:, 0], c["a1_xy"][:, 1]
+    x2, y2 = c["a2_xy"][:, 0], c["a2_xy"][:, 1]
+    mean = _stored(c["height_mean"], 2)
+    clearance, length = np.asarray(c["clearance"], dtype=np.float64), np.asarray(c["length"], dtype=np.float64)
+    top = top_level(x1, y1, x2, y2, _stored(c["elev_a1"], 2), _stored(c["elev_a2"], 2))
+    count = len(groups)
+    group = np.empty(n, dtype=np.int64)  # group_lines' number of each line's spot
+    group[groups.members] = np.repeat(np.arange(count, dtype=np.int64), groups.sizes())
+    order = _in_spot_order(group, mean, clearance, length)
+    first = order[groups.start[:-1]]  # each group's shown line (its first in the spot's order)
+    west = (x1[first] < x2[first]) | ((x1[first] == x2[first]) & (y1[first] <= y2[first]))
+    ends = np.column_stack([np.where(west, x1[first], x2[first]), np.where(west, y1[first], y2[first]),
+                            np.where(west, x2[first], x1[first]), np.where(west, y2[first], y1[first])])
+    cluster = _ward_sectors(ends)
+    del ends
+    best = mean[first]
+    score = np.where(np.isnan(best), -np.inf, best)
+    # Each cluster's best spot (highest score, then the lower group), the clusters numbered by it
+    by_score = np.lexsort((np.arange(count), -score, cluster))
+    leaders = by_score[np.flatnonzero(np.concatenate([[True], np.diff(cluster[by_score]) != 0]))]
+    numbered = leaders[np.lexsort((leaders, -score[leaders]))]
+    sector_of_cluster = np.empty(int(cluster.max()) + 1, dtype=np.int64)
+    sector_of_cluster[cluster[numbered]] = np.arange(len(numbered))
+    sector = sector_of_cluster[cluster]
+    spot_of_group = np.empty(count, dtype=np.int64)
+    spot_of_group[np.lexsort((np.arange(count), -score, sector))] = np.arange(count)
+    spot = spot_of_group[group]
+    by_spot = order[np.argsort(spot_of_group[group[order]], kind="stable")]  # the order inside a spot is kept
+    xs, ys = np.concatenate([x1, x2]), np.concatenate([y1, y2])
+    box = [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+    del xs, ys
+    centre_m = min(SECTOR_CENTRE_M, SECTOR_CENTRE_SHARE * max(box[2] - box[0], box[3] - box[1]))
+    middle_x, middle_y = (x1[first] + x2[first]) / 2, (y1[first] + y2[first]) / 2
+    sectors = []
+    for s in range(len(numbered)):
+        mine = sector == s
+        dx, dy = float(np.mean(middle_x[mine])) - centre[0], float(np.mean(middle_y[mine])) - centre[1]
+        bearing = (math.degrees(math.atan2(dx, dy)) + 360) % 360
+        word = "centre" if math.hypot(dx, dy) < centre_m else SECTOR_WORDS[int((bearing + 22.5) // 45) % 8]
+        sectors.append({"word": word, "spots": int(mine.sum())})
+    finite = length[np.isfinite(length)]
+    head.update(sectors=sectors, box=box if all(map(math.isfinite, box)) else None,
+                lengths=[float(finite.min()), float(finite.max())] if len(finite) else None)
+    return {"spot": spot.astype(np.uint32), "top": top.astype(np.uint8), "by_spot": by_spot.astype(np.uint32)}, head
 
 
 def _search_area(area):
