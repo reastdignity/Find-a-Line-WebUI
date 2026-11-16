@@ -438,7 +438,7 @@ def test_blocks_from_the_free_memory(tmp_path, offline, monkeypatch):
                           slope_threshold=55, prominence_span=10, drop_radius=10, ortho="never", name="free",
                           access=True)
     grids = {}
-    for name, free in (("at-once", 10 ** 12), ("blocks", 8_000_000)):
+    for name, free in (("at-once", 10 ** 12), ("blocks", 12_000_000)):
         monkeypatch.setattr(search, "available_memory", lambda free=free: free)
         events = []
         paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
@@ -470,7 +470,7 @@ def test_a_tiled_search_in_blocks(tmp_path, offline, monkeypatch):
                           fill_gaps="off", min_length=50, max_length=300, slope_threshold=55, prominence_span=10,
                           drop_radius=10, ortho="never", tile_size=800, name="tiled", access=True)
     tables = {}
-    for name, free in (("at-once", 10 ** 12), ("blocks", 6_000_000)):
+    for name, free in (("at-once", 10 ** 12), ("blocks", 9_000_000)):
         monkeypatch.setattr(search, "available_memory", lambda free=free: free)
         events = []
         paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
@@ -590,10 +590,10 @@ def test_shore_faces_reach_the_measure_as_no_data(tmp_path, monkeypatch):
     assert np.array_equal(got, as_no_data) and (as_no_data != walked).sum() > 100
 
 
-def test_access_memory_refused_and_blocks_sized(tmp_path, offline):
-    """With --access a search whose access grid cannot fit Plan.memory even in its smallest blocks is refused before
-    step 1 (the coded error access_memory, its page text without option names); a search that fits keeps one block
-    or gets the largest blocks the memory leaves (search._access_block_px); without the option nothing changes."""
+def test_blocks_sized_from_the_budget(tmp_path, offline):
+    """access_memory is the least the access grid needs (the grid at once, or the grid-wide pass and the smallest
+    block's window); a search that fits keeps one block or gets the largest blocks the memory leaves
+    (search._access_block_px); without the option no check and no note."""
     z = scene()
     write_raster(tmp_path / "mem.tif", z, LEFT, TOP)
     values = dict(elevation_file=str(tmp_path / "mem.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
@@ -604,15 +604,96 @@ def test_access_memory_refused_and_blocks_sized(tmp_path, offline):
     pixels, block = h * w, 500 + 2 * access.margin_px(1.0)
     need = min(pixels * search.ACCESS_WINDOW_BYTES,
                pixels * search.ACCESS_AREA_BYTES + min(h, block) * min(w, block) * search.ACCESS_WINDOW_BYTES)
-    assert search.access_memory(plan) == need
+    assert search.access_memory(plan) == need and plan.access_on and plan.access_skipped is None
     assert search._access_block_px(plan) is None  # the grid at once
-    with pytest.raises(search.SearchError) as refused:
-        search.plan_search(SearchParams(**values, access=True), paths, lambda k, t: None, memory=need - 1)
-    assert refused.value.code == "access_memory" and "--" not in refused.value.web_text()
-    search.plan_search(SearchParams(**values), paths, lambda k, t: None, memory=1000)  # the option off: no check
+    events = []
+    off = search.plan_search(SearchParams(**values), paths, lambda k, t: events.append(t), memory=1000)
+    assert not off.access_on and off.access_skipped is None  # the option off: nothing, no note
+    assert not [t for t in events if getattr(t, "code", None) == "access_skipped"]
     big = dataclasses.replace(plan, memory=pixels * search.ACCESS_WINDOW_BYTES - 1)
     side = int(np.sqrt((big.memory - pixels * search.ACCESS_AREA_BYTES) / search.ACCESS_WINDOW_BYTES))
     assert search._access_block_px(big) == max(500, side - 2 * access.margin_px(1.0))
+
+
+def _head(path) -> dict:
+    """The head of a run's data.js or lines.js (everything before its lines)."""
+    text = open(path, encoding="utf-8").read()
+    return json.loads(text[text.index(" = {") + 3:text.index(',"lines":[')] + "}")
+
+
+def test_too_wide_for_the_mark_runs_without_it(tmp_path, offline, monkeypatch):
+    """A search with --access whose access grid cannot fit its memory even in the smallest blocks is not refused
+    (the user's choice of 2026-11-16): the coded note access_skipped once (need, have in GiB), the step "access to
+    anchors" not run, the run made as without the option (lines.csv byte for byte, no access columns, no "ends") with
+    "access_skipped": "memory" in run.json and in every head (data.js, lines.js, the store's); with enough memory
+    the same search is marked and has no such key."""
+    import pyarrow as pa
+    z = scene()
+    write_raster(tmp_path / "wide.tif", z, LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "wide.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2,
+                  radius=135, resolution=1, nmpt="off", water="off", fill_gaps="off", min_length=10, max_length=80,
+                  slope_threshold=60, prominence_span=10, drop_radius=10, ortho="never")
+    folders, calls = {}, []
+    real = search._access_grid
+    for name, access_on, free in (("off", False, 10 ** 10), ("skipped", True, 10_000), ("marked", True, 10 ** 10)):
+        events = []
+        monkeypatch.setattr(search, "available_memory", lambda free=free: free)  # the command line's budget
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = dataclasses.replace(search.plan_search(SearchParams(**values, access=access_on, name=name), paths,
+                                                      lambda kind, text: events.append((kind, text))),
+                                   index_runs=False)
+        search._access_grid = lambda *a, name=name, **k: calls.append(name) or real(*a, **k)
+        try:
+            lines, run = search.search_lines(plan)
+        finally:
+            search._access_grid = real
+        folder = tmp_path / name / "runs" / name
+        folder.mkdir(parents=True)
+        search.save_run(plan, lines, {"id": name, "path": str(folder), "created": datetime(2026, 11, 16), "name": name})
+        folders[name] = folder
+        notes = [t for _, t in events if getattr(t, "code", None) == "access_skipped"]
+        if name == "skipped":
+            assert plan.access_skipped == "memory" and not plan.access_on and len(notes) == 1
+            need = search.access_memory(plan)
+            assert notes[0].params == {"need": round(need / 2 ** 30, 1), "have": round(10_000 / 2 ** 30, 1)}
+            assert notes[0].web_text() == messages.text("error.access_skipped", **notes[0].params)
+            assert [k for k, t in events if t is notes[0]] == ["warning"]
+        else:
+            assert plan.access_skipped is None and notes == []
+    assert calls == ["marked"]  # the step not run for the skipped search
+    off, skipped, marked = folders["off"], folders["skipped"], folders["marked"]
+    assert (skipped / "lines.csv").read_bytes() == (off / "lines.csv").read_bytes()
+    assert b",access1,access2" in (marked / "lines.csv").read_bytes()[:2000]
+    for name, folder, key in (("off", off, None), ("skipped", skipped, "memory"), ("marked", marked, None)):
+        meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+        assert meta.get("access_skipped") == key and ("access" in meta["params"]) == (name == "marked"), name
+        heads = [_head(folder / "data.js"), _head(folder / "lines.js")]
+        with pa.OSFile(str(folder / "lines.arrow"), "rb") as source:
+            schema = pa.ipc.open_file(source).schema
+        heads.append(json.loads(schema.metadata[b"findaline"])["head"])
+        for head in heads:
+            assert head.get("access_skipped") == key, (name, head.get("access_skipped"))
+            assert ("ends" in head) == (name == "marked"), name
+        assert ("access1" in schema.names) == (name == "marked"), name
+
+
+def test_estimate_of_a_search_too_wide_for_the_mark(tmp_path, offline, monkeypatch):
+    """The web app's estimate (jobs.quick_estimate, a compute slot's budget) of a search too wide for the access grid:
+    nothing refused, its messages carry the note with its code and params; with the budget large enough, no note."""
+    import jobs
+    write_raster(tmp_path / "est.tif", scene(), LEFT, TOP)
+    request = {"params": dict(elevation_file=str(tmp_path / "est.tif"), northing=TOP - SIZE / 2,
+                              easting=LEFT + SIZE / 2, radius=135, resolution=1, nmpt="off", water="off",
+                              fill_gaps="off", ortho="never", access=True)}
+    for budget, noted in ((10_000, True), (10 ** 10, False)):
+        monkeypatch.setattr(jobs, "SLOT_MEMORY", budget)
+        result = jobs.quick_estimate(str(tmp_path), request)
+        coded = [m for m in result["messages"] if len(m) == 3 and m[2]["code"] == "access_skipped"]
+        assert len(coded) == int(noted), result["messages"]
+        if noted:
+            kind, text, info = coded[0]
+            assert kind == "warning" and set(info["params"]) == {"need", "have"} and "GiB" in text and "--" not in text
 
 
 def test_disk_estimate_counts_the_access_grid(tmp_path, offline):

@@ -93,7 +93,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   (`"mark"`) of the store; `web.FavouriteLine` keeps them optional (`OPTIONAL`); a run without the option has none
   and today's bytes (`tests/test_units.py::test_saved_text_as_before`, `tests/test_access_search.py`). The page
   reads an extra value by its name in `ends`, so today's ignores them; the page that shows them (`types.ts`,
-  `favourites.ts`) takes the same names.
+  `favourites.ts`) takes the same names. A mark asked but left out (the area too wide: `search._check_access`) makes
+  the run of a search without the option plus `"access_skipped": "memory"` in run.json and every head
+  (`mapping._ends`: data.js, lines.js, the store's) = `types.ts` `RunHead.access_skipped`.
 - The uncertain shore: `sources.filling.shore_segments`' dict is run.json's and data.js's `shore`
   (`mapping.map_heads`, not lines.js; `runs._listed` leaves it out) and `Shore`/`ShoreSegment` of
   `viewer/src/types.ts` (`shore.ts`, `shoreLayer.ts`); runs saved before 2026-11-05 have none and show no layer. The
