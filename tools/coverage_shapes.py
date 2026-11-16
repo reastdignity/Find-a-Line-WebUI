@@ -4,8 +4,9 @@ The coverage map's outlines: countries and regions from Natural Earth (public do
 Writes viewer/src/coverage/shapes.json, a GeoJSON FeatureCollection whose properties are `ShapeProperties` of
 viewer/src/coverage/types.ts: every country of Natural Earth's admin-0 (1:50m), then the regions of the coverage
 map's areas from its admin-1 (1:10m: ISO 3166-2 codes, the Canary Islands from both provinces, the nations of
-Great Britain by `geonunit`, Jan Mayen, which admin-1 lacks, cut from Norway's outline, and the Land Bremen's two cities
-cut from its unit: CUT). A country its source covers only in part (`Coverage.box`, else the source's
+Great Britain by `geonunit`, Jan Mayen, which admin-1 lacks, cut from Norway's outline, the Land Bremen's two cities
+cut from its unit and Madeira's island groups from PT-30's: CUT). A country its source covers only in part
+(`Coverage.box`, else the source's
 `bbox`: France without its overseas regions, Norway without Svalbard, New Zealand without the Chatham Islands)
 is split: the covered part keeps the id, the rest is a feature of the same id with `rest: true`. Areas under
 SMALL_KM2 are `small` (drawn as a dot too). tests/test_coverage.py checks that every area has a shape.
@@ -50,11 +51,15 @@ MERGED = {"es-cn": ("ES-GC", "ES-TF"),
           "it-23": ("IT-AO",),
           # Tuscany: its ten provinces of Natural Earth
           "it-52": ("IT-AR", "IT-FI", "IT-GR", "IT-LI", "IT-LU", "IT-MS", "IT-PI", "IT-PO", "IT-PT", "IT-SI")}
-# Regions without an admin-1 unit: their country's outline (an ISO 3166-1 code) or an admin-1 unit's (ISO 3166-2)
-# within a box (south, north, west, east). The Land Bremen's two cities, each a source of its own: de-hb the city of
-# Bremen, de-hb-bhv Bremerhaven (our code: ISO 3166-2 names neither city)
+# Regions without an admin-1 unit of their own: their country's outline (a lower-case code), or an admin-1 unit's (an
+# ISO 3166-2 code), within a box (south, north, west, east): Jan Mayen from Norway; the Land Bremen's two cities, each a
+# source of its own (de-hb the city of Bremen, de-hb-bhv Bremerhaven: our code, ISO 3166-2 names neither city);
+# Madeira's island groups from PT-30 (each its own source: Madeira island 2 m, Porto Santo, the Desertas and the
+# Selvagens 5 m)
 CUT = {"no-22": ("no", (70.5, 71.5, -9.5, -7.5)),
-       "de-hb": ("DE-HB", (52.9, 53.3, 8.3, 9.2)), "de-hb-bhv": ("DE-HB", (53.3, 53.8, 8.3, 8.9))}
+       "de-hb": ("DE-HB", (52.9, 53.3, 8.3, 9.2)), "de-hb-bhv": ("DE-HB", (53.3, 53.8, 8.3, 8.9)),
+       "pt-30": ("PT-30", (32.6, 32.9, -17.35, -16.6)), "pt-30-ps": ("PT-30", (32.98, 33.14, -16.43, -16.26)),
+       "pt-30-de": ("PT-30", (32.39, 32.61, -16.57, -16.45)), "pt-30-se": ("PT-30", (30.02, 30.17, -16.07, -15.84))}
 # Regions of Great Britain: Natural Earth's admin-1 units of a nation (`geonunit`)
 NATIONS = {"gb-eng": "England", "gb-wls": "Wales", "gb-sct": "Scotland", "gb-nir": "Northern Ireland"}
 SMALL_KM2 = 10_000

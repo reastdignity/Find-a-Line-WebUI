@@ -65,4 +65,6 @@ AREA_NAMES: Dict[str, str] = {
     # Bremerhaven, which the source's coverage boxes leave out of a download) and Bremerhaven (relation 62658; the
     # area's code is ours: ISO 3166-2 names neither city; checked 2026-11-16)
     "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven",
-    "jp-13": "東京都", "jp-22": "静岡県"}
+    "jp-13": "東京都", "jp-22": "静岡県",
+    # Madeira's other island groups: Nominatim's municipality and archipelagos (checked 2026-11-15)
+    "pt-30-ps": "Porto Santo, Portugal", "pt-30-de": "Ilhas Desertas", "pt-30-se": "Ilhas Selvagens"}

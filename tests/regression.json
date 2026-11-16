@@ -2277,6 +2277,107 @@
     "seconds": 4.4,
     "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only. Re-baselined 2026-11-16 (158 lines, 14 spots -> 1002, 22): the first baseline was taken while Overpass did not answer, so its sea came from the Copernicus mask (the fallback): with --coastline copernicus the code of now gives that lines.csv exactly (sha256 29b3aa05...), and the code of before gives these 1002 lines with the OSM coastline; most of them span the coves over the sea filled at 0 m"
   },
+  "R86": {
+    "place": "Porto Santo's north-east cliffs, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of Porto Santo, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), Porto Santo 1995 / UTM 28N",
+    "args": "--lat 33.0942 --lon -16.2998 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "porto-santo/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 16492,
+      "open": 12924,
+      "checked": 52151,
+      "lines": 7052,
+      "spots": 410,
+      "csv_sha256": "2a2381c3e0137617e819e6b4fc77652ccd5357392aca4eb229b4d926e619dc44",
+      "length_km": 1442.081,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.027,
+      "clearance_max": 14.83,
+      "over_trees": 0,
+      "coverage": 63.44,
+      "empty_tiles": 0,
+      "filled_km2": 0.04,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.56,
+      "water_lines": 24,
+      "water_spots": 6
+    },
+    "seconds": 26.7
+  },
+  "R87": {
+    "place": "Deserta Grande's west cliffs, the Desertas, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Desertas (its file labelled EPSG:3061, read as PTRA08 / UTM 28N), our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m)",
+    "args": "--lat 32.5185 --lon -16.5072 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "desertas/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 22775,
+      "open": 18532,
+      "checked": 24697,
+      "lines": 784,
+      "spots": 130,
+      "csv_sha256": "9f5a43780aff956866616dd8eada76b1e12da9aa1a8b38659f34b9573e059b53",
+      "length_km": 99.734,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.389,
+      "clearance_max": 9.37,
+      "over_trees": 0,
+      "coverage": 72.68,
+      "empty_tiles": 1,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.69,
+      "water_lines": 19,
+      "water_spots": 4
+    },
+    "seconds": 170.8,
+    "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m"
+  },
+  "R88": {
+    "place": "Selvagem Grande's cliffs, the Selvagens, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Selvagens, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), PTRA08 / UTM 28N",
+    "args": "--lat 30.1512 --lon -15.8691 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "selvagens/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 3678,
+      "open": 2753,
+      "checked": 9607,
+      "lines": 972,
+      "spots": 114,
+      "csv_sha256": "6b73d80f00bec323115ddaf5e9f88509b040f32ee9752436509b60854acec9df",
+      "length_km": 119.157,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.185,
+      "clearance_max": 13.2,
+      "over_trees": 0,
+      "coverage": 53.6,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.98,
+      "water_lines": 414,
+      "water_spots": 43
+    },
+    "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m",
+    "seconds": 37.3
+  },
   "R89": {
     "place": "The cliffs of Martinique's north coast at Anse Bagasse, Grand'Riviere (FR, Nominatim's \"fr\", chosen by the island's box): IGN's RGE ALTI 1 m by GetMap from the Geoplateforme's WMS-R (layer MTQ, EPSG:32620, pixel edges on half metres), its sea floor (heights below -1 m) taken as no data",
     "args": "--lat 14.8735 --lon -61.1750 --radius 400 --min-length 20 --max-length 200",
