@@ -154,8 +154,10 @@ BC_BORDER = ((48.95, 49.1, -123.35, -114.0),)
 # against NRCan's HRDEM mosaic (wave 0 of batch 6): the same lidar on land to 1-3 cm, at twice the resolution, on the
 # surveys' own grid (no 1.8-2.6 % length error), more of the small walls (Rattlesnake Point: 84 pixels over 80° at
 # 1 m against 9), but fewer projects: canada fills the gaps (its HRDEM mosaic has projects the province does not
-# publish). Two projects cover 19.4 % of the province's 157 093 tiles (the tile index of 2026-10-28): the newer
-# project's tile is used whole (16.6 % of those lie at its edge, likely partial: their holes go to canada).
+# publish). Two projects cover 19.4 % of the province's 157 093 tiles (the tile index of 2026-10-28): the newest
+# survey's tile is used whole (16.6 % of those lie at its project's edge; in the four 0.25° tiles cached on
+# 2026-11-16, 39 of 676 places in two projects had a chosen member under half the size of the other: likely holes,
+# which go to canada).
 # Licence: OGL - Ontario 1.0; the user guides (section 2.2): "you must use the following attribution statement
 # “Contains information licensed under the Open Government Licence – Ontario”"; the licence grants no right to
 # suggest an official status or the province's endorsement. Limits: none published (net.HOST_SLOTS_OF: two at
@@ -170,9 +172,10 @@ ON_ZONES = {15: "EPSG:3159", 16: "EPSG:3160", 17: "EPSG:2958", 18: "EPSG:2959"}
 # Muskoka's copies in CGVD28 (Muskoka-2021-CGVD2013-DTM.zip holds both: 1km...LMuskoka_CGVD28_DTM.tif)
 ON_EXCLUDE = r"(?i)CGVD28(?!\d)"
 # The end of each project's acquisition (the DTM user guide's table 1, version 2324.1; a project of the index named
-# as it is there): the newer project of a tile wins. GTA 2014-18 and OMAFRA 2016-18 are several surveys, their
-# members' names carry each one's year (within a project the newer year wins); Lower Thames 2025-26 has a first
-# delivery of 2025 and tiles named 2026. tests/test_ontario.py: every project of the index is here
+# as it is there): of a tile's members the one of the latest year in its name wins (GTA 2014-18, OMAFRA 2016-18 and
+# Huron-Georgian Bay 2022-23 are several surveys, each tile named with its own year; Ottawa River's names carry none:
+# the year of its date), of one year the project of the later date. Lower Thames 2025-26 has a first delivery of
+# 2025 and tiles named 2026. tests/test_ontario.py: every project of the index is here
 ON_PROJECT_DATES = {
     "LEAP 2009": "2009-12-31", "GTA 2014-18": "2018-06-30", "OMAFRA Lidar 2016-18": "2018-05-31",
     "Muskoka 2018": "2018-05-24", "CLOCA Lidar 2018": "2018-12-10", "SNC Lidar 2018-19": "2019-04-22",
@@ -252,7 +255,7 @@ SOURCES: List[Source] = [
     Source(
         id="ontario", name="Ontario DTM / DSM (Lidar-Derived) 0.5 m",
         description="Geospatial Ontario's lidar terrain and surface models 0.5 m (1 m for LEAP 2009 and Muskoka) of "
-                    "the province's projects 2009-2026, 1 km tiles of its package ZIPs, the newest project first, "
+                    "the province's projects 2009-2026, 1 km tiles of its package ZIPs, the newest survey first, "
                     "NAD83(CSRS) / UTM zones 15-18, CGVD2013 heights (LEAP 2009 in CGVD28); gaps from NRCan's "
                     "HRDEM mosaic 1 m, then 2 m, then MRDEM-30",
         nmt=_ontario("dtm", ON_DTM_INDEX, "Ontario DTM (Lidar-Derived) 0.5 m (terrain)", 9e6),
@@ -268,7 +271,7 @@ SOURCES: List[Source] = [
         offline=ON_BOXES, sample=(44.9055, -77.1899),  # Mazinaw Rock, Bon Echo
         note="Data: Geospatial Ontario, Open Government Licence - Ontario. The province's lidar covers much of the "
              "south and parts of the north; gaps are filled from NRCan's HRDEM mosaic (1 m, then 2 m), then from "
-             "MRDEM-30 (30 m). Where two projects cover a 1 km tile the newer is used whole. LEAP 2009 (Kingston, "
+             "MRDEM-30 (30 m). Where two surveys cover a 1 km tile the newer is used whole. LEAP 2009 (Kingston, "
              "Prince Edward County) is in CGVD28 heights, off the newer data by the two datums' difference. No open "
              "orthophoto of Ontario here: the map shows its own base layers.",
         coverage=Coverage(provider="Geospatial Ontario", added="2026-11-16", partial=True, rest=(2.0, 30.0),

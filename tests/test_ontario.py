@@ -301,6 +301,35 @@ def test_members_read_by_range(http_server, layer, tmp_path):
     assert layer.used(grid, cache_dir)["survey_years"] == [2018, 2023]
 
 
+def test_member_beyond_its_box_cut_to_it(http_server, layer, tmp_path):
+    """A member reaching a pixel beyond its tile on every side (as LEAP 2009's DSM members reach 100 m) and one with
+    float noise in its origin (as Muskoka's): both cached on the tile's box exactly, the first cut to it."""
+    values = np.arange(144, dtype=np.float32).reshape(12, 12) + 100.0
+    with rio.io.MemoryFile(ext=".img") as memfile:
+        with memfile.open(driver="HFA", width=12, height=12, count=1, dtype="float32", crs="EPSG:26917",
+                          transform=from_origin(EAST * 1000 - TEN, (NORTH + 1) * 1000 + TEN, TEN, TEN)) as dst:
+            dst.write(values, 1)
+        wide = memfile.read()
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=10, height=10, count=1, dtype="float32", crs="EPSG:2958",
+                          transform=from_origin((EAST - 1) * 1000 - 2e-10, (NORTH + 1) * 1000, TEN, TEN)) as dst:
+            dst.write(np.full((1, 10, 10), 300.0, np.float32))
+        noisy = memfile.read()
+    _package(http_server, "A", [(_name(17, EAST, NORTH, 2008, "LEAP_DSM", "img"), wide),
+                                (_name(17, EAST - 1, NORTH, 2008, "LEAP_DSM", "img"), noisy)])
+    _featureserver(http_server, [_feature(http_server, "A", "LEAP 2009")])
+    grid = _grid()
+    src.download_layers([(layer, "terrain")], grid, str(tmp_path), None)
+    files = sorted(layer.files(grid, str(tmp_path)))
+    assert len(files) == 2
+    with rio.open(next(f for f in files if os.path.basename(f).startswith(f"{EAST}_"))) as tile:
+        assert (tile.width, tile.height) == (10, 10)
+        assert tuple(tile.transform)[:6] == (TEN, 0.0, EAST * 1000.0, 0.0, -TEN, (NORTH + 1) * 1000.0)
+        assert np.abs(tile.read(1) - values[1:-1, 1:-1]).max() <= TILE_EPS
+    with rio.open(next(f for f in files if os.path.basename(f).startswith(f"{EAST - 1}_"))) as tile:
+        assert tile.transform.c == (EAST - 1) * 1000.0
+
+
 def test_member_off_its_box_never_cached(http_server, layer, tmp_path):
     """A member half a pixel off its tile's box (a tie point read as the corner) is refused, nothing cached."""
     _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0, shift=TEN / 2))])
@@ -363,9 +392,10 @@ def test_moved_member_read_from_the_new_directory(http_server, layer, tmp_path):
 # Several surveys of a place
 
 def test_newest_project_wins_the_place(http_server, layer, tmp_path):
-    """Two projects over a tile: the newer project's member is used whole (the older is never read), whatever the
-    years in the names; two members of one project at a place: the later year. A newer project published later
-    replaces the cached older tile (pruned once the newer is cached)."""
+    """Projects over a tile: the newest survey's member is used whole (the others are never read): the later year
+    in the members' names first (Huron-Georgian Bay 2022-23 ends later than GTA 2023, but its tile of 2022 is
+    older than GTA 2023's), then the project's date; two members of one project at a place: the later year. A
+    newer project published later replaces the cached older tile (pruned once the newer is cached)."""
     _package(http_server, "Old", [(_name(17, EAST, NORTH, 2018, "Halton_DTM"), _raster(EAST, NORTH, 100.0)),
                                   (_name(17, EAST - 1, NORTH, 2018, "Halton_DTM"), _raster(EAST - 1, NORTH, 101.0))])
     _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18")])
@@ -377,7 +407,9 @@ def test_newest_project_wins_the_place(http_server, layer, tmp_path):
     # GTA 2023 published: one tile in two members of the project (2022 and 2023)
     _package(http_server, "New", [(_name(17, EAST, NORTH, 2022, "GTA2023_DTM"), _raster(EAST, NORTH, 202.2)),
                                   (_name(17, EAST, NORTH, 2023, "GTA2023_DTM"), _raster(EAST, NORTH, 202.3))])
-    _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18"), _feature(http_server, "New", "GTA 2023")])
+    _package(http_server, "HGB", [(_name(17, EAST, NORTH, 2022, "HURONGEORGIANBAY_DTM"), _raster(EAST, NORTH, 1.0))])
+    _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18"), _feature(http_server, "New", "GTA 2023"),
+                                 _feature(http_server, "HGB", "DEDSFM Huron-Georgian Bay 2022-23")])
     layer.index._listed.clear()
     layer.listing._asked.clear()
     tiles = layer.index.versions.query(layer.index, grid, cache_dir, "all")
@@ -391,6 +423,7 @@ def test_newest_project_wins_the_place(http_server, layer, tmp_path):
         assert np.nanmax(np.abs(tile.read(1) - 202.3)) <= TILE_EPS
     read = [r.path for r in http_server.requests(PACKAGES) if r.method == "GET"]
     assert read.count(f"{PACKAGES}Old.zip") == 3  # its tail and its two members of the first download only
+    assert read.count(f"{PACKAGES}HGB.zip") == 1  # its tail only
 
 
 def test_tile_outside_every_package(http_server, layer, tmp_path):

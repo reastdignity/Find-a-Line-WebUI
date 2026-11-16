@@ -242,13 +242,16 @@ PACKAGE_FILE = re.compile(r"[\\/]epsg(\d+)[\\/]-?\d+_-?\d+[\\/](-?\d+)_(-?\d+)_(
 
 
 def _order(tile: PackageTile) -> tuple:
-    """Newer first: the project's date, then the member's year (two surveys of one project), then its key."""
-    return tile.date, tile.year, tile.key
+    """Newer first: the member's year (its survey's: a project of several years names each tile's), then the
+    project's date (two projects of one year), then its key. Ontario's tile index (2026-10-28): of 30 414 places
+    in two or more projects, 54 would go the other way by the project's date first, each to the older survey
+    (Huron-Georgian Bay's tiles of 2022 against GTA 2023's and Kawartha Lakes 2023's)."""
+    return tile.year, tile.date, tile.key
 
 
 class PackageVersions(Versions):
-    """One version of each place (a 1 km tile of a zone): the newest survey's (_order: the project's date from the
-    catalogue's table, then the member's year), so where two projects cover a tile the newer is used whole and its
+    """One version of each place (a 1 km tile of a zone): the newest survey's (_order: the member's year, then the
+    project's date from the catalogue's table), so where two projects cover a tile the newer is used whole and its
     holes go to the source's gap filler. The tiles are used newest first, and of equal ones those in the working
     CRS first (copied as they are). A member is known by its CRC-32: a changed member has another name in the
     cache and is read again, and the cached files of a place's other versions are deleted then (prune).
@@ -277,7 +280,7 @@ class PackageVersions(Versions):
     @staticmethod
     def _sorted(tiles, grid_crs: str) -> List[PackageTile]:
         same = {crs: _same_crs(crs, grid_crs) for crs in {t.crs for t in tiles}}
-        return sorted(tiles, key=lambda t: (t.date, same[t.crs], t.year, t.key, t.crs, t.north, t.east),
+        return sorted(tiles, key=lambda t: (t.year, t.date, same[t.crs], t.key, t.crs, t.north, t.east),
                       reverse=True)
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:

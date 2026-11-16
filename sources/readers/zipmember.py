@@ -160,8 +160,9 @@ class ZipMember(Reader):
     again as a tile (float32, NaN for no data and below layer.VALID_MIN), in crs's name if given, else in that of
     the request's own crs if it has one (a tile of a package in several UTM zones), else as the member says; with
     floor, drop_below(floor, ring) first; with fix, its transform corrected first (TransformFix: an offset, a
-    rounding to the grid); then placed(transform, width, height, request, where) may refuse it (a subclass's
-    check of where the member lies; none here).
+    rounding to the grid); then placed(transform, width, height, request, where) gives the transform it is
+    written with and the window of it kept, or refuses it (a subclass's check of where the member lies; here the
+    member as it is).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
@@ -242,8 +243,11 @@ class ZipMember(Reader):
             raise ValueError(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
         return data
 
-    def placed(self, transform: Affine, width: int, height: int, request, where: str):
-        """Raise RuntimeError when the member does not lie where its tile is (a subclass's check; none here)."""
+    def placed(self, transform: Affine, width: int, height: int, request,
+               where: str) -> Tuple[Affine, Optional[rio.windows.Window]]:
+        """The transform to write the member with and the window of it to keep (None: all of it); RuntimeError
+        when the member does not lie where its tile is (a subclass's check; here the transform as it is, all)."""
+        return transform, None
 
     def _write(self, data: bytes, path: str, where: str, request=None):
         try:
@@ -254,7 +258,9 @@ class ZipMember(Reader):
                 crs, transform = self.crs or getattr(request, "crs", None) or src.crs, src.transform
                 if self.fix is not None:
                     transform = self.fix.apply(transform, where)
-                self.placed(transform, src.width, src.height, request, where)
+                transform, window = self.placed(transform, src.width, src.height, request, where)
+                if window is not None:
+                    band = band[window.toslices()]
         except rio.errors.RasterioError as e:
             raise RuntimeError(f"{where}: not a raster ({e})") from None
         drop_below(band, self.floor, self.ring)

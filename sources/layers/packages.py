@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple
 import requests
 from rasterio.transform import Affine
 from rasterio.warp import transform_bounds
+from rasterio.windows import Window
 
 from grid import Grid
 
@@ -22,21 +23,31 @@ PLACE_TOLERANCE_PX = 1e-3
 
 class PackageMember(ZipMember):
     """ZipMember for the tiles of PackageVersions: written in the CRS of the tile's zone (the files name it in
-    other ways: EPSG:26917 for NAD83(CSRS) in ERDAS Imagine files, a compound CRS with CGVD2013 in GeoTIFFs), and
-    refused unless the member covers its tile's 1 km box exactly as GDAL places it (a "PixelIsPoint" file with
-    its tie point at the first pixel's centre lands on the box; one with the tie point at the corner would lie
-    half a pixel off and is never cached)."""
+    other ways: EPSG:26917 for NAD83(CSRS) in ERDAS Imagine files, a compound CRS with CGVD2013 in GeoTIFFs), on its
+    tile's 1 km box exactly: a member reaching beyond it on the same pixels is cut to it (LEAP 2009's DSM members:
+    1.2 km, 100 m around their tile), the transform's float noise is dropped (Muskoka's 627999.9999999998), and a
+    member that does not cover the box on whole pixels is refused, never cached ("PixelIsPoint" files with their
+    tie point at the first pixel's centre land on the box as GDAL places them; one with the tie point at the corner
+    would lie half a pixel off)."""
 
-    def placed(self, transform: Affine, width: int, height: int, request, where: str):
+    def placed(self, transform: Affine, width: int, height: int, request,
+               where: str) -> Tuple[Affine, Optional[Window]]:
         if transform.b != 0 or transform.d != 0 or transform.a <= 0 or transform.e >= 0:
             raise RuntimeError(f"{where}: not a north-up raster ({transform})")
-        res = transform.a
+        res = round(transform.a, 6)
+        size = TILE_M / res
         x, y = request.east * TILE_M, (request.north + 1) * TILE_M
-        off = max(abs(transform.c - x), abs(transform.f - y), abs(width * res - TILE_M),
-                  abs(height * -transform.e - TILE_M)) / res
-        if abs(transform.e + res) / res > PLACE_TOLERANCE_PX or off > PLACE_TOLERANCE_PX:
+        col, row = (x - transform.c) / res, (transform.f - y) / res
+        whole = [abs(v - round(v)) for v in (col, row, size)]
+        if (max(whole) > PLACE_TOLERANCE_PX or abs(transform.a - res) * width > PLACE_TOLERANCE_PX * res
+                or abs(-transform.e - res) * height > PLACE_TOLERANCE_PX * res or round(col) < 0 or round(row) < 0
+                or round(col) + round(size) > width or round(row) + round(size) > height):
             raise RuntimeError(f"{where}: the member lies off its tile's box ({transform}, {width} x {height} px; "
                                f"the box's corner {x}, {y})")
+        exact = Affine(res, 0.0, float(x), 0.0, -res, float(y))
+        if (round(col), round(row), width, height) == (0, 0, round(size), round(size)):
+            return exact, None
+        return exact, Window(round(col), round(row), round(size), round(size))
 
 
 class PackageTiles(IndexedTiles):
