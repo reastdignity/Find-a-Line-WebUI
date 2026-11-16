@@ -1135,7 +1135,19 @@ def test_frame_in_edge(tmp_path, run):
     assert first["actions"] is False  # the run's actions are not in the view yet
     assert "fal:view:first" in first["measures"] and "fal:view:inview" in first["measures"]
     assert not {"fal:run:group", "fal:run:filter", "fal:run:rows"} & set(first["measures"])
-    assert first["drawn"] == {"strokes": 0, "numbers": []} and first["bestOff"] is True and first["snap"] == [0.25, 0.5]
+    assert first["bestOff"] is True and first["snap"] == [0.25, 0.5]
+
+    def legend(drawn, area=False):
+        """The legend lists exactly the shapes and colours the canvas drew (at Area the squares stand for the
+        lines' colours), then the access mark's three states."""
+        kinds = ("sq", "P") if area else ("clear", "over", "P", "B", "pale", "A", "L", "here")
+        assert drawn["legend"] == [k for k in kinds if k in drawn["shapes"]] + ["access-2", "access-1", "access-0"], drawn
+        assert drawn["ink"] is True and len(set(map(tuple, drawn["boxes"]))) == len(drawn["numbers"])
+    # Area: the squares, the picks bold with their P numbers
+    drawn, picks = first["drawn"], run.picks(ok)
+    legend(drawn, area=True)
+    assert drawn["strokes"] == len(picks) == drawn["picks"] and {"sq", "P"} <= set(drawn["shapes"])
+    assert drawn["numbers"] and set(drawn["numbers"]) <= {f"P{p['n']}" for p in picks}
     assert 2.14 < first["mpp"] < 8  # the run's 2.6 km in the map's column: the Area level
     held = out["held"]
     assert (held["level"], held["auto"], held["refused"]) == ("lines", False, False)
@@ -1144,14 +1156,37 @@ def test_frame_in_edge(tmp_path, run):
     assert held["pressed"] == [["auto", "false", False], ["area", "false", False], ["spots", "false", False],
                                ["lines", "true", False]]
     assert out["back"] == {"level": "area", "auto": True, "status": words["ui.view.map.status_area"]}
+    # Lines held far out, Best 10: the ten bold lines, their lines not beaten thin, every other spot pale
+    drawn = held["drawn"]
+    legend(drawn)
+    assert drawn["strokes"] == held["m"] + drawn["thin"] and drawn["thin"] > 10 and held["m"] == spots
+    assert {"B", "pale"} <= set(drawn["shapes"]) and set(drawn["numbers"]) <= {f"B{k}" for k in range(1, 11)}
     zoomed = out["spots"]
     assert zoomed["level"] == "spots" and 0 < zoomed["m"] < spots and zoomed["best"] == min(10, zoomed["m"])
     assert zoomed["numbered"] is True and zoomed["zoom"] * 4 == int(zoomed["zoom"] * 4)  # quarter steps
     assert zoomed["mpp"] == pytest.approx(first["mpp"] / 2 ** 2.5, rel=0.01)
     assert zoomed["status"] == words["ui.view.map.status_spots"].replace("{{n}}", str(zoomed["best"])).replace("{{m}}", str(zoomed["m"]))
-    assert zoomed["all"] == {"best": "all", "disabled": False,
+    assert {k: v for k, v in zoomed["all"].items() if k != "drawn"} == {"best": "all", "disabled": False,
                              "status": words["ui.view.map.status_spots_all"].replace("{{m}}", str(zoomed["m"]))}
     assert out["escape"] == [True, True] and out["zoomTo"] is True and out["gone"] is True
+    # Spots: the best bold and numbered, the others pale; with All every spot bold, no number, nothing pale
+    drawn = zoomed["drawn"]
+    legend(drawn)
+    assert drawn["strokes"] == zoomed["m"] and "B" in drawn["shapes"] and ("pale" in drawn["shapes"]) == (zoomed["m"] > 10)
+    assert drawn["numbers"] and set(drawn["numbers"]) <= {f"B{k}" for k in range(1, zoomed["best"] + 1)}
+    drawn = zoomed["all"]["drawn"]
+    legend(drawn)
+    assert drawn["strokes"] == zoomed["m"] and drawn["numbers"] == [] and not {"B", "pale"} & set(drawn["shapes"])
+    # a spot selected: its passing lines on top, A1 and A2 with the access mark on their corners
+    drawn = out["selected"]["drawn"]
+    legend(drawn)
+    assert drawn["strokes"] == zoomed["m"] + out["selected"]["passing"] and drawn["numbers"] == ["A1", "A2"]
+    assert out["selected"]["marks"] == 2
+    # "Lines from here" at its first anchor: the fan's lines with their numbers, the ring; the spot's lines step back
+    drawn = out["fan"]["drawn"]
+    legend(drawn)
+    assert drawn["strokes"] == zoomed["m"] + len(out["fan"]["rows"]) and "here" in drawn["shapes"] and out["fan"]["marks"] == 0
+    assert drawn["numbers"] and set(drawn["numbers"]) <= set(out["fan"]["rows"]) and "A" not in drawn["shapes"], out["fan"]
     phone = out["phone"]
     assert out["phoneDrawn"] is True and phone["same"] is True and phone["best"] == "all"
     assert phone["slots"] == first["slots"] and phone["pill"] == "Made up" and phone["footAbove"] is True

@@ -254,7 +254,7 @@ export const FIT_FLAT = 5;
 const DEG = Math.PI / 180, EARTH = 6371008.8;
 
 /** A column's value by row without its checks, where it holds every value (the anchors always do). */
-function reader(c: NumberColumn): (i: number) => number {
+export function reader(c: NumberColumn): (i: number) => number {
   const v = c.values, s = c.scale;
   if (c.valid !== null || c.nulls !== null) return (i) => c.at(i) as number;
   return s === 0 ? (i) => v[i] : (i) => v[i] / s;

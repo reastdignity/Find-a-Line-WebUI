@@ -24,6 +24,35 @@
 .ui .v-status.v-refused { background: var(--warn-soft); }
 .ui .v-hint-slot { display: contents; }  /* the frame's slot beside the status line: its children are the boxes */
 
+/* The legend: the shapes and colours on the map now; on a phone two lines of short labels and a fold */
+.ui .v-legend { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: 12px;
+  color: var(--ink-2); box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.ui .v-legend b { color: var(--ink); font-weight: 600; }
+.ui .v-lg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ui .v-lg .r-sw { width: 16px; height: 3px; border-radius: 2px; }
+.ui .v-pale { width: 16px; height: 2px; background: #FF10F0; opacity: .35; }
+.ui .v-ring { width: 14px; height: 14px; border-radius: 50%; border: 2px dashed var(--ink); }
+.ui .v-classes { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; }
+.ui .v-class { gap: 4px; font-variant-numeric: tabular-nums; }
+.ui .v-lay { width: 14px; height: 12px; border-radius: 2px; }
+.ui .v-lay-1 { background: var(--layer-1); } .ui .v-lay-2 { background: var(--layer-2); } .ui .v-lay-3 { background: var(--layer-3); }
+.ui .v-lay-4 { background: var(--layer-4); } .ui .v-lay-5 { background: var(--layer-5); }
+.ui .v-lg-note { flex-basis: 100%; color: var(--muted); }
+.ui .v-by { font-size: 12px; min-height: 26px; font-weight: 600; color: var(--ink); max-width: 100%; }
+.ui .v-sh { width: 32px; height: 19px; flex: none; }
+.ui .v-sh path { fill: #fff; stroke: #1b2530; stroke-width: 1.6; }
+.ui .v-sh text { fill: #1b2530; font: 600 11px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+.ui .v-help { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; box-shadow: var(--shadow);
+  max-width: min(420px, 100%); max-height: 40vh; overflow-y: auto; font-size: 12.5px; }
+.ui .v-legend-phone { flex-direction: column; align-items: flex-start; gap: 3px; padding: 4px 8px; max-width: 100%; }
+.ui .v-lg-line { display: flex; flex-wrap: wrap; gap: 3px 10px; align-items: center; }
+.ui .v-legend-phone .v-by { max-width: 150px; }
+.ui .v-fold { display: inline-flex; align-items: center; gap: 2px; min-height: 30px; padding: 0 6px 0 9px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; box-shadow: var(--shadow); cursor: pointer; }
+.ui .v-fold svg { width: 16px; height: 16px; transform: rotate(180deg); }
+.ui .v-fold.v-folded svg { transform: none; }
+.ui .v-help-button { display: inline-flex; }
+
 .ui .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
   background: var(--ink); color: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 13px; box-shadow: var(--shadow); }
 
@@ -34,3 +63,10 @@
 .ui .c-result-phone .v-toast { top: 112px; }
 
 .ui .v-placeholder { margin: 0; color: var(--muted); }
+
+/* The canvas (SpotMap.ts): it takes no pointer events (the map does: presses are found by distance); on the map no
+   long-press menu or selection of the browser; the pointer over a line or a number a press would take */
+.ui .v-canvas { pointer-events: none; }
+.ui .v-leaflet { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.ui .v-leaflet.v-target { cursor: pointer; }
+.ui .v-anchor-mark svg { width: 18px; height: 18px; }
