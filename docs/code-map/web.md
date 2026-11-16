@@ -83,8 +83,8 @@ Windows has no type for it); the audit log through `record`; the page is `viewer
 Exports (store wave 3, docs/line-volume/spec-store.md 1.4: made for each download, none kept): `POST
 /api/runs/<run>/export` with `{"format": "csv"|"geojson"}` (`run_access`: the owner, administrators, a signed-in
 visitor of a demo run; a share link has no session; a run without run.json's `store` 409 `export_failed`; audit
-`run_export` with the format, once it is made) queues the quick kind `export` and waits as `quick` does (503 without a worker, 504,
-429 `quick_waiting`), answering `{"url": "/api/runs/<run>/export/<token>.<ext>"}` from the lane's `{"name"}`; `GET
+`run_export` with the format, once it is made) after `within_rate("export")` (`export_rate`, 429 `rate_export`) queues the quick kind `export` and waits as
+`quick` does (503 without a worker, 504, 429 `quick_waiting`), answering `{"url": "/api/runs/<run>/export/<token>.<ext>"}` from the lane's `{"name"}`; `GET
 /api/runs/<run>/export/<name>` (`run_access`; `EXPORT_NAME`: 22 URL-safe characters and the extension, so no path and
 no other run's file) takes the file from `work/exports/` by renaming it (`take_export`: the name read first, a rename
 refused or a file gone meanwhile 404, the taken file's mtime set to now so no clean-up deletes it while it is sent;
@@ -219,7 +219,7 @@ resolution too, on the validated `SearchParams`; `bounds`, `not_allowed`; `Limit
 `area_km2_max` also for circles, ...), a user's quotas (`jobs_active_max`, `jobs_day_max`, `mpx_day_max`: km² /
 resolution² (`jobs.plan_mpx`, the page shows it as km² at the search's resolution), `km2_day_max` (off on the public
 site), `download_mb_day_max`, `runs_gb_max`, `nominatim_day_max`) and rates (`estimate_rate`, `profile_rate`,
-`place_rate`, `report_rate`, `time_zone_rate`, `reach_rate`, `job_rate`: the `limits` library's notation), the
+`place_rate`, `report_rate`, `time_zone_rate`, `reach_rate`, `export_rate`, `job_rate`: the `limits` library's notation), the
 server's safeguards for everyone (`queue_max`, `free_disk_gb_min`, also checked by the worker before each phase),
 `lines_early_stop` (F7, true unless set: the line search stops as soon as its lines are over `lines_max` or the
 memory; false: refused at the end with their exact number); `PublicSettings` of `--public` (`FINDALINE_PUBLIC_URL`,

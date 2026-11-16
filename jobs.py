@@ -70,7 +70,7 @@ KEEP_WAITING_QUICK_SECONDS = 86400
 # each export and every EXPORT_SWEEP seconds (remove_old_exports)
 EXPORTS = ("work", "exports")
 EXPORT_KEEP_SECONDS = 3600
-EXPORT_SWEEP = 600  # seconds between the worker's sweeps of the exports (and in every housekeeping round)
+EXPORT_SWEEP = 60  # seconds between the worker's sweeps of the exports (and in every housekeeping round)
 EXPORT_TOKEN_BYTES = 16  # secrets.token_urlsafe: 22 characters
 EXPORT_EXTENSIONS = {"csv": "csv", "geojson": "geojson"}  # the formats (linestore.EXPORTS) and their files' extensions
 # The bytes a line of an export takes at most, for quick_export's disk guard, which estimates the file from the
@@ -1764,10 +1764,11 @@ def exports_folder(data_dir: str) -> str:
 
 
 def remove_old_exports(data_dir: str) -> int:
-    """Delete what the exports' folder holds since EXPORT_KEEP_SECONDS or longer: exports nobody fetched,
-    files whose sending broke off and could not be deleted then, the temporary folders of a lane killed
-    while it wrote (linestore.export's). Their number."""
-    return _remove_old(exports_folder(data_dir), EXPORT_KEEP_SECONDS / 86400)
+    """Delete what the exports' folder holds since EXPORT_KEEP_SECONDS less EXPORT_SWEEP or longer, so a
+    worker that sweeps every EXPORT_SWEEP seconds keeps none longer than EXPORT_KEEP_SECONDS (the privacy
+    page: "for one hour at most"): exports nobody fetched, files whose sending broke off and could not be
+    deleted then, the temporary folders of a lane killed while it wrote (linestore.export's). Their number."""
+    return _remove_old(exports_folder(data_dir), (EXPORT_KEEP_SECONDS - EXPORT_SWEEP) / 86400)
 
 
 def export_bytes(run_folder: str, fmt: str) -> int:

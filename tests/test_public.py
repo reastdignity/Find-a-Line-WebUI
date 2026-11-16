@@ -4022,3 +4022,32 @@ def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
         (ids["a"], RUN_A, {"format": "csv"}), (ids["admin"], RUN_A, {"format": "geojson"}),
         (ids["a"], RUN_B, {"format": "csv"})]
     assert jobs.run(RUN_A)["bytes"] == 100 and jobs.run(RUN_B)["bytes"] == 100
+
+
+def test_export_rate(run_people, monkeypatch):
+    """Exports have their rate (Limits.export_rate, the public default 4 a minute and 30 an hour, the user's
+    choice of 2026-11-16): a limited user's fifth in a minute is refused (429 rate_export) before the quick lane
+    is asked, a user without limits is not; each user counts alone."""
+    _hold_rate_clock(monkeypatch)
+    from settings import Limits
+    assert Limits.load(public=True).export_rate == "4/minute;30/hour"
+    a, unlimited, b = run_people["a"], run_people["unlimited"], run_people["b"]
+    export = lambda client, run=RUN_A: client.post(f"/api/runs/{run}/export", json={"format": "csv"})  # noqa: E731
+    assert [export(a).status_code for _ in range(5)] == [503] * 4 + [429]  # on to the (missing) worker, then the rate
+    refused = export(a).json()["detail"]
+    assert refused["code"] == "rate_export" and refused["message"] == messages.text("error.rate_export") == (
+        "Too many downloads in a short time. Wait a minute and try again.")
+    run_people["jobs"].set_visibility(RUN_B, "demo")
+    assert [export(unlimited, RUN_B).status_code for _ in range(6)] == [503] * 6
+    assert export(b, RUN_B).status_code == 503  # B's own count
+
+
+def test_privacy_page_names_the_exports(run_people):
+    """The privacy page states the exports as the user approved the words (2026-11-16): the audit log's event and
+    the file kept until it is fetched, for one hour at most (jobs.EXPORT_KEEP_SECONDS)."""
+    import jobs as jb
+    text = run_people["anonymous"].get("/privacy").text
+    assert web.html.escape("deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not the "
+                           "content), the demo flag") in text
+    assert "A file made for a download is kept on the server until it is fetched, for one hour at most." in text
+    assert jb.EXPORT_KEEP_SECONDS == 3600 and 0 < jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS

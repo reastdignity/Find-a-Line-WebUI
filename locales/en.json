@@ -473,6 +473,7 @@
   "error.rate_job": "Too many searches started in a short time. Wait a minute and try again.",
   "error.rate_patch": "Too many 3D views in a short time. Wait a minute and try again.",
   "error.rate_reach": "Too many reach calculations in a short time. Wait a minute and try again.",
+  "error.rate_export": "Too many downloads in a short time. Wait a minute and try again.",
   "error.disk_full": "The server is short of disk space. New searches cannot start now. Try again later.",
   "error.disk_full_search": "The server is short of disk space, so the search stopped. Try again later.",
   "error.export_disk_full": "The server is short of disk space. The file cannot be made now. Try again later.",

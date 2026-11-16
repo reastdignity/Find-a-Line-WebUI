@@ -487,7 +487,7 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
 RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "reach": "reach calculations",
-              "place": "place lookups",
+              "place": "place lookups", "export": "downloads",
               # Limits.<kind>_rate
               "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
@@ -1655,6 +1655,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if not await run_in_threadpool(has_store, run):
             raise HTTPException(409, messages.UserError(f"the run {run} has no store to export from",
                                                         "export_failed").detail(public=bool(public)))
+        await run_in_threadpool(within_rate, "export", user)  # Limits.export_rate (429 rate_export)
         answer = await quick("export", {"run": run, "format": fmt}, user, client)
         if not isinstance(answer, dict) or not EXPORT_NAME.fullmatch(str(answer.get("name"))):
             raise HTTPException(500, "the worker gave no export")
@@ -2398,7 +2399,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"search itself stays in your queue. Your totals of searched area are counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
-         "renewed or revoked."),
+         "renewed or revoked. A file made for a download is kept on the server until it is fetched, for one hour "
+         "at most."),
         ("Favourite lines", f"The lines you mark as favourites on a map: the run, the line's anchors and its values "
          f"(length, clearances, heights, angles, prominence), when you marked it and its folder; at most "
          f"{jb.FAVOURITES_MAX}. Why: to list them for you. Kept until you unmark them, delete their folder or the "
@@ -2415,7 +2417,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
         ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
-         f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
+         f"made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not "
+         f"the content), the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "
          f"text), other "
