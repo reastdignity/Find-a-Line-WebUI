@@ -250,6 +250,34 @@ def test_signatures_keep_base_classes():
     assert r["controls_under"]["44"] == {"a": 1, "a.c-card-open": 1, "button.seg": 2}
 
 
+@BROWSER
+def test_reach_through_clipping_and_scrolling():
+    """Reachable: an absolute control past an overflow-hidden box that is not its containing block counts; a control
+    half clipped counts with its visible part; one clipped away wholly, one past an overflow-x hidden side of a panel
+    that scrolls only vertically, and one before a scroller's origin are unreachable; one below a scroller's fold
+    counts."""
+    r = _measured(
+        '<div class="cb"><div class="clip"><button class="abs">A</button></div></div>'
+        '<div class="half"><button class="cut">C</button></div>'
+        '<div class="gone2"><button class="out">O</button></div>'
+        '<div class="sx"><button class="side">S</button></div>'
+        '<div class="scr"><div class="pad"></div><button class="below">B</button></div>'
+        '<div class="scr2"><button class="before">X</button></div>',
+        ".cb { position: relative; } .clip { overflow: hidden; width: 50px; height: 50px; } "
+        ".abs { position: absolute; left: 100px; top: 0; width: 30px; height: 30px; } "
+        ".half { overflow: hidden; width: 20px; height: 60px; } .cut { display: block; width: 60px; height: 40px; } "
+        ".gone2 { position: relative; overflow: hidden; width: 50px; height: 50px; } "
+        ".out { position: absolute; left: 80px; top: 0; width: 30px; height: 30px; } "
+        ".sx { position: relative; overflow-x: hidden; overflow-y: auto; width: 50px; height: 50px; } "
+        ".side { position: absolute; left: 80px; top: 0; width: 30px; height: 30px; } "
+        ".scr { overflow: auto; width: 100px; height: 50px; } .pad { height: 300px; } .below { width: 30px; height: 30px; } "
+        ".scr2 { position: relative; overflow: auto; width: 100px; height: 50px; } "
+        ".before { position: absolute; left: -200px; top: 0; width: 30px; height: 30px; }")
+    assert r["controls_under"] == {"44": {"button.abs": 1, "button.below": 1, "button.cut": 1}, "24": {"button.cut": 1}}
+    assert (r["control_examples"]["button.cut"]["w"], r["control_examples"]["button.cut"]["h"]) == (20, 40)
+    assert r["unreachable"] == {"button.before": 1, "button.out": 1, "button.side": 1}
+
+
 PAGE = """<!doctype html><html lang="en"><head><style>
 ::-webkit-scrollbar { width: 0; height: 0; }
 body { margin: 0; font-size: 16px; } button { font-size: 16px; }

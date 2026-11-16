@@ -29,9 +29,10 @@ is recorded as not measured, with its reason, and counts in no total:
   its own box joined with the boxes of its absolutely positioned ::before and ::after (computed from their insets,
   sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
   and for a checkbox or radio the largest of that and its labels' boxes; under 44 px and 24 px in width or height
-  (WCAG 2.5.8's size; its spacing exception is not modelled). A control that cannot be reached (wholly at negative
-  coordinates of the document, or clipped to nothing by an ancestor's overflow) is listed apart, not counted; one
-  below the fold of a scrolling page counts. Signatures are tag, role, input type and class names without the state
+  (WCAG 2.5.8's size; its spacing exception is not modelled). A target's size is the part of it no ancestor clips
+  (per axis; an absolutely positioned control only from its containing block up). A control that cannot be reached
+  (wholly before the scroll origin of a scroller or of the document, or clipped to nothing) is listed apart, not
+  counted; one below the fold of a scrolling page or panel counts. Signatures are tag, role, input type and class names without the state
   classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
   two states is one signature;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
@@ -636,33 +637,42 @@ MEASURE_JS = r"""(opts) => {
   };
   const join = (a, b) => ({left: Math.min(a.left, b.left), top: Math.min(a.top, b.top),
                            right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom)});
-  // Reachable: not wholly before the scroll origin of a scrolling ancestor or of the document, not clipped to
-  // nothing by an ancestor that hides its overflow (a scrolling ancestor brings what is below its fold into view)
-  const escapes = (x) => {  // fixed or in the top layer: no ancestor clips it
+  // Reachable: the part of a target box no ancestor's overflow clips away, null when nothing is left (or the box is
+  // wholly before the scroll origin of a scrolling ancestor or of the document). Per axis: an ancestor that hides its
+  // overflow on an axis clips that axis; one that scrolls on it brings what lies past its fold into reach (the box's
+  // own part is then the scroller's on that axis, for the ancestors above). An absolutely positioned box is clipped
+  // only from its containing block up (a positioned ancestor or one with a transform); a fixed one or one in the top
+  // layer by no ancestor (only by the viewport).
+  const escapes = (x) => {
     if (getComputedStyle(x).position === "fixed") return true;
     try { return x.matches(":popover-open, dialog:modal"); } catch (err) { return false; }
   };
+  const viewportCut = (r) => r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+  const contains = (s) => s.position !== "static" || s.transform !== "none" || s.filter !== "none" ||
+    /paint|layout|strict|content/.test(s.contain || "");
   const reachable = (e, b) => {
-    let r = {...b};
-    if (escapes(e)) return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+    let r = {...b}, own = {...b}, mine = {x: true, y: true};  // `own`: the box's part not clipped (on axes still its)
+    if (escapes(e)) return viewportCut(r) ? own : null;
+    let absolute = getComputedStyle(e).position === "absolute";
     for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
       const s = getComputedStyle(a);
+      if (absolute && !contains(s)) continue;  // between an absolute box and its containing block: no clip
+      absolute = s.position === "absolute";
       const ab = a.getBoundingClientRect();
-      const scrolls = /auto|scroll/.test(s.overflowX) || /auto|scroll/.test(s.overflowY);
-      if (scrolls) {
-        if (r.right <= ab.left - a.scrollLeft || r.bottom <= ab.top - a.scrollTop) return false;
-        r = box(ab);
-      } else if (/hidden|clip/.test(s.overflowX) || /hidden|clip/.test(s.overflowY)) {
-        const cut = {left: Math.max(r.left, ab.left), top: Math.max(r.top, ab.top),
-                     right: Math.min(r.right, ab.right), bottom: Math.min(r.bottom, ab.bottom)};
-        if ((/hidden|clip/.test(s.overflowX) && cut.right <= cut.left) ||
-            (/hidden|clip/.test(s.overflowY) && cut.bottom <= cut.top)) return false;
-        r = {left: /hidden|clip/.test(s.overflowX) ? cut.left : r.left, right: /hidden|clip/.test(s.overflowX) ? cut.right : r.right,
-             top: /hidden|clip/.test(s.overflowY) ? cut.top : r.top, bottom: /hidden|clip/.test(s.overflowY) ? cut.bottom : r.bottom};
+      for (const [axis, lo, hi, scroll, over] of [["x", "left", "right", a.scrollLeft, s.overflowX],
+                                                   ["y", "top", "bottom", a.scrollTop, s.overflowY]]) {
+        if (/auto|scroll/.test(over)) {
+          if (r[hi] <= ab[lo] - scroll) return null;  // before the scroll origin: no scrolling reaches it
+          r[lo] = ab[lo]; r[hi] = ab[hi]; mine[axis] = false;
+        } else if (/hidden|clip/.test(over)) {
+          r[lo] = Math.max(r[lo], ab[lo]); r[hi] = Math.min(r[hi], ab[hi]);
+          if (r[hi] <= r[lo]) return null;
+          if (mine[axis]) { own[lo] = Math.max(own[lo], ab[lo]); own[hi] = Math.min(own[hi], ab[hi]); }
+        }
       }
-      if (escapes(a)) return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+      if (escapes(a)) return viewportCut(r) ? own : null;
     }
-    return r.right + scrollX > 0 && r.bottom + scrollY > 0;
+    return r.right + scrollX > 0 && r.bottom + scrollY > 0 ? own : null;
   };
   const controls = [], unreachable = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
@@ -690,10 +700,12 @@ MEASURE_JS = r"""(opts) => {
     if (!target || target.right - target.left === 0 || target.bottom - target.top === 0) continue;
     const inline = e.tagName === "A" && getComputedStyle(e).display === "inline" &&
       /\S/.test([...e.parentElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""));
+    const part = reachable(owner, target);  // the target as far as no ancestor clips it; null: none of it
+    const cut = part || target;
     const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline,
-                  w: r1(target.right - target.left), h: r1(target.bottom - target.top),
+                  w: r1(cut.right - cut.left), h: r1(cut.bottom - cut.top),
                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
-    (reachable(owner, target) ? controls : unreachable).push(item);
+    (part ? controls : unreachable).push(item);
   }
   const texts = [];
   const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "OPTION", "TITLE", "TEMPLATE", "desc", "title"]);
