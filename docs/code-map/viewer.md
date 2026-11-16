@@ -100,7 +100,9 @@ the run's data credits folded behind *Data credits* while the card is shown; on 
 a run that has it: the column "Anchors" of `LinesTable.tsx` (full from a list of 356 px, tighter below, left out
 under 300 px; the list's default width is 372 px for it), "Reaching the anchors" of `LineDetails.tsx` (on a phone
 the two dots also in the sheet's head), the legend's row `AccessLegend` of `ResultSummary.tsx` (on a phone above the
-filters also while nothing is selected); `layout.ts` the kept
+filters also while nothing is selected; its "?" stays with the last state; for a run whose head says
+`access_skipped` (the mark asked for and left out, the area too wide) one muted line in the row's place and nothing
+else of the mark); `tests/test_access_page.py` draws all of it in a browser; `layout.ts` the kept
 layout (localStorage `findaline.layout`, `sanitize`, `fitColumns` and `maxColumnWidth` on the two panels'
 `fitPanels`/`maxPanelWidth`, which the highline layer's panels share with their own `LAYER_LIMITS` and kept value,
 `sanitizeLayer`, `findaline.layer.layout`; `cardInsets`, `moveCardEdge`, `LIMITS`) and `useLayout.ts` its state;
@@ -112,7 +114,9 @@ model) and `EstimateBar`, the bar of both tabs (the size word, the receipt, Star
 `BasicPane.tsx` the Basic tab (with "Reaching the anchors": the access mark is on in every Basic search, `basic.ts`
 `BASIC_ACCESS`, where the site's schema has the field; the schema's and the command line's default stays off, so
 the form sends `access: true` as a changed value and Advanced, filled from Basic, shows it ticked; Advanced's field
-takes the "?" of the same help through `Field`'s `hintButton`), the rig's window
+takes the "?" of the same help through `Field`'s `hintButton`; the highline layer's "Search a cell" opens with the
+mark on, `cellValues`; an estimate whose messages carry the code `access_skipped` turns the receipt's part into
+"access not marked", `accessSkipped`), the rig's window
 and the dialog of going back to Basic; `basic.ts` the form's rules
 as pure functions (spec-search 1.2: `basicRequestValues` (every value explicit), `basicProblem` (a site that leaves
 out a field Basic must send), `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`, `sizeOf`, the rig's words and

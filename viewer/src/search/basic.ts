@@ -54,6 +54,13 @@ export const rigOf = (values: Values): RigValues =>
   Object.fromEntries(RIG_FIELDS.map((k) => [k, values[k]])) as RigValues;
 export const sameRig = (a: RigValues, b: RigValues) => RIG_FIELDS.every((k) => same(a[k], b[k]));
 
+/** The values (changed from the defaults) of the highline layer's "Search a cell" as the form opens them: the
+ *  cell's, with the access mark on where the site's schema has the field (the form's default: the layer's request
+ *  carries none; the user's word of 2026-11-16: "open in advanced with mark on"). */
+export function cellValues(changed: Values, defaults: Values): Values {
+  return BASIC_ACCESS in defaults && changed[BASIC_ACCESS] === undefined ? {...changed, [BASIC_ACCESS]: true} : changed;
+}
+
 /** Basic's values: every field, at its default except the goal's eleven, the rig's seven, the sag model, the
  *  square rule of 5 and the access mark on (where the site has the field: `defaults` are the schema's). */
 export function basicValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
@@ -268,11 +275,21 @@ export function valueText(field: Field, value: unknown): string {
  *  search's name); `wide`: shown on a desktop only; `tail`: more words of the same part on a desktop only. */
 export interface ReceiptPart { text: string; field: string; wide?: boolean; tail?: string }
 
+/** The code of the estimate's note for a search too wide for the access grid (search.py: the search runs without
+ *  the mark), and the run's key that says so (RunHead.access_skipped). */
+export const ACCESS_SKIPPED = "access_skipped";
+
+/** Do an estimate's messages ([kind, text, {code, params}?]) say the search's access mark will be left out. */
+export function accessSkipped(messages: readonly (readonly unknown[])[] | undefined): boolean {
+  return !!messages && messages.some((m) => (m[2] as {code?: unknown} | undefined)?.code === ACCESS_SKIPPED);
+}
+
 /** The receipt of these values (every field resolved): lengths, anchors, trees, the goal's other limits, the
  *  rig, "access marked" (on a desktop ", no line filtered out" after it) when the search marks the anchors'
- *  access, "+ N more settings" (other fields off the default, the square rule at Basic's 5 counting as covered)
- *  and the search's name. */
-export function receiptParts(values: Values, defaults: Values, inUse: Rig | null, name: string): ReceiptPart[] {
+ *  access, or "access not marked" (": area too wide") when the estimate says the search is too wide for it
+ *  (`skipped`), "+ N more settings" (other fields off the default, the square rule at Basic's 5 counting as
+ *  covered) and the search's name. */
+export function receiptParts(values: Values, defaults: Values, inUse: Rig | null, name: string, skipped = false): ReceiptPart[] {
   const v = values;
   const covered = new Set<string>(["min_length", "max_length", "max_anchor_diff_m", "nmpt", "model", ...RIG_FIELDS,
                                    BASIC_ACCESS]);
@@ -304,7 +321,8 @@ export function receiptParts(values: Values, defaults: Values, inUse: Rig | null
   parts.push({text: t("basic.receipt.rig", {name: rigNameOf(v, inUse), summary: rigSummary(rigOf(v), sag, ", ")}),
               field: sag ? "end_zone" : "model"});
   if (v[BASIC_ACCESS] === true) {
-    parts.push({text: t("basic.receipt.access"), tail: t("basic.receipt.access_wide"), field: BASIC_ACCESS});
+    parts.push(skipped ? {text: t("basic.receipt.access_skipped"), tail: t("basic.receipt.access_skipped_wide"), field: BASIC_ACCESS}
+      : {text: t("basic.receipt.access"), tail: t("basic.receipt.access_wide"), field: BASIC_ACCESS});
   }
   const more = Object.keys(defaults).filter((k) => !covered.has(k) && !same(v[k], defaults[k])).length;
   if (more) parts.push({text: t("basic.receipt.more", {count: more}), field: "more"});

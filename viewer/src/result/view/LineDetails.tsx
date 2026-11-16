@@ -128,8 +128,9 @@ function AccessBlock({line: l}: {line: Line}) {
     {[l.access1, l.access2].map((value, k) => {
       const state = accessState(value), name = t("ui.access.anchor", {n: k + 1});
       return <div class="r-acc-row" key={k}>
-        {state === null ? <span /> : <AccessMark state={state} label={t("ui.access.anchor_state", {n: k + 1, state: accessWord(state)})} />}
-        <span class="r-acc-a">{name}</span><span>{state === null ? "–" : accessWord(state)}</span>
+        {state === null ? <span aria-hidden="true" /> : <AccessMark state={state} label={t("ui.access.anchor_state", {n: k + 1, state: accessWord(state)})} />}
+        <span class="r-acc-a">{name}</span>
+        {state === null ? <span role="img" aria-label={t("ui.access.anchor_none", {n: k + 1})}>–</span> : <span>{accessWord(state)}</span>}
       </div>;
     })}
     {help.panel}

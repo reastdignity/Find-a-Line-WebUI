@@ -14,7 +14,8 @@ import type { Mode, PlaceMap } from "../app/PlaceMap";
 import { buildRequest, fromRequest, valueProblem, withValue, type AreaFile, type Place } from "../app/request";
 import { t } from "../i18n";
 import {
-  basicGoalOf, basicProblem, basicRequestValues, basicValues, BASIC_RADIUS, changedOf, defaultsOf, GOAL_FIELDS, matchGoal,
+  basicGoalOf, basicProblem, basicRequestValues, basicValues, BASIC_RADIUS, cellValues, changedOf, defaultsOf, GOAL_FIELDS,
+  matchGoal,
   notInBasic, openingTab, same, whereForGoal, type CoastKind, type Tab, type Values, type WhereMode, type WhereState,
 } from "./basic";
 import type { RigsState } from "./useRigs";
@@ -176,6 +177,7 @@ export interface SearchOptions {
   rigs: RigsState;                 // the saved rigs and the rig in use (loaded: the tab of a request to edit needs it)
   onStarted(jobId: string): void;
   initial?: SearchRequest | null;  // a search to edit and run again (or a cell's of the highline layer)
+  cell?: boolean;                  // `initial` is a cell's of the highline layer: the form's access mark on (cellValues)
 }
 
 /** What going back to Basic would lose: the dialog's list (fields, in Advanced's values) and the goal it resets to. */
@@ -250,15 +252,16 @@ function mapMode(mode: SearchMode, areaKind: AreaKind): Mode {
 }
 
 /** A new search: the state of the panel, its request, the live estimate and the start. */
-export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptions): SearchState {
+export function useSearch({place, schema, rigs, onStarted, initial, cell}: SearchOptions): SearchState {
   const byName = useMemo(() => Object.fromEntries(schema.fields.map((f) => [f.name, f])), [schema]);
   const defaults = useMemo(() => defaultsOf(byName), [byName]);
   const presets = schema.presets;
   const goalOf = (id: string) => presets.find((p) => p.id === id);
   const start0 = useMemo(() => {
     const found = fromRequest(initial, byName);
-    return {...found, radius: initial ? found.radius : BASIC_RADIUS,
-            ...openingTab(initial ? found.values : null, presets, rigs.values, defaults)};
+    const values = initial && cell ? cellValues(found.values, defaults) : found.values;
+    return {...found, values, radius: initial ? found.radius : BASIC_RADIUS,
+            ...openingTab(initial ? values : null, presets, rigs.values, defaults)};
   }, []);
   const [tab, setTab] = useState<Tab>(start0.tab);
   const [filled, setFilled] = useState(false);  // Advanced's values came from Basic (not a request opened there)

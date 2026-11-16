@@ -14,7 +14,7 @@ import { Button, Field, Hint, Progress, Range, RangePair, Segmented, type Option
 import { Icon } from "../ui/icons";
 import { IntroLink, useIntro } from "../ui/Intro";
 import { useAccessHelp } from "../access";
-import { BASIC_ACCESS, differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
+import { accessSkipped, BASIC_ACCESS, differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
 import { BasicBottom, BasicTop, GoalCards, ReturnDialog, RigWindow, type RigAsk } from "./BasicPane";
 import { PlaceBox } from "./PlaceBox";
 import { SearchIntro } from "./SearchIntro";
@@ -408,7 +408,8 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       .map(([, text, info]) => info ? errorText(info, text) : text)] : [];
   const goal = s.tab === "basic" ? s.goalOf(s.goal)?.label ?? null
     : s.preset && s.preset !== "custom" ? s.goalOf(s.preset)?.label ?? null : null;
-  const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name);
+  // an estimate that says the area is too wide for the access grid: the receipt's part says the mark is left out
+  const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name, accessSkipped(estimate?.messages));
   const unfolded = open && !problem;
   // Only the daily limit's "within" text may fold away on a phone; a warning, a refusal or an error always shows
   const quiet = state === "ok" && !warnings.length;

@@ -205,6 +205,9 @@ export interface RunHead {
   ends?: string[];                // the names of the rows' values before the profile (END_VALUES, ACCESS, STANDS_FOR); none: no such
   square?: number;                // m: the side of the anchor squares of a run made with the square rule (none: off)
   found?: number;                 // the lines such a run found, which its lines stand for (the sum of their counts)
+  // "memory": the search was asked to mark the anchors' access (--access) and ran without it, its area too wide for
+  // the access grid (search.py; mapping.map_heads): a run as one made without the mark, and the page says so
+  access_skipped?: string;
 }
 
 /** data.js's value (window.FINDALINE_RUN) as the file holds it: the head and a row per line. */

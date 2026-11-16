@@ -278,6 +278,11 @@ out.withName = m.openingTab(changed("best", saved), presets, saved, defaults);
 out.extra = m.openingTab({{...changed("best", saved), group_by: "longest"}}, presets, saved, defaults);
 const older = {{...changed("first", saved)}};
 delete older.access;  // a Basic job stored before the access mark
+// the highline layer's "Search a cell": the cell's values with the form's mark on (where the site has the field)
+const cell = {{resolution: 2, max_length: 100, model: "sag"}}, noMark = Object.fromEntries(Object.entries(defaults).filter(([k]) => k !== "access"));
+out.cell = [m.cellValues(cell, defaults), m.cellValues({{...cell, access: false}}, defaults), m.cellValues(cell, noMark),
+            m.openingTab(m.cellValues(cell, defaults), presets, saved, defaults).tab,
+            m.differing(resolved(m.cellValues(cell, defaults)), m.basicValues(goal("best"), saved, defaults)).includes("access")];
 out.beforeAccess = [m.openingTab(older, presets, saved, defaults), m.notInBasic(resolved(older), goal("first"), saved, defaults),
                     m.differing(resolved(older), m.basicValues(goal("first"), saved, defaults)), changed("first", saved).access];
 // Advanced's dots and "reset"
@@ -303,6 +308,8 @@ console.log(JSON.stringify(out));""")
     assert found["withName"] == {"tab": "basic", "goal": "best"}
     assert found["extra"] == {"tab": "advanced", "goal": "best"}
     assert found["beforeAccess"] == [{"tab": "advanced", "goal": "first"}, ["access"], ["access"], True]
+    cell = {"resolution": 2, "max_length": 100, "model": "sag"}
+    assert found["cell"] == [{**cell, "access": True}, {**cell, "access": False}, cell, "advanced", False]
     assert sorted(found["dots"]) == ["min_height", "pretension", "source"]
     assert found["reset"][1] == [] and found["reset"][2] is True
 
@@ -332,6 +339,13 @@ out.forOne = texts(all("best", saved, {{pretension: 4}}), mine);
 out.more = texts(all("everything", m.STARTING_RIG, {{same_line_square: 7, source: "eu-dem", nmpt: "off"}}), null);
 out.formula = texts(all("best", m.STARTING_RIG, {{model: "formula"}}), null);
 out.unmarked = texts(all("best", m.STARTING_RIG, {{access: false}}), null);
+// an estimate that says the search is too wide for the access grid (its note's code): the part says so
+const part = (p) => p.text + "[" + p.tail + "]→" + p.field;
+out.skipped = [m.receiptParts(all("best", m.STARTING_RIG), defaults, null, "", true).map(part).pop(),
+               m.receiptParts(all("best", m.STARTING_RIG, {{access: false}}), defaults, null, "", true).length,
+               m.accessSkipped([["warning", "x"], ["warning", "y", {{code: "access_skipped", params: {{need: 7.7, have: 4.6}}}}]]),
+               m.accessSkipped([["warning", "x"], ["warning", "y", {{code: "coast_fallback"}}]]), m.accessSkipped([]),
+               m.accessSkipped(undefined), m.ACCESS_SKIPPED];
 out.short = [m.receiptShort(all("long", saved), "Long and exposed", mine), m.receiptShort(all("best", saved, {{pretension: 4}}), null, mine)];
 const size = (values, km2) => {{ const s = m.sizeOf(values, km2); return [s.word, s.level, s.causes.join(", "), Object.keys(s).length]; }};
 out.size = [size(all("best", m.STARTING_RIG), 0.79), size(all("best", saved), 0.79), size(all("best", saved, {{model: "formula", end_zone: 0, anchor_lift: 0}}), 0.79),
@@ -376,6 +390,9 @@ console.log(JSON.stringify(out));""")
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
     assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
+    # too wide for the access grid: "access not marked", on a desktop ": area too wide"; with the mark off no part
+    assert found["skipped"] == ["access not marked[: area too wide]→access", len(found["best"]) - 1, True, False, False,
+                                False, "access_skipped"]
     assert found["long"] == ["100–600 m→min_length", "anchors within 30 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "30 m high or more→min_height",
                              "50 % of the line above 20 m→min_high_share",
@@ -3127,6 +3144,9 @@ out.pieces = {
   mark: [mark.type, mark.props.class, mark.props.role, mark.props["aria-label"], mark.props.viewBox,
          mark.props.dangerouslySetInnerHTML.__html.includes('class="ac-f"')],
   svg, signs: Object.keys(m.ACCESS_SIGNS).map(Number).sort(),
+  // the "–" of a line without the mark, and of one anchor without it: a name a screen reader reads
+  none: [m.AccessPair({line: line(null, null)}), [].concat(m.AccessPair({line: line(1, null)}).props.children)[1]]
+    .map((v) => [v.props.role, v.props["aria-label"], [].concat(v.props.children)[0]]),
   noStyle: [svg, ...Object.values(m.ACCESS_SIGNS)].every((s) => !/style\s*=|<style|<script|\son\w+=/i.test(s)),
   mapMark: m.MAP_MARK,
 };
@@ -3202,6 +3222,8 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert 'class="ac-map ac-0"' in pieces["svg"] and 'width="24"' in pieces["svg"] and pieces["mapMark"] == 24
     assert 'aria-label="Anchor 2: hard &quot;access&quot; &lt;b&gt;"' in pieces["svg"]
     assert pieces["noStyle"] and pieces["signs"] == [0, 1, 2]  # a sign for every state, no style attribute
+    assert pieces["none"] == [["img", "No mark: this line's run was made without it", "–"],
+                              ["img", "Anchor 2: no mark", "–"]]
     # a favourite
     favourite = out["favourite"]
     assert favourite["sent"] == favourite["back"] == [2, 0]

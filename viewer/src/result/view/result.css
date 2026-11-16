@@ -72,6 +72,9 @@
 .ui .r-legend-box { display: flex; flex-direction: column; gap: 6px; }
 .ui .r-legend-acc { gap: 4px 12px; align-items: center; }
 .ui .r-legend-acc > b { font-weight: 600; color: var(--ink); }
+.ui .r-acc-skipped { margin: 0; color: var(--muted); }
+.ui .r-legend-last { white-space: nowrap; }
+.ui .r-legend-last .ac-hint { margin-left: 4px; }
 .ui .r-note { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 10px;
   background: var(--warn-soft); color: var(--warn); font-size: 13px; }
 .ui .r-note .u-btn { min-height: 28px; color: inherit; }

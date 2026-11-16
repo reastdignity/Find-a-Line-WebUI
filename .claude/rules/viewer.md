@@ -33,7 +33,9 @@ catalogue), `browser-tests.md`.
   details, the help's key and A2's `field.access.help`: change them together; the colours are the tokens `--acc-*`
   (`ui/tokens.css`: light, dark, and `--acc-map-*` for the map, whose tiles stay light). The form's default lives in
   `search/basic.ts` (`basicValues`: on), never in `SearchParams` or the schema: the form sends what differs from the
-  schema's default, so a default moved there would drop the ticked value from the request.
+  schema's default, so a default moved there would drop the ticked value from the request. A search too wide for the
+  access grid runs without the mark: the estimate's note has the code `access_skipped` (`basic.ts` `ACCESS_SKIPPED` =
+  `search.py`'s note) and the run's heads the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_heads`).
 
 ## Pitfalls
 

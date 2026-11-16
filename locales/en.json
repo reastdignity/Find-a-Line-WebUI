@@ -269,6 +269,8 @@
   "basic.receipt.more_other": "+ {{count}} more settings",
   "basic.receipt.access": "access marked",
   "basic.receipt.access_wide": ", no line filtered out",
+  "basic.receipt.access_skipped": "access not marked",
+  "basic.receipt.access_skipped_wide": ": area too wide",
   "basic.receipt.named": "named “{{name}}”",
   "basic.receipt.open": "Open in Advanced",
   "basic.receipt.toggle": "Show what this search will do",
@@ -615,6 +617,8 @@
   "ui.access.anchor": "Anchor {{n}}",
   "ui.access.anchor_state": "Anchor {{n}}: {{state}}",
   "ui.access.none": "No mark: this line's run was made without it",
+  "ui.access.anchor_none": "Anchor {{n}}: no mark",
+  "ui.access.skipped": "Anchors' access not marked: the search area was too wide.",
 
   "ui.list.col.length": "Length",
   "ui.list.col.length_title": "length of the line",

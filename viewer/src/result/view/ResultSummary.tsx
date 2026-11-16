@@ -77,15 +77,21 @@ function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onC
 }
 
 /** The legend's row of the access mark: "Anchors", the three states with their dots, the "?" and the help it
- *  opens under the row; nothing while no run shown has the mark. */
+ *  opens under the row; while no run shown has the mark nothing, or, for a run whose mark was left out, one line
+ *  that says so. */
 export function AccessLegend({model}: {model: ResultModel}) {
   useModel(model);
   const help = useAccessHelp();
-  if (!model.hasAccess) return null;
+  // a run whose mark was asked for and left out (its area too wide: RunHead.access_skipped): one muted line in the
+  // row's place, nothing else of the mark
+  if (!model.hasAccess) {
+    return model.data.access_skipped ? <p class="u-small r-acc-skipped">{t("ui.access.skipped")}</p> : null;
+  }
   return <div class="r-legend-box">
     <div class="r-legend r-legend-acc"><b>{t("ui.access.legend")}</b>
-      {ACCESS_STATES.map((state) => <span key={state}><AccessMark state={state} />{accessWord(state)}</span>)}
-      {help.button}
+      {/* the "?" stays with the last state: it never wraps onto a line of its own (a phone of 390 px) */}
+      {ACCESS_STATES.map((state, k) => <span key={state} class={k === ACCESS_STATES.length - 1 ? "r-legend-last" : undefined}>
+        <AccessMark state={state} />{accessWord(state)}{k === ACCESS_STATES.length - 1 && help.button}</span>)}
     </div>
     {help.panel}
   </div>;

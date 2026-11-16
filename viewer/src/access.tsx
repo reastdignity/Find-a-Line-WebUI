@@ -52,8 +52,12 @@ export function AccessMark({state, label}: {state: number; label?: string}) {
  *  and without it). */
 export function AccessPair({line: l}: {line: Pick<Line, "access1" | "access2">}) {
   const states = [accessState(l.access1), accessState(l.access2)];
-  if (states[0] === null && states[1] === null) return <span class="ac-none" title={t("ui.access.none")}>–</span>;
-  return <span class="ac-pair">{states.map((state, k) => state === null ? <span class="ac-none" key={k}>–</span>
+  // "–" has a name of its own for a screen reader (a title alone is not read out)
+  if (states[0] === null && states[1] === null) {
+    return <span class="ac-none" role="img" aria-label={t("ui.access.none")} title={t("ui.access.none")}>–</span>;
+  }
+  return <span class="ac-pair">{states.map((state, k) => state === null
+    ? <span class="ac-none" key={k} role="img" aria-label={t("ui.access.anchor_none", {n: k + 1})}>–</span>
     : <AccessMark key={k} state={state} label={t("ui.access.anchor_state", {n: k + 1, state: accessWord(state)})} />)}</span>;
 }
 
