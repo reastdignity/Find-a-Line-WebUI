@@ -2436,7 +2436,7 @@
     "seconds": 6.5
   },
   "R91": {
-    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD",
+    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD lowered by 1.30 m to about mean sea level",
     "args": "--lat 22.3518 --lon 114.1872 --radius 600 --min-length 20 --max-length 150",
     "sets": [
       "sources",
@@ -2448,7 +2448,7 @@
       "checked": 126,
       "lines": 8,
       "spots": 3,
-      "csv_sha256": "02a93e778650cc230e80c13c8c0f75f7e2c70156c6847928300a91db3f1445d4",
+      "csv_sha256": "9d002a1fe75f4a7f8a055620de0e276c21d4d13f8239c118e56b096b3891cddc",
       "length_km": 0.206,
       "clearance_min": 0.19,
       "clearance_mean": 0.545,
@@ -2457,7 +2457,35 @@
       "coverage": 100.0,
       "empty_tiles": 0
     },
-    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run",
+    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run. Re-baselined 2026-11-16 for Hong Kong's datum (hong_kong.HK_DATUM_OFFSET, the user's decision of 2026-11-16: every height lowered by 1.30 m where the tiles are read onto the grid): the same 8 lines in 3 spots, every count and total the same, lines.csv differing only in the anchors' heights, each 1.30 m lower (02a93e77... -> 9d002a1f...)",
     "seconds": 35.1
+  },
+  "R92": {
+    "place": "Mikurajima, Tokyo (JP-13): the sea cliffs of an Izu island, the Tokyo Digital Twin's 0.5 m lidar grid (Izu islands, 2022-2023) with the islands' sheets floored at -1 m (the seabed along their coasts no data, the sea filled at 0 m), JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 33.886 --lon 139.585 --radius 800",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 346046,
+      "open": 7392,
+      "checked": 15587,
+      "lines": 263,
+      "spots": 20,
+      "csv_sha256": "df131731441f2774bd33677c80332febfef0237d9e0590eb6ecae01e57c4a6a0",
+      "length_km": 27.064,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.495,
+      "clearance_max": 6.26,
+      "over_trees": 0,
+      "coverage": 76.76,
+      "empty_tiles": 0,
+      "sea_km2": 1.63,
+      "water_lines": 10,
+      "water_spots": 3
+    },
+    "notes": "added 2026-11-16 with the floor of the Izu islands' sheets (japan.TK_ISLAND_FLOOR, the user's decision of 2026-11-16): the place of wave 1's seabed check (33.886, 139.585, radius 800 m, default settings), 48 sheets of 400 x 300 m (about 82 MB by the estimate) on an empty cache, the coastline from Overpass; the code of before (dbb883c) gave 310 lines in 24 spots there, 47 of them (4 spots) with both anchors on the sea filled at 0 m across the seabed (the island sheets hold seabed down to -12 m); with the floor 263 lines in 20 spots: those 47 gone, none with an anchor at 0 m, the other 263 the same lines with the same clearances (their drops 1.7-4.7 m smaller: the lowest terrain near them is the 0 m fill now, not the seabed). Wave 1 measured 341 lines (49 false) and 292 with a floor, on the code of 2026-11-15",
+    "seconds": 5.9
   }
 }

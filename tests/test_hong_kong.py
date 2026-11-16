@@ -277,10 +277,103 @@ def test_a_grid_across_four_sheets(http_server, tmp_path, monkeypatch):
         out = np.load(src.mosaic.prepare_layer(layer, grid, cache_dir, str(tmp_path / f"{label}.npy"), label))
         assert out.shape == (300, 400) and not np.isnan(out).any()
         quarters = {(0, 0): out[150:, :200], (1, 0): out[150:, 200:], (0, 1): out[:150, :200], (1, 1): out[:150, 200:]}
-        for k, (di, dj) in enumerate(((0, 0), (1, 0), (0, 1), (1, 1))):
-            assert np.allclose(quarters[(di, dj)], 100.0 + 10 * k + offset, atol=TILE_EPS), (label, di, dj)
+        for k, (di, dj) in enumerate(((0, 0), (1, 0), (0, 1), (1, 1))):  # lowered by 1.30 m (HKPD to mean sea level)
+            assert np.allclose(quarters[(di, dj)], 100.0 + 10 * k + offset - 1.30, atol=TILE_EPS), (label, di, dj)
+        with rio.open(layer.tile_path(cache_dir, (i, j))) as cached:  # the cache keeps CEDD's heights
+            assert np.allclose(cached.read(1), 100.0 + offset, atol=TILE_EPS)
     assert len([r for r in http_server.requests() if r.path.endswith(".zip")]) == 8
     assert not http_server.stray()
+
+
+# --- the datum: every height lowered by 1.30 m where the tiles are read onto the grid --------------------------------
+@pytest.mark.parametrize("rows", [None, 3])
+@pytest.mark.parametrize("name", ["copied", "holes filled", "bilinear", "averaged"])
+def test_the_offset_is_the_mosaic_plus_the_constant(tmp_path, name, rows):
+    """build_mosaic(offset=) on every path of the mosaic (test_sea_floor's: a tile on the grid copied, a tile filling
+    another's holes, half a pixel off (bilinear), 0.5 m data on a 1 m grid (averaged)), whole and in strips of rows:
+    the bits of the mosaic without it plus the constant in float32, NaN staying NaN. With a floor, the floor judges
+    the provider's heights first and the offset follows (heights just above -1 m end below it). An offset of 0 gives
+    the bits of none."""
+    from test_sea_floor import CRS, GRID, PATHS, _files
+    grid = make_grid(GRID, 1.0, CRS)
+    files = _files(tmp_path, name, PATHS[name])
+    c = np.float32(hk.HK_DATUM_OFFSET)
+
+    def mosaic(out, **kw):
+        return np.asarray(src.build_mosaic(files, grid, str(tmp_path / out), "t", rows=rows, **kw))
+    plain, moved = mosaic("p.npy"), mosaic("m.npy", offset=hk.HK_DATUM_OFFSET)
+    assert np.isfinite(plain).any() and np.array_equal(np.isnan(plain), np.isnan(moved))
+    assert np.array_equal(moved.view(np.uint32), (plain + c).view(np.uint32))
+    floored, both = mosaic("f.npy", below=-1.0), mosaic("b.npy", below=-1.0, offset=hk.HK_DATUM_OFFSET)
+    assert np.array_equal(both.view(np.uint32), (floored + c).view(np.uint32))
+    assert -2.3 - 1e-6 <= np.nanmin(both) < -1.0  # floored at -1 m first, then lowered
+    assert np.array_equal(mosaic("z.npy", offset=0.0).view(np.uint32), plain.view(np.uint32))
+
+
+def test_no_offset_on_a_categorical_mosaic(tmp_path):
+    """The water mask's categories are never moved: an offset there is an error."""
+    grid = make_grid((0, 0, 4, 4), 1.0, hk.HK_CRS)
+    with pytest.raises(ValueError, match="offset"):
+        src.build_mosaic([], grid, str(tmp_path / "w.npy"), "water mask", categorical=True, offset=-1.3)
+
+
+class _Files(src.Layer):
+    """Local files as a layer of the catalogue reads them (prepare_layer), its height_offset the class default."""
+    description = "files"
+
+    def __init__(self, paths):
+        self.paths = paths
+
+    def files(self, grid, cache_dir):
+        return list(self.paths)
+
+    def tiles(self, grid):
+        return []
+
+    def used_entries(self, grid, cache_dir, wrote=None):
+        return []
+
+
+@pytest.mark.parametrize("rows", [None, 3])
+@pytest.mark.parametrize("name", ["copied", "holes filled", "bilinear", "averaged"])
+def test_a_layer_without_an_offset_as_before(tmp_path, name, rows):
+    """Every layer but Hong Kong's has no offset: through prepare_layer its mosaic has the bits of test_units'
+    reference of the mosaic before the floor and the offset existed (_place_before); Hong Kong's layers have
+    HK_DATUM_OFFSET, the Lands Department's figure, and no other layer of the catalogue has one."""
+    from test_sea_floor import CRS, GRID, PATHS, _files
+    from test_units import _place_before
+    grid = make_grid(GRID, 1.0, CRS)
+    files = _files(tmp_path, name, PATHS[name])
+    out = np.load(src.prepare_layer(_Files(files), grid, str(tmp_path), str(tmp_path / "m.npy"), "t", download=False,
+                                    rows=rows))
+    old = np.full((grid.height, grid.width), np.nan, np.float32)
+    for path in files:
+        with rio.open(path) as f:
+            _place_before(f, grid, old)
+    assert np.array_equal(out.view(np.uint32), old.view(np.uint32)), name
+    assert hk.HK_DATUM_OFFSET == -1.30 and src.Layer.height_offset == 0.0
+    moved = {(s.id, kind): layer.height_offset for s in src.SOURCES.values()
+             for kind, layer in (("nmt", s.nmt), ("nmpt", s.nmpt)) if layer is not None and layer.height_offset}
+    assert moved == {("hong_kong", "nmt"): -1.30, ("hong_kong", "nmpt"): -1.30}
+    assert src.WATER_MASK.height_offset == 0.0
+
+
+def test_check_source_compares_the_providers_heights(hong_kong, tmp_path):
+    """tools/check_source.py: its file check compares a cached sheet with CEDD's file as published, neither side
+    lowered (PASS within the cache's 5 mm); the mosaic its shift and valid checks read (prepare_layer) is lowered by
+    1.30 m, so what it compares with FABDEM and Copernicus are the heights a search uses."""
+    import check_source as cs
+    left, bottom, right, top = hong_kong.index.edges(hk.hk_cell(BORDER[0]))
+    grid = make_grid((left + 10, bottom + 10, right - 10, top - 10), 1.0, hk.HK_CRS)
+    cache_dir, work = str(tmp_path / "cache"), str(tmp_path / "work")
+    os.makedirs(work)
+    seen = cs._mosaic(hong_kong, grid, cache_dir, work, "layer")
+    check = cs.check_files(hong_kong, grid, cache_dir, 1)
+    assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= TILE_EPS, check["text"]
+    assert check["tiles"][0]["pixels"] > 1_000_000
+    raw = np.asarray(src.build_mosaic(hong_kong.files(grid, cache_dir), grid, str(tmp_path / "raw.npy"), "raw"))
+    assert np.isfinite(seen).any()
+    assert np.array_equal(seen.view(np.uint32), (raw + np.float32(-1.30)).view(np.uint32))
 
 
 # --- the table and its tool ----------------------------------------------------------------------------------------
@@ -445,11 +538,15 @@ def test_catalogue_entry():
     assert (s.countries, s.regions, s.crs, s.default_resolution) == (("cn",), ("cn-hk",), "EPSG:2326", 1.0)
     assert s.nmt.native_res == s.nmpt.native_res == 0.5 and s.fallbacks == ["europe"] and s.neighbours == ()
     assert s.nmt.nodata_below is None and s.nmpt.nodata_below is None and s.sea_fill is None  # the sea: nodata
+    assert s.nmt.height_offset == s.nmpt.height_offset == hk.HK_DATUM_OFFSET == -1.30  # HKPD to mean sea level
     assert s.map_areas() == ("hk",) and src.AREA_NAMES["hk"] == "Hong Kong"
     assert s.ortho is None
-    # the Lands Department's figure (mean sea level about 1.30 m above HKPD) and the surface-only sheets, said
-    assert "about 1.30 m below mean sea level" in s.note and "57 coastal sheets" in s.note
-    assert "about 1.30 m below mean sea level" in s.listing.terrain and "57 coastal sheets" in s.listing.surface
+    # the heights lowered by the Lands Department's figure (mean sea level about 1.30 m above HKPD), said; the
+    # surface-only sheets
+    assert "every height lowered by 1.30 m" in s.note and "about 1.30 m above it" in s.note
+    assert "57 coastal sheets" in s.note and "lowered by 1.30 m" in s.description
+    assert "lowered by 1.30 m to about mean sea level" in s.listing.terrain and "57 coastal sheets" in s.listing.surface
+    assert "not shifted" not in s.listing.terrain and "no datum shift" not in s.description
     credit = s.credits[0]
     assert credit.licence == "CSDI Portal" and credit.url == "https://portal.csdi.gov.hk/csdi-webpage/doc/TNC"
     assert "Common Spatial Data Infrastructure (CSDI) Portal" in credit.attribution
