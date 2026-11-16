@@ -214,12 +214,15 @@ def _ontario(kind: str, index: str, description: str, bytes_per_tile: float) -> 
                         ttl_days=60)
 
 
-# Ontario in region boxes inside Canada's (they come first), stepped to keep off Quebec (the Ottawa River, then
-# 79.52° W) and Manitoba (95.15° W, then its border's diagonal to Hudson Bay); they hold US land along the lakes and
-# rivers, which the USA's box takes first. The Ottawa valley north of 45.45° N east of 77.2° W lies in none
-ON_BOXES = (("ca-on", (41.6, 45.0, -83.3, -74.34)), ("ca-on", (45.0, 45.45, -81.8, -74.34)),
-            ("ca-on", (45.45, 46.0, -84.0, -77.2)), ("ca-on", (46.0, 46.18, -79.52, -77.6)),
-            ("ca-on", (46.0, 52.83, -95.15, -79.52)), ("ca-on", (52.83, 54.0, -93.35, -80.0)),
+# Ontario in region boxes inside Canada's (they come first), stepped along Quebec (the Ottawa River, Lake Timiskaming,
+# then 79.517° W) and Manitoba (95.15° W, then its border's diagonal to Hudson Bay). They hold every tile of the
+# province's tile index (2026-10-28) and so, along the Ottawa River, Quebec's shore too (Gatineau, the Pontiac: offline
+# they are taken for Ontario, whose Ottawa-Gatineau and Ottawa River projects cover much of them), and US land along
+# the lakes and rivers, which the USA's box takes first
+ON_BOXES = (("ca-on", (41.6, 45.0, -83.3, -74.34)), ("ca-on", (45.0, 45.45, -82.5, -74.34)),
+            ("ca-on", (45.45, 46.0, -84.0, -74.34)), ("ca-on", (46.0, 46.35, -79.515, -77.0)),
+            ("ca-on", (46.35, 46.75, -79.515, -78.7)), ("ca-on", (46.75, 47.8, -79.515, -79.45)),
+            ("ca-on", (46.0, 52.83, -95.15, -79.515)), ("ca-on", (52.83, 54.0, -93.35, -80.0)),
             ("ca-on", (54.0, 55.0, -91.82, -80.0)), ("ca-on", (55.0, 56.0, -90.28, -80.0)),
             ("ca-on", (56.0, 56.9, -88.9, -80.0)))
 

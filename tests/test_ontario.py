@@ -524,17 +524,24 @@ def offline(monkeypatch):
     (44.906, -77.190, "ca-on"),  # Mazinaw Rock
     (45.004, -81.228, "ca-on"),  # Lion's Head
     (45.42, -75.70, "ca-on"),    # Ottawa
+    (45.83, -77.12, "ca-on"),    # Pembroke
+    (46.32, -78.70, "ca-on"),    # Mattawa
+    (47.51, -79.68, "ca-on"),    # Haileybury, Lake Timiskaming
     (48.38, -89.25, "ca-on"),    # Thunder Bay
     (49.77, -94.49, "ca-on"),    # Kenora
     (51.27, -80.65, "ca-on"),    # Moosonee
     (55.99, -87.65, "ca-on"),    # Fort Severn
-    (45.48, -75.70, None),       # Gatineau (Quebec)
+    (45.48, -75.70, "ca-on"),    # Gatineau (Quebec): the boxes hold the Ottawa River's Quebec shore
+    (45.50, -73.57, None),       # Montreal (Quebec)
+    (47.33, -79.43, None),       # Ville-Marie (Quebec), across Lake Timiskaming
     (48.24, -79.02, None),       # Rouyn-Noranda (Quebec)
     (49.90, -97.14, None),       # Winnipeg (Manitoba)
     (54.0, -94.0, None),         # Manitoba, west of the border's diagonal
 ])
 def test_offline_region_boxes(tmp_path, offline, lat, lon, region):
-    """Offline, the region boxes give Ontario inside Canada and keep off Quebec and Manitoba."""
+    """Offline, the region boxes give Ontario inside Canada, hold every tile of the province's tile index (2026-10-28:
+    8 of 200 296 centres outside, just across 79.517° W) and so the Ottawa River's Quebec shore, and keep off the
+    rest of Quebec and Manitoba."""
     assert src.choose.region_codes(lat, lon, str(tmp_path), "ca") == ((region,) if region else ())
 
 
