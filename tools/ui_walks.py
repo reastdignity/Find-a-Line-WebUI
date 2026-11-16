@@ -271,6 +271,7 @@ WALKS = {
             *OPEN_RUN,
             note("the list's star saves to the top level at once; a folder is chosen in the line's details"),
             tap(".r-rows [role=option]", LINE, "the line's details"),
+            screen("the line's details"),
             tap(".r-details >> role=button[name='Add to favourites']", POPOVER, "Save to a folder"),
             screen("Save to a folder"),
             tap(".r-pop >> role=button[name='New folder']", "!!document.querySelector('.r-newfolder input')",
