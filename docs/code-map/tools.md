@@ -193,6 +193,14 @@ A page whose step `need:<expression>` stays false is left out with a note (the `
 uncertain shore, the clip's); a `--data-dir` used before can be used again (the Basic form's riggers get only the rigs
 they do not have yet)
 
+## `tools/shots_diff.py`
+
+Run by hand: two folders of screenshots (`tools/ui_shots.py`'s, before and after a change) compared file by file:
+only in one, sizes that differ, or the share of pixels whose largest channel difference exceeds `--threshold` (8 of
+255) and the largest difference; a table sorted by that share and a line of totals, exit code 0 always (it reports,
+map tiles differ from run to run); `--out` a difference picture per file that differs (the first picture dimmed, the
+changed pixels red). Pillow and numpy (`tests/test_shots_diff.py`)
+
 ## `tools/perf_*.py`
 
 Run by hand: the measurements of docs/performance.md: `perf_run_load.py` (a run's result and its first line's 3D view
