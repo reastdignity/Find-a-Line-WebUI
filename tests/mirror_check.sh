@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The mirror stack's checks (deploy/mirror, docs/mirror-hosting/spec.md, section 4 "Tests"): one
 # line "PASS|FAIL <id> <what>" per check, "INFO" lines for measurements; the exit code is the
-# number of failures (capped at 100).
+# number of failures (capped at 100). CI runs it with --self-test in the job `mirror` of
+# .github/workflows/mirror.yml: only when deploy/mirror/**, this script, tests/test_mirror_deploy.py
+# or that workflow change (on branches and pull requests), and by hand.
 #
 #   tests/mirror_check.sh               build the image, start compose.yaml + compose.test.yaml +
 #                                       deploy/mirror/test/compose.check.yaml (a fixture tree in
@@ -25,7 +27,8 @@
 # Settings (environment): MIRROR_CHECK_PROJECT (the compose project and the prefix of every Docker
 # object it makes, default mirror-check), MIRROR_CHECK_SUBNET and MIRROR_CHECK_FRONT_SUBNET (two
 # free /24 networks, defaults 172.29.142.0/24 and 172.29.143.0/24), MIRROR_CHECK_PORT (the stand-in's
-# port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the door's, default 8793).
+# port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the door's, default 8793); with --live,
+# MIRROR_LIVE_PRODUCTS (a pattern of product paths LV15 and LV17 take their tile from, default all).
 set -u
 export MSYS_NO_PATHCONV=1
 
@@ -40,7 +43,20 @@ PORT=${MIRROR_CHECK_PORT:-8792}
 DOOR_PORT=${MIRROR_CHECK_DOOR_PORT:-8793}
 CONTACT='abuse@example.org <check&co>'
 CONTACT_HTML='abuse@example.org &lt;check&amp;co&gt;'
-PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to empty; the regions it serves then use coarser data."
+PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to off; the regions it serves then use coarser data."
+# --live's User-Agent; LV15's search for a tile (per product, in all); the smallest tile with which
+# LV15's eight requests at once show the cap, and the smallest with which LV17's held downloads
+# show the proxy passing X-Accel-Buffering (both measured with the test stack's stand-in: see
+# deploy/mirror/README.md, "Checks")
+LIVE_UA="Find-a-Line/check-live (mirror_check.sh; +https://site.example; contact: someone@example.org)"
+LV15_PER_PRODUCT=15
+LV15_MAX_HEADS=60
+# Measured 2026-11-16, 5 tries a size from the host and from a container: 0.05 and 0.1 MB never
+# (8 x 200), 0.25-8 MB every time (4 x 200, 4 x 429). 1 MB leaves a served request 0.24 s at the
+# mirror, room for eight connections over a real network to start further apart than here.
+LV15_MIN_BYTES=1000000
+LV17_MIN_BYTES=16000000   # measured: from 16 MB every time, 12-14 MB now and then, 8 MB never
+CAP_UNPROVEN=0
 
 declare -A OUT=()
 FAILS=0
@@ -64,7 +80,7 @@ skip() {  # <id> <why>: a check that could not run here (not a PASS; the accepta
     OUT[$1]=SKIP
     [ "$QUIET" = 1 ] || echo "SKIP $1 $2"
 }
-TAGS=" base hold probe rate forged swag th ka day send refuse local dsprobe dsserved "
+TAGS=" base hold probe rate forged swag th ka day send refuse local dsprobe dsserved capold capnew "
 tag() {  # <tag>: its number (the log's "v" holds only version-shaped tokens: <MARK>.<number>)
     local before=${TAGS%% $1 *}
     printf '%s' "$before" | wc -w | tr -d ' '
@@ -91,9 +107,9 @@ now() { date +%s.%N | cut -c1-14; }
 # ---------------------------------------------------------------- the live checks (no fixture)
 
 live_checks() {  # <url> [master folder]: from this machine, through the proxy
-    local U=${1%/} master=${2:-} ua h c py out
-    ua="Find-a-Line/check-live (mirror_check.sh; +https://site.example; contact: someone@example.org)"
-    lc() { curl -sS -A "$ua" -m 60 "$@" 2> /dev/null; }
+    local U=${1%/} master=${2:-} h c py out
+    lc() { curl -sS -A "$LIVE_UA" -m 60 "$@" 2> /dev/null; }
+    rm -f "$WORK/live-candidates.txt"
     h=$(lc -D - -o "$NULLDEV" "$U/robots.txt" | tr -d '\r')
     eq LV01 "robots.txt: 200 text/plain; charset=utf-8" "$(printf '%s\n' "$h" | head -1 | cut -d' ' -f2) $(printf '%s\n' "$h" | grep -i '^content-type:' | cut -d' ' -f2-)" "200 text/plain; charset=utf-8"
     check LV02 "robots.txt disallows everything" has "$(lc "$U/robots.txt")" '^Disallow: /$'
@@ -122,7 +138,8 @@ live_checks() {  # <url> [master folder]: from this machine, through the proxy
     local list="$WORK/live-datasets.json"
     out=$(lc -o "$(hostpath "$list")" -D - "$U/v1/datasets.json" | tr -d '\r')
     if ! has "$out" '^HTTP/[0-9.]+ 200'; then
-        skip LV12-LV15 "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): nothing published yet; the index and cap checks wait for the first publish"
+        skip LV12-LV17 "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): nothing published yet; the index and cap checks wait for the first publish"
+        CAP_UNPROVEN=1
         return
     fi
     check LV12 "datasets.json: application/json, Cache-Control: no-cache" \
@@ -156,16 +173,26 @@ for d in json.load(open(sys.argv[1], encoding="utf-8"))["datasets"]:
             lc -D - -o "$NULLDEV" -H 'Accept-Encoding: gzip' "$U/v1/tiles/$path/index.json" | tr -d '\r' \
                 | grep -qi '^content-encoding: gzip$' && gz=$((gz + 1))
         fi
-        # The largest of the first 20 tiles the index lists with data: the held downloads of LV15
-        for tile in $("$py" -I -c 'import json,sys
-keys = [k for k, v in json.load(open(sys.argv[1], encoding="utf-8"))["tiles"].items() if v][:20]
-for k in keys:
+        # Candidates for LV15's held downloads: up to LV15_PER_PRODUCT tiles with data of every
+        # product, spread evenly over its index (MIRROR_LIVE_PRODUCTS: a pattern of product paths)
+        if printf '%s' "$path" | grep -qE "${MIRROR_LIVE_PRODUCTS:-.}"; then
+            "$py" -I -c 'import json,sys
+keys = [k for k, v in json.load(open(sys.argv[1], encoding="utf-8"))["tiles"].items() if v]
+n = int(sys.argv[2])
+for k in (keys if len(keys) <= n else [keys[round(x * (len(keys) - 1) / (n - 1))] for x in range(n)]):
     i, j = (int(x) for x in k.split("_"))
-    print(f"{i // 10}_{j // 10}/{i}_{j}.tif")' "$(hostpath "$WORK/live-index.json")" | tr -d '\r'); do
-            size=$(lc -I "$U/v1/tiles/$path/$tile" | tr -d '\r' | grep -i '^content-length:' | cut -d' ' -f2)
-            if [ "${size:-0}" -gt "$best" ]; then best=$size; bestpath="/v1/tiles/$path/$tile"; fi
-        done
+    print(sys.argv[3] + f"/{i // 10}_{j // 10}/{i}_{j}.tif")' "$(hostpath "$WORK/live-index.json")" "$LV15_PER_PRODUCT" \
+                "/v1/tiles/$path" | tr -d '\r' >> "$WORK/live-candidates.txt"
+        fi
     done <<< "$products"
+    # Their sizes (HEAD), at most LV15_MAX_HEADS of them, 8 a second (within a visitor's rate)
+    local tile
+    while read -r tile; do
+        [ -n "$tile" ] || continue
+        size=$(lc -I "$U$tile" | tr -d '\r' | grep -i '^content-length:' | cut -d' ' -f2)
+        if [ "${size:-0}" -gt "$best" ]; then best=$size; bestpath=$tile; fi
+        sleep 0.12
+    done < <(head -n "$LV15_MAX_HEADS" "$WORK/live-candidates.txt" 2> /dev/null)
     check LV13 "every served index.json has the sha256 datasets.json gives${master:+ and the master copy} ($n products, $bad wrong)" \
         eval '[ "$n" -ge 1 ] && [ "$bad" -eq 0 ]'
     if [ "$big" -ge 1 ]; then
@@ -173,21 +200,69 @@ for k in keys:
     else
         skip LV14 "no index.json above 2 KB"
     fi
-    # The per-address cap through the real proxy: slow downloads held open, then one request more.
-    # It shows the proxy honours X-Accel-Buffering only when the tile is larger than what the
-    # sockets and buffers on the way hold (several MB): a small tile is sent into them at once
-    # and the mirror's connection ends whatever the proxy does.
-    if [ -z "$bestpath" ]; then skip LV15 "no tile listed with data"; return; fi
-    info "LV15 holds $bestpath ($best bytes) at 64 KB/s"
-    local probe
-    for _ in 1 2 3; do lc -o "$NULLDEV" --limit-rate 64k -m 18 "$U$bestpath" & done
-    sleep 8
-    probe=$(lc -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt")
-    lc -o "$NULLDEV" --limit-rate 64k -m 12 "$U$bestpath" &
+    live_cap LV15 "$U" "$bestpath" "$best"
+    live_hold LV17 "$U" "$bestpath" "$best"
+}
+
+mb() { awk -v b="$1" 'BEGIN { printf "%.2f", b / 1e6 }'; }
+
+# The per-address cap through the proxy: eight requests for one tile started at once from this
+# address (eight connections: curl --parallel-immediate opens one a request, over HTTP/1.1 or 2).
+# The mirror sends a visitor's request at 4 MB/s whatever the client reads, so each served one
+# stays open at the mirror for about its size / 4 MB/s; the eight overlap when that is longer than
+# the spread of their starts: exactly 4 answers 200 and 4 answers 429 with Retry-After: 10. Below
+# about 0.25 MB a request ends at once (its first 256 KB go without waiting: sendfile_max_chunk)
+# and all eight are served. Up to three tries, 3 s apart (within the visitor's request rate); the
+# check passes on the first try with exactly that answer. Below LV15_MIN_BYTES a SKIP that says so,
+# never a FAIL and never a PASS, and the summary says the cap is still unproven.
+live_cap() {  # <id> <url> <tile path> <its bytes>
+    local id=$1 U=$2 tile=$3 bytes=$4 out="" tries="" try args=""
+    if [ -z "$tile" ]; then
+        skip "$id" "no tile listed with data"
+        CAP_UNPROVEN=1
+        return
+    fi
+    if [ "$bytes" -lt "$LV15_MIN_BYTES" ]; then
+        skip "$id" "the connection cap cannot be shown with tiles of $(mb "$bytes") MB (the largest found); publish a dataset with tiles of at least $(mb "$LV15_MIN_BYTES") MB"
+        CAP_UNPROVEN=1
+        return
+    fi
+    for _ in 1 2 3 4 5 6 7 8; do args="$args -o $NULLDEV $U$tile"; done
+    for try in 1 2 3; do
+        sleep 3
+        # shellcheck disable=SC2086
+        out=$(curl -s -A "$LIVE_UA" -m 60 --parallel --parallel-immediate --parallel-max 8 \
+                -w '%{http_code} %header{retry-after}\n' $args 2> /dev/null \
+            | tr -d '\r' | sort | uniq -c | awk '{ $1 = $1; printf "%s%s", (NR > 1 ? "; " : ""), $0 }')
+        tries="$tries${tries:+ | }$out"
+        [ "$out" = "4 200; 4 429 10" ] && break
+    done
+    info "$id: 8 requests at once for $tile ($bytes bytes), per try: $tries"
+    eq "$id" "through the proxy: 8 requests at once from one address: 4 served, 4 refused with Retry-After 10 (tile: $(mb "$bytes") MB)" \
+        "$out" "4 200; 4 429 10"
+}
+
+# The proxy passes the mirror's X-Accel-Buffering: no (it streams, never buffers a whole tile):
+# slow downloads held open, then one request more. It shows only when the tile is larger than what
+# the sockets and the proxy's buffers on the way hold: a smaller tile is sent into them at once and
+# the mirror's request ends whatever the proxy does. Below LV17_MIN_BYTES a SKIP that says so.
+live_hold() {  # <id> <url> <tile path> <its bytes>
+    local id=$1 U=$2 tile=$3 bytes=$4 probe out
+    if [ -z "$tile" ] || [ "$bytes" -lt "$LV17_MIN_BYTES" ]; then
+        skip "$id" "the proxy's streaming (X-Accel-Buffering) cannot be shown with tiles of $(mb "${bytes:-0}") MB (the largest found); it needs tiles of at least $(mb "$LV17_MIN_BYTES") MB"
+        return
+    fi
+    info "$id holds $tile ($bytes bytes) at 64 KB/s"
     sleep 3
-    out=$(lc -o "$NULLDEV" -w '%{http_code} %header{retry-after}' "$U/robots.txt")
+    for _ in 1 2 3; do curl -s -A "$LIVE_UA" -o "$NULLDEV" --limit-rate 64k -m 18 "$U$tile" & done
+    sleep 8
+    probe=$(curl -s -A "$LIVE_UA" -m 60 -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt")
+    curl -s -A "$LIVE_UA" -o "$NULLDEV" --limit-rate 64k -m 12 "$U$tile" &
+    sleep 3
+    out=$(curl -s -A "$LIVE_UA" -m 60 -o "$NULLDEV" -w '%{http_code} %header{retry-after}' "$U/robots.txt")
     wait
-    eq LV15 "through the proxy: a request beside 3 held downloads 200, beside 4: 429, Retry-After 10 (held: $best bytes)" "$probe / $out" "200 / 429 10"
+    eq "$id" "through the proxy: slow downloads stay open at the mirror (X-Accel-Buffering): beside 3 held a request 200, beside 4: 429, Retry-After 10 (held: $(mb "$bytes") MB)" \
+        "$probe / $out" "200 / 429 10"
 }
 
 # ---------------------------------------------------------------- the stack
@@ -439,6 +514,15 @@ g_caps() {
     wait
 }
 
+g_livecap() {
+    # --live's cap check (LV15) with a tile of Madeira's size (1.8 MB, written for this check and
+    # removed after it), from this machine through the stand-in's published port, where its
+    # controls can switch the cap off
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "head -c 1800000 /dev/urandom > /f$T/0_0/2_1.tif && chmod 0644 /f$T/0_0/2_1.tif" > /dev/null
+    live_cap K01 "http://127.0.0.1:$PORT" "$T/0_0/2_1.tif" 1800000
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "rm -f /f$T/0_0/2_1.tif" > /dev/null
+}
+
 refusal_rate() {  # <id> <what> <code> <curl options> <path>: one address, straight to the mirror
     local id=$1 what=$2 code=$3 out burst slow
     sleep 3
@@ -682,7 +766,13 @@ g_start() {
     check T14 "a refusal says why" grep -q 'is not a single IPv4 address; not starting' "$WORK/start-bad3.log"
 }
 
+logs_as_root() {  # <command>: a shell as root on the log volume at /l (works while the server is down)
+    docker run --rm --user 0 --network none -v "${PROJECT}_logs:/l" --entrypoint sh "$PROJECT-files:orig" -c "$1"
+}
+
 g_cleanup() {
+    # The log folder as the install leaves it (an earlier variant's run may have stopped half-way)
+    logs_as_root "chmod 0755 /l" > /dev/null 2>&1
     # Files dated 13, 14 and 15 days back (the container's UTC day) and two other names; the loop
     # runs its cleanup at start, so a restart runs it now
     local days d13 d14 d15 left
@@ -748,22 +838,33 @@ g_cleanup() {
     info "the size bound at $cap bytes (today's file $t): $left"
     check E11 "above the size bound the oldest day's file goes first; the newer days, today's and other names stay" \
         eval '(case " $left" in *" access-$d3.log "*) exit 1 ;; esac; for n in access-$d2.log access-$d1.log access-$day.log notes.txt access-x.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done)'
+    # Today's file brought well above the bound through nginx itself (25 marked requests, so that
+    # nginx's own write position is what is tested), its size read; then the pass at 1000 bytes and
+    # one more marked request: the file holds that line and none of before, below the bound
+    local tb
+    # shellcheck disable=SC2046
+    cx a -A "$(ua capold)" $(urls 25 "$P/robots.txt") > /dev/null
+    sleep 1
+    tb=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
     csh files-1 "/usr/local/bin/mirror-start cleanup 1000"
-    cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
+    cx a -o /dev/null -A "$(ua capnew)" "$P/robots.txt"
     sleep 1
     left=$(csh files-1 'ls /var/log/mirror' | tr '\n' ' ')
-    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
-    info "the size bound at 1000 bytes: $left; today's file now $t bytes"
-    check E12 "today's file alone above the bound is emptied in place: nginx goes on writing it, the healthcheck holds" \
-        eval '(case " $left" in *" access-$d2.log "*|*" access-$d1.log "*) exit 1 ;; *" notes.txt "*) ;; *) exit 1 ;; esac) &&
-            [ "$t" -gt 0 ] && [ "$t" -lt 1000 ] && csh files-1 "grep -q \"$MARK.$(tag day)\" /var/log/mirror/access-$day.log" &&
+    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log" 2> /dev/null)
+    info "the size bound at 1000 bytes: today's file $tb bytes before the pass, ${t:-none} after it and one request; $left"
+    check E12 "today's file alone above the bound ($tb bytes) is emptied in place: nginx goes on writing it (the new line only), the healthcheck holds" \
+        eval '[ "${tb:-0}" -gt 1000 ] &&
+            (case " $left" in *" access-$d2.log "*|*" access-$d1.log "*) exit 1 ;; *" notes.txt "*) ;; *) exit 1 ;; esac) &&
+            [ "${t:-0}" -gt 0 ] && [ "${t:-0}" -lt 1000 ] &&
+            csh files-1 "grep -q \"$MARK.$(tag capnew)\" /var/log/mirror/access-$day.log" &&
+            ! csh files-1 "grep -q \"$MARK.$(tag capold)\" /var/log/mirror/access-$day.log" &&
             docker exec "$FILES" /usr/local/bin/mirror-start health'
     csh files-1 'rm -f /var/log/mirror/notes.txt /var/log/mirror/access-x.log'
     # A cleanup pass that fails (a file 15 days back that cannot be removed: the log folder made
     # read-only for a while) leaves the loop alive: the start's pass fails, the container still
     # becomes healthy, a fixed line on stderr, a stale heartbeat renewed, the day's switch done
     local since
-    csh files-1 "cd /var/log/mirror && touch access-$d15.log && chmod 0555 /var/log/mirror"
+    csh files-1 "cd /var/log/mirror && touch access-$day.log access-$d15.log && chmod 0555 /var/log/mirror"
     since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     docker restart "$FILES" > /dev/null
     wait_healthy || info "not healthy after the restart with a failing cleanup pass"
@@ -774,7 +875,8 @@ g_cleanup() {
     check E13 "a failing cleanup pass leaves the loop alive: a fixed line on stderr (no file name), the heartbeat renewed, the day's switch done" \
         eval 'printf "%s\n" "$out" | grep -q "findaline-mirror: a cleanup pass failed; the loop goes on" && ! printf "%s\n" "$out" | grep -q "access-" &&
             docker exec "$FILES" /usr/local/bin/mirror-start health && [ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
-    csh files-1 "chmod 0755 /var/log/mirror && rm -f /var/log/mirror/access-$d15.log"
+    logs_as_root "chmod 0755 /l && rm -f /l/access-$d15.log"   # also when the server is down
+    docker inspect -f '{{.State.Running}}' "$FILES" | grep -q true || { docker restart "$FILES" > /dev/null; wait_healthy; }
     csh files-1 'kill $(cat /tmp/mirror/cleanup.pid)'
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
     sleep 35
@@ -992,7 +1094,8 @@ VARIANTS=(
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
     'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d; /limit_conn trusted_all 4;/d @@ caps @@ C03 C04 C05 C07'
-    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps @@ C06'
+    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps livecap @@ C06 K01'
+    'an address without its cap @@ nginx.conf @@ /limit_conn visitor_address 4;/d @@ livecap @@ K01'
     'all visitors: 7 at once @@ nginx.conf @@ s#visitors_all 8;#visitors_all 7;# @@ caps @@ C01'
     'a trusted address: 3 at once @@ nginx.conf @@ s#trusted_address 4;#trusted_address 3;# @@ caps @@ C02'
     'the trusted class: 3 at once @@ nginx.conf @@ s#trusted_all 4;#trusted_all 3;# @@ caps @@ C02'
@@ -1027,7 +1130,7 @@ VARIANTS=(
     'the newest day first @@ start.sh @@ s#for _file in "$LOGS"/access-\*.log; do$#for _file in $(ls -r "$LOGS"/access-*.log); do# @@ cleanup @@ E11'
     'today deleted by the bound @@ start.sh @@ /\[ "${_file##\*\/}" = "access-$_today.log" \] && continue/d @@ cleanup @@ E12'
     'error log at info @@ nginx.conf @@ s#error_log /dev/stderr crit;#error_log /dev/stderr info;# @@ paths caps log @@ L10'
-    'no privacy text @@ landing/index.html @@ /for 14 days, to hold the service/d @@ content @@ P10'
+    'no privacy text @@ landing/index.html @@ /for at most 14 days, to hold the service/d @@ content @@ P10'
     'contact not put in @@ start.sh @@ s#sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE"#cat "$TEMPLATE"# @@ content @@ P11'
     'trusted list not checked @@ start.sh @@ s#is_ipv4 "$_address" || die#true || die#; s#\[ $_count -le $MAX_TRUSTED \] || die#true || die#; s#case $_seen in#case nothing in#; s#,\* | \*, | \*,,\*) die#nothing) die# @@ start @@ T03 T04 T05 T06 T07 T08 T09 T10 T11'
     'subnet and contact not checked @@ start.sh @@ s#\[ "$_bits" -ge 16 \] && \[ "$_bits" -le 29 \] || die#true || die#; s#\[ -n "$_contact" \] || die#true || die# @@ start @@ T12 T13'
@@ -1174,7 +1277,7 @@ while [ $# -gt 0 ]; do
         --live) MODE=live; LIVE_URL=${2:?--live needs an address}; shift ;;
         --master) MASTER=${2:?--master needs a folder}; shift ;;
         --keep) KEEP=1 ;;
-        -h | --help) sed -n '2,27p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,31p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
@@ -1185,7 +1288,11 @@ if [ "$MODE" = live ]; then
     echo "== live: $LIVE_URL"
     live_checks "$LIVE_URL" "$MASTER"
     rm -rf "$WORK"
-    echo "== done, failures: $FAILS"
+    if [ "$CAP_UNPROVEN" = 1 ]; then
+        echo "== done, failures: $FAILS; the connection cap through the proxy is still unproven (LV15 skipped)"
+    else
+        echo "== done, failures: $FAILS"
+    fi
     [ "$FAILS" -le 100 ] && exit "$FAILS" || exit 100
 fi
 
@@ -1223,12 +1330,22 @@ if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
     echo "== done, failures: $FAILS"
     exit 0
 fi
-run_checks container content paths swag caps bytes rate refusals forged timeouts log start
+run_checks container content paths swag caps livecap bytes rate refusals forged timeouts log start
 declare -A MAIN=()
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== live mode against the stand-in (http://127.0.0.1:$PORT)"
 sleep 3
 live_checks "http://127.0.0.1:$PORT"
+# LV15's other side: with a tile below the size that can show the cap (the fixture's 10 kB tile at
+# 0.5 m), its procedure is a SKIP that says why, never a FAIL or a PASS (beside it, LV15 with the
+# 48 MB tile ran the cap itself, and K01 the same procedure with its controls)
+QUIET=1
+live_cap LV15small "http://127.0.0.1:$PORT" "$H/0_0/0_1.tif" 10240
+QUIET=0
+eq LV16 "a tile below the size that can show the cap (10 kB): LV15 is a SKIP, not a FAIL or a PASS, and the cap counts as unproven" \
+    "${OUT[LV15small]:-none} $CAP_UNPROVEN" "SKIP 1"
+unset 'OUT[LV15small]'
+CAP_UNPROVEN=0
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 run_checks cleanup
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done

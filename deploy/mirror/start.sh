@@ -31,7 +31,7 @@ RUN=/tmp/mirror
 LOGS=/var/log/mirror
 TEMPLATE=/usr/share/findaline-mirror/index.html.in
 KEEP_DAYS=14
-# The log folder's size bound (U45): provisionally 2 GB, the user decides the number
+# The log folder's size bound (U45, U48): 2 GB
 LOG_CAP_BYTES=2000000000
 CLEANUP_SECONDS=3600
 HEARTBEAT_SECONDS=30

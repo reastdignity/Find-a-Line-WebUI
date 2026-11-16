@@ -9,7 +9,7 @@
 # digest with
 #   docker buildx imagetools inspect nginx/nginx-unprivileged:<tag>
 # (the "Digest:" line), change the ARG below, then `docker compose build --pull` and
-# tests/mirror_check.sh (the CI job `mirror` in .github/workflows/ci.yml); README.md, "Updating".
+# tests/mirror_check.sh (the job `mirror` of .github/workflows/mirror.yml); README.md, "Updating".
 ARG NGINX_IMAGE=nginx/nginx-unprivileged:1.30.6-alpine3.24@sha256:6b0610b60dff09248d642643a29393543a92eb355b00bbd1d12c7af562ef94c4
 
 FROM ${NGINX_IMAGE}

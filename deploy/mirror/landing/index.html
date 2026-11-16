@@ -41,8 +41,9 @@ to, and the limits per address keep it usable for everyone.</p>
 <p id="privacy">An installation that downloads from the project's data server shows it its address and which
 tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether
 the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this
-for 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data
-server, set <code>FINDALINE_MIRROR_URL</code> to empty; the regions it serves then use coarser data.</p>
+for at most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the
+data server, set <code>FINDALINE_MIRROR_URL</code> to <code>off</code>; the regions it serves then use coarser
+data.</p>
 
 <footer>
 <p>Contact for abuse and takedown requests: <span id="contact">@MIRROR_CONTACT@</span></p>
