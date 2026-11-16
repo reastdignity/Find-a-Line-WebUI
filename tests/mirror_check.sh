@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The mirror stack's checks (deploy/mirror, docs/mirror-hosting/spec.md, section 4 "Tests"): one
 # line "PASS|FAIL <id> <what>" per check, "INFO" lines for measurements; the exit code is the
-# number of failures (capped at 100).
+# number of failures (capped at 100). CI runs it with --self-test in the job `mirror` of
+# .github/workflows/mirror.yml: only when deploy/mirror/**, this script, tests/test_mirror_deploy.py
+# or that workflow change (on branches and pull requests), and by hand.
 #
 #   tests/mirror_check.sh               build the image, start compose.yaml + compose.test.yaml +
 #                                       deploy/mirror/test/compose.check.yaml (a fixture tree in
@@ -40,7 +42,7 @@ PORT=${MIRROR_CHECK_PORT:-8792}
 DOOR_PORT=${MIRROR_CHECK_DOOR_PORT:-8793}
 CONTACT='abuse@example.org <check&co>'
 CONTACT_HTML='abuse@example.org &lt;check&amp;co&gt;'
-PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to empty; the regions it serves then use coarser data."
+PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to off; the regions it serves then use coarser data."
 
 declare -A OUT=()
 FAILS=0
@@ -1027,7 +1029,7 @@ VARIANTS=(
     'the newest day first @@ start.sh @@ s#for _file in "$LOGS"/access-\*.log; do$#for _file in $(ls -r "$LOGS"/access-*.log); do# @@ cleanup @@ E11'
     'today deleted by the bound @@ start.sh @@ /\[ "${_file##\*\/}" = "access-$_today.log" \] && continue/d @@ cleanup @@ E12'
     'error log at info @@ nginx.conf @@ s#error_log /dev/stderr crit;#error_log /dev/stderr info;# @@ paths caps log @@ L10'
-    'no privacy text @@ landing/index.html @@ /for 14 days, to hold the service/d @@ content @@ P10'
+    'no privacy text @@ landing/index.html @@ /for at most 14 days, to hold the service/d @@ content @@ P10'
     'contact not put in @@ start.sh @@ s#sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE"#cat "$TEMPLATE"# @@ content @@ P11'
     'trusted list not checked @@ start.sh @@ s#is_ipv4 "$_address" || die#true || die#; s#\[ $_count -le $MAX_TRUSTED \] || die#true || die#; s#case $_seen in#case nothing in#; s#,\* | \*, | \*,,\*) die#nothing) die# @@ start @@ T03 T04 T05 T06 T07 T08 T09 T10 T11'
     'subnet and contact not checked @@ start.sh @@ s#\[ "$_bits" -ge 16 \] && \[ "$_bits" -le 29 \] || die#true || die#; s#\[ -n "$_contact" \] || die#true || die# @@ start @@ T12 T13'
@@ -1174,7 +1176,7 @@ while [ $# -gt 0 ]; do
         --live) MODE=live; LIVE_URL=${2:?--live needs an address}; shift ;;
         --master) MASTER=${2:?--master needs a folder}; shift ;;
         --keep) KEEP=1 ;;
-        -h | --help) sed -n '2,27p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift

@@ -272,13 +272,23 @@ def test_log_keys_and_days():
     assert re.search(r"^ENV TZ=UTC$", _load("Dockerfile"), re.M)
 
 
+# The privacy text for README and the landing page as the user approved it (U13, U46, U47:
+# "for at most 14 days", the setting's word `off`), word for word; the code marks left out
+PRIVACY = ("An installation that downloads from the project's data server shows it its address and which tiles it "
+           "asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether "
+           "the request was served or refused, how long it took, and the Find-a-Line version of each request. It "
+           "keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing else. "
+           "To never contact the data server, set FINDALINE_MIRROR_URL to off; the regions it serves then use "
+           "coarser data.")
+
+
 def _privacy_text() -> str:
-    """The approved text for README and the landing page, from the specification's section 7."""
-    with open(os.path.join(ROOT, "docs", "mirror-hosting", "spec.md"), encoding="utf-8") as f:
-        spec = f.read()
-    quoted = re.search(r"- README and the mirror's landing page: \"(.+?data\.)\"", spec, re.S)
-    assert quoted
-    return " ".join(quoted.group(1).replace("`", "").split())
+    """The approved text (PRIVACY); also the README's quoted copy and the check script's must hold it."""
+    readme = " ".join(_load("README.md").replace("> ", " ").replace("`", "").split())
+    assert PRIVACY in readme
+    with open(os.path.join(ROOT, "tests", "mirror_check.sh"), encoding="utf-8") as f:
+        assert f'PRIVACY="{PRIVACY}"' in f.read()
+    return PRIVACY
 
 
 def test_landing_page():
@@ -295,11 +305,21 @@ def test_landing_page():
 
 
 def test_ci_job():
-    """The CI job `mirror` runs the check script with its self-test."""
-    with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:
-        jobs = yaml.safe_load(f)["jobs"]
-    steps = " ".join(step.get("run", "") for step in jobs["mirror"]["steps"])
+    """The job `mirror` runs the check script with its self-test, in a workflow of its own that runs
+    only when the mirror's files, its check script, this test or the workflow change, and by hand
+    (U49); on branches only (a path filter is not evaluated for tag pushes); not in ci.yml."""
+    workflows = os.path.join(ROOT, ".github", "workflows")
+    with open(os.path.join(workflows, "mirror.yml"), encoding="utf-8") as f:
+        workflow = yaml.safe_load(f)
+    steps = " ".join(step.get("run", "") for step in workflow["jobs"]["mirror"]["steps"])
     assert "bash tests/mirror_check.sh --self-test" in steps
+    on = workflow[True]   # PyYAML reads the key "on" as True
+    paths = ["deploy/mirror/**", "tests/mirror_check.sh", "tests/test_mirror_deploy.py", ".github/workflows/mirror.yml"]
+    assert on["push"] == {"branches": ["**"], "paths": paths}
+    assert on["pull_request"] == {"paths": paths}
+    assert "workflow_dispatch" in on and set(on) == {"push", "pull_request", "workflow_dispatch"}
+    with open(os.path.join(workflows, "ci.yml"), encoding="utf-8") as f:
+        assert "mirror" not in yaml.safe_load(f)["jobs"]
 
 
 def test_publishing_door_compose():

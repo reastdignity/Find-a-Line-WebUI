@@ -1,0 +1,62 @@
+# The mirror stack (deploy/mirror, docs/mirror-hosting/spec.md, section 4), in a workflow of its own
+# (the user's U49): it runs only when the mirror's files, its check script or its static test, or
+# this file, change, and by hand (workflow_dispatch). The static test (tests/test_mirror_deploy.py)
+# runs besides in CI's ordinary test jobs on every push.
+# - GitHub's path filter: "Path filters are not evaluated for pushes of tags." So `branches: ['**']`
+#   stands beside `paths`: with a branch filter and no tag filter a tag push does not run this
+#   workflow, and with both filters "the workflow will only run when both filters are satisfied".
+# - A new branch's first push is compared "against the parent of the ancestor of the deepest commit
+#   pushed"; a push of more than 1,000 commits always runs it.
+#   (docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax, read 2026-11-16)
+name: Mirror
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'deploy/mirror/**'
+      - 'tests/mirror_check.sh'
+      - 'tests/test_mirror_deploy.py'
+      - '.github/workflows/mirror.yml'
+  pull_request:
+    paths:
+      - 'deploy/mirror/**'
+      - 'tests/mirror_check.sh'
+      - 'tests/test_mirror_deploy.py'
+      - '.github/workflows/mirror.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Its compose files with example settings, then the image built and run behind a stand-in for SWAG
+  # with a fixture tree; tests/mirror_check.sh checks every behaviour (and its --live checks against
+  # the stand-in's port, and the publishing door), then its self-test switches each behaviour off and
+  # expects its checks to fail
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Compose files
+        working-directory: deploy/mirror
+        run: |
+          printf 'MIRROR_ROOT=/srv/findaline-mirror\nMIRROR_CONTACT=abuse@example.org\n' > ci.env
+          docker compose --env-file ci.env config --quiet
+          docker compose --env-file ci.env -f compose.yaml -f compose.test.yaml config --quiet
+          test -z "$(docker compose --env-file ci.env config --format json | python3 -c 'import json,sys; print(*[n for n, s in json.load(sys.stdin)["services"].items() if s.get("ports")])')"
+          printf 'MIRROR_ROOT=/srv/findaline-mirror\nPUBLISH_KEYS=/srv/keys\nPUBLISH_ADDRESS=192.0.2.10\n' > publish/ci.env
+          docker compose -f publish/compose.yaml --env-file publish/ci.env config --quiet
+          # the same settings without PUBLISH_ADDRESS: compose refuses the door's file, naming it
+          grep -v '^PUBLISH_ADDRESS=' publish/ci.env > publish/ci-noaddr.env
+          if docker compose -f publish/compose.yaml --env-file publish/ci-noaddr.env config --quiet 2> noaddr.txt; then exit 1; fi
+          grep -q 'PUBLISH_ADDRESS missing' noaddr.txt
+
+      - name: The checks and their self-test
+        run: bash tests/mirror_check.sh --self-test

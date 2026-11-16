@@ -293,8 +293,8 @@ rest of the User-Agent; `tools/mirror_publish.py stats` reads it. Docker's own l
 of the requests (the error log runs at "critical"). The healthcheck's own requests are not logged.
 
 The folder's size is bounded too: every hour, after deleting the files 14 or more days old, the cleanup deletes
-the oldest days' files while all `access-*.log` files together are above `LOG_CAP_BYTES` (start.sh;
-provisionally 2 GB, the number is the user's); if today's file alone is above it, today's file is emptied in
+the oldest days' files while all `access-*.log` files together are above `LOG_CAP_BYTES` (start.sh, 2 GB);
+if today's file alone is above it, today's file is emptied in
 place (nginx goes on writing it, nothing restarts). So under a flood of requests the log may hold fewer than
 14 days.
 
@@ -302,9 +302,9 @@ The text the landing page carries (the privacy note of the project's README says
 
 > An installation that downloads from the project's data server shows it its address and which tiles it asks
 > for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request
-> was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for 14
-> days, to hold the service within its limits, and uses it for nothing else. To never contact the data server,
-> set `FINDALINE_MIRROR_URL` to empty; the regions it serves then use coarser data.
+> was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for at
+> most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data
+> server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use coarser data.
 
 A new key or another period changes this text, with the user's yes (docs/mirror-hosting/spec.md, section 7).
 
@@ -313,7 +313,9 @@ A new key or another period changes this text, with the user's yes (docs/mirror-
 - **The base images** (a monthly item; the door's: "The publishing account"): the file server's is pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
   no automatic updates and compose tools that check for updates skip it. Pick the newest tag of the stable
   Alpine line, read its digest with `docker buildx imagetools inspect nginx/nginx-unprivileged:<tag>`, change
-  the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it), then on the
+  the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it: the workflow
+  `.github/workflows/mirror.yml` runs when this folder, the check script, its static test or the workflow
+  change, and by hand), then on the
   server: copy the folder, `docker compose up -d --build --wait`.
 - **The config** (a new version of this folder): copy it over the old one (keep `.env`), then
   `docker compose up -d --build --wait`. A changed SWAG conf is copied to SWAG's `proxy-confs/` again.
