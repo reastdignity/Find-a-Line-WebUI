@@ -178,9 +178,11 @@ def hong_kong(http_server, monkeypatch):
     http_server.add(f"/2020dtm/{BORDER[1]}", _zipped(BORDER[1].replace(".zip", ".tif"),
                                                      _published_tif(_border_pixels())), "application/zip")
     missing = next(r for r in _rows("dtm") if r[0] == "12SW22A")  # in the table, not on the local server
+    denied = next(r for r in _rows("dtm") if r[0] == "12SW22D")   # in the table, answered 403
+    http_server.add(f"/2020dtm/{denied[1]}", b"<html>Forbidden</html>", "text/html", status=403)
     monkeypatch.setattr(hk, "HK_BULK", http_server.base)
-    monkeypatch.setattr(hk, "_hk_table", lambda: {"dtm": {BORDER[0]: BORDER[1], missing[0]: missing[1]},
-                                                  "dsm": {}})
+    monkeypatch.setattr(hk, "_hk_table", lambda: {"dtm": {BORDER[0]: BORDER[1], missing[0]: missing[1],
+                                                          denied[0]: denied[1]}, "dsm": {}})
     monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
     return hk.HK_DTM
 
@@ -208,7 +210,7 @@ def test_recorded_sheet_lands_on_its_box(hong_kong, tmp_path):
 
 def test_the_table_decides(hong_kong, tmp_path, http_server):
     """A sheet outside the table is no tile and never asked; a 404 for a sheet in it is an error of that tile,
-    asked once, never recorded as missing."""
+    asked once, never recorded as missing (a 403 too: test_a_listed_403_is_an_error)."""
     cell = hk.hk_cell(BORDER[0])
     left, bottom, right, top = hong_kong.index.edges(cell)
     grid = make_grid((left - 100, bottom + 10, right - 10, top - 10), 1.0, hk.HK_CRS)
@@ -222,6 +224,21 @@ def test_the_table_decides(hong_kong, tmp_path, http_server):
     assert cache.due(cache_dir, hong_kong.tile_path(cache_dir, missing))  # nothing recorded
     asked = [r.path for r in http_server.requests()]
     assert asked == ["/2020dtm/12SW22A(e846n812,e847n813).zip"]           # once, and nothing else
+
+
+def test_a_listed_403_is_an_error(hong_kong, tmp_path, http_server):
+    """A 403 for a sheet of the table (as Tokyo's bucket answers a key it lacks) is an error of that tile naming the
+    sheet: asked once (no retry), nothing cached, nothing recorded, so the next search asks again."""
+    cache_dir = str(tmp_path / "cache")
+    cell = hk.hk_cell("12SW22D")
+    with pytest.raises(RuntimeError, match="12SW22D"):
+        hong_kong._download_and_record(cell, cache_dir)
+    path = hong_kong.tile_path(cache_dir, cell)
+    assert cache.due(cache_dir, path) and not os.path.exists(path)
+    assert [r.path for r in http_server.requests()] == ["/2020dtm/12SW22D(e847n812,e848n812).zip"]
+    with pytest.raises(RuntimeError, match="12SW22D"):  # the next search asks again
+        hong_kong._download_and_record(cell, cache_dir)
+    assert len(http_server.requests("/2020dtm/12SW22D")) == 2
 
 
 def _sheet_zip(code, value, profile):
@@ -280,16 +297,18 @@ def test_the_table_shipped():
             assert code in table[layer], (layer, code)
         for code, name, url, _ in _rows(layer):
             assert table[layer][code] == name and url.endswith(f"/{hk.HK_FOLDERS[layer]}/{name}")
-    assert set(table["dtm"]) < set(table["dsm"]) and "1SE25A" in set(table["dsm"]) - set(table["dtm"])
+    surface_only = set(table["dsm"]) - set(table["dtm"])  # coastal: Deep Bay, Lantau's west coast (the source's note)
+    assert set(table["dtm"]) < set(table["dsm"]) and len(surface_only) == 57 and "1SE25A" in surface_only
     assert table["dtm"]["17NW12A"] == "17NW12A(e861n844,e862n845).zip"  # as published
-    # every sheet lies whole in the offline box
+    # every sheet meets an offline box (the sheets on the border hold Shenzhen too: at least 10 % of each inside)
     from rasterio.warp import transform_bounds
-    (code_box,) = hk.HK_BOXES
-    south, north, west, east = code_box[1]
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    boxes = unary_union([box(w, s, e, n) for _, (s, n, w, e) in hk.HK_BOXES])
     for layer in ("dtm", "dsm"):
         for code in table[layer]:
-            w, s, e, n = transform_bounds(hk.HK_CRS, "EPSG:4326", *hk.HK_DTM.index.edges(hk.hk_cell(code)))
-            assert south <= s and n <= north and west <= w and e <= east, code
+            sheet = box(*transform_bounds(hk.HK_CRS, "EPSG:4326", *hk.HK_DTM.index.edges(hk.hk_cell(code))))
+            assert sheet.intersection(boxes).area >= 0.1 * sheet.area, code
 
 
 def test_the_sheets_tool(http_server, tmp_path, monkeypatch):
@@ -382,14 +401,43 @@ def test_chosen_by_nominatims_region(tmp_path, recorded):
                                                                     "the centre is in CN-HK"), point
 
 
-def test_offline_box(monkeypatch, tmp_path):
+# Shenzhen's places near the boundary (inside the single box of before) and Macau: never Hong Kong's source
+SHENZHEN = {"Futian": (22.535, 114.055), "Luohu": (22.548, 114.131), "Shekou": (22.48, 113.91),
+            "Yantian": (22.575, 114.27), "Macau": (22.19, 113.55)}
+OFFLINE_HK = {"Lion Rock": LION_ROCK, "Tung Lung Chau": TUNG_LUNG_CHAU, "Chek Lap Kok": CHEK_LAP_KOK,
+              "Lo Wu": (22.528, 114.113), "Sha Tau Kok": (22.546, 114.222), "Tung Ping Chau": (22.545, 114.43),
+              "Po Toi": (22.17, 114.26), "Tai O": (22.25, 113.86), "Mai Po": (22.49, 114.04)}
+
+
+def test_offline_boxes(monkeypatch, tmp_path):
+    """Offline, the staircase of boxes along the boundary gives Hong Kong's places Hong Kong's source and none of
+    Shenzhen's (Futian, Luohu, Shekou and Yantian lay in the single box of before) or Macau."""
     def offline(*args, **kwargs):
         raise ValueError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
-    assert src.choose_source("auto", *LION_ROCK, str(tmp_path)) == (src.SOURCES["hong_kong"],
-                                                                     "the centre is in CN-HK")
-    assert src.choose_source("auto", 22.62, 114.10, str(tmp_path))[0].id == "europe"  # Shenzhen north of the box
-    assert src.choose_source("auto", 22.19, 113.55, str(tmp_path))[0].id == "europe"  # Macau
+    for name, point in OFFLINE_HK.items():
+        assert src.choose_source("auto", *point, str(tmp_path)) == (src.SOURCES["hong_kong"],
+                                                                    "the centre is in CN-HK"), name
+    for name, point in SHENZHEN.items():
+        assert src.choose_source("auto", *point, str(tmp_path))[0].id == "europe", name
+    assert src.choose_source("auto", 22.62, 114.10, str(tmp_path))[0].id == "europe"
+
+
+@pytest.mark.parametrize("zoom8", ["no code", "fails"])
+def test_shenzhen_online_without_a_region(monkeypatch, tmp_path, zoom8):
+    """Online, when zoom 3 says "cn" and the zoom-8 answer names no ISO 3166-2 code (or its lookup fails), the
+    region comes from the boxes: Shenzhen's places are no region of Hong Kong, and get europe."""
+    def reverse(lat, lon, cache_dir, **params):
+        if params["zoom"] == 3:
+            return {"address": {"country": "中国", "country_code": "cn"}}
+        if zoom8 == "fails":
+            raise ValueError("no answer")
+        return {"address": {"city": "深圳市", "country": "中国", "country_code": "cn"}}
+    monkeypatch.setattr(osm, "reverse", reverse)
+    for name, point in SHENZHEN.items():
+        if name != "Macau":
+            assert src.choose_source("auto", *point, str(tmp_path))[0].id == "europe", name
+    assert src.choose_source("auto", *LION_ROCK, str(tmp_path))[0].id == "hong_kong"
 
 
 def test_catalogue_entry():
@@ -399,14 +447,21 @@ def test_catalogue_entry():
     assert s.nmt.nodata_below is None and s.nmpt.nodata_below is None and s.sea_fill is None  # the sea: nodata
     assert s.map_areas() == ("hk",) and src.AREA_NAMES["hk"] == "Hong Kong"
     assert s.ortho is None
+    # the Lands Department's figure (mean sea level about 1.30 m above HKPD) and the surface-only sheets, said
+    assert "about 1.30 m below mean sea level" in s.note and "57 coastal sheets" in s.note
+    assert "about 1.30 m below mean sea level" in s.listing.terrain and "57 coastal sheets" in s.listing.surface
     credit = s.credits[0]
     assert credit.licence == "CSDI Portal" and credit.url == "https://portal.csdi.gov.hk/csdi-webpage/doc/TNC"
     assert "Common Spatial Data Infrastructure (CSDI) Portal" in credit.attribution
     assert "available under the CSDI terms and conditions" in credit.attribution
     assert "Government of the Hong Kong Special Administrative Region" in credit.attribution
+    # the terms: "identify clearly the Government and the CSDI Portal as the source of the Data"
+    assert ("source: the Government of the Hong Kong Special Administrative Region (Civil Engineering and Development "
+            "Department), through the Common Spatial Data Infrastructure (CSDI) Portal") in credit.attribution
     assert s.nmt.credit == s.nmpt.credit == credit
     assert src.net.HOST_SLOTS_OF["bulkdata.csdi.gov.hk"] == 2 and src.net.HOST_SLOTS_OF["portal.csdi.gov.hk"] == 2
     assert osm.GEOFABRIK_OF_CODE["cn-hk"] == "hong-kong"
     lat, lon = s.sample
-    (_, (south, north, west, east)), = s.offline
-    assert south <= lat <= north and west <= lon <= east and math.isclose(lat, LION_ROCK[0])
+    assert math.isclose(lat, LION_ROCK[0]) and any(south <= lat <= north and west <= lon <= east
+                                                   for _, (south, north, west, east) in s.offline)
+    assert len(s.offline) == 53 and {code for code, _ in s.offline} == {"cn-hk"}

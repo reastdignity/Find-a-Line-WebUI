@@ -80,8 +80,10 @@ def hk_cell_of_name(name: str) -> Optional[Tuple[int, int]]:
 # (17NW12A(e861n844,...) lies at x 861 500, y 845 000), so the names are kept as published, never computed. The table
 # (hong_kong_sheets.npz, tools/hong_kong_sheets.py) holds every sheet of the CSDI Portal's index (four requests): a
 # sheet outside it is never asked, a 404 for one in it is an error of that tile, asked again by the next search
-# (CellSheetTiles). The index matched the host: a HEAD of 2 857 of its 6 563 files (every one of the terrain's first
-# 2 857, 2026-11-16) answered 200 each.
+# (CellSheetTiles). Every listed file answered 200 on 2026-11-16 (a HEAD of the first 2 857 terrain files of the index,
+# made once that day; not a step of the table's tool). 57 sheets have a surface model and no terrain (coastal sheets,
+# most of them on Deep Bay's mudflats and fishponds and on Lantau's west coast): a search there gets the fallback's
+# terrain under the 0.5 m lidar surface.
 HK_BULK = "https://bulkdata.csdi.gov.hk/cedd/lidar"
 HK_FOLDERS = {"dtm": "2020dtm", "dsm": "2020dsm"}
 HK_SHEETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hong_kong_sheets.npz")
@@ -112,8 +114,9 @@ def hk_files(layer: str, i: int, j: int) -> List[Tuple[str, str, int]]:
 # 1200 px of float32 at 0.5 m on its sheet's box (EPSG:2326, "Area", pixel edges on whole metres: grid_origin 0;
 # uncompressed, 128 px tiles, 7 868 582 B), nodata -9999. Heights above the Hong Kong Principal Datum, kept as they
 # are: the Lands Department's "Explanatory Notes on Geodetic Datums in Hong Kong"
-# (https://www.geodetic.gov.hk/common/data/pdf/explanatorynotes.pdf, read 2026-11-16) draws mean sea level 1.30 m
-# above HKPD. The sea and the land beyond Hong Kong's boundary are nodata in both models (2NE20D on the Shenzhen
+# (https://www.geodetic.gov.hk/common/data/pdf/explanatorynotes.pdf, read 2026-11-16): "Based on the tide data
+# recorded by Quarry Bay tide gauge station in Victoria Harbour during the recent 19-year cycle (1997 to 2015), the
+# mean sea level is about 1.30m above HKPD." The sea and the land beyond Hong Kong's boundary are nodata in both models (2NE20D on the Shenzhen
 # River: 73.9 % nodata, the same pixels in both; 12SW22A's surface off Tung Lung Chau: 97.1 %, its lowest pixel
 # 0.738 m), with a fringe of water at +1.1 to +1.3 m along the shore and a few pixels below 0 m at the sea's edge
 # (16NW3A: 1 796 in [-1, 0) m, 115 below -1 m, the lowest -2.07 m, within 19 m of the nodata; at 1 m around it 500 of
@@ -144,13 +147,14 @@ HK_TERMS = "https://portal.csdi.gov.hk/csdi-webpage/doc/TNC"
 HK_CREDIT = Credit("LiDAR Data 2020, DTM and DSM (Civil Engineering and Development Department, Hong Kong)",
                    "LiDAR Data (2020), Civil Engineering and Development Department; intellectual property rights of "
                    "the Government of the Hong Kong Special Administrative Region and the Civil Engineering and "
-                   "Development Department; source: Common Spatial Data Infrastructure (CSDI) Portal, available "
-                   "under the CSDI terms and conditions",
+                   "Development Department; source: the Government of the Hong Kong Special Administrative Region "
+                   "(Civil Engineering and Development Department), through the Common Spatial Data Infrastructure "
+                   "(CSDI) Portal, available under the CSDI terms and conditions",
                    "CSDI Portal", HK_TERMS,
                    notice=f"CSDI Portal Terms and Conditions of Use: {HK_TERMS}")
 
-# bytes_per_tile: the ZIPs of the 2 857 terrain sheets HEAD asked (2026-11-16): mean 4.31 MB, median 5.54, 75th
-# percentile 5.76, 90th 5.87, largest 6.11 (14 % under 1 MB: coastal sheets mostly sea); a surface sheet's ZIP is
+# bytes_per_tile: the sizes the 2 857 terrain files' answers of 2026-11-16 gave (above): mean 4.31 MB, median 5.54,
+# 75th percentile 5.76, 90th 5.87, largest 6.11 (14 % under 1 MB: coastal sheets mostly sea); a surface sheet's ZIP is
 # about as large as its terrain's (12SW22D 5 764 768 B against 5 765 771). 5.8 MB, the upper range, as a search
 # inland takes whole land sheets (42 at Lion Rock: 238 MB, 5.7 MB each), so the estimate (and the quota) errs on the
 # side of more
@@ -166,22 +170,49 @@ HK_DSM = CellSheetTiles("CEDD lidar DSM 2020 0.5 m (surface)", "hong_kong/dsm-20
 # text attribution cannot give, under terms of its own behind an "I have read and agreed" (its domain
 # mapapi.geodata.gov.hk is deprecated on 2027-03-15 for mapapi.hkmapservice.gov.hk)
 
-# Offline box (south, north, west, east): every sheet of the table whole (their corners reach 22.149-22.567 N,
-# 113.832-114.445 E); it holds some of Shenzhen's land north of the boundary (no source there: europe either way)
-HK_BOXES = (("cn-hk", (22.14, 22.57, 113.82, 114.45)),)
+# Offline boxes (south, north, west, east): a staircase along Hong Kong's boundary, as Hamburg's: the OSM outline (the
+# administrative boundary with the territorial waters, relation 913110, osm.search "Hong Kong" of 2026-11-16) cut in
+# bands of 0.04 degree south of 22.45 N and of 0.004 degree north of it (the Shenzhen River and Deep Bay), each band's
+# pieces as longitude intervals rounded outward to 0.001 degree. Against Natural Earth's admin-1 (10m): 99.93 % of
+# Hong Kong's land (1 035.5 of 1 036.2 km²) lies in them, and 7.5 km² of other land (0.72 % of the land in them: strips
+# of Shenzhen within a band of the river; Luohu's station at 22.533, 114.117 lies in one); Futian, Luohu, Shekou,
+# Yantian and Macau lie outside (tests/test_hong_kong.py). Every sheet of the table meets a box (the least: 12 % of
+# 3NE8A, on the border)
+HK_BOXES = tuple(("cn-hk", box) for box in (
+    (22.13, 22.17, 113.853, 114.503), (22.17, 22.21, 113.820, 114.503), (22.21, 22.25, 113.817, 114.503),
+    (22.25, 22.29, 113.831, 114.503), (22.29, 22.33, 113.853, 114.503), (22.33, 22.37, 113.867, 114.503),
+    (22.37, 22.41, 113.869, 114.501), (22.41, 22.45, 113.869, 114.482), (22.45, 22.454, 113.907, 114.464),
+    (22.454, 22.458, 113.914, 114.462), (22.458, 22.462, 113.921, 114.460), (22.462, 22.466, 113.929, 114.458),
+    (22.466, 22.47, 113.936, 114.457), (22.47, 22.474, 113.943, 114.455), (22.474, 22.478, 113.949, 114.455),
+    (22.478, 22.482, 113.954, 114.455), (22.482, 22.486, 113.959, 114.455), (22.486, 22.49, 113.964, 114.455),
+    (22.49, 22.494, 113.940, 113.947), (22.49, 22.494, 113.969, 114.455), (22.494, 22.498, 113.940, 113.947),
+    (22.494, 22.498, 113.974, 114.455), (22.498, 22.502, 113.943, 113.947), (22.498, 22.502, 113.979, 114.455),
+    (22.502, 22.506, 113.943, 113.947), (22.502, 22.506, 113.984, 114.009), (22.502, 22.506, 114.016, 114.456),
+    (22.506, 22.51, 113.989, 114.004), (22.506, 22.51, 114.023, 114.035), (22.506, 22.51, 114.056, 114.456),
+    (22.51, 22.514, 113.994, 113.999), (22.51, 22.514, 114.057, 114.456), (22.514, 22.518, 114.060, 114.456),
+    (22.518, 22.522, 114.069, 114.456), (22.522, 22.526, 114.065, 114.069), (22.522, 22.526, 114.075, 114.456),
+    (22.526, 22.53, 114.076, 114.456), (22.53, 22.534, 114.078, 114.456), (22.534, 22.538, 114.086, 114.107),
+    (22.534, 22.538, 114.116, 114.456), (22.538, 22.542, 114.122, 114.456), (22.542, 22.546, 114.135, 114.145),
+    (22.542, 22.546, 114.148, 114.456), (22.546, 22.55, 114.149, 114.227), (22.546, 22.55, 114.234, 114.454),
+    (22.55, 22.554, 114.149, 114.225), (22.55, 22.554, 114.236, 114.449), (22.554, 22.558, 114.151, 114.220),
+    (22.554, 22.558, 114.244, 114.444), (22.558, 22.562, 114.157, 114.178), (22.558, 22.562, 114.255, 114.439),
+    (22.562, 22.566, 114.266, 114.434), (22.566, 22.569, 114.290, 114.371)))
 
 SOURCES: List[Source] = [
     Source(
         id="hong_kong", name="Hong Kong (CEDD lidar 0.5 m)",
         description="Civil Engineering and Development Department (CEDD): LiDAR Data 2020 (helicopter survey "
                     "2019-12-20 to 2020-02-02), terrain (DTM) and surface (DSM) 0.5 m, Hong Kong 1980 Grid; heights "
-                    "above the Hong Kong Principal Datum (mean sea level is about 1.3 m above it), no datum shift "
-                    "applied; the sea and the land beyond the boundary have no data",
+                    "above the Hong Kong Principal Datum (mean sea level is about 1.30 m above it, Lands "
+                    "Department), no datum shift applied; the sea and the land beyond the boundary have no data; 57 "
+                    "coastal sheets have a surface model only",
         nmt=HK_DTM, nmpt=HK_DSM, countries=("cn",), regions=("cn-hk",), crs=HK_CRS, credits=(HK_CREDIT,),
-        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020; heights above HKPD, about 1.3 m below "
-                                            "mean sea level, not shifted)", "CEDD lidar DSM 0.5 m (2020)", "–"),
+        listing=ReadmeRow("Hong Kong (CN)", "CEDD lidar DTM 0.5 m (2020; heights above HKPD, about 1.30 m below "
+                                            "mean sea level, not shifted)",
+                          "CEDD lidar DSM 0.5 m (2020; 57 coastal sheets without terrain: europe's under it)", "–"),
         offline=HK_BOXES, sample=(22.352, 114.187),  # Lion Rock (R91)
         note="Data: Civil Engineering and Development Department, LiDAR Data (2020), from the CSDI Portal under its "
-             "terms and conditions. Heights above the Hong Kong Principal Datum (about 1.3 m below mean sea level).",
+             "terms and conditions. Heights above the Hong Kong Principal Datum (about 1.30 m below mean sea level). "
+             "57 coastal sheets have a surface model and no terrain: there the terrain comes from the fallback.",
         coverage=Coverage(provider="CEDD", added="2026-11-16", areas=("hk",), survey="2019–2020")),
 ]
