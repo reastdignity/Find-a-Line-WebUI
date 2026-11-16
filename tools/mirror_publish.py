@@ -106,13 +106,21 @@ DATASET_NAME = re.compile(r"^[a-z0-9_-]+$")
 # --to / --from: an rclone remote, "name:path" with a name of two characters or more (one letter is a drive)
 REMOTE_PLACE = re.compile(r"^([^:/\\]+):(.*)$", re.S)
 LOG_FILE = re.compile(r"^access-(\d{4}-\d{2}-\d{2})\.log$")
-# What stats prints of the log's free fields (a visitor sends them): a limit's word; a client version as the client
-# writes it (cache.VERSION: pyproject's version, PEP 440: two or three numbers, a pre-release, .post, .dev, a local
-# label of one word that starts with a letter; "unknown" when it cannot read it), never four plain dotted numbers or a
-# local label with dots or digits first; a dataset only when it is one of PUBLISHABLE (or "-"); anything else "other"
+# What stats prints of the log's free fields (a visitor sends them): a limit's word; a dataset only when it is one of
+# PUBLISHABLE (or "-"); a client version (the rule the server's log map shares): two or three numbers of at most three
+# digits joined by dots, then optionally one of the words a, b, rc, .dev, .post, whose number is dropped, as is any
+# local label ("+..."): 0.2.0rc1 counts as "0.2.0rc", 0.1.0+local as "0.1.0"; at most three numbers are printed, so
+# no written form of an IPv4 address fits; "unknown" stays (cache._version's fallback); anything else "other"
 LIMIT_WORD = re.compile(r"^[a-z_]{1,32}$")
-CLIENT_VERSION = re.compile(r"^(unknown|\d{1,4}(\.\d{1,4}){1,2}((a|b|rc)\d{1,4})?(\.post\d{1,4})?(\.dev\d{1,4})?"
-                            r"(\+[a-z][a-z0-9]{0,15})?)$")
+CLIENT_VERSION = re.compile(r"(\d{1,3}(?:\.\d{1,3}){1,2})(?:(a|b|rc|\.dev|\.post)\d{0,4})?(?:\+[A-Za-z0-9.]{1,32})?")
+
+
+def client_version(value: str) -> str:
+    """The client version stats prints for the log's `v` (CLIENT_VERSION's rule), else "other"."""
+    if value == "unknown":
+        return value
+    found = CLIENT_VERSION.fullmatch(value)
+    return found[1] + (found[2] or "") if found else "other"
 # rclone's own detection never adds sha256 (it tries md5 and sha1 only): the remote names it by hand
 NO_SHA256 = ("the remote reports no sha256 among its hashes: set in the remote's section of the rclone config "
              "`shell_type = unix`, `hashes = sha256` and `sha256sum_command = sha256sum` (the server's shell must "
@@ -682,6 +690,7 @@ class Lock:
         text = json.dumps({"pc": socket.gethostname(), "time": _now().strftime("%Y-%m-%dT%H:%M:%SZ"),
                            "command": self.command, "token": token}).encode("utf-8")
         self.made_folder = not self.remote.exists(STAGING)
+        self.token, self.text = token, text  # known before the write: an interruption during it can still release
         try:
             self.remote.write(LOCK, text)
         except Failed as e:
@@ -711,18 +720,26 @@ class Lock:
             self.ensure("the server's hash of the lock file is checked")  # another run's lock hashes otherwise
             raise Refused("the server could not hash the lock file: " + NO_SHA256)
 
-    def release(self):
-        """The lock deleted when it still holds this run's token; left (and said so) when another run's is there."""
-        if not self.taken:
-            return
+    def release(self, written: bool = False) -> str:
+        """The lock deleted when it still holds this run's token; left (and said so) when another run's is there.
+        written: release also when take() was interrupted (the write may have reached the server). Returns
+        "released", "foreign" (another run's lock left), "none" (no lock there) or "" (nothing of this run's)."""
+        if not (self.taken or (written and self.token)):
+            return ""
         self.taken = False
         held = self._held()
         if held == self.token:
             self.remote.delete(LOCK)
             if self.made_folder:
-                self.remote.rc.run("rmdir", self.remote.path(STAGING))  # only when empty: rclone rmdir
-        elif held is not None or self.remote.exists(LOCK):
+                try:  # only when empty (rclone rmdir); the lock is gone whatever happens here
+                    self.remote.rc.run("rmdir", self.remote.path(STAGING))
+                except Failed:
+                    pass
+            return "released"
+        if held is not None or self.remote.exists(LOCK):
             print(f"  {LOCK} holds another run's lock now: left as it is", flush=True)
+            return "foreign"
+        return "none"
 
 
 def locked(lock: Lock, work, done: str) -> None:
@@ -755,8 +772,10 @@ def locked(lock: Lock, work, done: str) -> None:
     except BaseException as e:  # Ctrl+C, or an error the tool does not expect
         if lock.hold is None:
             try:
-                lock.release()
-                note = "the lock was released; nothing public was touched"
+                note = {"released": "the lock was released; nothing public was touched",
+                        "foreign": "nothing public was touched; another run's lock is there and was left",
+                        "none": "nothing public was touched; no lock of this run is there",
+                        "": "nothing public was touched; no lock was written"}[lock.release(written=True)]
             except BaseException:
                 note = f"the lock {LOCK} may be left: --break-lock once the server's state is understood"
         else:
@@ -996,10 +1015,10 @@ def clean(to: str, rc: Rclone, keep_days: float = KEEP_DAYS, break_lock: bool = 
 def _safe_fields(fields: Dict[str, str]) -> Dict[str, str]:
     """The log's free fields as stats may print them (a visitor sends them, and an address can be spelt many
     ways): a dataset only of PUBLISHABLE (or "-"), a limit's word of letters and underscores (or "-"), a client
-    version of two or three numbers; anything else "other"."""
+    version by client_version; anything else "other"."""
     return {"ds": fields["ds"] if fields["ds"] == "-" or fields["ds"] in PUBLISHABLE else "other",
             "lim": fields["lim"] if fields["lim"] == "-" or LIMIT_WORD.fullmatch(fields["lim"]) else "other",
-            "v": fields["v"] if CLIENT_VERSION.fullmatch(fields["v"]) else "other"}
+            "v": client_version(fields["v"])}
 
 
 def stats(source: str, rc: Rclone) -> int:

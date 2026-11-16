@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1051,23 +1052,35 @@ def test_ctrl_c_under_the_lock(world, monkeypatch, capsys, where):
 
 
 def test_stats_counts_the_clients_versions(world, capsys):
-    """N5: the versions the client writes (cache.VERSION, PEP 440 forms and "unknown") are counted as themselves;
-    an address in any of those forms is not."""
+    """N5 and R3: the client's versions are counted by their numbers (two or three, at most three digits each) and the
+    kind of a pre-release, .dev or .post, their numbers and any local label dropped; "unknown" stays; no written form
+    of an address is printed with four numbers."""
     logs = world.server / "logs"
     logs.mkdir()
-    real = ["0.1.0", "0.2.0rc1", "1.0.0.dev3", "0.1.0+local", "unknown", "1.2.3.post4"]
-    forged = ["1.2.3.4", "0.1.0+203.0.113.7", "0.1.0+203", "203.0.113.7.dev1", "1.2.3.4rc1"]
+    sent = {"0.1.0": "0.1.0", "0.1.0+local": "0.1.0", "0.2.0rc1": "0.2.0rc", "1.0.0.dev3": "1.0.0.dev",
+            "1.2.3.post4": "1.2.3.post", "unknown": "unknown",
+            # the reviewer's forms: at most three numbers of them are printed
+            "203.0.113.dev7": "203.0.113.dev", "203.0.113rc7": "203.0.113rc", "203.0.113.post7": "203.0.113.post",
+            "0.1.0+ip203x0x113x7": "0.1.0", "0.1.0+203.0.113.7": "0.1.0",
+            # never a version
+            "1.2.3.4": "other", "203.0.113.7.dev1": "other", "1.2.3.4rc1": "other", "1000.1.1": "other",
+            "203-0-113-7": "other", "0.1.0\n": "other"}
     lines = [{"t": "2026-11-16T10:00:00Z", "s": 200, "b": 1, "rt": 0.1, "ds": "-", "a": "203.0.113.7", "lim": "-",
-              "v": v} for v in real + forged]
+              "v": v} for v in sent]
     (logs / "access-2026-11-16.log").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
     assert world.run("stats", "--from", f"{REMOTE}:logs") == 0
-    out = capsys.readouterr().out
-    for v in real:
-        assert f"  {v:<20} {1:>9}" in out, v
-    assert f"  {'other':<20} {len(forged):>9}" in out
-    assert "203" not in out and "1.2.3.4" not in out
+    versions = capsys.readouterr().out.split("Client versions", 1)[1]
+    counts = {}
+    for printed in sent.values():
+        counts[printed] = counts.get(printed, 0) + 1
+    for printed, n in counts.items():
+        assert f"  {printed:<20} {n:>9}" in versions, printed
+    printed_names = [line.split()[0] for line in versions.strip().splitlines() if line.strip()]
+    assert not [n for n in printed_names if re.search(r"\d+\D+\d+\D+\d+\D+\d+", n)]  # never four numbers
+    for v in ("203.0.113.dev7", "203.0.113rc7", "203.0.113.post7", "ip203x0x113x7", "113x7", "203.0.113.7"):
+        assert v not in versions
     import cache
-    assert mp.CLIENT_VERSION.fullmatch(cache.VERSION)  # the client's own version today
+    assert mp.client_version(cache.VERSION) == cache.VERSION  # the client's own version today, 0.1.0
 
 
 def test_a_refusal_under_the_lock_leaves_no_staging_folder(world, monkeypatch, capsys):
@@ -1102,3 +1115,52 @@ def test_indexes_written_by_the_tools_pass_verify(tmp_path, monkeypatch):
     mirror_tiles.cut("asc", str(work), str(out))
     faults, files = mp.read_master(str(out / "aosta"), "<folder>")
     assert faults == [] and "dtm/2m/index.json" in files
+
+
+# Round 3 of the code review (R1, R3, R4; the hash proof's foreign token)
+
+def test_another_runs_lock_at_the_hash_proof(world, monkeypatch, capsys):
+    """Another run's lock written between this run's read-back and its hash proof: the proof's hash differs, the
+    token is read again, and the run stops as overtaken (not as "could not hash"), leaving that lock alone."""
+    lock = world.server / "staging" / ".lock"
+
+    def sha256_of(self, rel):
+        lock.write_text(_other_lock())
+        return REAL_SHA(self, rel)
+    monkeypatch.setattr(mp.Remote, "sha256_of", sha256_of)
+    calls = _watch(monkeypatch, world, ["madeira"])
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "another run took the lock (or it was broken) before the server's hash of the lock file is checked" in out
+    assert "could not hash" not in out and lock.read_text() == _other_lock()
+    assert not any("copy" in a or "moveto" in a or "deletefile" in a for a in calls)
+
+
+def test_ctrl_c_right_after_the_lock_write(world, monkeypatch, capsys):
+    """R1: Ctrl+C when the lock's write reached the server but take() had not counted it yet: the lock (this run's
+    token) is released, and the line says so truthfully."""
+    def call(self, argv, data, progress):
+        done = REAL_CALL(self, argv, data, progress)
+        if "rcat" in argv and argv[-1].endswith(".lock"):
+            raise KeyboardInterrupt
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert _publish(world, "madeira") == 130
+    assert "interrupted (KeyboardInterrupt): the lock was released; nothing public was touched" in \
+        capsys.readouterr().out
+    assert tree(world.server) == {}
+
+
+def test_rclone_gone_at_the_staging_rmdir(world, monkeypatch, capsys):
+    """R4: rclone cannot be started for the rmdir of an empty staging/ after the lock was removed: the publish is
+    done and says so; nothing claims the lock could not be removed."""
+    def call(self, argv, data, progress):
+        if "rmdir" in argv:
+            raise OSError("gone")
+        return REAL_CALL(self, argv, data, progress)
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert _publish(world, "madeira") == 0
+    out = capsys.readouterr().out
+    assert "published madeira" in out and "could not be removed" not in out
+    published_ok(world, "madeira")
+    assert not (world.server / "staging" / ".lock").exists()
