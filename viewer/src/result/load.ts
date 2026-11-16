@@ -16,13 +16,14 @@
 // A run with a store (store wave 2: run.json's block `store`, which runs.js lists) is read from it instead over
 // http(s): lines.arrow and profiles.arrow downloaded together (download.ts, as bytes), read with apache-arrow
 // (readStore) into the same columns without a copy, the head from the schema's metadata `findaline`. Which file is
-// read is decided by the run's entry in runs.js beside the run's folder (storeOf: the list the page has, loaded or
-// read afresh only when the run is not in it): a store without that block (a save stopped before it wrote run.json)
-// is never read; a run without a store (saved before 2026-11-15, or its store failed) and a page from disk read
-// data.js as before. A share link's runs.js lists no runs: it reads data.js, without asking for a list. A store
-// whose file is missing (404) falls back to data.js while runs keep it (until store wave 4); a store of a newer
-// format never does (NewerStore), and a store that fails otherwise is a StoreFailed. A body the browser could not
-// hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is.
+// read is decided by the run's entry in the list of runs the page has (storeOf: window.FINDALINE_RUNS, or runs.js
+// beside the run's folder loaded once): a run listed without the block `store` (saved before 2026-11-15, its store
+// failed, or a save stopped before it wrote run.json) reads data.js, and so does a page from disk. A run the list
+// does not name (a share link, whose runs.js lists no runs; another user's run an administrator opens; a run saved
+// since the list was read) asks for its store's files directly (STORE_PROBE): a run without them answers 404 and
+// reads data.js. A store whose file is missing (404) falls back to data.js while runs keep it (until store wave 4);
+// a store of a newer format never does (NewerStore: its file's metadata says so), and a store that fails otherwise
+// is a StoreFailed. A body the browser could not hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is.
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
 import { download } from "../download";
@@ -168,17 +169,23 @@ async function fromServer(url: string, key: string, report: OnProgress): Promise
   }
 }
 
-/** The block `store` of the run whose data.js is at `url` (its folder's name is the run's id), from the list of
- *  runs beside its folder (`../runs.js`: run.json's block): the list the page has (a map.html's own runs.js, or one
- *  loaded before), else that list loaded, else read afresh (a run saved since the page loaded it); null when the run
- *  has none or is not listed. A share link (/s/<token>/: its runs.js lists no runs) asks for no list. */
+/** The store asked for when no list names the run (storeOf): its files are fetched as a listed store's, a 404
+ *  reads data.js, and a newer format is refused by the file's own metadata (readStore), whatever this says. */
+export const STORE_PROBE: Readonly<StoreInfo> = Object.freeze({format: STORE_FORMAT, lines: 0, bytes: 0, sha256: ""});
+
+/** The store to read for the run whose data.js is at `url` (its folder's name is the run's id): its block `store`
+ *  in the list of runs the page has (window.FINDALINE_RUNS: a map.html's own runs.js, or the list loaded before),
+ *  else in `../runs.js` beside its folder, loaded once; null for a run listed without one (data.js). A run that list
+ *  does not name, and a share link (/s/<token>/: its runs.js lists no runs, so none is asked for), get STORE_PROBE:
+ *  the store's files asked for directly, no list read again. */
 export async function storeOf(url: string): Promise<StoreInfo | null> {
   const at = new URL(url, location.href), parts = at.pathname.split("/");
-  if (parts.length < 3 || parts[parts.length - 1] !== "data.js" || at.pathname.startsWith("/s/")) return null;
-  const id = decodeURIComponent(parts[parts.length - 2]), list = new URL("../runs.js", at).href;
-  const find = (runs: RunInfo[] | undefined) => runs?.find((r) => r.id === id);
-  const run = find(window.FINDALINE_RUNS) ?? find(await loadRunList(list)) ?? find(await loadRunList(list, true));
-  return run?.store ?? null;
+  if (parts.length < 3 || parts[parts.length - 1] !== "data.js") return null;
+  if (at.pathname.startsWith("/s/")) return STORE_PROBE;
+  const id = decodeURIComponent(parts[parts.length - 2]);
+  const runs = window.FINDALINE_RUNS ?? await loadRunList(new URL("../runs.js", at).href);
+  const run = runs.find((r) => r.id === id);
+  return run ? run.store ?? null : STORE_PROBE;
 }
 
 /** A run's store in `folder` (an absolute URL ending in "/"): lines.arrow and, with `profiles`, profiles.arrow,
@@ -424,7 +431,7 @@ let runList: Promise<RunInfo[]> | null = null;
 
 /** The runs the user may open as the maps list them (`/runs/runs.js`: window.FINDALINE_RUNS, with their
  * boxes for "other runs nearby"), loaded once; empty when it cannot be loaded. Its FINDALINE_APP (the
- * public site's flags) is set as for a map. `fresh`: loaded again (a run saved since; storeOf). */
+ * public site's flags) is set as for a map. `fresh`: loaded again (a run saved since). */
 export function loadRunList(src = "/runs/runs.js", fresh = false): Promise<RunInfo[]> {
   if (runList && !fresh) return runList;
   runList = new Promise<RunInfo[]>((resolve) => {
