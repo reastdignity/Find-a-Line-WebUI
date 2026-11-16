@@ -6,6 +6,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -36,12 +37,34 @@ class FakeElement:
             raise TimeoutError("Timeout 10000ms exceeded.\nwaiting for element to be stable")
 
 
+class Clock:
+    """A clock for ui_shots.time that only the fakes move (each call of theirs takes the seconds of TAKES)."""
+    now = None  # the clock installed by the fixture `clock`, else None
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def perf_counter(self):
+        return self.t
+
+
+TAKES = {"launch": 0.3, "new_context": 0.7, "init": 0.01, "context.close": 0.2, "browser.close": 0.1,
+         "goto": 1.0, "shot": 0.5}
+
+
+def _take(what, seconds=None):
+    if Clock.now is not None:
+        Clock.now.t += TAKES[what] if seconds is None else seconds
+
+
 class FakePage:
     """A Playwright page for the step runner: `true` the expressions that hold (waits for the others time out),
-    `shown` the selectors a click finds, `stuck` those whose click fails, `throws` the scripts that raise."""
+    `shown` the selectors a click finds, `stuck` those whose click fails, `throws` the scripts that raise,
+    `interrupt` the addresses whose load is interrupted (Ctrl+C)."""
 
-    def __init__(self, true=(), shown=(), stuck=(), throws=()):
+    def __init__(self, true=(), shown=(), stuck=(), throws=(), interrupt=(), shot_errors=()):
         self.true, self.shown, self.stuck, self.throws = set(true), set(shown) | set(stuck), set(stuck), set(throws)
+        self.interrupt, self.shot_errors = tuple(interrupt), list(shot_errors)
         self.calls, self.closed, self.default_timeout = [], False, None
 
     def set_default_timeout(self, ms):
@@ -55,9 +78,13 @@ class FakePage:
 
     def goto(self, url):
         self.calls.append(("goto", url))
+        _take("goto")
+        if any(part in url for part in self.interrupt):
+            raise KeyboardInterrupt
 
     def wait_for_timeout(self, ms):
         self.calls.append(("sleep", ms))
+        _take("sleep", ms / 1000)
 
     def wait_for_function(self, expression, timeout):
         self.calls.append(("wait", expression, timeout))
@@ -73,8 +100,11 @@ class FakePage:
     def query_selector(self, selector):
         return FakeElement(self, selector) if selector in self.shown else None
 
-    def screenshot(self, path, full_page=False, timeout=None):
-        self.calls.append(("shot", path, full_page))
+    def screenshot(self, path, full_page=False, timeout=None, scale="device"):
+        self.calls.append(("shot", path, full_page) + ((scale,) if scale != "device" else ()))
+        _take("shot")
+        if self.shot_errors:
+            raise Exception(self.shot_errors.pop(0))
         with open(path, "wb") as f:
             f.write(b"png")
 
@@ -84,7 +114,15 @@ class FakePage:
 
 class FakeContext:
     def __init__(self, **page):
-        self.page, self.pages, self.cookies = page, [], []
+        self.page, self.pages, self.cookies, self.scripts, self.closed = page, [], [], [], False
+
+    def add_init_script(self, script):
+        self.scripts.append(script)
+        _take("init")
+
+    def close(self):
+        self.closed = True
+        _take("context.close")
 
     def clear_cookies(self):
         self.cookies = []
@@ -188,9 +226,10 @@ def test_need_waits_for_the_result_then_tests_once(tmp_path):
     assert row["outcome"] == "left out" and not row["timeouts"] and row["reason"].startswith("the run does not have")
     assert [c[1] for c in page.calls if c[0] == "wait"][1:] == [f"() => ({ui_shots.NEED_READY})"]
     assert ("evaluate", "!!(document.querySelector('.u-shore-ctl:not([hidden])'))") in page.calls
+    after = page.calls[page.calls.index(("wait", f"() => ({ui_shots.NEED_READY})", ui_shots.WAIT_MS)) + 1:]
+    assert after == [("evaluate", "!!(document.querySelector('.u-shore-ctl:not([hidden])'))")]  # no wait, no sleep
     context = FakeContext(true={"leaflet-tile", ui_shots.NEED_READY, "u-shore-ctl"})
     assert _shoot(context, "c-result-shore-folded", tmp_path)["outcome"] == "saved"
-    assert not hasattr(ui_shots, "NEED_WAIT_MS")
 
 
 def test_pages_selected_by_their_names():
@@ -342,33 +381,56 @@ def test_a_kept_data_folder(tmp_path, monkeypatch):
         assert share == "ui-shots-share-" + "x" * 30
         return run, jobs, times
 
+    def sessions():  # the sessions of each user of the tool
+        import sqlite3
+        with sqlite3.connect(os.path.join(data, "accounts.sqlite")) as db:
+            counts = dict(db.execute("SELECT user_id, COUNT(*) FROM sessions GROUP BY user_id").fetchall())
+        db.close()
+        return counts
+
+    def clips():  # the clip runs in runs/ (by their name) and in the jobs database
+        return (sorted(r for r in os.listdir(runs) if "Zabi-Kon-clip" in r),
+                sorted(r["run_id"] for r in Jobs(data, public=True).all_runs() if "Zabi-Kon-clip" in r["run_id"]))
+
     first, jobs, times = prepare()
-    assert search.calls == 1 and len(cubes) == 1 and set(times) == {"accounts and jobs", "the clip's search",
-                                                                     "the cubes"}
-    assert ui_shots.read_marker(data) == {"key": ui_shots.data_key(), "run": first}
+    assert search.calls == 1 and len(cubes) == 1 and {"accounts and jobs", "the clip's search",
+                                                      "the cubes"} <= set(times)
+    key = ui_shots.data_key()
+    assert ui_shots.read_marker(data) == {"key": key, "run": first, "run_key": key}
     again, jobs, times = prepare()
-    assert again == first and search.calls == 1 and len(cubes) == 1 and set(times) == {"accounts and jobs"}
+    assert again == first and search.calls == 1 and len(cubes) == 1 and not {"the clip's search", "the cubes"} & set(times)
     assert sorted(os.listdir(runs)) == [first] and len(jobs.reports()) == 1
     meta = json.loads(open(os.path.join(runs, first, "run.json"), encoding="utf-8").read())
     assert [d["layer"] for d in meta["data"]].count("Surface file") == 1
     assert jobs.shared_run(digest) == first
+    assert set(sessions().values()) == {1} and len(sessions()) == 5  # admin, walker, the three riggers: one each
 
     other = _run_json(tmp_path / "saved" / "2026-01-01_000000_Other_0", {"end_zone": 5})
     shown, jobs, _ = prepare(run_folder=other)  # the token moves (share_hash is UNIQUE), the clip stays the marker's
     assert shown == "2026-01-01_000000_Other_0" and jobs.shared_run(digest) == shown and search.calls == 1
-    assert ui_shots.read_marker(data)["run"] == first and len(cubes) == 1
+    assert ui_shots.read_marker(data)["run"] == first and len(cubes) == 1 and clips() == ([first], [first])
     again, jobs, _ = prepare()
     assert again == first and jobs.shared_run(digest) == first and search.calls == 1
 
-    fresh, jobs, _ = prepare(fresh=True)
+    fresh, jobs, _ = prepare(fresh=True)  # the old clip run removed: its folder and its row
     assert fresh != first and search.calls == 2 and len(cubes) == 2 and jobs.shared_run(digest) == fresh
-    os.remove(os.path.join(data, ui_shots.MARKER))  # a folder of the old tool: its runs, no marker
+    assert clips() == ([fresh], [fresh]) and os.path.isdir(os.path.join(runs, shown))
+    os.remove(os.path.join(data, ui_shots.MARKER))  # a folder of the old tool: its runs, no marker (none removed)
     old, jobs, _ = prepare()
     assert old not in (first, fresh) and search.calls == 3 and ui_shots.read_marker(data)["run"] == old
-    monkeypatch.setattr(ui_shots, "data_key", lambda: "another")  # the code changed
+    assert clips() == (sorted([fresh, old]), sorted([fresh, old]))
+    monkeypatch.setattr(ui_shots, "data_key", lambda: "another")  # the code changed: the marker's clip removed
     new, jobs, _ = prepare()
     assert new not in (first, fresh, old) and search.calls == 4 and len(cubes) == 4
+    assert clips() == (sorted([fresh, new]), sorted([fresh, new]))
+    monkeypatch.setattr(ui_shots, "data_key", lambda: "third")  # changed again, a --run start: nothing removed
+    prepare(run_folder=other)
+    assert clips() == (sorted([fresh, new]), sorted([fresh, new])) and len(cubes) == 5 and search.calls == 4
+    assert ui_shots.read_marker(data) == {"key": "third", "run": new, "run_key": "another"}
+    newest, jobs, _ = prepare()  # the clip made under another key: replaced; the cubes are this key's
+    assert clips() == (sorted([fresh, newest]), sorted([fresh, newest])) and len(cubes) == 5 and search.calls == 5
     assert len(jobs.reports()) == 1 and len(Jobs(data, public=True).reports()) == 1
+    assert set(sessions().values()) == {1}
     del jobs
     gc.collect()
 
@@ -393,6 +455,243 @@ def test_options(monkeypatch, capsys):
     assert run("--list", "--only", "c-result-rigging,c-result-why,c-result-more", "--exclude", "more") == 0
     assert capsys.readouterr().out.splitlines() == ["c-result-rigging",
                                                     f"c-result-why  left out: {ui_shots.LACKS['found']}"]
+
+
+class FakeBrowser:
+    def __init__(self, engine, page):
+        self.engine, self.page, self.contexts, self.closed = engine, page, [], False
+
+    def new_context(self, **options):
+        _take("new_context")
+        self.contexts.append(FakeContext(**self.page))
+        self.contexts[-1].options = options
+        return self.contexts[-1]
+
+    def close(self):
+        self.closed = True
+        _take("browser.close")
+
+
+class FakeEngine:
+    def __init__(self, pw, name):
+        self.pw, self.name = pw, name
+
+    def launch(self):
+        _take("launch")
+        self.pw.browsers.append(FakeBrowser(self.name, self.pw.page))
+        return self.pw.browsers[-1]
+
+
+class FakePlaywright:
+    """Playwright's object for the passes: its engines, the device profiles, the browsers launched (their pages
+    made by FakeContext(**page))."""
+
+    def __init__(self, **page):
+        self.page, self.browsers = page, []
+        self.chromium, self.webkit = FakeEngine(self, "chromium"), FakeEngine(self, "webkit")
+        self.devices = {"iPhone 13": {"viewport": {"width": 390, "height": 664}, "default_browser_type": "webkit"},
+                        "Pixel 7": {"viewport": {"width": 412, "height": 839}, "default_browser_type": "chromium"}}
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """ui_shots' clock moved only by the fakes (TAKES)."""
+    Clock.now = Clock()
+    monkeypatch.setattr(ui_shots, "time", type("FakeTime", (), {"perf_counter": staticmethod(Clock.now.perf_counter)}))
+    yield Clock.now
+    Clock.now = None
+
+
+def _all(pw, shown, tmp_path, devices=("desktop",), themes=("light",), strict=False, act=None, **extra):
+    times, rows, passes = {}, [], []
+    ui_shots.shoot_all(pw, SITE, list(shown), list(devices), list(themes), str(tmp_path), strict, times, rows, passes,
+                       act, **extra)
+    return times, rows, passes
+
+
+def test_pass_context():
+    """pass_context: the device's profile (DESKTOP for the desktop) without its browser type, the theme, HTTPS errors
+    ignored, Chromium's motion sensors (none on WebKit), the theme's init script; `extra` goes on to new_context."""
+    pw = FakePlaywright()
+    browser = pw.chromium.launch()
+    context = ui_shots.pass_context(browser, pw, "desktop", "dark", bypass_csp=True)
+    assert context.options == {**ui_shots.DESKTOP, "color_scheme": "dark", "ignore_https_errors": True,
+                               "permissions": ["accelerometer", "gyroscope", "magnetometer"], "bypass_csp": True}
+    assert context.scripts == [ui_shots.CONTEXT_SCRIPT.format(theme='"dark"')]
+    assert "localStorage.setItem('findaline-theme', \"dark\")" in context.scripts[0]
+    context = ui_shots.pass_context(pw.webkit.launch(), pw, "iphone", "light")
+    assert context.options == {"viewport": {"width": 390, "height": 664}, "color_scheme": "light",
+                               "ignore_https_errors": True, "permissions": []}
+
+
+def test_act_in_place_of_the_shot(tmp_path):
+    """shoot_page with `act`: called once with the open page after the last step, in place of the screenshot; its
+    dict in the row ("done", no path); an exception from it fails only its page; not called for a page left out,
+    nor with --strict after a timeout; without `act` the picture's path is as before."""
+    calls = []
+
+    def act(page, name, device, theme):
+        calls.append((page, name, device, theme))
+        assert not page.closed
+        if name == "c-result-grouping":
+            assert page.calls[-1] == ("sleep", 600)  # after the last step's wait
+        if name == "c-home":
+            raise ValueError("no metrics here\nmore")
+        return {"cls": 0.01}
+
+    context = FakeContext(true={"leaflet-tile", "r-by"}, shown={".r-filters .u-chip.u-add"})
+    row = ui_shots.shoot_page(context, SITE, "c-result-grouping", "pixel", "dark", None, ui_shots.Pass("pixel", "dark"),
+                              act)
+    assert row["outcome"] == "done" and row["result"] == {"cls": 0.01} and row["path"] is None
+    assert row["shot"] is not None and calls == [(context.pages[0], "c-result-grouping", "pixel", "dark")]
+    assert not [c for c in context.pages[0].calls if c[0] == "shot"] and context.pages[0].closed
+    assert not ui_shots.failed([row])
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-home", "c-result-more", "c-favourites"],
+                               tmp_path, act=act)
+    assert [r["outcome"] for r in rows] == ["failed", "left out", "done"] and rows[0]["error"] == "no metrics here"
+    assert [c[1] for c in calls[1:]] == ["c-home", "c-favourites"]  # none for the page left out
+    calls.clear()
+    _all(FakePlaywright(true={"leaflet-tile"}), ["view3d", "c-home"], tmp_path, strict=True, act=act)
+    assert calls == []  # the timed-out page has no act, and the run stopped
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-favourites"], tmp_path)
+    assert rows[0]["path"] == str(tmp_path / "c-favourites-desktop-light.png") and "result" not in rows[0]
+
+
+def test_strict_stops_the_run_at_the_first_bad_row(tmp_path):
+    """shoot_all with --strict stops after the first row with a timeout or a failure, whatever its outcome (a
+    "need:" whose wait for the result timed out and whose page is then left out); without --strict every page of
+    every pass is done, and the exit code is 1."""
+    pages = ["c-result-shore-folded", "c-home", "c-favourites"]
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), pages, tmp_path, ("desktop", "pixel"),
+                               ("light", "dark"), strict=True)
+    assert [(r["page"], r["outcome"], r["timeouts"]) for r in rows] == [
+        ("c-result-shore-folded", "left out", [ui_shots.NEED_READY])]
+    assert [(p["device"], p["theme"]) for p in passes] == [("desktop", "light")] and ui_shots.failed(rows)
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), pages, tmp_path, ("desktop", "pixel"),
+                               ("light", "dark"))
+    assert len(rows) == 12 and len(passes) == 4 and ui_shots.failed(rows)
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}, stuck={".c-account-btn"}), ["c-menu", "c-home"],
+                               tmp_path, strict=True)
+    assert [r["outcome"] for r in rows] == ["failed"]
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-home", "c-favourites"], tmp_path, strict=True)
+    assert [r["outcome"] for r in rows] == ["saved", "saved"] and not ui_shots.failed(rows)
+
+
+def test_timings_add_up(tmp_path, clock):
+    """The set-up's parts (launches, contexts, closings) and the passes' seconds make up shoot_all's time once:
+    nothing counted twice, nothing left out; a pass's seconds hold its pages'."""
+    start = clock.t
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-home", "c-favourites"], tmp_path,
+                               ("desktop", "iphone"), ("light", "dark"))
+    total = clock.t - start
+    assert abs(sum(times.values()) + sum(p["seconds"] for p in passes) - total) < 1e-9
+    assert times["context desktop light"] == pytest.approx(TAKES["new_context"] + TAKES["init"])
+    assert times["close desktop light"] == pytest.approx(TAKES["context.close"])
+    assert times["launch webkit (iphone)"] == pytest.approx(TAKES["launch"])
+    assert times["close webkit (iphone)"] == pytest.approx(TAKES["browser.close"])
+    for p in passes:
+        assert p["seconds"] == pytest.approx(sum(r["seconds"] for r in rows
+                                                 if (r["device"], r["theme"]) == (p["device"], p["theme"])))
+
+
+def test_an_interrupt_keeps_what_was_done(tmp_path):
+    """Ctrl+C on a page: the rows made before it stay, and the unfinished pass has its record."""
+    rows, passes = [], []
+    pw = FakePlaywright(true={"leaflet-tile"}, interrupt=("#account",))
+    with pytest.raises(KeyboardInterrupt):
+        ui_shots.shoot_all(pw, SITE, ["c-home", "c-favourites", "c-account"], ["desktop"], ["light"], str(tmp_path),
+                           False, {}, rows, passes)
+    assert [r["page"] for r in rows] == ["c-home", "c-favourites"]
+    assert passes == [{"device": "desktop", "theme": "light", "seconds": passes[0]["seconds"], "saved": 2,
+                       "left_out": 0, "complete": False}]
+    assert pw.browsers[0].closed and pw.browsers[0].contexts[0].closed
+
+
+def _main(monkeypatch, tmp_path, pw, *argv):
+    """main() with the site and Playwright faked."""
+    import types
+    from contextlib import nullcontext
+    monkeypatch.setattr(ui_shots, "serve", lambda data, run, fresh, times: (SITE["url"], SITE["cookies"], "R", "S",
+                                                                             lambda: None))
+    monkeypatch.setattr(ui_shots, "first_line", lambda data, run, k=0: "1,2,3,4")
+    monkeypatch.setattr(ui_shots, "border_view", lambda data: "#layer")
+    monkeypatch.setattr(ui_shots, "run_features", lambda folder: set())
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace(sync_playwright=lambda: nullcontext(pw)))
+    monkeypatch.setattr(sys, "argv", ["ui_shots.py", "--data-dir", str(tmp_path / "data"), "--out", str(tmp_path / "out"),
+                                      "--timings", str(tmp_path / "t.json"), *argv])
+    return ui_shots.main()
+
+
+def test_timings_file(tmp_path, monkeypatch, capsys):
+    """main: the exit code (1 after a timeout) and the --timings file, after a whole run and after an interrupted
+    one (what was done, the pass unfinished, "interrupted")."""
+    code = _main(monkeypatch, tmp_path, FakePlaywright(true={"leaflet-tile"}), "--only", "c-home,c-result-rigging",
+                 "--exclude", "limited", "--devices", "desktop")
+    saved = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))
+    assert code == 0 and saved["exit"] == 0 and not saved["interrupted"]
+    assert [r["page"] for r in saved["pages"]] == ["c-home"] and saved["passes"][0]["complete"]
+    assert saved["left_out_by_run"] == {"c-result-rigging": ui_shots.LACKS["lift"]}
+    assert {"the run's lines and border cell", "the run's features", "launch chromium (desktop)"} <= set(saved["setup"])
+    assert saved["total"] >= sum(saved["setup"].values()) + sum(p["seconds"] for p in saved["passes"]) - 1e-6
+    assert "Summary:" in capsys.readouterr().out
+    assert _main(monkeypatch, tmp_path, FakePlaywright(), "--only", "view3d-full", "--devices", "desktop") == 1
+    assert json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))["exit"] == 1
+    with pytest.raises(KeyboardInterrupt):
+        _main(monkeypatch, tmp_path, FakePlaywright(true={"leaflet-tile"}, interrupt=("#favourites",)),
+              "--only", "c-home,c-favourites", "--exclude", "limited", "--devices", "desktop")
+    saved = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))
+    assert saved["interrupted"] and [r["page"] for r in saved["pages"]] == ["c-home"]
+    assert saved["passes"][0]["complete"] is False
+    assert "Summary:" in capsys.readouterr().out
+
+
+TOO_TALL = "Page.screenshot: Cannot take screenshot larger than 32767 pixels on any dimension\nCall log:"
+
+
+def test_a_page_too_tall_is_taken_at_css_pixels(tmp_path):
+    """A whole page too tall for its picture at the device's pixel ratio (WebKit's 32767 px) is taken again at one
+    pixel per CSS pixel: saved, "scale": "css", a note in the summary; too tall even then, or another error, or a
+    viewport's shot: a failure, not retried."""
+    context = FakeContext(true={"leaflet-tile"}, shot_errors=[TOO_TALL])
+    row = _shoot(context, "page-coverage-full", tmp_path, device="iphone")
+    shots = [c for c in context.pages[0].calls if c[0] == "shot"]
+    path = str(tmp_path / "page-coverage-full-iphone-light.png")
+    assert shots == [("shot", path, True), ("shot", path, True, "css")]
+    assert row["outcome"] == "saved" and row["scale"] == "css" and row["path"] == path and not ui_shots.failed([row])
+    assert any(line.startswith("Taken at one pixel per CSS pixel") and "page-coverage-full (iphone light)" in line
+               for line in ui_shots.summary({}, [], [row], {}, 1.0))
+    row = _shoot(FakeContext(true={"leaflet-tile"}, shot_errors=[TOO_TALL, TOO_TALL]), "page-coverage-full", tmp_path)
+    assert row["outcome"] == "failed" and row["error"].startswith("Page.screenshot: Cannot take")
+    context = FakeContext(true={"leaflet-tile"}, shot_errors=["Page.screenshot: Target closed"])
+    row = _shoot(context, "page-coverage-full", tmp_path)
+    assert row["outcome"] == "failed" and len([c for c in context.pages[0].calls if c[0] == "shot"]) == 1
+    context = FakeContext(true={"leaflet-tile"}, shot_errors=[TOO_TALL])  # a viewport's shot: not retried
+    row = _shoot(context, "page-coverage", tmp_path)
+    assert row["outcome"] == "failed" and "scale" not in row
+    row = _shoot(FakeContext(true={"leaflet-tile"}), "page-coverage-full", tmp_path)
+    assert row["outcome"] == "saved" and "scale" not in row
+
+
+def test_themes():
+    """--dark and --themes to the themes of the passes: light by default; --dark both; a conflict None."""
+    assert ui_shots.themes_of(False, None) == ["light"]
+    assert ui_shots.themes_of(True, None) == ui_shots.themes_of(False, "both") == ["light", "dark"]
+    assert ui_shots.themes_of(True, "both") == ["light", "dark"]
+    assert ui_shots.themes_of(False, "dark") == ["dark"] and ui_shots.themes_of(False, "light") == ["light"]
+    assert ui_shots.themes_of(True, "dark") is None and ui_shots.themes_of(True, "light") is None
+
+
+def test_page_storage():
+    """page_storage: a page with a kept layout sets it (as JSON in a string), the other kind removed; a page without
+    either removes both."""
+    script = ui_shots.page_storage("c-result-rails")
+    assert f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(ui_shots.LAYOUTS['c-result-rails']))})" \
+        in script and "localStorage.removeItem('findaline.layer.layout')" in script
+    script = ui_shots.page_storage("c-layer-collapsed")
+    assert "localStorage.removeItem('findaline.layout')" in script and \
+        json.dumps(json.dumps(ui_shots.LAYER_LAYOUTS["c-layer-collapsed"])) in script
+    assert ui_shots.page_storage("c-home") == ("try { localStorage.removeItem('findaline.layout'); "
+                                               "localStorage.removeItem('findaline.layer.layout'); } catch (e) {}")
 
 
 def test_credits_go_into_data_js_and_the_store(tmp_path):

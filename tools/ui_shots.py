@@ -33,8 +33,14 @@ folder ready, but starts no browser). `--dark` is `--themes both`.
 A data folder given with `--data-dir` is kept and can be used again: its marker ui-shots.json holds the clip run
 shown there and a key (data_key: the sha256 of the repository's root *.py, this tool, tests/test_country_web.py and
 the clip's two files). A start whose key is the marker's keeps the clip run and the three cubes (4 s of a 13 s
-desktop start on 2026-11-16 with numba's cache warm; more when it is cold); another key, no marker (a folder of before) or `--fresh` makes them anew. The default data folder is a
-temporary one, removed at the end.
+desktop start on 2026-11-16 with numba's cache warm; more when it is cold); another key, no marker (a folder of
+before) or `--fresh` makes them anew, and the clip run the marker names is removed then (folder and row: one clip
+run in a kept folder; a `--run` start removes nothing). Each start ends the sessions of the tool's users before it
+makes theirs, so Admin's counts stay the same. The default data folder is a temporary one, removed at the end.
+
+For a caller that measures the prepared pages instead of shooting them: shoot_all (the passes' loop, rows and pass
+records kept as they are made), pass_context (a pass's browser context, with the caller's options such as
+`bypass_csp`) and shoot_page's `act` (called on the open page in place of the screenshot, its dict in the row).
 
 Each saved picture is printed with its seconds; at the end a summary: the set-up's parts, the seconds of each pass
 (a device and a theme), the ten slowest pages, the pages left out with their reasons, every wait that timed out and
@@ -42,7 +48,9 @@ every failed step; `--timings` writes all of it as JSON (a record per page and p
 wait after it, the tiles, each step and the shot; the outcome). A "wait:" that timed out once gets a quarter of its
 limit for the rest of the pass; a step that raises (a click that cannot be done: 10 s, a script's error) fails its
 page, and the run goes on; `--strict` stops at the first timeout or failed step. The exit code is 1 when a wait timed
-out or a step failed ("map tiles still loading" is a note only).
+out or a step failed ("map tiles still loading" is a note only). A whole page too tall for its picture at the
+device's pixel ratio (WebKit's 32767 px: the coverage page on the iPhone) is taken at one pixel per CSS pixel and
+noted ("scale": "css").
 
 With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded" and
 "view3d-edges") are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after
@@ -571,12 +579,15 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
     times = {} if times is None else times
     with timed(times, "accounts and jobs"):
         users = ac.Accounts(data, settings)
+
+        def session(user) -> str:  # one session a user: those of a start before ended (Admin's counts stay)
+            users.revoke(user.id)
+            return users.new_session(user.id)[0]
         admin = users.sign_in("github", "1", "admin")
-        cookie, _ = users.new_session(admin.id)
         climber = users.sign_in("github", "11", "a climber")  # a user waiting for approval, in Admin's list
         walker = users.sign_in("github", "12", "a walker")  # approved, with the limits of the site
         users.set_status(walker.id, "approved")
-        cookies = {"admin": cookie, "walker": users.new_session(walker.id)[0]}
+        cookies = {"admin": session(admin), "walker": session(walker)}
         jobs = Jobs(data, public=True)
         for name, (subject, rigs) in RIGGERS.items():  # the Basic form's users with saved rigs
             rigger = users.sign_in("github", subject, name)
@@ -586,19 +597,27 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
             for rig_name, values in rigs:
                 if rig_name not in have:
                     jobs.add_rig(rigger.id, rig_name, values)
-            cookies[name] = users.new_session(rigger.id)[0]
-    key = data_key()
-    marker = read_marker(data)
-    same = not fresh and marker.get("key") == key
-    clip = marker.get("run") if same else None  # the clip's run of a kept folder, when its folder is there
-    if clip and not os.path.isfile(os.path.join(data, "runs", clip, "run.json")):
-        clip = None
-    if run_folder:
+            cookies[name] = session(rigger)
+    with timed(times, "the marker"):
+        key = data_key()
+        marker = read_marker(data)
+    runs = os.path.join(data, "runs")
+    same = not fresh and marker.get("key") == key  # the cubes made by this code
+    clip = marker.get("run")  # the clip's run of a kept folder: kept while the code that made it is the same
+    made_by = marker.get("run_key", marker.get("key"))
+    if run_folder:  # a saved run shown: the clip stays as it is
         run = saved_run(data, run_folder)
     else:
+        if clip and (fresh or made_by != key or not os.path.isfile(os.path.join(runs, clip, "run.json"))):
+            try:  # one clip run in a kept folder: the one made before goes (its folder and its row)
+                jobs.delete_run(clip, runs)
+            except OSError as error:
+                print(f"the clip run {clip} made before stays: {error}")
+            clip = None
         if not clip:
             with timed(times, "the clip's search"):
                 clip = clip_run(data)
+            made_by = key
         run = clip
     if not (same and all(os.path.isfile(os.path.join(data, "countries", country, "cube", "cube.json"))
                          for country in CUBES)):
@@ -617,7 +636,7 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
                             {"run": run, "page": f"#run={run}", "ui": "c", "viewport": "390x844",
                              "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"})
     with open(os.path.join(data, MARKER), "w", encoding="utf-8") as f:
-        json.dump({"key": key, "run": clip}, f, indent=1)
+        json.dump({"key": key, "run": clip, "run_key": made_by if clip else None}, f, indent=1)
     return cookies, run, share, jobs
 
 
@@ -770,11 +789,19 @@ def run_step(page, step: str, label: str, state: Pass, row: dict) -> str | None:
     return None
 
 
-def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str, state: Pass) -> dict:
+TOO_LARGE = "Cannot take screenshot larger than"  # Playwright's error for a picture over its size limit
+
+
+def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str | None, state: Pass,
+               act=None) -> dict:
     """One page from its load to its screenshot in a browser context: its record (seconds of the load, the wait
     after it, the tiles' wait, each step and the shot; the outcome "saved", "left out" (on this device: a click
     finds nothing, or a "need:" is false), "timed out" (a wait timed out: the picture saved all the same, but not
-    with --strict) or "failed" (a step raised: no picture); the picture's path)."""
+    with --strict) or "failed" (a step, the load or the shot raised: no picture); the picture's path; "scale":
+    "css" when a whole page was too tall for its picture at the device's pixel ratio). `act(page, name, device,
+    theme) -> dict`, for a caller that measures the prepared pages: called in place of the screenshot (the page
+    open, after the last step; not for a page left out, nor with --strict after a timeout), its dict the row's
+    "result", the outcome "done" (or "timed out"), `out` then unused; an exception from it fails only its page."""
     ui, hash_, steps, *who = PAGES[name]
     row = {"page": name, "device": device, "theme": theme, "outcome": None, "reason": None, "path": None,
            "load": None, "settle": None, "tiles": None, "tiles_loading": False, "steps": [], "shot": None,
@@ -825,12 +852,25 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
             if result == "timeout" and state.strict:
                 row["outcome"] = "timed out"
                 return row
-        path = os.path.join(out, f"{name}-{device}-{theme}.png")
         start = time.perf_counter()
-        page.screenshot(path=path, full_page=full, timeout=LOAD_MS)
-        row["shot"], row["path"] = time.perf_counter() - start, path
-        row["outcome"] = "timed out" if row["timeouts"] else "saved"
-    except Exception as error:  # the load or the shot
+        if act is None:
+            path = os.path.join(out, f"{name}-{device}-{theme}.png")
+            try:
+                page.screenshot(path=path, full_page=full, timeout=LOAD_MS)
+            except Exception as error:
+                if not (full and TOO_LARGE in str(error)):
+                    raise
+                # a whole page too tall at the device's pixel ratio (WebKit: at most 32767 picture pixels): one
+                # picture pixel per CSS pixel; still too tall, a failure
+                page.screenshot(path=path, full_page=True, timeout=LOAD_MS, scale="css")
+                row["scale"] = "css"
+                print(f"{label}: too tall at the device's pixel ratio, taken at one pixel per CSS pixel")
+            row["path"] = path
+        else:  # a caller's measurement in place of the picture
+            row["result"] = act(page, name, device, theme)
+        row["shot"] = time.perf_counter() - start
+        row["outcome"] = "timed out" if row["timeouts"] else "saved" if act is None else "done"
+    except Exception as error:  # the load, the shot or `act`
         row["outcome"], row["error"] = "failed", error_line(error)
         print(f"{label}: failed: {row['error']}")
     finally:
@@ -856,7 +896,7 @@ def summary(times: dict, passes: list, rows: list, dropped: dict, total: float) 
     lines.append("Set-up: " + ", ".join(f"{part} {seconds:.1f} s" for part, seconds in times.items()))
     for p in passes:
         lines.append(f"Pass {p['device']} {p['theme']}: {p['seconds']:.1f} s, {p['saved']} saved, "
-                     f"{p['left_out']} left out")
+                     f"{p['left_out']} left out" + ("" if p.get("complete", True) else ", not finished"))
     slow = sorted((r for r in rows if r["seconds"] is not None), key=lambda r: -r["seconds"])[:10]
     if slow:
         lines.append("Slowest pages: " + ", ".join(f"{r['page']} ({r['device']} {r['theme']}) {r['seconds']:.1f} s"
@@ -875,6 +915,9 @@ def summary(times: dict, passes: list, rows: list, dropped: dict, total: float) 
         if r["outcome"] == "failed":
             step = next((s["step"] for s in r["steps"] if s["outcome"] == "failed"), "the load or the shot")
             lines.append(f"Failed: {r['page']} ({r['device']} {r['theme']}): {short(step)}: {r['error']}")
+    if any(r.get("scale") == "css" for r in rows):
+        lines.append("Taken at one pixel per CSS pixel, too tall at the device's (a note): " + ", ".join(
+            f"{r['page']} ({r['device']} {r['theme']})" for r in rows if r.get("scale") == "css"))
     if any(r["tiles_loading"] for r in rows):
         lines.append("Map tiles still loading (a note): " + ", ".join(
             f"{r['page']} ({r['device']} {r['theme']})" for r in rows if r["tiles_loading"]))
@@ -893,6 +936,75 @@ CONTEXT_SCRIPT = ("try {{ localStorage.setItem('findaline-theme', {theme}); "
                             ("coverage.view", "coverage.scale", "coverage.lang", "layer.coverage"))
                   + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); " for intro in INTROS)
                   + "}} catch (e) {{}}")
+
+
+def themes_of(dark: bool, themes: str | None) -> list | None:
+    """The themes of the passes from --dark (both) and --themes (light, dark or both; default light); None when
+    the two differ."""
+    if dark and themes not in (None, "both"):
+        return None
+    return ["light", "dark"] if dark or themes == "both" else [themes or "light"]
+
+
+def pass_context(browser, pw, device: str, theme: str, **extra):
+    """A pass's browser context: the device's profile (DESKTOP for the desktop), the theme, HTTPS errors of the run's
+    certificate ignored, Chromium's motion sensors as a phone that allows them ("view3d-motion"; WebKit has no such
+    permission), and CONTEXT_SCRIPT: the theme, the intros put away (ui/Intro.tsx: the "-intro" pages open them),
+    the coverage page's choices and the place map's coverage layer as on a first visit. `extra` goes on to
+    new_context (a caller's `bypass_csp=True`)."""
+    engine, profile = DEVICES[device]
+    options = dict(pw.devices[profile]) if profile else dict(DESKTOP)
+    options.pop("default_browser_type", None)
+    sensors = ["accelerometer", "gyroscope", "magnetometer"] if engine == "chromium" else []
+    context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True, permissions=sensors,
+                                  **extra)
+    context.add_init_script(CONTEXT_SCRIPT.format(theme=json.dumps(theme)))
+    return context
+
+
+def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str | None, strict: bool, times: dict,
+              rows: list, passes: list, act=None, **extra):
+    """Every page of `shown` in a pass per device and theme (shoot_page; `act` and `extra` for a caller that measures
+    the prepared pages: shoot_page's and pass_context's): each row added to `rows` as it is made, each pass's record
+    to `passes` (its seconds from after its context is made, its pictures and pages left out; "complete" False
+    when it was interrupted), so an interrupt keeps what was done. Launches, contexts and their closing are timed
+    into `times`. `strict`: the run stops after the first row with a timeout or a failure."""
+    stop = False
+    for device in devices:
+        engine = DEVICES[device][0]
+        with timed(times, f"launch {engine} ({device})"):
+            browser = getattr(pw, engine).launch()
+        try:
+            for theme in themes:
+                with timed(times, f"context {device} {theme}"):
+                    context = pass_context(browser, pw, device, theme, **extra)
+                start, first, complete = time.perf_counter(), len(rows), False
+                state = Pass(device, theme, strict)
+                try:
+                    for name in shown:
+                        row = shoot_page(context, site, name, device, theme, out, state, act)
+                        rows.append(row)
+                        if row["path"]:
+                            print(f"{row['path']}  ({row['seconds']:.1f} s)")
+                        if strict and failed([row]):
+                            stop = True
+                            break
+                    complete = not stop
+                finally:
+                    done = rows[first:]
+                    passes.append({"device": device, "theme": theme, "seconds": time.perf_counter() - start,
+                                   "saved": sum(1 for r in done if r["path"] or "result" in r),
+                                   "left_out": sum(1 for r in done if r["outcome"] == "left out"),
+                                   "complete": complete})
+                    with timed(times, f"close {device} {theme}"):
+                        context.close()
+                if stop:
+                    break
+        finally:
+            with timed(times, f"close {engine} ({device})"):
+                browser.close()
+        if stop:
+            break
 
 
 def main() -> int:
@@ -914,9 +1026,9 @@ def main() -> int:
     args = parser.parse_args()
     if not args.out and not args.list:
         parser.error("the following arguments are required: --out")
-    if args.dark and args.themes not in (None, "both"):
+    themes = themes_of(args.dark, args.themes)
+    if themes is None:
         parser.error(f"--dark (both themes) and --themes {args.themes} differ")
-    themes = ["light", "dark"] if args.dark or args.themes == "both" else [args.themes or "light"]
     devices = args.devices.split(",")
     for device in devices:
         if device not in DEVICES:
@@ -937,53 +1049,21 @@ def main() -> int:
 
         os.makedirs(args.out, exist_ok=True)
         site, cookies, run, share, stop = serve(data, args.run, args.fresh, times)
-        line = args.line or first_line(data, run)
-        also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines of the run ("view3d-others")
-        border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
+        with timed(times, "the run's lines and border cell"):
+            line = args.line or first_line(data, run)
+            also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines ("view3d-others")
+            border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
         site_of = {"url": site, "cookies": cookies, "run": run, "share": share, "line": line, "also": also,
                    "border": border}
-        dropped = left_out_by_run(pages, run_features(os.path.join(data, "runs", run)))
+        with timed(times, "the run's features"):
+            dropped = left_out_by_run(pages, run_features(os.path.join(data, "runs", run)))
         for name, reason in dropped.items():
             print(f"{name}: left out, {reason}")
         shown = [name for name in pages if name not in dropped]
         with sync_playwright() as pw:
-            for device in devices:
-                engine, profile = DEVICES[device]
-                with timed(times, f"launch {engine} ({device})"):
-                    browser = getattr(pw, engine).launch()
-                options = dict(pw.devices[profile]) if profile else dict(DESKTOP)
-                options.pop("default_browser_type", None)
-                for theme in themes:
-                    start = time.perf_counter()
-                    with timed(times, f"context {device} {theme}"):
-                        # Chromium's motion sensors as a phone that allows them ("view3d-motion"; WebKit has no
-                        # such permission)
-                        sensors = ["accelerometer", "gyroscope", "magnetometer"] if engine == "chromium" else []
-                        context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True,
-                                                      permissions=sensors)
-                        # the theme, and the intros put away (ui/Intro.tsx): the "-intro" pages open them; the
-                        # coverage page's choices and the place map's coverage layer as on a first visit
-                        context.add_init_script(CONTEXT_SCRIPT.format(theme=json.dumps(theme)))
-                    state = Pass(device, theme, args.strict)
-                    done = []
-                    for name in shown:
-                        row = shoot_page(context, site_of, name, device, theme, args.out, state)
-                        done.append(row)
-                        if row["path"]:
-                            print(f"{row['path']}  ({row['seconds']:.1f} s)")
-                        if args.strict and row["outcome"] in ("timed out", "failed"):
-                            break
-                    context.close()
-                    rows += done
-                    passes.append({"device": device, "theme": theme, "seconds": time.perf_counter() - start,
-                                   "saved": sum(1 for r in done if r["path"]),
-                                   "left_out": sum(1 for r in done if r["outcome"] == "left out")})
-                    if args.strict and failed(rows):
-                        break
-                browser.close()
-                if args.strict and failed(rows):
-                    break
+            shoot_all(pw, site_of, shown, devices, themes, args.out, args.strict, times, rows, passes)
     finally:
+        interrupted = sys.exc_info()[0] is not None
         if stop:
             stop()
         if not args.data_dir:  # the folder made above (tools/clean_temp.py removes those of runs that did not end)
@@ -996,7 +1076,7 @@ def main() -> int:
             if args.timings:
                 with open(args.timings, "w", encoding="utf-8") as f:
                     json.dump({"setup": times, "left_out_by_run": dropped, "passes": passes, "pages": rows,
-                               "total": total, "exit": code}, f, indent=1)
+                               "total": total, "exit": code, "interrupted": interrupted}, f, indent=1)
     return code
 
 
