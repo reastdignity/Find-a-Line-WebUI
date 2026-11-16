@@ -40,6 +40,7 @@ import { ProfileDock, profileShown } from "./ProfileDock";
 import { AccessLegend, ResultSummary } from "./ResultSummary";
 import { RunActions, type RunActionsProps } from "./RunActions";
 import { RunLoading } from "./RunLoading";
+import { opensView, SpotColumns } from "./SpotColumns";
 import { useLayout, type LayoutState } from "./useLayout";
 import "./columns.css";
 
@@ -426,7 +427,8 @@ export function ResultColumns(props: ResultColumnsProps) {
     setProgress(null);
     setError("");
     (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
-      .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}}, report) : null)
+      // The result view (SpotColumns: built beside this page, behind a flag) reads the store's spots: no grouping
+      .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}, ungrouped: opensView(d)}, report) : null)
       .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [props.runId]);
@@ -435,5 +437,6 @@ export function ResultColumns(props: ResultColumnsProps) {
   }
   const data = model.data;
   const view = {...props, model, data};
+  if (model.ungrouped) return <SpotColumns {...view} />;
   return props.wide ? <Desktop key="wide" {...view} /> : <Phone key="phone" {...view} />;
 }

@@ -208,6 +208,15 @@ export interface RunHead {
   // "memory": the search was asked to mark the anchors' access (--access) and ran without it, its area too wide for
   // the access grid (search.py; mapping.map_heads): a run as one made without the mark, and the page says so
   access_skipped?: string;
+  // The result view's keys (mapping.view_columns' head, linestore.VIEW_HEAD: in a store's head only, never in
+  // data.js; a run saved before the view's columns has none):
+  // the sectors in their order, each with its word ("north-west", "centre") and how many spots it holds: sector s
+  // holds a run of the spots' numbers, after the spots of the sectors before it
+  sectors?: {word: string; spots: number}[];
+  // [x min, y min, x max, y max] of every anchor, m in the run's grid CRS; null: a run without lines
+  box?: [number, number, number, number] | null;
+  // [shortest, longest] line, m; null: a run without lines
+  lengths?: [number, number] | null;
 }
 
 /** data.js's value (window.FINDALINE_RUN) as the file holds it: the head and a row per line. */
@@ -215,9 +224,25 @@ export interface RunScript extends RunHead {
   lines: LineRow[];
 }
 
-/** A run as the page keeps it (result/load.ts): the head and its lines as columns (lineColumns), the rows dropped. */
+/** The result view's columns of a run's store (linestore.VIEW, mapping.view_columns), one value per line but
+ *  `bySpot`: `spot` the number of the line's spot (from 0, by sector, then by the spot's first line's mean height);
+ *  `top` 1 when the line is top level (0: it hangs lower on the same face); `bySpot` the rows in the view's order: by
+ *  spot, inside a spot by mean height, clearance, length (each highest first, NaN last), then the row, so a spot's
+ *  lines are one run of it and the first is the spot's shown line. The store's own arrays, never copied. */
+export interface ViewColumns { spot: Uint32Array; top: Uint8Array; bySpot: Uint32Array }
+
+/** A run as the page keeps it (result/load.ts): the head and its lines as columns (lineColumns), the rows dropped;
+ *  `view`: the result view's columns, of a run whose store holds them (hasView). */
 export interface RunData extends RunHead {
   columns: LineColumns;
+  view?: ViewColumns;
+}
+
+/** Does a run carry what the result view reads: the store's three columns, each of one value per line, and the
+ *  head's sectors. A run saved before them (or read from data.js) has none and opens in today's page. */
+export function hasView(d: RunData): boolean {
+  const v = d.view, n = d.columns.length;
+  return !!v && v.spot.length === n && v.top.length === n && v.bySpot.length === n && Array.isArray(d.sectors);
 }
 
 declare global {

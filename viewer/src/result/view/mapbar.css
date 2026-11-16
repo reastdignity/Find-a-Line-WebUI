@@ -1,0 +1,36 @@
+/* The result view's bar on the map (MapBar.tsx: the switch, Best, the line that says what is drawn) and the
+   frame's own pieces over the map (SpotColumns.tsx: the toast, the slots' placeholders). Classes v-*, under the
+   kit's root class .ui; the map's column is .c-col-map.v-map (columns.css), a stacking context of its own:
+   Leaflet's panes lie below 800, its controls at 1000. */
+
+.ui .v-switch { position: absolute; z-index: 800; top: 8px; left: 10px; right: 10px; display: flex; gap: 6px; align-items: center;
+  justify-content: center; flex-wrap: wrap; pointer-events: none; }
+.ui .v-switch > * { pointer-events: auto; }
+.ui .v-levels { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.ui .v-levels button { flex: none; padding: 0 12px; }
+.ui .v-levels button.u-on { background: var(--accent); color: var(--on-accent); }
+.ui .v-levels button.v-now { box-shadow: inset 0 -2px 0 var(--accent); }
+.ui .v-best { display: inline-flex; align-items: center; gap: 5px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 3px 4px 3px 9px; box-shadow: var(--shadow); font-size: 13.5px; font-weight: 500; color: var(--ink-2); }
+.ui .v-best.v-off { opacity: .55; }
+.ui .v-select { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 28px; font-size: 13px; }
+
+.ui .v-foot { position: absolute; z-index: 800; left: 10px; right: 10px; bottom: calc(var(--v-covered, 0px) + 34px); display: flex;
+  flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; }
+.ui .v-foot > * { pointer-events: auto; max-width: 100%; }
+.ui .v-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ui .v-status { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; font-size: 13px;
+  font-weight: 500; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
+.ui .v-status.v-refused { background: var(--warn-soft); }
+.ui .v-hint-slot { display: contents; }  /* the frame's slot beside the status line: its children are the boxes */
+
+.ui .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
+  background: var(--ink); color: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 13px; box-shadow: var(--shadow); }
+
+/* Leaflet's own controls below the switch */
+.ui .v-map .leaflet-top { top: 46px; }
+.ui .c-result-phone .v-switch { top: 62px; }
+.ui .c-result-phone .v-map .leaflet-top { top: 108px; }
+.ui .c-result-phone .v-toast { top: 112px; }
+
+.ui .v-placeholder { margin: 0; color: var(--muted); }
