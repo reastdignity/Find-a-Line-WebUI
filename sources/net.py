@@ -217,6 +217,10 @@ HOST_RATES_OF: Dict[str, int] = {
     # (burst 40) by its limits (docs/mirror-hosting/spec.md A.5); half of it, 600 a minute (C.6)
     "mirror.findaline.lukawski.org": 600,
 }
+# Addresses (host:port, lower case) whose requests take another host's limits in HOST_SLOTS_OF and HOST_RATES_OF: the
+# project's data server under an address of the user's choosing (FINDALINE_MIRROR_URL: a mirror on a LAN, the local
+# test stack) keeps the manners of its own host; sources/readers/tilebases.py adds the address in use (limits_host)
+LIMITS_AS: Dict[str, str] = {}
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
 _rate_limiters: Dict[Tuple[str, str, int], object] = {}  # (database, host, rate) -> pyrate_limiter.Limiter
@@ -240,6 +244,13 @@ def _host(url: Optional[str]) -> Optional[str]:
     return urlsplit(url).hostname if url and re.match(r"https?://", url) else None
 
 
+def limits_host(url: Optional[str]) -> Optional[str]:
+    """The host whose entries of HOST_SLOTS_OF and HOST_RATES_OF a request to url takes: its own, or the one
+    LIMITS_AS names for its address (None: a local path)."""
+    host = _host(url)
+    return LIMITS_AS.get(urlsplit(url).netloc.lower(), host) if host else None
+
+
 def rate_turn(url: Optional[str], share: float = 1.0):
     """Wait for this request's turn when the host of url has a rate (HOST_RATES_OF), the turns
     spread evenly (one every 60/n s) over every thread and process of the machine: a pyrate-limiter
@@ -252,7 +263,7 @@ def rate_turn(url: Optional[str], share: float = 1.0):
     tile) also takes a turn of a bucket of its own at that share of the rate (at least 1 a minute), after
     the host's turn: the host's rate still bounds every request, and these stay under their share."""
     host = _host(url)
-    per_minute = HOST_RATES_OF.get(host) if host else None
+    per_minute = HOST_RATES_OF.get(limits_host(url)) if host else None
     if not per_minute:
         return
     _turn(host, per_minute)
@@ -448,7 +459,7 @@ def host_slot(cache_dir: str, url: Optional[str]):
         yield
         return
     folder = _locks(cache_dir, "hosts")
-    slots = list(range(HOST_SLOTS_OF.get(host, HOST_SLOTS)))
+    slots = list(range(HOST_SLOTS_OF.get(limits_host(url), HOST_SLOTS)))
     key = (folder, host, len(slots))
     with _queues_lock:
         queue = _queues.setdefault(key, _Queue(len(slots)))

@@ -47,7 +47,9 @@ def _empty_url():
 
 def test_the_data_server_only_when_named(tmp_path, monkeypatch):
     """regression.py asks the project's data server only with --mirror-url: FINDALINE_MIRROR_URL empty otherwise, for
-    its searches and for itself. (Not monkeypatch.setenv: its undo would delete the empty value on Windows.)"""
+    its searches and for itself. (Not monkeypatch.setenv: its undo would delete the empty value on Windows.) The
+    child process at the end guards this test's own restoring of the empty value (_empty_url), not conftest's line:
+    tests/test_mirror_client.py::test_the_processes_of_the_tests_ask_no_data_server guards that."""
     import subprocess
     import sys
     monkeypatch.setattr(regression, "write_doc", lambda tests: None)

@@ -33,9 +33,22 @@ UNANSWERED_SECONDS = 60     # how long a start check that got no answer is remem
 HEAL_PAUSE = 2              # net._sleep's attempt before the index is taken again (2-6 s): a dataset being swapped
 
 
+MIRROR_HOST = urlsplit(MIRROR_URL).hostname  # the host of the data server's manners in net (2 connections, 600 a minute)
+BLOCK = 10  # tiles per folder side (grid_tile_name; tools/sk_tiles.py BLOCK): a served index must say the same
+_KEY = re.compile(r"-?[0-9]+_-?[0-9]+")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
 def mirror_url() -> Optional[str]:
-    """The data server's origin (MIRROR_URL, or FINDALINE_MIRROR_URL when set); None when that is empty."""
-    return os.environ.get(MIRROR_URL_ENV, MIRROR_URL).strip().rstrip("/") or None
+    """The data server's origin (MIRROR_URL, or FINDALINE_MIRROR_URL when set); None when that is empty. Another
+    address than MIRROR_URL's (a mirror on a LAN, the local test stack) takes the manners of MIRROR_HOST in net
+    (net.LIMITS_AS): 2 connections, 600 requests a minute, whatever host it names."""
+    origin = os.environ.get(MIRROR_URL_ENV, MIRROR_URL).strip().rstrip("/") or None
+    if origin and re.match(r"https?://", origin):
+        address = urlsplit(origin).netloc.lower()
+        if urlsplit(origin).hostname != MIRROR_HOST and net.LIMITS_AS.get(address) != MIRROR_HOST:
+            net.LIMITS_AS[address] = MIRROR_HOST
+    return origin
 
 
 def _clock() -> float:
@@ -47,7 +60,7 @@ def _is_remote(base: str) -> bool:
     return bool(re.match(r"https?://", base))
 
 
-def grid_tile_name(i: int, j: int, block: int = 10) -> str:
+def grid_tile_name(i: int, j: int, block: int = BLOCK) -> str:
     """Path of tile (i, j) of a GridTiles layer: blocks of block x block tiles per folder
     (shared with tools/sk_tiles.py, which makes the tiles)."""
     return f"{i // block}_{j // block}/{i}_{j}.tif"
@@ -76,6 +89,26 @@ def _listed(tiles: Dict, extent, tile):
 
 class IndexMissing(RuntimeError):
     """A remote base answered 404 for its index.json (the dataset, or this resolution of it, is not published)."""
+
+
+class IndexUnreadable(RuntimeError):
+    """A remote base's index.json is not what the client reads (not JSON, no "tiles" mapping, a key that is not
+    "<i>_<j>", a value that is neither null nor a sha256, another "block" than BLOCK): treated as a mismatch."""
+
+
+def _checked_index(found) -> Tuple[Dict, Optional[Tuple[int, int, int, int]]]:
+    """(tiles, extent) of a served index, or IndexUnreadable (its text says why, without the base: the caller adds
+    it)."""
+    if not isinstance(found, dict) or not isinstance(found.get("tiles"), dict):
+        raise IndexUnreadable("no \"tiles\" mapping")
+    if found.get("block") != BLOCK:
+        raise IndexUnreadable(f"its \"block\" is {found.get('block')!r}, not {BLOCK}")
+    tiles = found["tiles"]
+    bad = next((k for k, v in tiles.items() if not isinstance(k, str) or not _KEY.fullmatch(k)
+                or not (v is None or (isinstance(v, str) and _SHA256.fullmatch(v)))), None)
+    if bad is not None:
+        raise IndexUnreadable(f"the entry {str(bad)[:40]!r} is not a tile and its sha256")
+    return tiles, _key_extent(tiles, found.get("partial"))
 
 
 class _Kept:
@@ -208,15 +241,17 @@ class TileBases(Reader):
                     raise IndexMissing(f"{cache.clean_url(base)}/index.json is not on the server (HTTP 404): this "
                                        f"dataset or resolution is not published there")
                 try:
-                    found = json.loads(response.content)
-                    tiles = found["tiles"]
-                except (ValueError, KeyError, TypeError) as e:
-                    raise RuntimeError(f"{cache.clean_url(base)}/index.json cannot be read ({e})") from None
+                    tiles, extent = _checked_index(json.loads(response.content))
+                except ValueError as e:  # not JSON (IndexUnreadable is a RuntimeError: below)
+                    raise IndexUnreadable(f"not JSON ({str(e)[:80]})") from None
             except RuntimeError as e:
+                if isinstance(e, IndexUnreadable):
+                    why, e = str(e), IndexUnreadable(f"{cache.clean_url(base)}/index.json cannot be read: {e}")
+                    e.why = why
                 kept.index, kept.error = None, e
                 kept.generation += 1  # after the fetch: the threads that waited for it see that it moved
-                raise
-            kept.index, kept.error = (tiles, _key_extent(tiles, found.get("partial")), _clock()), None
+                raise e from None
+            kept.index, kept.error = (tiles, extent, _clock()), None
             kept.generation += 1
             return kept.index[0], kept.index[1], kept.generation
 
@@ -243,7 +278,7 @@ class TileBases(Reader):
                     return Fetched.of(response, url)
                 problem = (f"{cache.clean_url(url)} is not on the server (HTTP 404), though its index lists it"
                            if response is None else f"{cache.clean_url(url)} does not match the sha256 of its index")
-            except IndexMissing as e:
+            except (IndexMissing, IndexUnreadable) as e:  # as a mismatch: once more after the pause
                 problem, used = str(e), None
             if healed:
                 raise RuntimeError(f"{problem}, also after taking the index again")
@@ -292,6 +327,7 @@ class TileBases(Reader):
             if status == 429:
                 return None  # busy: it is there; the downloads' own retries deal with it
             detail = ("HTTP 404: not published there" if isinstance(e, IndexMissing) else
+                      f"its index is not readable: {getattr(e, 'why', e)}" if isinstance(e, IndexUnreadable) else
                       f"HTTP {status}" if status else "no answer")
             why = f"{self.description}: the data copy at {urlsplit(base).hostname} does not answer ({detail})"
             self._unanswered[base] = (_clock(), why)
@@ -300,8 +336,14 @@ class TileBases(Reader):
         return None
 
     def url(self, tile) -> Optional[str]:
+        """The base a tile comes from, for the slots of its host (net.host_slot): a local folder (no host) when its
+        index lists the tile or knows it outside its extent, else the next base (a tile not cut there yet comes
+        from the data server, under one of its slots)."""
         bases = self.bases()
-        return bases[0] if bases else None  # a local mirror first: no host
+        for base in bases:
+            if _is_remote(base) or f"{tile[0]}_{tile[1]}" in self._index(base) or self._beyond(base, tile):
+                return base
+        return bases[0] if bases else None
 
     def fetch(self, tile, path: str) -> Fetched:
         name, error = grid_tile_name(*tile), None

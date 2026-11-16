@@ -2,7 +2,7 @@
 (cassettes of tools/record_answers.py) and handlers, with HTTP range requests as GDAL's
 /vsicurl/ sends them (one range, several in one request, beyond the end), faults of range
 answers on request (`fault`: cut short, or the connection closed without one), and a log of
-every request (its User-Agent, the requests nothing answered).
+every request (its User-Agent, the requests nothing answered, when it was being answered: `peak`).
 
 Standard library only (http.server in a thread on a free port), so requests, GDAL and
 pyogrio read the same answers offline. The fixture `http_server` is in conftest.py.
@@ -14,6 +14,7 @@ import mimetypes
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, List, Optional, Tuple
@@ -37,6 +38,8 @@ class Request:
     query: Tuple[Tuple[str, str], ...]
     headers: Dict[str, str]
     answered: bool = True
+    started: float = 0.0  # time.monotonic() when it came, and when its answer was sent (0: not yet)
+    ended: float = 0.0
 
     @property
     def user_agent(self) -> Optional[str]:
@@ -182,6 +185,18 @@ class HttpServer:
         with self._lock:
             return [r for r in self.log if r.path.startswith(path_prefix)]
 
+    def peak(self, path_prefix: str = "", suffix: str = "") -> int:
+        """The most requests to paths starting with path_prefix (and ending with suffix) answered at the same moment."""
+        with self._lock:
+            spans = [(r.started, r.ended or float("inf")) for r in self.log
+                     if r.path.startswith(path_prefix) and r.path.endswith(suffix)]
+        events = sorted([(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans], key=lambda e: (e[0], e[1]))
+        most = now = 0
+        for _, step in events:  # an end before a start at the same moment: not overlapping
+            now += step
+            most = max(most, now)
+        return most
+
     def stray(self) -> List[Request]:
         """Requests that nothing answered (a 404 of the server itself)."""
         with self._lock:
@@ -204,7 +219,13 @@ class HttpServer:
     def _handle(self, handler: BaseHTTPRequestHandler, head: bool):
         parts = urlsplit(handler.path)
         request = Request(handler.command, parts.path, tuple(parse_qsl(parts.query, keep_blank_values=True)),
-                          {k.lower(): v for k, v in handler.headers.items()})
+                          {k.lower(): v for k, v in handler.headers.items()}, started=time.monotonic())
+        try:
+            self._answer(handler, head, request)
+        finally:
+            request.ended = time.monotonic()
+
+    def _answer(self, handler: BaseHTTPRequestHandler, head: bool, request: Request):
         answer = self._find(request)
         request.answered = answer is not None
         with self._lock:
