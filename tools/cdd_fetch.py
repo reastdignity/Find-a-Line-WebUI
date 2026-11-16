@@ -56,9 +56,11 @@ Free space under `--min-free-gb` (plus the next file) stops it. SIGTERM or Ctrl-
 exits 0 with the state saved; a second `fetch` continues where it stopped. `status.json` is rewritten every few
 files and every 1 GB of a long file; an unexpected error leaves it at "stopped: error (...)". A line of done.jsonl
 or failed.jsonl that is not UTF-8 or JSON is skipped with a log line. done.jsonl decides what is done: a file
-deleted by hand after it was recorded (cut into tiles) is not fetched again, nor an item a new plan lists with
-another version or size (fetch and status count them and say how to fetch them again: remove their lines from
-done.jsonl).
+deleted by hand after it was recorded is not fetched again, nor an item a new plan lists with another version or
+size (fetch and status count them and say how to fetch them again: remove their lines from done.jsonl). Delete a
+collection's files only when its mirror product is cut and verified (tools/mirror_tiles.py cuts a product once, when
+all its files are there): a file deleted earlier holds that product back until its done.jsonl line is removed and it
+is fetched again.
 
 `fetch-list wallonia` fetches the embedded list (addresses and sizes read 2026-11-15) the same way without a login;
 that server ignores Range, so a broken file starts again from zero; the size must equal the list's (a different

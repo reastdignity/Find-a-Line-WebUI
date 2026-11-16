@@ -59,7 +59,7 @@ import search  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.readers import windows  # noqa: E402
-from sources.readers.zipmember import drop_below  # noqa: E402
+from sources.readers.zipmember import drop_below, xyz_rows  # noqa: E402
 from params import SearchParams  # noqa: E402
 from progress import progress  # noqa: E402
 
@@ -281,22 +281,56 @@ def _read_xyz(url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+ZONE_PREFIXED = 10_000_000  # an easting above this carries a UTM zone's two digits in front (Bremerhaven's 32466000.5)
+
+
+def _zone_free(transform):
+    """A member's transform with a two-digit UTM zone taken off its easting (32466000 is 466000 of zone 32), the
+    zone read from the value itself: check_source's own rule, not the layer's fix, so the file check finds a fix
+    that puts a tile elsewhere; any other transform as it is."""
+    from rasterio.transform import Affine
+    if transform.c < ZONE_PREFIXED:
+        return transform
+    zone = int(transform.c // 1_000_000)
+    return Affine(transform.a, transform.b, transform.c - zone * 1_000_000, transform.d, transform.e, transform.f)
+
+
 def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     """A tile's member of a remote ZIP read again by the layer's Range reader (its inflating and CRC-32
-    check), then opened by GDAL's GTiff driver on the pixels of the cached tile, with the layer's floor
-    rule applied as the layer applies it (its 0 m patches would differ otherwise); GDAL's /vsizip/ is
-    not used: its requests would read the archive's directory outside sources.net. A tile that names its own
-    CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the files name it
-    otherwise: NAD83 for NAD83(CSRS), a compound CRS)."""
+    check), then opened by GDAL on the pixels of the cached tile (nearest: an origin off by float noise, Hamburg's
+    552999.9999999999, lands on the same pixels), with the layer's floor rule applied as the layer applies it (its
+    0 m patches would differ otherwise). The member's own georeferencing, not the layer's fix: a member without a CRS
+    (XYZ text) in the tile's, an easting with the zone in front without it (_zone_free); an XYZ member in columns
+    with points missing (GDAL refuses it) read in rows (zipmember.xyz_rows: only the lines' order). A tile that
+    names its own CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the
+    files name it otherwise: NAD83 for NAD83(CSRS), a compound CRS). GDAL's /vsizip/ is not used: its requests
+    would read the archive's directory outside sources.net."""
     data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
     own = getattr(tile, "crs", None)
-    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
-        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                       height=profile["height"], resampling=Resampling.nearest,
-                       **({"src_crs": own} if own else {})) as vrt:
-            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    try:
+        values = _member_values(data, profile, own)
+    except rio.errors.RasterioError:
+        rows = xyz_rows(data)
+        if rows is None:
+            raise
+        values = _member_values(rows, profile, own)
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
     return drop_below(values, getattr(layer, "floor", None), getattr(layer, "ring", 0))
+
+
+def _member_values(data: bytes, profile: Dict, own: Optional[str] = None) -> np.ndarray:
+    """The member's pixels on the cached tile's; own: the tile's CRS taken for the member's (its transform as it
+    is), else the member's own georeferencing (_read_member)."""
+    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
+        if own:
+            moved = {"src_crs": own}
+        elif source.crs is not None and source.transform.c < ZONE_PREFIXED:
+            moved = {}
+        else:
+            moved = {"src_crs": source.crs or profile["crs"], "src_transform": _zone_free(source.transform)}
+        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                       height=profile["height"], resampling=Resampling.nearest, **moved) as vrt:
+            return vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
 
 
 def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndarray:

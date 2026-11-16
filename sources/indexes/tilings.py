@@ -127,6 +127,67 @@ class MetricTiling(Index):
         return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))
 
 
+class MetricCellTiling(Index):
+    """Cells of a fixed grid in a metric CRS whose cells need not be square, each named by the publisher's own
+    scheme: cell (i, j) covers [x0 + i w, x0 + (i + 1) w) x [y0 + j h, y0 + (j + 1) h) metres from origin (x0, y0),
+    j growing northwards. name(i, j) is the cached file of a cell relative to the folder, with / and without
+    ".tif" (None: the scheme has no cell there, and it is no tile), parse(name) the cell back (None: not a name of
+    the scheme). Cached as <folder>/<name>.tif. Sheets of 400 x 300 m and 1000 x 750 m (the Japanese plane
+    rectangular grid's 1/500 and quadrant sheets) and of 750 x 600 m share it; the scheme, the origin and the CRS
+    are the source's."""
+
+    def __init__(self, crs: str, folder: str, cell: Tuple[float, float], name: Callable[[int, int], Optional[str]],
+                 parse: Callable[[str], Optional[Tuple[int, int]]], origin: Tuple[float, float] = (0.0, 0.0)):
+        self.crs, self.folder, self.cell, self.origin = crs, folder, cell, origin
+        self.name, self.parse = name, parse
+
+    def cell_of(self, x: float, y: float) -> Tuple[int, int]:
+        """The cell holding a point (x, y in the CRS)."""
+        (w, h), (x0, y0) = self.cell, self.origin
+        return math.floor((x - x0) / w), math.floor((y - y0) / h)
+
+    def edges(self, tile) -> Tuple[float, float, float, float]:
+        """(left, bottom, right, top) of a cell in the tiling's CRS."""
+        i, j = tile
+        (w, h), (x0, y0) = self.cell, self.origin
+        return x0 + i * w, y0 + j * h, x0 + (i + 1) * w, y0 + (j + 1) * h
+
+    def tiles(self, grid: Grid) -> list:
+        return remembered(self, grid, lambda: self._tiles(grid))
+
+    def cells(self, grid: Grid) -> List[Tuple[int, int]]:
+        """Every cell over a grid's box (under its outline, when it has one), named or not, row by row. The box's
+        right and top edges are exclusive: a grid ending exactly on a cell's edge takes no cell beyond it (each such
+        cell was a download that gave the grid no pixel: a grid ending at 836 750 took Hong Kong's 7SW25D)."""
+        (w, h), (x0, y0) = self.cell, self.origin
+        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        i0, j0 = self.cell_of(left, bottom)
+        i1, j1 = max(i0, math.ceil((right - x0) / w) - 1), max(j0, math.ceil((top - y0) / h) - 1)
+        shape = _outline(grid, self.crs)
+        if shape is not None:  # the cells of the grid's box under the outline, part by part
+            return cells_under(shape, self.cell_of, lambda ii, jj: (x0 + ii * w, y0 + jj * h, x0 + (ii + 1) * w,
+                                                                    y0 + (jj + 1) * h), (i0, j0, i1, j1))
+        return [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1)]
+
+    def _tiles(self, grid: Grid) -> list:
+        return [cell for cell in self.cells(grid) if self.name(*cell) is not None]
+
+    def path(self, cache_dir: str, tile) -> str:
+        return os.path.join(cache_dir, self.folder, *f"{self.name(*tile)}.tif".split("/"))
+
+    def tile_of(self, path: str):
+        prefix = self.folder + "/"
+        if not (path.startswith(prefix) and path.endswith(".tif")):
+            return None
+        name = path[len(prefix):-4]
+        tile = self.parse(name)
+        return tile if tile is not None and self.name(*tile) == name else None
+
+    def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
+        """(west, south, east, north) of a cell."""
+        return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))
+
+
 class DegreeTiling(Index):
     """1°×1° tiles in WGS84 (lat, lon of the south-west corner), cached as <folder>/N50E019.tif."""
 

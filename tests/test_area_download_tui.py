@@ -111,15 +111,17 @@ def test_the_whole_list_by_continent_and_country(settings):
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
         assert groups == {
-            "group-europe": "Europe (47)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (14)",
-            "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-spain": "Spain (2)",
+            "group-europe": "Europe (52)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (16)",
+            "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-portugal": "Portugal (4)",
+            "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
-            "group-north-america": "North America (18)", "group-north-america-canada": "Canada (3)",
+            "group-north-america": "North America (19)", "group-north-america-canada": "Canada (4)",
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
             "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
-            "group-asia": "Asia (1)", "group-africa": "Africa (2)", "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 75
+            "group-asia": "Asia (4)", "group-asia-japan": "Japan (2)", "group-africa": "Africa (2)",
+            "group-africa-france": "France (2)"}
+        assert len(app.area_rows()) == 84
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]
@@ -132,7 +134,9 @@ def test_the_whole_list_by_continent_and_country(settings):
             "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
         assert str(app.row_of("italy").query_one(".name").render()) == "Whole country · tinitaly"
         assert str(app.row_of("germany-bavaria").query_one(".name").render()) == "Bavaria"
-        assert str(app.row_of("portugal-madeira").query_one(".name").render()) == "Portugal: Madeira"
+        assert [row.row.name for row in _group(app, "Europe", "Portugal").query(tui.AreaRow)] == [
+            "portugal-desertas", "portugal-madeira", "portugal-porto-santo", "portugal-selvagens"]
+        assert str(app.row_of("portugal-madeira").query_one(".name").render()) == "Madeira"
         assert str(app.row_of("austria").query_one(".name").render()) == "Austria"
         europe = _group(app, "Europe").query_one("Contents").children
         assert [child.id for child in europe[:9]] == [

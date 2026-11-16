@@ -388,7 +388,10 @@ def test_published_limits():
                                  "service.pdok.nl": 4, "basisdata.nl": 2, "cdn.foroyakort.fo": 2,
                                  "www.inegi.org.mx": 2, "eservices.dls.moi.gov.cy": 2, "geoportaal.maaruum.ee": 2, "www502.regione.toscana.it": 2,
                                  "tiles-eu1.arcgis.com": 2, "tiles.arcgis.com": 2, "admin.opendatani.gov.uk": 2,
-                                 "www.daten-hamburg.de": 2, "ws.gisetl.lrc.gov.on.ca": 2}
+                                 "www.daten-hamburg.de": 2, "ws.gisetl.lrc.gov.on.ca": 2, "gdi2.geo.bremen.de": 2,
+                                 "gic-tokyo.s3.ap-northeast-1.amazonaws.com": 2,
+                                 "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
+                                 "bulkdata.csdi.gov.hk": 2, "portal.csdi.gov.hk": 2}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 
