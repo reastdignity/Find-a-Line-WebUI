@@ -2224,6 +2224,59 @@
     "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
     "seconds": 3.4
   },
+  "R84": {
+    "place": "Okutama, Tokyo (JP-13): the rock walls of the Tama river's valley, the Tokyo Digital Twin's 0.5 m lidar grid (Tama, 2022-2023) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 35.8179 --lon 139.0875 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 128176,
+      "open": 322,
+      "checked": 195,
+      "lines": 9,
+      "spots": 5,
+      "csv_sha256": "795585da644638a3c962451f54fd84ed0710a3976eb7bf645cdc75854f0fe4a7",
+      "length_km": 0.52,
+      "clearance_min": 0.12,
+      "clearance_mean": 0.431,
+      "clearance_max": 0.82,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 30.2,
+    "notes": "added 2026-11-15: --source auto picks tokyo (JP-13); 25 sheets of 400 x 300 m (about 1.45 MB each) on an empty cache; the centre on the steep pixels of the 1 m mosaic (2 868 over 70 degrees within 400 m, their centroid 35 m E, 23 m N of it); terrain only (no surface model), so trees on the walls are not seen"
+  },
+  "R85": {
+    "place": "Jogasaki, Ito (JP-22): the lava sea cliffs of the Izu coast, VIRTUAL SHIZUOKA's LP grid 0.5 m (FY2019) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS VIII",
+    "args": "--lat 34.8925 --lon 139.1385 --radius 400 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 14414,
+      "open": 1470,
+      "checked": 3063,
+      "lines": 1002,
+      "spots": 22,
+      "csv_sha256": "c4903694074260e4ae7b1047e18abe93d938249ea3c9c0ee031160663b351306",
+      "length_km": 44.34,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.238,
+      "clearance_max": 9.85,
+      "over_trees": 0,
+      "coverage": 55.95,
+      "empty_tiles": 0,
+      "sea_km2": 1.24,
+      "water_lines": 917,
+      "water_spots": 20
+    },
+    "seconds": 4.4,
+    "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only. Re-baselined 2026-11-16 (158 lines, 14 spots -> 1002, 22): the first baseline was taken while Overpass did not answer, so its sea came from the Copernicus mask (the fallback): with --coastline copernicus the code of now gives that lines.csv exactly (sha256 29b3aa05...), and the code of before gives these 1002 lines with the OSM coastline; most of them span the coves over the sea filled at 0 m"
+  },
   "R89": {
     "place": "The cliffs of Martinique's north coast at Anse Bagasse, Grand'Riviere (FR, Nominatim's \"fr\", chosen by the island's box): IGN's RGE ALTI 1 m by GetMap from the Geoplateforme's WMS-R (layer MTQ, EPSG:32620, pixel edges on half metres), its sea floor (heights below -1 m) taken as no data",
     "args": "--lat 14.8735 --lon -61.1750 --radius 400 --min-length 20 --max-length 200",

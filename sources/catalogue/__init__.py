@@ -20,6 +20,7 @@ from . import cyprus
 from . import estonia
 from . import portugal
 from . import brazil
+from . import japan
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
@@ -31,8 +32,9 @@ from . import brazil
 # North Rhine-Westphalia's and Lower Saxony's offline boxes hold the eastern Netherlands, its own keep clear
 # of German land; the Faroe Islands anywhere before the global ones; Mexico before the USA: the usa's offline box
 # holds Monterrey, Mexico's keep clear of US land; Cyprus and Estonia anywhere before the global ones; Portugal
-# (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, world)
+# (Madeira) before Spain: Spain's offline box holds Madeira; Brazil (Rio de Janeiro) anywhere before the global ones;
+# Japan (Tokyo, Shizuoka) anywhere before the global ones
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, portugal, spain, mexico, usa, arctic, canada, slovenia, austria, uk, netherlands, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, iceland, uruguay, faroe, cyprus, estonia, brazil, japan, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
 
 # Each area of the coverage map (Source.map_areas: ISO 3166-1 alpha-2 or 3166-2, lower case) by its name for
@@ -62,4 +64,5 @@ AREA_NAMES: Dict[str, str] = {
     # The city of Bremen (Nominatim's relation 62559, also for "Bremen, Deutschland"; with the city's overseas port in
     # Bremerhaven, which the source's coverage boxes leave out of a download) and Bremerhaven (relation 62658; the
     # area's code is ours: ISO 3166-2 names neither city; checked 2026-11-16)
-    "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven"}
+    "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven",
+    "jp-13": "東京都", "jp-22": "静岡県"}

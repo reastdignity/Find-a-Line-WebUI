@@ -460,7 +460,8 @@ def test_catalogue_extracts(tmp_path):
                              "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "berlin",
                              "schleswig-holstein", "queensland", "saarland",
                              "guadeloupe", "martinique", "guyane", "isole", "nord-ovest", "centro",
-                             "ireland-and-northern-ireland", "sudeste", "reunion", "hamburg", "mayotte", "bremen")]
+                             "ireland-and-northern-ireland", "sudeste", "reunion", "hamburg", "mayotte", "bremen",
+                             "kanto", "chubu")]
     features += [{"properties": {"id": "greenland", "name": "Greenland", "parent": "north-america",
                                  "iso3166-1:alpha2": ["GL"]}, "geometry": None},
                  {"properties": {"id": "nunavut", "name": "Nunavut", "parent": "canada", "iso3166-2": ["CA-NU"]},
@@ -484,7 +485,7 @@ def test_catalogue_extracts(tmp_path):
          "slovenia", "queensland", "greenland", "nunavut", "british-columbia", "iceland",
          "guadeloupe", "martinique", "guyane", "australia", "uruguay", "isole", "italy", "netherlands", "faroe-islands",
          "mexico", "cyprus", "estonia", "nord-ovest", "portugal", "centro", "ireland-and-northern-ireland", "sudeste",
-         "reunion", "hamburg", "mayotte", "bremen"])
+         "reunion", "hamburg", "mayotte", "bremen", "kanto", "chubu"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))

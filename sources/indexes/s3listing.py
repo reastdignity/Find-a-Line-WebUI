@@ -93,6 +93,31 @@ def list_objects(bucket: str, prefix: str, max_keys: int = MAX_KEYS) -> List[S3O
     raise IndexUnavailable(f"S3 ListObjectsV2: more than {MAX_PAGES} pages under {prefix}")
 
 
+def common_prefixes(bucket: str, prefix: str, delimiter: str = "/") -> List[str]:
+    """The "folders" right under prefix (ListObjectsV2 with a delimiter: its CommonPrefixes, e.g. "2019/"), every
+    page; IndexUnavailable as list_objects."""
+    found: List[str] = []
+    token, seen = None, set()
+    for _ in range(MAX_PAGES):
+        params = {"list-type": "2", "prefix": prefix, "delimiter": delimiter, "max-keys": str(MAX_KEYS)}
+        if token is not None:
+            params["continuation-token"] = token
+        try:
+            root = ET.fromstring(_page(bucket, params))
+        except ET.ParseError as e:
+            raise IndexUnavailable(f"S3 ListObjectsV2: not XML ({e})") from e
+        if root.tag != S3_NS + "ListBucketResult":
+            raise IndexUnavailable(f"S3 ListObjectsV2: {root.tag.split('}')[-1]} instead of ListBucketResult")
+        found += [p.findtext(S3_NS + "Prefix") or "" for p in root.iter(S3_NS + "CommonPrefixes")]
+        if root.findtext(S3_NS + "IsTruncated") != "true":
+            return found
+        token = root.findtext(S3_NS + "NextContinuationToken")
+        if not token or token in seen:
+            raise IndexUnavailable("S3 ListObjectsV2: a truncated page without a new continuation token")
+        seen.add(token)
+    raise IndexUnavailable(f"S3 ListObjectsV2: more than {MAX_PAGES} pages under {prefix}")
+
+
 class S3Objects(Listing):
     """The objects of an S3 bucket in one 0.25° tile: the keys under every prefix of prefixes(lat, lon) (the
     caller knows how the keys name places), each made an item by item(object, lat, lon) (None: not used, e.g.

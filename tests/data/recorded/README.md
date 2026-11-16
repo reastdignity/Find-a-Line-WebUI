@@ -53,3 +53,17 @@ and DOM1 of Bremen 2017 and of Bremerhaven 2015) as `sources/indexes/zipdir.py` 
 archive's length and ETag, each member's name, method, flags, CRC-32, compressed and uncompressed sizes and local
 header's offset, for `tests/test_bremen.py` (the member names against the layers' expressions). Landesamt
 GeoInformation Bremen, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+`tokyo/`: the Tokyo Digital Twin's 0.5 m grid sheets as Tokyo's bucket served them on 2026-11-15, for
+`tests/test_japan.py`: `09RD8410.zip` as published (an island sheet off Mikurajima: EPSG:6677, nodata 1.70141e38,
+7 668 pixels of seabed at -12.2 to -6.5 m), `09LD1649.zip` a ward sheet (Shinjuku) with its TIFF header as published
+(a CRS without an EPSG code, AREA_OR_POINT=Point, nodata -32767) and its pixels replaced in place by 8 x 8 blocks of
+its heights and a 16 x 16 corner of -32767 (so the ZIP is small), and `toushobu/12/3636/1637.pbf`, the islands'
+index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Government, 東京都デジタルツイン 島しょ地域点群データ /
+区部点群データ, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja) (modified: the ward sheet).
+
+`shizuoka/`: the heads of two of VIRTUAL SHIZUOKA's LP grid sheets as its bucket served them on 2026-11-16 (through
+`net._get`), for `tests/test_japan.py`: `08MC4919_2025.zip` the first 300 lines of FY2025's `08mc4919_0.5g.txt`
+("n,x,y,z,flag", decimetres) and `08OF0485_2019.zip` the first 300 of FY2019's `08OF0485_DEM.txt` ("x y z"), the lines
+untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (modified: cut).
