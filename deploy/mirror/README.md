@@ -47,22 +47,24 @@ The limits are constants of `nginx.conf`, not settings. `tests/mirror_check.sh` 
    install -d -m 0755 "$ROOT" "$ROOT/public" "$ROOT/staging" "$ROOT/trash"
    install -d -o 101 -g 101 -m 0750 "$ROOT/logs"
    ```
-   The files under `public/` must be readable by uid 101 (world-readable). How the publishing account writes
-   `staging/`, `public/` and `trash/` and reads `logs/` (for `tools/mirror_publish.py stats`) is settled with
-   that account ("The publishing account" below).
+   The files under `public/` must be readable by uid 101 (world-readable, as the publishing door writes them).
+   `staging/`, `public/` and `trash/` are then given to the publishing account (uid 1000), which reads `logs/`
+   through group 101: "The publishing account" below.
 3. Settings: `cp .env.example .env`, then set `MIRROR_ROOT`, `MIRROR_CONTACT` (the contact for abuse and
    takedown requests, shown on the landing page), `MIRROR_TRUSTED_ADDRESSES` (the site server's IPv4 address;
    at most four single addresses, or empty), and `MIRROR_SUBNET` only if `172.29.42.0/24` collides with another
    Docker network of the machine (`docker network inspect $(docker network ls -q) --format '{{.Name}}
    {{range .IPAM.Config}}{{.Subnet}}{{end}}'`). The start script refuses a network, a fifth address or anything
    else in `MIRROR_TRUSTED_ADDRESSES`, an empty contact and an odd subnet: `docker compose logs files` says why.
-4. Start it:
+4. Start it (the image is built here, from this folder; a compose tool that pulls but does not build needs
+   `docker compose build` first):
    ```sh
    docker compose up -d --build --wait
    docker compose ps            # files: running (healthy)
    ```
 5. Attach SWAG to the project's network (next section), copy the SWAG conf, add the host name to SWAG's
    certificate (the section after), and check from outside (`tests/mirror_check.sh --live`, "Checks").
+6. The publishing door ("The publishing account").
 
 ## SWAG
 
@@ -130,8 +132,87 @@ settings, so it revokes and deletes the production certificate, and switching it
 
 ## The publishing account
 
-The publishing key opens a small SFTP container that sees only `<root>` (the user's decision of 2026-11-15);
-the details follow.
+The PC that publishes (`tools/mirror_publish.py`, through rclone over SFTP) reaches `<root>` through a door of its
+own: a second compose project, `findaline-mirror-publish` in `publish/`, one service `sftp` (OpenSSH on Alpine,
+built from `publish/Dockerfile`). The mirror's own project stays as it is (one service, no published port).
+
+What the door is:
+- one account, `publish` (uid 1000, also in group 101, the file server's group), key only: no password, no
+  keyboard-interactive login, no root, no TTY, no forwarding of any kind, no user rc. sshd runs as that account,
+  on a read-only root, with no capability;
+- a command gate (`publish/gate.sh`, sshd's `ForceCommand`): the key can run the SFTP server and `sha256sum` of
+  one regular file whose resolved path lies under the mirror folder, nothing else (no shell; a symlink out of the
+  folder, a device, `..`, two paths, shell syntax are refused);
+- its port published on the server's **LAN address only** (`PUBLISH_ADDRESS`, required; never `0.0.0.0`; the
+  router forwards nothing to it), on a network of its own, never the mirror's internal one;
+- `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
+  mounts fails), `authorized_keys` and the door's host key mounted read-only, nothing else of the host. Files it
+  writes get mode 644 and folders 755, so the file server (uid 101) reads them; it reads `<root>/logs` through
+  group 101 (`tools/mirror_publish.py stats`).
+
+What the key can still read, accepted: the container's own read-only files (an Alpine system, no secret) and the
+door's host key (sshd runs as the account and needs it). Whoever holds the publishing key could therefore copy the
+door's host key and pose as the door on the LAN; and whoever holds it decides what every installation downloads
+(spec S17). So:
+- **the key pair is made on the PC that publishes, used for publishing only, and never placed on the VPS or in
+  the repository**:
+  ```sh
+  ssh-keygen -t ed25519 -C findaline-publish -f <keys folder on the PC>/findaline-publish
+  ```
+  (a passphrase is possible; rclone then needs it as `key_file_pass`, obscured, in its config).
+
+**Install** (on the server; `ROOT` as in the mirror's install, `KEYS` a folder outside the copy of this folder):
+```sh
+KEYS=/path/to/findaline-mirror-keys
+install -d -m 0755 "$KEYS"
+cd publish && cp .env.example .env    # MIRROR_ROOT (the mirror's), PUBLISH_KEYS="$KEYS", PUBLISH_ADDRESS (LAN), PUBLISH_PORT
+docker compose build                  # the image findaline-mirror-publish-sftp
+# The door's host key, made once (owned by the account, mode 600); note its fingerprint
+docker run --rm --user 0 --network none -v "$KEYS:/v" --entrypoint ssh-keygen findaline-mirror-publish-sftp -q -t ed25519 -N '' -C findaline-mirror-publish -f /v/ssh_host_ed25519_key
+chown 1000:1000 "$KEYS/ssh_host_ed25519_key" && chmod 600 "$KEYS/ssh_host_ed25519_key"
+docker run --rm --network none -v "$KEYS:/v:ro" --entrypoint ssh-keygen findaline-mirror-publish-sftp -l -f /v/ssh_host_ed25519_key.pub
+# The publishing key's public half, from the PC (owned by root, mode 644)
+install -m 0644 findaline-publish.pub "$KEYS/authorized_keys"
+# The folders the account writes
+chown -R 1000:1000 "$ROOT/staging" "$ROOT/public" "$ROOT/trash"       # logs/ stays 101:101, 0750
+docker compose up -d --wait
+```
+Both images are built on the server from this folder (no registry): a compose tool that pulls but does not build
+needs `docker compose build` first, for the file server's image (`compose.yaml`) and for the door's
+(`publish/compose.yaml`).
+
+**The rclone remote on the PC**, in a config file of its own (rclone writes into the config file it is given, e.g.
+settings it detects; keep the file private, out of the repository). The values in angle brackets are yours:
+```ini
+[findaline-mirror]
+type = sftp
+host = <the server's LAN address>
+port = <PUBLISH_PORT>
+user = publish
+key_file = <keys folder on the PC>/findaline-publish
+known_hosts_file = <a known_hosts file on the PC>
+shell_type = unix
+hashes = sha256
+sha256sum_command = sha256sum
+md5sum_command = none
+sha1sum_command = none
+```
+- `known_hosts_file` holds one line, `[<address>]:<port> ssh-ed25519 AAAA...`, the content of the server's
+  `ssh_host_ed25519_key.pub` (compare `ssh-keygen -l -f` of it with the fingerprint noted). Without it rclone
+  checks no host key at all.
+- `shell_type`, `hashes` and `sha256sum_command` must be set: rclone's detection would set the hashes to `none`
+  behind the gate.
+- The remote's top folder is the mirror folder as the container shows it: `findaline-mirror:/mirror` (so
+  `--to findaline-mirror:/mirror`, `--from findaline-mirror:/mirror/logs`).
+
+**Checking it**: from the PC, `rclone --config <file> lsd findaline-mirror:/mirror` lists `logs`, `public`, `staging`,
+`trash`, and `rclone --config <file> hashsum sha256 findaline-mirror:/mirror/public/v1` hashes on the server.
+`tests/mirror_check.sh` checks the door (the D lines) on a PC or in CI.
+
+**Updating**: monthly, with the file server's image: the base is pinned by digest (`ARG ALPINE_IMAGE` in
+`publish/Dockerfile`); the packages are not pinned, so a rebuild takes the newest OpenSSH of that Alpine branch.
+Edit the digest, then `docker compose build --pull` and `docker compose up -d --wait` in `publish/`. The host key
+and `authorized_keys` stay in `PUBLISH_KEYS`, so the PC's `known_hosts` stays valid.
 
 ## Settings
 
@@ -190,7 +271,7 @@ A new key or another period changes this text, with the user's yes (docs/mirror-
 
 ## Updating
 
-- **The base image** (a monthly item): pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
+- **The base images** (a monthly item; the door's: "The publishing account"): the file server's is pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
   no automatic updates and compose tools that check for updates skip it. Pick the newest tag of the stable
   Alpine line, read its digest with `docker buildx imagetools inspect nginx/nginx-unprivileged:<tag>`, change
   the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it), then on the

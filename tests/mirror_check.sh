@@ -7,7 +7,9 @@
 #                                       deploy/mirror/test/compose.check.yaml (a fixture tree in
 #                                       volumes, test clients with fixed addresses), run every
 #                                       check, the --live checks against the stand-in's published
-#                                       port, then remove everything it made
+#                                       port, then the publishing door (publish/compose.yaml +
+#                                       test/compose.door-check.yaml, an SSH client in a container,
+#                                       key pairs made at run time), then remove everything it made
 #   tests/mirror_check.sh --self-test   the same, then each behaviour switched off in a variant of
 #                                       the config (nginx.conf, start.sh, the landing page, the SWAG
 #                                       conf) and the checks that must FAIL then: a check that
@@ -23,7 +25,7 @@
 # Settings (environment): MIRROR_CHECK_PROJECT (the compose project and the prefix of every Docker
 # object it makes, default mirror-check), MIRROR_CHECK_SUBNET and MIRROR_CHECK_FRONT_SUBNET (two
 # free /24 networks, defaults 172.29.142.0/24 and 172.29.143.0/24), MIRROR_CHECK_PORT (the stand-in's
-# port on 127.0.0.1, default 8792).
+# port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the door's, default 8793).
 set -u
 export MSYS_NO_PATHCONV=1
 
@@ -35,6 +37,7 @@ PROJECT=${MIRROR_CHECK_PROJECT:-mirror-check}
 SUBNET=${MIRROR_CHECK_SUBNET:-172.29.142.0/24}
 FRONT=${MIRROR_CHECK_FRONT_SUBNET:-172.29.143.0/24}
 PORT=${MIRROR_CHECK_PORT:-8792}
+DOOR_PORT=${MIRROR_CHECK_DOOR_PORT:-8793}
 CONTACT='abuse@example.org <check&co>'
 CONTACT_HTML='abuse@example.org &lt;check&amp;co&gt;'
 PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to empty; the regions it serves then use coarser data."
@@ -216,6 +219,7 @@ clients_up() {
 teardown() {
     [ "$KEEP" = 1 ] && { info "left running: project $PROJECT, http://127.0.0.1:$PORT"; return; }
     remove_stack
+    door_down
     rm -rf "$WORK"
 }
 remove_stack() {  # every container, network, volume and image of the project
@@ -619,6 +623,169 @@ run_checks() {  # the groups named, against the running stack
     done
 }
 
+# ---------------------------------------------------------------- the publishing door (publish/)
+
+DOOR="$MIRROR/publish"
+DOOR_COMPOSE=""     # a variant's compose.yaml (the self-test); empty: the real one
+DOOR_OVERLAY=""     # a variant's test layer (the self-test); empty: test/compose.door-check.yaml
+SSH_OPTS=(-o Port=2222 -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/known_hosts
+    -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=10)
+
+door_compose() {
+    docker compose -p "$PROJECT-door" --project-directory "$(hostpath "$DOOR")" --env-file "$(hostpath "$WORK/door.env")" \
+        -f "$(hostpath "${DOOR_COMPOSE:-$DOOR/compose.yaml}")" \
+        -f "$(hostpath "${DOOR_OVERLAY:-$MIRROR/test/compose.door-check.yaml}")" "$@"
+}
+as_root() {  # <volume> <command>: a shell as root in the door's image, the volume at /v
+    docker run --rm -i --user 0 --network none -v "$1:/v" --entrypoint sh "$PROJECT-door-sftp:orig" -c "$2"
+}
+door_up() {
+    {
+        echo "MIRROR_ROOT=/nonexistent-mirror-root"
+        echo "PUBLISH_KEYS=/nonexistent-keys"
+        echo "PUBLISH_ADDRESS=127.0.0.1"
+        echo "PUBLISH_PORT=$DOOR_PORT"
+        echo "DOOR_ROOT_VOLUME=$PROJECT-door-root"
+        echo "DOOR_KEYS_VOLUME=$PROJECT-door-keys"
+    } > "$WORK/door.env"
+    docker volume create "$PROJECT-door-root" > /dev/null && docker volume create "$PROJECT-door-keys" > /dev/null || return 1
+    door_compose build --quiet sftp || return 1
+    docker tag "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig"
+    docker build -q --label "mirror-check=$PROJECT" -t "$PROJECT-sshclient" -f "$(hostpath "$MIRROR/test/sshclient.Dockerfile")" \
+        "$(hostpath "$MIRROR/test")" > /dev/null || return 1
+    # The host key, made once (owned by the account, mode 600), as the README's install step does
+    as_root "$PROJECT-door-keys" 'ssh-keygen -q -t ed25519 -N "" -C door -f /v/ssh_host_ed25519_key &&
+        chown 1000:1000 /v/ssh_host_ed25519_key && chmod 600 /v/ssh_host_ed25519_key && : > /v/authorized_keys &&
+        chmod 644 /v/authorized_keys' || return 1
+    # The mirror folder: staging, public, trash for the account; logs for uid 101 (0750), with a line
+    as_root "$PROJECT-door-root" 'install -d -o 1000 -g 1000 -m 0755 /v/staging /v/public /v/public/v1 /v/public/v1/tiles /v/trash &&
+        install -d -o 101 -g 101 -m 0750 /v/logs' || return 1
+    docker run --rm --user 101:101 --network none -v "$PROJECT-door-root:/v" --entrypoint sh "$PROJECT-door-sftp:orig" \
+        -c 'umask 022; echo "{\"t\":\"2000-01-01T00:00:00+00:00\"}" > /v/logs/access-2000-01-01.log' || return 1
+    door_compose up -d --wait --wait-timeout 120 sftp > "$WORK/door-up.log" 2>&1 || { cat "$WORK/door-up.log"; return 1; }
+    # The client and its key pairs, made now in the client container (never on disk here)
+    docker run -d --name "$PROJECT-sshc" --network "$PROJECT-door_publish" "$PROJECT-sshclient" > /dev/null || return 1
+    docker exec "$PROJECT-sshc" sh -c 'ssh-keygen -q -t ed25519 -N "" -C check -f /root/k && ssh-keygen -q -t ed25519 -N "" -C wrong -f /root/wrong' || return 1
+    docker exec "$PROJECT-sshc" cat /root/k.pub | as_root "$PROJECT-door-keys" 'cat > /v/authorized_keys' || return 1
+    DOOR_HOSTKEY=$(as_root "$PROJECT-door-keys" 'cat /v/ssh_host_ed25519_key.pub')
+    docker exec "$PROJECT-sshc" sh -c "echo '[sftp]:2222 $DOOR_HOSTKEY' > /root/known_hosts"
+}
+door_down() {
+    docker rm -f "$PROJECT-sshc" > /dev/null 2>&1
+    [ -f "$WORK/door.env" ] && door_compose down -v --remove-orphans > /dev/null 2>&1
+    docker volume rm "$PROJECT-door-root" "$PROJECT-door-keys" > /dev/null 2>&1
+    docker image rm "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig" "$PROJECT-sshclient" > /dev/null 2>&1
+}
+
+dssh() {  # <ssh arguments...>: through the door; prints "<exit status>|<output, stdout and stderr>"
+    local out rc
+    out=$(docker exec "$PROJECT-sshc" timeout 25 ssh "${SSH_OPTS[@]}" -o "IdentityFile=${KEY:-/root/k}" "$@" 2>&1)
+    rc=$?
+    printf '%s|%s' "$rc" "$out"
+}
+dsftp() {  # <batch>: an sftp batch through the door; "<exit status>|<output>"
+    local out rc
+    out=$(printf '%s\n' "$1" | docker exec -i "$PROJECT-sshc" timeout 25 sftp "${SSH_OPTS[@]}" -o IdentityFile=/root/k -b - publish@sftp 2>&1)
+    rc=$?
+    printf '%s|%s' "$rc" "$out"
+}
+esc() { printf '%s' "$1" | sed 's/[^A-Za-z0-9_.,:/@-]/\\&/g'; }   # rclone's escaping (shell_type unix)
+refused() {  # <id> <what> <request>: the gate refuses it (status not 0, "refused", no hash)
+    local r
+    r=$(dssh publish@sftp "$3")
+    if [ "${r%%|*}" != 0 ] && printf '%s' "$r" | grep -q 'refused' && ! printf '%s' "$r" | grep -qE '[0-9a-f]{64}'; then
+        result "$1" PASS "the gate refuses $2"
+    else
+        result "$1" FAIL "the gate refuses $2 (got: $(printf '%s' "${r#*|}" | head -c 160 | tr '\n' ' '))"
+    fi
+}
+
+g_door() {
+    local r out sum name="we ird;name \$x'q.bin" before after i
+    docker exec "$PROJECT-sshc" sh -c 'head -c 200000 /dev/urandom > /root/a.bin'
+    sum=$(docker exec "$PROJECT-sshc" sha256sum /root/a.bin | cut -d' ' -f1)
+    r=$(dsftp "ls /mirror")
+    check D01 "the right key logs in over SFTP and sees the mirror folder" eval '[ "${r%%|*}" = 0 ] && printf "%s" "$r" | grep -q "/mirror/staging"'
+    r=$(KEY=/root/wrong dssh publish@sftp "sha256sum /mirror/logs/access-2000-01-01.log")
+    check D02 "a wrong key is refused" eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Permission denied"'
+    r=$(dssh -v -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive publish@sftp true)
+    check D03 "no password or keyboard-interactive login offered (publickey only)" \
+        eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Authentications that can continue: publickey$" && ! printf "%s" "$r" | grep -qE "can continue: .*(password|keyboard)"'
+    r=$(dssh publish@sftp id)
+    check D04 "a command (id) is refused" eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -q refused && ! printf "%s" "$r" | grep -q "uid="'
+    r=$(dssh publish@sftp)
+    check D05 "no command (a shell) is refused" eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -q refused'
+    refused D06 "df" "df /mirror"
+    r=$(dssh -tt publish@sftp "sha256sum /mirror/logs/access-2000-01-01.log")
+    check D07 "no TTY" eval 'printf "%s" "$r" | grep -q "PTY allocation request failed"'
+    r=$(dssh -W 1.1.1.1:80 publish@sftp)
+    out=$(dssh -o ExitOnForwardFailure=yes -R 9000:127.0.0.1:22 -N publish@sftp)
+    check D08 "no forwarding: -W and -R refused" \
+        eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -qiE "prohibited|open failed" && [ "${out%%|*}" != 0 ] && printf "%s" "$out" | grep -qi "forwarding failed"'
+    # Files written through the door; hashes asked as rclone asks them
+    r=$(dsftp "mkdir /mirror/staging/x
+put /root/a.bin /mirror/staging/x/a.bin
+put /root/a.bin \"/mirror/staging/x/$name\"
+symlink /etc/passwd /mirror/staging/x/out.bin
+symlink /dev/zero /mirror/staging/x/zero.bin
+symlink /mirror/staging/x/a.bin /mirror/staging/x/in.bin")
+    info "files put through the door: status ${r%%|*}"
+    r=$(dssh publish@sftp "sha256sum $(esc /mirror/staging/x/a.bin)")
+    eq D09 "sha256sum of a file under the folder through the gate: the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
+    r=$(dssh publish@sftp "sha256sum $(esc "/mirror/staging/x/$name")")
+    eq D10 "sha256sum of \"$name\" (escaped as rclone does): the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
+    r=$(dssh publish@sftp "sha256sum $(esc /mirror/staging/x/in.bin)")
+    eq D11 "sha256sum through a symlink that stays in the folder: the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
+    refused D12 "a path outside the folder (/etc/passwd)" "sha256sum /etc/passwd"
+    refused D13 "/mirror/../etc/passwd" "sha256sum /mirror/../etc/passwd"
+    refused D14 "a ../ inside the folder's path" "sha256sum /mirror/staging/x/../../../etc/passwd"
+    refused D15 "a symlink out of the folder (to /etc/passwd)" "sha256sum /mirror/staging/x/out.bin"
+    refused D16 "a symlink to a device (/dev/zero)" "sha256sum /mirror/staging/x/zero.bin"
+    refused D17 "a folder" "sha256sum /mirror/staging/x"
+    refused D18 "a path with a line break" "sha256sum /mirror/staging/x/a.bin"$'\n'"id"
+    refused D19 "a very long argument (5000 characters)" "sha256sum /mirror/staging/x/$(head -c 5000 /dev/zero | tr '\0' a)"
+    refused D20 "two paths" "sha256sum /mirror/staging/x/a.bin /etc/passwd"
+    refused D21 "shell syntax (; and \$())" "sha256sum /mirror/staging/x/a.bin;id"
+    refused D22 "shell syntax (\$())" "sha256sum \$(id)"
+    refused D23 "an option" "sha256sum -c /mirror/staging/x/a.bin"
+    # The keys cannot be written; the account's login still works with them
+    r=$(dsftp "put /root/a.bin /keys/authorized_keys")
+    out=$(dsftp "put /root/a.bin /keys/host/ssh_host_ed25519_key")
+    info "writing the keys through the door: ${r%%|*} $(printf '%s' "${r#*|}" | tail -1); ${out%%|*} $(printf '%s' "${out#*|}" | tail -1)"
+    check D24 "the account cannot write authorized_keys or the host key" \
+        eval '[ "${r%%|*}" != 0 ] && [ "${out%%|*}" != 0 ] && i=$(dsftp "ls /mirror") && [ "${i%%|*}" = 0 ]'
+    # The publish tool's swap: staging/x to public/v1/tiles/x is a rename (the inodes kept)
+    before=$(as_root "$PROJECT-door-root" 'cd /v/staging/x && ls -i | sort -k2 | tr -s " \n" "  "')
+    r=$(dsftp "rename /mirror/staging/x /mirror/public/v1/tiles/x")
+    after=$(as_root "$PROJECT-door-root" 'cd /v/public/v1/tiles/x && ls -i | sort -k2 | tr -s " \n" "  "')
+    info "inodes before: $before; after: $after"
+    check D25 "a folder moved from staging/x to public/v1/tiles/x keeps its inodes (a rename)" \
+        eval '[ "${r%%|*}" = 0 ] && [ -n "$before" ] && [ "$before" = "$after" ]'
+    # The file server's uid reads what the door wrote, from public mounted read-only
+    out=$(docker run --rm --user 101:101 --network none --mount "type=volume,src=$PROJECT-door-root,dst=/srv/public,volume-subpath=public,readonly" \
+        --entrypoint sh "$PROJECT-door-sftp:orig" -c 'sha256sum /srv/public/v1/tiles/x/a.bin | cut -d" " -f1; touch /srv/public/w 2>/dev/null && echo written')
+    eq D26 "uid 101, public mounted read-only, reads a file the door wrote (and cannot write)" "$out" "$sum"
+    r=$(dsftp "get /mirror/logs/access-2000-01-01.log /root/log.txt")
+    check D27 "the account reads a log file uid 101 wrote (logs 0750, group 101)" \
+        eval '[ "${r%%|*}" = 0 ] && docker exec "$PROJECT-sshc" grep -q 2000-01-01 /root/log.txt'
+    # The container
+    i=$(docker inspect "$PROJECT-door-sftp-1" --format '{{.HostConfig.ReadonlyRootfs}}|{{.HostConfig.CapDrop}}|{{.HostConfig.SecurityOpt}}|{{.Config.User}}|{{.HostConfig.GroupAdd}}|{{.HostConfig.Memory}}={{.HostConfig.MemorySwap}}|{{.HostConfig.PidsLimit}}|{{range $p, $b := .HostConfig.PortBindings}}{{$p}}>{{range $b}}{{.HostIp}}:{{.HostPort}}{{end}} {{end}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}|{{.HostConfig.RestartPolicy.Name}}')
+    info "the door's container: $i"
+    eq D28 "the door's container: read-only, no capability, no new privileges, uid 1000 with group 101, memory = swap, pids, restart" \
+        "$(echo "$i" | cut -d'|' -f1-7,10)" "true|[ALL]|[no-new-privileges:true]|1000:1000|[101]|134217728=134217728|128|unless-stopped"
+    eq D29 "the port on the address given only; its own network, not the mirror's" "$(echo "$i" | cut -d'|' -f8-9)" \
+        "2222/tcp>127.0.0.1:$DOOR_PORT |$PROJECT-door_publish "
+    out=$(docker exec "$PROJECT-door-sftp-1" /usr/sbin/sshd -T -f /etc/ssh/sshd_config 2>&1 | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permittty|permituserrc|disableforwarding|allowtcpforwarding|forcecommand|permitrootlogin|authenticationmethods) ' | sort | tr '\n' ';')
+    eq D30 "sshd's effective settings" "$out" "allowtcpforwarding no;authenticationmethods publickey;disableforwarding yes;forcecommand /usr/local/bin/gate;kbdinteractiveauthentication no;passwordauthentication no;permitrootlogin no;permittty no;permituserrc no;"
+    # The host key survives a recreate (the client pins it: StrictHostKeyChecking)
+    door_compose up -d --no-build --force-recreate --wait --wait-timeout 120 sftp > /dev/null 2>&1
+    r=$(dsftp "ls /mirror")
+    out=$(docker exec "$PROJECT-sshc" ssh-keyscan -p 2222 -t ed25519 sftp 2> /dev/null | grep -v '^#' | cut -d' ' -f2-)
+    info "after the recreate: login ${r%%|*}; host key $out"
+    check D31 "the host key is the same after the container is recreated" \
+        eval '[ "${r%%|*}" = 0 ] && [ "$out" = "$(printf "%s" "$DOOR_HOSTKEY" | cut -d" " -f1-2)" ]'
+}
+
 # ---------------------------------------------------------------- the self-test
 
 # <name> @@ <file in deploy/mirror> @@ <sed expression> @@ <groups> @@ <check ids that must FAIL>
@@ -664,6 +831,15 @@ VARIANTS=(
     'logs kept 15 days @@ start.sh @@ s#KEEP_DAYS=14#KEEP_DAYS=15# @@ cleanup @@ E02'
     'healthcheck without the heartbeat @@ start.sh @@ s#\[ $(($(date -u +%s) - _beat)) -le $HEARTBEAT_MAX_AGE \]#true# @@ cleanup @@ E05 E07'
     'SWAG conf without its refusals @@ swag/findaline-mirror.subdomain.conf @@ /if ($request_method/,/^    }/d; s#client_max_body_size 1k;#client_max_body_size 0;#; /access_log off;/d @@ swag @@ S01 S02 S03 S04'
+    # The publishing door ("keys writable" last: it lets the account overwrite the host key)
+    'gate runs any command @@ publish/gate.sh @@ s#^set -u$#set -u; [ -n "${SSH_ORIGINAL_COMMAND-}" ] \&\& exec sh -c "$SSH_ORIGINAL_COMMAND"# @@ door @@ D04 D06 D12 D13 D14 D18 D19 D20 D21 D22 D23'
+    'gate reads the path as text only @@ publish/gate.sh @@ s#resolved=$(readlink -f -- "$path" 2> /dev/null) || refuse#resolved=$path#; /\[ -f "$resolved" \] && \[ ! -L "$resolved" \] || refuse/d @@ door @@ D15 D16 D17'
+    'password login on @@ publish/sshd_config @@ s#^PasswordAuthentication no#PasswordAuthentication yes#; s#^KbdInteractiveAuthentication no#KbdInteractiveAuthentication yes#; s#^AuthenticationMethods publickey#AuthenticationMethods any# @@ door @@ D03 D30'
+    'TTY allowed @@ publish/sshd_config @@ s#^PermitTTY no#PermitTTY yes# @@ door @@ D07 D30'
+    'forwarding allowed @@ publish/sshd_config @@ s#^DisableForwarding yes#DisableForwarding no#; s#^AllowTcpForwarding no#AllowTcpForwarding yes# @@ door @@ D08 D30'
+    'files only for the owner @@ publish/gate.sh @@ s#sftp-server -u 022#sftp-server -u 077# @@ door @@ D26'
+    'not in the log group @@ publish/compose.yaml @@ /group_add:/d @@ door @@ D27 D28'
+    'keys writable @@ test/compose.door-check.yaml @@ s#read_only: true#read_only: false# @@ door @@ D24'
 )
 
 field() {  # <spec> <n>: the n-th field (1-based) of a VARIANTS entry
@@ -683,6 +859,28 @@ variant() {  # <file> <sed expression>: the variant built and the stack recreate
     mkdir -p "$ctx"
     sed -e "$expr" "$src" > "$ctx/patched"
     if cmp -s "$src" "$ctx/patched"; then echo "SELFTEST-BROKEN the expression changed nothing in $file: $expr"; return 1; fi
+    DOOR_COMPOSE=""
+    DOOR_OVERLAY=""
+    case $file in
+        publish/* | test/compose.door-check.yaml)
+            case $file in
+                publish/compose.yaml) DOOR_COMPOSE="$ctx/patched" ;;
+                test/compose.door-check.yaml) DOOR_OVERLAY="$ctx/patched" ;;
+            esac
+            docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
+            case $file in
+                publish/gate.sh | publish/sshd_config)
+                    local to=/usr/local/bin/gate
+                    [ "$file" = publish/sshd_config ] && to=/etc/ssh/sshd_config
+                    printf 'FROM %s\nCOPY --chmod=0755 patched %s\n' "$PROJECT-door-sftp:orig" "$to" > "$ctx/Dockerfile"
+                    docker build -q --label "mirror-check=$PROJECT" -t "$PROJECT-door-sftp" "$(hostpath "$ctx")" > /dev/null || return 1
+                    ;;
+            esac
+            door_compose up -d --no-build --force-recreate --wait --wait-timeout 120 sftp > "$WORK/variant-up.log" 2>&1 || {
+                echo "SELFTEST-BROKEN the door did not come up with the variant:"; tail -5 "$WORK/variant-up.log"; return 1; }
+            return 0
+            ;;
+    esac
     if [ "$file" = swag/findaline-mirror.subdomain.conf ]; then
         write_env "$ctx/patched"
         docker tag "$PROJECT-files:orig" "$PROJECT-files"
@@ -732,7 +930,10 @@ self_test() {
     write_env
     docker tag "$PROJECT-files:orig" "$PROJECT-files"
     compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 files proxy > /dev/null 2>&1
-    local without=""
+    DOOR_COMPOSE=""
+    DOOR_OVERLAY=""
+    docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
+    local without=""""
     for id in "${!MAIN[@]}"; do
         case "$seen" in *" $id "*) ;; *) without="$without $id" ;; esac
     done
@@ -791,6 +992,7 @@ fi
 info "image: $(docker exec "$FILES" nginx -v 2>&1)"
 # MIRROR_CHECK_GROUPS: only these groups (for working on the script), no live and no cleanup run
 if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
+    case " $MIRROR_CHECK_GROUPS " in *" door "*) door_down; door_up || exit 100 ;; esac
     # shellcheck disable=SC2086
     run_checks $MIRROR_CHECK_GROUPS
     echo "== done, failures: $FAILS"
@@ -804,6 +1006,15 @@ sleep 3
 live_checks "http://127.0.0.1:$PORT"
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 run_checks cleanup
+for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
+echo "== the publishing door: project $PROJECT-door, port $DOOR_PORT"
+door_down
+if door_up; then
+    run_checks door
+else
+    result D00 FAIL "the publishing door did not start"
+    door_compose logs --no-color 2>&1 | tail -20
+fi
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== checks: $FAILS failures of ${#MAIN[@]}"
 if [ "$MODE" = selftest ]; then

@@ -281,3 +281,77 @@ def test_ci_job():
         jobs = yaml.safe_load(f)["jobs"]
     steps = " ".join(step.get("run", "") for step in jobs["mirror"]["steps"])
     assert "bash tests/mirror_check.sh --self-test" in steps
+
+
+def test_publishing_door_compose():
+    """The publishing door (publish/, the user's U32/U33): a second project with one service, its port
+    on the LAN address only (required, never bare), <root> as one read-write mount, the keys
+    read-only, nothing else of the host, a network of its own, the hardening list; the mirror's own
+    project stays one service without a port."""
+    compose = _compose(os.path.join("publish", "compose.yaml"))
+    assert compose["name"] == "findaline-mirror-publish"
+    assert set(compose["services"]) == {"sftp"}
+    service = compose["services"]["sftp"]
+    assert service["read_only"] is True
+    assert service["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in service["security_opt"]
+    assert str(service["user"]) == "1000:1000" and service["group_add"] == ["101"]
+    assert service["mem_limit"] and service["memswap_limit"] == service["mem_limit"]
+    assert service["pids_limit"]
+    assert service["logging"]["driver"] == "json-file" and "max-size" in service["logging"]["options"]
+    assert service["healthcheck"]["test"]
+    assert service["restart"] == "unless-stopped"
+    assert service["build"] == {"context": "."} and "image" not in service
+    # The port: exactly on the address given, which compose requires
+    assert len(service["ports"]) == 1
+    assert re.fullmatch(r"\$\{PUBLISH_ADDRESS:\?[^}]*\}:\$\{PUBLISH_PORT:-2222\}:2222", service["ports"][0])
+    volumes = {v["target"]: v for v in service["volumes"]}
+    assert set(volumes) == {"/mirror", "/keys/authorized_keys", "/keys/host/ssh_host_ed25519_key", "/tmp"}
+    root = volumes["/mirror"]
+    assert root["type"] == "bind" and re.fullmatch(r"\$\{MIRROR_ROOT:\?[^}]*\}", root["source"])
+    assert not root.get("read_only") and root["bind"] == {"create_host_path": False}
+    for target in ("/keys/authorized_keys", "/keys/host/ssh_host_ed25519_key"):
+        key = volumes[target]
+        assert key["type"] == "bind" and key["read_only"] is True and key["source"].startswith("${PUBLISH_KEYS:?")
+        assert key["bind"] == {"create_host_path": False}
+    assert volumes["/tmp"]["type"] == "tmpfs"
+    assert service["networks"] == ["publish"]
+    assert set(compose["networks"]) == {"publish"} and not compose["networks"]["publish"].get("internal")
+    assert "external" not in compose["networks"]["publish"] and "name" not in compose["networks"]["publish"]
+    keys = set(re.findall(r"^([A-Z_]+)=", _load("publish", ".env.example"), re.M))
+    assert keys == {"MIRROR_ROOT", "PUBLISH_KEYS", "PUBLISH_ADDRESS", "PUBLISH_PORT"}
+    assert re.search(r"^PUBLISH_ADDRESS=$", _load("publish", ".env.example"), re.M)
+    dockerfile = _load("publish", "Dockerfile")
+    arg = re.search(r"^ARG ALPINE_IMAGE=(\S+)$", dockerfile, re.M)
+    assert arg and re.fullmatch(DIGEST, arg.group(1)) and arg.group(1).startswith("alpine:")
+    assert re.search(r"^FROM \$\{ALPINE_IMAGE\}$", dockerfile, re.M)
+    assert re.search(r"^USER 1000:1000$", dockerfile, re.M)
+    # The mirror's own project is untouched by the door
+    mirror = _compose()
+    assert set(mirror["services"]) == {"files"} and "ports" not in mirror["services"]["files"]
+
+
+def test_publishing_door_sshd_and_gate():
+    """Key only, one account, no root, no TTY, no forwarding of any kind, no user rc, the forced gate;
+    the gate resolves the path and allows only the SFTP server and sha256sum of a regular file under
+    /mirror."""
+    lines = {line.strip() for line in _load("publish", "sshd_config").splitlines()
+             if line.strip() and not line.startswith("#")}
+    for line in ["AllowUsers publish", "PermitRootLogin no", "AuthenticationMethods publickey", "PasswordAuthentication no",
+                 "PermitEmptyPasswords no", "KbdInteractiveAuthentication no", "PermitTTY no", "PermitUserRC no",
+                 "DisableForwarding yes", "AllowTcpForwarding no", "AllowStreamLocalForwarding no", "AllowAgentForwarding no",
+                 "X11Forwarding no", "PermitTunnel no", "ForceCommand /usr/local/bin/gate",
+                 "AuthorizedKeysFile /keys/authorized_keys", "HostKey /keys/host/ssh_host_ed25519_key",
+                 "Subsystem sftp /usr/lib/ssh/sftp-server"]:
+        assert line in lines, line
+    assert not any(line.split()[0] in ("Match", "PermitOpen", "PermitListen") for line in lines)
+    gate = _load("publish", "gate.sh")
+    assert "exec /usr/lib/ssh/sftp-server -u 022" in gate
+    assert 'resolved=$(readlink -f -- "$path" 2> /dev/null) || refuse' in gate
+    assert '[ -f "$resolved" ] && [ ! -L "$resolved" ] || refuse' in gate
+    assert 'exec sha256sum "$resolved"' in gate
+    assert gate.rstrip().endswith("refuse")
+    assert re.search(r"^MAX_REQUEST=\d+$", gate, re.M) and re.search(r"^MIRROR=/mirror$", gate, re.M)
+    dockerfile = _load("publish", "Dockerfile")
+    assert "COPY --chmod=0644 sshd_config /etc/ssh/sshd_config" in dockerfile
+    assert "COPY --chmod=0755 gate.sh /usr/local/bin/gate" in dockerfile
