@@ -7,6 +7,9 @@
 .ui *, .ui *::before, .ui *::after { box-sizing: border-box; }
 .ui.u-screen { position: fixed; inset: 0; overflow: hidden; display: flex; }
 .ui button, .ui input, .ui select, .ui textarea { font: inherit; color: inherit; }
+/* a placeholder as secondary text, in both themes (the browsers' own grey is too faint on a dark field; Firefox
+   also dims it with opacity) */
+.ui ::placeholder { color: var(--muted); opacity: 1; }
 .ui a { color: var(--accent); }
 .ui :focus { outline: none; }
 .ui :focus-visible { outline: none; box-shadow: var(--focus); }

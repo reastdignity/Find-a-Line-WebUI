@@ -3361,3 +3361,17 @@ def test_secondary_text_contrast():
     for theme, tokens in _themes().items():
         for ground in ("--bg", "--surface", "--surface-2"):
             assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, (theme, ground, tokens["--muted"])
+
+
+def test_placeholder_contrast():
+    """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
+    Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both
+    themes (report defect 3: the browser's own grey, 3.75:1 in the dark theme)."""
+    text = re.sub(r"/\*.*?\*/", "", open(os.path.join(VIEWER, "src", "ui", "ui.css"), encoding="utf-8").read(), flags=re.S)
+    rule = re.search(r"\.ui ::placeholder\s*\{([^}]*)\}", text)
+    assert rule, "no placeholder rule in ui.css"
+    token = re.search(r"color:\s*var\((--[\w-]+)\)", rule.group(1))
+    assert token and re.search(r"opacity:\s*1\s*(;|$)", rule.group(1)), rule.group(1)
+    assert re.search(r"\.ui \.u-input\s*\{[^}]*background:\s*var\(--surface\)", text)
+    for theme, tokens in _themes().items():
+        assert contrast(tokens[token.group(1)], tokens["--surface"]) >= 4.5, (theme, token.group(1))
