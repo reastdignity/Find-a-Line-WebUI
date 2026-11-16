@@ -61,8 +61,9 @@ collection, or a fetch-list group counted in status.json, each file an input onc
 sha256 checked when read), each with its ZIP `members`. A product is cut once, when `resolve` finds it complete
 (`--without <ids>`: sheets never delivered, recorded as `missing_inputs`), in a staging folder (`staging_folder`:
 `--work/staging/...`, or `<out>/.staging/...` when a folder does not rename from `--work` into `--out`), with an
-append-only journal (`Journal`, `--work/journals/`: a line per finished tile after its file is synced); a restart keeps
-a tile whose file matches its line and whose feeders are the same, and cuts every other one again (`_cut_staged`);
+append-only journal (`Journal`, `--work/journals/`, one per mirror folder: a line per finished tile after its file is
+synced, with its feeders in order and the product's rule, `product_rule`); a restart keeps a tile whose file matches
+its line, whose feeders and rule are the same, and cuts every other one again (`_cut_staged`);
 `_finalize` writes index.json, renames the folder into the mirror in one `os.replace`, then writes the card. A final
 product is never cut again. `WRITE_SITES` names every write a stop could interrupt (`_site`, `HOOK`: the tests stop
 the run at each). `assemble` reads every raster covering a tile, masks it (`mask`) and joins them by `overlap`;

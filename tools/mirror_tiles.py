@@ -540,7 +540,10 @@ def _product_lock(out: str, ds: "Dataset", product: "Product"):
 def _below(path: str, root: str) -> bool:
     """Whether path is root or lies below it (symbolic links resolved)."""
     real, top = (os.path.normcase(os.path.realpath(p)) for p in (path, root))
-    return real == top or os.path.commonpath([real, top]) == top
+    try:
+        return real == top or os.path.commonpath([real, top]) == top
+    except ValueError:  # another drive (Windows): not below
+        return False
 
 
 def check_folders(work: str, inputs: Optional[str], out: Optional[str]):
@@ -931,6 +934,7 @@ def _unpack(archive: zipfile.ZipFile, archive_path: str, member: str, path: str,
         made = os.path.dirname(path)
         os.makedirs(made)
     start, part = time.time(), path + ".part"
+    _drop_link(part, work)
     try:
         if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
             with archive.open(info) as src, open(part, "wb") as dst:
@@ -1138,6 +1142,7 @@ def _asc_copy(path: str, copy: str, max_memory_gb: float, work: str) -> str:
         os.makedirs(os.path.dirname(copy), exist_ok=True)
         rows = _rows_per_chunk(bands.width, 4, max_memory_gb)
         start, part = time.time(), copy + ".part"
+        _drop_link(part, work)
         with rio.Env(GDAL_CACHEMAX=_budget(max_memory_gb)[0] >> 20), \
                 rio.open(part, "w", width=bands.width, height=bands.height, count=1, dtype="float32",
                          transform=from_origin(bands.left, bands.top, bands.res, bands.res),
@@ -1157,6 +1162,7 @@ def _strip_copy(path: str, copy: str, max_memory_gb: float, work: str) -> str:
     rows within the bound."""
     os.makedirs(os.path.dirname(copy), exist_ok=True)
     start, part = time.time(), copy + ".part"
+    _drop_link(part, work)
     with rio.Env(GDAL_CACHEMAX=_budget(max_memory_gb)[0] >> 20), rio.open(path) as src:
         rows = _rows_per_chunk(src.width, np.dtype(src.dtypes[0]).itemsize, max_memory_gb)
         profile = dict(width=src.width, height=src.height, count=1, dtype=src.dtypes[0], crs=src.crs,
@@ -1485,10 +1491,19 @@ def _workers(product: Product, threads: int, max_memory_gb: float) -> Tuple[int,
 
 # The journal and the staging folder
 
-def journal_path(work: str, ds: Dataset, product: Product) -> str:
-    """<work>/journals/<dataset>.<product>.<res>m.jsonl: one line per finished tile, kept after the product is final
-    (verify reads it)."""
-    return os.path.join(work, "journals", f"{ds.name}.{product.name}.{product.res:g}m.jsonl")
+def journal_path(work: str, ds: Dataset, product: Product, out: str) -> str:
+    """<work>/journals/<dataset>.<product>.<res>m-<the mirror's>.jsonl: one line per finished tile, kept after the
+    product is final (verify reads it); one per mirror folder, so a new edition cut into a fresh --out has its own."""
+    mirror = hashlib.sha1(os.path.normcase(os.path.abspath(out)).encode("utf-8")).hexdigest()[:8]
+    return os.path.join(work, "journals", f"{ds.name}.{product.name}.{product.res:g}m-{mirror}.jsonl")
+
+
+def product_rule(product: Product) -> str:
+    """What a tile's values depend on besides its rasters (the grid, the CRS, the masks, the overlap rule, the
+    encoding): a tile journaled under another rule is cut again."""
+    rule = [product.res, product.crs, list(product.origin), list(product.nodata), product.sea, product.floor,
+            product.overlap, TILE_M, MAX_Z_ERROR]
+    return hashlib.sha1(json.dumps(rule).encode("utf-8")).hexdigest()[:16]
 
 
 def read_journal(path: str) -> Dict[str, Dict]:
@@ -1522,10 +1537,11 @@ class Journal:
                 with open(path, "ab") as f:
                     f.write(b"\n")
 
-    def append(self, key: str, sha: Optional[str], fed: Dict[str, str]):
+    def append(self, key: str, sha: Optional[str], fed: Dict[str, str], rule: str, order: List[str]):
         _site("journal.before_line")
         with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"key": key, "sha256": sha, "fed": fed}, sort_keys=True) + "\n")
+            f.write(json.dumps({"key": key, "sha256": sha, "fed": fed, "order": order, "rule": rule},
+                               sort_keys=True) + "\n")
             f.flush()
             os.fsync(f.fileno())
         _site("journal.after_line")
@@ -1566,9 +1582,8 @@ def cut(name: str, work: str, out: str, rows_limit: Optional[int] = None, inputs
     states = {}
     with _work_lock(work):
         for prod in _products(ds, product):
-            with _product_lock(out, ds, prod):
-                states[prod.name] = _cut_product(ds, prod, work, out, rows_limit, inputs, threads, max_memory_gb,
-                                                 without)
+            states[prod.name] = _cut_product(ds, prod, work, out, rows_limit, inputs, threads, max_memory_gb,
+                                             without)
     return states
 
 
@@ -1598,9 +1613,13 @@ def _cut_product(ds: Dataset, product: Product, work: str, out: str, rows_limit:
             r = resolve(product, work, inputs, files, without)
         if r.unpack:
             raise ValueError(f"{where}: members still to unpack: {r.unpack[:3]}")
-        staging, why = staging_folder(work, out, ds, product)
-        print(f"{where}: staging {why}: {staging}", flush=True)
-        return _cut_staged(ds, product, work, out, staging, r, rows_limit, threads, max_memory_gb, files)
+        with _product_lock(out, ds, product):  # only now is anything written under --out
+            if final_state(out, ds, product) is not None:
+                print(f"{where}: made final meanwhile by another run", flush=True)
+                return "final"
+            staging, why = staging_folder(work, out, ds, product)
+            print(f"{where}: staging {why}: {staging}", flush=True)
+            return _cut_staged(ds, product, work, out, staging, r, rows_limit, threads, max_memory_gb, files)
     finally:
         files.close()
 
@@ -1613,7 +1632,8 @@ def _cut_staged(ds: Dataset, product: Product, work: str, out: str, staging: str
     workers, cache_mb = _workers(product, threads, max_memory_gb)
     state = State(work, ds, product)
     start, cut_rows = time.time(), 0
-    jpath = journal_path(work, ds, product)
+    jpath = journal_path(work, ds, product, out)
+    rule = product_rule(product)
     try:
         with rio.Env(GDAL_CACHEMAX=cache_mb, GDAL_NUM_THREADS=str(max(1, threads))):
             p = plan(product, r.rasters, work, state, max_memory_gb, files)
@@ -1628,7 +1648,8 @@ def _cut_staged(ds: Dataset, product: Product, work: str, out: str, staging: str
                 i, j = map(int, key.split("_"))
                 line = journal.get(key)
                 fed = {ids[n]: stamps[ids[n]] for n in p.covering.get((i, j), [])}
-                if not line or line["fed"] != fed:
+                order = [ids[n] for n in p.covering.get((i, j), [])]
+                if not line or line["fed"] != fed or line.get("order") != order or line.get("rule") != rule:
                     continue
                 path = os.path.join(staging, *tile_name(i, j).split("/"))
                 if line["sha256"] is None and not os.path.exists(path):
@@ -1679,7 +1700,9 @@ def _cut_staged(ds: Dataset, product: Product, work: str, out: str, staging: str
                             results[ii] = fut.result()
                         for i in sorted(results):
                             key = f"{i}_{j}"
-                            jr.append(key, results[i], {ids[k]: stamps[ids[k]] for k in p.covering.get((i, j), [])})
+                            cover = p.covering.get((i, j), [])
+                            jr.append(key, results[i], {ids[k]: stamps[ids[k]] for k in cover}, rule,
+                                      [ids[k] for k in cover])
                             done[key] = results[i]
                         for path in [path for path in handles if last_row[path] >= j]:
                             handles.pop(path).close()
@@ -1876,6 +1899,10 @@ def verify(name: str, work: str, out: str, inputs: Optional[str] = None, product
     results = {}
     with _work_lock(work):
         for prod in _products(ds, product):
+            if final_state(out, ds, prod) != "final":
+                results[prod.name] = _verify_product(ds, prod, work, out, inputs, samples, seed, max_memory_gb,
+                                                     points)  # "not final": nothing written, no lock
+                continue
             with _product_lock(out, ds, prod):
                 results[prod.name] = _verify_product(ds, prod, work, out, inputs, samples, seed, max_memory_gb,
                                                      points)
@@ -1978,7 +2005,7 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
     for root, _, names in os.walk(folder):
         for n in names:
             path = os.path.join(root, n)
-            if os.path.normcase(path) not in listed and n not in ("index.json", "verify.json"):
+            if os.path.normcase(path) not in listed and n not in ("index.json", "verify.json", "verify.json.part"):
                 unlisted.append(os.path.relpath(path, folder).replace(os.sep, "/"))
     if unlisted:
         problems.append(f"{len(unlisted)} file(s) the index does not list: {unlisted[:5]}")
@@ -1986,7 +2013,7 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
     nulls = [k for k, v in index["tiles"].items() if v is None]
     samples = default_samples(len(keys)) if samples is None else samples
     compared, removed, pixels = [], [], 0
-    journal = read_journal(journal_path(work, ds, product))
+    journal = read_journal(journal_path(work, ds, product, out))
     files = WorkFiles(work)
     handles: Dict[str, "rio.DatasetReader"] = {}
     try:
@@ -2153,7 +2180,7 @@ def status(names: Sequence[str], work: str, out: Optional[str], inputs: Optional
             except ValueError as e:
                 lines.append(f"{head}: {e}")
                 continue
-            journal = read_journal(journal_path(work, ds, product))
+            journal = read_journal(journal_path(work, ds, product, out)) if out else {}
             if not r.complete:
                 shown = r.missing[:20]
                 lines.append(f"{head}: waiting ({'; '.join(r.counts) or 'inputs missing'}); missing "
@@ -2306,8 +2333,8 @@ def main():
                 sys.exit(1)
         elif args.step == "clean":
             clean(args.dataset, args.work, args.inputs, args.product)
-    except Busy as e:
-        sys.exit(f"Busy: {e}")
+    except (Busy, ValueError) as e:  # a refusal (folders, --without, a file's sha256): one sentence, exit 1
+        sys.exit(f"{type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":

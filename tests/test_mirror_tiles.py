@@ -1062,7 +1062,7 @@ def test_final_is_final(tmp_path, monkeypatch):
     _dataset(monkeypatch, "fin", _product([mt.Fetched("portugal", collection="MDT")]))
     assert _main(monkeypatch, "all", "fin", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
     assert mt.verified(mt.dataset("fin"), mt.dataset("fin").products[0], str(out))
-    before = _snapshot(out / "fin")
+    before = _snapshot(out)
     area = inputs / "portugal"
     first = area / "MDT" / "000" / "MDT-0000.tif"
     steps = [lambda: os.remove(area / "MDT" / "001" / "MDT-0101.tif"),
@@ -1076,7 +1076,7 @@ def test_final_is_final(tmp_path, monkeypatch):
         assert mt.cut("fin", str(work), str(out), inputs=str(inputs)) == {"dtm": "final"}
         assert _main(monkeypatch, "all", "fin", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
         assert _main(monkeypatch, "cut", "fin", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
-        assert _snapshot(out / "fin") == before
+        assert _snapshot(out) == before
 
 
 def test_complete_only_when_every_input_is_there(tmp_path, monkeypatch, capsys):
@@ -1143,8 +1143,9 @@ def test_inputs_never_written_or_removed(tmp_path, monkeypatch):
         args = ["all", "safe", "--inputs", str(inputs)] + list(argv)
         if "--out" not in argv:
             args += ["--out", str(out)]
+        assert _main(monkeypatch, *args) == 1  # one sentence on stderr, exit 1
         with pytest.raises(ValueError, match="keep the inputs, the work folder and the mirror"):
-            _main(monkeypatch, *args)
+            mt.check_folders(*(args[args.index(f) + 1] for f in ("--work", "--inputs", "--out")))
     assert _snapshot(inputs) == before
     with pytest.raises(ValueError, match="removes only files it made"):
         mt._remove(str(inputs / "tile!1.tif"), str(work))
@@ -1300,7 +1301,7 @@ def test_verify_checks_the_extent_and_the_feeders(tmp_path, monkeypatch):
     mt.cut("ext", str(work), str(out), inputs=str(inputs))
     assert mt.verify("ext", str(work), str(out), inputs=str(inputs))["dtm"]["ok"]
     folder = out / "ext" / "dtm" / "5m"
-    journal = work / "journals" / "ext.dtm.5m.jsonl"
+    journal = next((work / "journals").glob("ext.dtm.5m-*.jsonl"))
     kept = journal.read_text()
     journal.write_text("\n".join(line for line in kept.splitlines() if "MDT-0300" not in line))
     problems = "\n".join(mt.verify("ext", str(work), str(out), inputs=str(inputs))["dtm"]["problems"])
@@ -1381,3 +1382,77 @@ def test_a_stop_with_the_staging_folder_in_the_mirror(tmp_path, monkeypatch, sit
     assert _contents(out / "stops") == _contents(ref / "stops")
     assert not list((out / ".staging").rglob("*.tif"))
     assert real is not mt.staging_folder
+
+
+def test_a_waiting_product_writes_nothing_under_out(tmp_path, monkeypatch):
+    """A product with a fetched file missing: cut, all and verify leave --out as it was (here: not even made)."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    cells = [(0, 0), (1, 0)]
+    _fetch_area(inputs, cells, done=cells[:1])
+    _dataset(monkeypatch, "wait", _product([mt.Fetched("portugal", collection="MDT")]))
+    assert mt.cut("wait", str(work), str(out), inputs=str(inputs)) == {"dtm": "waiting"}
+    assert _main(monkeypatch, "all", "wait", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
+    assert mt.verify("wait", str(work), str(out), inputs=str(inputs))["dtm"]["ok"] is None
+    assert not out.exists()
+
+
+def _stop_after(rows, monkeypatch):
+    """A HOOK that stops a cut after its journal's rows-th line."""
+    lines = [0]
+
+    def hook(name):
+        if name == "journal.after_line":
+            lines[0] += 1
+            if lines[0] == rows:
+                raise _Stop()
+    monkeypatch.setattr(mt, "HOOK", hook)
+
+
+@pytest.mark.parametrize("doubt", ["torn", "deleted", "garbage", "input changed", "floor changed", "order changed"])
+def test_every_doubt_is_cut_again(tmp_path, monkeypatch, doubt):
+    """Before a product is final every doubt is resolved by cutting again: after a stop, a torn last journal line, a
+    deleted journal, a journal of garbage, an input re-fetched with other values after its tile was journaled, the
+    product's floor or its inputs' order changed in DATASETS: the run goes on and ends as an uninterrupted run with
+    what is there now."""
+    inputs, work, out, ref_in = tmp_path / "in", tmp_path / "work", tmp_path / "out", tmp_path / "ref-in"
+    cells = [(x, y) for x in range(4) for y in range(2)]
+    for folder in (inputs, ref_in):
+        _fetch_area(folder, cells)
+        _fetch_area(folder, [(0, 0)], area="extra", collection="X", seed=70)  # overlaps cell (0, 0)
+    first = (mt.Fetched("portugal", collection="MDT"), mt.Fetched("extra", collection="X"))
+    _dataset(monkeypatch, "dbt", _product(list(first)))
+    _stop_after(1, monkeypatch)
+    with pytest.raises(_Stop):
+        mt.cut("dbt", str(work), str(out), inputs=str(inputs))
+    monkeypatch.setattr(mt, "HOOK", None)
+    journal = next((work / "journals").glob("dbt.dtm.5m-*.jsonl"))
+    if doubt == "torn":
+        journal.write_bytes(journal.read_bytes()[:-20])
+    elif doubt == "deleted":
+        journal.unlink()
+    elif doubt == "garbage":
+        journal.write_bytes(b"\x00\xffnot json\n{\"key\": 3}\n")
+    elif doubt == "input changed":  # the fetch got the file again with other values (and recorded its sha256)
+        for folder in (inputs, ref_in):
+            root = folder / "portugal"
+            path = _tif(root / "MDT" / "000" / "MDT-0000.tif", _heights((200, 200), 77), 2.5, 1002.5)
+            rows = [json.loads(line) for line in (root / "done.jsonl").read_text().splitlines()]
+            for row in rows:
+                if row["id"] == "MDT-0000":
+                    row.update(size=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            (root / "done.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    elif doubt == "floor changed":
+        _dataset(monkeypatch, "dbt", _product(list(first), floor=1200.0))
+    elif doubt == "order changed":
+        _dataset(monkeypatch, "dbt", _product(list(reversed(first))))
+    assert mt.cut("dbt", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    ref = tmp_path / "ref-out"
+    mt.cut("dbt", str(tmp_path / "ref-work"), str(ref), inputs=str(ref_in))
+    assert _contents(out / "dbt") == _contents(ref / "dbt")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drives are Windows'")
+def test_folders_on_other_drives():
+    """Folders on two drives are apart, not an error (the mirror on another drive than --work)."""
+    assert mt._below(r"C:\a", r"D:\b") is False
+    mt.check_folders(r"C:\work", r"C:\in", r"D:\mirror")
