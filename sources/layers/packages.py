@@ -34,8 +34,9 @@ class PackageMember(ZipMember):
     1.2 km, 100 m around their tile), the transform's float noise is dropped (Muskoka's 627999.9999999998), and a
     member that does not cover the box on whole pixels is refused ("PixelIsPoint" files with their tie point at the
     first pixel's centre land on the box as GDAL places them; one with the tie point at the corner would lie half a
-    pixel off). A refused member is never cached: its tile is "missing" (one warning naming the package, the member
-    and the reason), so the source's gap filler fills it and the search goes on. The tile's path carries the
+    pixel off). A refused member (off its box, not a raster GDAL reads, more than one band) is never cached: its
+    tile is "missing" (one warning naming the package, the member and the reason), so the source's gap filler fills
+    it and the search goes on. The tile's path carries the
     member's CRC-32, so the same bytes are not asked again; a changed member is another tile, and a change of this
     rule changes the layer's `processing`, which asks the missing tiles again."""
 
@@ -46,6 +47,16 @@ class PackageMember(ZipMember):
             print(f"{self.description}: tile {request.godlo} left to the gap filler: package "
                   f"{request.url.rsplit('/', 1)[-1]}, member {request.member}: {e}")
             return Fetched(0, request.url)
+
+    def _write(self, data: bytes, path: str, where: str, request=None):
+        """ZipMember's, a member GDAL cannot open or of more than one band refused as one off its box: what its
+        bytes are (the read itself, network and CRC-32, is done before)."""
+        try:
+            super()._write(data, path, where, request)
+        except MemberRefused:
+            raise
+        except RuntimeError as e:
+            raise MemberRefused(str(e).replace(f"{where}: ", "", 1)) from None
 
     def placed(self, transform: Affine, width: int, height: int, request,
                where: str) -> Tuple[Affine, Optional[Window]]:

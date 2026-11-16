@@ -410,18 +410,24 @@ def test_member_beyond_its_box_cut_to_it(http_server, layer, tmp_path):
         assert tile.transform.c == (EAST - 1) * 1000.0
 
 
-@pytest.mark.parametrize("kind", ["half a pixel", "a pixel short", "a 500th of a pixel", "the next km"])
+@pytest.mark.parametrize("kind", ["half a pixel", "a pixel short", "a 500th of a pixel", "the next km",
+                                  "not a raster", "two bands"])
 def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys, kind):
     """A member off its tile's box (half a pixel: a tie point read as the corner; a column short; its origin a 500th
-    of a pixel off, 1 mm at 0.5 m; lying in the next kilometre): never cached, its tile recorded as missing with one
-    warning naming the package, the member and the reason, the search goes on (the gap filler fills it); the next
-    search does not ask it again."""
-    if kind == "a pixel short":
+    of a pixel off, 1 mm at 0.5 m; lying in the next kilometre), one GDAL cannot open, one of two bands: never
+    cached, its tile recorded as missing with one warning naming the package, the member and the reason, the search
+    goes on (the gap filler fills it); the next search does not ask it again."""
+    reason = "the member lies off its tile's box"
+    if kind in ("a pixel short", "two bands"):
+        width, count = (9, 1) if kind == "a pixel short" else (10, 2)
         with rio.io.MemoryFile() as memfile:
-            with memfile.open(driver="GTiff", width=9, height=10, count=1, dtype="float32", crs="EPSG:2958",
+            with memfile.open(driver="GTiff", width=width, height=10, count=count, dtype="float32", crs="EPSG:2958",
                               transform=from_origin(EAST * 1000, (NORTH + 1) * 1000, TEN, TEN)) as dst:
-                dst.write(np.full((1, 10, 9), 200.0, np.float32))
+                dst.write(np.full((count, 10, width), 200.0, np.float32))
             member = memfile.read()
+        reason = reason if count == 1 else "2 bands, one expected"
+    elif kind == "not a raster":
+        member, reason = b"<html>not a raster</html>" * 40, "not a raster"
     else:
         shift = {"half a pixel": TEN / 2, "a 500th of a pixel": TEN / 500, "the next km": 1000.0}[kind]
         member = _raster(EAST, NORTH, 200.0, shift=shift)
@@ -432,7 +438,7 @@ def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys,
     src.download_layers([(layer, "terrain")], grid, cache_dir, None)  # no error
     out = capsys.readouterr().out
     assert out.count("left to the gap filler") == 1
-    assert "package A.zip, member 1km175870481302023LGTA2023_DTM.tif: the member lies off its tile's box" in out
+    assert f"package A.zip, member 1km175870481302023LGTA2023_DTM.tif: {reason}" in out
     (tile,) = layer.tiles(grid)
     path = layer.tile_path(cache_dir, tile)
     assert not os.path.exists(path) and cache.state(cache_dir, path) == "missing"
@@ -681,6 +687,9 @@ def test_older_survey_fills_the_newest_holes(http_server, layer, tmp_path):
     with rio.io.MemoryFile(newest) as m1, m1.open() as a, rio.io.MemoryFile(older) as m2, m2.open() as b:
         want = np.where(np.arange(100) < 40, a.read(1), b.read(1))
     assert np.isfinite(part).all() and np.abs(part - want).max() <= TILE_EPS
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    assert layer.update_index_tile(cache_dir, lat, lon) == (0, 0.0, 0)  # cache update keeps the filler too
+    assert all(os.path.exists(f) for f in files)
 
 
 def test_one_years_members_the_larger_wins(http_server, layer, tmp_path):

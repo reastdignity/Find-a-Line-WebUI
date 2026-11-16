@@ -155,9 +155,10 @@ BC_BORDER = ((48.95, 49.1, -123.35, -114.0),)
 # surveys' own grid (no 1.8-2.6 % length error), more of the small walls (Rattlesnake Point: 84 pixels over 80° at
 # 1 m against 9), but fewer projects: canada fills the gaps (its HRDEM mosaic has projects the province does not
 # publish). Two projects cover 19.4 % of the province's 157 093 tiles (the tile index of 2026-10-28): the newest
-# survey's tile is used whole (16.6 % of those lie at its project's edge; in the four 0.25° tiles cached on
-# 2026-11-16, 39 of 676 places in two projects had a chosen member under half the size of the other: likely holes,
-# which go to canada).
+# survey's tile is used first, and an older one fills its holes where the newest member is under 75 % of the older
+# one's size (PackageVersions, HOLE_SHARE: 58 of 676 places in two projects in the four 0.25° tiles cached on
+# 2026-11-16, about +2.5 % tiles); what neither covers goes to canada. CLOCA Lidar 2018's and SNC Lidar 2018-19's DTM
+# packages are Deflate64, which is not read: their terrain comes from older surveys or canada (their DSM is read).
 # Licence: OGL - Ontario 1.0; the user guides (section 2.2): "you must use the following attribution statement
 # “Contains information licensed under the Open Government Licence – Ontario”"; the licence grants no right to
 # suggest an official status or the province's endorsement. Limits: none published (net.HOST_SLOTS_OF: two at
@@ -274,7 +275,9 @@ SOURCES: List[Source] = [
         offline=ON_BOXES, sample=(44.9055, -77.1899),  # Mazinaw Rock, Bon Echo
         note="Data: Geospatial Ontario, Open Government Licence - Ontario. The province's lidar covers much of the "
              "south and parts of the north; gaps are filled from NRCan's HRDEM mosaic (1 m, then 2 m), then from "
-             "MRDEM-30 (30 m). Where two surveys cover a 1 km tile the newer is used whole. LEAP 2009 (Kingston, "
+             "MRDEM-30 (30 m). Where two surveys cover a 1 km tile the newer is used, the older filling its holes. "
+             "CLOCA 2018's and South Nation 2018-19's terrain packages cannot be read (Deflate64): older surveys or "
+             "the gap filler cover them. LEAP 2009 (Kingston, "
              "Prince Edward County) is in CGVD28 heights, off the newer data by the two datums' difference. No open "
              "orthophoto of Ontario here: the map shows its own base layers.",
         coverage=Coverage(provider="Geospatial Ontario", added="2026-11-16", partial=True, rest=(2.0, 30.0),
