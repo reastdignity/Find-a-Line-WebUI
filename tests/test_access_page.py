@@ -507,3 +507,83 @@ def test_run_whose_mark_was_left_out(tmp_path, plain_clip):
     assert r["desktop"]["inHead"] and r["desktop"]["afterColours"] and r["selected"]["inHead"], r
     assert r["phone"]["inSheet"] and not r["phone"]["afterColours"], r["phone"]  # alone above the filters
     assert r["phoneSelected"]["inSheet"] and r["phoneSelected"]["afterColours"], r["phoneSelected"]
+
+
+def test_a_real_search_too_wide_for_the_mark_on_the_page(tmp_path, monkeypatch):
+    """The two halves together (the search side: tests/test_access_search.py): a search with --access whose memory
+    cannot hold the access grid. Its real estimate (jobs.quick_estimate: the messages as the form gets them, the
+    public site's wording too) turns the form's receipt into "access not marked: area too wide"; its real run (the
+    key `access_skipped` in the store's head, which the page reads) shows the muted line and nothing else of the
+    mark, on a desktop and a phone."""
+    from datetime import datetime
+    from playwright.sync_api import sync_playwright
+    import jobs
+    import runs as rn
+    import search
+    from params import SearchParams
+    from test_access_search import LEFT, SIZE, TOP, scene
+    from test_offline import OFFLINE_ENV, write_raster
+    from test_web import POINT_JS, SEARCH_STUBS, _ready
+    for key, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, value)
+    write_raster(tmp_path / "wide.tif", scene(), LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "wide.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2, radius=135,
+                  resolution=1, nmpt="off", water="off", fill_gaps="off", min_length=10, max_length=80,
+                  slope_threshold=60, prominence_span=10, drop_radius=10, ortho="never")
+    # the estimate of the request, as the form's quick lane answers it: locally and on the public site
+    monkeypatch.setattr(jobs, "SLOT_MEMORY", 10_000)
+    estimates = {}
+    for public in (False, True):
+        monkeypatch.setattr(jobs, "PUBLIC_TEXTS", public)
+        os.makedirs(tmp_path / "est", exist_ok=True)
+        estimates[public] = jobs.quick_estimate(str(tmp_path / "est"), {"params": {**values, "access": True}})["messages"]
+    assert all(any(len(m) == 3 and m[2]["code"] == "access_skipped" for m in found) for found in estimates.values())
+    # the run of the same search with too little memory for the access grid
+    monkeypatch.setattr(search, "available_memory", lambda: 10_000)
+    data = tmp_path / "data"
+    paths = search.Paths(str(data), str(data / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(SearchParams(**values, access=True, name="Too wide"), paths, lambda kind, text: None)
+    assert plan.access_skipped == "memory"
+    lines, _ = search.search_lines(plan)
+    run_id = "2026-11-16_120000_Too-wide_00000000000000d1"
+    folder = data / "runs" / run_id
+    folder.mkdir(parents=True)
+    search.save_run(plan, lines, {"id": run_id, "path": str(folder), "created": datetime(2026, 11, 16, 12), "name": "Too wide"})
+    rn.write_index(str(data / "runs"))
+    assert json.loads((folder / "run.json").read_text("utf-8")).get("store"), "the page reads the store's head"
+    page_path = stub_page(data, "accesstest")
+    stubs = SEARCH_STUBS.replace("messages: []", "messages: window.TEST_MESSAGES || []")
+    _search_page(tmp_path, "", stubs=stubs, folder_name="basictest")
+    result = """() => { const $$ = (s) => [...document.querySelectorAll(s)], lines = $$('.r-acc-skipped').filter((e) => e.getClientRects().length);
+        return [window.FINDALINE_RESULT.model.data.access_skipped, window.FINDALINE_RESULT.model.count > 20, lines.map((e) => e.textContent),
+                $$('svg.ac, .ac-none, .ac-hint, .r-legend-acc, .r-acc, .r-cell-acc, .ac-map-icon').length]; }"""
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            with _server(tmp_path) as port:
+                for public, messages in estimates.items():
+                    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+                    ctx.add_init_script(f"window.TEST_MESSAGES = {json.dumps(messages)};")
+                    page = _basic_page(tmp_path, port, ctx)
+                    page.evaluate(POINT_JS)
+                    _ready(page)
+                    r[f"receipt-{public}"] = page.evaluate("() => document.querySelector('.s-receipt').innerText")
+                    ctx.close()
+            with _server(data) as port:
+                url = f"http://127.0.0.1:{port}/{page_path}?ui=c#run={run_id}"
+                for name, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                    page = _open(browser, url, **context)
+                    page.wait_for_selector(".r-acc-skipped", state="attached", timeout=WAIT)
+                    r[name] = page.evaluate(result)
+                    page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.groups[0]); }")
+                    page.wait_for_selector(".r-dtitle", state="attached", timeout=WAIT)
+                    r[name + "-selected"] = page.evaluate(result)
+                    page.close()
+        finally:
+            browser.close()
+    assert r["receipt-False"].endswith("access not marked: area too wide") and r["receipt-True"] == r["receipt-False"], r
+    line = ["Anchors' access not marked: the search area was too wide."]
+    for name in ("desktop", "desktop-selected", "phone", "phone-selected"):
+        assert r[name] == ["memory", True, line, 0], (name, r[name])
