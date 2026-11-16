@@ -1134,7 +1134,11 @@ run(first ? {
     result.unfolded = [$(".r-card").classList.contains("r-card-folded"), kept().profile.folded];
     button("Close the profile").click();
     await pause();
-    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners()};
+    // the scale and the credits (the whole data credits on a desktop): [the credits run under the scale's corner, the
+    // gap between them, px]
+    const sb = $(".leaflet-control-scale").getBoundingClientRect(), ab = $(".leaflet-control-attribution").getBoundingClientRect();
+    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners(),
+                     under: [ab.left < sb.right, Math.round(ab.top - sb.bottom)]};
     $(".c-col-details .r-reprofile").click();
     await until(() => $(".r-card"));
     result.reopened = {card: !!$(".r-card"), credits: credits()};
@@ -1262,8 +1266,16 @@ def test_shell_c_layout(data, tmp_path):
     assert r["cardWide"]["width"] == narrow["mapWidth"] - 24 and "" not in r["cardWide"]["corners"].values(), r
     assert r["folded"]["folded"] and r["folded"]["kept"] is True and r["folded"]["height"] < 80, r
     assert r["unfolded"] == [False, False], r
-    assert r["closed"] == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
-                           "corners": {"attribution": "", "scale": ""}}, r
+    closed = {**r["closed"]}
+    under, gap = closed.pop("under")
+    assert closed == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
+                      "corners": {"attribution": "", "scale": closed["corners"]["scale"]}}, r
+    # the card gone, the corners in Leaflet's places; where the credits wrap under the scale's corner, the scale
+    # right above them (report defect 7), else in its place
+    if under:
+        assert closed["corners"]["scale"].endswith("px") and 0 <= gap <= 10, r
+    else:
+        assert closed["corners"]["scale"] == "", r
     assert r["reopened"] == {"card": True, "credits": {"toggle": True, "credits": False}}, r
     # Found again after the reload
     kept = r["beforeReload"]
