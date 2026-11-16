@@ -26,6 +26,12 @@ def test_unmet_needs(tmp_path, monkeypatch):
     (tmp_path / "madeira" / "dtm" / "2m").mkdir(parents=True)
     assert regression.unmet_needs(test) is None
     assert regression.unmet_needs({}) is None and regression.unmet_needs({"needs_env": "FINDALINE_MIRROR"}) is None
+    # Madeira's island groups, each a folder of its own: one present does not stand for another
+    islands = {"needs_env": "FINDALINE_MIRROR", "needs_path": ["selvagens/dtm/5m"]}
+    (tmp_path / "porto-santo" / "dtm" / "5m").mkdir(parents=True)
+    assert regression.unmet_needs(islands) == "FINDALINE_MIRROR has no selvagens/dtm/5m"
+    (tmp_path / "selvagens" / "dtm" / "5m").mkdir(parents=True)
+    assert regression.unmet_needs(islands) is None
 
 
 def test_mirror_entries_name_their_folders():
@@ -40,3 +46,5 @@ def test_mirror_entries_name_their_folders():
     for test_id, test in mirrored.items():
         assert test.get("needs_path") and set(test["needs_path"]) <= folders, test_id
     assert tests["R80"]["needs_path"] == ["madeira/dtm/2m"] and tests["R81"]["needs_path"] == ["aosta/dtm/2m"]
+    assert tests["R86"]["needs_path"] == ["porto-santo/dtm/5m"] and tests["R87"]["needs_path"] == ["desertas/dtm/5m"]
+    assert tests["R88"]["needs_path"] == ["selvagens/dtm/5m"]

@@ -230,11 +230,14 @@ def test_declared_neighbours():
     assert src.SOURCES["tinitaly"].neighbours == ("swisstopo", "slovenia")
     for sid in ("south_tyrol", "trento", "sardinia"):
         assert src.SOURCES[sid].fallbacks == ["tinitaly", "europe"], sid
-    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada", "british_columbia", "mexico")
+    # ontario after canada: a US grid's border gap gets NRCan's mosaic first, as before ontario
+    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada", "british_columbia",
+                                                                                       "mexico", "ontario")
     assert src.SOURCES["nunavut"].neighbours == ("canada",)
     assert src.SOURCES["canada"].neighbours == ("usa", "alaska", "alaska_ifsar", "nunavut")
     assert src.SOURCES["saarland"].neighbours == ("rhineland_palatinate", "france", "luxembourg")
     assert src.SOURCES["british_columbia"].neighbours == ("usa", "alaska", "alaska_ifsar")
+    assert src.SOURCES["ontario"].neighbours == ("usa",)
 
 
 def test_border_gaps_once_unless_a_neighbour_wrote(scene, monkeypatch):

@@ -10,18 +10,22 @@ For each layer of the source (terrain: nmt, surface: nmpt), on a grid built as a
 it (search.plan_search without margin, water and gap filling), downloading through the
 layer's own path into the cache of --data-dir:
 
-1. shift: the layer mosaicked over the grid enlarged by --shift-range, compared with a
+1. shift: the layer mosaicked over the grid enlarged by --shift-range (sources.prepare_layer: with the layer's
+   floor and height offset, the heights a search uses), compared with a
    reference on the grid (auto: the terrain with FABDEM, the surface with Copernicus GLO-30;
    or a raster file) at whole-pixel shifts; the best shift is the correction to add to the
    layer's `shift` (data placed 56 m east needs -56). WARN if it is more than 30 m away.
-2. valid: the share of pixels with data inside the circle (at most 500 m) at 1 m and at 5 m;
+2. valid: the share of pixels with data (after the layer's floor) inside the circle (at most 500 m) at 1 m and at 5 m;
    WARN if 5 m is more than 1 percentage point below 1 m (a server that loses data when it
    downsamples).
 3. files: --samples cached tiles against their source files read through GDAL (/vsicurl/,
    /vsizip/): the largest difference, the share of equal values, the same pixels without
    data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
    against the files after its geoid's correction, as it caches them; a member of a remote ZIP
-   (ZipMemberTiles) read again by Range and opened by GDAL, with the layer's floor rule applied). n/a for WCS tiles and local files.
+   (ZipMemberTiles, PackageTiles) read again by Range and opened by GDAL, with the layer's floor rule applied, in
+   the tile's own CRS when it names one). n/a for WCS tiles and local files. Both sides as the provider gave them:
+   a floor or a height offset applied where the tiles are read onto the grid (Layer.floor_of,
+   Layer.height_offset) is on neither.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).
@@ -58,7 +62,7 @@ import search  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.readers import windows  # noqa: E402
-from sources.readers.zipmember import drop_below  # noqa: E402
+from sources.readers.zipmember import drop_below, xyz_rows  # noqa: E402
 from params import SearchParams  # noqa: E402
 from progress import progress  # noqa: E402
 
@@ -280,18 +284,62 @@ def _read_xyz(url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+ZONE_PREFIXED = 10_000_000  # an easting above this carries a UTM zone's two digits in front (Bremerhaven's 32466000.5)
+
+
+def _zone_free(transform):
+    """A member's transform with a two-digit UTM zone taken off its easting (32466000 is 466000 of zone 32), the
+    zone read from the value itself: check_source's own rule, not the layer's fix, so the file check finds a fix
+    that puts a tile elsewhere; any other transform as it is."""
+    from rasterio.transform import Affine
+    if transform.c < ZONE_PREFIXED:
+        return transform
+    zone = int(transform.c // 1_000_000)
+    return Affine(transform.a, transform.b, transform.c - zone * 1_000_000, transform.d, transform.e, transform.f)
+
+
 def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     """A tile's member of a remote ZIP read again by the layer's Range reader (its inflating and CRC-32
-    check), then opened by GDAL's GTiff driver on the pixels of the cached tile, with the layer's floor
-    rule applied as the layer applies it (its 0 m patches would differ otherwise); GDAL's /vsizip/ is
-    not used: its requests would read the archive's directory outside sources.net."""
+    check), then opened by GDAL on the pixels of the cached tile (nearest: an origin off by float noise, Hamburg's
+    552999.9999999999, lands on the same pixels), with the layer's floor rule applied as the layer applies it (its
+    0 m patches would differ otherwise). The member's own georeferencing, not the layer's fix: a member without a CRS
+    (XYZ text) in the tile's, an easting with the zone in front without it (_zone_free), moved only by a shift the
+    fix declares as deliberate (TransformFix.shift: Bremerhaven's DOM1 half a pixel onto its terrain's grid; taken on
+    trust, so a wrong shift passes; its offset and rounding are not taken, so a wrong one is found); an XYZ member in
+    columns with points missing (GDAL refuses it) read in rows (zipmember.xyz_rows: only the lines' order). A tile that
+    names its own CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the
+    files name it otherwise: NAD83 for NAD83(CSRS), a compound CRS). GDAL's /vsizip/ is not used: its requests
+    would read the archive's directory outside sources.net."""
     data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
-    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
-        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                       height=profile["height"], resampling=Resampling.nearest) as vrt:
-            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    own = getattr(tile, "crs", None)
+    shift = _declared_shift(layer)
+    try:
+        values = _member_values(data, profile, own, shift)
+    except rio.errors.RasterioError:
+        rows = xyz_rows(data)
+        if rows is None:
+            raise
+        values = _member_values(rows, profile, own, shift)
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
-    return drop_below(values, layer.floor, layer.ring)
+    return drop_below(values, getattr(layer, "floor", None), getattr(layer, "ring", 0))
+
+
+def _member_values(data: bytes, profile: Dict, own: Optional[str] = None,
+                   shift: Tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
+    """The member's pixels on the cached tile's; own: the tile's CRS taken for the member's (its transform as it
+    is), else the member's own georeferencing (_read_member), moved by shift (the fix's declared deliberate one)."""
+    from rasterio.transform import Affine
+    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
+        if own:
+            moved = {"src_crs": own}
+        elif source.crs is not None and source.transform.c < ZONE_PREFIXED and shift == (0.0, 0.0):
+            moved = {}
+        else:
+            moved = {"src_crs": source.crs or profile["crs"],
+                     "src_transform": Affine.translation(*shift) @ _zone_free(source.transform)}
+        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                       height=profile["height"], resampling=Resampling.nearest, **moved) as vrt:
+            return vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
 
 
 def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndarray:
@@ -398,7 +446,15 @@ def check_valid(layer, args, data, work, cache_dir) -> Check:
     return Check("valid", status, text, **{f"valid_{res:g}m": share for res, share in shares.items()})
 
 
+def _declared_shift(layer) -> Tuple[float, float]:
+    """The deliberate shift a layer's fix declares (TransformFix.shift: Bremerhaven's DOM1), (0, 0) without one."""
+    return tuple(float(v) for v in getattr(getattr(getattr(layer, "reader", None), "fix", None), "shift", (0.0, 0.0)))
+
+
 def check_files(layer, grid, cache_dir, samples: int) -> Check:
+    """A few cached tiles against their source files read again by the check's own rules (the values, the place the
+    files give them, a zone in front of an easting): it proves the values and the offset, never a shift the layer's
+    fix declares, which it takes from that fix and names in its line (a wrong declared shift passes)."""
     if isinstance(layer, src.FileLayer):  # not in the cache (it may lie on another drive): nothing to compare
         return Check("files", NA, "a local file")
     tiles = _cached_tiles(layer, grid, cache_dir)
@@ -425,7 +481,7 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_zip(layer, url, profile)
                 elif isinstance(layer, src.GeoJsonTiles):
                     source = _read_xyz(url, profile)
-                elif isinstance(layer, src.ZipMemberTiles):
+                elif isinstance(layer, (src.ZipMemberTiles, src.PackageTiles)):
                     source = _read_member(layer, tile, profile)
                 elif isinstance(layer, src.InegiSheets):
                     source = _read_grid(layer, url, tile, profile)
@@ -454,6 +510,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
     status = PASS if worst <= EQUAL_M and same >= 0.999 and not problems else WARN
     text = (f"{len(results)} tiles against their files: max |d| {worst:.4f} m, equal {100 * equal:.2f}%, "
             f"same pixels without data {100 * same:.2f}%")
+    shift = _declared_shift(layer)
+    if shift != (0.0, 0.0):  # taken from the layer's own fix: the check cannot tell a wrong shift
+        text += f" (the layer's declared shift of ({shift[0]:g}, {shift[1]:g}) m allowed for)"
     if problems:
         text += "; " + "; ".join(problems)
     return Check("files", status, text, tiles=results, problems=problems)

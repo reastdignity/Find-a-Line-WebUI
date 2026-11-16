@@ -19,7 +19,7 @@ COVERAGE = os.path.join(REPO, "viewer", "src", "coverage", "coverage.json")
 SHAPES = os.path.join(REPO, "viewer", "src", "coverage", "shapes.json")
 # Sources only used to fill the gaps of others: not on the map
 GAP_FILLERS = {"usgs10m", "canada_2m", "mrdem30", "nz8m", "france_rgealti", "malta2012", "alaska_ifsar", "nasadem",
-               "europe", "copernicus", "islandsdem10", "queensland_demh", "northern_ireland_10m"}
+               "europe", "copernicus", "islandsdem10", "queensland_demh", "northern_ireland_10m", "france_reunion_rgealti"}
 
 
 def _json(path):

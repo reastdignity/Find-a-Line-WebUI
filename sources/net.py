@@ -173,6 +173,51 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
+    # LGV Hamburg's open-data downloads (the DGM1 and bDOM1 archives, read by Range: Hamburg): no published limits
+    # (the Transparenzportal's records https://suche.transparenz.hamburg.de/dataset/gelaendemodelle-hamburg-dgm2
+    # and https://suche.transparenz.hamburg.de/dataset/digitales-hoehenmodell-hamburg-bdom8, as CKAN's
+    # https://suche.transparenz.hamburg.de/api/3/action/package_show?id=<name>: dl-de/by-2.0, "is_free_to_use", no
+    # limits; https://www.daten-hamburg.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
+    "www.daten-hamburg.de": 2,
+    # Geospatial Ontario's package host (Ontario's DTM and DSM, Lidar-Derived: 1 km members of its package ZIPs,
+    # read by Range): no published limits. Read 2026-11-16: the Open Government Licence – Ontario
+    # (https://www.ontario.ca/page/open-government-licence-ontario: "Copy, modify, publish, translate, adapt,
+    # distribute or otherwise use the Information in any medium, mode or format for any lawful purpose"), the DTM
+    # and DSM user guides (https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DTM-Lidar-Derived-User-Guide.docx and
+    # https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DSM-Lidar-Derived-User-Guide.docx, section 2.2: the
+    # attribution statement, no limit), the package index items (https://www.arcgis.com/home/item.html?id=
+    # ae2f11bd9e0e473080a4c5ded9ff93da and ...?id=516dab8d9fb7432d82644640095f5b31: licence OGL - Ontario, no limit),
+    # the GeoHub's "Access and terms of use" (https://geohub.lio.gov.on.ca/, its site item
+    # 999e254b3ad0403e8b7457dddbf2e8ea: "Use of this site and any of the data, text, maps and other information on
+    # the site (collectively "content") is governed by the terms and conditions set out below"; disclaimers only,
+    # no number) and ontario.ca's terms of use (https://www.ontario.ca/page/terms-use: "you must not: interfere with
+    # or disrupt this website or any of our computer systems"); the host's robots.txt answers 404; all read
+    # 2026-11-16. Two at once
+    "ws.gisetl.lrc.gov.on.ca": 2,
+    # Landesamt GeoInformation Bremen's INSPIRE downloads (the DGM1 and DOM1 archives of Bremen and Bremerhaven, read by
+    # Range): no published limits (MetaVer's record https://metaver.de/trefferanzeige?docuuid=C448202A-0F15-413A-99E6-
+    # F22F10E190C9: CC BY 4.0, "Es gelten keine Zugriffsbeschränkungen"; the open-data decree of 22.05.2024; the DOP
+    # WMS's capabilities, https://geodienste.bremen.de/wms_dop_lb: Fees CC BY, no AccessConstraints;
+    # https://gdi2.geo.bremen.de/robots.txt answers 404; read 2026-11-15): courtesy, two at once
+    "gdi2.geo.bremen.de": 2,
+    # Tokyo's bucket of the Tokyo Digital Twin (its 0.5 m grid sheets and their index tiles): no published limits
+    # (the Tokyo Open Data terms, https://portal.data.metro.tokyo.lg.jp/terms/, and the catalogue's records
+    # t000029d0000000019, 20 and 24, read 2026-11-15); Tokyo pays the egress (not an AWS Open Data bucket):
+    # two at once
+    "gic-tokyo.s3.ap-northeast-1.amazonaws.com": 2,
+    # VIRTUAL SHIZUOKA's bucket (AWS Open Data; Shizuoka's LP grid sheets): no published limits (the README,
+    # https://github.com/aigidjp/opendata_virtualshizuoka, the AWS registry's virtual_shizuoka.yaml and the
+    # prefecture's page https://www.pref.shizuoka.jp/machizukuri/1049255/1052183.html, read 2026-11-15): two at once
+    "virtual-shizuoka.s3.ap-northeast-1.amazonaws.com": 2,
+    # The CSDI Portal's bulk-data host (CEDD's 2020 lidar sheets of Hong Kong) and the portal (the FeatureServer of
+    # their index, asked by tools/hong_kong_sheets.py only): no published limits (the CSDI Portal's Terms and
+    # Conditions of Use, https://portal.csdi.gov.hk/csdi-webpage/doc/TNC, its FAQ,
+    # https://portal.csdi.gov.hk/csdi-webpage/info/FAQ, and the GEO Data Portal's terms,
+    # https://www.ginfo.cedd.gov.hk/GEOOpenData/eng/TnC.aspx, read 2026-11-16, give no numbers and say nothing of
+    # automated downloads; bulkdata.csdi.gov.hk has no robots.txt, the portal's disallows /geoportal/, /portal/ and
+    # /notice/ only): courtesy, two at once
+    "bulkdata.csdi.gov.hk": 2,
+    "portal.csdi.gov.hk": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -323,12 +368,14 @@ def verify(url: Optional[str]):
         return path
 
 
-def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
+def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart"),
+         final: Tuple[int, ...] = ()):
     """GET with retries; raises RuntimeError with the server message on failure (without the
     query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
     (rate_turn) and is counted (servicecounts, the host only; a 200 that is not data counts as
     `other`). A 429 or 503 (the server asks us to slow down) backs off longer: _sleep(attempt + 3),
-    about 8, 16 and 32 s."""
+    about 8, 16 and 32 s. A status in final is an error at once, never asked again (an S3 bucket that
+    denies listing answers 403 for a key it does not have: SheetFile(listed=True))."""
     last_error = None
     for attempt in range(RETRIES):
         slow_down = False
@@ -344,14 +391,23 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
                     if response.status_code == 200:
                         counted.outcome = "other"
                     slow_down = response.status_code in (429, 503)
+                    if response.status_code in final:
+                        raise _Final(f"HTTP {response.status_code}: {response.text[:300]}")
                     raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
             return response
+        except _Final as e:
+            last_error = e
+            break
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
             _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)
     raise RuntimeError(cache.clean_error(last_error))
+
+
+class _Final(RuntimeError):
+    """An answer _get does not ask again (its `final` statuses)."""
 
 
 def _sleep(attempt: int):

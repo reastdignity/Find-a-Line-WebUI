@@ -74,6 +74,84 @@ def test_a_region_takes_its_countrys_continent():
     assert _row(rows, "australia-tasmania").continent == "Oceania"
 
 
+# The titles of the catalogue on 2026-11-15, before the window grouped by country: a row's name is slug(title), and the
+# state files, tui-targets.json and the settings' rows are keyed by it (downloads were running under these names)
+TITLES = [
+    "Åland", "Australia", "Australia: Queensland", "Australia: Tasmania", "Austria", "Brazil", "Canada",
+    "Canada: British Columbia", "Canada: Nunavut", "Cyprus", "Czechia", "Denmark", "Estonia", "Faroe Islands", "Finland",
+    "France", "France: French Guiana", "France: Guadeloupe", "France: Martinique", "Germany: Baden-Württemberg",
+    "Germany: Bavaria", "Germany: Berlin", "Germany: Brandenburg", "Germany: Hesse", "Germany: Lower Saxony",
+    "Germany: Mecklenburg-Vorpommern", "Germany: North Rhine-Westphalia", "Germany: Rhineland-Palatinate",
+    "Germany: Saarland", "Germany: Saxony", "Germany: Saxony-Anhalt", "Germany: Schleswig-Holstein", "Greenland",
+    "Iceland", "Italy", "Italy: Aosta Valley", "Italy: Sardinia", "Italy: South Tyrol", "Italy: Trentino",
+    "Italy: Tuscany", "Liechtenstein", "Luxembourg", "Malta", "Mexico", "Netherlands", "Netherlands: Bonaire",
+    "Netherlands: Saba", "Netherlands: Sint Eustatius", "New Zealand", "Norway", "Norway: Jan Mayen", "Norway: Svalbard",
+    "Poland", "Portugal: Madeira", "Puerto Rico", "Saint-Barthélemy", "Saint-Martin (France)",
+    "Saint-Pierre and Miquelon", "Slovakia", "Slovenia", "Spain", "Spain: Canary Islands", "Switzerland",
+    "U.S. Virgin Islands", "United Kingdom: England", "United Kingdom: Northern Ireland", "United Kingdom: Scotland",
+    "United Kingdom: Wales", "United States", "United States: Alaska", "Uruguay"]
+
+
+def test_names_and_titles_stay():
+    """Grouping by country changes neither: new areas may come, these stay as they were."""
+    rows = ar.catalogue()
+    pairs = {(row.name, row.title) for row in rows}
+    assert {(ar.slug(title), title) for title in TITLES} <= pairs
+    assert all(row.name == ar.slug(row.title) for row in rows)
+    assert {("aland", "Åland"), ("saint-martin-france", "Saint-Martin (France)"),
+            ("u-s-virgin-islands", "U.S. Virgin Islands"), ("puerto-rico", "Puerto Rico")} <= pairs
+
+
+def test_country_and_label_of_a_row():
+    rows = ar.catalogue()
+    assert (_row(rows, "germany-bavaria").country, _row(rows, "germany-bavaria").label) == ("Germany", "Bavaria")
+    assert (_row(rows, "italy").country, _row(rows, "italy").label) == ("Italy", "Whole country · tinitaly")
+    assert (_row(rows, "austria").country, _row(rows, "austria").label) == ("Austria", "Whole country · austria")
+    assert (_row(rows, "greenland").country, _row(rows, "liechtenstein").country) == ("Greenland", "Liechtenstein")
+    assert _row(rows, "france-guadeloupe").label == "Guadeloupe"
+
+
+@pytest.mark.parametrize("name, country, continent", [
+    ("saint-barthelemy", "France", "North America"), ("saint-martin-france", "France", "North America"),
+    ("saint-pierre-and-miquelon", "France", "North America"), ("puerto-rico", "United States", "North America"),
+    ("u-s-virgin-islands", "United States", "North America"), ("aland", "Finland", "Europe")])
+def test_a_territory_sits_under_its_country_where_it_lies(name, country, continent):
+    row = _row(ar.catalogue(), name)
+    assert (row.country, row.continent) == (country, continent)
+    assert row.label == row.title    # its own name
+
+
+@pytest.mark.parametrize("name, continent", [
+    ("france-guadeloupe", "North America"), ("france-martinique", "North America"),
+    ("france-french-guiana", "South America"), ("france-reunion", "Africa"), ("france-mayotte", "Africa"), ("netherlands-bonaire", "North America"),
+    ("netherlands-saba", "North America"), ("netherlands-sint-eustatius", "North America"),
+    ("spain-canary-islands", "Europe"), ("portugal-madeira", "Europe"), ("norway-svalbard", "Europe"),
+    ("norway-jan-mayen", "Europe"), ("united-states-alaska", "North America"), ("germany-bavaria", "Europe")])
+def test_a_region_lies_on_its_continent(name, continent):
+    """REGION_CONTINENTS where a region's outline names none and it is not on its country's continent."""
+    assert _row(ar.catalogue(), name).continent == continent
+
+
+def test_region_continents_name_regions_of_the_map():
+    with open(os.path.join(ar.COVERAGE, "coverage.json"), encoding="utf-8") as f:
+        areas = json.load(f)["areas"]
+    assert set(ar.REGION_CONTINENTS) <= set(areas)
+    assert set(ar.REGION_CONTINENTS.values()) <= set(ar.CONTINENTS)
+
+
+def test_without_parents_every_code_is_its_own_country(monkeypatch):
+    """Each territory a country of its own; PARENTS moves no row to another continent."""
+    continents = {row.name: row.continent for row in ar.catalogue()}
+    monkeypatch.setattr(ar, "PARENTS", {})
+    rows = ar.catalogue()
+    assert {row.name: row.continent for row in rows} == continents
+    assert _row(rows, "puerto-rico").country == "Puerto Rico"
+    assert _row(rows, "aland").label == "Whole country · finland"
+    assert sum(row.continent == "Europe" for row in rows) == 52
+    assert sum(row.continent == "North America" for row in rows) == 18
+    assert sum(row.continent == "South America" for row in rows) == 3
+
+
 def test_the_list_by_continent_with_its_settings(settings):
     rows = ar.rows_of(settings)
     assert [row.continent for row in rows] == sorted((row.continent for row in rows),
@@ -81,7 +159,82 @@ def test_the_list_by_continent_with_its_settings(settings):
     assert sum(row.continent == "Oceania" for row in rows) == 4  # New Zealand, Tasmania, Queensland, Australia
     utah = _row(rows, "utah")
     assert (utah.title, utah.source, utah.resolution, utah.km2) == ("United States: Utah", "usa", 1.0, 219900)
+    assert (utah.country, utah.label) == ("United States", "Utah")
     assert _row(rows, "poland").host_slots == ("opendata.geoportal.gov.pl=2",)
+
+
+def test_the_order_continent_country_then_the_whole_country_first(settings):
+    rows = ar.rows_of(settings)
+    countries = [(row.continent, row.country) for row in rows]
+    for key in set(countries):   # each country's rows together
+        first = countries.index(key)
+        assert countries[first:first + countries.count(key)] == [key] * countries.count(key)
+    europe = list(dict.fromkeys(row.country for row in rows if row.continent == "Europe"))
+    assert europe == sorted(europe, key=lambda name: ar.anyascii(name).lower())
+    assert [row.label for row in rows if row.country == "Italy"] == [
+        "Whole country · tinitaly", "Aosta Valley", "Sardinia", "South Tyrol", "Trentino", "Tuscany"]
+    assert [row.name for row in rows if row.country == "United States"] == [
+        "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+    assert [row.name for row in rows if row.country == "Finland"] == ["finland", "aland"]
+
+
+@pytest.mark.parametrize("entry, country, label", [
+    ({"title": "United States: Utah"}, "United States", "Utah"),
+    ({"title": "United States: Utah", "country": "United States"}, "United States", "Utah"),
+    ({"title": "Utah", "country": "United States"}, "United States", "Utah"),
+    ({"title": "Poland"}, "Poland", "Whole country · usa"),
+    ({"title": "Puerto Rico: San Juan"}, "United States", "Puerto Rico: San Juan"),
+    ({"title": "Atlantis: North"}, "Atlantis: North", "Atlantis: North"),
+    ({}, "the-alps", "the-alps"),   # no title: its name
+])
+def test_the_country_of_an_extra_row(tmp_path, entry, country, label):
+    _check_extra(tmp_path, entry, country, label)
+
+
+@pytest.mark.parametrize("entry, country, label", [
+    ({"title": "Puerto Rico: San Juan", "country": "Puerto Rico"}, "United States", "San Juan"),
+    ({"title": "Åland", "country": "Åland"}, "Finland", "Åland"),
+    ({"title": "Mariehamn", "country": "Aland"}, "Finland", "Mariehamn"),
+    ({"title": "Brittany", "country": "france"}, "France", "Brittany"),
+    ({"title": "FRANCE: Brittany", "country": "FRANCE"}, "France", "Brittany"),
+])
+def test_an_extra_rows_country_goes_through_parents_and_spelling(tmp_path, entry, country, label):
+    _check_extra(tmp_path, entry, country, label)
+
+
+def test_a_title_that_is_a_territorys_name():
+    assert ar._country_of("Åland") == ("Finland", "Åland")
+    assert ar._country_of("Puerto Rico") == ("United States", "Puerto Rico")
+
+
+def test_names_that_slug_alike_are_one_group(tmp_path):
+    """The window's group ids are slugs: two spellings of one country (or continent) would be two groups of one id."""
+    extra = [{"name": "brittany", "title": "Brittany", "country": "france", "continent": "Europe"},
+             {"name": "corsica", "title": "Corsica", "country": "France", "continent": "europe"},
+             {"name": "a1", "title": "Atlantis: North", "continent": "Lost"},
+             {"name": "a2", "title": "x", "country": "ATLANTIS: north", "continent": "lost"}]
+    settings = ar.load_settings(_write(tmp_path, extra=[{"area": "osm:X", "source": "usa", **e} for e in extra]))
+    rows = ar.rows_of(settings)
+    for name in ("brittany", "corsica", "france"):
+        assert (_row(rows, name).continent, _row(rows, name).country) == ("Europe", "France")
+    assert {(_row(rows, name).continent, _row(rows, name).country) for name in ("a1", "a2")} == {
+        ("Lost", "Atlantis: North")}
+    keys = {(ar.slug(row.continent), ar.slug(row.country)): (row.continent, row.country) for row in rows}
+    assert len(keys) == len({(row.continent, row.country) for row in rows})   # one spelling per slug
+
+
+def test_a_continent_outside_the_list_sorts_last():
+    def row(continent):
+        return ar.Row("x", "X", continent, "X", "X", "osm:X", "usa", 1.0, False, 1)
+    order = sorted([row("Other"), row("Africa"), row("Europe"), row("Asia")], key=ar.order_of)
+    assert [r.continent for r in order] == ["Europe", "Asia", "Africa", "Other"]
+
+
+def _check_extra(tmp_path, entry, country, label):
+    settings = ar.load_settings(_write(tmp_path, extra=[{"name": "the-alps", "area": "osm:X", "source": "usa",
+                                                         "continent": "Europe", **entry}]))
+    row = _row(ar.rows_of(settings), "the-alps")
+    assert (row.country, row.label, row.title) == (country, label, entry.get("title", "the-alps"))
 
 
 def test_a_row_may_ask_another_resolution(tmp_path):

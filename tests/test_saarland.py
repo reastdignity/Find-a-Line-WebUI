@@ -371,6 +371,91 @@ def test_404_resolves_the_token_again(http_server, tmp_path):
         assert json.load(f)["token"] == "TOKEN2b"
 
 
+def test_changed_member_reads_the_directories_again(http_server, tmp_path, no_sleep):
+    """An archive replaced under the same name with its first member made again (another CRC-32 and size at offset
+    0, where a header of the same name still stands): the first read's CRC-32 is not the directory's, so the
+    directories are read again at once and the 0.25° answers forgotten; that read fails (the member is another
+    version now), the next search lists the new member and reads it (before, the directories were never read
+    again: every search failed until their TTL)."""
+    _share(http_server, "TOKEN1a")
+    _two_archives(http_server, "TOKEN1a")
+    cache_dir = str(tmp_path / "cache")
+    layer = _layer(http_server)
+    layer._use(cache_dir)
+    grid = _grid(1, 1)
+    (tile,) = layer.tiles(grid)
+    a = _archive([("DGM1_tif_A/dgm1_32_32700_548500_1_SL_2025.tif", _tif(EAST, NORTH, base=400.0, seed=7),
+                   zipfile.ZIP_DEFLATED, False),
+                  ("DGM1_tif_A/dgm1_32_32701_548500_1_SL_2025.tif", _tif(EAST + 1, NORTH, seed=1),
+                   zipfile.ZIP_DEFLATED, False)])
+    _serve(http_server, "/dav/TOKEN1a/A.zip", a, '"a2"')
+    heads = [r.method for r in http_server.requests("/dav/TOKEN1a/A.zip")].count("HEAD")
+    with pytest.raises(RuntimeError, match="Could not download"):
+        layer.download_tile(tile, layer.tile_path(cache_dir, tile))
+    assert [r.method for r in http_server.requests("/dav/TOKEN1a/A.zip")].count("HEAD") == heads + 1
+    assert not glob.glob(os.path.join(cache_dir, "test_sl", "sheet-index", "dgm1", "*.json"))
+    layer.download(grid, cache_dir, None, "terrain")
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as cached:
+        assert cached.read(1).min() >= 400.0
+
+
+def test_shorter_archive_416_reads_the_directories_again(http_server, tmp_path, no_sleep):
+    """An archive replaced by a shorter one (a member before the tile's removed): the tile's old place lies beyond
+    the new end, a 416 ("bytes */<size>"), which is a changed archive: the directories are read again at once and
+    the member read from its new place (before: three 416s, renew never called, the tile failed)."""
+    _share(http_server, "TOKEN1a")
+    member = ("DGM1_tif_A/dgm1_32_32700_548500_1_SL_2025.tif", _tif(EAST, NORTH, seed=3), zipfile.ZIP_DEFLATED, False)
+    long = _archive([("filler.bin", np.random.default_rng(0).bytes(60_000), zipfile.ZIP_STORED, False), member])
+    _serve(http_server, "/dav/TOKEN1a/A.zip", long)
+    cache_dir = str(tmp_path / "cache")
+    layer = _layer(http_server, archives=("A",))
+    layer._use(cache_dir)
+    (tile,) = layer.tiles(_grid(1, 1))
+    short = _archive([member])
+    _serve(http_server, "/dav/TOKEN1a/A.zip", short, '"a2"')
+    assert tile.offset > len(short)
+    before = len(http_server.requests("/dav/TOKEN1a/A.zip"))
+    path = layer.tile_path(cache_dir, tile)
+    layer.download_tile(tile, path)
+    assert os.path.exists(path)
+    assert [r.method for r in http_server.requests("/dav/TOKEN1a/A.zip")[before:]] == ["GET", "HEAD", "GET", "GET"]
+
+
+@pytest.mark.parametrize("kind", ["416 with the size", "416 bare", "another size", "not deflate"])
+def test_changed_archive_raises_member_changed(http_server, no_sleep, kind):
+    """With renew (changed=True), a read that says the archive is another one raises MemberChanged at once: a 416
+    (with "bytes */<size>" or without), a Content-Range naming another size than the directory's, deflated data
+    zlib cannot read. Without renew each is asked again (net.RETRIES) and then the tile's error."""
+    name = "dgm1_32_32700_548500_1_sl_2025.tif"
+    body = _archive([("filler.bin", np.random.default_rng(0).bytes(2_000), zipfile.ZIP_STORED, False),
+                     (name, _tif(EAST, NORTH), zipfile.ZIP_DEFLATED, False)])
+    _serve(http_server, "/a.zip", body)
+    (m,) = [m for m in read_directory(http_server.url("/a.zip"), len(body)) if m.name == name]
+    request = ZipTile(EAST, NORTH, 2025, f"{m.crc:08x}", http_server.url("/a.zip"), size=m.size, member=m.name,
+                      offset=m.offset, method=m.method, flags=m.flags, crc=m.crc, usize=m.usize, length=len(body))
+    if kind == "416 with the size":
+        _serve(http_server, "/a.zip", body[:m.offset - 100])  # shorter than the member's place
+    elif kind == "416 bare":
+        http_server.answers.pop(("GET", "/a.zip", ()))
+        http_server.route("/a.zip", lambda r: Answer(416, b"", {"Content-Type": "text/plain"}))
+    elif kind == "another size":
+        _serve(http_server, "/a.zip", body[:-30])  # the member's range runs past the new end
+    else:
+        data = bytearray(body)
+        start = m.offset + 30 + len(name)
+        data[start:start + 4] = b"\xff\xff\xff\xff"  # a block of the reserved type 3
+        _serve(http_server, "/a.zip", bytes(data))
+    reader = ZipMember("test")
+    with pytest.raises(zipmember.MemberChanged):
+        reader._member(request, "test", changed=True)
+    asked = len(http_server.requests("/a.zip"))
+    with pytest.raises(RuntimeError, match="Could not download") as raised:
+        reader._member(request, "test")
+    assert not isinstance(raised.value, zipmember.MemberChanged)
+    assert len(http_server.requests("/a.zip")) - asked == net.RETRIES
+
+
 def test_404_without_a_new_place_fails(http_server, tmp_path, no_sleep, capsys):
     _share(http_server, "TOKEN1a")
     _two_archives(http_server, "TOKEN1a")
