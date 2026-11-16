@@ -38,14 +38,20 @@ A product is cut once, when it is complete, and is final after that:
    filesystem, or another mount in a container). Nothing unfinished is ever at <out>/<dataset>/<product>/<res>m/:
    sources.GridTiles takes a dataset as there once that folder exists.
 3. Every doubt before it is final is resolved by cutting again, never by stopping. The journal
-   (<work>/journals/<dataset>.<product>.<res>m.jsonl, append-only) gets one line per finished tile (its key, sha256,
-   the ids and stamps of the rasters that fed it) after the tile's file is in place and synced; a torn last line is
-   ignored. A restart keeps a tile whose file's sha256 is its journal line's and whose rasters are the same; every
-   other tile of the staging folder is cut again, and every other file there removed.
+   (<work>/journals/<dataset>.<product>.<res>m-<mirror>.jsonl, append-only) gets one line per finished tile (its
+   key, sha256, the ids and stamps of the rasters that fed it in their order, the product's rule with CUT_VERSION)
+   after the tile's file is in place and synced; a torn last line is ignored. A restart keeps a tile whose file's
+   sha256 is its journal line's and whose rasters and rule are the same; every other tile of the staging folder is
+   cut again, and every other file there removed. Not detected: a placed file replaced by one of the same size and
+   modification time (start with a fresh --work then). A raster's id is its path below --inputs (a ZIP member's:
+   <the ZIP's path>!<member>), one per product.
 4. When every tile is cut, index.json is written into the staging folder, the folder is synced and renamed into the
-   mirror in one step (os.replace of the folder), then the dataset's card is written whole. After that nothing is cut
-   for the product again: `cut` says "final"; changed, added or removed inputs are a new edition (a fresh --out or a
-   new dataset name). A final product needs no state: the work folder may be deleted.
+   mirror in one step (os.replace of the folder), then the dataset's card is written whole. inputs.jsonl beside it
+   records the rasters the cut read (ids and stamps; not for the datasets of before). After that nothing is cut for
+   the product again: `cut` says "final"; changed, added or removed inputs are a new edition (a fresh --out or a new
+   dataset name). A final product needs no state: the work folder may be deleted. A rename that crosses
+   filesystems (a dataset folder linked elsewhere) stops in one sentence, the staging folder kept. `status` lists
+   every staging folder; `clean` removes one whose product is final, or with --staging one no run cuts now.
 A product's fetched files stay until that product is final and verified (then the user may delete them by hand).
 
 The cut: every tile (i, j) of the product's extent (the rectangle of its rasters, on the tile grid through the
@@ -80,9 +86,10 @@ sha256, finds every file in the folder the index does not list, compares the til
 the index's keys and the inputs with the journal's feeders, and compares sampled tiles (`--samples`, by default 1 %
 of the tiles with data, at least 8, at most 500; `--seed`, recorded) with the inputs twice: re-assembled from
 footprints read again, and POINTS pixels each read straight from the input rasters through their own transforms with
-the masks applied apart. A tile whose inputs are gone or changed is not checkable, never a failure; a verify that
-finds nothing checkable keeps an earlier passing verify.json of the same index.json. It writes verify.json beside the
-index.
+the masks applied apart. It judges against the inputs the cut read (inputs.jsonl): an input that came later is no
+part of the edition (one line), a tile whose inputs are gone or changed is not checkable, never a failure. A verify
+that compares no tile with data is "not checkable" (ok null; status: final, not verified), and keeps an earlier
+passing verify.json of the same index.json. It writes verify.json beside the index.
 
 In a container of the project's image (Linux). The image holds no tools/ (.dockerignore), so the clone's is mounted
 too; the container runs as uid 10001 unless --user says otherwise, the mounted folders must be writable by that user,
@@ -103,6 +110,7 @@ It makes no request but the declared downloads (cut, verify and status run with 
 import argparse
 import contextlib
 import datetime
+import errno
 import fnmatch
 import glob
 import hashlib
@@ -151,6 +159,12 @@ THREADS = 6            # tile writers (a small home server's cores)
 MAX_MEMORY_GB = 8.0    # the cut's estimated bound, GDAL's cache included (see the module's docstring)
 BASE_MB = 300          # Python, GDAL and the libraries before any tile
 TILE_BYTES_PER_PX = 24  # a tile in flight: its float32 buffer, a float64 read window at worst, the masks, LERC's copy
+# A fetched file whose bytes are not those the fetch recorded
+SHA_MISMATCH = ("its sha256 is not the one done.jsonl records: remove the file and its line from done.jsonl, then run "
+                "the fetch tool (tools/cdd_fetch.py) again")
+# Raised by hand whenever a change of this tool could change a cut's output: a tile journaled by another version is
+# cut again (product_rule)
+CUT_VERSION = 1
 POINTS = 300           # verify: pixels of each sampled tile also read straight from the inputs
 VERIFY_EPS = MAX_Z_ERROR + 1e-4  # LERC's bound and float32 rounding at heights of a few thousand metres
 NAME = re.compile(r"^[a-z0-9_-]+$")
@@ -477,9 +491,11 @@ WRITE_SITES = (
     "copy.before_replace", "copy.after_replace",         # a tiled copy of an ASCII grid or of wide strips
     "tile.before_replace", "tile.after_replace",         # a tile in the staging folder
     "journal.before_line", "journal.after_line",         # the journal's line of a finished tile
+    "inputs.before_replace", "inputs.after_replace",     # inputs.jsonl in the staging folder (the cut's inputs)
     "index.before_replace", "index.after_replace",       # index.json in the staging folder
     "rename.before", "rename.after",                     # the staging folder renamed into the mirror
     "card.before_replace", "card.after_replace",         # the dataset's card
+    "verify.before_replace", "verify.after_replace",     # verify.json in a final product's folder
 )
 HOOK = None  # tests: a function of the site's name
 
@@ -623,12 +639,20 @@ def placed_path(spec: Placed, inputs: Optional[str]) -> Optional[str]:
     return found[0] if found else None
 
 
+_JSONL: Dict[str, Tuple[str, List[Dict]]] = {}  # read_jsonl's parsed files by path: (size and time, rows)
+
+
 def read_jsonl(path: str) -> List[Dict]:
     """The JSON objects of a file of lines (none if it is missing); a line that is not UTF-8 or JSON (one torn by a
-    stopped writer) is skipped with one log line naming its number, never its text."""
+    stopped writer) is skipped with one log line naming its number, never its text. Parsed once while the file's
+    size and time stay the same (a run reads the fetch tool's files several times)."""
     rows = []
     if not os.path.exists(path):
         return rows
+    key, stamp = os.path.abspath(path), file_stamp(path)
+    if _JSONL.get(key, (None,))[0] == stamp:
+        return _JSONL[key][1]
+    _JSONL[key] = (stamp, rows)
     with open(path, "rb") as f:
         for n, raw in enumerate(f, 1):
             try:
@@ -716,7 +740,20 @@ class WorkFiles:
                             (self._key(path), kind, source, stamp))
 
     def made(self, path: str) -> bool:
-        return self.stamp(path) is not None
+        row = self.db.execute("SELECT kind FROM files WHERE path = ?", (self._key(path),)).fetchone()
+        return row is not None and row[0] != "checked"
+
+    def check_archive(self, path: str, sha: str):
+        """A fetched ZIP against its sha256 of done.jsonl, once per path, size and time (kept here as a checked
+        file, kind "checked", which clean never removes)."""
+        stamp = f"{file_stamp(path)}:{sha}"
+        row = self.db.execute("SELECT stamp FROM files WHERE path = ? AND kind = 'checked'",
+                              (self._key(path),)).fetchone()
+        if row and row[0] == stamp:
+            return
+        if _sha256(path) != sha:
+            raise ValueError(f"{path}: {SHA_MISMATCH}")
+        self.record(path, "checked", path, stamp)
 
     def forget(self, path: str):
         with self.db:
@@ -778,12 +815,20 @@ def resolve(product: Product, work: str, inputs: Optional[str], files: Optional[
                 out.complete = False
                 out.missing.append(spec.url if isinstance(spec, Url) else spec.pattern)
                 continue
-            _add_file(out, files, work, spec.members, path, os.path.basename(path), file_stamp(path), None)
+            rid = os.path.basename(path) if isinstance(spec, Url) else \
+                os.path.relpath(path, inputs).replace(os.sep, "/")  # the path below --inputs (--work for a Url)
+            _add_file(out, files, work, spec.members, path, rid, file_stamp(path), None)
     finally:
         if own:
             files.close()
     if left:
         raise ValueError(f"--without {' '.join(sorted(left))}: not an item of the product's fetched inputs")
+    seen: Dict[str, str] = {}
+    for raster in out.rasters:
+        if raster.id in seen:
+            raise ValueError(f"two rasters of one id {raster.id!r}: {seen[raster.id]} and {raster.path} (name the "
+                             "inputs so each has its own path below --inputs)")
+        seen[raster.id] = raster.path
     return out
 
 
@@ -793,6 +838,8 @@ def _add_file(out: Resolved, files: WorkFiles, work: str, members: Sequence[str]
     if not members:
         out.rasters.append(Raster(rid, path, stamp, sha))
         return
+    if sha is not None:
+        files.check_archive(path, sha)
     with zipfile.ZipFile(path) as archive:
         pending = False
         for member in _member_names(archive, members):
@@ -821,24 +868,33 @@ def _resolve_fetched(spec: Fetched, inputs: Optional[str], out: Resolved, withou
             out.complete = False
             out.missing.append(f"{spec.area}/manifest.jsonl (run the fetch tool's plan)")
             return []
-        expected = [(str(r["id"]), f"{spec.collection}/{r.get('folder')}/{r['id']}.tif", r.get("size"))
-                    for r in read_jsonl(manifest) if r.get("collection") == spec.collection and r.get("id")]
+        expected = [(str(r["id"]), f"{spec.collection}/{r.get('folder')}/{r['id']}.tif", r.get("size"),
+                     r.get("version")) for r in read_jsonl(manifest) if r.get("collection") == spec.collection
+                    and r.get("id")]
         total = len(expected)
     else:
         status_path = os.path.join(area, "status.json")
         groups = _load_json(status_path).get("groups", {}) if os.path.exists(status_path) else {}
         total = (groups.get(spec.group) or {}).get("files")
-        expected = [(rid, row["path"], row.get("size")) for rid, row in done.items() if row.get("group") == spec.group]
+        expected = [(rid, row["path"], row.get("size"), None) for rid, row in done.items()
+                    if row.get("group") == spec.group]
         if total is None:
             out.complete = False
             out.missing.append(f"{spec.area}/status.json names no group {spec.group} (run the fetch tool)")
             return []
     found, missing = [], []
-    for rid, rel, size in expected:
+    for rid, rel, size, version in expected:
         row = done.get(rid)
         path = os.path.join(area, *rel.split("/"))
-        whole = row is not None and os.path.isfile(path) and os.path.getsize(path) == row.get("size") and \
-            (size is None or size == row.get("size"))
+        why = None  # why a recorded item is no input yet
+        if row is not None:
+            if version is not None and row.get("version") is not None and version != row.get("version"):
+                why = "a newer version in the manifest"
+            elif not os.path.isfile(path):
+                why = "recorded, but its file is gone"
+            elif os.path.getsize(path) != row.get("size") or (size is not None and size != row.get("size")):
+                why = "size differs"
+        whole = row is not None and why is None
         if rid in without:
             if whole:
                 raise ValueError(f"--without {rid}: it is present in {spec.area} (a typing mistake must not drop "
@@ -849,7 +905,7 @@ def _resolve_fetched(spec: Fetched, inputs: Optional[str], out: Resolved, withou
         if whole:
             found.append((path, f"{spec.area}/{rel}", row["sha256"]))
         else:
-            missing.append(rid)
+            missing.append(f"{rid} ({why})" if why else rid)
     if spec.collection is None:  # a list: the files not done yet have no id here, only a count
         short = total - len(found) - len(out.without)
         missing += [f"({short} more of the list not fetched yet)"] if short > 0 else []
@@ -1297,7 +1353,7 @@ class State:
         if row and row[0] == stamp and row[2]:
             return
         if _sha256(raster.path) != raster.sha256:
-            raise ValueError(f"{raster.path}: its sha256 is not the one done.jsonl records (fetch it again)")
+            raise ValueError(f"{raster.path}: {SHA_MISMATCH}")
         self.flush()
         with self.lock, self.db:
             self.db.execute("UPDATE rasters SET checked = 1 WHERE id = ? AND stamp = ?", (raster.id, stamp))
@@ -1491,6 +1547,9 @@ def _workers(product: Product, threads: int, max_memory_gb: float) -> Tuple[int,
 
 # The journal and the staging folder
 
+INPUTS_FILE = "inputs.jsonl"  # in a final folder: {"id", "stamp"} of every raster the cut read, in their order
+
+
 def journal_path(work: str, ds: Dataset, product: Product, out: str) -> str:
     """<work>/journals/<dataset>.<product>.<res>m-<the mirror's>.jsonl: one line per finished tile, kept after the
     product is final (verify reads it); one per mirror folder, so a new edition cut into a fresh --out has its own."""
@@ -1502,7 +1561,7 @@ def product_rule(product: Product) -> str:
     """What a tile's values depend on besides its rasters (the grid, the CRS, the masks, the overlap rule, the
     encoding): a tile journaled under another rule is cut again."""
     rule = [product.res, product.crs, list(product.origin), list(product.nodata), product.sea, product.floor,
-            product.overlap, TILE_M, MAX_Z_ERROR]
+            product.overlap, TILE_M, MAX_Z_ERROR, CUT_VERSION]
     return hashlib.sha1(json.dumps(rule).encode("utf-8")).hexdigest()[:16]
 
 
@@ -1555,8 +1614,11 @@ def staging_folder(work: str, out: str, ds: Dataset, product: Product) -> Tuple[
     in_work = os.path.join(work, "staging", rel)
     os.makedirs(os.path.join(work, "staging"), exist_ok=True)
     os.makedirs(out, exist_ok=True)
-    probe = os.path.join(work, "staging", f".probe-{os.getpid()}")
-    target = os.path.join(out, f".probe-{os.getpid()}")
+    name = f".probe-{ds.name}.{product.name}.{product.res:g}m"  # under the product's lock: one at a time
+    probe, target = os.path.join(work, "staging", name), os.path.join(out, name)
+    for left in (probe, target):  # a stop between the two lines below left it
+        if os.path.isdir(left):
+            os.rmdir(left)
     os.makedirs(probe, exist_ok=True)
     try:
         os.replace(probe, target)
@@ -1644,6 +1706,7 @@ def _cut_staged(ds: Dataset, product: Product, work: str, out: str, staging: str
             journal = read_journal(jpath)
             os.makedirs(staging, exist_ok=True)
             done: Dict[str, Optional[str]] = {}
+            to_hash = []
             for key in p.keys():
                 i, j = map(int, key.split("_"))
                 line = journal.get(key)
@@ -1654,8 +1717,12 @@ def _cut_staged(ds: Dataset, product: Product, work: str, out: str, staging: str
                 path = os.path.join(staging, *tile_name(i, j).split("/"))
                 if line["sha256"] is None and not os.path.exists(path):
                     done[key] = None
-                elif line["sha256"] is not None and os.path.exists(path) and _sha256(path) == line["sha256"]:
-                    done[key] = line["sha256"]
+                elif line["sha256"] is not None and os.path.exists(path):
+                    to_hash.append((key, path, line["sha256"]))
+            with ThreadPoolExecutor(max_workers=max(1, threads)) as hashing:  # a restart's cost: hashing kept tiles
+                for (key, _, sha), found in zip(to_hash, hashing.map(lambda t: _sha256(t[1]), to_hash)):
+                    if found == sha:
+                        done[key] = sha
             _clear_staging(staging, {os.path.normcase(os.path.join(staging, *tile_name(*map(int, k.split("_")))
                                                                    .split("/"))) for k, v in done.items() if v})
             todo = [k for k in p.keys() if k not in done]
@@ -1778,6 +1845,16 @@ def _finalize(ds: Dataset, product: Product, out: str, staging: str, p: Plan, r:
               done: Dict[str, Optional[str]]):
     """index.json written into the staging folder, the folder synced and renamed into the mirror in one step, then
     the dataset's card written whole."""
+    if not ds.legacy:  # the inputs this edition was cut from, for verify (the datasets of before keep their layout)
+        path = os.path.join(staging, INPUTS_FILE)
+        with open(path + ".part", "w", encoding="utf-8", newline="\n") as f:
+            for raster in r.rasters:
+                f.write(json.dumps({"id": raster.id, "stamp": raster.stamp}, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        _site("inputs.before_replace")
+        _replace(path + ".part", path)
+        _site("inputs.after_replace")
     path = os.path.join(staging, "index.json")
     with open(path + ".part", "w", encoding="utf-8") as f:
         json.dump(_index(ds, product, p, r, done), f)
@@ -1790,7 +1867,15 @@ def _finalize(ds: Dataset, product: Product, out: str, staging: str, p: Plan, r:
     folder = _folder(out, ds, product)
     os.makedirs(os.path.dirname(folder), exist_ok=True)
     _site("rename.before")
-    _replace(staging, folder)
+    try:
+        _replace(staging, folder)
+    except OSError as e:
+        if e.errno == errno.EXDEV or getattr(e, "winerror", None) == 17:  # ERROR_NOT_SAME_DEVICE
+            raise ValueError(f"the staging folder {staging} does not rename into {folder} (another filesystem: "
+                             f"{os.path.dirname(folder)} is linked or mounted elsewhere than {out}): make it a plain "
+                             "folder of --out's filesystem, or cut into an --out on that filesystem; the staging "
+                             "folder is kept") from e
+        raise
     _site("rename.after")
     _fsync_dir(os.path.dirname(folder))
     parent = os.path.dirname(staging)  # empty folders a staging in <out>/.staging leaves
@@ -1990,22 +2075,27 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
     index_sha = _sha256(final_path)
     problems: List[str] = []
     notes: List[str] = []
+    verify_path = os.path.join(folder, "verify.json")
+    if os.path.exists(verify_path + ".part"):  # a verify stopped while writing its result
+        _remove(verify_path + ".part", folder)
     listed = {os.path.normcase(os.path.join(folder, *tile_name(*map(int, k.split("_"))).split("/"))): k
               for k, v in index["tiles"].items() if v}
-    for key, digest in index["tiles"].items():
+
+    def tile_problem(item):
+        key, digest = item
         path = os.path.join(folder, *tile_name(*map(int, key.split("_"))).split("/"))
         if digest is None:
-            if os.path.exists(path):
-                problems.append(f"{key}: listed as without data, but its file exists")
-        elif not os.path.exists(path):
-            problems.append(f"{key}: its file is missing")
-        elif _sha256(path) != digest:
-            problems.append(f"{key}: the file does not match its sha256")
+            return f"{key}: listed as without data, but its file exists" if os.path.exists(path) else None
+        if not os.path.exists(path):
+            return f"{key}: its file is missing"
+        return f"{key}: the file does not match its sha256" if _sha256(path) != digest else None
+    with ThreadPoolExecutor(max_workers=THREADS) as hashing:  # every listed tile's sha256 on several threads
+        problems += [x for x in hashing.map(tile_problem, list(index["tiles"].items())) if x]
     unlisted = []
     for root, _, names in os.walk(folder):
         for n in names:
             path = os.path.join(root, n)
-            if os.path.normcase(path) not in listed and n not in ("index.json", "verify.json", "verify.json.part"):
+            if os.path.normcase(path) not in listed and n not in ("index.json", "verify.json", INPUTS_FILE):
                 unlisted.append(os.path.relpath(path, folder).replace(os.sep, "/"))
     if unlisted:
         problems.append(f"{len(unlisted)} file(s) the index does not list: {unlisted[:5]}")
@@ -2017,20 +2107,34 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
     files = WorkFiles(work)
     handles: Dict[str, "rio.DatasetReader"] = {}
     try:
-        r = resolve(product, work, inputs, files, index.get("missing_inputs", []))
+        # The inputs as they are now (index.json's missing_inputs is a record of the cut, not a request)
+        r = resolve(product, work, inputs, files)
         if r.unpack:  # a clean removed the members: unpacked again to read them
-            _extract_product(ds, product, work, inputs, files, max_memory_gb, index.get("missing_inputs", []))
-            r = resolve(product, work, inputs, files, index.get("missing_inputs", []))
-        present = {x.id: x for x in r.rasters}
+            _extract_product(ds, product, work, inputs, files, max_memory_gb)
+            r = resolve(product, work, inputs, files)
+        # Judged against the inputs this edition was cut from (inputs.jsonl; a folder of before: those of now)
+        recorded = {row["id"]: row.get("stamp") for row in read_jsonl(os.path.join(folder, INPUTS_FILE))
+                    if row.get("id")} if os.path.exists(os.path.join(folder, INPUTS_FILE)) else None
+        rasters = r.rasters if recorded is None else [x for x in r.rasters if x.id in recorded]
+        if recorded is not None:
+            later = [x.id for x in r.rasters if x.id not in recorded]
+            if later:
+                notes.append(f"{len(later)} inputs arrived after this product was cut (not part of this edition): a "
+                             f"new edition would include them: {', '.join(later[:5])}")
+            now = {x.id: x.stamp for x in rasters}
+            intact = all(now.get(rid) == stamp for rid, stamp in recorded.items())
+        else:
+            intact = r.complete
+        present = {x.id: x for x in rasters}
         _, cache_mb = _workers(product, 1, max_memory_gb)
         with rio.Env(GDAL_CACHEMAX=cache_mb):
-            paths = [(x.id, readable(x, work, product.res, max_memory_gb, files)) for x in r.rasters]
+            paths = [(x.id, readable(x, work, product.res, max_memory_gb, files)) for x in rasters]
             own = _own_reading(paths, product)
             bounds = {rid: b for rid, (b, _) in own.items()}
             readers = [(rid, path, bounds[rid]) for rid, path in paths]
             # The extent from the rasters' own bounds against the index: every tile a raster touches is listed,
             # every tile with data lies under a raster (only while every input is there)
-            if r.complete:
+            if intact:
                 touched = set().union(*(_touched(b, product) for b in bounds.values())) if bounds else set()
                 outside_index = sorted(touched - set(index["tiles"]))
                 if outside_index:
@@ -2055,7 +2159,7 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
             def checkable(key):
                 line = journal.get(key)
                 if line is None:
-                    return r.complete
+                    return intact
                 return all(rid in present and present[rid].stamp == s for rid, s in line["fed"].items())
             checkable_keys = [k for k in keys if checkable(k)]
             checkable_nulls = [k for k in nulls if checkable(k)]
@@ -2111,20 +2215,31 @@ def _verify_product(ds: Dataset, product: Product, work: str, out: str, inputs: 
         for h in handles.values():
             h.close()
         files.close()
+    # ok: no problem and tiles with data really compared; none compared (their inputs gone): not checkable (None)
+    with_data = sum(1 for c in compared if c["data"])
+    ok = False if problems else (True if with_data else None)
     result = {"dataset": ds.name, "product": product.name, "checked": datetime.datetime.now().isoformat(
         timespec="seconds"), "index_sha256": index_sha, "seed": seed, "samples_asked": samples,
         "tiles": len(index["tiles"]), "with_data": len(keys), "sha256_checked": len(keys), "samples": compared,
         "points_compared": pixels, "not_checkable": len(removed), "not_checkable_tiles": removed[:100],
-        "notes": notes, "unlisted": unlisted[:100], "problems": problems, "ok": not problems}
-    verify_path = os.path.join(folder, "verify.json")
+        "notes": notes, "unlisted": unlisted[:100], "problems": problems, "ok": ok}
+    for note in notes:
+        print(f"{where}: {note}", flush=True)
     before = _load_index(verify_path) if os.path.exists(verify_path) else None
-    if before and not compared and not problems and before.get("ok") and before.get("index_sha256") == index_sha:
+    if before and ok is None and before.get("ok") and before.get("index_sha256") == index_sha:
         print(f"{where}: verify: nothing checkable ({len(removed)} tiles: inputs removed); the passing verify of "
               f"{before.get('checked')} of this index kept", flush=True)
         return {**before, "kept": True}
     with open(verify_path + ".part", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
+        f.flush()
+        os.fsync(f.fileno())
+    _site("verify.before_replace")
     _replace(verify_path + ".part", verify_path)
+    _site("verify.after_replace")
+    if ok is None:
+        print(f"{where}: final, not verified (inputs removed): {len(removed)} tiles not checkable", flush=True)
+        return result
     print(f"{where}: verify {'ok' if not problems else 'FAILED'}: {len(keys)} tiles' sha256, "
           f"{len(compared)} compared with the inputs ({pixels} pixels also read straight from them)"
           + (f", {len(removed)} tiles: inputs removed" if removed else "")
@@ -2170,7 +2285,9 @@ def status(names: Sequence[str], work: str, out: Optional[str], inputs: Optional
                 lines.append(f"{head}: final ({index.get('created')}), {with_data} tiles with data of "
                              f"{len(index['tiles'])}, " + (f"verified {when}" if when else
                                                            "verify FAILED: " + "; ".join(result["problems"][:2])
-                                                           if result.get("ok") is False else "not verified"))
+                                                           if result.get("ok") is False else
+                                                           "not verified (inputs removed)" if "ok" in result
+                                                           else "not verified"))
                 continue
             if out and final_state(out, ds, product) == "before":
                 lines.append(f"{head}: an unfinished folder of an earlier version of the tool: move it away")
@@ -2210,16 +2327,67 @@ def status(names: Sequence[str], work: str, out: Optional[str], inputs: Optional
                 lines.append(f"  work: {path}.part, {_size(path + '.part')} of {url.bytes} bytes")
     if os.path.isdir(os.path.join(work, "tiled")):
         lines.append(f"work: tiled copies {_size(os.path.join(work, 'tiled')) / 1e9:.2f} GB")
+    for ds_name, prod, res, path, _ in staging_folders(work, out):
+        tiles = sum(1 for _, _, ns in os.walk(path) for n in ns if n.endswith(".tif"))
+        final = ""
+        if out and os.path.isfile(os.path.join(out, ds_name, prod, res, "index.json")):
+            final = " (the product is final: a leftover, clean removes it)"
+        lines.append(f"staging: {ds_name}/{prod}/{res}: {tiles} tiles, {_size(path) / 1e6:.1f} MB, {path}{final}")
     return lines
 
 
-def clean(name: str, work: str, inputs: Optional[str] = None, product: Optional[str] = None) -> List[str]:
+def staging_folders(work: str, out: Optional[str]) -> List[Tuple[str, str, str, str, str]]:
+    """Every staging folder in both places: (dataset, product, res folder, its path, the place's root)."""
+    found = []
+    for root in [os.path.join(work, "staging")] + ([os.path.join(out, ".staging")] if out else []):
+        if not os.path.isdir(root):
+            continue
+        for ds_name in sorted(os.listdir(root)):
+            if ds_name.startswith(".") or not os.path.isdir(os.path.join(root, ds_name)):
+                continue
+            for prod in sorted(os.listdir(os.path.join(root, ds_name))):
+                for res in sorted(os.listdir(os.path.join(root, ds_name, prod))):
+                    path = os.path.join(root, ds_name, prod, res)
+                    if os.path.isdir(path):
+                        found.append((ds_name, prod, res, path, root))
+    return found
+
+
+def _remove_staging(path: str, root: str):
+    """A staging folder removed file by file (only below the staging place's root), then its empty folders."""
+    for top, dirs, names in os.walk(path, topdown=False):
+        for n in names:
+            _remove(os.path.join(top, n), root)
+        os.rmdir(top)
+
+
+def clean(name: str, work: str, inputs: Optional[str] = None, product: Optional[str] = None,
+          out: Optional[str] = None, staging: bool = False) -> List[str]:
     """The product's unpacked members and tiled copies removed from work: only files the tool recorded as made by it
-    (WorkFiles), never an input, never a downloaded file; what is left in work, as lines."""
+    (WorkFiles), never an input, never a downloaded file; what is left in work, as lines. With out: the product's
+    staging folder too when the product is final already (a leftover), or with staging=True (--staging) when no run
+    cuts it now (its lock), never one a running cut holds."""
     ds = dataset(name)
-    check_folders(work, inputs, None)
+    check_folders(work, inputs, out)
     removed = 0
     with _work_lock(work):
+        if out:
+            for prod in _products(ds, product):
+                for ds_name, prod_name, res, path, root in staging_folders(work, out):
+                    if (ds_name, prod_name, res) != (ds.name, prod.name, f"{prod.res:g}m"):
+                        continue
+                    final = final_state(out, ds, prod) == "final"
+                    if not final and not staging:
+                        print(f"{path}: the staging folder of a product being cut: kept (--staging removes it when "
+                              "no run cuts it)", flush=True)
+                        continue
+                    try:
+                        with _product_lock(out, ds, prod):
+                            removed += _size(path)
+                            _remove_staging(path, root)
+                            print(f"{path}: removed" + (" (the product is final)" if final else ""), flush=True)
+                    except Busy as e:
+                        print(f"{path}: kept: {e}", flush=True)
         files = WorkFiles(work)
         try:
             for prod in _products(ds, product):
@@ -2277,6 +2445,8 @@ def main():
                         help="cut: the product is complete without exactly these fetched ids (sheets the provider "
                              "never delivered); recorded in the index and the card")
     parser.add_argument("--without-file", help="cut: the ids of --without, one per line")
+    parser.add_argument("--staging", action="store_true",
+                        help="clean: also the staging folder of a product not final yet (no run may be cutting it)")
     args = parser.parse_args()
     out = args.out or os.environ.get(MIRROR_ENV)
     without = _without(args)
@@ -2315,7 +2485,7 @@ def main():
                     if results[prod.name]["ok"] is False:
                         failed = True
                         continue
-                    clean(args.dataset, args.work, args.inputs, prod.name)
+                    clean(args.dataset, args.work, args.inputs, prod.name, out)
             if failed:
                 sys.exit(1)
             return
@@ -2332,7 +2502,7 @@ def main():
             if any(r["ok"] is False for r in results.values()):
                 sys.exit(1)
         elif args.step == "clean":
-            clean(args.dataset, args.work, args.inputs, args.product)
+            clean(args.dataset, args.work, args.inputs, args.product, out, args.staging)
     except (Busy, ValueError) as e:  # a refusal (folders, --without, a file's sha256): one sentence, exit 1
         sys.exit(f"{type(e).__name__}: {e}")
 

@@ -900,10 +900,18 @@ def _snapshot(root):
 
 
 def _contents(root):
-    """Every file below root by its bytes, index.json's "created" date left out."""
+    """Every file below root by its bytes, index.json's "created" date left out, verify.json (its time) only as
+    there and passing."""
     found = {}
     for p in sorted(root.rglob("*")):
-        if p.is_file():
+        if p.is_file() and p.name == "verify.json":
+            found[p.relative_to(root).as_posix()] = json.loads(p.read_bytes())["ok"]
+        elif p.is_file() and p.name == "inputs.jsonl":  # a placed file's stamp is its own copy's time
+            rows = [json.loads(line) for line in p.read_text().splitlines()]
+            found[p.relative_to(root).as_posix()] = [
+                (r["id"], r["stamp"] if r["stamp"].startswith(("sha256:", "crc:")) else r["stamp"].split(":")[0])
+                for r in rows]
+        elif p.is_file():
             data = p.read_bytes()
             if p.name == "index.json":
                 index = json.loads(data)
@@ -963,8 +971,15 @@ def _visits(tmp_path, monkeypatch):
     monkeypatch.setattr(mt, "HOOK", count)
     assert mt.cut("stops", str(tmp_path / "ref-work"), str(tmp_path / "ref-out"), inputs=str(inputs)) == \
         {"dtm": "cut"}
+    assert mt.verify("stops", str(tmp_path / "ref-work"), str(tmp_path / "ref-out"), inputs=str(inputs))["dtm"]["ok"]
     monkeypatch.setattr(mt, "HOOK", None)
     return seen, tmp_path / "ref-out"
+
+
+def _cut_and_verify(work, out, inputs):
+    """A cut, then its verify (both write into the mirror)."""
+    state = mt.cut("stops", str(work), str(out), inputs=str(inputs))["dtm"]
+    return state, mt.verify("stops", str(work), str(out), inputs=str(inputs))["dtm"]
 
 
 def test_write_sites_are_the_codes(tmp_path, monkeypatch):
@@ -1010,6 +1025,7 @@ def hook(name):
             os._exit(17)
 mt.HOOK = hook
 mt.cut("stops", work, out, inputs=str(inputs))
+mt.verify("stops", work, out, inputs=str(inputs))
 sys.exit(3)
 """
 
@@ -1036,7 +1052,7 @@ def test_a_stop_at_every_write_site(tmp_path, monkeypatch, site, mode):
                     raise _Stop(site)
         monkeypatch.setattr(mt, "HOOK", hook)
         with pytest.raises(_Stop):
-            mt.cut("stops", str(work), str(out), inputs=str(inputs))
+            _cut_and_verify(work, out, inputs)
         monkeypatch.setattr(mt, "HOOK", None)
     else:
         script = tmp_path / "child.py"
@@ -1046,10 +1062,16 @@ def test_a_stop_at_every_write_site(tmp_path, monkeypatch, site, mode):
         assert done.returncode == 17, done.stderr[-2000:]
     seen_now = _reader_sees(out, "stops/dtm/5m", monkeypatch)
     if seen_now is not None:  # the rename happened: the whole product
-        assert _contents(out / "stops" / "dtm" / "5m") == _contents(ref / "stops" / "dtm" / "5m")
+        got = _contents(out / "stops" / "dtm" / "5m")
+        got.pop("verify.json.part", None)  # a verify stopped while writing its result: the next one removes it
+        want = _contents(ref / "stops" / "dtm" / "5m")
+        assert {k: v for k, v in got.items() if k != "verify.json"} == {k: v for k, v in want.items()
+                                                                        if k != "verify.json"}
     assert not (out / "stops" / "dtm" / "5m").exists() or seen_now is not None
-    assert mt.cut("stops", str(work), str(out), inputs=str(inputs))["dtm"] in ("cut", "final")
+    state, result = _cut_and_verify(work, out, inputs)
+    assert state in ("cut", "final") and result["ok"] is True
     assert _contents(out / "stops") == _contents(ref / "stops")
+    assert not (out / "stops" / "dtm" / "5m" / "verify.json.part").exists()
     assert not (out / ".staging").exists() or not list((out / ".staging").rglob("*.tif"))
 
 
@@ -1124,11 +1146,6 @@ def test_inputs_never_written_or_removed(tmp_path, monkeypatch):
     _tif(inputs / "tile!1.tif", _heights((100, 100), 3), 502.5, 1002.5)
     _fetch_area(inputs, [(1, 0)], area="a!b")
     work.mkdir()
-    try:
-        os.symlink(inputs / "m.tif", work / "m.tif")  # where the member is unpacked
-        linked = True
-    except OSError:  # Windows without the right to make links
-        linked = False
     _dataset(monkeypatch, "safe", _product([mt.Placed("z/p.zip", members=("m.tif",)), mt.Placed("tile!1.tif"),
                                             mt.Fetched("a!b", collection="MDT")]))
     before = _snapshot(inputs)
@@ -1136,8 +1153,6 @@ def test_inputs_never_written_or_removed(tmp_path, monkeypatch):
     assert _main(monkeypatch, "clean", "safe", "--work", str(work), "--inputs", str(inputs)) == 0
     assert _snapshot(inputs) == before
     assert (out / "safe" / "dtm" / "5m" / "index.json").exists()
-    if linked:
-        assert not (work / "m.tif").is_symlink()
     for argv in (("--work", str(inputs)), ("--work", str(inputs / "w")), ("--work", str(work), "--out",
                                                                            str(inputs / "mirror"))):
         args = ["all", "safe", "--inputs", str(inputs)] + list(argv)
@@ -1372,13 +1387,15 @@ def test_a_stop_with_the_staging_folder_in_the_mirror(tmp_path, monkeypatch, sit
                 raise _Stop(site)
     monkeypatch.setattr(mt, "HOOK", hook)
     with pytest.raises(_Stop):
-        mt.cut("stops", str(work), str(out), inputs=str(inputs))
+        _cut_and_verify(work, out, inputs)
     monkeypatch.setattr(mt, "HOOK", None)
     seen_now = _reader_sees(out, "stops/dtm/5m", monkeypatch)
     assert not (out / "stops" / "dtm" / "5m").exists() or seen_now is not None
     if seen_now is not None:
-        assert _contents(out / "stops" / "dtm" / "5m") == _contents(ref / "stops" / "dtm" / "5m")
-    mt.cut("stops", str(work), str(out), inputs=str(inputs))
+        got, want = _contents(out / "stops" / "dtm" / "5m"), _contents(ref / "stops" / "dtm" / "5m")
+        assert {k: v for k, v in got.items() if not k.startswith("verify.json")} == \
+            {k: v for k, v in want.items() if k != "verify.json"}
+    assert _cut_and_verify(work, out, inputs)[1]["ok"] is True
     assert _contents(out / "stops") == _contents(ref / "stops")
     assert not list((out / ".staging").rglob("*.tif"))
     assert real is not mt.staging_folder
@@ -1456,3 +1473,192 @@ def test_folders_on_other_drives():
     """Folders on two drives are apart, not an error (the mirror on another drive than --work)."""
     assert mt._below(r"C:\a", r"D:\b") is False
     mt.check_folders(r"C:\work", r"C:\in", r"D:\mirror")
+
+
+# The last round (2026-11-16): ids by path, verify against the cut's inputs, the fetch tool's pair, staging
+
+def test_placed_inputs_of_one_name(tmp_path, monkeypatch):
+    """Two placed inputs of one file name in two folders have two ids (their paths below --inputs). The reviewer's
+    sequence: cut one row, a/d.tif rewritten 100 m higher, cut to the end: the result is a fresh cut of what is there
+    now, and verify passes on a fresh cut. The same path listed twice is an error naming both."""
+    inputs = tmp_path / "in"
+    _tif(inputs / "a" / "d.tif", _heights((400, 400), 1), 2.5, 4002.5)
+    _tif(inputs / "b" / "d.tif", _heights((400, 400), 2), 2.5, 2002.5)
+    ds = _dataset(monkeypatch, "names", _product([mt.Placed("a/d.tif"), mt.Placed("b/d.tif")]))
+    assert [r.id for r in mt.resolve(ds.products[0], str(tmp_path / "w"), str(inputs)).rasters] == ["a/d.tif",
+                                                                                                    "b/d.tif"]
+    work, out = tmp_path / "work", tmp_path / "out"
+    assert mt.cut("names", str(work), str(out), rows_limit=1, inputs=str(inputs)) == {"dtm": "stopped"}
+    _tif(inputs / "a" / "d.tif", _heights((400, 400), 1) + 100, 2.5, 4002.5)
+    os.utime(inputs / "a" / "d.tif", ns=(1, 1))
+    assert mt.cut("names", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    fresh = tmp_path / "fresh"
+    mt.cut("names", str(tmp_path / "w2"), str(fresh), inputs=str(inputs))
+    assert _contents(out / "names") == _contents(fresh / "names")
+    assert mt.verify("names", str(tmp_path / "w2"), str(fresh), inputs=str(inputs))["dtm"]["ok"] is True
+    _dataset(monkeypatch, "twice", _product([mt.Placed("a/d.tif"), mt.Placed("a/d.tif")]))
+    with pytest.raises(ValueError, match="two rasters of one id 'a/d.tif'"):
+        mt.resolve(mt.dataset("twice").products[0], str(work), str(inputs))
+
+
+def test_inputs_that_came_after_the_cut(tmp_path, monkeypatch, capsys):
+    """A final product judges against the inputs it was cut from (inputs.jsonl): a sheet cut --without that arrives
+    later, and a new input added inside the extent before the first verify, are no part of the edition (one line),
+    never an error; `all` exits 0 and verify passes."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    cells = [(0, 0), (1, 0), (2, 0), (3, 0)]
+    _fetch_area(inputs, cells, done=cells[:3])
+    _dataset(monkeypatch, "late", _product([mt.Fetched("portugal", collection="MDT")]))
+    assert mt.cut("late", str(work), str(out), inputs=str(inputs), without=["MDT-0300"]) == {"dtm": "cut"}
+    recorded = (out / "late" / "dtm" / "5m" / "inputs.jsonl").read_text().splitlines()
+    assert [json.loads(line)["id"] for line in recorded] == [f"portugal/MDT/000/MDT-0{x}00.tif" for x in range(3)]
+    shutil.rmtree(inputs / "portugal")
+    _fetch_area(inputs, cells)                       # the missing sheet arrived
+    _fetch_area(inputs, [(1, 1)], collection="MDT", seed=90)  # and one more inside the extent
+    capsys.readouterr()
+    assert _main(monkeypatch, "all", "late", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
+    printed = capsys.readouterr().out
+    assert "2 inputs arrived after this product was cut (not part of this edition)" in printed
+    result = json.loads((out / "late" / "dtm" / "5m" / "verify.json").read_text())
+    assert result["ok"] is True and not result["problems"]
+
+
+def test_verify_after_the_inputs_were_deleted(tmp_path, monkeypatch, capsys):
+    """A first verify after a final product's inputs were deleted compares no tile: not checkable (ok null), status
+    says "final, not verified (inputs removed)", `all` exits 0 with that line and does not skip it next time."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    _tif(inputs / "v.tif", _heights((400, 400), 9), 2.5, 2002.5)
+    _dataset(monkeypatch, "gone", _product([mt.Placed("v.tif")]))
+    mt.cut("gone", str(work), str(out), inputs=str(inputs))
+    os.remove(inputs / "v.tif")
+    result = mt.verify("gone", str(work), str(out), inputs=str(inputs))["dtm"]
+    assert result["ok"] is None and json.loads((out / "gone" / "dtm" / "5m" / "verify.json").read_text())["ok"] is None
+    assert any("final" in line and "not verified (inputs removed)" in line
+               for line in mt.status(["gone"], str(work), str(out), str(inputs)))
+    capsys.readouterr()
+    assert _main(monkeypatch, "all", "gone", "--work", str(work), "--inputs", str(inputs), "--out", str(out)) == 0
+    assert "final, not verified (inputs removed)" in capsys.readouterr().out
+    assert mt.verified(mt.dataset("gone"), mt.dataset("gone").products[0], str(out)) is None
+
+
+def test_the_fetch_tools_reasons(tmp_path, monkeypatch, capsys):
+    """A manifest row planned again with a newer version than done.jsonl's, and a file of another size than the
+    manifest's: waiting, each with its reason; a fetched ZIP whose bytes are not done.jsonl's is refused before its
+    members are read, saying what to do with the fetch tool."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    _fetch_area(inputs, [(0, 0), (1, 0)])
+    area = inputs / "portugal"
+    rows = [json.loads(line) for line in (area / "manifest.jsonl").read_text().splitlines()]
+    done = [json.loads(line) for line in (area / "done.jsonl").read_text().splitlines()]
+    rows[0]["version"], done[0]["version"] = "02", "01"
+    rows[1]["size"] = done[1]["size"] + 1
+    (area / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    (area / "done.jsonl").write_text("\n".join(json.dumps(r) for r in done) + "\n")
+    _dataset(monkeypatch, "why", _product([mt.Fetched("portugal", collection="MDT")]))
+    r = mt.resolve(mt.dataset("why").products[0], str(work), str(inputs))
+    assert r.missing == ["MDT-0000 (a newer version in the manifest)", "MDT-0100 (size differs)"]
+    assert mt.cut("why", str(work), str(out), inputs=str(inputs)) == {"dtm": "waiting"}
+    wal = inputs / "wallonia"
+    wal.mkdir()
+    _tif(tmp_path / "src" / "r.tif", _heights((100, 100), 1), 2.5, 502.5)
+    with zipfile.ZipFile(wal / "A.zip", "w") as z:
+        z.write(tmp_path / "src" / "r.tif", "r.tif")
+    (wal / "status.json").write_text(json.dumps({"groups": {"MNT": {"files": 1}}}))
+    (wal / "done.jsonl").write_text(json.dumps({"id": "A.zip", "group": "MNT", "path": "A.zip",
+                                                "size": (wal / "A.zip").stat().st_size, "sha256": "0" * 64}) + "\n")
+    _dataset(monkeypatch, "wz", _product([mt.Fetched("wallonia", group="MNT", members=("*.tif",))]))
+    with pytest.raises(ValueError, match="remove the file and its line from done.jsonl, then run the fetch tool"):
+        mt.cut("wz", str(work), str(out), inputs=str(inputs))
+    assert not (work / "A").exists()
+
+
+def test_the_probes_rename_fails_for_real(tmp_path, monkeypatch, capsys):
+    """When a folder does not rename from --work into --out (the probe's os.replace fails, as across mounts), the
+    staging folder is <out>/.staging and the product ends final; a stop left no probe behind. When the final rename
+    itself crosses filesystems the cut stops in one sentence and keeps the staging folder."""
+    import errno
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    _tif(inputs / "r.tif", _heights((400, 400), 3), 2.5, 2002.5)
+    _dataset(monkeypatch, "prb", _product([mt.Placed("r.tif")]))
+    (out / ".probe-prb.dtm.5m").mkdir(parents=True)  # left by a stop
+    real = os.replace
+
+    def replace(a, b):
+        if os.path.basename(str(a)).startswith(".probe-"):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real(a, b)
+    monkeypatch.setattr(mt.os, "replace", replace)
+    capsys.readouterr()
+    assert mt.cut("prb", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    assert "staging in <out>/.staging" in capsys.readouterr().out
+    assert not list(out.glob(".probe-*")) and not list((work / "staging").glob(".probe-*"))
+
+    _dataset(monkeypatch, "far", _product([mt.Placed("r.tif")]))
+
+    def replace_far(a, b):
+        if str(b).endswith(os.path.join("far", "dtm", "5m")):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real(a, b)
+    monkeypatch.setattr(mt.os, "replace", replace_far)
+    with pytest.raises(ValueError, match="does not rename into .* the staging folder is kept"):
+        mt.cut("far", str(work), str(out), inputs=str(inputs))
+    assert not (out / "far" / "dtm" / "5m").exists()
+    kept = [s for s in mt.staging_folders(str(work), str(out)) if s[0] == "far"]
+    assert kept and (pathlib_of(kept[0][3]) / "index.json").exists()
+
+
+def pathlib_of(path):
+    from pathlib import Path
+    return Path(path)
+
+
+def test_abandoned_staging_listed_and_cleaned(tmp_path, monkeypatch):
+    """status lists every staging folder with its tiles and size; clean removes one only with --staging (a product
+    not final), or by itself when the product is final (a leftover), never while a run holds the product's lock."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    _tif(inputs / "r.tif", _heights((800, 400), 3), 2.5, 4002.5)
+    _dataset(monkeypatch, "ab", _product([mt.Placed("r.tif")]))
+    assert mt.cut("ab", str(work), str(out), rows_limit=1, inputs=str(inputs)) == {"dtm": "stopped"}
+    assert any(line.startswith("staging: ab/dtm/5m: 1 tiles") for line in mt.status(["ab"], str(work), str(out),
+                                                                                     str(inputs)))
+    mt.clean("ab", str(work), str(inputs), out=str(out))
+    assert mt.staging_folders(str(work), str(out))
+    release = tmp_path / "release"
+    proc = _holder(tmp_path, str(out / ".locks" / "ab.dtm.5m.lock"), str(release))
+    try:
+        mt.clean("ab", str(work), str(inputs), out=str(out), staging=True)  # a run holds it: kept
+        assert mt.staging_folders(str(work), str(out))
+    finally:
+        release.write_text("")
+        proc.wait(30)
+    mt.clean("ab", str(work), str(inputs), out=str(out), staging=True)
+    assert not mt.staging_folders(str(work), str(out))
+    # a leftover beside a final product
+    mt.cut("ab", str(work), str(out), inputs=str(inputs))
+    leftover = work / "staging" / "ab" / "dtm" / "5m" / "0_0"
+    leftover.mkdir(parents=True)
+    (leftover / "0_1.tif").write_bytes(b"old")
+    assert any("a leftover" in line for line in mt.status(["ab"], str(work), str(out), str(inputs)))
+    mt.clean("ab", str(work), str(inputs), out=str(out))
+    assert not mt.staging_folders(str(work), str(out))
+
+
+def test_links_in_the_work_folder(tmp_path, monkeypatch):
+    """A symbolic link in --work where the tool writes a member (and its .part) is replaced by the tool's file; the
+    input it pointed to keeps its bytes. Skipped where links cannot be made (Windows without the right)."""
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "out"
+    _tif(inputs / "x.tif", _heights((100, 100), 1), 9002.5, 1002.5)
+    _tif(tmp_path / "src" / "m.tif", _heights((100, 100), 2), 2.5, 1002.5)
+    (inputs / "z").mkdir()
+    with zipfile.ZipFile(inputs / "z" / "p.zip", "w") as z:
+        z.write(tmp_path / "src" / "m.tif", "m.tif")
+    work.mkdir()
+    try:
+        os.symlink(inputs / "x.tif", work / "m.tif")
+        os.symlink(inputs / "x.tif", work / "m.tif.part")
+    except OSError:
+        pytest.skip("symbolic links cannot be made here")
+    _dataset(monkeypatch, "lnk", _product([mt.Placed("z/p.zip", members=("m.tif",))]))
+    before = _snapshot(inputs)
+    assert mt.cut("lnk", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
+    assert _snapshot(inputs) == before and not (work / "m.tif").is_symlink()
