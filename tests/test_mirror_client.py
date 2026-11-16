@@ -1221,3 +1221,51 @@ def test_a_wrong_setting_ends_with_its_text(tmp_path, two_sources, capsys):
     assert "FINDALINE_MIRROR_URL is 'mirror.example.org': it must be" in out.out + out.err
     assert "Traceback" not in out.out + out.err
 
+
+
+def test_final_and_stop_on_meet(tmp_path, mirror, no_mirror_settings):
+    """net._get's two ways of ending at once (main's final, the start check's stop_on) meet: a status in final ends
+    the call inside its attempt (_Final, looked at first), a status in stop_on after it; either way one request, no
+    pause, and the error carries that status (as every error of _get: .status). A status in both: the same."""
+    index = f"{mirror.base()}/index.json"
+    for kwargs in (dict(final=(429,)), dict(stop_on=(429,)), dict(final=(429,), stop_on=(429,))):
+        mirror.statuses[f"/v1/tiles/{MIRROR}/index.json"] = 429
+        before = len(mirror.asked())
+        with pytest.raises(RuntimeError) as ended:
+            net._get(index, binary_types=("json",), **kwargs)
+        assert ended.value.status == 429 and "HTTP 429" in str(ended.value), kwargs
+        assert len(mirror.asked()) == before + 1 and no_mirror_settings == [], kwargs
+    mirror.statuses[f"/v1/tiles/{MIRROR}/index.json"] = 403  # final alone, as SheetFile(listed=True) asks
+    with pytest.raises(RuntimeError) as denied:
+        net._get(index, binary_types=("json",), final=(403,))
+    assert denied.value.status == 403 and no_mirror_settings == []
+
+
+def test_a_mirror_folder_with_the_cutters_files(tmp_path, monkeypatch):
+    """tools/mirror_tiles.py's own files in a local mirror (its root's .locks and .staging, a final product folder's
+    inputs.jsonl and verify.json) are never taken for a dataset, a product or a tile: the folder gives the same
+    bases, tiles and cache files as without them."""
+    clean = make_mirror(tmp_path / "clean")
+    busy = make_mirror(tmp_path / "busy")
+    folder = os.path.join(busy, *MIRROR.split("/"))
+    for name, text in (("inputs.jsonl", '{"id": "x", "stamp": 1}\n'), ("verify.json", '{"ok": true}')):
+        with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    os.makedirs(os.path.join(busy, ".locks"))
+    open(os.path.join(busy, ".locks", "test.dtm.1m.lock"), "w").close()
+    staging = os.path.join(busy, ".staging", *MIRROR.split("/"))  # a cut in progress beside the final one
+    os.makedirs(os.path.dirname(staging))
+    import shutil
+    shutil.copytree(folder, staging)
+    _write_index(staging, {"276_127": "0" * 64}, partial=True)
+    results = {}
+    for name, root in (("clean", clean), ("busy", busy)):
+        monkeypatch.setenv("FINDALINE_MIRROR", root)
+        layer = mirrored_layer()
+        assert layer.bases() == [os.path.join(root, *MIRROR.split("/"))]
+        cache_dir = tmp_path / f"cache-{name}"
+        grid = _download(layer, cache_dir)
+        results[name] = {t: (cache.state(str(cache_dir), layer.tile_path(str(cache_dir), t)),
+                             os.path.exists(layer.tile_path(str(cache_dir), t)) and _sha(layer.tile_path(str(cache_dir), t)))
+                         for t in layer.tiles(grid)}
+    assert results["busy"] == results["clean"] and any(v[0] == "ok" for v in results["clean"].values())
