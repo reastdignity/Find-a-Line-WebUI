@@ -86,10 +86,12 @@ visitor of a demo run; a share link has no session; a run without run.json's `st
 `run_export` with the format, once it is made) queues the quick kind `export` and waits as `quick` does (503 without a worker, 504,
 429 `quick_waiting`), answering `{"url": "/api/runs/<run>/export/<token>.<ext>"}` from the lane's `{"name"}`; `GET
 /api/runs/<run>/export/<name>` (`run_access`; `EXPORT_NAME`: 22 URL-safe characters and the extension, so no path and
-no other run's file) takes the file from `work/exports/` by renaming it (`take_export`, `SENDING`: a second request
-404s at once) and sends it as `SentOnce` (a `FileResponse` that sends the whole file whatever the Range and deletes it
-afterwards, also when the client breaks off), `EXPORT_MEDIA`, `content_disposition` (run.json's name, else the run id:
-`filename*` in UTF-8 and an ASCII `filename`). Neither route imports `linestore` or pyarrow.
+no other run's file) takes the file from `work/exports/` by renaming it (`take_export`: the name read first, a rename
+refused or a file gone meanwhile 404, the taken file's mtime set to now so no clean-up deletes it while it is sent;
+`SENDING`: a second request 404s at once) and sends it as `SentOnce` (a `FileResponse` that sends the whole file
+whatever the Range and deletes it afterwards, also when the client breaks off or the sending raises),
+`EXPORT_MEDIA`, `content_disposition` (run.json's name, else the run id: `filename*` in UTF-8 and an ASCII
+`filename` without what `PLAIN_UNSAFE` refuses after NFKD). Neither route imports `linestore` or pyarrow.
 
 ## `messages.py`, `locales/`
 
@@ -163,9 +165,11 @@ running jobs (NULL users as one), one `UPDATE` in a write transaction; cancellin
 patches (`quick_patch`; `Redact.RAW` keeps its base64url `heights` out of the key masking) from the table `quick`
 (idle it only reads, `quick_waiting`, and claims with a write transaction when a task waits; `quick_take` reads before
 it deletes), and exports (`quick_export`: `linestore.export` of a run with a store into `work/exports/` as
-`<run id>-<token>.<ext>`, `EXPORTS`, `EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS`, answering the name; refused
-`export_failed` below the server's `free_disk_gb_min`, `LANE_LIMITS`, set by `run_quick` for every task; what the folder
-holds since `EXPORT_KEEP_SECONDS` goes before each export and at the worker's start, `remove_old_exports`); `Scheduler.housekeeping`: old events, `.part` files, work folders, the cache's size per top-level folder
+`<run id>-<token>.<ext>`, `EXPORTS`, `EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS`, answering the name; refused 503
+`export_disk_full` when the free space less the file's estimated size (`export_bytes`: the store's lines times
+`EXPORT_LINE_BYTES`, measured) would fall below the server's `free_disk_gb_min` (`LANE_LIMITS`, set by `run_quick` for
+every task), `export_failed` without a store; what the folder holds since `EXPORT_KEEP_SECONDS` goes before each
+export, at the worker's start, every `EXPORT_SWEEP` seconds in its loop and in `housekeeping`: `remove_old_exports`); `Scheduler.housekeeping`: old events, `.part` files, work folders, the cache's size per top-level folder
 (`write_cache_sizes` → `work/cache-sizes.json`), the coverage of the finished searches (`coverage` →
 `work/coverage.json`: the union's km² on the ellipsoid, searches per 0.25° cell) and what the round removed
 (`work/housekeeping.json`), all for `metrics.py`; `Scheduler.memory` is measured at the worker's start (`_begin`),

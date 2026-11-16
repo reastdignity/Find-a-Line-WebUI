@@ -566,6 +566,7 @@ EXPORT_NAME = re.compile(f"[A-Za-z0-9_-]{{{math.ceil(jb.EXPORT_TOKEN_BYTES * 4 /
 EXPORT_MEDIA = {"csv": "text/csv; charset=utf-8", "geojson": "application/geo+json"}  # by extension (nginx gzips both)
 SENDING = ".sending"  # an export's name while it is sent (taken by one request: a second one finds nothing)
 FILE_NAME_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')  # characters no file name of Windows takes
+PLAIN_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*=;]')  # and in the ASCII `filename`, the header's separators
 
 
 def content_disposition(name: str, fallback: str) -> str:
@@ -576,7 +577,10 @@ def content_disposition(name: str, fallback: str) -> str:
     import unicodedata
     from urllib.parse import quote
     name = FILE_NAME_UNSAFE.sub("_", name).strip()
-    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").strip()
+    # NFKD makes fullwidth forms of refused characters (＂ ＼ ／ ：) plain ones: refused again after it, with the
+    # header's own separators (= ;), which a client that reads only `filename` might take for parameters
+    plain = PLAIN_UNSAFE.sub("_", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii"))
+    plain = plain.strip()
     if plain.startswith("."):
         plain = fallback
     if name.startswith("."):
@@ -1657,16 +1661,33 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         await run_in_threadpool(record, "run_export", user, run, {"format": fmt})  # an export made
         return {"url": f"/api/runs/{run}/export/{answer['name']}"}
 
-    def take_export(run_id: str, name: str) -> Tuple[str, str]:
+    def take_export(run_id: str, name: str) -> Optional[Tuple[str, str, os.stat_result]]:
         """(the export's file, renamed for its one download, so a second request finds nothing; the name of
-        its download: run.json's name of the run, else its id, and the extension). FileNotFoundError: none."""
+        its download: run.json's name of the run, else its id, and the extension; the file's stat), or None:
+        no such export, or it cannot be taken (a rename refused on Windows while a scanner holds the file).
+        The name is read first; the taken file's mtime is set to now, so no clean-up deletes it while it is
+        sent (remove_old_exports goes by mtime)."""
         path = os.path.join(exports_dir, f"{run_id}-{name}")
-        taken = f"{path}.{secrets.token_hex(4)}{SENDING}"
-        os.replace(path, taken)  # FileNotFoundError when it is not there (any more)
-        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
-            title = json.load(f).get("name")
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+                title = json.load(f).get("name")
+        except (OSError, ValueError):  # the run deleted or being rewritten: its id names the file
+            title = None
         stem = title.strip() if isinstance(title, str) and title.strip() else run_id
-        return taken, f"{stem}.{name.rpartition('.')[2]}"
+        taken = f"{path}.{secrets.token_hex(4)}{SENDING}"
+        try:
+            os.replace(path, taken)
+        except OSError:  # gone meanwhile (another request took it), or held by another process
+            return None
+        try:
+            os.utime(taken)
+            return taken, f"{stem}.{name.rpartition('.')[2]}", os.stat(taken)
+        except OSError:  # deleted between the rename and now
+            with contextlib.suppress(OSError):
+                os.remove(taken)
+            return None
 
     @app.get("/api/runs/{run}/export/{name}")
     async def download_export(name: str, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
@@ -1677,11 +1698,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         found = EXPORT_NAME.fullmatch(name)
         if not found:
             raise HTTPException(404, "no such export")
-        try:
-            path, title = await run_in_threadpool(take_export, run, name)
-        except FileNotFoundError:
+        taken = await run_in_threadpool(take_export, run, name)
+        if taken is None:
             raise HTTPException(404, "no such export")
-        return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)],
+        path, title, stat = taken
+        return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)], stat_result=stat,
                         headers={"Content-Disposition": content_disposition(title, f"{run}.{found.group(1)}")})
 
     # --- Favourite lines: marked on a run's map, listed in the app ---

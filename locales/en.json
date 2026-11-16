@@ -475,6 +475,7 @@
   "error.rate_reach": "Too many reach calculations in a short time. Wait a minute and try again.",
   "error.disk_full": "The server is short of disk space. New searches cannot start now. Try again later.",
   "error.disk_full_search": "The server is short of disk space, so the search stopped. Try again later.",
+  "error.export_disk_full": "The server is short of disk space. The file cannot be made now. Try again later.",
   "error.export_failed": "The file could not be made. Try again in a moment.",
   "error.queue_full": "The queue is full ({{n}} searches). Try again later.",
   "error.quota_active": "Searches waiting or running at the same time: at most {{max}}. Wait until one ends.",

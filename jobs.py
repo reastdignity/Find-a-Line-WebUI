@@ -66,12 +66,18 @@ KEEP_WAITING_QUICK_SECONDS = 86400
 # Exports (docs/line-volume/spec-store.md 1.4): the quick lane's kind "export" writes a run's lines.csv or
 # lines.geojson from its store into this folder of the data folder as <run id>-<token>.<extension>; the web
 # process sends it once (GET /api/runs/<run>/export/<token>.<extension>) and deletes it. None is kept: what nobody
-# fetched (or a lane killed while writing left) is deleted after EXPORT_KEEP_SECONDS, at the worker's start and
-# before each export
+# fetched (or a lane killed while writing left) is deleted after EXPORT_KEEP_SECONDS, at the worker's start, before
+# each export and every EXPORT_SWEEP seconds (remove_old_exports)
 EXPORTS = ("work", "exports")
 EXPORT_KEEP_SECONDS = 3600
+EXPORT_SWEEP = 600  # seconds between the worker's sweeps of the exports (and in every housekeeping round)
 EXPORT_TOKEN_BYTES = 16  # secrets.token_urlsafe: 22 characters
 EXPORT_EXTENSIONS = {"csv": "csv", "geojson": "geojson"}  # the formats (linestore.EXPORTS) and their files' extensions
+# The bytes a line of an export takes at most, for quick_export's disk guard, which estimates the file from the
+# store's lines before writing it: measured 193 and 198 B (CSV), 881 and 890 B (GeoJSON) a line on two target-rig
+# runs of 2.0 M and 3.5 M lines (2026-11-16, with the A-frame columns), rounded up for the access mark, stands_for
+# and the GeoJSON's head
+EXPORT_LINE_BYTES = {"csv": 250, "geojson": 1000}
 EVENTS_LIMIT = 1000     # events one read of the event streams gets at most (the next read goes on from there)
 JOB_EVENTS_MAX = 1000  # messages of a job its page gets at once (the newest; and the last progress)
 LEASE = 30.0              # seconds a lease lasts without a renewal
@@ -1764,13 +1770,22 @@ def remove_old_exports(data_dir: str) -> int:
     return _remove_old(exports_folder(data_dir), EXPORT_KEEP_SECONDS / 86400)
 
 
+def export_bytes(run_folder: str, fmt: str) -> int:
+    """The most bytes an export of a run in the format `fmt` takes: its store's lines (run.json's block
+    "store") times EXPORT_LINE_BYTES."""
+    with open(os.path.join(run_folder, "run.json"), encoding="utf-8") as f:
+        lines = int((json.load(f).get("store") or {}).get("lines") or 0)
+    return lines * EXPORT_LINE_BYTES[fmt]
+
+
 def quick_export(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
     """A run's lines.csv ({"run": id, "format": "csv"}) or lines.geojson ("geojson") made from its store
     (linestore.export) into the exports' folder under a random name (POST /api/runs/<run>/export), for one
     download: {"name": "<token>.<extension>"} (the web process makes its address: a name, not a path, passes
-    the public site's Redact as it is). Refused (code export_failed) while the disk has less free space than
-    the server's free_disk_gb_min (LANE_LIMITS: a safeguard for everyone, as for a search), and for a run
-    without a store (the page never asks for one: it downloads the run's own text files)."""
+    the public site's Redact as it is). Refused (503, code export_disk_full) when the disk would have less free
+    space than the server's free_disk_gb_min (LANE_LIMITS: a safeguard for everyone, as for a search) once the
+    file is written (its size estimated by export_bytes), and (export_failed) for a run without a store (the page
+    never asks for one: it downloads the run's own text files)."""
     import linestore
     run_id, fmt = request["run"], request["format"]
     if fmt not in EXPORT_EXTENSIONS or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}", run_id):
@@ -1783,9 +1798,10 @@ def quick_export(data_dir: str, request: Dict, limits: Optional[Limits] = None) 
     remove_old_exports(data_dir)
     if LANE_LIMITS is not None and LANE_LIMITS.free_disk_gb_min is not None:
         free = shutil.disk_usage(out).free / 1e9
-        if free < LANE_LIMITS.free_disk_gb_min:
-            raise QuotaExceeded(f"the server is short of disk space ({free:.0f} GB free): the file was not made; "
-                                f"try again later", 503, "export_failed")
+        size = export_bytes(folder, fmt) / 1e9
+        if free - size < LANE_LIMITS.free_disk_gb_min:
+            raise QuotaExceeded(f"the server is short of disk space ({free:.0f} GB free, the file about {size:.1f} GB):"
+                                f" the file was not made; try again later", 503, "export_disk_full")
     name = f"{secrets.token_urlsafe(EXPORT_TOKEN_BYTES)}.{EXPORT_EXTENSIONS[fmt]}"
     linestore.export(folder, fmt, os.path.join(out, f"{run_id}-{name}"))
     return {"name": name}
@@ -2049,7 +2065,8 @@ class Scheduler:
         """Clean the data folder up: temporary files of downloads killed while writing; events of
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
-        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day. Measures the cache by
+        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day, exports nobody
+        fetched after EXPORT_KEEP_SECONDS. Measures the cache by
         top-level folder (write_cache_sizes) and the coverage of the searches (COVERAGE_FILE), and
         writes what this round removed, when it ended and how long it took (HOUSEKEEPING_FILE), for
         the metrics."""
@@ -2068,6 +2085,7 @@ class Scheduler:
         removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
         for name in ("estimates", "profiles", "warmup"):  # warmup: warmup.FOLDER
             removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
+        removed["work"] += remove_old_exports(data)  # exports nobody fetched (also at the start, before each export)
         try:
             _write_json(data, COVERAGE_FILE, coverage(self.jobs))
         except Exception:  # the statistics never stop the housekeeping
@@ -2101,11 +2119,14 @@ class Scheduler:
         self.jobs.interrupted(self.worker_id)
 
     def _loop(self):
-        cleaned = 0.0
+        cleaned, swept = 0.0, time.time()  # _begin removed the old exports
         while not self.stopped.wait(TICK):
             if time.time() - cleaned >= HOUSEKEEPING:  # in a thread: it walks the whole cache
-                cleaned = time.time()
+                cleaned = swept = time.time()
                 threading.Thread(target=self.housekeeping, daemon=True).start()
+            elif time.time() - swept >= EXPORT_SWEEP:  # between the rounds: one folder's listing
+                swept = time.time()
+                remove_old_exports(self.jobs.data_dir)
             with self.lock:
                 if self.stopped.is_set():
                     break

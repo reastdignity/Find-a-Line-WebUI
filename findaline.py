@@ -144,7 +144,9 @@ def export_main(argv: List[str]) -> int:
     made from its store (linestore.export: the bytes the search's own text file holds), written where
     --out says (default <run id>.<format> in the current folder), never into the run folder: no run
     keeps an export (docs/line-volume/spec-store.md 1.2, store U4). RUN is a run folder or a run id of
-    the data folder. A run without a store ends with a message and exit status 1."""
+    the data folder. A run without a store, an output in the run folder, a folder as --out or a folder
+    that does not exist end with a message and exit status 1, before any work; an existing file is
+    overwritten."""
     import argparse
 
     import linestore
@@ -152,7 +154,8 @@ def export_main(argv: List[str]) -> int:
                                      description="Write a run's lines as CSV or GeoJSON, made from its store.")
     parser.add_argument("run", metavar="RUN", help="a run folder, or the id of a run in the data folder")
     parser.add_argument("--format", required=True, choices=sorted(EXPORT_FORMATS), help="the file's format")
-    parser.add_argument("--out", help="the file to write (default: <run id>.csv or <run id>.geojson here)")
+    parser.add_argument("--out", help="the file to write, never in the run folder; an existing file is overwritten "
+                                      "(default: <run id>.csv or <run id>.geojson in the current folder)")
     parser.add_argument("--data-dir", help="the data folder of a run id (default: FINDALINE_DATA, else the folder "
                                            "of the script)")
     args = parser.parse_args(argv)
@@ -166,6 +169,19 @@ def export_main(argv: List[str]) -> int:
         sys.exit(f"The run {run_id} has no store ({linestore.LINES_FILE}): it was saved before exports were made "
                  f"from it; its own {linestore.EXPORTS[args.format]} is in its folder")
     out = args.out or f"{run_id}.{EXPORT_FORMATS[args.format]}"
+    target = os.path.dirname(os.path.abspath(out))
+    if os.path.isdir(out):
+        sys.exit(f"--out names a folder ({os.path.abspath(out)}): give the file to write")
+    if not os.path.isdir(target):
+        sys.exit(f"No folder {target} to write {os.path.basename(out)} into")
+    run_folder = os.path.realpath(folder)
+    try:
+        inside = os.path.commonpath([os.path.realpath(target), run_folder]) == run_folder
+    except ValueError:  # another drive (Windows)
+        inside = False
+    if inside:
+        sys.exit(f"{os.path.abspath(out)} is in the run folder, which keeps no export: give another --out "
+                 f"(or run the command from another folder)")
     with progress.bars():  # the grouping's progress
         linestore.export(folder, args.format, out)
     print(f"Saved {os.path.abspath(out)}")

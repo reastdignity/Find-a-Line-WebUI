@@ -165,10 +165,11 @@ def check_export(folder: str) -> tuple:
         with contextlib.suppress(OSError):
             os.remove(out)
     kept = os.path.join(folder, "lines.csv")
-    if os.path.isfile(kept):
-        with open(kept, "rb") as g:
-            if g.read() != table:
-                return table, ["the CSV exported from the store differs from lines.csv"]
+    if not os.path.isfile(kept):  # every search still writes it until store wave 4
+        return table, ["the run wrote no lines.csv"]
+    with open(kept, "rb") as g:
+        if g.read() != table:
+            return table, ["the CSV exported from the store differs from lines.csv"]
     return table, []
 
 
