@@ -212,3 +212,23 @@ The rules in `.claude/rules/sources.md` point here for their measurements and ex
 - **Signed download URLs** (batch 5, OpenDataNI): stable links redirect to signed Cloudflare R2 URLs (7 days) that
   answer GET with Range but not HEAD (403); resolve the link for every read, never store or print the signed one
   (`cache.clean_url` and `clean_error` mask X-Amz-* and Signature=).
+- **A 403 that means "missing"** (batch 6, Tokyo): an S3 bucket that denies listing answers 403, never 404, for a key
+  it does not have, so a refusal and a sheet that does not exist look the same. A static sheet table made by a tool
+  from the provider's own index (`tools/tokyo_sheets.py`; Hong Kong's from its FeatureServer,
+  `tools/hong_kong_sheets.py`) decides what exists: a sheet outside it is never asked, one in it that fails is that
+  tile's error (`SheetFile(listed=True)`), never recorded as missing. Such a table is refreshed by hand.
+- **Package ZIPs by Range** (batch 6, Ontario): a province's packages of about 3 GB each are read one 1 km member at a
+  time: the central directory (about 65 kB) in one Range from the end, then one Range per member. Look at every
+  member format and compression method before building: Ontario's hold three formats (GeoTIFF Area, GeoTIFF
+  PixelIsPoint, ERDAS .img) and two projects' terrain members are Deflate64, which zlib cannot read.
+- **A datum that is not mean sea level** (batch 6, Hong Kong): CEDD's heights are above the Hong Kong Principal Datum,
+  about 1.30 m below mean sea level, while the app fills the sea at 0 m: find the vertical datum before the first
+  search; the data's water fringe (+1.1 to +1.3 m there) shows it.
+- **Seabed in island and coastal data** (batch 6): lidar grids may hold the seabed near coasts (Tokyo's Izu islands;
+  IGN's overseas RGE ALTI down to -38 m at Mayotte), and the sea's 0 m fill beside it makes false walls. Look at the
+  lowest values along a coast first; a floor (`Layer.nodata_below`) only where no real land lies below it (Tokyo's
+  eastern wards go down to -4.42 m, Kowloon to about -6 m).
+- **A URL captured from a program's output** (batch 6): copied from a Windows program's output it keeps a trailing
+  CR, so the file it names seems missing: a "missing listed file" was once concluded from it and a mistaken sweep of
+  2 857 HEAD requests followed. Ask again with a clean URL before concluding anything. A sweep of HEAD requests is still a bulk
+  request under a provider's terms: pace it like downloads, and only when a sample cannot answer the question.
