@@ -1597,3 +1597,59 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
     finally:
         server.should_exit = True
         thread.join(10)
+
+
+# The result's "Length" editor open with a long value typed: the boxes of its × and of the first row's number and unit
+EDITOR_JS = """() => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const x = document.querySelector('.r-editor .r-editor-x');
+  const parts = [...document.querySelectorAll('.r-editor > .r-limit:first-child .r-limit-val > *')];
+  return {x: box(x), parts: parts.map((e) => [e.className || e.tagName, box(e)])};
+}"""
+SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
+  document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
+
+
+def _playwright() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("playwright") is not None
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
+    """The result in Playwright's Edge on a desktop and on a phone (touch: the editor's larger ×) (report defects 5
+    and 13): the "Length" editor's × never lies on the first row's number or unit, also with a long value typed;
+    the list's sorted column says its order in its name (", sorted largest first"), with no aria-sort, which a
+    button may not carry."""
+    from playwright.sync_api import sync_playwright
+    page_path = stub_page(data, "cplay")
+    from test_web import DESKTOP, PHONE
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = browser.new_page(**context)
+                page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}")
+                page.wait_for_selector(".r-filters", timeout=30000)
+                page.locator(".r-filters button", has_text="Length").first.click()
+                page.wait_for_selector(".r-editor .r-editor-x", timeout=30000)
+                r[f"{kind}_short"] = page.evaluate(EDITOR_JS)
+                page.locator(".r-editor > .r-limit:first-child .r-num").fill("1234.5")
+                r[f"{kind}_long"] = page.evaluate(EDITOR_JS)
+                r[f"{kind}_sorted"] = page.evaluate(SORTED_JS)
+                page.close()
+        finally:
+            browser.close()
+
+    def meet(a, b):
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+    for kind in ("desktop", "phone"):
+        for value in ("short", "long"):
+            found = r[f"{kind}_{value}"]
+            assert len(found["parts"]) == 2, found  # the number and the unit
+            assert not any(meet(found["x"], b) for _, b in found["parts"]), (kind, value, found)
+        count, name, sort = r[f"{kind}_sorted"]
+        assert count == 0 and sort == "hmean", r
+        assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
+    assert r["phone_short"]["x"][2] - r["phone_short"]["x"][0] == 40, r  # a touch screen's ×

@@ -94,6 +94,10 @@
 .ui .r-limit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .ui .r-limit.r-set .r-limit-head label { color: var(--accent); font-weight: 500; }
 .ui .r-limit-val { display: inline-flex; align-items: center; gap: 4px; }
+/* the first row's value and unit end left of the editor's × (.r-editor-x: 28 px, 40 px on a touch screen, 6 px from
+   the edge), 4 px apart; the editor's own padding is 12 px */
+.ui .r-editor > .r-limit:first-child .r-limit-head { padding-right: 26px; }
+@media (pointer: coarse) { .ui .r-editor > .r-limit:first-child .r-limit-head { padding-right: 38px; } }
 .ui .r-num { width: 76px; min-height: 28px; padding: 0 6px; text-align: right; font: 13px var(--mono); }
 .ui .r-more { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
   background: var(--surface); }
