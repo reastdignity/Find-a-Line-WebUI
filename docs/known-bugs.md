@@ -44,6 +44,20 @@ not caused by its changes; the tests are unchanged):
 changes); alone it passed 3 of 3. The cause is not found. Run it alone before calling a failure of it a
 regression.
 
+## `test_access_mark_in_the_form` fails at some times on `main` itself
+
+`tests/test_web.py::test_access_mark_in_the_form` (Edge through Playwright) failed on 2026-11-16, late evening: after
+the click on Basic's "?" of "Reaching the anchors" it presses Esc and waits for the help to go
+(`wait_for_selector(".s-access .ac-help", state="detached")`), and the help stayed for the whole 30 s. It failed in a
+full pytest of the ui-shots-speed branch, alone 3 of 3 there, and alone on a clean checkout of `main` (ee67bd1), so
+it was not that branch's (which touches neither the test nor the viewer). The same test had passed two hours earlier
+in a full pytest of the same branch. The cause is not found; the test relies on the keyboard focus being on the "?"
+after the click, so the state of the PC (which window has the focus, a locked screen) is the first thing to check.
+Before calling a failure of it a regression, run it alone on a clean checkout of `main`.
+
+In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
+out once, with other sessions running under the test lock; alone it passed 4 of 4.
+
 ## Five tests fail on macOS (arm64) on `main` itself
 
 Seen 2026-11-08 on a MacBook (Apple silicon, macOS 26.6.1; Python 3.15.2 from uv, numpy 2.5.4, numba 0.68.0,
