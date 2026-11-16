@@ -20,9 +20,11 @@ of this file (no CSS parser is installed and none may be added for this tool): n
 viewer has none), a `font:` whose size is var() or calc() is counted as "unresolved", colours are normalised (#FFF =
 #ffffff, the spaces of rgb()).
 
-"pages" renders every state of tools/ui_shots.py's PAGES the way that tool does (its prepared_pages: the same site,
-users, waits and steps) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line
-a state as it ends; then pages.json, pages.md):
+"pages" renders every state of tools/ui_shots.py's PAGES the way that tool does (its serve, select_pages,
+left_out_by_run and shoot_all with `act`: the same site, users, waits and steps; a data folder of its own, one run at
+a time per folder) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line a
+state as it ends; then pages.json, pages.md). A state whose wait timed out or whose load, steps or measuring failed
+is recorded as not measured, with its reason, and counts in no total:
 - the visible, enabled controls (only an open modal dialog's when one is open) and the size of each one's target:
   its own box joined with the boxes of its absolutely positioned ::before and ::after (computed from their insets,
   sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
@@ -40,7 +42,7 @@ a state as it ends; then pages.json, pages.md):
   containers of that size with a background or a border of their own;
 - axe-core's violations and "incomplete" results by impact (a failure of axe on a state is recorded for the state,
   its own measurements are kept), and the seconds of loading, steps and measuring (indicative only: the test lock's
-  shared lane, other sessions). A page whose loading or steps raise is recorded with its error and the pass goes on.
+  shared lane, other sessions; the set-up's and each pass's seconds in pages-run.json).
 
 axe-core comes from viewer/node_modules/axe-core/axe.min.js (a development dependency of viewer/package.json; `npm
 ci` in viewer); without it the axe part is left out with a note. The app's pages forbid inline script and eval
@@ -64,7 +66,6 @@ import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
-from contextlib import closing
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -811,49 +812,60 @@ def _axe_source():
     return _read(AXE)
 
 
-def measure_all(pw, site: str, cookies: dict, run: str, share: str, line: str, also: str, border: str, pages: dict,
-                devices: list, themes: list, axe_source: str | None, log) -> list:
-    """Every state measured in contexts that bypass the CSP; each record also written to `log` (a line of JSON) as
-    it ends. A page whose loading or steps raise is recorded with its error and the pass goes on."""
+def record_of(row: dict) -> dict | None:
+    """A state's record from a row of ui_shots.shoot_page: its measurements when the outcome is "done"; a row that
+    "timed out" or "failed" is recorded as not measured ("error": the outcome and its reason) and counts in no total;
+    None for a page left out on a device (not recorded)."""
+    seconds = {"load": round(sum(row[k] or 0 for k in ("load", "settle", "tiles")), 2),
+               "steps": round(sum(s["seconds"] for s in row["steps"]), 2), "measure": round(row["shot"] or 0, 2)}
+    record = {"page": row["page"], "device": row["device"], "theme": row["theme"]}
+    if row["outcome"] == "done":
+        return {**record, **row["result"], "seconds": seconds}
+    if row["outcome"] == "left out":
+        return None
+    why = row["error"] if row["outcome"] == "failed" else "; ".join(row["timeouts"])
+    return {**record, "error": f"{row['outcome']}: {why}", "seconds": seconds}
+
+
+class _Logged(list):
+    """shoot_all's rows: each one, as it is made, also a record (record_of) kept and written to `log` (a line of JSON)
+    and printed."""
+
+    def __init__(self, records: list, log):
+        super().__init__()
+        self.records, self.log = records, log
+
+    def append(self, row):
+        super().append(row)
+        record = record_of(row)
+        if record is None:
+            return
+        self.records.append(record)
+        self.log.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self.log.flush()
+        print(f"{row['page']}-{row['device']}-{row['theme']}: " + (record.get("error") or "measured"), flush=True)
+
+
+def measure_all(pw, site: dict, shown: list, devices: list, themes: list, axe_source: str | None, log,
+                times: dict | None = None, passes: list | None = None) -> list:
+    """Every page of `shown` measured through ui_shots.shoot_all (its passes, pages, waits and steps; `act` in place
+    of the screenshot) in contexts that bypass the CSP; each record also written to `log` as it ends. A page whose
+    loading, steps or measuring raise, or whose wait timed out, is recorded as not measured and the pass goes on.
+    `site`: ui_shots' dict (url, cookies, run, share, line, also, border)."""
     import ui_shots
     records = []
-
-    def keep(record: dict):
-        records.append(record)
-        log.write(json.dumps(record, ensure_ascii=False) + "\n")
-        log.flush()
-
-    def failed(name, device, theme, e):
-        keep({"page": name, "device": device, "theme": theme, "error": f"{type(e).__name__}: {str(e)[:300]}"})
-        print(f"{name}-{device}-{theme}: failed, {type(e).__name__}", flush=True)
-
-    for device in devices:
-        for theme in themes:  # a slice each: a failure outside a page (the browser's launch) costs this slice only
-            try:
-                gen = ui_shots.prepared_pages(pw, site, cookies, run, share, line, also, border, pages, [device],
-                                              [theme], {"bypass_csp": True}, on_error=failed)
-                with closing(gen):
-                    for shown in gen:
-                        began = time.monotonic()
-                        record = {"page": shown.name, "device": device, "theme": theme}
-                        try:
-                            record.update(measure(shown.page, axe_source))
-                        except Exception as e:  # recorded, the pass goes on
-                            record["error"] = f"{type(e).__name__}: {str(e)[:300]}"
-                        record["seconds"] = {**{k: round(v, 2) for k, v in shown.seconds.items()},
-                                             "measure": round(time.monotonic() - began, 2)}
-                        keep(record)
-                        print(f"{shown.name}-{device}-{theme}: " + (record.get("error") or "measured"), flush=True)
-            except Exception as e:
-                keep({"page": None, "device": device, "theme": theme,
-                      "error": f"the slice stopped: {type(e).__name__}: {str(e)[:300]}"})
-                print(records[-1]["error"], flush=True)
+    rows = _Logged(records, log)
+    ui_shots.shoot_all(pw, site, shown, devices, themes, None, False, {} if times is None else times, rows,
+                       [] if passes is None else passes,
+                       act=lambda page, name, device, theme: measure(page, axe_source), bypass_csp=True)
     return records
 
 
 def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | None) -> list:
-    """The site of tools/ui_shots.py set up (its data folder a temporary one named for tools/clean_temp.py unless
-    `data_dir`), every state measured (pages-states.jsonl), the site stopped and the temporary folder removed."""
+    """The site of tools/ui_shots.py set up (serve; its data folder a temporary one named for tools/clean_temp.py
+    unless `data_dir`, one run at a time per data folder), the pages chosen as ui_shots.main chooses them (those the
+    run lacks the feature of left out first), every state measured (pages-states.jsonl; the set-up's and passes'
+    seconds in pages-run.json), the site stopped and the temporary folder removed."""
     import ui_shots
     from playwright.sync_api import sync_playwright
 
@@ -861,17 +873,20 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
     axe_source = _axe_source()
     data = data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
     stop = None
+    times, passes, dropped = {}, [], {}
     try:
-        site, cookies, run, share, stop = ui_shots.serve(data)
-        line = ui_shots.first_line(data, run)
-        also = ";".join(ui_shots.first_line(data, run, k) for k in (40, 200))
-        border = ui_shots.border_view(data)
-        wanted = [w for w in only.split(",") if w]
-        pages = {n: p for n, p in ui_shots.PAGES.items() if not wanted or any(w in n for w in wanted)}
+        url, cookies, run, share, stop = ui_shots.serve(data, times=times)
+        site = {"url": url, "cookies": cookies, "run": run, "share": share, "line": ui_shots.first_line(data, run),
+                "also": ";".join(ui_shots.first_line(data, run, k) for k in (40, 200)),
+                "border": ui_shots.border_view(data)}
+        pages = ui_shots.select_pages(only)
+        dropped = ui_shots.left_out_by_run(pages, ui_shots.run_features(os.path.join(data, "runs", run)))
+        for name, reason in dropped.items():
+            print(f"{name}: left out, {reason}")
+        shown = [name for name in pages if name not in dropped]
         themes = ["light", "dark"] if dark else ["light"]
         with sync_playwright() as pw, open(os.path.join(out, "pages-states.jsonl"), "w", encoding="utf-8") as log:
-            return measure_all(pw, site, cookies, run, share, line, also, border, pages, devices, themes, axe_source,
-                               log)
+            return measure_all(pw, site, shown, devices, themes, axe_source, log, times, passes)
     finally:
         if stop:
             stop()
@@ -879,6 +894,8 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
             import gc
             gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
             shutil.rmtree(data, ignore_errors=True)
+        with open(os.path.join(out, "pages-run.json"), "w", encoding="utf-8") as f:
+            json.dump({"setup": times, "passes": passes, "left_out_by_run": dropped}, f, indent=1)
 
 
 def _axe_ok(r: dict) -> bool:

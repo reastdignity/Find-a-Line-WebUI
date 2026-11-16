@@ -176,7 +176,7 @@ def test_font_size_and_colour_edges():
 
 
 class _Fake:
-    """Playwright's objects as far as prepared_pages uses them with no pages."""
+    """Playwright's objects as far as ui_shots.shoot_all uses them with no pages."""
     def __init__(self):
         self.contexts = []
         self.devices = {"iPhone 13": {"viewport": {"width": 390, "height": 664}, "default_browser_type": "webkit"}}
@@ -198,11 +198,12 @@ class _Fake:
 
 def test_bypass_csp_only_when_asked():
     """The screenshot tool's contexts never bypass the CSP; the measuring pass's do (constraint 2)."""
-    for options, bypass in ((None, None), ({"bypass_csp": True}, True)):
-        pw = _Fake()
-        assert list(ui_shots.prepared_pages(pw, "https://x", {}, "r", "s", "l", "a", "b", {}, ["desktop", "iphone"],
-                                            ["light", "dark"], options)) == []
-        assert len(pw.contexts) == 4 and all(c.get("bypass_csp") is bypass for c in pw.contexts)
+    shots, metrics = _Fake(), _Fake()
+    ui_shots.shoot_all(shots, {}, [], ["desktop", "iphone"], ["light", "dark"], None, False, {}, [], [])
+    assert ui_metrics.measure_all(metrics, {}, [], ["desktop", "iphone"], ["light", "dark"], None, io.StringIO()) == []
+    assert len(shots.contexts) == len(metrics.contexts) == 4
+    assert all("bypass_csp" not in c for c in shots.contexts)
+    assert all(c["bypass_csp"] is True for c in metrics.contexts)
     assert "bypass_csp" not in inspect.getsource(ui_shots.main)
 
 
@@ -378,7 +379,12 @@ def site():
 
 FAILING = {"one": ("/one", "", None, "visitor"),
            "bad": ("/bad", "", "js:(() => { throw new Error('step broke') })()", "visitor"),
+           "slow": ("/slow", "", "wait:false", "visitor"),
            "two": ("/two", "", None, "visitor")}
+
+
+def _site_of(url: str) -> dict:
+    return {"url": url, "cookies": {}, "run": "r", "share": "s", "line": "l", "also": "a", "border": "b"}
 
 
 def _chromium(p):
@@ -389,60 +395,47 @@ def _chromium(p):
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
-def test_prepared_pages_failing_step_and_early_stop(site):
-    """A step that raises ends ui_shots' loop (its default); with on_error the failed page is reported and the rest
-    are prepared. A caller that stops early gets its page closed."""
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        _chromium(p).close()
-        with pytest.raises(Exception, match="step broke"):
-            for _ in ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"]):
-                pass
-        failed = []
-        names = [shown.name for shown in ui_shots.prepared_pages(
-            p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"],
-            on_error=lambda *args: failed.append(args[:3]))]
-        assert names == ["one", "two"] and failed == [("bad", "desktop", "light")]
-        gen = ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"])
-        first = next(gen)
-        gen.close()
-        assert first.name == "one" and first.page.is_closed()
-
-
-@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
 def test_contexts_and_the_csp_on_a_page(site):
-    """On a page under a strict CSP the measuring pass's context runs an injected script; a context made as
-    ui_shots makes it cannot."""
+    """On a page under a strict CSP the measuring pass's context (ui_shots.pass_context with bypass_csp) runs an
+    injected script; a context made as ui_shots makes it cannot."""
     from playwright.sync_api import sync_playwright
     inject = ("() => { const s = document.createElement('script'); s.textContent = 'window.injected = 1'; "
               "document.head.append(s); return window.injected === 1; }")
     ran = {}
     with sync_playwright() as p:
-        _chromium(p).close()
-        for name, options in (("ui_shots", None), ("ui_metrics", {"bypass_csp": True})):
-            gen = ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", {"one": FAILING["one"]},
-                                          ["desktop"], ["light"], options)
-            with ui_metrics.closing(gen):
-                ran[name] = next(gen).page.evaluate(inject)
+        browser = _chromium(p)
+        try:
+            for name, extra in (("ui_shots", {}), ("ui_metrics", {"bypass_csp": True})):
+                context = ui_shots.pass_context(browser, p, "desktop", "light", **extra)
+                page = context.new_page()
+                page.goto(site + "/one")
+                ran[name] = page.evaluate(inject)
+                context.close()
+        finally:
+            browser.close()
     assert ran == {"ui_shots": False, "ui_metrics": True}
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
-def test_measure_all_goes_on_after_failures(site):
-    """The pass's loop: a page whose step fails is recorded with its error, axe failing on the others keeps their
-    measurements; every record is written to the log; the summary counts the states without an axe result."""
+def test_measure_all_goes_on_after_failures(site, monkeypatch):
+    """The pass's loop through ui_shots.shoot_all: a page whose step fails and one whose wait timed out are recorded
+    as not measured with their reasons and count in no total; axe failing on the others keeps their measurements;
+    every record is written to the log as it is made."""
     from playwright.sync_api import sync_playwright
+    monkeypatch.setattr(ui_shots, "PAGES", FAILING)
+    monkeypatch.setattr(ui_shots, "WAIT_MS", 400)
     log = io.StringIO()
     with sync_playwright() as p:
         _chromium(p).close()
-        records = ui_metrics.measure_all(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"],
-                                         AXE_REJECTS, log)
-    assert [(r["page"], "error" in r) for r in records] == [("one", False), ("bad", True), ("two", False)]
-    assert "step broke" in records[1]["error"]
-    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[0], records[2]))
-    assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == ["one", "bad", "two"]
+        records = ui_metrics.measure_all(p, _site_of(site), list(FAILING), ["desktop"], ["light"], AXE_REJECTS, log)
+    assert [(r["page"], r.get("error", "").split(":")[0]) for r in records] == [
+        ("one", ""), ("bad", "failed"), ("slow", "timed out"), ("two", "")]
+    assert "step broke" in records[1]["error"] and records[2]["error"] == "timed out: false"
+    assert "controls" not in records[1] and "controls" not in records[2]
+    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[0], records[3]))
+    assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == ["one", "bad", "slow", "two"]
     row = ui_metrics.summarise(records)["per_device_theme"]["desktop light"]
-    assert (row["states"], len(row["errors"]), row["axe_missing"], row["controls"]) == (2, 1, 2, 2)
+    assert (row["states"], len(row["errors"]), row["axe_missing"], row["controls"]) == (2, 2, 2, 2)
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
@@ -452,7 +445,7 @@ def test_run_pages_removes_its_temporary_folder(monkeypatch, tmp_path):
     import clean_temp
     made = []
 
-    def broken(data, run_folder=None):
+    def broken(data, run_folder=None, fresh=False, times=None):
         made.append(data)
         raise RuntimeError("no site")
     monkeypatch.setattr(ui_shots, "serve", broken)
