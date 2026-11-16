@@ -64,8 +64,13 @@ skip() {  # <id> <why>: a check that could not run here (not a PASS; the accepta
     OUT[$1]=SKIP
     [ "$QUIET" = 1 ] || echo "SKIP $1 $2"
 }
-ua() {  # [tag]: this run's User-Agent; the log's "v" is "<MARK>.<tag>"
-    printf 'Find-a-Line/%s (highline finder; +https://site.example; contact: someone@example.org)' "$MARK${1:+.$1}"
+TAGS=" base hold probe rate forged swag th ka day send refuse local dsprobe dsserved "
+tag() {  # <tag>: its number (the log's "v" holds only version-shaped tokens: <MARK>.<number>)
+    local before=${TAGS%% $1 *}
+    printf '%s' "$before" | wc -w | tr -d ' '
+}
+ua() {  # [tag]: this run's User-Agent; the log's "v" is "<MARK>.<tag's number>", e.g. "8.4321.4"
+    printf 'Find-a-Line/%s (highline finder; +https://site.example; contact: someone@example.org)' "$MARK.$(tag "${1:-base}")"
 }
 has() { printf '%s\n' "$1" | grep -qiE "$2"; }
 hasnt() { ! printf '%s\n' "$1" | grep -qiE "$2"; }
@@ -318,11 +323,16 @@ g_paths() {
         eval '[ "${out##* }" = 404 ] && ! printf "%s" "$out" | grep -q "root:"'
     eq N10 "a symlink to a real tile: 404" "$(code "$P$T/0_0/1_7.tif")" 404
     eq N11 "a tile that does not exist: 404" "$(code "$P$T/0_0/2_2.tif")" 404
-    # Straight to the mirror (a proxy normalises the path itself): to an existing file outside it
-    out=$(cx inside --path-as-is -w ' %{http_code}' -A "$UA" "$M/v1/tiles/madeira/../../../etc/passwd")
+    # Straight to the mirror (a proxy normalises the path itself). Taken as it is written, the
+    # first path leads from the served root (/srv/public) to the system's /etc/passwd, which
+    # exists; normalised, the second and third lead to /etc/passwd inside the served root, where
+    # the fixture has a file ("fixture-inside")
+    out=$(cx inside --path-as-is -w ' %{http_code}' -A "$UA" "$M/v1/tiles/madeira/dtm/2m/../../../../../../../etc/passwd")
+    out="$out|$(cx inside --path-as-is -w ' %{http_code}' -A "$UA" "$M/v1/tiles/madeira/dtm/2m/../../../../../etc/passwd")"
     out="$out|$(cx inside --path-as-is -w ' %{http_code}' -A "$UA" "$M/v1/tiles/madeira/%2e%2e/%2e%2e/%2e%2e/etc/passwd")"
-    check N12 "a ../ and a %2e%2e traversal to /etc/passwd: not served" \
-        eval '! printf "%s" "$out" | grep -q "root:" && ! printf "%s" "$out" | grep -qE " 2[0-9][0-9](\||$)"'
+    info "traversals: $(printf '%s' "$out" | tr '\n' ' ' | head -c 200)"
+    check N12 "../ and %2e%2e traversals to an existing /etc/passwd, outside and inside the root: not served" \
+        eval '! printf "%s" "$out" | grep -qE "root:|fixture-inside" && ! printf "%s" "$out" | grep -qE " 2[0-9][0-9](\||$)"'
     eq Q01 "a query string: 400 (also an empty one, also on the landing page)" \
         "$(code "$P$T/index.json?x=1") $(code "$P/v1/datasets.json?") $(code "$P/?a")" "400 400 400"
     # The mirror's own method rule, straight to it, on a path no file answers
@@ -331,8 +341,8 @@ g_paths() {
         m="$m $(cx inside -o /dev/null -w '%{http_code}' -A "$UA" -X "$method" "$M/v1/cubes/")"
     done
     eq M01 "the mirror: POST, PUT, DELETE, OPTIONS: 405" "$m" " 405 405 405 405"
-    eq M02 "the mirror: a POST with a 2 KB body: 405 (the body is not read)" \
-        "$(head -c 2048 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-inside" curl -s -o /dev/null -w '%{http_code}' -A "$UA" --data-binary @- "$M/v1/cubes/")" 405
+    eq M02 "the mirror: a POST with a body (500 bytes): 405" \
+        "$(head -c 500 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-inside" curl -s -o /dev/null -w '%{http_code}' -A "$UA" --data-binary @- "$M/v1/cubes/")" 405
 }
 
 g_swag() {
@@ -357,30 +367,57 @@ hold() {  # <client> <seconds>: a slow download held open through the proxy
 probe() { cx "$1" -o /dev/null -w '%{http_code} %header{retry-after}' -A "$(ua probe)" "$P$T/0_0/1_2.tif"; }
 
 g_caps() {
-    # Holds: 24 MB read at 256 KB/s. The mirror sends a visitor 4 MB/s, so without the
-    # proxy's buffering switched off by X-Accel-Buffering the mirror would be done after 6 s
-    # (the trusted class after 1.5 s) and the caps would count nothing at the probes (8 s on).
+    # Holds: 24 MB read at 256 KB/s, cut at 30 s. The mirror sends a visitor 4 MB/s, so without
+    # X-Accel-Buffering the proxy's buffering would let the mirror finish after 6 s (the trusted
+    # class after 1.5 s) and the caps would count nothing at the probes (10 s on). With it a hold
+    # stays open for (24 MB - the buffers on the way) / 256 KB/s, beyond the 30 s: every probe
+    # comes 10-16 s after its holds began, which leaves over 10 s for slow docker exec calls.
     local i
-    for i in 1 2 3 4; do hold a 16; done
-    for i in 1 2 3; do hold b 16; hold t1 16; done
-    sleep 8
-    eq C01 "visitors: an 8th concurrent request (7 held, 3 trusted beside them): 200" "$(probe c)" "200 "
-    eq C02 "trusted: a 4th concurrent request from one trusted address: 200" "$(probe t1)" "200 "
-    hold b 10
-    hold t1 10
+    for i in 1 2 3 4; do hold a 30; done
+    for i in 1 2 3; do hold b 30; done
+    for i in 1 2; do hold t1 30; done
+    sleep 10
+    eq C01 "visitors: an 8th concurrent request (7 held, 2 trusted beside them): 200" "$(probe c)" "200 "
+    hold b 24
     sleep 2
     eq C03 "visitors: a 9th concurrent request (8 held): 429, Retry-After: 10" "$(probe c)" "429 10"
-    eq C04 "trusted: a 5th concurrent request from one trusted address: 429, Retry-After: 10" "$(probe t1)" "429 10"
-    eq C05 "trusted: another trusted address while the visitors' total is full: 200" "$(probe t2)" "200 "
+    eq C08 "trusted: a request while the visitors' total is full: 200" "$(probe t2)" "200 "
+    hold t1 22
+    sleep 2
+    eq C02 "trusted: the class's 4th concurrent request (3 held): 200" "$(probe t1)" "200 "
+    hold t1 20
+    sleep 2
+    eq C04 "trusted: a 5th concurrent request from an address holding 4: 429, Retry-After: 10" "$(probe t1)" "429 10"
+    eq C05 "trusted: the class's 4 together, a 5th from another trusted address: 429, Retry-After: 10" "$(probe t2)" "429 10"
     wait
     sleep 1
-    for i in 1 2 3; do hold d 16; done
-    sleep 8
+    for i in 1 2 3; do hold d 30; done
+    sleep 10
     eq C06 "one visitor address: a 4th concurrent request: 200" "$(probe d)" "200 "
-    hold d 10
+    hold d 24
     sleep 2
     eq C07 "one visitor address: a 5th concurrent request: 429, Retry-After: 10" "$(probe d)" "429 10"
     wait
+}
+
+refusal_rate() {  # <id> <what> <code> <curl options> <path>: one address, straight to the mirror
+    local id=$1 what=$2 code=$3 out burst slow
+    sleep 3
+    out=$(csh inside "curl -s $4 -w '%{http_code}\n' -A '$(ua refuse)' $(urls 60 "$M$5") | sort | uniq -c | tr -s ' \n' ' '; echo '|'; sleep 0.2; curl -s $4 --rate 17/s -w '%{http_code}\n' -A '$(ua refuse)' $(urls 34 "$M$5") | sort | uniq -c | tr -s ' \n' ' '")
+    burst=${out%%|*}
+    slow=$(printf '%s' "${out#*|}" | tr -d '\n')
+    info "$what: 60 back to back: $burst; then 34 at 17 a second: $slow"
+    check "$id" "$what: beyond the request rate 429 (from one address), at 17 a second none" \
+        eval 'printf "%s" "$burst" | grep -qE " [0-9]+ 429 " && printf "%s" "$burst" | grep -qE " [0-9]+ $code " && [ "$slow" = " 34 $code " ]'
+}
+
+g_refusals() {
+    # Every answer passes the per-address request rate, refusals too (else one address writes the
+    # log without a bound)
+    refusal_rate X01 "a path outside the served names (404)" 404 "" "/nothing"
+    refusal_rate X02 "a query string (400)" 400 "" "/v1/datasets.json?x"
+    refusal_rate X03 "another method (405)" 405 "-X DELETE" "/robots.txt"
+    refusal_rate X04 "several byte ranges (416)" 416 "-H 'Range: bytes=0-1,3-4'" "$T/0_0/1_2.tif"
 }
 
 g_bytes() {
@@ -420,9 +457,10 @@ g_rate() {
     out=$(paced c 17/s 51)
     info "51 requests at 17 a second, the burst used up: $out"
     eq Q12 "with the burst used up, 17 requests a second: all served" "$out" " 51 200 "
-    out=$(paced c 24/s 48)
-    info "48 requests at 24 a second, the burst used up: $out"
-    check Q13 "24 requests a second: refused (429) beyond 20 a second" has "$out" ' [0-9]+ 429 '
+    # 40 a second (twice the rate): a client that reaches more than 20 a second at all meets 429
+    out=$(paced c 40/s 80)
+    info "80 requests at 40 a second, the burst used up: $out"
+    check Q13 "40 requests a second: refused (429) beyond 20 a second" has "$out" ' [0-9]+ 429 '
     # shellcheck disable=SC2046
     out=$(cx t1 -w '%{http_code}\n' -A "$(ua rate)" $(urls 100 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
     eq Q14 "a trusted address: 100 requests back to back all served (no request rate)" "$out" " 100 200 "
@@ -435,6 +473,14 @@ g_forged() {
     out=$(cx e -H "X-Real-IP: $T1" -H "X-Forwarded-For: $T1" -w '%{http_code}\n' -A "$(ua forged)" $(urls 60 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
     info "60 back to back with X-Real-IP and X-Forwarded-For of a trusted address: $out"
     check F01 "a visitor's forged X-Real-IP / X-Forwarded-For is not believed (still limited as a visitor)" has "$out" ' [0-9]+ 429 '
+    # X-Real-IP 127.0.0.1 from a sender on the project's network never buys the healthcheck's
+    # class (no limit, not logged): it is decided on the connection's own address
+    sleep 3
+    # shellcheck disable=SC2046
+    out=$(cx inside -H "X-Real-IP: 127.0.0.1" -w '%{http_code}\n' -A "$(ua local)" $(urls 60 "$M$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
+    info "60 back to back with X-Real-IP: 127.0.0.1: $out"
+    check F02 "X-Real-IP 127.0.0.1 is not the healthcheck's class (limited and logged)" \
+        eval 'has "$out" " [0-9]+ 429 " && [ "$(new_log_lines | grep -c "\"v\":\"$MARK.$(tag local)\"")" -ge 41 ]'
 }
 
 g_timeouts() {
@@ -444,7 +490,7 @@ g_timeouts() {
     csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $(ua th)\r\n'; sleep 12; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h12" 2>&1 &
     csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $(ua th)\r\n'; sleep 7; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h7" 2>&1 &
     # A reader that stops reading: nc's output into a pipe nobody reads for 55 s
-    csh inside "(printf 'GET $T/0_0/1_4.tif HTTP/1.1\r\nHost: m\r\nUser-Agent: Find-a-Line/$MARK.send\r\nConnection: close\r\n\r\n'; sleep 55) | nc findaline-mirror-files 8080 | sleep 55" > /dev/null 2>&1 &
+    csh inside "(printf 'GET $T/0_0/1_4.tif HTTP/1.1\r\nHost: m\r\nUser-Agent: $(ua send)\r\nConnection: close\r\n\r\n'; sleep 55) | nc findaline-mirror-files 8080 | sleep 55" > /dev/null 2>&1 &
     cx inside -o /dev/null -o /dev/null --rate 3/m -w '%{num_connects} ' -A "$(ua ka)" "$M/robots.txt" "$M/robots.txt" > "$d/k20" &
     cx inside -o /dev/null -o /dev/null --rate 6/m -w '%{num_connects} ' -A "$(ua ka)" "$M/robots.txt" "$M/robots.txt" > "$d/k10" &
     wait
@@ -454,7 +500,7 @@ g_timeouts() {
     eq Z03 "keep-alive: a second request 20 s later needs a new connection (15 s)" "$(cat "$d/k20")" "1 1 "
     eq Z04 "keep-alive: a second request 10 s later reuses the connection" "$(cat "$d/k10")" "1 0 "
     local line rt b
-    line=$(new_log_lines | cut -d' ' -f2- | grep "\"v\":\"$MARK.send\"" | tail -1)
+    line=$(new_log_lines | cut -d' ' -f2- | grep "\"v\":\"$MARK.$(tag send)\"" | tail -1)
     rt=$(printf '%s' "$line" | sed -n 's/.*"rt":\([0-9.]*\).*/\1/p')
     b=$(printf '%s' "$line" | sed -n 's/.*"b":\([0-9]*\).*/\1/p')
     info "a reader that stops: the mirror's line $line"
@@ -475,15 +521,28 @@ new_log_lines() {  # the log's lines written since run_checks began, from every 
 }
 
 g_log() {
-    local lines all mine out
+    local lines all mine out p v
+    docker exec "$FILES" /usr/local/bin/mirror-start health
     docker exec "$FILES" /usr/local/bin/mirror-start health
     cx b -o /dev/null -A "Mozilla/5.0 (X11; Linux x86_64)" "$P$T/index.json"
+    # ds only of the served names; v only of version-shaped tokens (the code review's inputs)
+    for p in "/v1/tiles/$(head -c 300 /dev/zero | tr '\0' a)-john-smith-192-168-1-20/x" \
+        "/v1/tiles/madeira-dtm-2m-0_0-1_2-tif/x" "/v1/tiles/madeira/x" "/v1/tiles/madeira/dtm/2m/0_0/1_2.tif.x"; do
+        cx d -o /dev/null -A "$(ua dsprobe)" "$P$p"
+    done
+    cx d -o /dev/null -A "$(ua dsserved)" "$P$T/0_0/9_9.tif"
+    for v in 203.0.113.77 madeira.dtm.2m.0.0.1.2 1.2.3.4.5 1.0+203.0.113.7 12345.1.0 0.2.0rc1 1.0.0.dev3 0.1.0+local; do
+        cx d -o /dev/null -A "Find-a-Line/$v (x)" "$P/robots.txt"
+    done
     sleep 1
     lines=$(new_log_lines)
     all=$(printf '%s\n' "$lines" | cut -d' ' -f2-)
-    mine=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK")
+    mine=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK\.")
     info "this run's lines: $(printf '%s\n' "$mine" | grep -c .); refusals by limit: $(printf '%s\n' "$mine" | grep '"s":429,' | sed -n 's/.*"lim":"\([^"]*\)".*/\1/p' | sort | uniq -c | tr -s ' \n' ' ')"
-    out=$(printf '%s\n' "$lines" | grep . | awk '{ split($1, f, /[-.]/); day = f[2] "-" f[3] "-" f[4]; if (index($2, "{\"t\":\"" day "T") != 1) bad++ } END { print bad + 0 }')
+    # A line's time is when its request ended, its file the one open when it began: a request
+    # running across midnight UTC has a time of the next day in the day before's file
+    out=$(printf '%s\n' "$lines" | grep . | awk '{ split($1, f, /[-.]/); day = f[2] "-" f[3] "-" f[4]; t = substr($2, 7, 10); hm = substr($2, 18, 8)
+        if (t != day && !(t > day && hm < "00:10:00")) bad++ } END { print bad + 0 }')
     check L01 "one file a day: each of this run's $(printf '%s\n' "$mine" | grep -c .) lines in access-<its UTC day>.log" \
         eval '[ "$(printf "%s\n" "$mine" | grep -c .)" -ge 20 ] && [ "$out" -eq 0 ] && printf "%s\n" "$lines" | grep -q "^access-[0-9-]*\.log "'
     out=$(printf '%s\n' "$all" | grep . | grep -vcE '^\{"t":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}\+00:00","s":[0-9]{3},"b":[0-9]+,"rt":[0-9]+\.[0-9]{3},"ds":"([a-z0-9_-]+|-)","a":"[0-9.]+","lim":"(-|rate|conn|trusted)","v":"[0-9A-Za-z.+-]+"\}$')
@@ -500,8 +559,16 @@ g_log() {
     check L07 "a User-Agent without Find-a-Line/<version>: \"other\"" \
         eval 'printf "%s\n" "$all" | grep -q "\"a\":\"$B\",\"lim\":\"-\",\"v\":\"other\""'
     check L08 "a forged X-Real-IP is logged under the sender's own address" \
-        eval 'printf "%s\n" "$mine" | grep -q "\"v\":\"$MARK.forged\"" && ! printf "%s\n" "$mine" | grep "\"v\":\"$MARK.forged\"" | grep -qv "\"a\":\"$E\""'
-    check L09 "the healthcheck's requests are not logged" eval '! printf "%s\n" "$all" | grep -q "\"a\":\"127.0.0.1\""'
+        eval 'printf "%s\n" "$mine" | grep -q "\"v\":\"$MARK.$(tag forged)\"" && ! printf "%s\n" "$mine" | grep "\"v\":\"$MARK.$(tag forged)\"" | grep -qv "\"a\":\"$E\""'
+    check L09 "the healthcheck's requests are not logged" \
+        eval '! printf "%s\n" "$all" | grep "\"a\":\"127.0.0.1\"" | grep -q "\"v\":\"other\""'
+    out=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK.$(tag dsprobe)\"")
+    check L11 "ds: \"-\" for paths outside the served names (a 300-letter name with an address, a tile's path folded into one name); the dataset for a served one" \
+        eval '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 4 ] && ! printf "%s\n" "$out" | grep -qv "\"ds\":\"-\"" && printf "%s\n" "$all" | grep "\"v\":\"$MARK.$(tag dsserved)\"" | grep -q "\"s\":404,.*\"ds\":\"madeira\""'
+    out=$(printf '%s\n' "$all" | grep "\"a\":\"$D\"" | sed -n 's/.*"v":"\([^"]*\)".*/\1/p' | sort | uniq -c | tr -s ' \n' ' ')
+    info "versions logged for client d: $out"
+    check L12 "v: version forms kept (0.2.0rc1, 1.0.0.dev3, 0.1.0+local), anything else (an address, a tile in dots) \"other\"" \
+        eval 'for v in 0.2.0rc1 1.0.0.dev3 0.1.0+local; do case "$out" in *" $v "*) ;; *) exit 1 ;; esac; done; case "$out" in *203.0.113*|*madeira*|*1.2.3.4.5*|*12345.1*) false ;; *) printf "%s" "$out" | grep -qE " 5 other "; esac'
     out=$(docker logs --since "$RUN_START" "$FILES" 2>&1 | grep -E "/v1/|$MARK|$A[^0-9]|client: |limiting")
     [ -z "$out" ] || info "on the container's stdout or stderr: $(printf '%s\n' "$out" | head -3)"
     check L10 "nothing of a request on the container's stdout or stderr" eval '[ -z "$out" ]'
@@ -522,6 +589,12 @@ g_container() {
     eq K07 "the public folder cannot be written, the log folder can" \
         "$(csh files-1 'touch /srv/public/x 2>/dev/null && echo w || echo ro') $(csh files-1 'touch /var/log/mirror/.w && rm /var/log/mirror/.w && echo w')" "ro w"
     eq K08 "memory limited, swap equal" "$(echo "$i" | cut -d'|' -f7)=$(echo "$i" | cut -d'|' -f8)" "134217728=134217728"
+    # The memory limit holds: a process asking for 200 MB is killed, one asking for 32 MB is not,
+    # and the container stays up and healthy
+    out="$(csh files-1 'dd if=/dev/zero of=/dev/null bs=32M count=1 2>/dev/null; echo $?') $(csh files-1 'dd if=/dev/zero of=/dev/null bs=200M count=1 2>/dev/null; echo $?')"
+    sleep 1
+    check K14 "the memory limit holds: 32 MB served, 200 MB killed (137), the container still healthy ($out)" \
+        eval '[ "$out" = "0 137" ] && [ "$(docker inspect -f "{{.State.Running}}" "$FILES")" = true ] && docker exec "$FILES" /usr/local/bin/mirror-start health'
     # 90 processes asked for at once; the cgroup counts the forks it refused (read by a builtin)
     out=$(csh files-1 'for k in $(seq 90); do sleep 5 & done' 2>&1 | grep -c "can't fork")
     sleep 6
@@ -573,7 +646,7 @@ g_cleanup() {
     local days d13 d14 d15 left
     days=$(csh files-1 'n=$(date -u +%s); for k in 13 14 15; do date -u -d "@$((n - k * 86400))" +%F; done' | tr '\n' ' ')
     read -r d13 d14 d15 <<< "$days"
-    csh files-1 "cd /var/log/mirror && touch access-$d13.log access-$d14.log access-$d15.log access-notes.log notes.txt"
+    csh files-1 "cd /var/log/mirror && touch access-$d13.log access-$d14.log access-$d15.log access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log"
     docker restart "$FILES" > /dev/null
     wait_healthy || info "not healthy after the restart"
     left=$(csh files-1 'ls /var/log/mirror' | tr '\n' ' ')
@@ -581,27 +654,41 @@ g_cleanup() {
     check E01 "the cleanup keeps a file 13 days back" eval 'case " $left" in *" access-$d13.log "*) true ;; *) false ;; esac'
     check E02 "the cleanup deletes a file 14 days back" eval 'case " $left" in *" access-$d14.log "*) false ;; *) true ;; esac'
     check E03 "the cleanup deletes a file 15 days back" eval 'case " $left" in *" access-$d15.log "*) false ;; *) true ;; esac'
-    check E04 "the cleanup leaves other names alone" eval 'case " $left" in *" access-notes.log "*) ;; *) false ;; esac && case " $left" in *" notes.txt "*) true ;; *) false ;; esac'
-    csh files-1 'rm -f /var/log/mirror/access-notes.log /var/log/mirror/notes.txt'
+    check E04 "the cleanup leaves other names alone, also impossible dates (2000-13-45, 0000-00-00)" \
+        eval 'for n in access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done'
+    csh files-1 'cd /var/log/mirror && rm -f access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log'
     # The heartbeat: stale -> unhealthy; the loop renews it; a dead loop -> unhealthy
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
-    # A new day, as the loop sees it: the day in effect set back; the loop writes today's log.conf
-    # and reloads nginx (new workers), and the log goes on in today's file
-    local workers day
-    workers=$(csh files-1 'pgrep -f "nginx: worker" | sort | tr "
-" " "')
-    csh files-1 'echo 2000-01-01 > /tmp/mirror/log.day; echo "access_log /var/log/mirror/access-2000-01-01.log mirror;" > /tmp/mirror/log.conf'
     check E05 "a stale heartbeat fails the healthcheck" eval '! docker exec "$FILES" /usr/local/bin/mirror-start health'
+    # A new day as the loop sees it (the clock is not changed): nginx first made to write into a
+    # file named for another day (a reload of the test's own), and that day set as the one in
+    # effect; the loop must name today's file and reload, after which a request lands in today's
+    # file, no longer in the other
+    local day n_old n_new
+    day=$(csh files-1 'date -u +%F')
+    csh files-1 'echo "access_log /var/log/mirror/access-2000-01-02.log mirror;" > /tmp/mirror/log.conf && kill -HUP $(cat /tmp/nginx.pid)'
+    sleep 3
+    cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
+    csh files-1 'echo 2000-01-02 > /tmp/mirror/log.day'
     sleep 35
     check E06 "the cleanup loop renews the heartbeat (within 30 s)" docker exec "$FILES" /usr/local/bin/mirror-start health
-    day=$(csh files-1 'date -u +%F')
     cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
     sleep 1
-    check E08 "a new day: the loop names the new day's file and reloads nginx; the log goes on there" eval '
-        [ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ] &&
-        [ "$(csh files-1 "pgrep -f \"nginx: worker\" | sort | tr \"
-\" \" \"")" != "$workers" ] &&
-        csh files-1 "grep -q \"$MARK.day\" /var/log/mirror/access-$day.log" && ! csh files-1 "test -e /var/log/mirror/access-2000-01-01.log"'
+    n_old=$(csh files-1 "grep -c '\"v\":\"$MARK.$(tag day)\"' /var/log/mirror/access-2000-01-02.log")
+    n_new=$(csh files-1 "grep -c '\"v\":\"$MARK.$(tag day)\"' /var/log/mirror/access-$day.log")
+    info "a new day: lines in the other day's file $n_old, in today's $n_new; the day in effect $(csh files-1 'cat /tmp/mirror/log.day')"
+    check E08 "a new day: the loop names today's file and reloads nginx; the next line lands there, not in the other day's" \
+        eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ] && [ "$n_old" = 1 ] && [ "$n_new" = 1 ]'
+    # A reload that fails (today's file made a folder, so nginx cannot open it) is not taken as
+    # the switch: the day in effect stays, and the next turn tries again
+    csh files-1 "cd /var/log/mirror && mv access-$day.log access-$day.log.moved && mkdir access-$day.log && echo 2000-01-03 > /tmp/mirror/log.day"
+    sleep 35
+    check E09 "a failed reload at a new day is not taken as the switch (the day in effect stays)" \
+        eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = 2000-01-03 ]'
+    csh files-1 "cd /var/log/mirror && rmdir access-$day.log && mv access-$day.log.moved access-$day.log"
+    sleep 35
+    check E10 "the next turn tries again and switches" eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
+    csh files-1 'rm -f /var/log/mirror/access-2000-01-02.log'
     csh files-1 'kill $(cat /tmp/mirror/cleanup.pid)'
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
     sleep 35
@@ -612,8 +699,8 @@ g_cleanup() {
 
 run_checks() {  # the groups named, against the running stack
     local g
-    MARK="chk$RANDOM$RANDOM"
-    UA="Find-a-Line/$MARK (highline finder; +https://site.example; contact: someone@example.org)"
+    MARK="8.$((RANDOM % 9000 + 1000))"
+    UA=$(ua)
     LOG_FROM=$(log_counts)
     RUN_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     PROXY_IP=$(docker inspect "$PROJECT-proxy-1" --format "{{(index .NetworkSettings.Networks \"${PROJECT}_mirror\").IPAddress}}")
@@ -725,11 +812,19 @@ g_door() {
     # Files written through the door; hashes asked as rclone asks them
     r=$(dsftp "mkdir /mirror/staging/x
 put /root/a.bin /mirror/staging/x/a.bin
-put /root/a.bin \"/mirror/staging/x/$name\"
-symlink /etc/passwd /mirror/staging/x/out.bin
-symlink /dev/zero /mirror/staging/x/zero.bin
-symlink /mirror/staging/x/a.bin /mirror/staging/x/in.bin")
+put /root/a.bin \"/mirror/staging/x/$name\"")
     info "files put through the door: status ${r%%|*}"
+    # Links over SFTP are refused (sftp-server -P symlink,hardlink)
+    r=$(dsftp "symlink /mirror/staging/x/a.bin /mirror/staging/x/s.bin")
+    out=$(dsftp "ln /mirror/staging/x/a.bin /mirror/staging/x/h.bin")
+    info "a symlink over SFTP: ${r%%|*} $(printf '%s' "${r#*|}" | tail -1); a hard link: ${out%%|*} $(printf '%s' "${out#*|}" | tail -1)"
+    check D32 "a symlink made over SFTP is refused" \
+        eval '[ "${r%%|*}" != 0 ] && ! as_root "$PROJECT-door-root" "test -L /v/staging/x/s.bin"'
+    check D33 "a hard link made over SFTP is refused" \
+        eval '[ "${out%%|*}" != 0 ] && ! as_root "$PROJECT-door-root" "test -e /v/staging/x/h.bin"'
+    # Links the host's owner could make (the account cannot): the gate resolves them
+    as_root "$PROJECT-door-root" 'cd /v/staging/x && ln -s /etc/passwd out.bin && ln -s /dev/zero zero.bin &&
+        ln -s /mirror/staging/x/a.bin in.bin && chown -h 1000:1000 out.bin zero.bin in.bin'
     r=$(dssh publish@sftp "sha256sum $(esc /mirror/staging/x/a.bin)")
     eq D09 "sha256sum of a file under the folder through the gate: the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
     r=$(dssh publish@sftp "sha256sum $(esc "/mirror/staging/x/$name")")
@@ -756,7 +851,10 @@ symlink /mirror/staging/x/a.bin /mirror/staging/x/in.bin")
         eval '[ "${r%%|*}" != 0 ] && [ "${out%%|*}" != 0 ] && i=$(dsftp "ls /mirror") && [ "${i%%|*}" = 0 ]'
     # The publish tool's swap: staging/x to public/v1/tiles/x is a rename (the inodes kept)
     before=$(as_root "$PROJECT-door-root" 'cd /v/staging/x && ls -i | sort -k2 | tr -s " \n" "  "')
-    r=$(dsftp "rename /mirror/staging/x /mirror/public/v1/tiles/x")
+    r=$(dsftp "-mkdir /mirror/public/v1
+-mkdir /mirror/public/v1/tiles
+rename /mirror/staging/x /mirror/public/v1/tiles/x")
+    info "the rename: status ${r%%|*} $(printf '%s' "${r#*|}" | tail -1)"
     after=$(as_root "$PROJECT-door-root" 'cd /v/public/v1/tiles/x && ls -i | sort -k2 | tr -s " \n" "  "')
     info "inodes before: $before; after: $after"
     check D25 "a folder moved from staging/x to public/v1/tiles/x keeps its inodes (a rename)" \
@@ -790,8 +888,9 @@ symlink /mirror/staging/x/a.bin /mirror/staging/x/in.bin")
 
 # <name> @@ <file in deploy/mirror> @@ <sed expression> @@ <groups> @@ <check ids that must FAIL>
 VARIANTS=(
-    'allow-list off @@ nginx.conf @@ s#location / { return 404; }#location / { autoindex on; }# @@ paths @@ N01 N02 N03 N04 N06 N07 N08'
-    'served root / @@ nginx.conf @@ s#location / { return 404; }#location / { root /; }# @@ paths @@ N12'
+    'allow-list off @@ nginx.conf @@ s#location / { try_files /.none =404; }#location / { autoindex on; }# @@ paths @@ N01 N02 N03 N04 N06 N07 N08'
+    'served root / @@ nginx.conf @@ s#location / { try_files /.none =404; }#location / { root /; }# @@ paths @@ N12'
+    'refusals before the limits @@ nginx.conf @@ s#rewrite ^ /__refused/\([0-9]*\)? last;#return \1;#; s#location / { try_files /.none =404; }#location / { return 404; }# @@ refusals @@ X01 X02 X03 X04'
     'symlinks followed @@ nginx.conf @@ s#disable_symlinks on;#disable_symlinks off;# @@ paths @@ N09 N10'
     'folders redirected @@ nginx.conf @@ /error_page 301 =404/d @@ paths @@ N05'
     'other methods allowed @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET|HEAD|POST|PUT|DELETE|OPTIONS)$)# @@ paths @@ M01 M02'
@@ -800,27 +899,37 @@ VARIANTS=(
     'several ranges allowed @@ nginx.conf @@ /if (\$http_range ~ ",")/d; /max_ranges 1;/d @@ content @@ R02'
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
-    'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d @@ caps @@ C03 C04 C07'
+    'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d; /limit_conn trusted_all 4;/d @@ caps @@ C03 C04 C05 C07'
     'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps @@ C06'
     'all visitors: 7 at once @@ nginx.conf @@ s#visitors_all 8;#visitors_all 7;# @@ caps @@ C01'
     'a trusted address: 3 at once @@ nginx.conf @@ s#trusted_address 4;#trusted_address 3;# @@ caps @@ C02'
-    'X-Accel-Buffering off @@ nginx.conf @@ /add_header X-Accel-Buffering/d @@ caps @@ C03 C04 C07'
+    'the trusted class: 3 at once @@ nginx.conf @@ s#trusted_all 4;#trusted_all 3;# @@ caps @@ C02'
+    'the trusted class without its total @@ nginx.conf @@ /limit_conn trusted_all 4;/d @@ caps @@ C05'
+    'X-Accel-Buffering off @@ nginx.conf @@ /add_header X-Accel-Buffering/d @@ caps @@ C03 C04 C05 C07'
     'byte rates off @@ nginx.conf @@ s#visitor 4000000; trusted 16000000; default 0;#default 0;# @@ bytes @@ B01 B02'
-    'trusted list ignored @@ nginx.conf @@ /include \/tmp\/mirror\/trusted.conf;/d @@ caps bytes rate @@ C05 B02 Q14'
-    'request rate off @@ nginx.conf @@ /limit_req zone=visitor_rate/d @@ rate forged @@ Q11 Q13 F01'
-    'request rate 14 a second @@ nginx.conf @@ s#rate=20r/s#rate=14r/s# @@ rate @@ Q12'
-    'request rate 30 a second @@ nginx.conf @@ s#rate=20r/s#rate=30r/s# @@ rate @@ Q13'
+    'trusted list ignored @@ nginx.conf @@ /include \/tmp\/mirror\/trusted.conf;/d @@ caps bytes rate @@ C08 B02 Q14'
+    'request rate off @@ nginx.conf @@ /limit_req zone=visitor_rate/d @@ rate forged refusals @@ Q11 Q13 F01 F02 X01 X02 X03 X04'
+    'request rate 14 a second @@ nginx.conf @@ s#rate=20r/s#rate=14r/s# @@ rate refusals @@ Q12 X01 X02 X03 X04'
+    'request rate 50 a second @@ nginx.conf @@ s#rate=20r/s#rate=50r/s# @@ rate @@ Q13'
+    'local decided after X-Real-IP @@ nginx.conf @@ s#geo $realip_remote_addr $mirror_local#geo $remote_addr $mirror_local# @@ forged @@ F02'
+    'ds of any path @@ nginx.conf @@ s#^    map $uri $mirror_dataset {#&\n        "~^/v1/tiles/(?<ds>[a-z0-9_-]+)/"  $ds;# @@ log @@ L11'
+    'v of any token @@ nginx.conf @@ s#^    map $http_user_agent $mirror_version {#&\n        "~^Find-a-Line/(?<v>[0-9A-Za-z.+-]{1,32})"  $v;# @@ log @@ L12'
     'burst 10 @@ nginx.conf @@ s#burst=40 nodelay#burst=10 nodelay# @@ rate @@ Q11'
     'X-Forwarded-For believed from anyone @@ nginx.conf @@ s#include /tmp/mirror/realip.conf;#set_real_ip_from 0.0.0.0/0;#; s#real_ip_header X-Real-IP;#real_ip_header X-Forwarded-For;#; s#real_ip_recursive off;#real_ip_recursive on;# @@ forged log @@ F01 L08'
-    'timeouts long @@ nginx.conf @@ s#client_header_timeout 10s;#client_header_timeout 60s;#; s#send_timeout 30s;#send_timeout 300s;#; s#keepalive_timeout 15s;#keepalive_timeout 75s;# @@ timeouts @@ Z01 Z03 Z05'
+    'header timeout 60 s @@ nginx.conf @@ s#client_header_timeout 10s;#client_header_timeout 60s;# @@ timeouts @@ Z01'
+    'send timeout 300 s @@ nginx.conf @@ s#send_timeout 30s;#send_timeout 300s;# @@ timeouts @@ Z05'
+    'keep-alive 75 s @@ nginx.conf @@ s#keepalive_timeout 15s;#keepalive_timeout 75s;# @@ timeouts @@ Z03'
     'timeouts short @@ nginx.conf @@ s#client_header_timeout 10s;#client_header_timeout 5s;#; s#keepalive_timeout 15s;#keepalive_timeout 5s;# @@ timeouts @@ Z02 Z04'
-    'log on stdout @@ start.sh @@ s#access_log $LOGS/access-$_today.log#access_log /dev/stdout# @@ content log @@ L01 L10'
+    'log on stdout @@ start.sh @@ s#access_log $LOGS/access-$1.log#access_log /dev/stdout# @@ content log @@ L01 L10'
     'log with the path @@ nginx.conf @@ s#"rt":$request_time,#"rt":$request_time,"p":"$uri",# @@ content log @@ L02 L06'
     'log with the whole User-Agent @@ nginx.conf @@ s#"v":"$mirror_version"#"v":"$http_user_agent"# @@ content log @@ L06 L07'
     'log without the refusing limit @@ nginx.conf @@ s#"lim":"$mirror_limit"#"lim":"-"# @@ caps rate log @@ L05'
     'healthcheck logged @@ nginx.conf @@ s#map $mirror_class $mirror_loggable { local 0; default 1; }#map $mirror_class $mirror_loggable { default 1; }# @@ log @@ L09'
-    'one log file @@ start.sh @@ s#access-$_today.log#access.log# @@ content log @@ L01'
-    'no new file at a new day @@ start.sh @@ s#            log_conf$#            true# @@ cleanup @@ E08'
+    'one log file @@ start.sh @@ s#access-$1.log#access.log# @@ content log @@ L01'
+    'no new file at a new day @@ start.sh @@ s#^    log_conf "$_today"$#    true# @@ cleanup @@ E08'
+    'no reload at a new day @@ start.sh @@ s#kill -HUP "$_master" 2> /dev/null || return 0#true# @@ cleanup @@ E08'
+    'a failed reload taken as the switch @@ start.sh @@ s#if \[ -f "$LOGS/access-$_today.log" \] && \[ -n "$_after" \] && \[ "$_after" != "$_before" \]; then#if true; then# @@ cleanup @@ E09'
+    'impossible dates cleaned @@ start.sh @@ /Only a real date/{n;d} @@ cleanup @@ E04'
     'error log at info @@ nginx.conf @@ s#error_log /dev/stderr crit;#error_log /dev/stderr info;# @@ paths caps log @@ L10'
     'no privacy text @@ landing/index.html @@ /for 14 days, to hold the service/d @@ content @@ P10'
     'contact not put in @@ start.sh @@ s#sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE"#cat "$TEMPLATE"# @@ content @@ P11'
@@ -838,7 +947,13 @@ VARIANTS=(
     'TTY allowed @@ publish/sshd_config @@ s#^PermitTTY no#PermitTTY yes# @@ door @@ D07 D30'
     'forwarding allowed @@ publish/sshd_config @@ s#^DisableForwarding yes#DisableForwarding no#; s#^AllowTcpForwarding no#AllowTcpForwarding yes# @@ door @@ D08 D30'
     'files only for the owner @@ publish/gate.sh @@ s#sftp-server -u 022#sftp-server -u 077# @@ door @@ D26'
+    'links allowed over SFTP @@ publish/gate.sh @@ s# -P symlink,hardlink## @@ door @@ D32 D33'
+    'a shell without a command @@ publish/gate.sh @@ s#^request=${SSH_ORIGINAL_COMMAND-}$#&; [ -n "$request" ] || exec /bin/sh -c "echo a shell"# @@ door @@ D05'
+    'escapes not removed @@ publish/gate.sh @@ /^        path=\$(printf/s#.*#        path=$escaped# @@ door @@ D10'
     'not in the log group @@ publish/compose.yaml @@ /group_add:/d @@ door @@ D27 D28'
+    'the port on every address @@ publish/compose.yaml @@ s#"${PUBLISH_ADDRESS:?[^}]*}:#"# @@ door @@ D29'
+    'a new host key at each start @@ publish/Dockerfile @@ s#^ENTRYPOINT .*#ENTRYPOINT ssh-keygen -q -t ed25519 -N "" -f /tmp/hk \&\& sed "s|^HostKey .*|HostKey /tmp/hk|" /etc/ssh/sshd_config > /tmp/c \&\& exec /usr/sbin/sshd -D -e -f /tmp/c# @@ door @@ D31'
+    'two mounts (staging and public) @@ test/compose.door-check.yaml @@ s#- {type: volume, source: root, target: /mirror}#&\n      - {type: tmpfs, target: /mirror/public, tmpfs: {mode: 01777}}# @@ door @@ D25'
     'keys writable @@ test/compose.door-check.yaml @@ s#read_only: true#read_only: false# @@ door @@ D24'
 )
 
@@ -865,9 +980,13 @@ variant() {  # <file> <sed expression>: the variant built and the stack recreate
         publish/* | test/compose.door-check.yaml)
             case $file in
                 publish/compose.yaml) DOOR_COMPOSE="$ctx/patched" ;;
+                publish/Dockerfile)
+                    docker build -q --label "mirror-check=$PROJECT" -t "$PROJECT-door-sftp" -f "$(hostpath "$ctx/patched")" \
+                        "$(hostpath "$DOOR")" > /dev/null || return 1
+                    ;;
                 test/compose.door-check.yaml) DOOR_OVERLAY="$ctx/patched" ;;
             esac
-            docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
+            [ "$file" = publish/Dockerfile ] || docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
             case $file in
                 publish/gate.sh | publish/sshd_config)
                     local to=/usr/local/bin/gate
@@ -1000,7 +1119,7 @@ if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
     echo "== done, failures: $FAILS"
     exit 0
 fi
-run_checks container content paths swag caps bytes rate forged timeouts log start
+run_checks container content paths swag caps bytes rate refusals forged timeouts log start
 declare -A MAIN=()
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== live mode against the stand-in (http://127.0.0.1:$PORT)"

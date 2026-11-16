@@ -21,6 +21,7 @@ head -c 1000 /dev/urandom > "$d/0_0/.1_9.tif"           # a dot-file in a tile's
 echo secret > v1/tiles/madeira/.secret                  # a dot-file
 echo 'not served' > "$d/notes.txt"                      # a name outside the patterns
 echo 'not served' > outside.txt                         # a file at the root, outside the patterns
+mkdir -p etc && echo 'fixture-inside' > etc/passwd      # where a traversal to /etc/passwd normalises
 echo 'reserved' > v1/cubes/x.bin                        # /v1/cubes/ and /v1/cache/ are reserved
 echo 'reserved' > v1/cache/x.bin
 mkdir -p "$d/0_0/2_0.tif"                               # a folder with a tile's name

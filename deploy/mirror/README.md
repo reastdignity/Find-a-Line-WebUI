@@ -17,7 +17,10 @@ What the server does, in short:
   query string 400; methods other than GET and HEAD 405; several byte ranges in one request 416);
 - limits every visitor's address: 4 MB/s per request, 4 requests at once, 20 requests a second (a burst of 40),
   and all visitors together to 8 requests at once; the site's server (`MIRROR_TRUSTED_ADDRESSES`) gets 16 MB/s,
-  4 at once, outside the visitors' total, no request rate. A refusal is a 429 with `Retry-After: 10`;
+  4 at once for the whole class, outside the visitors' total, no request rate. Every answer counts against an
+  address's request rate, refusals and 404s too. A refusal by a limit is a 429 with `Retry-After: 10`. The limits
+  count addresses one by one: an IPv6 visitor would be counted per single address (a /64 holds very many), so the
+  name has no AAAA record and SWAG does not listen on IPv6 for it;
 - writes one line per request into `<root>/logs/access-YYYY-MM-DD.log` (UTC days) and deletes each file 14 or
   more days old, every hour.
 
@@ -146,9 +149,13 @@ What the door is:
 - its port published on the server's **LAN address only** (`PUBLISH_ADDRESS`, required; never `0.0.0.0`; the
   router forwards nothing to it), on a network of its own, never the mirror's internal one;
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
-  mounts fails), `authorized_keys` and the door's host key mounted read-only, nothing else of the host. Files it
-  writes get mode 644 and folders 755, so the file server (uid 101) reads them; it reads `<root>/logs` through
-  group 101 (`tools/mirror_publish.py stats`).
+  mounts fails: tried with `public` as a mount of its own, sftp's rename answers "Failure" and the folder stays in
+  `staging`; rclone 1.76 then exits 1 and leaves the files in staging, as the research for this door saw),
+  `authorized_keys` and the door's host key mounted read-only, nothing else of the host. Files it writes get
+  mode 644 and folders 755, so the file server (uid 101) reads them; it reads `<root>/logs` through group 101
+  (`tools/mirror_publish.py stats`). On the host they belong to uid 1000, whichever user that is there (on many
+  systems the first person's account): that user can change the published files.
+- no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
 
 What the key can still read, accepted: the container's own read-only files (an Alpine system, no secret) and the
 door's host key (sshd runs as the account and needs it). Whoever holds the publishing key could therefore copy the
@@ -176,7 +183,10 @@ install -m 0644 findaline-publish.pub "$KEYS/authorized_keys"
 # The folders the account writes
 chown -R 1000:1000 "$ROOT/staging" "$ROOT/public" "$ROOT/trash"       # logs/ stays 101:101, 0750
 docker compose up -d --wait
+docker compose port sftp 2222        # must show the LAN address (<address>:<port>)
 ```
+If `docker compose port sftp 2222` shows `0.0.0.0:<port>` or `[::]:<port>`, the door listens on every address:
+stop it at once (`docker compose down`), put the server's LAN address into `PUBLISH_ADDRESS` and start it again.
 Both images are built on the server from this folder (no registry): a compose tool that pulls but does not build
 needs `docker compose build` first, for the file server's image (`compose.yaml`) and for the door's
 (`publish/compose.yaml`).
@@ -236,8 +246,10 @@ docker port findaline-mirror-files-1                                    # nothin
 docker network inspect findaline-mirror_mirror --format '{{.Internal}}'                     # true
 docker compose exec files wget -q -T 5 -O /dev/null http://1.1.1.1/; echo $?   # not 0: no route out
 wget -q -T 5 -O /dev/null http://1.1.1.1/; echo $?                      # 0 from the host itself: the control
-ls -l "$MIRROR_ROOT/logs"                                               # access-<day>.log, none 14 or more days old
-find "$MIRROR_ROOT/logs" -name 'access-*.log' -mtime +14                # nothing
+ROOT=/path/to/findaline-mirror                                          # as in Install (MIRROR_ROOT)
+ls -l "$ROOT/logs"                                                      # access-<day>.log files
+# no log file named for a day 14 or more days back (the cleanup's own rule, by the name's date):
+ls "$ROOT/logs" | awk -v c="access-$(date -u -d '14 days ago' +%F).log" '/^access-[0-9]{4}-[0-9]{2}-[0-9]{2}\.log$/ && $0 <= c'   # nothing
 ```
 
 From a PC with the repository, through SWAG (what needs no test data; the cap check needs one published

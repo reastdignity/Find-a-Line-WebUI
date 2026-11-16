@@ -130,6 +130,9 @@ def test_swag_conf():
     for forbidden in ("proxy_ignore_headers", "proxy_buffering", "proxy_max_temp_file_size", "deny ", "return 403",
                       "limit_except"):
         assert forbidden not in text, forbidden
+    # IPv4 only (spec section 3: no AAAA record until the limits count an IPv6 /64 as one visitor)
+    assert [line for line in lines if line.startswith("listen ")] == ["listen 443 ssl;"]
+    assert "[::]" not in text
 
 
 def _served_patterns() -> list:
@@ -138,7 +141,7 @@ def _served_patterns() -> list:
 
 def _served(path: str) -> bool:
     exact = re.findall(r"^\s*location = (\S+)", _nginx(), re.M)
-    return path in exact and path != "/__not_found" or any(p.search(path) for p in _served_patterns())
+    return path in exact and not path.startswith("/__") or any(p.search(path) for p in _served_patterns())
 
 
 def _mirror_folders() -> list:
@@ -213,10 +216,21 @@ def test_limits_and_timeouts():
     assert re.search(r"map \$mirror_class \$visitor_key \{ visitor \$binary_remote_addr; default \"\"; \}", conf)
     assert re.search(r"map \$mirror_class \$visitor_all \{ visitor \"all\"; +default \"\"; \}", conf)
     assert re.search(r"map \$mirror_class \$trusted_key \{ trusted \$binary_remote_addr; default \"\"; \}", conf)
+    # The trusted class: 4 per address and 4 for the class together (spec A.5's table)
+    assert re.search(r"map \$mirror_class \$trusted_all \{ trusted \"all\"; +default \"\"; \}", conf)
+    assert re.search(r"^\s*limit_conn trusted_all 4;", conf, re.M)
     assert re.search(r'map \$status \$retry_after \{ 429 "10"; default ""; \}', conf)
-    assert re.search(r'if \(\$http_range ~ ","\) \{ return 416; \}', conf)
-    assert re.search(r'if \(\$request_uri ~ "\\\?"\) \{ return 400; \}', conf)
-    assert re.search(r"if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ return 405; \}", conf)
+    # Refusals answer after the limits (code review F1): the rewrite phase only sends them on, a
+    # try_files of a name that never exists answers; no "return" anywhere
+    assert re.search(r'if \(\$http_range ~ ","\) \{ rewrite \^ /__refused/416\? last; \}', conf)
+    assert re.search(r'if \(\$request_uri ~ "\\\?"\) \{ rewrite \^ /__refused/400\? last; \}', conf)
+    assert re.search(r"if \(\$request_method !~ \^\(GET\|HEAD\)\$\) \{ rewrite \^ /__refused/405\? last; \}", conf)
+    for code in (400, 405, 416):
+        assert f"location = /__refused/{code} {{ try_files /.none ={code}; }}" in conf
+    assert "location / { try_files /.none =404; }" in conf and "location = /__not_found { try_files /.none =404; }" in conf
+    assert not re.search(r"\breturn\b", conf) and not re.search(r"\binternal\b", conf)
+    # The healthcheck's class on the connection's own address, before X-Real-IP (code review F3)
+    assert re.search(r"geo \$realip_remote_addr \$mirror_local \{\s*default 0;\s*127\.0\.0\.1 1;\s*\}", conf)
     assert '"~\\.tif$"   "max-age=86400";' in conf and '"~\\.json$"  "no-cache";' in conf
     for header in ['X-Content-Type-Options "nosniff" always', 'Cross-Origin-Resource-Policy "same-origin" always',
                    'X-Robots-Tag "noindex" always', 'X-Accel-Buffering "no" always', "Retry-After $retry_after always"]:
@@ -240,12 +254,10 @@ def test_log_keys_and_days():
     assert re.search(r"^\s*include /tmp/mirror/log\.conf;", conf, re.M)
     assert not re.search(r"^\s*access_log ", conf, re.M)
     assert "map $mirror_class $mirror_loggable { local 0; default 1; }" in conf
-    assert '"~^/v1/tiles/(?<ds>[a-z0-9_-]+)/"  $ds;' in conf
-    assert '"~^Find-a-Line/(?<v>[0-9A-Za-z.+-]{1,32})(?![0-9A-Za-z.+-])"  $v;' in conf
     assert re.search(r'default\s+"other";', conf)
     start = _load("start.sh")
     # One file a day, named by start.sh (no variable in nginx's path: see nginx.conf)
-    assert r'echo "access_log $LOGS/access-$_today.log mirror if=\$mirror_loggable;"' in start
+    assert r'echo "access_log $LOGS/access-$1.log mirror if=\$mirror_loggable;"' in start
     assert "_today=$(date -u +%F)" in start
     for line in ["KEEP_DAYS=14", "CLEANUP_SECONDS=3600", "LOGS=/var/log/mirror"]:
         assert re.search(rf"^{line}$", start, re.M), line
@@ -346,7 +358,7 @@ def test_publishing_door_sshd_and_gate():
         assert line in lines, line
     assert not any(line.split()[0] in ("Match", "PermitOpen", "PermitListen") for line in lines)
     gate = _load("publish", "gate.sh")
-    assert "exec /usr/lib/ssh/sftp-server -u 022" in gate
+    assert "exec /usr/lib/ssh/sftp-server -u 022 -P symlink,hardlink" in gate
     assert 'resolved=$(readlink -f -- "$path" 2> /dev/null) || refuse' in gate
     assert '[ -f "$resolved" ] && [ ! -L "$resolved" ] || refuse' in gate
     assert 'exec sha256sum "$resolved"' in gate
@@ -355,3 +367,48 @@ def test_publishing_door_sshd_and_gate():
     dockerfile = _load("publish", "Dockerfile")
     assert "COPY --chmod=0644 sshd_config /etc/ssh/sshd_config" in dockerfile
     assert "COPY --chmod=0755 gate.sh /usr/local/bin/gate" in dockerfile
+
+
+def _map_regexes(name: str) -> list:
+    """The regex sources of an nginx.conf map (Python's syntax for named groups)."""
+    block = re.search(r"map \S+ \$" + name + r" \{(.*?)\n    \}", _nginx(), re.S)
+    assert block, name
+    return [re.compile(r.replace("(?<", "(?P<")) for r in re.findall(r'"~([^"]+)"', block.group(1))]
+
+
+def _first(regexes: list, text: str, group: str, default: str) -> str:
+    for regex in regexes:
+        found = regex.search(text)
+        if found:
+            return found.group(group)
+    return default
+
+
+def test_log_dataset_and_version_forms():
+    """Code review F2, the planner's ruling: ds only of a request for a served name, at most 40
+    characters; v only of a version-shaped token (two or three numbers, a pre-release, .post, .dev
+    and a local label starting with a letter, at most 24 characters), anything else "other"."""
+    ds = _map_regexes("mirror_dataset")
+    for path, want in [("/v1/tiles/madeira/dtm/2m/0_0/1_2.tif", "madeira"), ("/v1/tiles/madeira/README.md", "madeira"),
+                       ("/v1/tiles/slovakia/dmr5/1m/index.json", "slovakia"), ("/v1/tiles/aosta/dtm/0.5m/-1_0/-3_4.tif", "aosta"),
+                       ("/v1/tiles/" + "a" * 300 + "-john-smith-192-168-1-20/x", "-"),
+                       ("/v1/tiles/madeira-dtm-2m-0_0-1_2-tif/x", "-"), ("/v1/tiles/madeira/x", "-"),
+                       ("/v1/tiles/" + "a" * 41 + "/README.md", "-"), ("/v1/datasets.json", "-"), ("/", "-")]:
+        assert _first(ds, path, "ds", "-") == want, path
+    v = _map_regexes("mirror_version")
+    for agent, want in [("Find-a-Line/0.2.0 (highline finder; self-hosted)", "0.2.0"), ("Find-a-Line/0.2.0rc1 (x)", "0.2.0rc1"),
+                        ("Find-a-Line/1.0.0.dev3", "1.0.0.dev3"), ("Find-a-Line/0.1.0+local (x)", "0.1.0+local"),
+                        ("Find-a-Line/2.1 (x)", "2.1"), ("Find-a-Line/203.0.113.77 (x)", "other"),
+                        ("Find-a-Line/madeira.dtm.2m.0.0.1.2", "other"), ("Find-a-Line/1.2.3.4.5", "other"),
+                        ("Find-a-Line/1.0+203.0.113.7", "other"), ("Find-a-Line/12345.1.0", "other"),
+                        ("Find-a-Line/1.0.0+abcdefghijklmnopqrst", "other"), ("Mozilla/5.0 Find-a-Line/1.0.0", "other"),
+                        ("Find-a-Line/1.0.0-x", "other")]:
+        assert _first(v, agent, "v", "other") == want, agent
+
+
+def test_publishing_door_readme_checks_the_binding():
+    """Code review F6: the README's install shows where the door's port is really bound, and what
+    0.0.0.0 or :: there means."""
+    readme = _load("README.md")
+    assert "docker compose port sftp 2222" in readme
+    assert "`0.0.0.0:<port>` or `[::]:<port>`" in readme and "docker compose down" in readme

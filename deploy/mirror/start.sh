@@ -19,9 +19,10 @@
 # The log: nginx writes one file a day, access-YYYY-MM-DD.log (UTC days); log.conf names today's
 # file. The loop: every HEARTBEAT_SECONDS (and at each midnight) it touches the heartbeat the
 # healthcheck reads (a dead loop makes the container unhealthy); when the day has changed it writes
-# log.conf for the new day and reloads nginx (a request still running then is written into the
-# file of the day it began); every CLEANUP_SECONDS (and at start) it deletes each log file whose day
-# is KEEP_DAYS or more days back.
+# log.conf for the new day and reloads nginx, and tries again at its next turn until the reload
+# worked (a request still running then is written into the file of the day it began); every
+# CLEANUP_SECONDS (and at start) it deletes each log file named for a real day KEEP_DAYS or more
+# days back.
 set -eu
 
 RUN=/tmp/mirror
@@ -104,17 +105,31 @@ landing_page() {
     sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE" > "$RUN/site/index.html"
 }
 
-# The access_log line for today's file (UTC), included by nginx.conf
+# The access_log line for the day's file (UTC), included by nginx.conf
 log_conf() {
-    _today=$(date -u +%F)
-    echo "access_log $LOGS/access-$_today.log mirror if=\$mirror_loggable;" > "$RUN/log.conf.new"
+    echo "access_log $LOGS/access-$1.log mirror if=\$mirror_loggable;" > "$RUN/log.conf.new"
     mv "$RUN/log.conf.new" "$RUN/log.conf"
-    echo "$_today" > "$RUN/log.day"
+}
+
+# A new day: log.conf names its file and nginx reloads. log.day (the day in effect) changes only
+# when the reload worked (new workers, the day's file there); otherwise the next turn tries again
+switch_day() {
+    _today=$(date -u +%F)
+    _master=$(cat /tmp/nginx.pid 2> /dev/null) || return 0
+    _before=$(pgrep -P "$_master" nginx | sort | tr '\n' ' ')
+    log_conf "$_today"
+    kill -HUP "$_master" 2> /dev/null || return 0
+    sleep 2
+    _after=$(pgrep -P "$_master" nginx | sort | tr '\n' ' ')
+    if [ -f "$LOGS/access-$_today.log" ] && [ -n "$_after" ] && [ "$_after" != "$_before" ]; then
+        echo "$_today" > "$RUN/log.day"
+    fi
 }
 
 prepare() {
     mkdir -p "$RUN"
-    log_conf
+    log_conf "$(date -u +%F)"
+    date -u +%F > "$RUN/log.day"
     trusted_conf
     realip_conf
     landing_page
@@ -132,6 +147,8 @@ cleanup() {
             [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
             *) continue ;;
         esac
+        # Only a real date (2000-13-45 or 0000-00-00 are left alone)
+        [ "$(date -u -d "$_day 00:00:00" +%F 2> /dev/null)" = "$_day" ] || continue
         if [ "$(printf '%s' "$_day" | tr -d -)" -le "$_cutoff" ]; then
             rm -f -- "$_file"
         fi
@@ -147,8 +164,7 @@ cleanup_loop() {
             _last=$_now
         fi
         if [ "$(date -u +%F)" != "$(cat "$RUN/log.day")" ]; then
-            log_conf
-            kill -HUP "$(cat /tmp/nginx.pid)" 2> /dev/null || true
+            switch_day
         fi
         touch "$RUN/heartbeat"
         # Wake at midnight too, so the new day's file starts within a second of it
