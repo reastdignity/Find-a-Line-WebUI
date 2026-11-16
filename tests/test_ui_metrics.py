@@ -610,12 +610,25 @@ def test_other_bounds_from_a_kept_log(tmp_path):
     """Every size is kept, so other bounds are answered from the log: --summarise --controls 40,24 --text 11 writes
     pages-c40-24-t11.json beside the default summary."""
     record = _sized()
-    assert record["controls_under"]["44"] == {"a (inline link)": 1, "button.x": 1, "button.y": 1}
+    assert record["controls_under"]["44"] == {"button.x": 1, "button.y": 1}
     assert record["text_chars_under"] == {"12": 14, "11": 4, "10": 0}
     (tmp_path / "pages-states.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
     ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise", "--controls", "40,24", "--text", "11"])
     row = json.loads((tmp_path / "pages-c40-24-t11.json").read_text(encoding="utf-8"))["per_device_theme"]["iphone light"]
-    assert (row["controls_under_40"], row["controls_under_24"], row["text_chars_under_11"]) == (2, 2, 4)
+    assert (row["controls_under_40"], row["controls_under_24"], row["text_chars_under_11"]) == (1, 1, 4)
+
+
+def test_links_in_a_sentence_apart():
+    """A link inside a sentence (WCAG 2.5.8 exempts it) is counted apart from the other small controls; the count of
+    before (with it) stays in the summary beside."""
+    record = _sized()
+    assert record["inline_links_under"] == {"44": {"a": 1}, "24": {"a": 1}}
+    assert record["control_examples"]["a (inline link)"]["h"] == 15
+    row = ui_metrics.summarise([record])["per_device_theme"]["iphone light"]
+    assert (row["controls_under_24"], row["inline_links_under_24"], row["controls_under_24_with_inline"]) == (1, 1, 2)
+    s = ui_metrics.summarise([record])
+    assert s["lists"]["inline_links_under_24_phones"][0]["signature"] == "a"
+    assert "Links in a sentence under 24 px" in ui_metrics.pages_markdown(s)
     assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
 
 

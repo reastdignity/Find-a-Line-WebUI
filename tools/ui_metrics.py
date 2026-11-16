@@ -783,15 +783,17 @@ IMPACTS = ("critical", "serious", "moderate", "minor")
 def recut(record: dict, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     """The counts under the bounds `controls` and `text` from a state's kept sizes ("control_sizes": [signature,
     width, height, how, inline, example]; "text_sizes": [signature, size, characters, example]): the controls under
-    each bound by signature and an example of each (the smallest), the text characters under each bound in all and
-    by signature, an example of each. Any bounds can be asked of a kept log (`pages --summarise --controls ...`)."""
+    each bound by signature (links inside a sentence apart: WCAG 2.5.8 exempts them) and an example of each (the
+    smallest), the text characters under each bound in all and by signature, an example of each. Any bounds can be
+    asked of a kept log (`pages --summarise --controls ...`)."""
     under = {str(b): Counter() for b in controls}
+    inline_under = {str(b): Counter() for b in controls}
     examples = {}
     for sig, w, h, how, inline, example in record["control_sizes"]:
         key = sig + (" (inline link)" if inline else "")
         for b in controls:
             if min(w, h) < b:
-                under[str(b)][key] += 1
+                (inline_under if inline else under)[str(b)][sig] += 1
                 if key not in examples or min(w, h) < min(examples[key]["w"], examples[key]["h"]):
                     examples[key] = {"w": w, "h": h, "text": example, "how": how}
     small = {str(b): Counter() for b in text}
@@ -805,6 +807,7 @@ def recut(record: dict, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                 if sig not in text_examples or size < text_examples[sig]["size"]:
                     text_examples[sig] = {"size": size, "text": example}
     return {"controls_under": {b: dict(sorted(c.items())) for b, c in under.items()},
+            "inline_links_under": {b: dict(sorted(c.items())) for b, c in inline_under.items()},
             "control_examples": dict(sorted(examples.items())),
             "text_chars_under": chars, "text_under": {b: dict(sorted(c.items())) for b, c in small.items()},
             "text_examples": dict(sorted(text_examples.items()))}
@@ -958,6 +961,10 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
         for b in controls:
             row[f"controls_under_{b}"] = sum(sum(r["controls_under"][str(b)].values()) for r in ok)
             row[f"control_signatures_under_{b}"] = len({s for r in ok for s in r["controls_under"][str(b)]})
+            # links inside a sentence apart (WCAG 2.5.8 exempts them); "with" them: the count of before
+            row[f"inline_links_under_{b}"] = sum(sum(r.get("inline_links_under", {}).get(str(b), {}).values())
+                                                 for r in ok)
+            row[f"controls_under_{b}_with_inline"] = row[f"controls_under_{b}"] + row[f"inline_links_under_{b}"]
         chars = sum(r["text_chars"] for r in ok)
         row["text_chars"] = chars
         for b in text:
@@ -1003,6 +1010,9 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
         for scope, keep in (("phones", phones), ("desktop", desktop)):
             lists[f"controls_under_{b}_{scope}"] = dedup(lambda r, b=b, keep=keep: [
                 (s, n, r["control_examples"].get(s)) for s, n in r["controls_under"][str(b)].items()] if keep(r) else [])
+            lists[f"inline_links_under_{b}_{scope}"] = dedup(lambda r, b=b, keep=keep: [
+                (s, n, r["control_examples"].get(s + " (inline link)"))
+                for s, n in r.get("inline_links_under", {}).get(str(b), {}).items()] if keep(r) else [])
     for b in text:
         lists[f"text_under_{b}"] = dedup(lambda r, b=b: [(s, n, r["text_examples"].get(s))
                                                           for s, n in r["text_under"][str(b)].items()])
@@ -1037,7 +1047,8 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
 def pages_markdown(s: dict) -> str:
     cs, ts = s["bounds"]["controls"], s["bounds"]["text"]
     columns = (["Device, theme", "States", "Controls (unreachable apart)"]
-               + [f"Under {b} px (signatures)" for b in cs] + ["Text chars"] + [f"Text under {b} px" for b in ts]
+               + [x for b in cs for x in (f"Under {b} px (signatures)", f"Links in a sentence under {b} px")]
+               + ["Text chars"] + [f"Text under {b} px" for b in ts]
                + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
                   "axe violations: nodes (rules) crit / serious / moderate / minor", "axe incomplete: nodes",
                   "No axe result", "Errors"])
@@ -1049,7 +1060,8 @@ def pages_markdown(s: dict) -> str:
         inc = " / ".join(str(r["axe_incomplete_nodes"][i]) for i in IMPACTS)
         pct = lambda b: f"{r[f'text_chars_under_{b}']} ({(r[f'text_share_under_{b}'] or 0) * 100:.1f} %)"  # noqa: E731
         cells = ([key, r["states"], f"{r['controls']} ({r['controls_unreachable']})"]
-                 + [f"{r[f'controls_under_{b}']} ({r[f'control_signatures_under_{b}']})" for b in cs]
+                 + [x for b in cs for x in (f"{r[f'controls_under_{b}']} ({r[f'control_signatures_under_{b}']})",
+                                            r.get(f"inline_links_under_{b}", 0))]
                  + [r["text_chars"]] + [pct(b) for b in ts]
                  + [f"{len(r['states_document_sideways'])} / {len(r['states_with_scrollers'])}",
                     f"{r['grey_boxes']} / {r['containers']}", v, inc, r["axe_missing"], len(r["errors"])])
@@ -1068,6 +1080,8 @@ def pages_markdown(s: dict) -> str:
     for b in cs:
         rows(f"controls_under_{b}_phones", f"Controls under {b} px on the phones", ctl)
         rows(f"controls_under_{b}_desktop", f"Controls under {b} px on the desktop", ctl)
+        rows(f"inline_links_under_{b}_phones", f"Links in a sentence under {b} px on the phones (apart)", ctl)
+        rows(f"inline_links_under_{b}_desktop", f"Links in a sentence under {b} px on the desktop (apart)", ctl)
     rows("unreachable", "Controls that cannot be reached (not counted above)", lambda e: "")
     for b in ts:
         rows(f"text_under_{b}", f"Text under {b} px (count: characters)", txt)
