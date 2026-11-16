@@ -25,6 +25,7 @@ MIRROR_ENV = "FINDALINE_MIRROR"
 MIRROR_URL = "https://mirror.findaline.lukawski.org"
 MIRROR_URL_ENV = "FINDALINE_MIRROR_URL"
 TILES_PATH = "v1/tiles"
+DATASETS_PATH = "v1/datasets.json"  # the data server's list of what it publishes (tools/mirror_publish.py writes it)
 MIRROR_TIMEOUT = (10, 300)  # a request to a remote base: seconds to connect, seconds for each read
 REACH_TIMEOUT = (10, 20)    # the start check (reach): seconds to connect, seconds for each read
 REACH_ATTEMPTS = 2          # the start check's attempts (net._get's retries)
@@ -181,6 +182,69 @@ class _Kept:
     def fresh(self) -> Optional[Tuple]:
         index = self.index
         return index if index is not None and _clock() - index[2] < INDEX_SECONDS else None
+
+
+class NotPublished(str):
+    """reach's answer for a product the data server's list does not name (the user's U50): the source cannot be used
+    here, as one without a copy (auto passes it over, a named one is refused with this text); the server answered,
+    so nothing is remembered as its failure."""
+
+
+def _checked_list(found) -> frozenset:
+    """The product paths ("<dataset>/<product>/<res>m") of the data server's datasets.json, or IndexUnreadable."""
+    datasets = found.get("datasets") if isinstance(found, dict) else None
+    if not isinstance(datasets, list):
+        raise IndexUnreadable("no \"datasets\" list")
+    paths = set()
+    for dataset in datasets:
+        products = dataset.get("products") if isinstance(dataset, dict) else None
+        if not isinstance(products, list) or not all(isinstance(p, dict) and isinstance(p.get("path"), str)
+                                                     for p in products):
+            raise IndexUnreadable("a dataset without its products' paths")
+        paths.update(p["path"].strip("/") for p in products)
+    return frozenset(paths)
+
+
+_LISTS: Dict[str, _Kept] = {}  # the data server's origin -> its list of products, kept as an index is (INDEX_SECONDS)
+_LISTS_LOCK = threading.Lock()
+
+
+def _published(origin: str) -> frozenset:
+    """The products the data server at origin publishes (its datasets.json): the kept list while it is fresh, else
+    fetched (the start check's timeouts and attempts, a 429 ends it at once; the rate turn, no slot), once for all the
+    threads that wait for it (they take its outcome, a failure too). IndexMissing on a 404 (a server that publishes
+    nothing has no list), IndexUnreadable for a list that is not datasets.json, RuntimeError when it cannot be had."""
+    with _LISTS_LOCK:
+        kept = _LISTS.setdefault(origin, _Kept())
+    ticket = kept.generation
+    with kept.lock:
+        if kept.generation != ticket:
+            if kept.error is not None:
+                raise kept.error
+            if kept.index is not None:
+                return kept.index[0]
+        index = kept.fresh()
+        if index is not None:
+            return index[0]
+        try:
+            response = net._get(f"{origin}/{DATASETS_PATH}", timeout=REACH_TIMEOUT, binary_types=("json",),
+                                retries=REACH_ATTEMPTS, stop_on=(429,))
+            if response is None:
+                raise IndexMissing(f"{cache.clean_url(origin)}/{DATASETS_PATH} is not on the server (HTTP 404)")
+            try:
+                paths = _checked_list(json.loads(response.content))
+            except ValueError as e:  # not JSON (IndexUnreadable is a RuntimeError: below)
+                raise IndexUnreadable(f"not JSON ({str(e)[:80]})") from None
+        except RuntimeError as e:
+            if isinstance(e, IndexUnreadable):
+                why, e = str(e), IndexUnreadable(f"{cache.clean_url(origin)}/{DATASETS_PATH} cannot be read: {e}")
+                e.why = why
+            kept.index, kept.error = None, e
+            kept.generation += 1
+            raise e from None
+        kept.index, kept.error = (paths, None, _clock()), None
+        kept.generation += 1
+        return paths
 
 
 class TileBases(Reader):
@@ -359,13 +423,16 @@ class TileBases(Reader):
         return index is not None and _listed(index[0], index[1], tile) is OUTSIDE
 
     def reach(self) -> Optional[str]:
-        """Whether the data server answers (the start check of a search's first planning, an estimate, a country
-        run's main process and the probe; docs/mirror-hosting/spec.md C.3): None when it does, or when the
-        tiles are read from a local folder first (or there is no base at all: unavailable says why); else why
-        not. Asks each remote base for its index.json (REACH_TIMEOUT, REACH_ATTEMPTS) unless a fresh one is
-        kept: no HTTP answer, any 5xx and a 404 of the index are "does not answer", remembered for
-        UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers at once (U39: net._get stops at it,
-        no other attempt, no pause). A local folder first answers without a request (U38), also when it lacks an
+        """Whether the data server answers and publishes the tiles (the start check of a search's first planning, an
+        estimate, a country run's main process and the probe; docs/mirror-hosting/spec.md C.3): None when it does,
+        or when the tiles are read from a local folder first (or there is no base at all: unavailable says why);
+        else why not. The data server is asked for its list of datasets (DATASETS_PATH; REACH_TIMEOUT,
+        REACH_ATTEMPTS; one request for all products of a process, kept INDEX_SECONDS), never a product's index:
+        a product the list does not name is NotPublished (U50: unavailable, as before the mirror; nothing
+        remembered); no HTTP answer, any 5xx, a 404 of the list and a list that cannot be read are "does not
+        answer", remembered for UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers at once and
+        the product counts as listed (U39: net._get stops at it, no other attempt, no pause). Another remote base
+        (a catalogue URL) is asked for its index, as before. A local folder first answers without a request (U38), also when it lacks an
         averaged resolution: a grid of that resolution then reads it from the server with no start check, and a
         server that does not answer fails the phase (U6's "in the middle"), never a fall-back."""
         bases = self.bases()
@@ -383,14 +450,24 @@ class TileBases(Reader):
         remembered = self._unanswered.get(base)
         if remembered is not None and _clock() - remembered[0] < UNANSWERED_SECONDS:
             return remembered[1]
+        origin = mirror_url()
+        listed = bool(origin and self.mirror) and base == f"{origin}/{TILES_PATH}/{self.mirror}"
         try:
-            self._remote_index(base, timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS, stop_on=(429,))
+            if listed:  # the data server: its list of datasets
+                if self.mirror.strip("/") not in _published(origin):
+                    self._unanswered.pop(base, None)
+                    return NotPublished(f"{self.description}: not published on the data server at "
+                                        f"{urlsplit(base).hostname}, and no local copy is set up")
+            else:  # another remote base: its index
+                self._remote_index(base, timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS, stop_on=(429,))
         except RuntimeError as e:
             status = getattr(e, "status", None)
             if status == 429:
-                return None  # busy: it is there; the downloads' own retries deal with it
-            detail = ("HTTP 404: not published there" if isinstance(e, IndexMissing) else
-                      f"its index is not readable: {getattr(e, 'why', e)}" if isinstance(e, IndexUnreadable) else
+                return None  # busy: it is there (the product counts as listed); the downloads' retries deal with it
+            what = "dataset list" if listed else "index"
+            detail = (("HTTP 404: no dataset list there" if listed else "HTTP 404: not published there")
+                      if isinstance(e, IndexMissing) else
+                      f"its {what} is not readable: {getattr(e, 'why', e)}" if isinstance(e, IndexUnreadable) else
                       f"HTTP {status}" if status else "no answer")
             why = f"{self.description}: the data copy at {urlsplit(base).hostname} does not answer ({detail})"
             self._unanswered[base] = (_clock(), why)

@@ -13,7 +13,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   cache, or its address answering a HEAD with its size; never downloaded); blocks found through an index
   (LidarBcBlocks) their index asked, then 16 x 16 pixels at the centre of the first block from its newest file;
   a local mirror is looked for on disk; our own tiles on the project's data server (no local folder first)
-  get the start check as their index (reach: the index.json) and one byte of the first tile it lists with data;
+  get the start check as their index (reach: the server's list of datasets) and one byte of the first tile their
+  index lists with data; a product the list does not name is a row of notes ("not published"), not a failure;
   a WCS 1.0.0 in a geographic CRS (GeoWcsTiles) a GetCoverage of
   16 x 16 of its own pixels at the sample (no index: a fixed tiling); a sheet of a geographic grid
   (GeoSheetTiles) the first 8 bytes of its file, which must be a TIFF's (never a range of one byte); a
@@ -76,7 +77,7 @@ from .layers.fileblocks import FileBlocks
 from .readers.windows import _forget, _read_ranged, _same_crs, _values_on, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
-from .readers.tilebases import MirrorUrlError, grid_tile_name, mirror_url
+from .readers.tilebases import MirrorUrlError, NotPublished, grid_tile_name, mirror_url
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
@@ -501,6 +502,9 @@ def _remote_grid_tiles(cache_dir: str, source: Source, layer: GridTiles, row: Ro
     data, the sample's tiles first (a tile the index lists as null is not on the server), with --deep that
     tile downloaded and checked."""
     why = layer.reach()
+    if isinstance(why, NotPublished):  # nothing is broken: the data server does not publish it (U50); not a failure
+        row.notes.append(why)
+        return row
     if why:
         row.index = FAILED
         row.notes.append(why)

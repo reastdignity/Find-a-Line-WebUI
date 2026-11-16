@@ -93,6 +93,7 @@ def no_mirror_settings(monkeypatch):
     pauses = []
     monkeypatch.setattr(net, "_sleep", pauses.append)
     monkeypatch.setattr(net, "LIMITS_AS", {})  # the addresses a test named take no other host's manners later
+    monkeypatch.setattr(tilebases, "_LISTS", {})  # no data server's list kept from another test
     yield pauses
     set_url("off")
 
@@ -183,15 +184,39 @@ def make_flat(root, keys):
 class Mirror:
     """The fixture mirror served at <http_server>/v1/tiles/ from its folder (read at each request, so a test may
     change the files): `status` answers every request with it, `once` a path's next request, `delay` holds each
-    answer that many seconds, `fail` a path's next n requests ({path: n}, with 503). `asked(kind)` lists the paths
-    asked: "index", "tile" or all."""
+    answer that many seconds, `fail` a path's next n requests ({path: n}, with 503). Its list of datasets
+    (/v1/datasets.json, as tools/mirror_publish.py writes it) names every product folder with an index.json under
+    root, or the products of `published` when that is set (a list of paths). `asked(kind)` lists the paths asked:
+    "list", "index", "tile" or all."""
+
+    LIST = "/v1/datasets.json"
 
     def __init__(self, http_server, root):
         self.server, self.root = http_server, root
         self.status, self.once, self.delay, self.fail = None, {}, 0.0, {}
-        self.gate = None  # a threading.Event the answers to index.json wait for (at most 10 s)
+        self.gate = None  # a threading.Event the answers to index.json and datasets.json wait for (at most 10 s)
         self.statuses = {}  # path -> the status every request to it gets
+        self.published = None  # the product paths the list names (None: every product under root)
+        self.list_body = None  # bytes served as the list instead (a malformed one)
         http_server.route("/v1/tiles/", self._answer)
+        http_server.route(self.LIST, self._answer)
+
+    def products(self) -> list:
+        """The product folders under root that hold an index.json, as paths below it."""
+        return sorted(os.path.relpath(folder, self.root).replace(os.sep, "/")
+                      for folder, _, names in os.walk(self.root) if "index.json" in names)
+
+    def _list(self) -> bytes:
+        if self.list_body is not None:
+            return self.list_body
+        paths = self.products() if self.published is None else list(self.published)
+        datasets = {}
+        for path in paths:
+            datasets.setdefault(path.split("/")[0], []).append({"path": path, "tiles": 1, "bytes": 1,
+                                                                "index_sha256": "0" * 64})
+        return json.dumps({"version": 1, "generated": "2026-11-16T00:00:00Z", "datasets": [
+            {"id": ds, "title": ds, "licence": "none", "attribution": "none", "source": "none", "products": products}
+            for ds, products in datasets.items()]}).encode()
 
     @property
     def url(self) -> str:
@@ -201,7 +226,7 @@ class Mirror:
         return f"{self.server.base}/v1/tiles/{folder}"
 
     def _answer(self, request):
-        if self.gate is not None and request.path.endswith("index.json"):
+        if self.gate is not None and request.path.endswith(".json"):
             assert self.gate.wait(10), "the threads never met"
         if self.delay:
             time.sleep(self.delay)
@@ -211,6 +236,8 @@ class Mirror:
         status = self.once.pop(request.path, None) or self.statuses.get(request.path) or self.status
         if status:
             return Answer(status, b"refused", {"Content-Type": "text/plain"})
+        if request.path == self.LIST:
+            return Answer(200, self._list(), {"Content-Type": "application/json"})
         path = os.path.join(self.root, *request.path[len("/v1/tiles/"):].split("/"))
         if not os.path.isfile(path):
             return None
@@ -219,7 +246,9 @@ class Mirror:
         return Answer(200, body, {"Content-Type": "application/json" if path.endswith(".json") else "image/tiff"})
 
     def asked(self, kind: str = "") -> list:
-        paths = [r.path for r in self.server.requests("/v1/tiles/")]
+        paths = [r.path for r in self.server.requests("/v1/")]
+        if kind == "list":
+            return [p for p in paths if p == self.LIST]
         if kind == "index":
             return [p for p in paths if p.endswith("index.json")]
         return [p for p in paths if p.endswith(".tif")] if kind == "tile" else paths
@@ -553,19 +582,23 @@ def test_averaged_tiles_over_http(tmp_path, mirror):
 # The start check (reach)
 
 def test_reach_answers(tmp_path, mirror, clock, two_sources):
-    """reach asks the native index (kept then for the downloads); a 429 answers (busy); a 503, any 5xx and a 404 of
-    the index do not; a failure is remembered 60 s for later start checks only; nothing asks without reach=True."""
+    """reach asks the data server's list of datasets (U50), never a product's index: the list names the product, so
+    the server answers, and the index is fetched when the tiles are planned. A 429 answers (and counts as listed); a
+    503, any 5xx, a 404 of the list (a server that publishes nothing has none) and no answer do not; a failure is
+    remembered 60 s for later start checks only. (Each case a new process: no list kept from the one before.)"""
     layer = mirrored_layer()
-    assert layer.reach() is None and len(mirror.asked("index")) == 1
-    _download(layer, tmp_path / "cache")  # the kept index: no second request
-    assert len(mirror.asked("index")) == 1
-
-    mirror.status = 429
-    assert mirrored_layer().reach() is None  # busy: it is there
-    for status, detail in ((503, "HTTP 503"), (500, "HTTP 500"), (404, "HTTP 404: not published there")):
+    assert layer.reach() is None and mirror.asked() == [Mirror.LIST]
+    _download(layer, tmp_path / "cache")  # the index when the tiles are planned: once
+    assert len(mirror.asked("list")) == 1 and len(mirror.asked("index")) == 1
+    for status, detail in ((429, None), (503, "HTTP 503"), (500, "HTTP 500"), (404, "HTTP 404: no dataset list there")):
+        tilebases._LISTS.clear()
         mirror.status = status
+        before = len(mirror.asked())
         why = mirrored_layer().reach()
-        assert why == f"Test DTM (mirrored): the data copy at 127.0.0.1 does not answer ({detail})", status
+        assert why == (None if detail is None else
+                       f"Test DTM (mirrored): the data copy at 127.0.0.1 does not answer ({detail})"), status
+        assert mirror.asked()[before:] == [Mirror.LIST] * (1 if status in (429, 404) else tilebases.REACH_ATTEMPTS)
+    tilebases._LISTS.clear()
     mirror.status = 503
     remembered = mirrored_layer()
     asked = len(mirror.asked())
@@ -595,7 +628,7 @@ def test_reach_without_an_answer(tmp_path, mirror, monkeypatch, two_sources):
     source, why = src.choose_source("auto", lat, lon, str(tmp_path), reach=True)
     assert source.id == "test_plain"
     assert why == "the centre is in ZZ, but Test DTM (mirrored): the data copy at 127.0.0.1 does not answer (no answer)"
-    assert calls == [(f"{mirror.base()}/index.json", (10, 20))] * 2
+    assert calls == [(f"{mirror.url}/v1/datasets.json", (10, 20))] * 2  # the list, not the index
     with pytest.raises(ValueError, match="does not answer"):
         src.choose_source("test_mirrored", lat, lon, str(tmp_path), reach=True)
     assert len(calls) == 2  # remembered
@@ -638,11 +671,14 @@ def test_no_data_server(tmp_path, http_server, monkeypatch, two_sources):
 
 def test_the_estimate(tmp_path, mirror, monkeypatch):
     """An estimate from the data server counts only the tiles a kept index lists with data; without a kept index
-    every tile not cached (an upper bound); a local folder's estimate as before."""
+    every tile not cached (an upper bound): the start check asks the list of datasets, never the index (U50), so
+    after it the estimate is still the upper bound; a local folder's estimate as before."""
     grid = gd.make_grid(WIDE, 1.0, CRS, ORIGIN)
     layer = mirrored_layer()
     assert layer.estimate(grid, str(tmp_path / "a"), None) == (5, 5, 5 * 2.0)
     assert layer.reach() is None
+    assert layer.estimate(grid, str(tmp_path / "a"), None) == (5, 5, 5 * 2.0) and mirror.asked("index") == []
+    layer.readers[1.0].remote_index(mirror.base())  # an index kept (as a download keeps it)
     assert layer.estimate(grid, str(tmp_path / "a"), None) == (5, 2, 2 * 2.0)
     monkeypatch.setenv("FINDALINE_MIRROR", mirror.root)
     local = mirrored_layer()
@@ -707,6 +743,7 @@ def test_later_phases_and_finished_runs_with_the_server_down(tmp_path, monkeypat
 
     asked = len(mirror.asked())
     two_sources.nmt.readers[1.0]._kept.clear()  # the quick lane is another process: no index kept from the phases
+    tilebases._LISTS.clear()  # ... and no list
     estimate = jb.quick_estimate(str(data), request)  # reach: the server does not answer, auto falls back
     assert estimate["source"] == "Test plain" and len(mirror.asked()) == asked + tilebases.REACH_ATTEMPTS
     asked = len(mirror.asked())
@@ -758,7 +795,7 @@ def test_a_neighbour_whose_server_is_down_is_skipped(tmp_path, mirror, two_sourc
                                                       str(tmp_path / "joined.npy"))
     out = capsys.readouterr().out
     assert filled is None and "Gaps at the border not filled from Test mirrored: Could not download" in out
-    assert len(mirror.asked("index")) >= net.RETRIES and not mirror.asked("tile")
+    assert len(mirror.asked("index")) >= net.RETRIES and not mirror.asked("tile") and not mirror.asked("list")
 
 
 def test_a_country_run_reaches_once(tmp_path, mirror, two_sources, monkeypatch):
@@ -822,6 +859,7 @@ def test_the_probe(tmp_path, mirror, two_sources):
     mirror.status = 503
     two_sources.nmt.readers[1.0]._unanswered.clear()
     two_sources.nmt.readers[1.0]._kept.clear()
+    tilebases._LISTS.clear()
     row = probe.probe_layer(two_sources, two_sources.nmt, "terrain", str(tmp_path / "cache"), folder, False)
     assert row.index == probe.FAILED and "does not answer (HTTP 503)" in row.notes[0]
 
@@ -871,7 +909,7 @@ def test_index_requests_take_their_turn(tmp_path, mirror, monkeypatch):
     monkeypatch.setattr(layer_module, "host_slot", counted)
     monkeypatch.setattr(net, "host_slot", counted)
     layer = mirrored_layer()
-    assert layer.reach() is None and turns == [f"{mirror.base()}/index.json"] and slots == []
+    assert layer.reach() is None and turns == [f"{mirror.url}/v1/datasets.json"] and slots == []
     _download(layer, tmp_path / "cache")
     tiles = layer.tiles(gd.make_grid(WIDE, 1.0, CRS, ORIGIN))
     assert slots == [mirror.base()] * len(tiles)  # the tiles' host; never the index's own
@@ -902,7 +940,7 @@ def test_a_job_falls_back_when_the_server_does_not_answer(tmp_path, monkeypatch,
     reason = ("Data: Test plain (the centre is in ZZ, but Test DTM (mirrored): the data copy at 127.0.0.1 does not "
               "answer (HTTP 503)) - ")
     assert any(text.startswith(reason) for text in said), said
-    assert mirror.asked() == [f"/v1/tiles/{MIRROR}/index.json"] * tilebases.REACH_ATTEMPTS  # the start check only
+    assert mirror.asked() == [Mirror.LIST] * tilebases.REACH_ATTEMPTS  # the start check only: the list
 
 
 def test_no_request_with_the_url_empty(tmp_path, monkeypatch, offline, two_sources):
@@ -958,14 +996,13 @@ def test_the_command_line_asks(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("shape", sorted(MALFORMED))
 def test_a_malformed_index(tmp_path, mirror, http_server, two_sources, no_mirror_settings, shape):
-    """An index the client cannot read is treated as a mismatch: at the start check the server "does not answer"
-    with the reason (auto falls back); at a download it is an error naming the index and the server after one more
-    try, with no file and no "missing" row, and the next base is asked."""
+    """An index the client cannot read is treated as a mismatch at a download: an error naming the index and the
+    server after one more try, with no file and no "missing" row, and the next base is asked. The start check never
+    sees it (it asks the list of datasets, which names the product: U50), so the phase fails, not the start."""
     with open(os.path.join(mirror.root, *MIRROR.split("/"), "index.json"), "wb") as f:
         f.write(MALFORMED[shape])
     source, why = src.choose_source("auto", *CENTRE, str(tmp_path), reach=True)
-    assert source.id == "test_plain", why
-    assert "Test DTM (mirrored): the data copy at 127.0.0.1 does not answer (its index is not readable: " in why
+    assert source.id == "test_mirrored" and mirror.asked() == [Mirror.LIST], why
     before, cache_dir = len(mirror.asked("index")), str(tmp_path / "cache")
     tile = (1.0, *DATA_TILES[0])
     layer = mirrored_layer()
@@ -1027,7 +1064,7 @@ def test_a_busy_server_answers_at_once(tmp_path, mirror, monkeypatch, no_mirror_
     mirror.status = 429
     layer = mirrored_layer()
     assert layer.reach() is None
-    assert mirror.asked() == [f"/v1/tiles/{MIRROR}/index.json"] and no_mirror_settings == []
+    assert mirror.asked() == [Mirror.LIST] and no_mirror_settings == []
     two = Source(id="test_two", name="Test two layers", description="two layers of our own tiles", nmt=mirrored_layer(),
                  nmpt=mirrored_layer(), countries=("zz",), crs=CRS, default_resolution=1.0, grid_origin=ORIGIN)
     assert src.choose.source_unreachable(two) is None
@@ -1069,6 +1106,7 @@ def test_a_3d_view_with_the_server_down(tmp_path, monkeypatch, offline, mirror, 
     row, _, _ = _phases(monkeypatch, data, _request())  # radius 290: the patch's square reaches tiles not cached
     mirror.status = 503
     two_sources.nmt.readers[1.0]._kept.clear()  # the quick lane is another process: no index kept from the phases
+    tilebases._LISTS.clear()  # ... and no list
     with pytest.raises(search.SearchError) as failed:
         jb.quick_patch(str(data), {"run": row["run_id"], "line": LINE})
     detail = messages.user_error(failed.value).detail()
@@ -1153,8 +1191,8 @@ def test_a_tiles_429_keeps_its_attempts(tmp_path, mirror, no_mirror_settings):
         mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif"))
     assert mirror.asked() == [f"/v1/tiles/{MIRROR}/index.json"] + [name] * net.RETRIES
     assert no_mirror_settings == [3, 4, 5]
-    mirror.statuses[f"/v1/tiles/{MIRROR}/index.json"] = 429
-    assert mirrored_layer().reach() is None and mirror.asked()[-1].endswith("index.json")
+    mirror.statuses[Mirror.LIST] = 429
+    assert mirrored_layer().reach() is None and mirror.asked()[-1] == Mirror.LIST
     assert len(mirror.asked()) == 1 + net.RETRIES + 1 and no_mirror_settings == [3, 4, 5]
 
 
@@ -1269,3 +1307,119 @@ def test_a_mirror_folder_with_the_cutters_files(tmp_path, monkeypatch):
                              os.path.exists(layer.tile_path(str(cache_dir), t)) and _sha(layer.tile_path(str(cache_dir), t)))
                          for t in layer.tiles(grid)}
     assert results["busy"] == results["clean"] and any(v[0] == "ok" for v in results["clean"].values())
+
+
+# The data server's list of datasets (U50)
+
+def test_the_list_once_for_all_products(tmp_path, mirror):
+    """The start check of two products of the same server asks its list once (kept, INDEX_SECONDS) and no index;
+    eight threads at once ask it once."""
+    make_flat(mirror.root, [(2770, 1270)])  # a second product on the server: test/flat/1m
+    assert mirrored_layer().reach() is None and flat_layer().reach() is None
+    assert mirror.asked() == [Mirror.LIST]
+
+    class Meeting:
+        """The list's lock, counting the threads that came to it; the eighth opens the server's gate."""
+
+        def __init__(self, gate):
+            self.lock, self.gate, self.came, self.counting = threading.Lock(), gate, 0, threading.Lock()
+
+        def __enter__(self):
+            with self.counting:
+                self.came += 1
+                if self.came == 8:
+                    self.gate.set()
+            return self.lock.__enter__()
+
+        def __exit__(self, *exc):
+            return self.lock.__exit__(*exc)
+    tilebases._LISTS.clear()  # a new process
+    mirror.gate = threading.Event()
+    kept = tilebases._Kept()
+    kept.lock = Meeting(mirror.gate)
+    tilebases._LISTS[mirror.url] = kept
+    results = []
+    threads = [threading.Thread(target=lambda layer: results.append(layer.reach()), args=(layer,))
+               for layer in [mirrored_layer() for _ in range(4)] + [flat_layer() for _ in range(4)]]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results == [None] * 8 and mirror.asked() == [Mirror.LIST] * 2 and mirror.asked("index") == []
+
+
+def test_an_unlisted_dataset_is_unavailable(tmp_path, mirror, two_sources):
+    """A product the list does not name is not published (U50): auto passes the source over as one without a copy
+    (the next source of the place, the reason naming the server's host and "not published", never "does not
+    answer"); named, it is refused with that text; nothing is remembered as the server's failure and no index is
+    asked; with the URL off the source is unavailable as before the mirror."""
+    mirror.published = ["other/dtm/1m"]
+    lat, lon = CENTRE
+    source, why = src.choose_source("auto", lat, lon, str(tmp_path), reach=True)
+    assert source.id == "test_plain", why
+    assert why == ("the centre is in ZZ, but Test DTM (mirrored): not published on the data server at 127.0.0.1, "
+                   "and no local copy is set up")
+    with pytest.raises(ValueError, match="not published on the data server at 127.0.0.1") as refused:
+        src.choose_source("test_mirrored", lat, lon, str(tmp_path), reach=True)
+    assert "does not answer" not in str(refused.value)
+    reader = two_sources.nmt.readers[1.0]
+    assert isinstance(two_sources.nmt.reach(), tilebases.NotPublished) and reader._unanswered == {}
+    assert mirror.asked() == [Mirror.LIST]  # one list for all of it, no index
+    assert src.choose_source("test_mirrored", lat, lon, str(tmp_path))[0].id == "test_mirrored"  # reach off: as built
+
+
+def test_a_dataset_published_meanwhile(tmp_path, mirror, clock):
+    """The list is kept INDEX_SECONDS (300 s of the patched clock): a dataset published meanwhile starts working when
+    the list is asked again, by itself."""
+    mirror.published = []
+    assert isinstance(mirrored_layer().reach(), tilebases.NotPublished)
+    mirror.published = None  # published now
+    clock[0] += 299
+    assert isinstance(mirrored_layer().reach(), tilebases.NotPublished) and mirror.asked() == [Mirror.LIST]
+    clock[0] += 2
+    assert mirrored_layer().reach() is None and mirror.asked() == [Mirror.LIST] * 2
+
+
+def test_a_busy_list_counts_as_listed(tmp_path, mirror, no_mirror_settings):
+    """A 429 for the list answers at once and the product counts as listed (U39: a busy server never turns a real
+    dataset into "not published"). An unlisted one then fails in the phase, at its index's 404, as a listed index
+    that is gone does (its error, no file, no "missing" row)."""
+    mirror.statuses[Mirror.LIST] = 429
+    mirror.published = []
+    assert mirrored_layer().reach() is None and no_mirror_settings == []
+    os.remove(os.path.join(mirror.root, *MIRROR.split("/"), "index.json"))  # the dataset is not on the server
+    with pytest.raises(RuntimeError, match=r"index.json is not on the server \(HTTP 404\): this dataset or resolution "
+                                           r"is not published there, also after taking the index again"):
+        mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif"))
+
+
+@pytest.mark.parametrize("body, why", [(b"<html>a login page</html>", "not JSON"),
+                                       (b'{"version": 1}', 'no "datasets" list'),
+                                       (b'{"datasets": [{"id": "test", "products": [{"tiles": 1}]}]}',
+                                        "a dataset without its products' paths")])
+def test_a_list_that_cannot_be_read(tmp_path, mirror, two_sources, body, why):
+    """A list that is not datasets.json is "does not answer" with the reason (U7: auto falls back), as an index
+    that cannot be read was; remembered 60 s."""
+    mirror.list_body = body
+    source, reason = src.choose_source("auto", *CENTRE, str(tmp_path), reach=True)
+    assert source.id == "test_plain"
+    assert reason.startswith("the centre is in ZZ, but Test DTM (mirrored): the data copy at 127.0.0.1 does not answer "
+                             f"(its dataset list is not readable: {why}"), reason
+    assert two_sources.nmt.readers[1.0]._unanswered and mirror.asked() == [Mirror.LIST]
+
+
+def test_the_probe_of_an_unlisted_dataset(tmp_path, mirror, two_sources, capsys):
+    """`sources check`: a product the list does not name is a row of notes ("not published on the data server"),
+    not a failure: the command's exit code stays 0 for it."""
+    from sources import probe
+    mirror.published = []
+    folder = str(tmp_path / "probe")
+    os.makedirs(folder)
+    row = probe.probe_layer(two_sources, two_sources.nmt, "terrain", str(tmp_path / "cache"), folder, False)
+    assert (row.index, row.read, row.failed) == (probe.NONE, probe.NONE, False)
+    assert row.notes == ["Test DTM (mirrored): not published on the data server at 127.0.0.1, and no local copy is "
+                         "set up"]
+    tilebases._LISTS.clear()
+    assert probe.run(str(tmp_path / "cache"), ["test_mirrored"]) == 0
+    out = capsys.readouterr().out
+    assert "not published on the data server" in out and "0 failed" in out
