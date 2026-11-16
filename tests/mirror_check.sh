@@ -796,7 +796,7 @@ VARIANTS=(
     'folders redirected @@ nginx.conf @@ /error_page 301 =404/d @@ paths @@ N05'
     'other methods allowed @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET|HEAD|POST|PUT|DELETE|OPTIONS)$)# @@ paths @@ M01 M02'
     'HEAD refused @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET)$)# @@ content @@ R03'
-    'query allowed @@ nginx.conf @@ /if (\$request_uri ~ "\?")/d @@ paths @@ Q01'
+    'query allowed @@ nginx.conf @@ /if (\$request_uri ~ "\\?")/d @@ paths @@ Q01'
     'several ranges allowed @@ nginx.conf @@ /if (\$http_range ~ ",")/d; /max_ranges 1;/d @@ content @@ R02'
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
@@ -914,8 +914,10 @@ self_test() {
         fi
         OUT=()
         QUIET=1
+        local fails_before=$FAILS
         # shellcheck disable=SC2086
         run_checks $groups
+        FAILS=$fails_before     # a variant's failures are expected; only the comparison below counts
         QUIET=0
         for id in $ids; do
             seen="$seen$id "
