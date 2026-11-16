@@ -233,7 +233,7 @@ def test_limits_and_timeouts():
     assert len(re.findall(r"try_files /\.none", conf)) == 5 == len(re.findall(r"root /nonexistent; try_files /\.none", conf))
     start = _load("start.sh")
     # A failing cleanup pass or day switch does not end the loop (R2)
-    assert '( cleanup ) 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2' in start
+    assert '"$0" cleanup 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2' in start
     assert '_size=$(stat -c %s "$_file" 2> /dev/null) || continue' in start
     assert not re.search(r"\breturn\b", conf) and not re.search(r"\binternal\b", conf)
     # The healthcheck's class on the connection's own address, before X-Real-IP (code review F3)

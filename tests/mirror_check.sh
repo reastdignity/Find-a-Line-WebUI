@@ -724,7 +724,9 @@ g_cleanup() {
     # A reload that fails (today's file made a folder, so nginx cannot open it) is not taken as
     # the switch: the day in effect stays, and the next turn tries again
     csh files-1 "cd /var/log/mirror && mv access-$day.log access-$day.log.moved && mkdir access-$day.log && echo 2000-01-03 > /tmp/mirror/log.day"
-    # Until a loop turn has tried the switch (its log.conf names today), at most 75 s; the day stays
+    # log.conf set to name another day (nginx not reloaded), so that the loop's try shows: it writes
+    # log.conf for today. Until then, at most 75 s; then the day in effect must have stayed
+    csh files-1 'echo "access_log /var/log/mirror/access-2000-01-03.log mirror;" > /tmp/mirror/log.conf'
     poll 75 'csh files-1 "grep -q access-$day.log /tmp/mirror/log.conf"'
     sleep 3
     check E09 "a failed reload at a new day is not taken as the switch (the day in effect stays)" \
@@ -1020,7 +1022,7 @@ VARIANTS=(
     'no reload at a new day @@ start.sh @@ s#kill -HUP "$_master" 2> /dev/null || return 0#true# @@ cleanup @@ E08'
     'a failed reload taken as the switch @@ start.sh @@ s#if \[ -f "$LOGS/access-$_today.log" \] && \[ -n "$_after" \] && \[ "$_after" != "$_before" \]; then#if true; then# @@ cleanup @@ E09'
     'impossible dates cleaned @@ start.sh @@ /Only a real date/{n;d} @@ cleanup @@ E04'
-    'a failing pass ends the loop @@ start.sh @@ s#( cleanup ) 2> /dev/null || echo .*$#cleanup# @@ cleanup @@ E13'
+    'a failing pass ends the loop @@ start.sh @@ s#"$0" cleanup 2> /dev/null || echo .*$#cleanup# @@ cleanup @@ E13'
     'no size bound @@ start.sh @@ s#^    cap_logs "${1:-$LOG_CAP_BYTES}"$#    true# @@ cleanup @@ E11 E12'
     'the newest day first @@ start.sh @@ s#for _file in "$LOGS"/access-\*.log; do$#for _file in $(ls -r "$LOGS"/access-*.log); do# @@ cleanup @@ E11'
     'today deleted by the bound @@ start.sh @@ /\[ "${_file##\*\/}" = "access-$_today.log" \] && continue/d @@ cleanup @@ E12'
@@ -1150,7 +1152,7 @@ self_test() {
     compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 files proxy > /dev/null 2>&1
     DOOR_COMPOSE=""
     DOOR_OVERLAY=""
-    docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
+    docker image inspect "$PROJECT-door-sftp:orig" > /dev/null 2>&1 && docker tag "$PROJECT-door-sftp:orig" "$PROJECT-door-sftp"
     local without=""""
     for id in "${!MAIN[@]}"; do
         case "$seen" in *" $id "*) ;; *) without="$without $id" ;; esac

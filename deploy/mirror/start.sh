@@ -206,9 +206,11 @@ cleanup_loop() {
         _now=$(date -u +%s)
         # A step that fails (a file that cannot be removed, say) must not end the loop, or the day's
         # switch, the 14-day rule and the size bound would stop while nginx serves on: each pass runs
-        # in a subshell, its own messages (they would name files) dropped, a fixed line instead
+        # as a process of its own ("mirror-start cleanup": set -e holds there, while in a subshell on
+        # the left of "||" the shell ignores it), its own messages (they would name files) dropped,
+        # a fixed line instead
         if [ $((_now - _last)) -ge $CLEANUP_SECONDS ]; then
-            ( cleanup ) 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2
+            "$0" cleanup 2> /dev/null || echo "findaline-mirror: a cleanup pass failed; the loop goes on" >&2
             _last=$_now
         fi
         if [ "$(date -u +%F)" != "$(cat "$RUN/log.day" 2> /dev/null)" ]; then
