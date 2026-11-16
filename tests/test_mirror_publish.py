@@ -594,7 +594,7 @@ def _other_lock():
 
 
 @pytest.mark.parametrize("name", ["slovakia/dmr5", "..", "../../../logs", "", ".", "/abs/path", "C:\\abs", "a\\b",
-                                  "Madeira", "madeira/"])
+                                  "Madeira", "madeira/", "madeira\n"])
 def test_bad_dataset_names_refused_before_any_request(world, monkeypatch, capsys, name):
     """F1: publish and unpublish refuse a name outside [a-z0-9_-]+ before any rclone call; the server's tree byte for
     byte as before."""
@@ -622,17 +622,20 @@ def test_unpublish_only_a_published_folder(world, capsys):
 
 
 def test_release_leaves_another_runs_lock(world, monkeypatch, capsys):
-    """F3: a lock overwritten by another run during this run is not deleted by this run's release."""
+    """F3 and N1: a lock overwritten by another run during this run's copy: this run stops at its next check point
+    (before the move), touches nothing more and leaves the other run's lock as it is."""
     lock = world.server / "staging" / ".lock"
 
     def after(argv, done):
         if "copy" in argv:
             lock.write_text(_other_lock())
         return done
-    _watch(monkeypatch, world, ["madeira"], after=after)
-    assert _publish(world, "madeira") == 0
-    assert "holds another run's lock now: left as it is" in capsys.readouterr().out
+    calls = _watch(monkeypatch, world, ["madeira"], after=after)
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "another run took the lock (or it was broken) before the move of staging/madeira" in out
     assert lock.read_text() == _other_lock()
+    assert not any("moveto" in a or "deletefile" in a for a in calls) and not (world.server / "public").exists()
 
 
 def test_a_run_reading_another_token_after_its_write_stops(world, monkeypatch, capsys):
@@ -729,15 +732,17 @@ def test_verify_tiles_without_an_index(world, capsys, where):
     assert "dmr5/1m/: tiles without an index.json" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("bad", ["block 0", "block text", "block true", "short digest", "digest with a newline",
-                                 "path as a key", "tiles not an object"])
+@pytest.mark.parametrize("bad", ["block 0", "block text", "block true", "block 5", "no block", "short digest",
+                                 "digest with a newline", "path as a key", "tiles not an object"])
 def test_verify_malformed_index_is_a_fault(world, capsys, bad):
     """F6: a malformed index is a fault on a folder and on a remote, never a crash or a line injected into the SUM
     file."""
     path = world.mirror / "aosta" / "dtm" / "2m" / "index.json"
     index = json.loads(path.read_text())
-    if bad.startswith("block"):
-        index["block"] = {"block 0": 0, "block text": "x", "block true": True}[bad]
+    if bad == "no block":
+        del index["block"]
+    elif bad.startswith("block"):
+        index["block"] = {"block 0": 0, "block text": "x", "block true": True, "block 5": 5}[bad]
     elif bad == "short digest":
         index["tiles"]["176_2518"] = "abc"
     elif bad == "digest with a newline":
@@ -880,3 +885,220 @@ def test_a_lock_written_although_rclone_reports_a_failure(world, monkeypatch, ca
     assert _publish(world, "madeira") == 1
     assert "could not hash the lock file" in capsys.readouterr().out
     assert tree(world.server) == {}
+
+
+# Fix round 2 (the reviews' round 2, 2026-11-16)
+
+def _lock_taken_over_after(world, monkeypatch, trigger):
+    """Run B's lock written right after the first rclone call trigger(argv) matches (run A's read-back of its own
+    lock, a move, ...); the calls of run A after that point are returned."""
+    lock = world.server / "staging" / ".lock"
+    state = {"done": False, "after": []}
+
+    def call(self, argv, data, progress):
+        if state["done"]:
+            state["after"].append(argv)
+        done = REAL_CALL(self, argv, data, progress)
+        if not state["done"] and trigger(argv):
+            lock.write_text(_other_lock())
+            state["done"] = True
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    return state["after"]
+
+
+def _moves(calls):
+    return [a for a in calls if "moveto" in a]
+
+
+@pytest.mark.parametrize("point", ["first move", "second move", "datasets.json"])
+def test_another_run_taking_the_lock_stops_this_one(world, monkeypatch, capsys, point):
+    """N1: run B's lock written at each point of run A's publish (right after A read its own lock back, the
+    reviewer's interleaving; after A's first move of a swap; after A's move into public): A stops at its next check
+    point, makes no further move, writes no datasets.json and leaves B's lock alone."""
+    lock = world.server / "staging" / ".lock"
+    if point == "first move":
+        trigger, more = (lambda argv: "cat" in argv and argv[-1].endswith(".lock")), ()
+    elif point == "second move":
+        assert _publish(world, "madeira") == 0
+        trigger, more = (lambda argv: "moveto" in argv and "trash" in argv[-1]), ("--same-values",)
+    else:
+        trigger, more = (lambda argv: "moveto" in argv and argv[-1].endswith("tiles/madeira")), ()
+    listing = (world.server / "public" / "v1" / "datasets.json").read_bytes() if more else None
+    capsys.readouterr()
+    after = _lock_taken_over_after(world, monkeypatch, trigger)
+    assert _publish(world, "madeira", *more) == 1
+    out = capsys.readouterr().out
+    assert "another run took the lock (or it was broken)" in out and "left that lock alone" in out
+    assert lock.read_text() == _other_lock()
+    # (the copy into staging/ comes before the first check point and may run: never a move, a delete or the list)
+    assert _moves(after) == [] and not any("deletefile" in a for a in after)
+    assert not any(a[-1].endswith(".datasets.json.new") for a in after)
+    if point == "first move":
+        assert not (world.server / "public").exists()
+    elif point == "second move":
+        assert "the dataset is complete in public/v1/tiles/madeira or in trash/" in out
+        assert not (world.server / "public" / "v1" / "tiles" / "madeira").exists()
+        assert (world.server / "public" / "v1" / "datasets.json").read_bytes() == listing
+    else:
+        published_ok(world, "madeira")
+        assert not (world.server / "public" / "v1" / "datasets.json").exists()
+        assert f"{mp.LIST} is written" in out
+
+
+def test_another_run_taking_the_lock_before_the_staged_deletes(world, monkeypatch, capsys):
+    """N1: a staged file found changed and run B's lock there: run A deletes nothing from staging."""
+    lock = world.server / "staging" / ".lock"
+    target = world.server / "staging" / "madeira" / "dtm" / "2m" / "14_183" / "143_1833.tif"
+
+    def call(self, argv, data, progress):
+        done = REAL_CALL(self, argv, data, progress)
+        if "copy" in argv:
+            target.write_bytes(b"changed")
+            lock.write_text(_other_lock())
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "before the staged copy's faults are deleted" in out
+    assert target.read_bytes() == b"changed" and lock.read_text() == _other_lock()
+
+
+@pytest.mark.parametrize("command", ["unpublish", "clean"])
+def test_another_run_taking_the_lock_stops_unpublish_and_clean(world, monkeypatch, capsys, command):
+    """N1: the same check before unpublish's move and before each removal of clean."""
+    assert _publish(world, "madeira") == 0
+    old = (mp._now() - datetime.timedelta(days=9)).strftime(mp.STAMP)
+    (world.server / "trash" / f"aosta-{old}").mkdir(parents=True)
+    (world.server / "trash" / f"aosta-{old}" / "x").write_text("x")
+    before = tree(world.server / "public")
+    after = _lock_taken_over_after(world, monkeypatch, lambda argv: "cat" in argv and argv[-1].endswith(".lock"))
+    args = ("unpublish", "madeira", "--to", world.to) if command == "unpublish" else ("clean", "--to", world.to)
+    assert world.run(*args) == 1
+    assert "another run took the lock" in capsys.readouterr().out
+    assert tree(world.server / "public") == before and (world.server / "trash" / f"aosta-{old}" / "x").exists()
+    assert not any("purge" in a or "moveto" in a for a in after)
+
+
+@pytest.mark.parametrize("command", ["publish", "unpublish", "clean"])
+def test_the_final_release_failing_says_the_work_is_done(world, monkeypatch, capsys, command):
+    """N2: the work done, only the lock's deletion fails: the message says what is done and names --break-lock; the
+    exit code is 1."""
+    if command != "publish":
+        assert _publish(world, "madeira") == 0
+    real_delete = mp.Remote.delete
+
+    def delete(self, rel):
+        if rel == mp.LOCK:
+            raise mp.Failed("rclone could not delete staging/.lock (exit 1: an error)")
+        return real_delete(self, rel)
+    monkeypatch.setattr(mp.Remote, "delete", delete)
+    capsys.readouterr()
+    args = {"publish": ("publish", "madeira", "--to", world.to, "--mirror", str(world.mirror)),
+            "unpublish": ("unpublish", "madeira", "--to", world.to), "clean": ("clean", "--to", world.to)}[command]
+    assert world.run(*args) == 1
+    out = capsys.readouterr().out
+    said = {"publish": "madeira is published and public/v1/datasets.json written",
+            "unpublish": "madeira is unpublished (in trash/) and public/v1/datasets.json written",
+            "clean": "the old trash is removed"}[command]
+    assert f"done, but: {said}; only the lock staging/.lock could not be removed" in out and "--break-lock" in out
+    if command == "publish":
+        published_ok(world, "madeira")
+
+
+def test_a_failed_lock_write_that_left_a_file(world, monkeypatch, capsys):
+    """N3: rclone reports the lock's write failed and a broken file is left: this run says a lock file may be left
+    and names --break-lock; the file is not removed (it is not this run's)."""
+    lock = world.server / "staging" / ".lock"
+
+    def write(self, rel, data):
+        if rel == mp.LOCK:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            lock.write_bytes(data[:10])
+            raise mp.Failed("rclone could not write staging/.lock (exit 1: an error)")
+        raise AssertionError("nothing else is written")
+    monkeypatch.setattr(mp.Remote, "write", write)
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "a lock file may be left on the server: --break-lock" in out and lock.exists()
+
+
+@pytest.mark.parametrize("where", ["copy", "second move"])
+def test_ctrl_c_under_the_lock(world, monkeypatch, capsys, where):
+    """N4: Ctrl+C during the copy releases the lock, after the first move keeps it; one line says which."""
+    more = ()
+    if where == "second move":
+        assert _publish(world, "madeira") == 0
+        more = ("--same-values",)
+    state = {"moved": False}
+
+    def call(self, argv, data, progress):
+        if (where == "copy" and "copy" in argv) or (where == "second move" and state["moved"] and "moveto" in argv):
+            raise KeyboardInterrupt
+        done = REAL_CALL(self, argv, data, progress)
+        state["moved"] |= "moveto" in argv
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    capsys.readouterr()
+    assert _publish(world, "madeira", *more) == 130
+    out = capsys.readouterr().out
+    lock = world.server / "staging" / ".lock"
+    if where == "copy":
+        assert "interrupted (KeyboardInterrupt): the lock was released; nothing public was touched" in out
+        assert not lock.exists()
+    else:
+        assert "interrupted (KeyboardInterrupt): the lock staging/.lock is kept:" in out and lock.exists()
+
+
+def test_stats_counts_the_clients_versions(world, capsys):
+    """N5: the versions the client writes (cache.VERSION, PEP 440 forms and "unknown") are counted as themselves;
+    an address in any of those forms is not."""
+    logs = world.server / "logs"
+    logs.mkdir()
+    real = ["0.1.0", "0.2.0rc1", "1.0.0.dev3", "0.1.0+local", "unknown", "1.2.3.post4"]
+    forged = ["1.2.3.4", "0.1.0+203.0.113.7", "0.1.0+203", "203.0.113.7.dev1", "1.2.3.4rc1"]
+    lines = [{"t": "2026-11-16T10:00:00Z", "s": 200, "b": 1, "rt": 0.1, "ds": "-", "a": "203.0.113.7", "lim": "-",
+              "v": v} for v in real + forged]
+    (logs / "access-2026-11-16.log").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+    assert world.run("stats", "--from", f"{REMOTE}:logs") == 0
+    out = capsys.readouterr().out
+    for v in real:
+        assert f"  {v:<20} {1:>9}" in out, v
+    assert f"  {'other':<20} {len(forged):>9}" in out
+    assert "203" not in out and "1.2.3.4" not in out
+    import cache
+    assert mp.CLIENT_VERSION.fullmatch(cache.VERSION)  # the client's own version today
+
+
+def test_a_refusal_under_the_lock_leaves_no_staging_folder(world, monkeypatch, capsys):
+    """N7: a refusal under the lock on a fresh <root>: the lock and the staging/ folder it made are gone."""
+    monkeypatch.setattr(mp.Remote, "free", lambda self: None)
+    assert _publish(world, "madeira") == 1
+    assert "does not tell its free space" in capsys.readouterr().out
+    assert list(world.server.iterdir()) == []
+
+
+def test_block_is_the_tools_block():
+    """Item 9: the block size an index must carry is the cutting tools' (and the client's, 10)."""
+    assert mp.BLOCK == sk_tiles.BLOCK == mirror_tiles.BLOCK == 10
+    assert src.grid_tile_name(12, 34) == src.grid_tile_name(12, 34, mp.BLOCK)
+
+
+def test_indexes_written_by_the_tools_pass_verify(tmp_path, monkeypatch):
+    """Item 9: the indexes tools/sk_tiles.py (cut, average) and tools/mirror_tiles.py (cut) write pass verify's
+    checks (their "block" included)."""
+    import test_sources
+    import test_mirror_tiles as tmt
+    (tmp_path / "sk").mkdir()
+    mirror, root, *_ = test_sources._cut(tmp_path / "sk", monkeypatch)
+    sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
+    faults, files = mp.read_master(str(mirror / "slovakia"), "<folder>")
+    assert faults == [] and {p for p in files if p.endswith("index.json")} == {
+        f"test/{r}/index.json" for r in ("1m", "2m", "5m")}
+    tmt._spec(monkeypatch, "asc", url="https://example.org/dl/test.zip", member="T.ASC")
+    work, out = tmp_path / "work", tmp_path / "mirror"
+    tmt._zip(work, "T.ASC", tmt._asc_text(tmt._asc_values()), "test.zip")
+    mirror_tiles.extract("asc", str(work))
+    mirror_tiles.cut("asc", str(work), str(out))
+    faults, files = mp.read_master(str(out / "aosta"), "<folder>")
+    assert faults == [] and "dtm/2m/index.json" in files
