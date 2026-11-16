@@ -78,7 +78,8 @@ class WrongShape(RuntimeError):
 
 
 # What renew may answer besides a request or None: the directory read again lists another version of the member
-# (another CRC-32: another tile), so this request cannot be read; fetch fails at once (no reading of it again)
+# (another tile: its CRC-32, or what else the tile's cached name holds), so this request cannot be read; fetch fails
+# at once (no reading of it again)
 MEMBER_REMADE = object()
 
 
@@ -279,7 +280,7 @@ class ZipMember(Reader):
             renewed = self.renew(request) if self.renew else None
             if renewed is MEMBER_REMADE:
                 raise RuntimeError(f"Could not download {where}: {e}; the directory lists the member made again "
-                                   f"(another CRC-32): the next search reads it") from None
+                                   f"(another version, another tile): the next search reads it") from None
             if renewed is None:
                 if not isinstance(e, MemberChanged):
                     raise RuntimeError(f"Could not download {where}: {e}") from None
