@@ -35,8 +35,10 @@ shown there and a key (data_key: the sha256 of the repository's root *.py, this 
 the clip's two files). A start whose key is the marker's keeps the clip run and the three cubes (4 s of a 13 s
 desktop start on 2026-11-16 with numba's cache warm; more when it is cold); another key, no marker (a folder of
 before) or `--fresh` makes them anew, and the clip run the marker names is removed then (folder and row: one clip
-run in a kept folder; a `--run` start removes nothing). Each start ends the sessions of the tool's users before it
-makes theirs, so Admin's counts stay the same. The default data folder is a temporary one, removed at the end.
+run in a kept folder; a `--run` start removes nothing; one whose removal fails is named in the marker and tried
+again at every start), and the problem report is made again for the run shown. Each start ends the sessions of the
+tool's users before it makes theirs, so Admin's counts stay the same: one run at a time per data folder (a second
+start ends the first one's sessions). The default data folder is a temporary one, removed at the end.
 
 For a caller that measures the prepared pages instead of shooting them: shoot_all (the passes' loop, rows and pass
 records kept as they are made), pass_context (a pass's browser context, with the caller's options such as
@@ -605,15 +607,24 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
     same = not fresh and marker.get("key") == key  # the cubes made by this code
     clip = marker.get("run")  # the clip's run of a kept folder: kept while the code that made it is the same
     made_by = marker.get("run_key", marker.get("key"))
+    stale = list(marker.get("stale") or [])  # clip runs replaced whose removal failed: tried again at every start
+    replaced = []
+    if not run_folder and clip and (fresh or made_by != key or
+                                    not os.path.isfile(os.path.join(runs, clip, "run.json"))):
+        stale.append(clip)  # one clip run in a kept folder: the one made before goes (its folder and its row)
+        replaced, clip = [clip], None
+    if stale:
+        with timed(times, "the old clip runs' removal"):
+            for old in list(stale):
+                try:
+                    jobs.delete_run(old, runs)
+                    stale.remove(old)
+                except OSError as error:
+                    print(f"the clip run {old} made before stays (tried again at the next start): {error}")
     if run_folder:  # a saved run shown: the clip stays as it is
-        run = saved_run(data, run_folder)
+        with timed(times, "the saved run's copy"):
+            run = saved_run(data, run_folder)
     else:
-        if clip and (fresh or made_by != key or not os.path.isfile(os.path.join(runs, clip, "run.json"))):
-            try:  # one clip run in a kept folder: the one made before goes (its folder and its row)
-                jobs.delete_run(clip, runs)
-            except OSError as error:
-                print(f"the clip run {clip} made before stays: {error}")
-            clip = None
         if not clip:
             with timed(times, "the clip's search"):
                 clip = clip_run(data)
@@ -631,12 +642,18 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
         if holder and holder != run:
             jobs.set_share(holder, None)
         jobs.set_share(run, digest)
-        if not any(r["text"] == REPORT for r in jobs.reports()):  # once per data folder
+        ours = [r for r in jobs.reports() if r["text"] == REPORT]
+        if replaced:  # the report named the clip run replaced: made again for the run shown now
+            for report in ours:
+                jobs.delete_report(report["id"])
+            ours = []
+        if not ours:  # once per data folder
             jobs.add_report(climber.id, "water", REPORT,
                             {"run": run, "page": f"#run={run}", "ui": "c", "viewport": "390x844",
                              "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"})
-    with open(os.path.join(data, MARKER), "w", encoding="utf-8") as f:
-        json.dump({"key": key, "run": clip, "run_key": made_by if clip else None}, f, indent=1)
+    with timed(times, "the marker"):
+        with open(os.path.join(data, MARKER), "w", encoding="utf-8") as f:
+            json.dump({"key": key, "run": clip, "run_key": made_by if clip else None, "stale": stale}, f, indent=1)
     return cookies, run, share, jobs
 
 
@@ -645,18 +662,19 @@ def serve(data: str, run_folder: str | None = None, fresh: bool = False, times: 
     (address, session cookies by user, run, the run's share token, stop). `run_folder`: a saved run shown instead
     of the clip's (saved_run); `fresh`: the data folder's clip run and cubes made anew; `times`: the set-up's parts
     timed into it."""
-    import uvicorn
-
-    import web
-    from jobs import Scheduler
-    from settings import AccountSettings, PublicSettings
-
     times = {} if times is None else times
-    os.environ.update(ACCOUNTS)
-    settings = AccountSettings.load()
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
+    with timed(times, "the server's modules"):  # the web app's imports, its settings and a free port
+        import uvicorn
+
+        import web
+        from jobs import Scheduler
+        from settings import AccountSettings, PublicSettings
+
+        os.environ.update(ACCOUNTS)
+        settings = AccountSettings.load()
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
     site = f"https://localhost:{port}"
     cookies, run, share, jobs = prepare(data, settings, run_folder, fresh, times)
     start = time.perf_counter()
@@ -888,12 +906,19 @@ def failed(rows: list) -> bool:
     return any(r["timeouts"] or r["outcome"] == "failed" for r in rows)
 
 
+CLOSING = ("Playwright's stop", "the server's stop", "the temporary folder's removal")  # the summary's closing parts
+
+
 def summary(times: dict, passes: list, rows: list, dropped: dict, total: float) -> list:
     """The lines printed at the end: seconds per part of the set-up and per pass, the ten slowest pages, the pages
     left out (those the run lacks once, by name; those a device does not show by page and passes), every timeout
     and failed step."""
     lines = [f"Summary: {total:.1f} s, {sum(1 for r in rows if r['path'])} pictures"]
-    lines.append("Set-up: " + ", ".join(f"{part} {seconds:.1f} s" for part, seconds in times.items()))
+    closing = [part for part in times if part.startswith("close ") or part in CLOSING]
+    lines.append("Set-up: " + ", ".join(f"{part} {seconds:.1f} s" for part, seconds in times.items()
+                                        if part not in closing))
+    if closing:
+        lines.append("Closing: " + ", ".join(f"{part} {times[part]:.1f} s" for part in closing))
     for p in passes:
         lines.append(f"Pass {p['device']} {p['theme']}: {p['seconds']:.1f} s, {p['saved']} saved, "
                      f"{p['left_out']} left out" + ("" if p.get("complete", True) else ", not finished"))
@@ -996,15 +1021,26 @@ def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str
                                    "saved": sum(1 for r in done if r["path"] or "result" in r),
                                    "left_out": sum(1 for r in done if r["outcome"] == "left out"),
                                    "complete": complete})
-                    with timed(times, f"close {device} {theme}"):
-                        context.close()
+                    close(context.close, times, f"close {device} {theme}")
                 if stop:
                     break
         finally:
-            with timed(times, f"close {engine} ({device})"):
-                browser.close()
+            close(browser.close, times, f"close {engine} ({device})")
         if stop:
             break
+
+
+def close(call, times: dict, part: str, *args):
+    """A closing call timed as `part`; while an error (Ctrl+C) is on its way out, an error of the call is printed and
+    dropped, so the first one reaches the caller."""
+    on_its_way = sys.exc_info()[0] is not None
+    with timed(times, part):
+        try:
+            call(*args)
+        except Exception as error:
+            if not on_its_way:
+                raise
+            print(f"{part}: {error_line(error)}")
 
 
 def main() -> int:
@@ -1016,7 +1052,8 @@ def main() -> int:
     parser.add_argument("--themes", choices=("light", "dark", "both"), help="the themes (default: light)")
     parser.add_argument("--dark", action="store_true", help="the dark theme too (= --themes both)")
     parser.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end); "
-                                           "used again, it keeps its clip run and cubes while the code is the same")
+                                           "used again, it keeps its clip run and cubes while the code is the same; "
+                                           "one run at a time per folder (a second start ends the first one's sessions)")
     parser.add_argument("--fresh", action="store_true", help="the data folder's clip run and cubes made anew")
     parser.add_argument("--run", help="a saved run's folder to show instead of the clip's (its cache in the data folder)")
     parser.add_argument("--line", help="the line of the line's pages (lat1,lon1,lat2,lon2; default: the run's first)")
@@ -1045,8 +1082,6 @@ def main() -> int:
             for name in pages:
                 print(f"{name}  left out: {dropped[name]}" if name in dropped else name)
             return 0
-        from playwright.sync_api import sync_playwright
-
         os.makedirs(args.out, exist_ok=True)
         site, cookies, run, share, stop = serve(data, args.run, args.fresh, times)
         with timed(times, "the run's lines and border cell"):
@@ -1060,15 +1095,22 @@ def main() -> int:
         for name, reason in dropped.items():
             print(f"{name}: left out, {reason}")
         shown = [name for name in pages if name not in dropped]
-        with sync_playwright() as pw:
+        with timed(times, "Playwright's start"):
+            from playwright.sync_api import sync_playwright
+            playwright = sync_playwright()
+            pw = playwright.__enter__()
+        try:
             shoot_all(pw, site_of, shown, devices, themes, args.out, args.strict, times, rows, passes)
+        finally:
+            close(playwright.__exit__, times, "Playwright's stop", *sys.exc_info())
     finally:
         interrupted = sys.exc_info()[0] is not None
         if stop:
-            stop()
+            close(stop, times, "the server's stop")
         if not args.data_dir:  # the folder made above (tools/clean_temp.py removes those of runs that did not end)
-            gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
-            shutil.rmtree(data, ignore_errors=True)
+            with timed(times, "the temporary folder's removal"):
+                gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
+                shutil.rmtree(data, ignore_errors=True)
         total = time.perf_counter() - began
         code = 1 if failed(rows) else 0
         if not args.list:

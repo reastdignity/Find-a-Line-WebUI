@@ -202,7 +202,8 @@ passes' loop, rows kept as made), `pass_context` (a pass's context, the caller's
 `act` (in place of the screenshot, its dict in the row). A `--data-dir` used before can be used again: its marker
 `ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module and
 the clip's files) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
-clip run made before: one in the folder); each start ends the tool's users' sessions before making theirs; the Basic
+clip run made before: one in the folder, a failed removal retried at every start, the problem report made again);
+each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
 form's riggers get only the rigs they do not have yet, the problem report is added once
 
 ## `tools/shots_diff.py`

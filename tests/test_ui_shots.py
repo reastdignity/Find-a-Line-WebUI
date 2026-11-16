@@ -392,44 +392,73 @@ def test_a_kept_data_folder(tmp_path, monkeypatch):
         return (sorted(r for r in os.listdir(runs) if "Zabi-Kon-clip" in r),
                 sorted(r["run_id"] for r in Jobs(data, public=True).all_runs() if "Zabi-Kon-clip" in r["run_id"]))
 
+    def report_runs():  # the run each of the tool's problem reports names
+        return [r["context"]["run"] for r in Jobs(data, public=True).reports() if r["text"] == ui_shots.REPORT]
+
+    base = {"accounts and jobs", "the marker"}
+    built = base | {"the clip's search", "the cubes"}
     first, jobs, times = prepare()
-    assert search.calls == 1 and len(cubes) == 1 and {"accounts and jobs", "the clip's search",
-                                                      "the cubes"} <= set(times)
+    assert search.calls == 1 and len(cubes) == 1 and set(times) == built
     key = ui_shots.data_key()
-    assert ui_shots.read_marker(data) == {"key": key, "run": first, "run_key": key}
+    assert ui_shots.read_marker(data) == {"key": key, "run": first, "run_key": key, "stale": []}
     again, jobs, times = prepare()
-    assert again == first and search.calls == 1 and len(cubes) == 1 and not {"the clip's search", "the cubes"} & set(times)
-    assert sorted(os.listdir(runs)) == [first] and len(jobs.reports()) == 1
+    assert again == first and search.calls == 1 and len(cubes) == 1 and set(times) == base
+    assert sorted(os.listdir(runs)) == [first] and report_runs() == [first]
     meta = json.loads(open(os.path.join(runs, first, "run.json"), encoding="utf-8").read())
     assert [d["layer"] for d in meta["data"]].count("Surface file") == 1
     assert jobs.shared_run(digest) == first
     assert set(sessions().values()) == {1} and len(sessions()) == 5  # admin, walker, the three riggers: one each
 
     other = _run_json(tmp_path / "saved" / "2026-01-01_000000_Other_0", {"end_zone": 5})
-    shown, jobs, _ = prepare(run_folder=other)  # the token moves (share_hash is UNIQUE), the clip stays the marker's
+    shown, jobs, times = prepare(run_folder=other)  # the token moves (share_hash is UNIQUE), the clip stays
     assert shown == "2026-01-01_000000_Other_0" and jobs.shared_run(digest) == shown and search.calls == 1
+    assert set(times) == base | {"the saved run's copy"}
     assert ui_shots.read_marker(data)["run"] == first and len(cubes) == 1 and clips() == ([first], [first])
     again, jobs, _ = prepare()
     assert again == first and jobs.shared_run(digest) == first and search.calls == 1
 
-    fresh, jobs, _ = prepare(fresh=True)  # the old clip run removed: its folder and its row
+    fresh, jobs, times = prepare(fresh=True)  # the old clip run removed: its folder and its row; the report remade
     assert fresh != first and search.calls == 2 and len(cubes) == 2 and jobs.shared_run(digest) == fresh
-    assert clips() == ([fresh], [fresh]) and os.path.isdir(os.path.join(runs, shown))
+    assert set(times) == built | {"the old clip runs' removal"}
+    assert clips() == ([fresh], [fresh]) and os.path.isdir(os.path.join(runs, shown)) and report_runs() == [fresh]
+
+    remove = Jobs.delete_run  # a removal that fails once (a file of the run held open): kept in the marker, retried
+    failures = []
+
+    def delete_run(self, run_id, runs_dir):
+        if not failures:
+            failures.append(run_id)
+            raise PermissionError(32, "The process cannot access the file", "data.js")
+        return remove(self, run_id, runs_dir)
+    monkeypatch.setattr(Jobs, "delete_run", delete_run)
+    held, jobs, _ = prepare(fresh=True)
+    assert failures == [fresh] and clips() == (sorted([fresh, held]), sorted([fresh, held]))
+    assert ui_shots.read_marker(data)["stale"] == [fresh] and report_runs() == [held]
+    again, jobs, times = prepare()  # the next start removes it
+    assert again == held and clips() == ([held], [held]) and ui_shots.read_marker(data)["stale"] == []
+    assert set(times) == base | {"the old clip runs' removal"}
+
+    with open(os.path.join(data, ui_shots.MARKER), "w", encoding="utf-8") as f:  # a marker of 4680e7a's format
+        json.dump({"key": ui_shots.data_key(), "run": held}, f)
+    again, jobs, times = prepare()
+    assert again == held and search.calls == 3 and set(times) == base
+
     os.remove(os.path.join(data, ui_shots.MARKER))  # a folder of the old tool: its runs, no marker (none removed)
     old, jobs, _ = prepare()
-    assert old not in (first, fresh) and search.calls == 3 and ui_shots.read_marker(data)["run"] == old
-    assert clips() == (sorted([fresh, old]), sorted([fresh, old]))
+    assert old != held and search.calls == 4 and ui_shots.read_marker(data)["run"] == old
+    assert clips() == (sorted([held, old]), sorted([held, old]))
     monkeypatch.setattr(ui_shots, "data_key", lambda: "another")  # the code changed: the marker's clip removed
     new, jobs, _ = prepare()
-    assert new not in (first, fresh, old) and search.calls == 4 and len(cubes) == 4
-    assert clips() == (sorted([fresh, new]), sorted([fresh, new]))
+    assert new not in (held, old) and search.calls == 5 and len(cubes) == 5
+    assert clips() == (sorted([held, new]), sorted([held, new])) and report_runs() == [new]
     monkeypatch.setattr(ui_shots, "data_key", lambda: "third")  # changed again, a --run start: nothing removed
-    prepare(run_folder=other)
-    assert clips() == (sorted([fresh, new]), sorted([fresh, new])) and len(cubes) == 5 and search.calls == 4
-    assert ui_shots.read_marker(data) == {"key": "third", "run": new, "run_key": "another"}
+    _, jobs, times = prepare(run_folder=other)
+    assert set(times) == base | {"the saved run's copy", "the cubes"}
+    assert clips() == (sorted([held, new]), sorted([held, new])) and len(cubes) == 6 and search.calls == 5
+    assert ui_shots.read_marker(data) == {"key": "third", "run": new, "run_key": "another", "stale": []}
     newest, jobs, _ = prepare()  # the clip made under another key: replaced; the cubes are this key's
-    assert clips() == (sorted([fresh, newest]), sorted([fresh, newest])) and len(cubes) == 5 and search.calls == 5
-    assert len(jobs.reports()) == 1 and len(Jobs(data, public=True).reports()) == 1
+    assert clips() == (sorted([held, newest]), sorted([held, newest])) and len(cubes) == 6 and search.calls == 6
+    assert len(jobs.reports()) == 1 and report_runs() == [newest]
     assert set(sessions().values()) == {1}
     del jobs
     gc.collect()
@@ -560,7 +589,7 @@ def test_act_in_place_of_the_shot(tmp_path):
 def test_strict_stops_the_run_at_the_first_bad_row(tmp_path):
     """shoot_all with --strict stops after the first row with a timeout or a failure, whatever its outcome (a
     "need:" whose wait for the result timed out and whose page is then left out); without --strict every page of
-    every pass is done, and the exit code is 1."""
+    every pass is done (failed() True: main's exit code 1, test_timings_file)."""
     pages = ["c-result-shore-folded", "c-home", "c-favourites"]
     times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), pages, tmp_path, ("desktop", "pixel"),
                                ("light", "dark"), strict=True)
@@ -607,6 +636,28 @@ def test_an_interrupt_keeps_what_was_done(tmp_path):
     assert pw.browsers[0].closed and pw.browsers[0].contexts[0].closed
 
 
+def test_an_interrupt_outlives_a_close_that_fails(tmp_path, monkeypatch, capsys):
+    """Ctrl+C while the closes raise (Playwright's driver stopped by the same Ctrl+C): the KeyboardInterrupt reaches
+    the caller, the closes' errors are notes, the rows and the pass record are kept; without an error on its way a
+    close's error is raised as before."""
+    def gone(self):
+        raise RuntimeError("Target page, context or browser has been closed\nCall log:")
+    monkeypatch.setattr(FakeContext, "close", gone)
+    monkeypatch.setattr(FakeBrowser, "close", gone)
+    rows, passes, times = [], [], {}
+    with pytest.raises(KeyboardInterrupt):
+        ui_shots.shoot_all(FakePlaywright(true={"leaflet-tile"}, interrupt=("#favourites",)), SITE,
+                           ["c-home", "c-favourites"], ["desktop"], ["light"], str(tmp_path), False, times, rows,
+                           passes)
+    assert [r["page"] for r in rows] == ["c-home"] and passes[0]["complete"] is False
+    assert {"close desktop light", "close chromium (desktop)"} <= set(times)
+    out = capsys.readouterr().out
+    assert "close desktop light: Target page, context or browser has been closed" in out
+    with pytest.raises(RuntimeError):
+        ui_shots.shoot_all(FakePlaywright(true={"leaflet-tile"}), SITE, ["c-home"], ["desktop"], ["light"],
+                           str(tmp_path), False, {}, [], [])
+
+
 def _main(monkeypatch, tmp_path, pw, *argv):
     """main() with the site and Playwright faked."""
     import types
@@ -622,18 +673,25 @@ def _main(monkeypatch, tmp_path, pw, *argv):
     return ui_shots.main()
 
 
-def test_timings_file(tmp_path, monkeypatch, capsys):
+def test_timings_file(tmp_path, monkeypatch, capsys, clock):
     """main: the exit code (1 after a timeout) and the --timings file, after a whole run and after an interrupted
-    one (what was done, the pass unfinished, "interrupted")."""
+    one (what was done, the pass unfinished, "interrupted", also for an error that is not an interrupt); the set-up's
+    and closing's parts and the passes make up the total (on the fake clock: exactly)."""
     code = _main(monkeypatch, tmp_path, FakePlaywright(true={"leaflet-tile"}), "--only", "c-home,c-result-rigging",
                  "--exclude", "limited", "--devices", "desktop")
     saved = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))
     assert code == 0 and saved["exit"] == 0 and not saved["interrupted"]
     assert [r["page"] for r in saved["pages"]] == ["c-home"] and saved["passes"][0]["complete"]
     assert saved["left_out_by_run"] == {"c-result-rigging": ui_shots.LACKS["lift"]}
-    assert {"the run's lines and border cell", "the run's features", "launch chromium (desktop)"} <= set(saved["setup"])
-    assert saved["total"] >= sum(saved["setup"].values()) + sum(p["seconds"] for p in saved["passes"]) - 1e-6
-    assert "Summary:" in capsys.readouterr().out
+    assert set(saved["setup"]) == {"the run's lines and border cell", "the run's features", "Playwright's start",
+                                   "launch chromium (desktop)", "context desktop light", "close desktop light",
+                                   "close chromium (desktop)", "Playwright's stop", "the server's stop"}
+    assert saved["total"] > 0
+    assert saved["total"] == pytest.approx(sum(saved["setup"].values()) + sum(p["seconds"] for p in saved["passes"]),
+                                           abs=1e-9)
+    out = capsys.readouterr().out
+    assert "Summary:" in out and "Closing: close desktop light 0.2 s, close chromium (desktop) 0.1 s, " \
+                                 "Playwright's stop 0.0 s, the server's stop 0.0 s" in out
     assert _main(monkeypatch, tmp_path, FakePlaywright(), "--only", "view3d-full", "--devices", "desktop") == 1
     assert json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))["exit"] == 1
     with pytest.raises(KeyboardInterrupt):
@@ -643,6 +701,14 @@ def test_timings_file(tmp_path, monkeypatch, capsys):
     assert saved["interrupted"] and [r["page"] for r in saved["pages"]] == ["c-home"]
     assert saved["passes"][0]["complete"] is False
     assert "Summary:" in capsys.readouterr().out
+
+    def broken(self):
+        raise RuntimeError("the driver is gone")
+    monkeypatch.setattr(FakeEngine, "launch", broken)  # an error that is not an interrupt ends the run
+    with pytest.raises(RuntimeError):
+        _main(monkeypatch, tmp_path, FakePlaywright(), "--only", "c-home", "--devices", "desktop")
+    saved = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))
+    assert saved["interrupted"] and saved["pages"] == [] and saved["exit"] == 0
 
 
 TOO_TALL = "Page.screenshot: Cannot take screenshot larger than 32767 pixels on any dimension\nCall log:"
