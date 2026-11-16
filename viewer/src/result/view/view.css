@@ -29,6 +29,10 @@
 .ui .vl-cols { min-height: 26px; align-items: end; padding-bottom: 3px; font: 500 10.5px/1.1 var(--mono); letter-spacing: .05em;
   text-transform: uppercase; color: var(--muted); }
 .ui .vl-cols > span:nth-child(n+3), .ui .vl-v { text-align: right; white-space: nowrap; }
+.ui .vl-cols > span:nth-child(n+3) { white-space: normal; }  /* a heading may take two lines ("Mean height ▾") */
+/* in a phone's sheet the blocks keep the sheet's own gutter */
+.ui .vl-list .vl-block-head, .ui .vl-list .vl-note, .ui .vl-list .vl-sec-head, .ui .vl-list .r-tight-key { padding-left: 0; padding-right: 0; }
+.ui .vl-list .vl-more { margin-left: 0; }
 .ui .vl-cols > .vl-cell-acc, .ui .vl-main > .vl-cell-acc { text-align: center; }
 .ui .vl-by { color: var(--ink); }
 .ui .vl-num { font: 500 12px var(--mono); color: var(--muted); }

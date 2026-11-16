@@ -6,6 +6,7 @@
 // "Top level only" hides or shows. "Only clear" is in More filters only, and "How to read the result" is not in
 // the view. The filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
+import { useEffect, useRef } from "preact/hooks";
 import { Chip, Chips } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { active, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
@@ -93,6 +94,12 @@ export function ViewFilters({view}: {view: SpotView}) {
 
 /** "More filters" unfolded (today's, without the grouping), while its chip is pressed. */
 export function ViewMoreFilters({view}: {view: SpotView}) {
-  if (panelState(view).editing !== "more") return null;
-  return <MoreFilters model={view.model} grouping={false} onClose={() => changePanels(view, (p) => { p.editing = null; })} />;
+  const open = panelState(view).editing === "more", mark = useRef<HTMLSpanElement>(null);
+  // in the columns they stand at the top of the list's body: it scrolls there when they open
+  useEffect(() => {
+    const body = open && mark.current?.closest<HTMLElement>(".vl-body");
+    if (body) body.scrollTop = 0;
+  }, [open]);
+  if (!open) return null;
+  return <><span ref={mark} hidden /><MoreFilters model={view.model} grouping={false} onClose={() => changePanels(view, (p) => { p.editing = null; })} /></>;
 }
