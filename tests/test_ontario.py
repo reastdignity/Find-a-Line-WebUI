@@ -74,12 +74,13 @@ def _raster(east: int, north: int, value: float, crs: str = "EPSG:6660", driver:
         return memfile.read()
 
 
-def _zip(members, zip64: bool = False) -> bytes:
-    """A package of members (name, body), deflated; zip64: its directory and end record in ZIP64 form."""
+def _zip(members, zip64: bool = False, level: int = None) -> bytes:
+    """A package of members (name, body), deflated (at zlib's level, its default if None); zip64: its directory and
+    end record in ZIP64 form."""
     out = io.BytesIO()
     zf = zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED)
     for name, body in members:
-        zf.writestr(zipfile.ZipInfo(name, (2026, 1, 16, 12, 0, 0)), body, zipfile.ZIP_DEFLATED)
+        zf.writestr(zipfile.ZipInfo(name, (2026, 1, 16, 12, 0, 0)), body, zipfile.ZIP_DEFLATED, level)
     limit = zipfile.ZIP64_LIMIT
     if zip64:
         zipfile.ZIP64_LIMIT = 0
@@ -131,9 +132,9 @@ def _featureserver(server, features, page=None, status=200):
     server.route(FS, query)
 
 
-def _package(server, package: str, members, zip64: bool = False, etag: str = '"p1"') -> bytes:
+def _package(server, package: str, members, zip64: bool = False, etag: str = '"p1"', level: int = None) -> bytes:
     """A package served at PACKAGES/<package>.zip; its footprint (FOOTPRINTS) the box of its members' tiles."""
-    body = _zip(members, zip64)
+    body = _zip(members, zip64, level)
     server.add(f"{PACKAGES}{package}.zip", body, "application/zip", headers={"ETag": etag})
     boxes = []
     for name, _ in members:
@@ -729,6 +730,30 @@ def test_changed_member_reads_the_directory_again(http_server, layer, tmp_path):
     (path,) = layer.files(grid, cache_dir)
     with rio.open(path) as tile:
         assert np.nanmax(np.abs(tile.read(1) - 205.5)) <= TILE_EPS
+
+
+def test_recompressed_member_is_another_tile(http_server, layer, tmp_path):
+    """The package zipped again at another level: the same bytes (CRC-32) in another compressed size, which the
+    cached tile's name holds (the offline order). Read again, the directory lists the member in another size, so that
+    search fails the tile at once (not written under the old name, where no listing would find it); the next lists
+    it in its new size, reads it, and its file is the one the layer lists."""
+    name = _name(17, EAST, NORTH, 2023)
+    member = _noisy(EAST, NORTH, seed=8)
+    first = _package(http_server, "A", [(name, member)])
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    assert len(layer.tiles(grid)) == 1
+    again = _package(http_server, "A", [(name, member)], etag='"p2"', level=1)
+    assert _members_of(again)[name].compress_size != _members_of(first)[name].compress_size
+    with pytest.raises(RuntimeError, match="made again"):
+        src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    folder = os.path.dirname(layer.tile_path(cache_dir, layer.tiles(grid)[0]))
+    assert not os.path.isdir(folder) or not os.listdir(folder)  # nothing written under the old name
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    (path,) = layer.files(grid, cache_dir)
+    assert os.path.exists(path) and f"_{_members_of(again)[name].compress_size}_" in os.path.basename(path)
 
 
 # Several surveys of a place

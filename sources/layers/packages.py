@@ -110,10 +110,10 @@ class PackageTiles(IndexedTiles):
 
     def _renew(self, tile: PackageTile):
         """After a 404, a moved or a changed member: the member where its package's directory, read again now, says
-        it is; MEMBER_REMADE when the directory lists it with another CRC-32 (the tile's key and cached name are its
-        CRC-32: the remade member is another tile, which the next search lists and reads, so this one fails at once
-        instead of asking the old bytes again); None when it says the same, lists it no more or the package cannot
-        be read again. The 0.25° answers are forgotten either way, so the next search lists the packages anew (a
+        it is; MEMBER_REMADE when the directory lists it with another CRC-32 or another compressed size (the tile's
+        cached name holds both: the remade or recompressed member is another tile, which the next search lists and
+        reads, so this one fails at once instead of asking the old bytes again or writing the new under the old
+        name); None when it says the same, lists it no more or the package cannot be read again. The 0.25° answers are forgotten either way, so the next search lists the packages anew (a
         renamed package under its new name). The download holds a tile's lock and a slot of the host: the
         directory's own lock comes last, as everywhere."""
         cache_dir = self.index.cache_dir
@@ -134,11 +134,10 @@ class PackageTiles(IndexedTiles):
         for name, method, flags, crc, size, usize, offset in kept["members"]:
             if name != tile.member:
                 continue
-            if crc != tile.crc:
+            if (crc, size) != (tile.crc, tile.size):
                 return MEMBER_REMADE
             if (offset, kept["length"]) != (tile.offset, tile.length):
-                return replace(tile, offset=offset, method=method, flags=flags, size=size, usize=usize,
-                               length=kept["length"])
+                return replace(tile, offset=offset, method=method, flags=flags, usize=usize, length=kept["length"])
         return None
 
     def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
