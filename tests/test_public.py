@@ -3971,3 +3971,54 @@ def test_satellite_key_in_no_saved_file(tmp_path):
     for path in files:
         with open(path, "rb") as f:
             assert ESRI_KEY.encode() not in f.read(), path
+
+
+def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
+    """Exports (store wave 3, store U9): the owner, an administrator and a signed-in visitor of a demo run make
+    one (POST /api/runs/<run>/export through the public quick lane, whose answer passes Redact as it is) and
+    download it once; another user, a pending or blocked one, a visitor without a session and a share link's
+    visitor are refused, and another user's GET leaves the file; each export made (not one refused) is a `run_export` event of the
+    audit log with its format; one waiting quick task at most per user; the runs row's bytes stay."""
+    import audit
+    from test_export import exported, exports_of, quick_lane
+    from settings import Limits
+    a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
+    jobs, ids = run_people["jobs"], run_people["ids"]
+    csv = (tmp_path / "runs" / RUN_A / "lines.csv").read_bytes()
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for who, code in (("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404)):
+        assert run_people[who].post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == code, who
+    shared = TestClient(a.app, base_url=URL)  # a share link's visitor: the link, no session
+    shared.headers["origin"] = URL
+    assert shared.get(f"/s/{token}/map.html").status_code == 200
+    assert shared.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 401
+    assert shared.post(f"/s/{token}/export", json={"format": "csv"}).status_code in (401, 404, 405)
+    assert a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == 503  # no worker
+    jobs.register("busy-worker")
+    jobs.quick_add("estimate", {}, ids["a"], one_waiting=True)
+    waiting = a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"})
+    assert waiting.status_code == 429 and waiting.json()["detail"]["code"] == "quick_waiting"
+    jobs._db().execute("DELETE FROM quick").connection.commit()
+    jobs.unregister("busy-worker")
+    jobs.set_visibility(RUN_B, "demo")
+    with quick_lane(tmp_path, monkeypatch, public=True, limits=Limits()):
+        url = a.post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).json()["url"]
+        name = url.rsplit("/", 1)[1]
+        for who in ("b", "anonymous", "pending"):
+            assert run_people[who].get(url).status_code in (401, 403, 404), who
+        assert shared.get(url).status_code == 401
+        assert exports_of(tmp_path) == [f"{RUN_A}-{name}"]  # still there for its owner
+        sent = a.get(url)
+        assert sent.status_code == 200 and sent.content == csv
+        assert sent.headers["content-disposition"].startswith("attachment; filename=\"A's run.csv\"")
+        assert a.get(url).status_code == 404 and exports_of(tmp_path) == []
+        by_admin = admin.post(f"/api/runs/{RUN_A}/export", json={"format": "geojson"}).json()["url"]
+        assert admin.get(by_admin).content == exported(tmp_path / "runs" / RUN_A, "geojson", tmp_path)
+        demo = a.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).json()["url"]  # a demo run of B's
+        assert a.get(demo).content == (tmp_path / "runs" / RUN_B / "lines.csv").read_bytes()
+        assert anonymous.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).status_code == 401
+    events = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_export"]
+    assert [(e["user_id"], e["target"], e["detail"]) for e in events] == [
+        (ids["a"], RUN_A, {"format": "csv"}), (ids["admin"], RUN_A, {"format": "geojson"}),
+        (ids["a"], RUN_B, {"format": "csv"})]
+    assert jobs.run(RUN_A)["bytes"] == 100 and jobs.run(RUN_B)["bytes"] == 100

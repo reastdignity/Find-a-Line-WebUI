@@ -50,6 +50,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 
 import pydantic
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 import accounts as ac
@@ -558,6 +559,43 @@ SIZE_HEADER = "X-Findaline-Bytes"
 SIZED_FILES = ("data.js", "lines.js", "lines.arrow", "profiles.arrow")
 # A run id, a share token (token_urlsafe: may start with - or _), a file name: no leading dot (no ".."), no "/"
 SAFE_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
+# An export waiting for its download (jobs.quick_export): <token>.<extension>, the token of jobs.EXPORT_TOKEN_BYTES
+# (token_urlsafe of 16 bytes: always 22 characters, so <run id>-<token> of one run is never that of another)
+EXPORT_NAME = re.compile(f"[A-Za-z0-9_-]{{{math.ceil(jb.EXPORT_TOKEN_BYTES * 4 / 3)}}}\\.("
+                         + "|".join(jb.EXPORT_EXTENSIONS.values()) + ")")
+EXPORT_MEDIA = {"csv": "text/csv; charset=utf-8", "geojson": "application/geo+json"}  # by extension (nginx gzips both)
+SENDING = ".sending"  # an export's name while it is sent (taken by one request: a second one finds nothing)
+FILE_NAME_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')  # characters no file name of Windows takes
+
+
+def content_disposition(name: str, fallback: str) -> str:
+    """Content-Disposition of a download named `name` (a run's name and the extension): the name as
+    UTF-8 (RFC 6266's filename*) and an ASCII form of it for older clients (letters without their
+    accents, the rest left out; the file name `fallback` when no name is left before the extension),
+    without the characters a file name cannot hold or a quoted string would end at."""
+    import unicodedata
+    from urllib.parse import quote
+    name = FILE_NAME_UNSAFE.sub("_", name).strip()
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").strip()
+    if plain.startswith("."):
+        plain = fallback
+    if name.startswith("."):
+        name = fallback
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+class SentOnce(FileResponse):
+    """A file sent once and then deleted (an export, jobs.quick_export): after the whole answer and also
+    when the client breaks off (the sending is cancelled: the file is closed first, so Windows deletes it
+    too). Always the whole file: a Range request gets it whole, not a part that would delete the rest."""
+
+    async def __call__(self, scope, receive, send):
+        scope = {**scope, "headers": [(k, v) for k, v in scope.get("headers", []) if k.lower() != b"range"]}
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with contextlib.suppress(OSError):  # left over: jobs.remove_old_exports deletes it later
+                os.remove(self.path)
 
 
 class RunFiles(StaticFiles):
@@ -1588,6 +1626,62 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         record("share_revoke", user, run)
         return {"ok": True}
 
+    # --- Exports: a run's lines.csv or lines.geojson made from its store for each download, none kept
+    # (docs/line-volume/spec-store.md 1.4, store U4): the worker's quick lane writes it, this process sends it
+    # once and deletes it. Who may: run_access (the owner, an administrator, a signed-in visitor of a demo run;
+    # not a share link's visitor, who has no session; store U9) ---
+
+    exports_dir = jb.exports_folder(data_dir)
+
+    def has_store(run_id: str) -> bool:
+        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it)."""
+        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+            return bool(json.load(f).get("store"))
+
+    @app.post("/api/runs/{run}/export")
+    async def export_run(body: Dict, client: Request, run: str = Depends(run_access),
+                         user: ac.User = Depends(current_user)):
+        """Make a run's lines as text for one download: {"format": "csv"|"geojson"} -> {"url": the address
+        that sends it once} (jobs.quick_export in the quick lane, waited for as an estimate is: 503 without
+        a worker, 504 when the wait runs out, 429 while the user's other quick task waits). A run without a
+        store: 409 export_failed (the page downloads such a run's own text files instead)."""
+        fmt = body.get("format") if isinstance(body, dict) else None
+        if fmt not in jb.EXPORT_EXTENSIONS:
+            raise HTTPException(400, "format: csv or geojson")
+        if not await run_in_threadpool(has_store, run):
+            raise HTTPException(409, messages.UserError(f"the run {run} has no store to export from",
+                                                        "export_failed").detail(public=bool(public)))
+        answer = await quick("export", {"run": run, "format": fmt}, user, client)
+        if not isinstance(answer, dict) or not EXPORT_NAME.fullmatch(str(answer.get("name"))):
+            raise HTTPException(500, "the worker gave no export")
+        await run_in_threadpool(record, "run_export", user, run, {"format": fmt})  # an export made
+        return {"url": f"/api/runs/{run}/export/{answer['name']}"}
+
+    def take_export(run_id: str, name: str) -> Tuple[str, str]:
+        """(the export's file, renamed for its one download, so a second request finds nothing; the name of
+        its download: run.json's name of the run, else its id, and the extension). FileNotFoundError: none."""
+        path = os.path.join(exports_dir, f"{run_id}-{name}")
+        taken = f"{path}.{secrets.token_hex(4)}{SENDING}"
+        os.replace(path, taken)  # FileNotFoundError when it is not there (any more)
+        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+            title = json.load(f).get("name")
+        return taken, f"{title.strip() if isinstance(title, str) and title.strip() else run_id}.{name.rpartition('.')[2]}"
+
+    @app.get("/api/runs/{run}/export/{name}")
+    async def download_export(name: str, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+        """An export of this run (POST /api/runs/<run>/export's address) sent once as an attachment and
+        deleted (SentOnce: also when the client breaks off); 404 for any other name, another run's export,
+        one sent already or deleted after jobs.EXPORT_KEEP_SECONDS. Never a path out of the exports' folder:
+        the name is a token and an extension (EXPORT_NAME), the run one run_access let through."""
+        found = EXPORT_NAME.fullmatch(name)
+        if not found:
+            raise HTTPException(404, "no such export")
+        try:
+            path, title = await run_in_threadpool(take_export, run, name)
+        except FileNotFoundError:
+            raise HTTPException(404, "no such export")
+        return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)],
+                        headers={"Content-Disposition": content_disposition(title, f"{run}.{found.group(1)}")})
     # --- Favourite lines: marked on a run's map, listed in the app ---
 
     @app.get("/api/runs/{run}/favourites")

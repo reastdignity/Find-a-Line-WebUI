@@ -20,7 +20,8 @@ The job queue of the web application and its worker.
   Redact, which removes the data folder and other absolute server paths; an unexpected
   exception shows "internal error, ref <id>" and its traceback goes to the log (stderr).
 - The quick lane: estimates and profiles of the page (short, but they may call Nominatim
-  or Overpass, read sheet indexes and build grids) are rows of the table `quick`, which
+  or Overpass, read sheet indexes and build grids), and exports of a run's lines (quick_export,
+  into work/exports/ for one download) are rows of the table `quick`, which
   one long-lived process of the worker (run_quick) serves one after another; the web
   server only adds a row and waits for its answer. A task that takes longer than the
   time limit gets its process killed and a new one started.
@@ -32,6 +33,7 @@ import math
 import multiprocessing
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -61,6 +63,15 @@ KEEP_QUICK_SECONDS = 3600  # an answer of the quick lane nobody took (the page w
 # A waiting task of the quick lane is deleted by the web process that waits for it when it gives up
 # (web.quick); one left by a web process that stopped is deleted after this (longer than any wait)
 KEEP_WAITING_QUICK_SECONDS = 86400
+# Exports (docs/line-volume/spec-store.md 1.4): the quick lane's kind "export" writes a run's lines.csv or
+# lines.geojson from its store into this folder of the data folder as <run id>-<token>.<extension>; the web
+# process sends it once (GET /api/runs/<run>/export/<token>.<extension>) and deletes it. None is kept: what nobody
+# fetched (or a lane killed while writing left) is deleted after EXPORT_KEEP_SECONDS, at the worker's start and
+# before each export
+EXPORTS = ("work", "exports")
+EXPORT_KEEP_SECONDS = 3600
+EXPORT_TOKEN_BYTES = 16  # secrets.token_urlsafe: 22 characters
+EXPORT_EXTENSIONS = {"csv": "csv", "geojson": "geojson"}  # the formats (linestore.EXPORTS) and their files' extensions
 EVENTS_LIMIT = 1000     # events one read of the event streams gets at most (the next read goes on from there)
 JOB_EVENTS_MAX = 1000  # messages of a job its page gets at once (the newest; and the last progress)
 LEASE = 30.0              # seconds a lease lasts without a renewal
@@ -1741,10 +1752,52 @@ def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     return {"places": osm.places(request["q"], os.path.join(data_dir, "cache"))}
 
 
+def exports_folder(data_dir: str) -> str:
+    """The folder of the exports waiting for their download (EXPORTS)."""
+    return os.path.join(data_dir, *EXPORTS)
+
+
+def remove_old_exports(data_dir: str) -> int:
+    """Delete what the exports' folder holds since EXPORT_KEEP_SECONDS or longer: exports nobody fetched,
+    files whose sending broke off and could not be deleted then, the temporary folders of a lane killed
+    while it wrote (linestore.export's). Their number."""
+    return _remove_old(exports_folder(data_dir), EXPORT_KEEP_SECONDS / 86400)
+
+
+def quick_export(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
+    """A run's lines.csv ({"run": id, "format": "csv"}) or lines.geojson ("geojson") made from its store
+    (linestore.export) into the exports' folder under a random name (POST /api/runs/<run>/export), for one
+    download: {"name": "<token>.<extension>"} (the web process makes its address: a name, not a path, passes
+    the public site's Redact as it is). Refused (code export_failed) while the disk has less free space than
+    the server's free_disk_gb_min (LANE_LIMITS: a safeguard for everyone, as for a search), and for a run
+    without a store (the page never asks for one: it downloads the run's own text files)."""
+    import linestore
+    run_id, fmt = request["run"], request["format"]
+    if fmt not in EXPORT_EXTENSIONS or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}", run_id):
+        raise ValueError("an export: a run and the format csv or geojson")
+    folder = os.path.join(data_dir, "runs", run_id)
+    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
+        raise UserError(f"the run {run_id} has no store to export from", "export_failed")
+    out = exports_folder(data_dir)
+    os.makedirs(out, exist_ok=True)
+    remove_old_exports(data_dir)
+    if LANE_LIMITS is not None and LANE_LIMITS.free_disk_gb_min is not None:
+        free = shutil.disk_usage(out).free / 1e9
+        if free < LANE_LIMITS.free_disk_gb_min:
+            raise QuotaExceeded(f"the server is short of disk space ({free:.0f} GB free): the file was not made; "
+                                f"try again later", 503, "export_failed")
+    name = f"{secrets.token_urlsafe(EXPORT_TOKEN_BYTES)}.{EXPORT_EXTENSIONS[fmt]}"
+    linestore.export(folder, fmt, os.path.join(out, f"{run_id}-{name}"))
+    return {"name": name}
+
+
 QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch,
-         "reach": quick_reach}
+         "reach": quick_reach, "export": quick_export}
 SLOT_MEMORY: Optional[int] = None  # the budget of a compute slot, in the quick lane's process (run_quick)
 PUBLIC_TEXTS = False  # the public site's readings of coded notes (messages.Coded.web_text), the quick lane's (run_quick)
+# The server's Limits in the quick lane's process (run_quick): its safeguards apply to every task, also of a
+# user without limits, whose task gets no limits (quick_export's free_disk_gb_min)
+LANE_LIMITS: Optional[Limits] = None
 
 
 def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limits] = None, public: bool = False,
@@ -1759,9 +1812,10 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
 
     import progress as pg
     import search
-    global SLOT_MEMORY, PUBLIC_TEXTS
+    global SLOT_MEMORY, PUBLIC_TEXTS, LANE_LIMITS
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
     PUBLIC_TEXTS = public
+    LANE_LIMITS = limits
     pg.utf8_output()  # the bars' text lines ("sea 0.31 km²") on a redirected stdout
     jobs = Jobs(data_dir, public)
 
@@ -1979,6 +2033,7 @@ class Scheduler:
         self.jobs.register(self.worker_id)
         self.beat = time.time()
         self.jobs.interrupted()  # jobs of workers that are gone
+        remove_old_exports(self.jobs.data_dir)  # exports nobody fetched before a stop
         self._start_warm_up()
 
     def _start_warm_up(self):
