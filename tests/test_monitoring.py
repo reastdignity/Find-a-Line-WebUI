@@ -435,9 +435,10 @@ def test_telegraf_checks_the_data_server():
     down = rules["c7-mirror-down"]
     assert down["title"] == "C7 Mirror down" and rules["c8-mirror-certificate"]["title"] == "C8 Mirror certificate"
     assert down["for"] == "45m" and down["noDataState"] == "OK"
-    expr = down["data"][0]["model"]["expr"]
-    assert "min_over_time(mirror_http_response_result_code[3m])) > 0" in expr
-    assert "absent_over_time(mirror_http_response_result_code[3m])" in expr
+    # One series without labels, so one alert instance whose 45 minutes run through a gap of the samples (a second
+    # label set, e.g. label_set(absent_over_time(...), ...) or a grouping by host, would start a wait of its own)
+    assert down["data"][0]["model"]["expr"] == ("max(min_over_time(mirror_http_response_result_code[3m])) or "
+                                                "absent_over_time(mirror_http_response_result_code[3m])")
     assert down["data"][1]["model"]["conditions"][0]["evaluator"] == {"type": "gt", "params": [0]}
     certificate = rules["c8-mirror-certificate"]
     assert certificate["data"][0]["model"]["expr"] == 'min by (host) (mirror_x509_cert_expiry{type="leaf"}) / 86400'
@@ -445,6 +446,24 @@ def test_telegraf_checks_the_data_server():
     for where, expr in _queries():
         if "mirror_" in expr:
             assert where.startswith(("site ", "overview ", "rule c7", "rule c8")), where
+
+
+def test_the_data_servers_panels_read_what_telegraf_writes():
+    """Every metric the data server's rules, the Site row and the Overview's tiles ask for is one the two inputs
+    write: <name_override>_<field> of their fieldinclude (VictoriaMetrics' naming), so a misspelt field fails here
+    and not only as an empty panel."""
+    config = _telegraf()
+    written = {f"{i['name_override']}_{field}" for name in ("http_response", "x509_cert") for i in config["inputs"][name]
+               if i.get("name_override", "").startswith("mirror_") for field in i["fieldinclude"]}
+    assert written == {"mirror_http_response_http_response_code", "mirror_http_response_response_time",
+                       "mirror_http_response_result_code", "mirror_x509_cert_expiry", "mirror_x509_cert_verification_code"}
+    asked = set()
+    for where, expr in _queries():
+        names = {n for n in _metrics(expr)[0] if n.startswith("mirror_")}
+        assert names <= written, (where, names - written)
+        asked |= names
+    assert asked == written - {"mirror_http_response_http_response_code", "mirror_x509_cert_verification_code"}
+    assert "mirror_http_response_result_code" in LIVE_METRICS   # written on every outcome, the DNS failure's too
 
 
 # nginx's error lines (deploy/nginx/findaline.conf writes them with `client: <address>`) and the
@@ -680,7 +699,9 @@ LIVE_METRICS = ["cpu_usage_idle", "cpu_usage_steal", "system_load5", "mem_availa
                 "nginx_times_request_time_095", "findaline_facts_time", "findaline_facts_fail2ban_sshd_banned_total",
                 "findaline_check_failed", "findaline_backup_last_success", "findaline_ssh_logins",
                 "systemd_units_active_code",
-                "internal_write_errors", "prometheus_vm_free_disk_space_bytes"]
+                "internal_write_errors", "prometheus_vm_free_disk_space_bytes",
+                # the data server's check writes a result code on every outcome (5 while its name has no DNS record)
+                "mirror_http_response_result_code"]
 # The application's metrics, when its /metrics answers on 127.0.0.1:8766 of the stack's host (the
 # site, or a stand-in serving APP_METRICS): FINDALINE_APP_METRICS=1. Those absent without rows
 # (labels of jobs that never happened, accounts locally, the cache sizes before the first

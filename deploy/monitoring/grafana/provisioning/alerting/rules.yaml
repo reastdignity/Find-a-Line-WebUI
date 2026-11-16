@@ -638,9 +638,12 @@ groups:
           __panelId__: "10"
         isPaused: false
       # The project's data server (docs/mirror-hosting/spec.md D.3): no good answer to its list of
-      # datasets for 45 minutes (P26: short maintenance stops of the home server must not page). A
-      # good answer (result_code 0) within the last 3 minutes keeps it quiet; a series that vanished
-      # (the input gone) counts as no answer, as G2's rule on silent sources does
+      # datasets for 45 minutes (P26: short maintenance stops of the home server must not page). The
+      # query always gives one series without labels: the worst result code of the last 3 minutes
+      # (0 when one answer in them was good), or 1 when the series vanished (Telegraf or the VPS
+      # down, as G2's rule on silent sources counts it). One label set, so one alert instance and one
+      # pending period run through a gap of the samples in the middle of an outage (two label sets
+      # would each start their own 45 minutes); never "no data", so noDataState plays no part
       - uid: c7-mirror-down
         title: "C7 Mirror down"
         condition: C
@@ -650,7 +653,7 @@ groups:
             datasourceUid: victoriametrics
             model:
               refId: A
-              expr: "max by (host) (min_over_time(mirror_http_response_result_code[3m])) > 0 or label_set(absent_over_time(mirror_http_response_result_code[3m]), \"result\", \"no samples\")"
+              expr: "max(min_over_time(mirror_http_response_result_code[3m])) or absent_over_time(mirror_http_response_result_code[3m])"
               instant: true
               range: false
           - refId: C
@@ -669,7 +672,7 @@ groups:
           level: alert
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
-          summary: "The data server (mirror.findaline.lukawski.org) gave no good answer to /v1/datasets.json for 45 min (result code {{ humanize (index .Values \"A\").Value }} {{ index .Labels \"result\" }}: 1 another body or no samples at all, 3 no connection, 4 no answer in time, 5 no DNS name, 6 not 200). Searches of its regions fall back to coarser data."
+          summary: "The data server (mirror.findaline.lukawski.org) gave no good answer to /v1/datasets.json for 45 min (result code {{ humanize (index .Values \"A\").Value }}: 1 another body or no samples at all, 3 no connection, 4 no answer in time, 5 no DNS name, 6 not 200). Searches of its regions fall back to coarser data."
           __dashboardUid__: site
           __panelId__: "50"
         isPaused: false
