@@ -3308,3 +3308,56 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue
+
+
+# ---- Contrast of the interface's colours (WCAG 2's formula, AA: 4.5:1 for text) -------------------------------------
+
+def _css_blocks(path: str) -> dict:
+    """The custom properties of each block of a CSS file that sets some ({selector: {name: value}}), comments out."""
+    text = re.sub(r"/\*.*?\*/", "", open(path, encoding="utf-8").read(), flags=re.S)
+    blocks = {}
+    for selector, body in re.findall(r"([^{};]+)\{([^{}]*--[^{}]*)\}", text):
+        found = dict(re.findall(r"(--[\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)", body))
+        if found:
+            blocks.setdefault(" ".join(selector.split()), {}).update(found)
+    return blocks
+
+
+def _luminance(colour: str) -> float:
+    """The relative luminance of a #rrggbb colour."""
+    channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG 2's contrast ratio of two #rrggbb colours (1 to 21)."""
+    high, low = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+TOKENS_CSS = os.path.join(VIEWER, "src", "ui", "tokens.css")
+
+
+def _themes() -> dict:
+    """The tokens of the light theme and of the dark one (ui/tokens.css: .ui, then the dark block that follows the
+    system and the one set by data-theme, which must agree)."""
+    blocks = _css_blocks(TOKENS_CSS)
+    dark = [v for k, v in blocks.items() if "dark" in k or 'not([data-theme="light"])' in k]
+    assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of tokens.css differ"
+    return {"light": blocks[".ui"], "dark": {**blocks[".ui"], **dark[0]}}
+
+
+def test_contrast_of_contrast_helper():
+    """The helper gives WCAG's numbers: black on white 21, a colour on itself 1, #767676 on white about 4.54."""
+    assert contrast("#000000", "#ffffff") == pytest.approx(21)
+    assert contrast("#6c7a73", "#6c7a73") == pytest.approx(1)
+    assert contrast("#767676", "#ffffff") == pytest.approx(4.54, abs=0.01)
+
+
+def test_secondary_text_contrast():
+    """The secondary text (--muted) reads at 4.5:1 or more on the page (--bg), the cards (--surface) and the second
+    surface (--surface-2) in both themes (axe's color-contrast, report defect 1: 3.83:1 on --surface-2 before)."""
+    for theme, tokens in _themes().items():
+        for ground in ("--bg", "--surface", "--surface-2"):
+            assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, (theme, ground, tokens["--muted"])
