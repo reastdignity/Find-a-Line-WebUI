@@ -9,14 +9,33 @@ import { useEffect } from "preact/hooks";
 type Box = RefObject<HTMLElement | null> | (() => HTMLElement | null);
 const element = (box: Box) => typeof box === "function" ? box() : box.current;
 
-/** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution (on a phone it
- *  wraps over the whole width). */
+/** Whether the attribution's corner reaches under the scale's (on a phone it wraps over the whole width). */
+function meet(attribution: HTMLElement | null, scale: HTMLElement | null): boolean {
+  if (!attribution || !scale) return false;
+  const a = attribution.getBoundingClientRect(), s = scale.getBoundingClientRect();
+  return a.width > 0 && s.width > 0 && a.left < s.right && s.left < a.right;
+}
+
+/** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution: when raised, and in
+ *  Leaflet's own place where the attribution reaches under it. */
 function place(map: HTMLElement, bottom: number) {
   const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
   const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
   if (attribution) attribution.style.bottom = bottom ? `${bottom}px` : "";
-  const above = bottom ? bottom + (attribution?.offsetHeight ?? 0) : 0;
+  const above = bottom || meet(attribution, scale) ? bottom + (attribution?.offsetHeight ?? 0) : 0;
   if (scale) scale.style.bottom = above ? `${above}px` : "";
+}
+
+/** Keeps the scale of a map that nothing covers above its attribution where the attribution reaches under it (the
+ *  search's map on a phone: two lines of credits over the whole width), following their sizes. */
+export function keepScaleAboveAttribution(map: HTMLElement) {
+  const update = () => place(map, 0);
+  update();
+  if (typeof ResizeObserver !== "function") return;
+  const observer = new ResizeObserver(update);
+  observer.observe(map);
+  const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+  if (attribution) observer.observe(attribution);
 }
 
 /** Keeps the corners of the map in `mapBox` above the `.u-sheet` in `root` while `on`. */
