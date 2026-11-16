@@ -79,7 +79,9 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
 - The access mark (`--access`): one grid per search, at once or in blocks (`access.block_grid`: the same
   answers), each tile its window; `_check_access` counts `ACCESS_AREA_BYTES`/`ACCESS_WINDOW_BYTES` before step 1
-  and leaves the mark out of a search they cannot fit (`Plan.access_skipped`; never a refusal);
+  and leaves the mark out of a search they cannot fit (`Plan.access_skipped`; never a refusal; on the command
+  line too, by the memory free: the same search marked or not; the hash stays the request's, progress.json
+  keeps the choice);
   a change of `access.py`'s arrays is measured again (docs/performance.md, "The access grid's memory").
 - The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
   where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and

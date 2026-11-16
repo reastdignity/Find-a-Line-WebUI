@@ -3886,7 +3886,12 @@ island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill j
   the grid leave (12 since the third measurement); a search whose smallest blocks do not fit its budget (the
   grid-wide pass and a window of 500 m and its margins: `access_memory`) runs without the mark (`_check_access`, before
   step 1: the coded note `access_skipped`, run.json's and the heads' `"access_skipped": "memory"`; the user's choice of
-  2026-11-16: no search is refused for a mark that filters nothing; until then the coded error `access_memory`). The measured Gozo run's
+  2026-11-16: no search is refused for a mark that filters nothing; until then the coded error `access_memory`).
+  The same rule on the command line and in the local app, with the memory free when the search is
+  planned: whether such a search is marked depends on that memory. A skipped search keeps
+  the request's hash (`_search_hash`, with `access`), so its 2 % sample is the marked request's; only a tiled run's
+  `progress.json` (`access_skipped`) keeps its tiles from a run of the other choice. A job notes the skip once, from
+  its compute phase (the run's choice); the estimate notes its own. The measured Gozo run's
   blocks were sized with 16 B for the grid-wide pass (the figure before this measurement): its windows of 58.6 Mpx and
   the pass count 8 x 126 Mpx + 50 x 58.6 Mpx = 3.9 GB against 2.6 GB measured; with 8 B the same budget gives blocks
   of 7 798 m.
