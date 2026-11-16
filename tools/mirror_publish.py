@@ -60,7 +60,9 @@ and limit, client versions, from the server's log files (access-YYYY-MM-DD.log, 
 rt, ds, a, lim, v); its output never holds an address.
 
 Output: the tool's own lines and counts only, paths relative to the master ("<mirror>/...") or to <root>; never
-rclone's raw output, the remote's name or the master's place. Exit code 0, 1 (refused or faults), 2 (usage).
+rclone's raw output, the remote's name or the master's place. A stop after a failed rclone step quotes rclone's own
+last error lines, cut and masked (Remote.says: no address, account, port, server path outside <root> or place of the
+PC). Exit code 0, 1 (refused or faults), 2 (usage).
 """
 
 import argparse
@@ -126,6 +128,19 @@ NO_SHA256 = ("the remote reports no sha256 among its hashes: set in the remote's
              "`shell_type = unix`, `hashes = sha256` and `sha256sum_command = sha256sum` (the server's shell must "
              "have sha256sum); without a shell on the server, `shell_type = none` and --read-back, which reads the "
              "files back instead")
+# rclone's own error lines quoted in a stop text (Remote.says): the last SAYS_LINES of its ERROR, NOTICE and
+# CRITICAL lines, SAYS_CHARS characters each, with what could name the server or the PC masked
+SAYS_LINES, SAYS_CHARS = 2, 240
+RCLONE_LINE = re.compile(r"^(?:\d{4}/\d\d/\d\d \d\d:\d\d:\d\d )?(ERROR|NOTICE|CRITICAL)\s*:\s*(.*)$")
+SAYS_MASKS = [
+    (re.compile(r"\b[a-z][a-z0-9+.-]*://\S*?(?=:\s|\s|$)", re.I), "<remote path>"),  # sftp://user@host:port//path
+    (re.compile(r"\S+@\S+"), "<user@host>"),
+    (re.compile(r"\b(dial \w+|lookup|connect to) \S+?(?=:\s|\s|$)", re.I), r"\1 <host>"),  # host:port dialled
+    (re.compile(r"\[?[0-9a-f]*:[0-9a-f:]*:[0-9a-f]+\]?(:\d+)?", re.I), "<address>"),  # IPv6
+    (re.compile(r"\b\d{1,3}(\.\d{1,3}){3}(:\d+)?\b"), "<address>"),
+    (re.compile(r"(\\\\\?\\|//\?/)?\b[A-Za-z]:[\\/][^\s\"':]*"), "<local path>"),  # a path of the PC (Windows)
+    (re.compile(r"(?<![\w<>.~])/(?:[\w.~-]+/)*[\w.~-]+"), "<path>"),  # any other absolute path (not below <root>)
+]
 EXIT_MEANING = {1: "an error", 2: "a usage error", 3: "a folder not found", 4: "a file not found",
                 5: "a temporary error", 6: "a less serious error", 7: "a fatal error", 8: "the transfer limit",
                 9: "nothing transferred", 10: "the time limit"}
@@ -365,10 +380,61 @@ def parse_remote(text: str) -> str:
 
 
 class Remote:
-    """<root> on the server (or a folder), through rclone; every path given relative to it."""
+    """<root> on the server (or a folder), through rclone; every path given relative to it. local: folders of the PC
+    (the master) masked like the remote's own places when rclone's error lines are quoted (says)."""
 
     def __init__(self, rc: Rclone, root: str):
         self.rc, self.root = rc, root
+        self.local: List[str] = []
+        self._places: Optional[List[Tuple[str, str]]] = None
+
+    def _masks(self) -> List[Tuple[str, str]]:
+        """(text, its stand-in) of the places rclone's lines may name: the remote's description and root as rclone
+        resolves them (backend features: String, Root, in every spelling of the path), the remote's name, the
+        master; asked once, nothing when rclone cannot answer."""
+        if self._places is None:
+            places: List[Tuple[str, str]] = []
+            try:
+                done = self.rc.run("backend", "features", self.path())
+                info = json.loads(done.stdout) if done.returncode == 0 else {}
+            except (Failed, ValueError):
+                info = {}
+            for key, stand_in in (("String", "<remote>"), ("Root", "<root>")):
+                value = str(info.get(key) or "")
+                for spelling in {value, value.replace("//?/", ""), value.replace("/", "\\"),
+                                 value.replace("//?/", "").replace("/", "\\")}:
+                    if len(spelling.strip("/\\")) > 1:
+                        places.append((spelling, stand_in))
+            for folder in self.local:
+                for spelling in {folder, folder.replace("\\", "/"), os.path.abspath(folder)}:
+                    places.append((spelling, "<mirror>"))
+            name = REMOTE_PLACE.fullmatch(self.root)
+            if name:
+                places.append((name[1] + ":", "<remote>:"))
+            self._places = sorted(set(places), key=lambda m: -len(m[0]))
+        return self._places
+
+    def says(self, done) -> str:
+        """rclone's own last error lines of a call, for the stop text: at most SAYS_LINES lines of at most SAYS_CHARS
+        characters each, its date and level dropped, every place masked (_masks), and every URL, user@host, address
+        and host it dialled or looked up replaced, so neither the server's address and account nor a place of the
+        PC is printed. rclone's lines hold the operation, the path and the error of the server or the system; they
+        never hold the config's values or a key's content (rclone prints no config line in an error, and keeps
+        passwords obscured)."""
+        lines = []
+        for raw in (done.stderr or b"").decode("utf-8", "replace").splitlines():
+            found = RCLONE_LINE.match(raw)
+            if not found or "host key validation" in found[2]:
+                continue
+            text = found[2]
+            for place, stand_in in self._masks():
+                text = text.replace(place, stand_in)
+            for pattern, stand_in in SAYS_MASKS:
+                text = pattern.sub(stand_in, text)
+            text = text.strip()[:SAYS_CHARS]
+            if text and text not in lines:
+                lines.append(text)
+        return " | ".join(lines[-SAYS_LINES:])
 
     def path(self, rel: str = "") -> str:
         if not rel:
@@ -376,7 +442,9 @@ class Remote:
         return self.root + rel if self.root.endswith((":", "/", "\\")) else f"{self.root}/{rel}"
 
     def _failed(self, what: str, rel: str, done) -> Failed:
-        return Failed(f"rclone could not {what} {rel or '<root>'} ({_meaning(done.returncode)})")
+        said = self.says(done)
+        return Failed(f"rclone could not {what} {rel or '<root>'} ({_meaning(done.returncode)})"
+                      + (f"; rclone: {said}" if said else ""))
 
     def exists(self, rel: str) -> bool:
         """Whether rel exists; any answer but "found" or "not found" stops the tool."""
@@ -428,8 +496,11 @@ class Remote:
             raise Failed(f"{to} exists: {rel} is not moved onto it", keep_lock)
         done = self.rc.run("moveto", "--retries", "1", self.path(rel), self.path(to))
         if done.returncode:
-            raise Failed(f"rclone could not move {rel} to {to} ({_meaning(done.returncode)}); the server may have "
-                         "refused the rename (another disk?)", keep_lock)
+            said = self.says(done)
+            source, target = rel.split("/")[0] + "/", to.split("/")[0] + "/"
+            raise Failed(f"the server refused the move of {rel} to {to} ({_meaning(done.returncode)})"
+                         + (f": {said}" if said else "") + f". Likely causes: the publishing account may not write "
+                         f"{target} (its owner), or {source} and {target} are on different disks", keep_lock)
 
     def free(self) -> Optional[int]:
         """Free bytes of <root>'s disk (rclone about), None when the server does not tell."""
@@ -844,7 +915,9 @@ def write_datasets(remote: Remote) -> Dict:
     remote.write(LIST_TMP, json.dumps(content, ensure_ascii=False, indent=1).encode("utf-8"))
     done = remote.rc.run("moveto", "--retries", "1", remote.path(LIST_TMP), remote.path(LIST))
     if done.returncode:
-        raise Failed(f"rclone could not rename {LIST_TMP} to {LIST} ({_meaning(done.returncode)})", keep_lock=True)
+        said = remote.says(done)
+        raise Failed(f"rclone could not rename {LIST_TMP} to {LIST} ({_meaning(done.returncode)})"
+                     + (f"; rclone: {said}" if said else ""), keep_lock=True)
     print(f"  {LIST}: {len(entries)} datasets", flush=True)
     return content
 
@@ -863,6 +936,8 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         raise Refused(f"{dataset}: no card text")
     remote = Remote(rc, parse_remote(to))
     mirror = mirror or os.environ.get(MIRROR_ENV)
+    if mirror:
+        remote.local.append(mirror)
     if not mirror or not os.path.isdir(mirror):
         raise Refused(f"no master: set {MIRROR_ENV} or --mirror to the mirror folder")
     folder = os.path.join(mirror, dataset)
@@ -913,7 +988,9 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
                 f.writelines(f"{path}\n" for path in sorted(files))
             done = rc.run("copy", "--files-from", names, folder, remote.path(staging), progress="copy")
         if done.returncode:
-            raise Failed(f"the copy into {staging} stopped ({_meaning(done.returncode)}); publish again: it resumes")
+            said = remote.says(done)
+            raise Failed(f"the copy into {staging} stopped ({_meaning(done.returncode)})"
+                         + (f"; rclone: {said}" if said else "") + "; publish again: it resumes")
         remote.write(f"{staging}/{CARD}", card_bytes)
         # 3. the staged copy against the master
         sums = {path: digest for path, (digest, _) in files.items()}
@@ -999,7 +1076,9 @@ def clean(to: str, rc: Rclone, keep_days: float = KEEP_DAYS, break_lock: bool = 
                 lock.ensure(f"{TRASH}/{name} is removed")
                 done = rc.run("purge", remote.path(f"{TRASH}/{name}"))
                 if done.returncode:
-                    raise Failed(f"rclone could not remove {TRASH}/{name} ({_meaning(done.returncode)})")
+                    said = remote.says(done)
+                    raise Failed(f"rclone could not remove {TRASH}/{name} ({_meaning(done.returncode)})"
+                                 + (f"; rclone: {said}" if said else ""))
                 print(f"  {TRASH}/{name}: removed ({age:.1f} days)")
                 counts["removed"] += 1
             else:
