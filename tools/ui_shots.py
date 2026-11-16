@@ -613,7 +613,7 @@ def prepare(data: str, settings, run_folder: str | None = None, fresh: bool = Fa
                                     not os.path.isfile(os.path.join(runs, clip, "run.json"))):
         stale.append(clip)  # one clip run in a kept folder: the one made before goes (its folder and its row)
         replaced, clip = [clip], None
-    if stale:
+    if stale and not run_folder:  # a --run start removes nothing (the run it shows may be one of them)
         with timed(times, "the old clip runs' removal"):
             for old in list(stale):
                 try:

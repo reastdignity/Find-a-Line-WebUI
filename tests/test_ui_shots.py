@@ -434,7 +434,10 @@ def test_a_kept_data_folder(tmp_path, monkeypatch):
     held, jobs, _ = prepare(fresh=True)
     assert failures == [fresh] and clips() == (sorted([fresh, held]), sorted([fresh, held]))
     assert ui_shots.read_marker(data)["stale"] == [fresh] and report_runs() == [held]
-    again, jobs, times = prepare()  # the next start removes it
+    shown, jobs, times = prepare(run_folder=os.path.join(runs, fresh))  # a --run start, of that very run: nothing goes
+    assert shown == fresh and clips() == (sorted([fresh, held]), sorted([fresh, held]))
+    assert ui_shots.read_marker(data)["stale"] == [fresh] and "the old clip runs' removal" not in times
+    again, jobs, times = prepare()  # the next start without --run removes it
     assert again == held and clips() == ([held], [held]) and ui_shots.read_marker(data)["stale"] == []
     assert set(times) == base | {"the old clip runs' removal"}
 
