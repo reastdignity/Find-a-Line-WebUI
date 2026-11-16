@@ -1,7 +1,9 @@
 """
 The window of the area download (`tools/area_download.py tui --settings <file>`, the group `tui` of pyproject.toml): the
-catalogue's areas by continent, a checkbox each, Start and Stop asking first, where each area's tiles go, and how far
-each download is. What it does is tools/area_rows.py; the downloads themselves run detached (`area_download.py run`) and
+catalogue's areas by continent and country (folding groups: the continents open, a country of two or more rows a group
+of its own, open at start only when one of its rows has a download's state, FOLD_AT_START; a country of one row shows
+that row by its title in its continent, in the countries' order, SINGLE_ROW_COUNTRY_LEVEL),
+a checkbox each, Start and Stop asking first, where each area's tiles go, and how far each download is. What it does is tools/area_rows.py; the downloads themselves run detached (`area_download.py run`) and
 go on when the window closes: its state comes from the state folder, as `status` and status.html.
 
 The mouse works in Windows Terminal, the VS Code terminal and the usual Linux terminals; everything has a key too, for
@@ -31,6 +33,8 @@ FREE_SECONDS = 60
 STARTING_SECONDS = 30       # a row started shows "starting" until its state says more, at most this long
 BAR_CELLS = 8
 LIVE = ("listing", "downloading", "waiting")
+SINGLE_ROW_COUNTRY_LEVEL = False  # a country of one row sits in its continent, by its title; True: a group of its own
+FOLD_AT_START = True   # a country's group folded at start unless one of its rows has a download's state; False: all open
 
 
 def bar(share: float) -> str:
@@ -88,17 +92,27 @@ class TargetCell(Static):
         self.app.next_target(self.row)
 
 
+class Group(Collapsible):
+    """A continent's or a country's rows; its title is its name and its counts. Up and down on its title go through
+    the list as on a row (Enter or a click folds it)."""
+    BINDINGS = [Binding("up", "app.previous_row", show=False), Binding("down", "app.next_row", show=False)]
+
+    def __init__(self, heading: str, rows: int, collapsed: bool, id: str, classes: str):
+        super().__init__(title=Downloads.group_title(heading, rows, 0), collapsed=collapsed, id=id, classes=classes)
+        self.heading = heading
+
+
 class AreaRow(Horizontal):
-    def __init__(self, row: ar.Row, target: str):
+    def __init__(self, row: ar.Row, target: str, shown: str):
         super().__init__(classes="row", id=f"row-{row.name}")
-        self.row, self.target = row, target
+        self.row, self.target, self.shown = row, target, shown
         self.state: Optional[Dict] = None
         self.starting = 0.0
 
     def compose(self) -> ComposeResult:
         row = self.row
         yield Box("", compact=True, id=f"box-{row.name}")
-        yield Static(row.title, classes="name", markup=False)
+        yield Static(self.shown, classes="name", markup=False)
         yield Static(f"{row.resolution:g} m", classes="res")
         yield Static("DTM+DSM" if row.surface else "DTM", classes="layers")
         yield Static(km2_text(row.km2), classes="km2", markup=False)
@@ -166,7 +180,7 @@ def named(label: str) -> str:
 
 class Downloads(App):
     TITLE = "Find-a-Line: area download"
-    AUTO_FOCUS = "Box"
+    AUTO_FOCUS = "CollapsibleTitle"   # the first continent's: the first thing of the list on the screen (a Box may be folded)
     ENABLE_COMMAND_PALETTE = False
     CSS = """
     Screen { layout: vertical; }
@@ -174,9 +188,10 @@ class Downloads(App):
     #top-title { width: 1fr; text-style: bold; }
     #top-free { width: auto; }
     #filter { margin: 0 1; }
-    #head { height: 1; padding: 0 0 0 2; color: $text-muted; text-style: bold; }
-    #head .pad { width: 4; }
-    #areas { height: 1fr; }
+    #head { height: 1; padding: 0 4 0 2; color: $text-muted; text-style: bold; }   /* right: as the list beside it */
+    #head .pad { width: 6; }
+    #head .name, .country .name { width: 31; }
+    #areas { height: 1fr; scrollbar-gutter: stable; }
     Collapsible { padding: 0; margin: 0; border-top: none; background: transparent; }
     CollapsibleTitle { text-style: bold; }
     Collapsible Contents { padding: 0 0 0 2; }
@@ -222,6 +237,7 @@ class Downloads(App):
         self.chosen = ar.targets_chosen(settings)
         self.free: Dict[str, Optional[float]] = {}
         self.clock = clock or ad.time.time
+        self.folds: Optional[Dict[str, bool]] = None   # each group's fold while the filter is on
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="top"):
@@ -236,27 +252,37 @@ class Downloads(App):
             yield Static("Size", classes="km2")
             yield Static("State, speed, time left", classes="state")
             yield Static("Goes to", classes="target")
-        continents = list(dict.fromkeys(row.continent for row in self.rows))
+        states = ar.states(self.settings)
         with VerticalScroll(id="areas", can_focus=False):
-            for continent in continents:
+            for continent in dict.fromkeys(row.continent for row in self.rows):
                 rows = [row for row in self.rows if row.continent == continent]
-                with Collapsible(title=self._group_title(continent, len(rows), 0), collapsed=False,
-                                 id=self._group_id(continent)):
-                    for row in rows:
-                        yield AreaRow(row, ar.target_of(row, self.settings, self.chosen))
+                with Group(continent, len(rows), False, self.group_id(continent), "continent"):
+                    for country in dict.fromkeys(row.country for row in rows):
+                        members = [row for row in rows if row.country == country]
+                        if len(members) == 1 and not SINGLE_ROW_COUNTRY_LEVEL:
+                            yield self._area_row(members[0], members[0].title)
+                            continue
+                        folded = FOLD_AT_START and not any(row.name in states for row in members)
+                        with Group(country, len(members), folded, self.group_id(continent, country), "country"):
+                            for row in members:
+                                yield self._area_row(row, row.label)
         with Horizontal(id="bottom"):
             yield Static("", id="summary", markup=False)
             yield Button("Start", id="start", variant="primary", compact=True)
             yield Button("Stop", id="stop", compact=True)
         yield Footer()
 
-    @staticmethod
-    def _group_id(continent: str) -> str:
-        return "group-" + ar.slug(continent)
+    def _area_row(self, row: ar.Row, shown: str) -> AreaRow:
+        return AreaRow(row, ar.target_of(row, self.settings, self.chosen), shown)
 
     @staticmethod
-    def _group_title(continent: str, rows: int, ticked: int) -> str:
-        return f"{continent} ({rows}, {ticked} ticked)" if ticked else f"{continent} ({rows})"
+    def group_id(*names: str) -> str:
+        """A group's id: group-europe, group-europe-germany."""
+        return "group-" + "-".join(ar.slug(name) for name in names)
+
+    @staticmethod
+    def group_title(heading: str, rows: int, ticked: int) -> str:
+        return f"{heading} ({rows}, {ticked} ticked)" if ticked else f"{heading} ({rows})"
 
     def on_mount(self):
         for row in self.area_rows():
@@ -321,24 +347,35 @@ class Downloads(App):
         size = sum(row.row.km2 for row in ticked)
         chosen = f"{len(ticked)} ticked ({km2_text(size)})" if size else f"{len(ticked)} ticked"
         summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading")
-        for group in self.query(Collapsible):
+        for group in self.query(Group):
             members = list(group.query(AreaRow))
             if not members:   # its rows already removed while shutting down
                 continue
-            group.title = self._group_title(members[0].row.continent, len(members),
-                                            sum(row.ticked for row in members))
+            group.title = self.group_title(group.heading, len(members), sum(row.ticked for row in members))
 
     def on_checkbox_changed(self):
         self.refresh_summary()
 
     def on_input_changed(self, event: Input.Changed):
-        words = event.value.lower().split()
+        self.apply_filter(event.value)
+
+    def apply_filter(self, text: str):
+        """The rows whose title (or country) holds every word; the groups with one shown and open, the others hidden.
+        The folds from before the filter come back when it is cleared."""
+        words = text.lower().split()
+        groups = list(self.query(Group))
+        if words and self.folds is None:
+            self.folds = {group.id: group.collapsed for group in groups}
         for row in self.area_rows():
-            row.display = all(word in row.row.title.lower() for word in words)
-        for group in self.query(Collapsible):
+            row.display = all(word in f"{row.row.title} {row.row.country}".lower() for word in words)
+        for group in groups:
             group.display = any(row.display for row in group.query(AreaRow))
             if words:
                 group.collapsed = False
+            elif self.folds is not None:
+                group.collapsed = self.folds.get(group.id, group.collapsed)
+        if not words:
+            self.folds = None
 
     # --- the keys --------------------------------------------------------------------------------------------
 
@@ -353,6 +390,7 @@ class Downloads(App):
         field = self.query_one("#filter", Input)
         if self.focused is field:
             field.value = ""
+            self.apply_filter("")   # the folds back before the focus moves: Input.Changed comes later
             self.action_next_row()
 
     def action_next_row(self):

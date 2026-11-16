@@ -3833,6 +3833,78 @@ The stage holds a strip's masks at a time, so it never sets the peak; `search.PI
 coast's lines.csv was byte for byte the same in all four runs; the cove finds no line at 1 m in any (as `usgs10m`
 on its own 10 m grid: 529 lines in 119 spots at its default radius).
 
+## The access grid's memory (2026-11-15, tag `history/access-search`)
+
+The access mark (`--access`, `access.py`, docs/line-volume/spec-search.md 3) is one grid per search, a tiled search's
+too: its answers depend on the whole grid (the whole-metre sample, the size of open regions and flat lakes). At once
+(`access.access_grid`) its arrays are about 43 B per pixel of the whole grid on whole metres (Gozo), 28-36 on float
+heights: the Gozo coast's 126 Mpx peaked at 5.3 GB, about a VPS compute slot. So since the user's choice ("Compute in
+blocks", 2026-11-15) a grid that does not fit is made in blocks (`access.block_grid`): the grid-wide judgements once,
+strip by strip, their masks and int32 labels memory-mapped in the work folder; every block from its window (the block
+and `access.margin_px`: `MARGIN_M` + 6 pixels) by the same code. The answers are the whole grid's (0 pixels differed
+on the Gozo coast, the Tatras circle, R83 and a made-up grid with a path whose open ground only the whole grid sees:
+`tests/test_access_search.py`).
+
+Measured under the exclusive lock, cached data, the branch's code (92a2f7d), `facts\measure2.py` of the step's
+session (step 1's grids, then the grid at once and in blocks from a budget, the working set sampled every 20 ms above
+the stage's start; private bytes beside), and `tools/perf_profile.py --cores 7 --memory 4947666090` (a VPS slot's
+budget) for the whole Gozo coast search; one run each.
+
+| Grid | At once: s, peak B/px of the grid | Budget, blocks | Grid-wide pass: s, peak B per pixel of the grid (private) | Blocks: s, peak MB, B per pixel of the largest window (private) | Answers |
+| --- | --- | --- | --- | --- | --- |
+| Gozo coast, 126.05 Mpx at 1 m, whole metres | 30.9-36.3 s, 43.0-43.2 | 4.95 GB: 6 blocks of 6 578 m, windows of 58.6 Mpx | 12.7 s, 6.1 (2.8) | 41.1 s, 2 564 MB, 45.9 (40.1) | 0 pixels differ |
+| Tatras circle, 43.57 Mpx at 1 m, float | 12.5-13.3 s, 28.4-29.0 | 1.5 GB: 9 blocks of 2 929 m, windows of 16.1 Mpx | 7.4 s, 6.6 (3.9) | 18.2 s, 576 MB, 37.6 (30.2) | 0 |
+
+After the second code review (N1: the flat lakes' heights were all held until the end, about 12 B per pixel of the
+grid on flat float ground) the flat regions' heights are gathered GATHER_PX (4 Mpx) at a time, a larger region alone,
+each judged in place (`np.percentile(..., overwrite_input=True)`, twice with scalar q: one call with [5, 95] computes in
+float64 and moves the spread's last bit) and released; measured again (exclusive, `facts\measure3.py`, the same way),
+with a float case whose flat regions are large: the Gozo coast at 2 m (R16's and R83's source and resolution, the whole
+island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill joined by beaches to flat land):
+
+| Grid | At once: s, peak B/px | Budget, blocks | Grid-wide pass: s, B per pixel of the grid (private); flat heights gathered | Blocks: s, B per pixel of the window (private) | Answers |
+| --- | --- | --- | --- | --- | --- |
+| Gozo coast at 2 m, 31.5 Mpx, float | 4.2 s, 28.8 | 1.0 GB: 6 blocks of 6 642 m | 3.6 s, 9.5 (6.9); 17.4 Mpx in 2 batches, the largest region 14.6 Mpx (46 % of the grid) | 4.5 s, 34.1 (29.2) | 0 pixels differ |
+| Gozo coast at 1 m, 126.05 Mpx, whole metres | 30.3 s, 42.9 | 4.95 GB: 4 blocks of 7 798 m | 9.7 s, 6.1 (3.2); none (whole metres) | 32.5 s, 42.2 (39.0) | 0 |
+| Tatras circle, 43.57 Mpx, float | 12.8 s, 28.4 | 1.5 GB: 4 blocks of 3 720 m | 2.5 s, 6.7 (3.9); 1.7 Mpx in 1 batch | 14.0 s, 27.3 (24.7) | 0 |
+
+- `ACCESS_AREA_BYTES` 8 -> **12**: the largest grid-wide pass measured, 9.5 B per pixel (the Gozo coast at 2 m), with a
+  margin for a flat region over most of a grid (its heights gathered alone: 4 B per pixel of it, beside the masks and
+  labels). The strips' own temporaries (4 Mpx of rows at a time, with the gather's sorted keys and heights) peak
+  near 170 MB, a constant inside these figures (the third review's flat lowland at the default strips).
+- A known cost in time, not measured: `_spread_flat` reads the whole grid once per batch of flat regions, so flat
+  float ground split into many unsure regions under `GATHER_PX` costs about (their pixels / `GATHER_PX`) passes over
+  the labels and heights (about 100 on 600 Mpx of fragmented lowland), where the unbounded code made one.
+  `ACCESS_WINDOW_BYTES` stays 50 (42.9 at once, 42.2 a window).
+
+- The constants (`search.py`): `ACCESS_WINDOW_BYTES` 50 per pixel of the grid at once or of a block's window (43.2
+  and 45.9 measured; the window's figure holds the grid-wide masks' resident pages too), `ACCESS_AREA_BYTES` 12 per
+  pixel of the whole grid for the grid-wide pass (8 before the third measurement), `ACCESS_BLOCK_MIN_M` 500,
+  `ACCESS_DISK_BYTES` 9 (the work folder's files at most: access.npy, three masks, a region mask and its labels).
+- The rule (`_access_block_px`): the grid at once when 50 B a pixel of it fit the budget (`Plan.memory`, a compute
+  slot's, else the memory free), else the largest square block whose window takes 50 B a pixel of what 8 B a pixel of
+  the grid leave (12 since the third measurement); a search whose smallest blocks do not fit its budget (the
+  grid-wide pass and a window of 500 m and its margins: `access_memory`) runs without the mark (`_check_access`, before
+  step 1: the coded note `access_skipped`, run.json's and the heads' `"access_skipped": "memory"`; the user's choice of
+  2026-11-16: no search is refused for a mark that filters nothing; until then the coded error `access_memory`).
+  The same rule on the command line and in the local app, with the memory free when the search is
+  planned: whether such a search is marked depends on that memory. A skipped search keeps
+  the request's hash (`_search_hash`, with `access`), so its 2 % sample is the marked request's; only a tiled run's
+  `progress.json` (`access_skipped`) keeps its tiles from a run of the other choice. A job notes the skip once, from
+  its compute phase (the run's choice); the estimate notes its own. The measured Gozo run's
+  blocks were sized with 16 B for the grid-wide pass (the figure before this measurement): its windows of 58.6 Mpx and
+  the pass count 8 x 126 Mpx + 50 x 58.6 Mpx = 3.9 GB against 2.6 GB measured; with 8 B the same budget gives blocks
+  of 7 798 m.
+- Seconds: the Gozo coast's whole search (6 tiles of 5 km, a slot's budget) 44.0 s without the option, 91.7 s with
+  it: the stage 46.8 s (10.0 s the grid-wide pass, 36.8 s the 6 blocks; the windows hold 2.8 pixels per grid pixel);
+  its peak 3 636 MB against 2 869. Without a budget (this PC's free memory) the grid is made at once: 30.9-36.3 s,
+  and the search took 74.0 s (2026-11-15, one grid, the run of 24ac397).
+- The stage runs after the cheap refusals: one grid after the anchors' limit and the 2 % estimate (`_lines`), a tiled
+  search after the tiles' estimate (`_estimate_tiles`), before the tiles.
+- Earlier, before the blocks (24ac397, the grid at once on every search): the Gozo coast's stage 30.0 s at 44.0 B/px
+  above the process's start (5 319 MB), the Tatras' 14.9 s at 35.5 B/px; the lines.csv of both without the access
+  columns equal to the runs without the option byte for byte.
+
 ## The memory constant (2026-11-15, tag `history/memory-constant`)
 
 The line-volume work's part 5.1 (docs/line-volume/spec-search.md). `search.LINE_BYTES` went from 450 to 900 B a line

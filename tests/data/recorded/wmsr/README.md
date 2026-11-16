@@ -29,3 +29,13 @@ Licence: IGN's LiDAR HD and RGE ALTI, [Licence Ouverte / Open Licence 2.0](https
 N: the layer's pixel edges lie on half metres): `001` the box at 1 m, `002` the same box at 0.5 m (each stored pixel
 repeated in a 2 x 2 block), `003` a box on Sint Maarten (493632.5 E, 1993504.5 N: HTTP 200, every pixel -99999).
 Added the same day, each a 32 m box on its layer's declared pixel edges at 1 m and the same box at 0.5 m: Martinique (`RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS`, EPSG:32620, edges on half metres) at the Pitons du Carbet (704544.5 E, 1626528.5 N: `004`, `005`), French Guiana (`RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS`, EPSG:2972, edges on whole metres) at the Montagne du Mahury (359168 E, 539520 N: `006`, `007`), Saint-Pierre-et-Miquelon (`RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS`, EPSG:4467, edges on half metres) at Saint-Pierre (562592.5 E, 5181024.5 N: `008`, `009`). Not with tools/record_answers.py (its recipes record index services; WMS-R has none): a script of the session asked `WmsrReader.getmap_params` of each box, 1 s apart. Licence as above (data of the Géoplateforme as served on 2026-11-15).
+
+La Réunion (recorded 2026-11-15 the same way, 1 s apart, each the GetMap of the catalogue's own layer
+`sources/catalogue/france.py` `REU_MNT`, `REU_MNS`, `REU_RGEALTI`; EPSG:2975, the answers name EPSG:32740): a 32 m box
+at the Cilaos rampart (339552-339584 E, 7662688-7662720 N): LiDAR HD MNT (`IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.RGR92UTM40S`) at 0.5 m (`010`), 0.25 m (`011`: each pixel repeated in a 2 x 2 block starting on the whole metres, so the layer's pixel edges lie on multiples of 0.5 m) and 1 m (`012`: the mean of the 2 x 2 pixels within 7.6e-5 m); the MNS at 0.5 m (`013`); the MNT at sea off Cap Méchant (370432 E, 7633056 N: HTTP 200, every pixel -9999, `014`); RGE ALTI 1 m (`RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS`) on its half-metre edges (339552.5 E, 7662688.5 N) at 1 m (`015`) and 0.5 m (`016`). Licence as above.
+
+Mayotte (recorded 2026-11-15 the same way, each the GetMap of the catalogue's own layer `france_mayotte`,
+`RGEALTI-MNT_PYR-ZIP_MYT_RGM04UTM38S_WMS`, EPSG:4471, the answers naming EPSG:5629): a 32 m box at the sample (510848.5 E,
+8596032.5 N: pixel edges on half metres) at 1 m (`017`) and 0.5 m (`018`: 2 x 2 blocks), and a 32 m box of the shore at
+Mamoudzou (525344.5 E, 8587552.5 N) holding the sea floor (778 pixels below -1 m, down to -4.64 m), one pixel at -1 m
+exactly, 127 between -1 and 0 and 117 of land (`019`), for the floor of `OVERSEAS_FLOOR`. Licence as above.

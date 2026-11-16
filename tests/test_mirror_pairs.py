@@ -455,7 +455,7 @@ def test_test_stacks_never_ask_the_data_server():
 def test_no_test_sets_the_data_server_empty():
     """No test sets FINDALINE_MIRROR_URL to an empty string by monkeypatch.setenv, os.environ or an environment
     mapping: on Windows that deletes the variable from the process's environment block, and a process started then
-    asks the default address, the real host (.claude/rules/providers.md: `off`). tests/test_mirror_client.py's
+    asks the default address, the real host (.claude/rules/mirror.md: `off`). tests/test_mirror_client.py's
     set_url("") cases test the empty value in the test's own process on purpose, and its fixture puts `off` back."""
     name = r"""(?:["']FINDALINE_MIRROR_URL["']|MIRROR_URL_ENV)"""
     empty = r"""(?:""|'')"""

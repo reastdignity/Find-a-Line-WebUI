@@ -52,7 +52,10 @@ The limits are constants of `nginx.conf`, not settings. `tests/mirror_check.sh` 
    ```
    The files under `public/` must be readable by uid 101 (world-readable, as the publishing door writes them).
    `staging/`, `public/` and `trash/` are then given to the publishing account (uid 1000), which reads `logs/`
-   through group 101: "The publishing account" below.
+   through group 101: "The publishing account" below. Use binds of these host folders, as `compose.yaml` does:
+   a named volume (or a volume's subpath) given to the file server instead gets the image's folder at the first
+   start, with its owner and mode (`/srv/public` root, 0755), and the first publish then stops at its move with
+   a refused folder; such a volume needs its owners set again after that first start.
 3. Settings: `cp .env.example .env`, then set `MIRROR_ROOT`, `MIRROR_CONTACT` (the contact for abuse and
    takedown requests, shown on the landing page), `MIRROR_TRUSTED_ADDRESSES` (the site server's IPv4 address;
    at most four single addresses, or empty), and `MIRROR_SUBNET` only if `172.29.42.0/24` collides with another
@@ -274,10 +277,26 @@ dataset, the index comparison `--master <folder>` the master copy):
 ```sh
 bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
 ```
-From inside the home network the address SWAG sees may be a local one; the checks hold either way. The cap
-check (LV15) holds slow downloads of the largest listed tile open: it shows that SWAG honours
-`X-Accel-Buffering` only when that tile is larger than what the sockets and buffers on the way hold (several
-MB); with a small tile it fails without saying anything about SWAG.
+From inside the home network the address SWAG sees may be a local one; the checks hold either way.
+
+The cap check (LV15) takes the largest tile it finds (up to 15 tiles of every published product, at most 60
+looked at) and asks for it eight times at once from one address: 4 answers 200 and 4 answers 429 with
+`Retry-After: 10` show the cap of 4 per address through SWAG. The mirror sends a request no faster than 4 MB/s
+whatever the client reads, so each served request stays open about its size / 4 MB/s and the eight overlap; it
+needs no HTTP/2 (curl opens eight connections). With the test stack's stand-in (5 tries a size, from this PC
+through Docker's published port and from a container beside the stand-in) it showed every time from 0.25 MB on
+and never at 0.1 MB, where a request ends at once (its first 256 KB go without waiting). The check asks for 1 MB
+(`LV15_MIN_BYTES`: 0.24 s a request, room for eight connections over the internet to start further apart) and
+tries up to three times. Below that size LV15 is a SKIP that names the size found and the size needed, and the
+summary says the cap is still unproven. So LV15 can be expected to run after the first publish, Madeira (tiles
+of about 1.8 MB); Valle d'Aosta (about 1.9 MB) and Slovakia's 1 m (about 7 MB) as well.
+
+LV17 holds slow downloads of the same tile and asks once more: it shows that SWAG passes `X-Accel-Buffering` on
+(streams a tile instead of buffering it), which LV15 does not, but only when the tile is larger than what the
+proxy's buffers and the sockets on the way hold. With the stand-in that was every time from 16 MB tiles on
+(12-14 MB now and then, 8 MB never: `LV17_MIN_BYTES`); below it LV17 is a SKIP naming the sizes. None of
+today's datasets has such tiles, so through the real SWAG that part stays unproven (the specification's open
+item M2); the test stack's C03-C07 show it with the stand-in.
 
 ## The log and privacy
 
@@ -293,8 +312,8 @@ rest of the User-Agent; `tools/mirror_publish.py stats` reads it. Docker's own l
 of the requests (the error log runs at "critical"). The healthcheck's own requests are not logged.
 
 The folder's size is bounded too: every hour, after deleting the files 14 or more days old, the cleanup deletes
-the oldest days' files while all `access-*.log` files together are above `LOG_CAP_BYTES` (start.sh;
-provisionally 2 GB, the number is the user's); if today's file alone is above it, today's file is emptied in
+the oldest days' files while all `access-*.log` files together are above `LOG_CAP_BYTES` (start.sh, 2 GB);
+if today's file alone is above it, today's file is emptied in
 place (nginx goes on writing it, nothing restarts). So under a flood of requests the log may hold fewer than
 14 days.
 
@@ -302,9 +321,9 @@ The text the landing page carries (the privacy note of the project's README says
 
 > An installation that downloads from the project's data server shows it its address and which tiles it asks
 > for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request
-> was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for 14
-> days, to hold the service within its limits, and uses it for nothing else. To never contact the data server,
-> set `FINDALINE_MIRROR_URL` to empty; the regions it serves then use coarser data.
+> was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for at
+> most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data
+> server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use coarser data.
 
 A new key or another period changes this text, with the user's yes (docs/mirror-hosting/spec.md, section 7).
 
@@ -313,7 +332,9 @@ A new key or another period changes this text, with the user's yes (docs/mirror-
 - **The base images** (a monthly item; the door's: "The publishing account"): the file server's is pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
   no automatic updates and compose tools that check for updates skip it. Pick the newest tag of the stable
   Alpine line, read its digest with `docker buildx imagetools inspect nginx/nginx-unprivileged:<tag>`, change
-  the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it), then on the
+  the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it: the workflow
+  `.github/workflows/mirror.yml` runs when this folder, the check script, its static test or the workflow
+  change, and by hand), then on the
   server: copy the folder, `docker compose up -d --build --wait`.
 - **The config** (a new version of this folder): copy it over the old one (keep `.env`), then
   `docker compose up -d --build --wait`. A changed SWAG conf is copied to SWAG's `proxy-confs/` again.

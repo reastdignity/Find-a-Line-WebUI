@@ -19,8 +19,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   (GeoSheetTiles) the first 8 bytes of its file, which must be a TIFF's (never a range of one byte); a
   plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers; a member
-  of a remote ZIP archive (ZipMemberTiles) its local header, by a Range of a few hundred bytes (the index's
-  estimate read the archives' ends and directories); a tile of an Esri elevation tile cache (LercTiles) the first
+  of a remote ZIP archive (ZipMemberTiles, PackageTiles) its local header, by a Range of a few hundred bytes (the
+  index's estimate read the archives' ends and directories); a tile of an Esri elevation tile cache (LercTiles) the first
   KB of the tile holding the sample at the level of the source's resolution, which must start with the LERC1
   magic (no Range, no index: a fixed tiling);
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
@@ -92,8 +92,11 @@ from .layers.metricsheets import MetricSheetTiles
 from .layers.cartoteca import CartotecaTiles
 from .layers.lerc import LercTiles
 from .layers.zipsheets import ZipSheetTiles, signed_location
+from .layers.packages import PackageTiles
 from .indexes.mercator import level_for
 from .readers.lerc import LERC1_MAGIC
+from .layers.cellsheets import CellSheetTiles
+from .layers.s3sheets import S3SheetSets
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -106,6 +109,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
     (ZipMemberTiles, "zip"),  # the same
+    (PackageTiles, "zip"),  # the same: a member's local header
     (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WfsFeatureTiles, "zipfile"),  # before IndexedTiles, of which it is one: the first KB, never a byte range 0-0
     (CartotecaTiles, "cartoteca"),  # the same, its URL from a GetFeatureInfo first
@@ -114,6 +118,10 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
     (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"), (MetricSheetTiles, "sheet"),
     (LercTiles, "lerc"), (ZipSheetTiles, "zipsheets"))
+# Sheets composed from whole ZIPs (Tokyo's table, Shizuoka's bucket listing): the first KB of the first file of the
+# first sheet, never a byte range 0-0. The first class a layer is an instance of decides (strategy), S3SheetSets is an
+# IndexedTiles, whose "index" strategy would read a byte range 0-0 of its ZIP: so it goes first, before IndexedTiles
+STRATEGIES = ((S3SheetSets, "sheetset"),) + STRATEGIES + ((CellSheetTiles, "sheetset"),)
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -240,6 +248,17 @@ def _zip_head(cache_dir: str, layer: IndexedTiles, tile) -> str:
     url = layer.index.request(tile).url
     status, kind, body = _ask(cache_dir, url)
     if status != 200 or not body.startswith(b"PK"):
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return ""
+
+
+def _zip_url_head(cache_dir: str, url: Optional[str]) -> str:
+    """The first KB of a whole ZIP file at url (no Range); raises unless it starts with a ZIP's local file header."""
+    if not url:
+        raise RuntimeError("no address for the first tile")
+    status, kind, body = _ask(cache_dir, url)
+    if status != 200 or not body.startswith(b"PK"):
         text = " ".join(body[:200].decode("utf-8", "replace").split())
         raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
@@ -548,7 +567,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca", "zipsheets"):
+        if kind in ("index", "text", "zip", "blocks", "zipfile", "cartoteca", "zipsheets") or (
+                kind == "sheetset" and isinstance(layer, IndexedTiles)):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -574,6 +594,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _xyz_head(cache_dir, layer, tiles[0])
             elif kind == "zipfile":
                 _zip_head(cache_dir, layer, tiles[0])
+            elif kind == "sheetset":
+                _zip_url_head(cache_dir, layer.tile_url(tiles[0]))
             elif kind == "cartoteca":
                 row.notes.append(_cartoteca_head(cache_dir, layer, tiles[0]))
             elif kind == "zip":

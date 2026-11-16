@@ -360,8 +360,12 @@ class FavouriteLine(pydantic.BaseModel):
     # stored only when given (OPTIONAL: checked_favourite drops them when null)
     lift_needed: Optional[pydantic.FiniteFloat] = None
     lift_no_zone: Optional[pydantic.FiniteFloat] = None
+    # the access mark at each anchor of a line of a run made with --access (runs.ACCESS: 0 hard access, 1 cannot
+    # tell, 2 can walk); optional as the A-frame heights
+    access1: Optional[pydantic.conint(strict=True, ge=0, le=2)] = None
+    access2: Optional[pydantic.conint(strict=True, ge=0, le=2)] = None
 
-    OPTIONAL: ClassVar[Tuple[str, ...]] = ("lift_needed", "lift_no_zone")
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("lift_needed", "lift_no_zone", "access1", "access2")
 
 
 def checked_line(line) -> str:

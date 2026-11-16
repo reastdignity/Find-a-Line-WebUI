@@ -24,6 +24,8 @@ What is compared (expected values in regression.json):
 - the data: the share of the search area with elevation data before any filling, and
   the tiles without data (a lost tile shows here, e.g. the north coast of Gozo);
 - "same_as": lines.csv identical to that of another test (tiles against one grid);
+- "without_access_as": lines.csv less its columns access1, access2 identical to that of another test (the run
+  without --access), with the marks of the line ends counted ("access_ends": hard access, cannot tell, easy access);
 - "count_anchors_in": osm:<name> or S,W,N,E: the lines with an anchor in it (lines_in_region),
   e.g. the lines reaching an islet.
 Always checked, without expected values: the map data (data.js has every line, profiles
@@ -124,10 +126,25 @@ def measure(output: str, run_dir: str) -> dict:
         found["clearance_mean"] = round(sum(clearances) / len(clearances), 3) if clearances else 0.0
         found["clearance_max"] = max(clearances, default=0.0)
         found["over_trees"] = sum(r["over_trees_buildings"] == "True" for r in rows)
+        if rows and "access1" in rows[0]:  # --access: the marks of the line ends, and lines.csv without them
+            ends = [r[f"access{k}"] for r in rows for k in (1, 2)]
+            found["access_ends"] = [ends.count(str(state)) for state in (0, 1, 2)]
+            with open(files[0], "rb") as f:
+                found["csv_sha256_without_access"] = hashlib.sha256(without_access(f.read())).hexdigest()
         started = time.time()
         found["store_problems"] = check_export(os.path.dirname(files[0]))
         found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
     return found
+
+
+def without_access(table: bytes) -> bytes:
+    """lines.csv without its columns access1 and access2 (a run made with --access): the bytes of the run
+    without the option."""
+    rows = table.split(b"\r\n")
+    header = rows[0].split(b",")
+    drop = {header.index(b"access1"), header.index(b"access2")}
+    return b"\r\n".join(b",".join(v for k, v in enumerate(row.split(b",")) if k not in drop) if row else row
+                         for row in rows)
 
 
 def check_export(folder: str) -> list:
@@ -342,6 +359,8 @@ def stored(found: dict, old: dict) -> dict:
             keep[key] = found.get(key, 0)
     if "lines_in_region" in found:
         keep["lines_in_region"] = found["lines_in_region"]
+    if "access_ends" in found:
+        keep["access_ends"] = found["access_ends"]
     return keep
 
 
@@ -391,6 +410,12 @@ def write_doc(tests: dict):
             also.append(f"{number(e['water_lines'])} lines with `water_m > 0`")
         if test.get("same_as"):
             also.append(f"lines.csv identical to {test['same_as']}")
+        if "access_ends" in e:
+            hard, unsure, easy = e["access_ends"]
+            also.append(f"line ends: {number(easy)} easy access, {number(unsure)} cannot tell, {number(hard)} hard "
+                        f"access")
+        if test.get("without_access_as"):
+            also.append(f"lines.csv less access1, access2 identical to {test['without_access_as']}")
         if test.get("check_profiles"):
             also.append(f"{test['check_profiles']} profiles computed again")
         if "lines_in_region" in e:
@@ -467,6 +492,11 @@ def main():
             sha = results.get(other, {}).get("csv_sha256") or tests[other]["expected"].get("csv_sha256")
             if found.get("csv_sha256") != sha:
                 diffs.append(f"lines.csv differs from that of {other}")
+        base = test.get("without_access_as")
+        if base:
+            sha = results.get(base, {}).get("csv_sha256") or tests[base]["expected"].get("csv_sha256")
+            if found.get("csv_sha256_without_access") != sha:
+                diffs.append(f"lines.csv without access1, access2 differs from that of {base}")
         status = "ok" if not diffs else "DIFFERENT"
         slow = test.get("seconds") and seconds > SLOWER * test["seconds"] and seconds - test["seconds"] > 5
         print(f"{test_id}: {status} ({seconds:.0f} s" + (f", WARNING: recorded {test['seconds']:.0f} s" if slow else "")

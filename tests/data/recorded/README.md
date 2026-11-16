@@ -47,3 +47,37 @@ method, flags, CRC-32, compressed and uncompressed sizes and local header's offs
 `sources/indexes/zipdir.py` read them by Range), and `Sheet011av2.txt.gz`, one member read whole (a beach west of
 sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
 [OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+
+`bremen/directories.json.gz`: the central directories of Landesamt GeoInformation Bremen's four XYZ archives (the DGM1
+and DOM1 of Bremen 2017 and of Bremerhaven 2015) as `sources/indexes/zipdir.py` read them by Range on 2026-11-15: each
+archive's length and ETag, each member's name, method, flags, CRC-32, compressed and uncompressed sizes and local
+header's offset, for `tests/test_bremen.py` (the member names against the layers' expressions). Landesamt
+GeoInformation Bremen, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+`tokyo/`: the Tokyo Digital Twin's 0.5 m grid sheets as Tokyo's bucket served them on 2026-11-15, for
+`tests/test_japan.py`: `09RD8410.zip` as published (an island sheet off Mikurajima: EPSG:6677, nodata 1.70141e38,
+7 668 pixels of seabed at -12.2 to -6.5 m), `09LD1649.zip` a ward sheet (Shinjuku) with its TIFF header as published
+(a CRS without an EPSG code, AREA_OR_POINT=Point, nodata -32767) and its pixels replaced in place by 8 x 8 blocks of
+its heights and a 16 x 16 corner of -32767 (so the ZIP is small), and `toushobu/12/3636/1637.pbf`, the islands'
+index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Government, 東京都デジタルツイン 島しょ地域点群データ /
+区部点群データ, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.ja) (modified: the ward sheet).
+
+`shizuoka/`: the heads of two of VIRTUAL SHIZUOKA's LP grid sheets as its bucket served them on 2026-11-16 (through
+`net._get`), for `tests/test_japan.py`: `08MC4919_2025.zip` the first 300 lines of FY2025's `08mc4919_0.5g.txt`
+("n,x,y,z,flag", decimetres) and `08OF0485_2019.zip` the first 300 of FY2019's `08OF0485_DEM.txt` ("x y z"), the lines
+untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (modified: cut).
+
+`hong_kong/`: CEDD's 2020 lidar sheets as the CSDI Portal served them on 2026-11-16, for `tests/test_hong_kong.py`:
+`sheets.json`, rows of the index (the FeatureServer's layers DTM_2020 and DSM_2020 as `tools/hong_kong_sheets.py`
+keeps them: code, file name, URL, footprint in EPSG:2326), 23 terrain and 4 surface sheets spread over the 17 maps;
+`2NE20D_dtm.head.bin` and `2NE20D_dtm.tail.bin`, the TIFF of the terrain sheet on the Shenzhen River without its
+pixels: the 1 214 bytes before its first tile and the 3 048 after its last (the IFD and the GeoTIFF keys), as
+published (EPSG:2326, 0.5 m, nodata -9999, 120 tiles of 128 x 128 float32, uncompressed, in order); the tests put
+their own pixels between them, so no height of CEDD's is kept here (the CSDI terms name reproducing, not modifying).
+LiDAR Data (2020), Civil Engineering and Development Department, © the Government of the Hong Kong Special
+Administrative Region, from the Common Spatial Data Infrastructure (CSDI) Portal under its
+[terms and conditions](https://portal.csdi.gov.hk/csdi-webpage/doc/TNC).
+`nominatim/reverse-hong-kong.json`: Nominatim's reverse answers (zoom 3 and 8) of Lion Rock, Chek Lap Kok and Tung Lung
+Chau, recorded on 2026-11-16 (`osm.reverse`): "cn" at zoom 3, ISO3166-2-lvl3 CN-HK at zoom 8. Data © OpenStreetMap
+contributors, [ODbL 1.0](https://osm.org/copyright).

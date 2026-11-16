@@ -19,7 +19,13 @@ codes, a missing value null or NaN as data.js shows it (`NULL_WHEN_MISSING`); `L
 `RunInfo.store` run.json's block `store`),
 `grouping.ts` the grouping (`groupIndices` on typed arrays, `groupLines` over objects: the 3D view's fan, the tests),
 `filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
-options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept), `tight.ts`
+options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept),
+`access.tsx` the access mark of a run made with `--access` (`types.ts` `ACCESS`, `Line.access1`/`access2`: 0 hard
+access, 1 cannot tell, 2 easy access, null without): `AccessMark` (a dot of 20 px in the state's colour, tokens
+`--acc-*` of `ui/tokens.css`, with its sign, `ACCESS_SIGNS` of `ui/icons.tsx`), `AccessPair` (a list row's two dots;
+"–" for a line of a run without the mark), `accessMarkSvg` (the mark of 24 px on the map, in the map's colours),
+`AccessKey` and `useAccessHelp` (the one help text of the result page and the search form: a "?" that opens a panel
+in place, not a bubble); it hides and sorts nothing; `tight.ts`
 the tight mark (`TIGHT` = 1 m, `clearanceText` rounds a tight clearance down, the mark's words with and without A-frames), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
 the lift (`limits`, `riggingNeed`, `liftChoices`), `labels.ts` the chart's label layout (`layoutLabels`: no two boxes
 intersect, priority anchors > min clearance > A-frame > zone > highest, a label that does not fit is dropped),
@@ -79,7 +85,9 @@ by `byMean` through two cursors), the members of a spot asked for (`membersOf`/`
 unfolded row), a link's line (`linkedLine`), the favourites; kept by index while in use, the rest dropped after a
 compute when they are many more than the rows (`prune`); a spot's first line and its order (`BY_MEAN` "Highest on
 average", the default of "Show per spot": `bestOf`/`membersOf` by `byMean`, the groups and their members stay the
-grouping's), `needCounts`; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
+grouping's), `needCounts`, `hasAccess`: a run shown was made with the access mark (its head's `ends`); `ResultMap.ts` its
+Leaflet layer (the selected line's two anchors of a marked run are the mark, markers' icons that take no pointer
+events; else one canvas, no line interactive: a second canvas took every click of the
 map; a click takes the nearest line within `REACH_MOUSE`, a finger's within `REACH_TOUCH`, known by the last
 pointerdown since WebKit's click after a tap is a "mouse" one; spots within `TIE_*` of the nearest go to `onChoose`,
 the workspace's `view/LineChooser.tsx`); `view/` the panel pieces (`ResultColumns.tsx`: C's result, shared by
@@ -88,7 +96,13 @@ with the highline layer: `Splitter` edges, a collapse tab beside each, 36 px rai
 window, never kept), the map between them with `ProfileCard.tsx` over its bottom (`ProfileDock` in fill mode with a
 compact head and a fold button; height by its top edge, width by its side edges; folded in a map lower than 420 px,
 nothing kept from there), the corners above the card only where it covers them (`corners.ts` `useCornersAboveCard`),
-the run's data credits folded behind *Data credits* while the card is shown; on phones the sheet; `layout.ts` the kept
+the run's data credits folded behind *Data credits* while the card is shown; on phones the sheet; the access mark of
+a run that has it: the column "Anchors" of `LinesTable.tsx` (full from a list of 356 px, tighter below, left out
+under 300 px; the list's default width is 372 px for it), "Reaching the anchors" of `LineDetails.tsx` (on a phone
+the two dots also in the sheet's head), the legend's row `AccessLegend` of `ResultSummary.tsx` (on a phone above the
+filters also while nothing is selected; its "?" stays with the last state; for a run whose head says
+`access_skipped` (the mark asked for and left out, the area too wide) one muted line in the row's place and nothing
+else of the mark); `tests/test_access_page.py` draws all of it in a browser; `layout.ts` the kept
 layout (localStorage `findaline.layout`, `sanitize`, `fitColumns` and `maxColumnWidth` on the two panels'
 `fitPanels`/`maxPanelWidth`, which the highline layer's panels share with their own `LAYER_LIMITS` and kept value,
 `sanitizeLayer`, `findaline.layer.layout`; `cardInsets`, `moveCardEdge`, `LIMITS`) and `useLayout.ts` its state;
@@ -97,7 +111,13 @@ layout (localStorage `findaline.layout`, `sanitize`, `fitColumns` and `maxColumn
 rig in use, Advanced's values, Where's modes, the live estimate; `SearchPanel.tsx` the tabs, Where, Advanced (the goal
 cards, a dot and "reset" for a value that differs from Basic's, "Save into" / "Save as a new rig" in Clearance
 model) and `EstimateBar`, the bar of both tabs (the size word, the receipt, Start; a phone's compact bar);
-`BasicPane.tsx` the Basic tab, the rig's window and the dialog of going back to Basic; `basic.ts` the form's rules
+`BasicPane.tsx` the Basic tab (with "Reaching the anchors": the access mark is on in every Basic search, `basic.ts`
+`BASIC_ACCESS`, where the site's schema has the field; the schema's and the command line's default stays off, so
+the form sends `access: true` as a changed value and Advanced, filled from Basic, shows it ticked; Advanced's field
+takes the "?" of the same help through `Field`'s `hintButton`; the highline layer's "Search a cell" opens with the
+mark on, `cellValues`; an estimate whose messages carry the code `access_skipped` turns the receipt's part into
+"access not marked", `accessSkipped`), the rig's window
+and the dialog of going back to Basic; `basic.ts` the form's rules
 as pure functions (spec-search 1.2: `basicRequestValues` (every value explicit), `basicProblem` (a site that leaves
 out a field Basic must send), `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`, `sizeOf`, the rig's words and
 checks with the site's bounds (`rigProblem`, `rigMax`), `whereForGoal`, `findaline.rig` the rig in use per browser),

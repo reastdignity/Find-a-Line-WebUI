@@ -23,11 +23,14 @@ SIZE = (112, 30)
 
 
 def _row(name, title, continent="Europe", source="austria", km2=1000):
-    return ar.Row(name, title, continent, f"osm:{title}", source, 1.0, True, km2)
+    country, _, region = title.partition(": ")
+    return ar.Row(name, title, continent, country, region or f"Whole country · {source}", f"osm:{title}", source, 1.0,
+                  True, km2)
 
 
 ROWS = [_row("austria", "Austria", km2=84387), _row("czechia", "Czechia", source="czechia"),
-        _row("germany-bavaria", "Germany: Bavaria"), _row("poland", "Poland", source="geoportal"),
+        _row("germany-bavaria", "Germany: Bavaria"), _row("germany-hesse", "Germany: Hesse", source="hesse"),
+        _row("poland", "Poland", source="geoportal"),
         _row("utah", "United States: Utah", "North America", "usa"),
         _row("australia-tasmania", "Australia: Tasmania", "Oceania", "tasmania")]
 
@@ -78,12 +81,28 @@ def _shown(app):
     return [row.row.name for row in app.area_rows() if row.display]
 
 
+def _group(app, *names):
+    return app.query_one("#" + tui.Downloads.group_id(*names), Collapsible)
+
+
+async def _unfold(pilot, name):
+    """The row's country group unfolded (folded at start without a state), if it has one."""
+    group = pilot.app.row_of(name).parent.parent   # Contents, then its group
+    group.collapsed = False
+    await pilot.pause()
+
+
 async def _tick(pilot, name):
+    """A click on the row's box."""
+    await _unfold(pilot, name)
     await pilot.click(f"#box-{name}")
     await pilot.pause()
 
 
-def test_the_whole_list_by_continent(settings):
+def test_the_whole_list_by_continent_and_country(settings):
+    """A territory under its country (Saint-Barthélemy under France in Europe, Puerto Rico under the United States);
+    a group only for a country of two or more rows (the United States with the extra Utah), a country of one row its
+    row by its title in the continent, in the countries' order."""
     settings.extra = [{"name": "utah", "title": "United States: Utah", "continent": "North America",
                        "area": "osm:Utah", "source": "usa"}]
     settings.rows = {}
@@ -91,10 +110,152 @@ def test_the_whole_list_by_continent(settings):
 
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
-        assert groups == {"group-asia": "Asia (1)", "group-europe": "Europe (52)",
-                          "group-north-america": "North America (13)", "group-oceania": "Oceania (4)",
-                          "group-south-america": "South America (2)"}
-        assert len(app.area_rows()) == 72
+        assert groups == {
+            "group-europe": "Europe (52)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (16)",
+            "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-portugal": "Portugal (4)",
+            "group-europe-spain": "Spain (2)",
+            "group-europe-united-kingdom": "United Kingdom (4)",
+            "group-north-america": "North America (19)", "group-north-america-canada": "Canada (4)",
+            "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
+            "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
+            "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
+            "group-asia": "Asia (4)", "group-asia-japan": "Japan (2)", "group-africa": "Africa (2)",
+            "group-africa-france": "France (2)"}
+        assert len(app.area_rows()) == 84
+        assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
+            "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
+            "saint-pierre-and-miquelon"]
+        assert app.row_of("france").parent.parent.id == "group-europe"   # France's only row in Europe: flat
+        assert str(app.row_of("france").query_one(".name").render()) == "France"
+        assert app.row_of("france-french-guiana").parent.parent.id == "group-south-america"
+        assert str(app.row_of("france-french-guiana").query_one(".name").render()) == "France: French Guiana"
+        assert str(app.row_of("netherlands-saba").query_one(".name").render()) == "Saba"
+        assert [row.row.name for row in _group(app, "North America", "United States").query(tui.AreaRow)] == [
+            "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+        assert str(app.row_of("italy").query_one(".name").render()) == "Whole country · tinitaly"
+        assert str(app.row_of("germany-bavaria").query_one(".name").render()) == "Bavaria"
+        assert [row.row.name for row in _group(app, "Europe", "Portugal").query(tui.AreaRow)] == [
+            "portugal-desertas", "portugal-madeira", "portugal-porto-santo", "portugal-selvagens"]
+        assert str(app.row_of("portugal-madeira").query_one(".name").render()) == "Madeira"
+        assert str(app.row_of("austria").query_one(".name").render()) == "Austria"
+        europe = _group(app, "Europe").query_one("Contents").children
+        assert [child.id for child in europe[:9]] == [
+            "row-austria", "row-czechia", "row-denmark", "row-estonia", "row-faroe-islands", "group-europe-finland",
+            "row-france", "group-europe-germany", "row-iceland"]
+    _drive(app, body)
+
+
+def test_folded_at_start_but_a_country_with_a_download(settings):
+    """Only a country's group folds; a row of a country of one row is always on the screen."""
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        assert _folds(app) == {"group-europe": False, "group-europe-germany": True, "group-north-america": False,
+                               "group-oceania": False}
+        assert app.focused.parent.id == "group-europe"   # the first title: nothing of the list is above it
+        assert app.row_of("austria").region.height == 1
+    _drive(app, body)
+    _state(settings, "germany-hesse", "stopped")
+    app, _ = _app(settings)
+
+    async def opened(pilot):
+        assert not _group(app, "Europe", "Germany").collapsed
+    _drive(app, opened)
+
+
+def test_a_continent_without_rows_has_no_group(settings):
+    """Africa is in CONTINENTS before any row lies there: no group for it, until a row does, in its place."""
+    assert "Africa" in ar.CONTINENTS
+    settings.rows = {}
+    catalogue = [row for row in ar.rows_of(settings) if row.continent != "Africa"]   # as before La Réunion
+    app, _ = _app(settings, catalogue)
+
+    async def none(pilot):
+        assert "group-africa" not in [group.id for group in app.query(".continent")]
+    _drive(app, none)
+    other = ar.Row("x-other", "X", "Other", "X", "X", "osm:X", "usa", 1.0, False, 1)
+    rows = sorted(catalogue + [_row("reunion", "France: Réunion", "Africa", "france"), other], key=ar.order_of)
+    app, _ = _app(settings, rows)
+
+    async def body(pilot):
+        assert [group.id for group in app.query(".continent")] == [
+            "group-europe", "group-north-america", "group-oceania", "group-south-america", "group-asia",
+            "group-africa", "group-other"]
+    _drive(app, body)
+
+
+def test_two_spellings_of_a_country_open_as_one_group(settings):
+    """An extra row's "france" beside the catalogue's France (two groups of one id: the window would not open)."""
+    settings.rows = {}
+    settings.extra = [{"name": "brittany", "title": "Brittany", "country": "france", "continent": "Europe",
+                       "area": "osm:X", "source": "france"},
+                      {"name": "corsica", "title": "Corsica", "country": "FRANCE", "continent": "europe",
+                       "area": "osm:Y", "source": "france"}]
+    app, _ = _app(settings, ar.rows_of(settings))
+
+    async def body(pilot):
+        france = _group(app, "Europe", "France")
+        assert [row.row.name for row in france.query(tui.AreaRow)] == ["france", "brittany", "corsica"]
+        assert france.title == "France (3)"
+        assert len(app.query("#group-europe")) == 1
+    _drive(app, body)
+
+
+def test_everything_open_at_start_when_asked(settings, monkeypatch):
+    monkeypatch.setattr(tui, "FOLD_AT_START", False)
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        assert not any(group.collapsed for group in app.query(Collapsible))
+    _drive(app, body)
+
+
+def test_a_country_of_one_row_with_its_own_level(settings, monkeypatch):
+    """The switch on: every country a group, every row by its label."""
+    monkeypatch.setattr(tui, "SINGLE_ROW_COUNTRY_LEVEL", True)
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        assert _folds(app) == {
+            "group-europe": False, "group-europe-austria": True, "group-europe-czechia": True,
+            "group-europe-germany": True, "group-europe-poland": True, "group-north-america": False,
+            "group-north-america-united-states": True, "group-oceania": False, "group-oceania-australia": True}
+        assert app.row_of("austria").parent.parent.id == "group-europe-austria"
+        assert str(app.row_of("austria").query_one(".name").render()) == "Whole country · austria"
+        assert str(app.row_of("utah").query_one(".name").render()) == "Utah"
+    _drive(app, body)
+
+
+def test_a_country_of_one_row_sits_in_its_continent(settings):
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        assert app.row_of("austria").parent.parent.id == "group-europe"
+        assert str(app.row_of("austria").query_one(".name").render()) == "Austria"
+        assert str(app.row_of("utah").query_one(".name").render()) == "United States: Utah"
+        assert str(app.row_of("germany-hesse").query_one(".name").render()) == "Hesse"
+    _drive(app, body)
+
+
+@pytest.mark.parametrize("level, many", [(False, False), (True, False), (False, True)])
+def test_the_columns_line_up_with_the_header(settings, monkeypatch, level, many):
+    """At a country's deeper indent and at a continent's; the right ones too, with the list's scrollbar shown or not
+    (the list keeps its gutter, the header a padding as wide)."""
+    monkeypatch.setattr(tui, "SINGLE_ROW_COUNTRY_LEVEL", level)
+    more = [_row(f"spain-{k}", f"Spain: Region {k}", source="spain") for k in range(40)] if many else []
+    app, _ = _app(settings, ROWS + more)
+
+    async def body(pilot):
+        for group in app.query(Collapsible):
+            group.collapsed = False
+        await pilot.pause()
+        assert app.query_one("#areas").show_vertical_scrollbar == many
+        head = app.query_one("#head")
+        for cell in (".res", ".layers", ".km2", ".state", ".target"):
+            x = head.query_one(cell).region.x
+            assert app.row_of("germany-bavaria").query_one(cell).region.x == x, cell
+            assert app.row_of("austria").query_one(cell).region.x == x
+        assert app.row_of("germany-bavaria").query_one(".name").region.x == head.query_one(".name").region.x
     _drive(app, body)
 
 
@@ -119,10 +280,15 @@ def test_a_click_ticks_a_row_and_the_counts_follow(settings):
         await _tick(pilot, "austria")
         assert app.row_of("austria").ticked
         assert "1 ticked (84 387 km²)" in str(app.query_one("#summary").render())
-        assert app.query_one("#group-europe", Collapsible).title == "Europe (4, 1 ticked)"
+        assert app.query_one("#group-europe", Collapsible).title == "Europe (5, 1 ticked)"
+        assert _group(app, "Europe", "Germany").title == "Germany (2)"
+        await _tick(pilot, "germany-bavaria")
+        assert app.query_one("#group-europe", Collapsible).title == "Europe (5, 2 ticked)"
+        assert _group(app, "Europe", "Germany").title == "Germany (2, 1 ticked)"
         await _tick(pilot, "austria")
         assert not app.row_of("austria").ticked
-        assert app.query_one("#group-europe", Collapsible).title == "Europe (4)"
+        assert app.query_one("#group-europe", Collapsible).title == "Europe (5, 1 ticked)"
+        assert _group(app, "Europe", "Germany").title == "Germany (2, 1 ticked)"
     _drive(app, body)
 
 
@@ -132,6 +298,7 @@ def test_a_click_changes_where_the_tiles_go_and_it_is_kept(settings):
     async def body(pilot):
         row = app.row_of("austria")
         assert row.target == "cache"
+        await _unfold(pilot, "austria")
         await pilot.click(row.query_one(tui.TargetCell))
         await pilot.pause()
         assert row.target == "NAS" and row.query_one(tui.TargetCell).has_class("-share")
@@ -185,6 +352,17 @@ def test_start_asks_first(settings):
         assert started == [("austria", "cache"), ("czechia", "cache")]
         assert not app.row_of("austria").ticked
         assert _text(app, "austria") == "starting"
+    _drive(app, body)
+
+
+def test_the_question_names_a_region_by_its_full_title(settings):
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        await _tick(pilot, "germany-bavaria")
+        await pilot.click("#start")
+        await pilot.pause()
+        assert "Germany: Bavaria" in str(app.screen.query_one("#dialog-text").render())
     _drive(app, body)
 
 
@@ -378,46 +556,105 @@ def test_a_state_without_news_is_called_so(settings):
     assert started == [("austria", "cache")]
 
 
+def _folds(app):
+    return {group.id: group.collapsed for group in app.query(Collapsible)}
+
+
 def test_the_filter(settings):
+    """The groups with a match shown and open, the others hidden; cleared, the folds from before come back."""
     app, _ = _app(settings)
 
     async def body(pilot):
+        _group(app, "Oceania").collapsed = True
+        await pilot.pause()
+        before = _folds(app)
+        assert before["group-europe-germany"]
         await pilot.press("slash")
         await pilot.press(*"germ")
         await pilot.pause()
-        assert _shown(app) == ["germany-bavaria"]
+        assert _shown(app) == ["germany-bavaria", "germany-hesse"]
         assert app.query_one("#group-europe", Collapsible).display
+        assert _group(app, "Europe", "Germany").display and not _group(app, "Europe", "Germany").collapsed
+        assert not app.row_of("austria").display
         assert not app.query_one("#group-oceania", Collapsible).display
+        await pilot.press("space", "b", "a", "v")   # "germ bav"
+        await pilot.pause()
+        assert _shown(app) == ["germany-bavaria"]
         await pilot.press("escape")
         await pilot.pause()
         assert len(_shown(app)) == len(ROWS) and app.query_one("#filter", Input).value == ""
-        assert isinstance(app.focused, (tui.Box,)) or app.focused.__class__.__name__ == "CollapsibleTitle"
+        assert _folds(app) == before
+        assert all(group.display for group in app.query(Collapsible))
+        assert app.focused.__class__.__name__ == "CollapsibleTitle"
+        assert app.focused.parent.id == "group-europe"   # the first thing shown after the filter
     _drive(app, body)
 
 
-def test_a_click_on_a_continent_folds_it(settings):
+def test_the_filter_finds_a_country_and_its_territories(settings):
+    rows = ROWS + [ar.Row("puerto-rico", "Puerto Rico", "North America", "United States", "Puerto Rico",
+                          "osm:Puerto Rico", "usa", 1.0, False, 9000)]
+    app, _ = _app(settings, rows)
+
+    async def body(pilot):
+        app.query_one("#filter", Input).value = "united states"
+        await pilot.pause()
+        assert _shown(app) == ["utah", "puerto-rico"]
+        assert not _group(app, "North America", "United States").collapsed
+        app.query_one("#filter", Input).value = ""
+        await pilot.pause()
+        assert _group(app, "North America", "United States").collapsed
+    _drive(app, body)
+
+
+def test_a_click_on_a_continent_folds_it_and_its_countries_keep_theirs(settings):
     app, _ = _app(settings)
 
     async def body(pilot):
-        group = app.query_one("#group-north-america", Collapsible)
+        group = app.query_one("#group-europe", Collapsible)
+        country = _group(app, "Europe", "Germany")
         await pilot.click(group.query_one("CollapsibleTitle"))
         await pilot.pause()
         assert group.collapsed
+        await pilot.click(group.query_one("CollapsibleTitle"))
+        await pilot.pause()
+        assert not group.collapsed and country.collapsed
+        await pilot.click(country.query_one("CollapsibleTitle"))
+        await pilot.pause()
+        assert not country.collapsed and app.row_of("germany-hesse").region.height == 1
+        await pilot.click(country.query_one("CollapsibleTitle"))
+        await pilot.pause()
+        assert country.collapsed and not group.collapsed
     _drive(app, body)
 
 
+async def _keys(pilot, *keys):
+    for key in keys:
+        await pilot.press(key)
+        await pilot.pause()
+
+
+def _at(app):
+    """What has the focus: a box's id, or the group of a title."""
+    focused = app.focused
+    return focused.id if isinstance(focused, tui.Box) else f"title {focused.parent.id}"
+
+
 def test_everything_has_a_key(settings):
-    """A text console has no mouse."""
+    """A text console has no mouse. Up and down walk the titles and the boxes on the screen; Enter folds a title."""
     app, started = _app(settings)
 
     async def body(pilot):
-        assert app.focused.id == "box-austria"
-        await pilot.press("down")
-        await pilot.pause()
-        assert app.focused.id == "box-czechia"
-        await pilot.press("up")
-        await pilot.pause()
-        assert app.focused.id == "box-austria"
+        assert _at(app) == "title group-europe"
+        await _keys(pilot, "down")
+        assert _at(app) == "box-austria"
+        await _keys(pilot, "down", "down")
+        assert _at(app) == "title group-europe-germany"
+        await _keys(pilot, "down")
+        assert _at(app) == "box-poland"   # Germany's boxes folded
+        await _keys(pilot, "up", "enter", "down")
+        assert _at(app) == "box-germany-bavaria"
+        await _keys(pilot, "up", "up", "up")
+        assert _at(app) == "box-austria"
         await pilot.press("space")
         await pilot.pause()
         assert app.row_of("austria").ticked
@@ -440,9 +677,12 @@ def test_up_and_down_pass_a_finished_area(settings):
     app, _ = _app(settings)
 
     async def body(pilot):
-        await pilot.press("down")
-        await pilot.pause()
-        assert app.focused.id == "box-germany-bavaria"
+        await _keys(pilot, "down")
+        assert _at(app) == "box-austria"
+        await _keys(pilot, "down")
+        assert _at(app) == "title group-europe-germany"
+        await _keys(pilot, "up")
+        assert _at(app) == "box-austria"
     _drive(app, body)
 
 

@@ -2197,5 +2197,330 @@
     },
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
+  },
+  "R83": {
+    "place": "as R16 with the access mark (--access): the access grid once on the area's whole grid, each tile its window (sea, shore faces and gaps filled); the marks of the line ends counted, and lines.csv without access1, access2 is R16's",
+    "extends": "R16",
+    "args": "--access",
+    "sets": [
+      "water",
+      "search"
+    ],
+    "without_access_as": "R16",
+    "expected": {
+      "anchors": 6409,
+      "open": 3669,
+      "checked": 10754,
+      "lines": 9337,
+      "spots": 240,
+      "csv_sha256": "264766cb3e314c6168b29dec49707085bc7337ead3a4625ab71cfe1a447614a5",
+      "length_km": 1982.371,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.213,
+      "clearance_max": 29.57,
+      "over_trees": 0,
+      "coverage": 49.48,
+      "empty_tiles": 0,
+      "filled_km2": 2.58,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 6.08,
+      "water_lines": 9261,
+      "water_spots": 232,
+      "access_ends": [
+        10242,
+        788,
+        7644
+      ]
+    },
+    "notes": "re-baselined 2026-11-15: the measure's own answer at the anchors on shore faces (the mapping to cannot tell dropped, the user's choice): line ends hard / cannot tell / easy 7 565 / 3 616 / 7 493 -> 10 242 / 788 / 7 644; lines.csv less access1, access2 still R16's",
+    "seconds": 10.6
+  },
+  "R84": {
+    "place": "Okutama, Tokyo (JP-13): the rock walls of the Tama river's valley, the Tokyo Digital Twin's 0.5 m lidar grid (Tama, 2022-2023) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 35.8179 --lon 139.0875 --radius 400 --min-length 20 --max-length 100",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 128176,
+      "open": 322,
+      "checked": 195,
+      "lines": 9,
+      "spots": 5,
+      "csv_sha256": "795585da644638a3c962451f54fd84ed0710a3976eb7bf645cdc75854f0fe4a7",
+      "length_km": 0.52,
+      "clearance_min": 0.12,
+      "clearance_mean": 0.431,
+      "clearance_max": 0.82,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 30.2,
+    "notes": "added 2026-11-15: --source auto picks tokyo (JP-13); 25 sheets of 400 x 300 m (about 1.45 MB each) on an empty cache; the centre on the steep pixels of the 1 m mosaic (2 868 over 70 degrees within 400 m, their centroid 35 m E, 23 m N of it); terrain only (no surface model), so trees on the walls are not seen"
+  },
+  "R85": {
+    "place": "Jogasaki, Ito (JP-22): the lava sea cliffs of the Izu coast, VIRTUAL SHIZUOKA's LP grid 0.5 m (FY2019) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS VIII",
+    "args": "--lat 34.8925 --lon 139.1385 --radius 400 --min-length 15 --max-length 80",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 14414,
+      "open": 1470,
+      "checked": 3063,
+      "lines": 1002,
+      "spots": 22,
+      "csv_sha256": "c4903694074260e4ae7b1047e18abe93d938249ea3c9c0ee031160663b351306",
+      "length_km": 44.34,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.238,
+      "clearance_max": 9.85,
+      "over_trees": 0,
+      "coverage": 55.95,
+      "empty_tiles": 0,
+      "sea_km2": 1.24,
+      "water_lines": 917,
+      "water_spots": 20
+    },
+    "seconds": 4.4,
+    "notes": "added 2026-11-15: --source auto picks shizuoka (JP-22); sheets of FY2019 only (x y z text, about 1.9 MB a ZIP); the centre moved from the findings' 34.8937, 139.1368 to the centroid of the steep pixels of the 1 m mosaic (2 053 over 70 degrees within 400 m of the old centre); the sea the LP grids leave out is filled at 0 m (sea_km2), lines over the water counted; terrain only. Re-baselined 2026-11-16 (158 lines, 14 spots -> 1002, 22): the first baseline was taken while Overpass did not answer, so its sea came from the Copernicus mask (the fallback): with --coastline copernicus the code of now gives that lines.csv exactly (sha256 29b3aa05...), and the code of before gives these 1002 lines with the OSM coastline; most of them span the coves over the sea filled at 0 m"
+  },
+  "R86": {
+    "place": "Porto Santo's north-east cliffs, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of Porto Santo, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), Porto Santo 1995 / UTM 28N",
+    "args": "--lat 33.0942 --lon -16.2998 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "porto-santo/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 16605,
+      "open": 12922,
+      "checked": 52824,
+      "lines": 7184,
+      "spots": 431,
+      "csv_sha256": "4c10650797f3c984aaab872c2487b9b187079b788102fd86a31b148bf453b9b1",
+      "length_km": 1457.807,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.041,
+      "clearance_max": 18.15,
+      "over_trees": 0,
+      "coverage": 63.44,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.61,
+      "water_lines": 167,
+      "water_spots": 34
+    },
+    "seconds": 26.7,
+    "notes": "added 2026-11-15; re-baselined 2026-11-16 on the OSM coastline: its first baseline (7052 lines, sea 2.56 km2) had taken the Copernicus fallback while Overpass did not answer (the same tiles with --coastline copernicus still give those 7052 lines); skipped without FINDALINE_MIRROR/porto-santo/dtm/5m"
+  },
+  "R87": {
+    "place": "Deserta Grande's west cliffs, the Desertas, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Desertas (its file labelled EPSG:3061, read as PTRA08 / UTM 28N), our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m)",
+    "args": "--lat 32.5185 --lon -16.5072 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "desertas/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 22775,
+      "open": 18532,
+      "checked": 24697,
+      "lines": 784,
+      "spots": 130,
+      "csv_sha256": "9f5a43780aff956866616dd8eada76b1e12da9aa1a8b38659f34b9573e059b53",
+      "length_km": 99.734,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.389,
+      "clearance_max": 9.37,
+      "over_trees": 0,
+      "coverage": 72.68,
+      "empty_tiles": 1,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.69,
+      "water_lines": 19,
+      "water_spots": 4
+    },
+    "seconds": 170.8,
+    "notes": "skipped without FINDALINE_MIRROR/desertas/dtm/5m"
+  },
+  "R88": {
+    "place": "Selvagem Grande's cliffs, the Selvagens, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Selvagens, our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m), PTRA08 / UTM 28N",
+    "args": "--lat 30.1512 --lon -15.8691 --radius 800 --min-length 30 --max-length 300",
+    "sets": [
+      "sources",
+      "pt"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "needs_path": [
+      "selvagens/dtm/5m"
+    ],
+    "expected": {
+      "anchors": 3678,
+      "open": 2753,
+      "checked": 9607,
+      "lines": 972,
+      "spots": 114,
+      "csv_sha256": "6b73d80f00bec323115ddaf5e9f88509b040f32ee9752436509b60854acec9df",
+      "length_km": 119.157,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.185,
+      "clearance_max": 13.2,
+      "over_trees": 0,
+      "coverage": 53.6,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 2.98,
+      "water_lines": 414,
+      "water_spots": 43
+    },
+    "notes": "skipped without FINDALINE_MIRROR/selvagens/dtm/5m",
+    "seconds": 37.3
+  },
+  "R89": {
+    "place": "The cliffs of Martinique's north coast at Anse Bagasse, Grand'Riviere (FR, Nominatim's \"fr\", chosen by the island's box): IGN's RGE ALTI 1 m by GetMap from the Geoplateforme's WMS-R (layer MTQ, EPSG:32620, pixel edges on half metres), its sea floor (heights below -1 m) taken as no data",
+    "args": "--lat 14.8735 --lon -61.1750 --radius 400 --min-length 20 --max-length 200",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 57427,
+      "open": 916,
+      "checked": 47,
+      "lines": 6,
+      "spots": 2,
+      "csv_sha256": "eb373c581dd0918aad17fac905269546e39165478bf2c6e80597d238d575685f",
+      "length_km": 0.204,
+      "clearance_min": 0.1,
+      "clearance_mean": 0.59,
+      "clearance_max": 0.98,
+      "over_trees": 0,
+      "coverage": 73.18,
+      "empty_tiles": 0,
+      "source": "IGN (RGE ALTI 1 m, Martinique)",
+      "sea_km2": 0.7
+    },
+    "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines); the summary re-baselined 2026-11-16 on the OSM world water polygons (cache/osm/water-polygons, which a search takes instead of Overpass once a data folder holds it): sea 0.70 km2 and nothing filled from the fallback, where Overpass's coastline of 2026-11-15 gave 0.69 km2 and 0.00 km2 filled from FABDEM; lines.csv is the same with both",
+    "seconds": 3.2
+  },
+  "R90": {
+    "place": "Lion's Head, Bruce Peninsula, Ontario, Canada (CA-ON): Geospatial Ontario's DTM and DSM (Lidar-Derived) 0.5 m of DEDSFM Huron-Georgian Bay 2022-23 (GeoTIFF members of \"PixelIsPoint\" with the tie point at the first pixel's centre), 1 km tiles read by HTTP Range from the province's package ZIPs (HuronGeorgianBay-DTM-40, -DSM-38), NAD83(CSRS) / UTM 17N, averaged to the 1 m grid",
+    "args": "--lat 45.0034 --lon -81.2295 --radius 400 --min-length 15 --max-length 150",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 17241,
+      "open": 3418,
+      "checked": 10093,
+      "lines": 702,
+      "spots": 47,
+      "csv_sha256": "f020b8610b4d771a50e53097bf06fb6253d38d1c1947c1c77736e0485c62b31e",
+      "length_km": 41.499,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.294,
+      "clearance_max": 16.92,
+      "over_trees": 555,
+      "coverage": 66.75,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 1 m)"
+    },
+    "notes": "added 2026-11-16: the brief's place, Rattlesnake Point (43.4690, -79.9198), gives no line (radius 400 m, 15-60 m: 0; radius 1 km, 15-400 m: 1 line of 36 m with 0.05 m of clearance over trees, 800 m away; --source canada there: 0), so R90 is wave 0's other escarpment place: the centre on the steepest 200 m cell of a 1 m slope map (2 311 px over 70 degrees); the Georgian Bay side of the circle has no lidar (filled from MRDEM-30 and as water). The same circle with --source canada: 419 lines in 31 spots, its longest 141.3 m for 138.9 m on the ellipsoid (EPSG:3979's scale, +1.73 %); ontario's longest is the same pair of anchors, 140.4 m for 140.4 m",
+    "seconds": 6.5
+  },
+  "R91": {
+    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD lowered by 1.30 m to about mean sea level",
+    "args": "--lat 22.3518 --lon 114.1872 --radius 600 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "hk"
+    ],
+    "expected": {
+      "anchors": 158727,
+      "open": 1228,
+      "checked": 126,
+      "lines": 8,
+      "spots": 3,
+      "csv_sha256": "9d002a1fe75f4a7f8a055620de0e276c21d4d13f8239c118e56b096b3891cddc",
+      "length_km": 0.206,
+      "clearance_min": 0.19,
+      "clearance_mean": 0.545,
+      "clearance_max": 0.99,
+      "over_trees": 3,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run. Re-baselined 2026-11-16 for Hong Kong's datum (hong_kong.HK_DATUM_OFFSET, the user's decision of 2026-11-16: every height lowered by 1.30 m where the tiles are read onto the grid): the same 8 lines in 3 spots, every count and total the same, lines.csv differing only in the anchors' heights, each 1.30 m lower (02a93e77... -> 9d002a1f...)",
+    "seconds": 35.1
+  },
+  "R92": {
+    "place": "Mikurajima, Tokyo (JP-13): the sea cliffs of an Izu island, the Tokyo Digital Twin's 0.5 m lidar grid (Izu islands, 2022-2023) with the islands' sheets floored at -1 m (the seabed along their coasts no data, the sea filled at 0 m), JGD2011 / Japan Plane Rectangular CS IX",
+    "args": "--lat 33.886 --lon 139.585 --radius 800",
+    "sets": [
+      "sources",
+      "jp"
+    ],
+    "expected": {
+      "anchors": 346046,
+      "open": 7392,
+      "checked": 15587,
+      "lines": 263,
+      "spots": 20,
+      "csv_sha256": "df131731441f2774bd33677c80332febfef0237d9e0590eb6ecae01e57c4a6a0",
+      "length_km": 27.064,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.495,
+      "clearance_max": 6.26,
+      "over_trees": 0,
+      "coverage": 76.76,
+      "empty_tiles": 0,
+      "sea_km2": 1.63,
+      "water_lines": 10,
+      "water_spots": 3
+    },
+    "notes": "added 2026-11-16 with the floor of the Izu islands' sheets (japan.TK_ISLAND_FLOOR, the user's decision of 2026-11-16): the place of wave 1's seabed check (33.886, 139.585, radius 800 m, default settings), 48 sheets of 400 x 300 m (about 82 MB by the estimate) on an empty cache, the coastline from Overpass; the code of before (dbb883c) gave 310 lines in 24 spots there, 47 of them (4 spots) with both anchors on the sea filled at 0 m across the seabed (the island sheets hold seabed down to -12 m); with the floor 263 lines in 20 spots: those 47 gone, none with an anchor at 0 m, the other 263 the same lines with the same clearances (their drops 1.7-4.7 m smaller: the lowest terrain near them is the 0 m fill now, not the seabed). Wave 1 measured 341 lines (49 false) and 292 with a floor, on the code of 2026-11-15",
+    "seconds": 5.9
+  },
+  "R93": {
+    "place": "The rampart of the Cilaos cirque above Ilet Dijoux and the Bras Rouge, La Reunion (FR, Nominatim's \"fr\", chosen by the island's box): IGN's LiDAR HD MNT / MNS (0.5 m, fetched at 1 m: the mean of 2 x 2 pixels) by WMS-R GetMaps in RGR92 / UTM 40S (EPSG:2975, pixel edges on multiples of 0.5 m), RGE ALTI 1 m the gap filler",
+    "args": "--lat -21.1310 --lon 55.4510 --radius 300 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 118412,
+      "open": 8131,
+      "checked": 16658,
+      "lines": 4226,
+      "spots": 50,
+      "csv_sha256": "d740b3357608f7dd02add932480746294f41b57fc2331f555bccd071dd05b800",
+      "length_km": 460.401,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.263,
+      "clearance_max": 29.15,
+      "over_trees": 3480,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "IGN (LiDAR HD MNT / MNS, La Réunion)"
+    },
+    "notes": "added 2026-11-15: the centre on the steepest 200 m cells of a 1 m slope map (pixels over 70 degrees) of the rampart west of wave 0's point (-21.1303, 55.4539); its first trial there (radius 500 m, lines 20-300 m) gave 105 559 lines in 598 spots, too many for a pinned entry; most lines cross forest on the rampart's ledges (the MNS marks them over trees)",
+    "seconds": 3.4
   }
 }

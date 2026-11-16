@@ -93,6 +93,20 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # of the pixels; the Tatras' 2.65 million, 6.1 %), step 3 at 16; was 100 before the temporaries
 # of step 1 were cut
 PIXEL_BYTES = 50
+# The access mark (--access, access.py) of the search's whole grid: in memory at once when ACCESS_WINDOW_BYTES per
+# pixel of the grid fit the search's memory (Plan.memory, else the memory free), else in blocks (access.block_grid):
+# ACCESS_AREA_BYTES per pixel of the whole grid for its grid-wide pass (strips, masks memory-mapped) plus
+# ACCESS_WINDOW_BYTES per pixel of a block's window (the block and access.margin_px around it); blocks at least
+# ACCESS_BLOCK_MIN_M wide. Measured 2026-11-15 (exclusive; docs/performance.md, "The access grid's memory"): at once
+# 43 B per pixel of the grid on whole metres (the Gozo coast), 29 on float heights (the Tatras); in blocks the
+# grid-wide pass 6.1-6.7 B per pixel of the grid, 9.5 where flat float heights join the sea's fill (the Gozo coast at
+# 2 m: 55 % of its pixels in flat regions whose heights are gathered), and 27-46 per pixel of the largest window
+ACCESS_AREA_BYTES = 12
+ACCESS_WINDOW_BYTES = 50
+ACCESS_BLOCK_MIN_M = 500
+# Disk per pixel of the whole grid in the work folder while the access grid is made in blocks: access.npy (uint8),
+# the water, the open ground and its smoothed twin (bool) and a region mask with its int32 labels at a time
+ACCESS_DISK_BYTES = 9
 # The lines: the largest per-line peak of a search's process tree with a margin. Measured 2026-11-15 (the line-volume
 # task, part 5.1; docs/performance.md, "The memory constant"): full searches of 0.7-3.5 million lines, one at a time
 # on this PC, the process tree sampled every 0.2 s, 7 cores and a compute slot's tiles. The peak is step 5, while
@@ -268,6 +282,15 @@ class Plan:
     # neighbours.geojson, read once per worker): which one a partner pixel lies in names its partner
     # (resolve_partners); None or []: every partner PARTNER_UNKNOWN (a source without neighbours)
     territories: Optional[List] = None
+    # The access mark asked (--access) but left out (_check_access): "memory", the search's grid too wide for the
+    # access grid even in its smallest blocks; the run records it (run.json's and the heads' "access_skipped").
+    # None: the mark made, or not asked
+    access_skipped: Optional[str] = None
+
+    @property
+    def access_on(self) -> bool:
+        """Whether this search marks the anchors' access: --access and not left out (Plan.access_skipped)."""
+        return bool(self.params.access) and self.access_skipped is None
 
     @property
     def end_zone(self) -> float:
@@ -343,6 +366,10 @@ class Data:
     # partner, 1-6 a neighbour of Source.neighbours, 7 the source's own data where none's boxes reach);
     # the anchors where it is not 0 pair only with the anchors inside. None: Plan.partners off
     partner: Optional[np.ndarray] = None
+    # The access mark (--access, access.py): every pixel's answer (uint8: access.CANNOT 0 "hard access", UNSURE 1
+    # "cannot tell", CAN 2 "can walk"), computed once on the whole search grid (_access_grid; a tile takes its
+    # window, _tile_data); None: the option off
+    access: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -505,11 +532,13 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
         emit("info", line)
     for note in getattr(area, "notes", []):
         emit("warning", note)
-    return Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
+    plan = Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
                 emit, crs, (x, y), limits, tiles, core,
                 memory=memory if memory is not None else available_memory() if limits else None,
                 early_stop=limits.lines_early_stop if limits else True,
                 obstacles=dict(obstacles.RULE) if nmpt and source.obstacles and obstacles.RULE else None)
+    _check_access(plan)
+    return plan
 
 
 def _check_params(limits: Optional[Limits], params: SearchParams, resolution: Optional[float] = None):
@@ -810,6 +839,8 @@ def estimate_search(plan: Plan) -> Estimate:
         # largest one's: a tile's folder is removed before the next tile's are made)
         largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
         work += plan.grid.width * plan.grid.height * AREA_TEMP_BYTES + largest.width * largest.height * tile_bytes(plan)
+    if plan.access_on:  # the access grid in blocks at most (_access_grid): its grids in the work folder
+        work += plan.grid.width * plan.grid.height * ACCESS_DISK_BYTES
     work_gb = work / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
@@ -851,11 +882,13 @@ AREA_TEMP_BYTES = 4
 def tile_bytes(plan: Plan) -> int:
     """The bytes per pixel of a tile's copies of the area's grids (search_lines: _tile_data): float32
     the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled, the
-    joined and the covered masks (the gaps with the shore faces) when the search makes them."""
+    joined and the covered masks (the gaps with the shore faces) when the search makes them; uint8 the access
+    grid's window with --access."""
     p, source = plan.params, plan.source
     floats = 1 + bool(plan.nmpt) + bool(p.slope_file)
     masks = (p.water == "fill") + (_fills_gaps(plan) and (bool(source.fallback) + bool(source.neighbours)))
     masks += p.water == "fill" and bool(plan.nmpt)
+    masks += plan.access_on
     return 4 * floats + masks
 
 
@@ -1253,7 +1286,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
-    """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
+    """Steps 2-4 of one grid: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
     return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore, data.terrain_sources)
 
@@ -1282,6 +1315,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         table = _sag_table(dataclasses.astuple(plan.rigging), p.min_length, p.max_length) if p.model == "sag" else None
         estimate, variance, _, _ = sample_estimate(plan, data, found, None, table, 0)
         _estimate_check(plan, estimate, math.sqrt(variance), grid.width * grid.height)
+    if plan.access_on and data.access is None:  # one grid's access grid, after the anchors' limit and the estimate
+        data.access = _access_grid(plan, data)
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -1306,6 +1341,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 4, "coordinates, groups and profiles")
     results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled_pixels(), core)
     del valid_lines  # the same table (in place)
+    if data.access is not None:  # --access: each anchor's answer, as water_m (the lines of the core only)
+        _access_columns(plan, results, data)
     _fixed_order(plan, results)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
@@ -2004,6 +2041,8 @@ def _search_key(plan: Plan) -> Dict:
     for name in ("end_zone", "anchor_lift", "same_line_square"):  # 0: the hash of before
         if p[name] == 0:
             del p[name]
+    if not p["access"]:  # the access mark off: the hash of before
+        del p["access"]
     # The formula never reads fall_zone (its lines, profiles and limits take the leash fall; only the rigging
     # saved for the map's estimator holds it): at the default, 6 m since 2026-11-14, its search keeps the hash of
     # before, made with 3 (an int when a web request left it out, a float from the command line), so it resumes
@@ -2030,7 +2069,8 @@ def _open_run(plan: Plan) -> Dict:
             continue
         if not isinstance(state, dict):
             continue
-        if state.get("status") == "running" and state.get("search") in keys:
+        if state.get("status") == "running" and state.get("search") in keys \
+                and state.get("access_skipped") == plan.access_skipped:  # a mark left out: tiles without it
             folder = os.path.dirname(path)
             if state["tile_core"] != plan.tile_core:
                 plan.tile_core = state["tile_core"]
@@ -2039,25 +2079,30 @@ def _open_run(plan: Plan) -> Dict:
             plan.emit("info", f"Resuming run {os.path.basename(folder)}: {done} of {len(plan.tiles)} tiles done")
             run = {"id": os.path.basename(folder), "path": folder, "name": state["name"],
                    "created": datetime.fromisoformat(state["created"]), "search": key,
-                   "tile_core": state["tile_core"]}
+                   "tile_core": state["tile_core"], "access_skipped": plan.access_skipped}
             if state["search"] != key:  # found under a key of before: today's from now on
                 _progress(run, "running")
             return run
     created = datetime.now()
     name = _run_name(plan)
     run = rn.new_run(plan.paths.runs, name, created)
-    run.update(name=name, created=created, search=key, tile_core=plan.tile_core)
+    run.update(name=name, created=created, search=key, tile_core=plan.tile_core, access_skipped=plan.access_skipped)
     _progress(run, "running")
     return run
 
 
 def _progress(run: Dict, status: str):
     """progress.json of a tiled run: its state while running (run.json is written at the end). Written whole
-    (a .part beside it, then replaced), so another search's _open_run never reads it half written."""
+    (a .part beside it, then replaced), so another search's _open_run never reads it half written. A search whose
+    access mark was left out (Plan.access_skipped) says so ("access_skipped"): its tiles have no access columns, so
+    only a search of the same choice resumes it (the same request on a larger budget starts a run of its own)."""
     path = os.path.join(run["path"], "progress.json")
+    state = {"status": status, "search": run["search"], "tile_core": run["tile_core"], "name": run["name"],
+             "created": run["created"].isoformat()}
+    if run.get("access_skipped"):
+        state["access_skipped"] = run["access_skipped"]
     with open(path + ".part", "w", encoding="utf-8") as f:
-        json.dump({"status": status, "search": run["search"], "tile_core": run["tile_core"],
-                   "name": run["name"], "created": run["created"].isoformat()}, f)
+        json.dump(state, f)
     os.replace(path + ".part", path)
 
 
@@ -2126,7 +2171,108 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"))
+                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"),
+                access=copy(data.access, "access.npy"))
+
+
+ACCESS_FILE = "access.npy"  # the access grid in the work folder when it is made in blocks or for tiles
+
+
+def _access_budget(plan: Plan) -> int:
+    """The memory the access grid may take: the search's (Plan.memory: a compute slot's budget, or the memory free
+    when a search with limits was planned), else the memory free now (the command line)."""
+    return plan.memory if plan.memory is not None else available_memory()
+
+
+def _access_block_px(plan: Plan) -> Optional[int]:
+    """The side of the access grid's blocks in pixels, or None: the grid at once (access.access_grid) when
+    ACCESS_WINDOW_BYTES per pixel of the whole grid fit the budget (_access_budget) and the walk's int32 indices
+    hold it. Else the largest square block whose window (the block and access.margin_px around it) takes
+    ACCESS_WINDOW_BYTES per pixel of what the budget leaves after ACCESS_AREA_BYTES per pixel of the whole grid,
+    at least ACCESS_BLOCK_MIN_M wide (_check_access leaves the mark out below it) and its window under
+    2^31 pixels. The blocks follow the memory only, never the tiles or the threads, and never the answers."""
+    import access
+    pixels = plan.grid.width * plan.grid.height
+    budget = _access_budget(plan)
+    if pixels * ACCESS_WINDOW_BYTES <= budget and pixels < access.WALK_PX_MAX:
+        return None
+    margin = access.margin_px(plan.resolution)
+    room = max(0, budget - pixels * ACCESS_AREA_BYTES)
+    side = min(int(math.sqrt(room / ACCESS_WINDOW_BYTES)), int(math.sqrt(access.WALK_PX_MAX - 1)))
+    return max(int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)), side - 2 * margin)
+
+
+def access_memory(plan: Plan) -> int:
+    """The least memory the access grid of this search needs: the whole grid at once if that is less, else the
+    grid-wide pass and a window of the smallest block (ACCESS_BLOCK_MIN_M)."""
+    import access
+    pixels = plan.grid.width * plan.grid.height
+    block = int(math.ceil(ACCESS_BLOCK_MIN_M / plan.resolution)) + 2 * access.margin_px(plan.resolution)
+    window = min(plan.grid.height, block) * min(plan.grid.width, block)
+    return min(pixels * ACCESS_WINDOW_BYTES, pixels * ACCESS_AREA_BYTES + window * ACCESS_WINDOW_BYTES)
+
+
+def _check_access(plan: Plan):
+    """With --access, before anything is downloaded: a search whose access grid cannot fit its budget even in its
+    smallest blocks (access_memory against _access_budget: Plan.memory, else the memory free) runs without the
+    mark (the user's choice of 2026-11-16: no search is refused for a mark that filters nothing): Plan.access_skipped
+    "memory" and the coded note access_skipped. Each phase decides with its own budget (the estimate, the download
+    phase, the compute phase of a job); the compute phase's decision is what the run records. Nothing without the
+    option."""
+    if not plan.params.access:
+        return
+    need, have = access_memory(plan), _access_budget(plan)
+    if need > have:
+        plan.access_skipped = "memory"
+        need_gib, have_gib = round(need / 2 ** 30, 1), round(have / 2 ** 30, 1)
+        plan.emit("warning", messages.Note(
+            f"The anchors' access will not be marked (--access): this search's area is too wide for it (about "
+            f"{need_gib:g} GiB of memory needed, {have_gib:g} GiB here). The search itself is not affected.",
+            "access_skipped", need=need_gib, have=have_gib))
+
+
+def _access_grid(plan: Plan, data: Data, path: Optional[str] = None) -> np.ndarray:
+    """The access mark of every pixel of the search grid (--access; the alpine variant on: the user's choice), from
+    step 1's filled terrain, its water and its filled pixels (Data.filled_pixels: no data for the walk). Once per
+    search on the whole grid, so a tiled search's tiles read one grid's answers (_tile_data takes each tile's
+    window). At once (access.access_grid) when it fits, else in blocks (access.block_grid, _access_block_px: the
+    same answers). path: saved there and returned memory-mapped (a tiled search's work folder; blocks always write
+    into the work folder), else in memory."""
+    import access  # numba: only where a search computes (see _lines)
+    block = _access_block_px(plan)
+    # a step text of its own (after the estimate's: the job page's phase and jobs.StepClock book it to step 2, the
+    # anchors')
+    progress.set_step(f"{plan.tile_label}Step 2/{STEPS}: access to anchors")
+    progress.compute.start("access to anchors", 1, unit="step")
+    if block is None:
+        grid = access.access_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), alpine=True)
+    else:
+        path = path or os.path.join(plan.paths.work, ACCESS_FILE)
+        done = access.block_grid(data.elevation, data.water, plan.resolution, data.filled_pixels(), path,
+                                 plan.paths.work, block, alpine=True,
+                                 on_part=lambda name: progress.compute.update(0, part=name))
+        plan.emit("info", f"Access to anchors in {done['blocks']} blocks of {block * plan.resolution:g} m (the "
+                          f"memory: {done['window_px'] / 1e6:.1f} Mpx a window)")
+    progress.compute.update(1)
+    progress.compute.finish()
+    if block is None:
+        if path is None:
+            return grid
+        np.save(path, grid)
+        del grid
+    return np.load(path, mmap_mode="r")
+
+
+def _access_columns(plan: Plan, lines: sh.LineTable, data: Data):
+    """access1, access2 of the lines (with their pixels "a1", "a2" of data's grid; in place): each anchor's
+    answer of the access grid (access.at, uint8), the measure's own as in the study: an anchor on a filled pixel or
+    a shore face taken from the surface model gets the answer of the data around it (its standing ground). An anchor
+    never lies on a pixel without heights."""
+    import access
+    for name, pixels in (("access1", "a1"), ("access2", "a2")):
+        a = lines.columns[pixels]
+        assert np.isfinite(data.elevation[a[:, 0], a[:, 1]]).all(), "an anchor on a pixel without heights"
+        lines.columns[name] = access.at(data.access, a).astype(np.uint8, copy=False)
 
 
 def _remove_grids(work: str):
@@ -2176,7 +2322,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     Returns the lines and, for a tiled search, its run (to be completed by save_run).
     """
     if not plan.tiles:
-        lines = find_lines(plan, prepare_data(plan))
+        lines = find_lines(plan, prepare_data(plan))  # with --access its grid in memory (find_lines)
         progress.set_step("")
         return lines, None
     run = _open_run(plan)
@@ -2196,6 +2342,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             json.dump(area.terrain_sources, f, separators=(",", ":"))
     if area is not None and _samples(plan):  # the size before the pairs, from every tile
         _estimate_tiles(plan, area)
+    if area is not None and plan.access_on:  # the access grid once, after the estimate: one grid's in every tile
+        area.access = _access_grid(plan, area, os.path.join(plan.paths.work, ACCESS_FILE))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
@@ -2342,6 +2490,10 @@ def _run_params(plan: Plan) -> Dict:
     if plan.square:
         params["same_line_square"] = p.same_line_square
         params["same_line_side"] = plan.square
+    # The access mark only when made (its lines have access1, access2): run.json of before; a mark asked but left out
+    # (Plan.access_skipped) is run.json's "access_skipped" instead (save_run), the params as without the option
+    if plan.access_on:
+        params["access"] = True
     return params
 
 
@@ -2389,6 +2541,8 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
         "terrain_sources": lines.terrain_sources,
     }
+    if plan.access_skipped:  # the access mark asked and left out ("memory": the area too wide for it)
+        meta["access_skipped"] = plan.access_skipped
     if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
         meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
         emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
@@ -2453,7 +2607,10 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         for name in linestore.FILES:
             with contextlib.suppress(OSError):
                 os.remove(os.path.join(run["path"], name))
-        emit("warning", f"The run is saved without its store (lines.arrow): {type(error).__name__}: {error}")
+        # A coded note (the page's text from the catalogue); the exception's text only on the command line: it
+        # may hold paths
+        emit("warning", messages.Note(f"The run is saved without its store (lines.arrow): "
+                                      f"{type(error).__name__}: {error}", "store_failed"))
     else:
         meta["store"] = store
         path = os.path.join(run["path"], "run.json")

@@ -22,7 +22,8 @@ surface on its files' lattice, the terrain interpolated onto it) and warps onto 
 GDAL's Resampling.max (what sources.mosaic would give with max instead of average) the fine surface
 (s-max) and the fine surface minus terrain (h-max): fine-nmpt.npy, fine-nmt.npy, s-max.npy,
 h-max.npy and fine.json in the call's folder. GDAL's max takes every fine pixel overlapping a grid
-pixel at all, also by half (fine_grid). The surface variants avg (the grid's), max (s-max) and h
+pixel at all, also by half (fine_grid). The fine grids read the cached files as the search's mosaic reads them,
+with the source's floors and height offsets (read_as_searched: Layer.floor_of, Layer.height_offset). The surface variants avg (the grid's), max (s-max) and h
 (the terrain plus h-max) are each counted under VARIANT_RULES (the rules below and A2+T: A2, and
 every pixel where CHMv2 sees a tree on WorldCover's tree cover stays an obstacle), each line's
 limit the same, the pixels above it the variant's; the kernel checks A2 on every variant.
@@ -453,11 +454,25 @@ def _fine_lattice(files: List[str], res: float, left: float, top: float) -> Opti
     return {"res": r, "k": k, "offset": [offset(file_left - left), offset(top - file_top)]}
 
 
+def read_as_searched(grid: Dict, kind: str, files: List[str]) -> Dict:
+    """build_mosaic's floor per file and height offset for the files of the call's source's layer kind ("nmt",
+    "nmpt"): the values sources.prepare_layer passes (Layer.floor_of of each file, Layer.height_offset), so the fine
+    grids hold the heights the search's grid was made of; none for a source the catalogue does not hold (local
+    files, a capture from before grid.json named its source)."""
+    import sources
+    source = sources.SOURCES.get(grid.get("source") or "")
+    layer = getattr(source, kind, None) if source is not None else None
+    if layer is None:
+        return {}
+    return {"below": [layer.floor_of(p) for p in files], "offset": layer.height_offset}
+
+
 def fine_grid(call: str) -> Optional[Dict]:
     """The surface model's own pixels where they are finer than the call's grid (a working grid of
     1 m from sheets of 0.5 m holds their average, sources.mosaic's Resampling.average):
     fine-nmpt.npy and fine-nmt.npy (float32 memmaps on the lattice of the finest surface file, the
-    terrain interpolated bilinearly onto it as sources.mosaic does for coarser files), then on the
+    terrain interpolated bilinearly onto it as sources.mosaic does for coarser files; each with its
+    layer's floors and height offset, read_as_searched), then on the
     call's grid s-max.npy, the fine surface warped with GDAL's Resampling.max (warp_max), and
     h-max.npy, the fine surface minus terrain warped the same way: what the search would read if
     sources.mosaic._place took max instead of average (NaN where no fine pixel has data); s-med.npy
@@ -504,8 +519,10 @@ def fine_grid(call: str) -> Optional[Dict]:
         left, top = grid["left"] + ox - (r if ox else 0.0), grid["top"] - oy + (r if oy else 0.0)
         rows, cols = height * k + (1 if oy else 0), width * k + (1 if ox else 0)
         fine_on = Grid(left=left, top=top, res=r, height=rows, width=cols, crs=grid["crs"])
-        surface = mosaic.build_mosaic(nmpt, fine_on, os.path.join(call, "fine-nmpt.npy"), "fine surface")
-        terrain = mosaic.build_mosaic(nmt, fine_on, os.path.join(call, "fine-nmt.npy"), "fine terrain")
+        surface = mosaic.build_mosaic(nmpt, fine_on, os.path.join(call, "fine-nmpt.npy"), "fine surface",
+                                      **read_as_searched(grid, "nmpt", nmpt))
+        terrain = mosaic.build_mosaic(nmt, fine_on, os.path.join(call, "fine-nmt.npy"), "fine terrain",
+                                      **read_as_searched(grid, "nmt", nmt))
         seconds = _warp_fine(call, grid, surface, terrain, fine_on, list(FINE_FILES))
         del surface, terrain
         fine.update(res=r, k=k, left=left, top=top, offset=[ox, oy], seconds=seconds)

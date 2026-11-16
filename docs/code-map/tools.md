@@ -17,6 +17,11 @@ it), a `ranged` layer's files through our own ranges (`_read_ranged`), a `warp` 
 cartoteca sheet's grid inside its ZIP (`_gdal_path`: `<zip>/<member>` by `/vsizip/`), and LercTiles and
 ZipSheetTiles as services (no source files to compare).
 
+Batch 6: a ZIP member (`ZipMemberTiles`, `PackageTiles`) is read again by Range under its own rule, never through the
+layer's `TransformFix` (`_zone_free`: an easting with the zone in front without it), so a wrong fix shows; an XYZ
+member in columns with points missing read in rows (`zipmember.xyz_rows`); a `PackageTiles` tile's member taken in the
+tile's own CRS (its zone's), as the layer writes it.
+
 ## `tools/au_coverage.py`
 
 The static cells mask of Geoscience Australia's 5 m lidar DEM (`sources/catalogue/australia_dem5m_cells.npz`):
@@ -43,19 +48,84 @@ The static mask of the cells of INEGI's lattice that hold a 5 m sheet, per model
 mod T and S) read once; it stops if a centroid's cell does not carry its sheet's name. The models are frozen
 (2006-2012): run it again only if INEGI publishes new sheets (`tests/test_mexico.py`).
 
+## `tools/tokyo_sheets.py`
+
+The static table of the Tokyo Digital Twin's 0.5 m grid sheets (`sources/catalogue/tokyo_sheets.npz`, read by the
+`tokyo` layer: a sheet outside it is never asked, since the bucket answers 403, never 404, for a key it does not
+have): every sheet with the folder it lies in (2023: Tama and the islands; 2024: the 23 wards; a sheet may be in
+both), from the publisher's index vector tiles (Mapbox vector tiles at zoom 12, fields MESH_NO and URL) read with
+GDAL's MVT driver through pyogrio. Every code must be a 1/500 sheet of zone IX (`japan.jp_cell`) and its URL the
+folder's address of that code, or it stops. One request at a time, at least `PAUSE_S` apart; `--count` says how many
+tiles a run asks without asking any. The surveys are frozen: run it again only when Tokyo publishes more sheets,
+check the tests' places and commit the table (`tests/test_japan.py`).
+
+## `tools/hong_kong_sheets.py`
+
+The static table of CEDD's 2020 lidar sheets of Hong Kong (`sources/catalogue/hong_kong_sheets.npz`, read by the
+`hong_kong` layers: a sheet outside it is never asked, a 404 for one in it is that tile's error), from the CSDI
+Portal's FeatureServer (layers 0 DTM_2020 and 1 DSM_2020: TILE_NAME, Filename, URL and the footprint, paged by
+3 000: four requests). Every row is checked (the code a sheet of the scheme, `hong_kong.hk_cell`, whose box is the
+footprint; the URL the layer's folder and its file name; the name starting with the code), else it stops; the file
+names are kept as published (map 17's kilometre pairs are not those of the sheet's box). One request at a time, at
+least `PAUSE_S` apart, each under one of the host's slots of the data folder (`net.host_slot`); the answers kept in the
+work folder; `--count`. The survey is frozen (2020): run it again only when CEDD publishes more sheets
+(`tests/test_hong_kong.py`).
+
 ## `tools/mirror_tiles.py`
 
-Run by hand under the test lock with `--resource data`: own copies of elevation models published only as one big
-file, for the local mirror (`DATASETS`: `madeira`, DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's
-DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII grid with decimal commas). Steps `download` (one GET through the
-app's headers, rate and counting; a resume by `Range: bytes=N-` only below `resume_below`: Aosta's firewall answers
-500 beyond about 1e8 bytes; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`),
-`extract` (zipfile for Deflate, 7-Zip `7z e -so` for Deflate64, CRC checked, the `.part` removed on failure),
-`cut` (2 km bands from the top, tiles from the dataset's `origin` (its pixel edges modulo 2 km) in tools/sk_tiles.py's
-layout and encoding, whose `_write`, `_sha256`, `_mark_partial` and `tile_name` it reuses; `index.json` with sha256,
-null for no data, "partial" while unfinished; a dataset card), `all`. Replacing a file on the mirror's network share
-is tried again for 60 s (`_replace`: Windows refused one replace on Z:). The `origin` must equal the catalogue
-layer's `GridTiles(origin=)` (`tests/test_mirror_tiles.py`).
+Run by hand under the test lock with `--resource data` (or in a container of the project's image on another
+machine: the docstring's example mounts the clone's `tools/`, which `.dockerignore` keeps out of the image): own
+copies of elevation models that cannot be read in parts from their provider, for the mirror. `DATASETS` holds
+`Dataset` records (a folder of products `<dataset>/<product>/<res>m`, names in `[a-z0-9_-]+`, each `Product` with its
+CRS, `origin`, inputs, masks and overlap rule) and two dicts of before that `dataset()` makes records of (`madeira`,
+DROTe's MDT 2 m, one ZIP of one BigTIFF; `aosta`, Valle d'Aosta's DTM 2005/2008 2 m, one Deflate64 ZIP of an ASCII
+grid with decimal commas: their index keys and published cards `MADEIRA_CARD`/`AOSTA_CARD` stay; a fixed card covers
+one product). Madeira's 5 m ZIP gives three datasets: `porto-santo` (EPSG:3061, the sea 0), `desertas` (EPSG:5016
+over the file's EPSG:3061 label) and `selvagens`, both with a floor of -1 m. Inputs: `Url` (one GET at a time under a
+lock in `--work`, through the app's headers, rate and counting; a resume by `Range: bytes=N-` only below
+`resume_below`; a 200 to a Range rewrites from the start; never past the known size, `SizeChanged`), `Placed` (one file
+matching a glob in `--inputs`, either case), `Fetched` (a folder tools/cdd_fetch.py fills: manifest.jsonl's rows of a
+collection, or a fetch-list group counted in status.json, each file an input once done.jsonl records it whole, its
+sha256 checked when read), each with its ZIP `members`. A product is cut once, when `resolve` finds it complete
+(`--without <ids>`: sheets never delivered, recorded as `missing_inputs`), in a staging folder (`staging_folder`:
+`--work/staging/...`, or `<out>/.staging/...` when a folder does not rename from `--work` into `--out`), with an
+append-only journal (`Journal`, `--work/journals/`, one per mirror folder: a line per finished tile after its file is
+synced, with its feeders in order and the product's rule, `product_rule`); a restart keeps a tile whose file matches
+its line, whose feeders and rule are the same, and cuts every other one again (`_cut_staged`);
+`_finalize` writes index.json, renames the folder into the mirror in one `os.replace`, then writes the card. A final
+product is never cut again. `WRITE_SITES` names every write a stop could interrupt (`_site`, `HOOK`: the tests stop
+the run at each). `assemble` reads every raster covering a tile, masks it (`mask`) and joins them by `overlap`;
+`--threads` writers and GDAL's cache within `--max-memory-gb` (an estimate, `_workers`); tools/sk_tiles.py's encoding.
+Caches only: `State` (footprints, checked files) and `WorkFiles` (unpacked members, tiled copies of ASCII grids and of
+wide strips, made again when their source changed; `clean` removes only these, through `_remove`). `check_folders`
+keeps `--work`, `--inputs` and `--out` apart. `verify` (final products): every sha256, unlisted files, the tiles the
+inputs' own bounds touch against the index, the inputs against the journal's feeders, sampled tiles (1 %, 8 to 500,
+`--seed`) re-assembled and `POINTS` pixels read straight from the inputs (`_point_problems`), judged against the
+inputs the cut read (`inputs.jsonl` in the final folder, `INPUTS_FILE`: an input that came later is no part of the
+edition); tiles whose inputs are gone or changed are not checkable, and a verify that compares no tile with data is
+"not checkable" (keeping an earlier passing `verify.json` of the same index); the result in `verify.json` beside the
+index. A journal line's rule carries `CUT_VERSION` (raised by hand when a change could change a cut's output).
+`status` (final / cutting / ready / waiting; every staging folder listed), `all` (cuts every complete product, a
+waiting one is no failure; a final verified one skipped), `clean` (a final product's staging folder, or with
+`--staging` one no run cuts now). One run at a time per `--work` and per product (`_locked`, the product's lock in
+`<out>/.locks`, never inside a dataset's folder: `Busy`). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its source's default
+resolution a whole multiple of its pixel and at least 1 m (`tests/test_mirror_tiles.py`).
+
+## `tools/cdd_fetch.py`
+
+Runs on another machine (a home server, a stock Python container), not in the app: standard library only, no
+import of the project. Bulk copies for the mirror into `downloads/` beside the script: `plan` walks the CDD's public
+search (Portugal's MDT/MDS 50 cm and the Azores' 1 m models; pages by the `next` body's token; the newest version of
+each sheet; no address stored: a search mints a new one each time), `fetch` signs in through the Keycloak form
+(`CDD_USER`, `CDD_PASSWORD`; only https to the site's and the realm's hosts, at most 6 an hour, 60 s apart, kept
+across restarts in `signins.json`), resolves addresses 20 ids per search and fetches one file at a time, 1.5 s
+between requests to a host, https only, none after a stop (TIFF magic and stated size, sha256 into `done.jsonl`; a
+session lost means one sign-in and one retry, three credential sendings without a file stop; 429/503 wait; an error
+before an answer's headers is an outage of the step that failed (sign-in, address search, download; waits
+doubling, up to `--outage-hours`, ended only by that step coming through), one after them that file's attempt (three, then failed); no proxy; five failures in a row, low disk or SIGTERM stop cleanly; `fetch.lock`: one fetch per
+folder, `--no-lock` for a filesystem without locks), `fetch-list wallonia` the embedded list of SPW's ten province
+ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked in every output (`Scrub`);
+`tests/test_cdd_fetch.py` runs it against a fake CDD.
 
 ## `tools/mirror_publish.py`
 
@@ -421,8 +491,25 @@ The window of the area download (`area_download.py tui --settings <file>`, Textu
 (`area_rows.catalogue`: `coverage.json`, continents and km² from `shapes.json`, a region takes its country's
 continent; `COUNTRIES` the titles, `sources.AREA_NAMES` each area's Nominatim name (also the country layer's
 territories), each checked once against the outlines: an administrative boundary of the area, larger on a coast by the
-territorial waters) plus the settings' `extra`, grouped by continent (`Collapsible`s of rows of `Checkbox` subclasses:
-a `DataTable`'s first click only moves its cursor, a `SelectionList` has no cell to click for the target). A checkbox
+territorial waters) plus the settings' `extra`, grouped Continent → Country → area (`Group`, a `Collapsible`, per
+continent holding one per country of two or more rows, with rows of `Checkbox` subclasses: a `DataTable`'s first click
+only moves its cursor, a `SelectionList` has no cell to click for the target). A country of one row (after `PARENTS`
+and the extra rows) has no group: its row sits in the continent by its title, in the countries' order, so nothing moves
+when it gains a second row (`SINGLE_ROW_COUNTRY_LEVEL`, False by the user's word of 2026-11-15). `Row.country` is
+`COUNTRIES`' name after `PARENTS` (a territory under its country: Saint-Barthélemy, Saint-Martin,
+Saint-Pierre-et-Miquelon under France, Puerto Rico and the US Virgin Islands under the United States, Åland under
+Finland; an empty table gives each code its own country). A row's continent is where it lies (the user's word of
+2026-11-15): its own outline's, else `REGION_CONTINENTS` (Guadeloupe, Martinique and the Caribbean Netherlands in North
+America, French Guiana in South America, Réunion and Mayotte in Africa, Tokyo and Shizuoka in Asia), else its
+country's; so a country may have a group under two continents
+(`group-europe-france`, `group-north-america-france`). `Row.label` is what a row in a
+country's group shows (the region's or territory's name, a country-wide row "Whole country · <source>"); the title and
+name stay the full ones. An extra row's country is its `"country"`, else its title's part before ": " when that is a
+known name, else its title (a territory's name through `PARENTS`); continents, and countries within one, whose names
+slug alike are one (`_one_spelling`: the group ids are slugs). Sorted by `CONTINENTS`, country, the country-wide row first, label. Each group's title
+carries its count and ticked count; at start the continents open and a country's group only when one of its rows has a
+state (`FOLD_AT_START`); the filter matches title and country, opens the groups with a match, hides the others and
+gives the folds back when cleared; up and down walk the visible titles and boxes. A checkbox
 only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A row's name is its name in the state folder
 (`slug` of the title: `poland`, `czechia`, as the downloads started by hand). The settings (a JSON file outside the
 repository: the docstring of `area_rows.py`) name the state folder, a contact (`FINDALINE_CONTACT` of what starts,

@@ -145,6 +145,9 @@ class SearchParams(BaseModel):
     min_drop: Optional[float] = field(None, "keep only lines whose anchors are both at least this many metres "
                                             "above the lowest terrain within --drop-radius", "search")
     drop_radius: float = field(50, "metres around an anchor in which its drop is measured", "search")
+    access: bool = field(False, "mark whether an athlete can walk to each anchor: easy access (on foot), "
+                                "cannot tell, or hard access (from the terrain alone: no paths, fences, "
+                                "private land or trees; no line is filtered out)", "search")
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
                                          "at most a container's CPU quota); from 2, the files of a large run are "
                                          "written by processes of their own (2 and 3: two, 4 and more: four)",
@@ -342,7 +345,7 @@ TOPICS = {
     "where": ["lat", "lon", "northing", "easting", "radius", "area", "buffer", "within", "name"],
     "height": ["nmpt", "high_above", "min_height", "min_mean_height", "min_high_share"],
     "anchors": ["slope_threshold", "min_elevation", "max_elevation", "min_prominence", "min_prominence_both",
-                "prominence_span", "min_drop", "drop_radius"],
+                "prominence_span", "min_drop", "drop_radius", "access"],
     "lines": ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "max_wall_angle",
               "same_line_square"],
     "data": ["source", "resolution", "water", "coastline", "shore_buffer", "fill_gaps", "update"],

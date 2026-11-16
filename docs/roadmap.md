@@ -1046,7 +1046,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Plan** (the user, 2026-11-03): wave 0 research of Colombia, British Columbia, Saarland and Hamburg; wave 1
   Saarland and British Columbia. Hamburg not built: its DGM1 2022 and image-matching bDOM 2022 (one 1.3 GB ZIP each,
   dl-de/by-2.0) are readable by the same ZIP part, but the city has no highline terrain (at most 13-14 m of relief
-  within 11 m at Blankenese); worth it only to close the coverage map's hole. Colombia waits for IGAC: its MDT
+  within 11 m at Blankenese); worth it only to close the coverage map's hole (built in batch 6, coverage only).
+  Colombia waits for IGAC: its MDT
   ImageServers (CC BY 4.0 per the open data catalogue, the services name no licence) are on mapas2.igac.gov.co, which
   refuses connections from outside Colombia, and mapas.igac.gov.co/image answered 502 for an afternoon; Suesca's rocks
   have 10 m only. Mails drafted to LVGL, LidarBC and IGAC (`local/mail-drafts.md`, 21-23).
@@ -1140,7 +1141,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - The six-neighbour cap of the country cube (`countcube.PARTNERS`) kept TINITALY from Austria and France and the
     Netherlands from Lower Saxony: their border strips fill from 30 m data. Raising it changes the cube's format: a
     task of its own later (the user, 2026-11-15).
-  - Réunion and Mayotte (RGE ALTI layers exist), the overseas DSM (MNS Correl only resampled), AHN5 and AHN6 (licence
+  - Réunion and Mayotte (RGE ALTI layers exist; built in batch 6), the overseas DSM (MNS Correl only resampled), AHN5 and AHN6 (licence
     and URL pattern: a mail to info@ahn.nl), filling the AHN DTM's wall gaps from its own DSM instead of 30 m data,
     TINITALY's surface gaps (South Tyrol's and Trento's surface gaps in Italy take TINITALY's terrain, no trees).
   - The VPS downloads every new OSM extract (italy 2.25 GB, isole, australia, netherlands, ...: the user kept them all,
@@ -1209,7 +1210,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   resampling choice is limited to EPSG:3857 (degrees still count as 111 320 m: no existing result moved; under *To
   check*); OSNI's 10 m DTM for inland Northern Ireland follows the user's words of 2026-11-15 (above).
 - **Open from wave 2**:
-  - Valle d'Aosta's DSM (DSM0508_002) comes by hand later (the user, 2026-11-14).
+  - Valle d'Aosta's DSM (DSM0508_002) comes by hand later (the user, 2026-11-14; batch 6: waits for mail 29).
   - Valle d'Aosta and Madeira need their folders in the local mirror (`FINDALINE_MIRROR`, docs/deployment.md section
     16): the VPS's mirror holds Slovakia's only (the user, 2026-11-15), so there Valle d'Aosta falls back to TINITALY
     and Madeira to europe until `madeira/` and `aosta/` are copied next to `slovakia/`.
@@ -1228,11 +1229,120 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - Northern Ireland: DAERA's tiles at the 54/min the mail promises (`net.HOST_RATES_OF`) until DAERA answers (mail
     27). The cells masks of both LERC sources are refreshed by hand (`tools/lerc_coverage.py`).
   - Porto Santo, the Desertas and the Selvagens could come from the 5 m ZIP of the same DROTe record (not used; the
-    2 m covers Madeira island only, and Madeira's offline box does not reach the Selvagens).
+    2 m covers Madeira island only, and Madeira's offline box does not reach the Selvagens). Built in batch 6.
   - Estonia: a new upload of the whole country needs `EE_RELEASE` changed by hand.
   - Mails 27-31 drafted, not sent (DAERA, IPP, Valle d'Aosta, DLS, Het Waterschapshuis).
   - The VPS will download the new Geofabrik extracts: nord-ovest (Valle d'Aosta), portugal (Madeira), centro
     (Tuscany), ireland-and-northern-ireland, sudeste (Rio de Janeiro), mexico, cyprus, estonia.
+
+### Batch 6 (started 2026-11-15)
+- **Plan** (the user, 2026-11-15, from the list of sources still waiting: "Wallonia;Hong kong; Valle d'Aosta, surface
+  model; Porto Santo, Desertas; Portugal mainland + Azores; New South Wales; Italy's national lidar - give link i will
+  check; Thuringia; Saint Vincent; ACT, South Australia's coast; Bremen, Berlin; Réunion and Mayotte; Shizuoka and
+  Tokyo:;Ontario - can we check if it is better data?; Ireland; Hamburg"): manual downloads by the user, automatic
+  sources built, "Store native resolution, with our usual compression", and the area download window grouped
+  "Continent -> Country -> Country Area / dataset". Berlin was built already (in `brandenburg`). Spain's finer models
+  and the USA's OPR DEMs are other sessions'; hosting the mirror and deploying are outside the batch. What stays
+  unbuilt is specified in [new-sources-6/spec.md](new-sources-6/spec.md), so that a later session builds each
+  without new decisions.
+- **Built** (2026-11-15/16, its commits under the tag `history/new-sources-6`, each part reviewed for scope and code):
+  - *The area download window* (`tools/area_rows.py`, `tools/area_download_tui.py`): Continent → Country → area; a
+    country level only for a country of two or more rows (the user: "No, only countries with multiple options"); a
+    territory under the continent where it lies ("move them to correct continent": Guadeloupe, Martinique and the
+    Caribbean Netherlands in North America, French Guiana in South America, Réunion and Mayotte in Africa) and under
+    its country's group there; the Canary Islands, Madeira, Svalbard and Jan Mayen stay in Europe ("Windows ok",
+    gate 0). 84 rows.
+  - *La Réunion and Mayotte*: `france_reunion` (IGN's LiDAR HD MNT / MNS 0.5 m by WMS-R, fetched at 1 m, gaps from
+    `france_reunion_rgealti`, RGE ALTI 1 m), R93 Cilaos (4 226 lines in 50 spots); `france_mayotte` (RGE ALTI 1 m),
+    built with the sea floor rule below; no entry (no line).
+  - *Hamburg* (`hamburg`: LGV's DGM1 and image-matching bDOM1 2022, members of two ZIP archives by Range) and *Bremen
+    and Bremerhaven* (`bremen`, `bremerhaven`: Landesamt GeoInformation Bremen's DGM1 / DOM1 of 2017 and 2015, XYZ
+    members of a ZIP per city and model, two areas `de-hb`, `de-hb-bhv`): coverage only, no entry.
+  - *Tokyo and Shizuoka* (`tokyo`, `shizuoka`): 0.5 m lidar terrain grids in sheets of the plane rectangular grid,
+    Tokyo's from a static table of 18 891 sheets (`tools/tokyo_sheets.py`), Shizuoka's LP grids from its bucket's
+    listing, composed newest first; no surface model. R84 Okutama (9 lines in 5 spots), R85 Jogasaki (1 002 in 22).
+  - *Madeira's other islands* (`porto_santo`, `desertas`, `selvagens`): DROTe's 5 m ZIP, a mirror dataset per island
+    group cut by the reworked `tools/mirror_tiles.py` (3.4 MB together, final and verified, copied into the local
+    mirror 2026-11-16); before `madeira` in pt-30, chosen by their boxes. R86 Porto Santo (7 184 lines in 431 spots),
+    R87 Deserta Grande (784 in 130), R88 Selvagem Grande (972 in 114), skipped without the folders.
+  - *Hong Kong* (`hong_kong`): CEDD's 2020 lidar DTM and DSM 0.5 m read on demand from the CSDI Portal's sheet ZIPs
+    of 750 × 600 m over a static table of the index (`tools/hong_kong_sheets.py`: 3 253 terrain and 3 310 surface
+    sheets; 57 sheets have a surface model and no terrain); heights above HKPD, lowered by 1.30 m on the grid (the
+    decisions below). R91 Lion Rock (8 lines in 3 spots).
+  - *Ontario* (`ontario`): to the user's question "Ontario - can we check if it is better data?" wave 0 measured the
+    province's data against `canada`'s HRDEM mosaic: the same lidar on land to 1-3 cm, at twice the resolution and on
+    the surveys' own grid (canada's EPSG:3979 reads lengths 1.8-2.6 % long), more of the small walls (Rattlesnake
+    Point: 84 pixels over 80° at 1 m against 9), but fewer projects (the province lacks 4 of 18 crag points canada
+    has); its ImageServer's guide calls the service "not a data distribution tool". Built from the province's package
+    ZIPs (gate 0, below): single 1 km tiles by Range in NAD83(CSRS) / UTM 15-18, the newest survey first, an older
+    provincial one filling its holes, then `canada`; `ontario` only where the province has a tile within 2 km. R90
+    Lion's Head: 702 lines in 47 spots against 419 with `--source canada` (whose lengths read 1.7 % long there). Two
+    projects' terrain (CLOCA 2018, SNC 2018-19: 1 404 members) is Deflate64 and left out. The shared ZIP-member
+    reader now reads an archive's directory again once when a member's bytes are not the directory's, or on a 416
+    (Saarland, Hamburg, Bremen and Bremerhaven too; their tile bytes unchanged).
+  - *Tools*: `tools/cdd_fetch.py` (the bulk fetch of Portugal's CDD lidar models with an account and of Wallonia's ten
+    province ZIPs; standard library only, for the user's home server), `tools/mirror_tiles.py` reworked (datasets of
+    many inputs: URLs, placed files, the fetch tool's folders; a product cut once, below), `tools/tokyo_sheets.py`,
+    `tools/hong_kong_sheets.py`.
+- **Decided by the user**:
+  - *The sea floor of IGN's overseas models* (2026-11-15: "Sea floor in IGN's 1 m overseas models (Guadeloupe,
+    Martinique, French Guiana, Saint-Pierre-et-Miquelon, Réunion's filler, Mayotte): a)"): heights below -1 m are no
+    data on those layers (`OVERSEAS_FLOOR`, `Layer.nodata_below`), so the sea fill puts 0 m there; not the mainland's
+    layers, not LiDAR HD. A behaviour change measured: Saint-Pierre (Martinique) 9 445 false lines → 0, Fort-de-France
+    harbour 4 097 → 0, Mayotte's north-west shore 315 → 0, the Bouéni mangrove 1 528 → 0; R89 Grand'Rivière pins it
+    (its 6 lines are the same with and without the rule). Applied where the tiles are read onto the grid, never when
+    one is written: no migration. "Réunion's bad offshore lidar pixels a)": left, a known finding
+    (docs/known-bugs.md).
+  - *Madeira's islets* (2026-11-15, "b)" of three floors): below -1 m is no data in the mirror datasets `desertas` and
+    `selvagens` (set when the tiles are cut; their coast pixels near -490 m were averaged with -999); Porto Santo none
+    (its lowest value -0.84 m).
+  - *No line, no regression entry* (2026-11-15: "keep Hamburg as a coverage-only source without a regression entry
+    (the unit tests and data checks still guard it)"): a source whose terrain holds no line is coverage-only, guarded
+    by unit tests and data checks: Hamburg, Bremen, Bremerhaven, Mayotte.
+  - *Réunion stored at 1 m* (2026-11-15: "store 1m as france"): a 1 m grid caches the service's 1 m answers, as the
+    mainland's source does, not the 0.5 m tiles.
+  - At gate 0 (2026-11-15: "1. a 2. c 3. a 4. a 5. a 6. a 7. a"): *Bremen as two sources*, each on its own grid,
+    terrain and surface; *Ireland dropped again* (why: the spec, "Ireland"); *Ontario from the package ZIPs* (the
+    province's official download route, single tiles by Range, `canada` filling gaps); *Hong Kong without a mirror
+    copy* (an automatic source now; mail 33 asks CEDD about a hosted copy); Valle d'Aosta's surface model by mail 29
+    (one file, as the terrain); the Selvagens included; Thuringia built when its server answers (mail 16).
+  - *The Australian orders* (gate 0: "manual download limitted to 15GB per request. Write mail including question
+    about bulk download permision / methods, i will send it."): no order until mails 34 and 35 are answered.
+  - *Portugal and Wallonia on the user's server* (2026-11-15: "I choose my mirror"; "option b)": the whole mainland and
+    the Azores, terrain and surface; on the cutting: "do it there", "Also i would like do it with wallonia"; the
+    server plan: "server fetches and cut all", "hosted mirror", "i will delete them by hand"): fetched by
+    `tools/cdd_fetch.py` and cut by `tools/mirror_tiles.py` on the user's home server, all their data under the
+    folder of the script; this PC and the site read them only through the hosted mirror; the tools delete no fetched
+    file; the code reaches the server from GitHub (main and a push first, each on the user's word). Their catalogue
+    entries are not built (spec).
+  - On five open questions (2026-11-16: "1. a) and add it to repo anyway; 15+TB free", "2. a", "3. a", "4. a",
+    "5. a"): the user copies `tools/cdd_fetch.py` to the server by hand (it is in the repository as well; the server
+    folder has more than 15 TB free, so nothing is deleted for space); *Bremerhaven's surface model shifted half a
+    pixel* onto its terrain's grid, copied, not interpolated (`TransformFix.shift`; (+0.5, +0.5) m by convention, a
+    measurement against the city's own terrain did not decide; each tile cut to its kilometre); *Tokyo's island
+    sheets floored at -1 m*, the mainland never (`Layer.floor_of`, a floor per cached file; R92 Mikurajima: 263 lines
+    in 20 spots, the 47 lines across the seabed gone); Bremerhaven's *constant planes left*, a known finding; *Hong
+    Kong's heights lowered by 1.30 m* on the grid (`Layer.height_offset`; R91 re-baselined: the same 8 lines, each
+    anchor 1.30 m lower). What each leaves behind: docs/known-bugs.md.
+- **Decided by the coordinator** (2026-11-16, after two code reviews of the cutting tool found wrong or stuck states
+  in the cut-while-fetching path): `tools/mirror_tiles.py` cuts a product once, when every input is there, in a
+  staging folder, and makes it final by one rename into `<dataset>/<product>/<res>m/` (`sources.TileBases` takes a
+  dataset as there once that folder exists); changed inputs are a new edition. A product's fetched files stay until
+  it is final and verified. Madeira 2 m, Valle d'Aosta and Slovakia are byte for byte unchanged.
+- **Open** (the first two are the user's decisions, specified in the spec's "Open decisions"; the last two are
+  noted, not asked):
+  - A Deflate64 reader for Ontario's two projects (a library: the user's decision after a comparison).
+  - A guard in `tests/regression.py --update` against a baseline on the coastline fallback (proposed as a separate
+    small change; docs/regression-tests.md, item 5).
+  - The VPS's Geofabrik extracts: a suggestion to leave kanto, chubu and ontario out as British Columbia's
+    (docs/deployment.md, section 9), waiting for the user's word.
+  - LEAP 2009 (Ontario) is in CGVD28 beside CGVD2013 data: its offset is not measured.
+- **Waiting** (mails drafted in the user's private `local/mail-drafts.md`, sent by the user): 16 TLBG (Thuringia), 29
+  Valle d'Aosta (the DSM as one file), 32 SPW Wallonia (a notice), 33 CEDD Hong Kong (a re-tiled copy), 34 NSW
+  Spatial Services (a re-tiled copy, the licence, bulk download), 35 ELVIS (bulk download), 36 DGT Portugal (a
+  whole-country copy), 37 AIGID (Shizuoka's file formats), 38 Landesamt GeoInformation Bremen (DOM1: licence and
+  address). Italy's national lidar (PST): the user tries the portal first. Saint Vincent: a manual download, not
+  made yet. Portugal and Wallonia: the fetch and the cut on the user's server.
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
@@ -1391,7 +1501,7 @@ The top level of `cache/` stays one folder per country or per global dataset, so
 | Metadata | `index.sqlite` in every top-level folder, one row per file keyed by its path (which names dataset, edition and tiling): status (`ok`, `missing`), fetched/checked/last-used times, ETag, Last-Modified, sha256, date of the source data, processing version. Replaces the `.missing` files. URLs are stored without secrets (no OpenTopography key). A row without a file means missing; a file without a row is adopted. |
 | Updates | Never during a search. `--update stale|all` or `findaline cache update [folder] [--point/--bbox]`; `findaline cache status` lists folders with size, last use and stale tiles. Missing tiles are re-checked by `update` like any other (after 90 days). Checks never stop a search: offline or on errors the cached data is used with a warning. |
 | OSM | Themes (coastline, cliffs, crags...) in `osm/themes/<theme>/<tile>.geojson` on a fixed 0.25° grid, filled from Overpass by default. `findaline osm download <country>` adds a Geofabrik extract in `<country>/osm-extract/`; when present, themes are built from it and `findaline osm update` applies the daily diffs. Fallbacks as today: world water polygons, then Overpass, then the Copernicus mask. |
-| Tile encoding | Decided and built 2026-11-06: every float elevation tile is cached as LERC_ZSTD with an error bound of 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too (their sha256 is checked on the downloaded bytes first); integer files and the Slovak mirror's tiles (LERC already; its averaged 2 m and 5 m tiles lossless) stay as they are. About 40 % less disk; a study of 9 regression places lost or added no spot, the full set 4 lost and 4 added spots of one or two lines at 0-1 cm of clearance, and every `lines.csv` checksum changed (re-baselined). Migration automatic: a search re-encodes the old tiles it reads before reading them, `cache migrate` the rest; paths, `cache/LAYOUT` and the index's schema unchanged, so older code reads a migrated cache. |
+| Tile encoding | Decided and built 2026-11-06: every float elevation tile is cached as LERC_ZSTD with an error bound of 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too (their sha256 is checked on the downloaded bytes first); integer files and the Slovak mirror's tiles (LERC already; its averaged 2 m and 5 m tiles lossless) stay as they are. About 40 % less disk; a study of 9 regression places lost or added no spot, the full set 4 lost and 4 added spots of one or two lines at 0-1 cm of clearance, and every `lines.csv` checksum changed (re-baselined; counted on 2026-11-05: 55 of the 64 entries moved). Migration automatic: a search re-encodes the old tiles it reads before reading them, `cache migrate` the rest; paths, `cache/LAYOUT` and the index's schema unchanged, so older code reads a migrated cache. |
 | Runs | Each run records the data it used (`data` in `run.json`: folder, number of files, oldest and newest fetch time, survey years of sheets); `cache status` lists runs computed on data that has changed since. |
 
 **Layout**
@@ -1510,6 +1620,15 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **Retries with backoff when nothing answers at all** (seen 2026-11-13, the test-speed task; the user's word: into the roadmap): `sources.net._get` makes `RETRIES` (3) attempts and sleeps `_sleep(attempt)` (0.5-1.5 times 2^attempt s) after a failure, whatever the failure was, also a connection that is refused outright (no network, a dead proxy), where a second attempt a second later cannot do better. Measured where it shows, the country tests, which run `country.run` behind a dead proxy (127.0.0.1:9): `relief.fetch_relief_tiles` took 202 s over 19 calls, 103 s of it in the backoff (48 sleeps) and 98 s in 80 refused connects (2.02-2.06 s each on Windows, the system's own retry of a refused loopback connect), before `country._set_weights` says "the tiles' weights from the relief failed" and keeps the tiles in their order. So a `country run` started offline waits about 10 s a relief fetch (the tests' figure; not measured on a PC without a network, where the failure may be a DNS error or a timeout instead) before going on as it would have at once, and every other `net._get` behind a refused connection waits the same way. To decide: whether a refused connection (and a name that does not resolve) is retried at all, or once without backoff, while timeouts, resets and 5xx keep the three attempts with backoff (swisstopo's fair use asks for the backoff: `_sleep`'s docstring); or whether `_set_weights` skips the relief when the search is known to be offline. Not assigned.
 - **minimatch in the viewer's dev tools** (Dependabot alert 3, medium, dismissed as a tolerable risk on 2026-11-14; the user's word: into the roadmap to fix): `viewer/package-lock.json` holds minimatch 10.2.6, fixed in 11.0.1, but `generate-license-file` 4.2.5 (the newest; `viewer/build.mjs` writes the bundle's licence file with it) needs `^10` through `@npmcli/arborist`, `@npmcli/map-workspaces`, `@tufjs/models`, `glob` 13 and `ignore-walk`, so Dependabot's security update failed on every attempt (the only path it found downgraded generate-license-file to 2.0.0). Dev only: nothing of it reaches the bundle, and CI's `npm audit --omit=dev` does not see it. To fix: a newer generate-license-file that allows minimatch 11 (check its releases), or an npm `overrides` entry `"minimatch": "^11.0.1"` if `node build.mjs` still writes the same licence file with it (a major version: compare the file byte for byte), or another library for the licence file. Not assigned.
 - **A geographic raster's pixel counted at 111 320 m both ways** (found 2026-11-15, batch 5 wave 2, the review of the LERC tiles): `mosaic.src_pixel_m` takes a degree as 111 320 m for the mosaic's choice of resampling (average when the data are finer than `FINER` 0.75 of the grid's pixel, else bilinear), but a degree of longitude is that times the cosine of the latitude, so a geographic raster counts its east-west pixel too coarse by 1/cos(lat) (FABDEM, Copernicus GLO-30, GA's 5 m DEM in EPSG:4283: at 50° N FABDEM's 1″ is 30.9 m north-south but 19.9 m east-west), and the mosaic may pick bilinear where average would apply. Only EPSG:3857 got the cosine (3c80a85: Northern Ireland's LERC tiles). A fix moves existing results (every entry whose grid takes a geographic layer near the threshold): measure first which entries change, then decide. Not assigned.
+- **Noted in batch 6 of the new sources** (2026-11-15/16; not assigned):
+  - `docs/images/coverage-*` were not rendered again (`tools/coverage_media.py readme`) by any batch since e881195,
+    while batches 5 and 6 added areas to the coverage map.
+  - `tests/test_web.py::test_search_panel_on_a_phone` fails now and then in a loaded full run (KeyError 'phone').
+  - `CachedIndex._listed` is kept per process and keyed by the grid alone, not by the data folder: a test that lists
+    one grid in two data folders must clear it.
+  - A tile lock taken inside another (`sources/indexes/metalink.py` and `zipdir.py`, the directory's or table's lock
+    inside a tile's) can make a search wait on itself when both names hash to one lock file (1 in 4096); Ontario's
+    and Shizuoka's own nested locks were removed in the batch.
 - **Hugging Face for the Slovak tiles** (parked 2026-11-15: the project's data server serves them; Hugging Face stays possible as a second base, the specification's section 13): dataset repository or Storage Bucket (FABDEM's mirror is a bucket); the docs disagree on a soft cap per public repository (300 GB or 1 TB) and on limits for anonymous downloads; check before uploading (134 GB at 1 m as cut, 2 × 12 826 files plus two indexes; about 530 GB with the 0.5 m cycle).
 - **geoportal.gov.pl sheet files instead of WCS** (done 2026-10-25, `SheetTiles`: newest sheet of 0.5–1 m per godło, cached as GeoTIFF, working grid aligned to the sheet pixels, offline from the cached sheets; the Polish regression tests now take 3 min instead of 15). Findings: the EVRF2007 NMT index covers all of Poland (63 465 sheets 1:5000 of ≤ 1 m in PL-1992, plus PL-2000 sheets in some cities), the NMPT about 85% (53 846, all laser scans, `.asc`); the newest NMT sheet is `.asc` for 94% of the sheets, `.xyz.zip` for most others; in 56% of the sheets it is labelled "aerial photos", but in a sample these held the values of the earlier laser scan (4 of 5 identical, 1 within ±3 cm). Before: the EVRF2007 WCS spends 30–50 s generating each 2 km ASCII tile (75 MB, 55 s in all; four parallel requests take as long as one), while the sheet files linked from the WFS indexes (`url_do_pobrania` on `opendata.geoportal.gov.pl`) download at about 17 MB/s: a 1 m NMT sheet of about 2.3×2.3 km (37 MB) in 2 s, roughly 30× faster per km². It is also the download path the geoportal pages describe, and the cache would then match the units GUGiK updates (sheet, year, `nr_zglosz`). To check first: whether the EVRF2007 indexes cover all of Poland with 1 m sheets, the sheet formats (`.asc`, `.xyz.zip`, `.zip`), the NMPT sheets, and choosing between sheets of different years and sources (laser scan vs aerial photos). The geoportal pages give no limits for parallel requests; technical contact: service.desk@gugik.gov.pl.
 - **geoportal.gov.pl height system** (done 2026-10-24: switched to EVRF2007 at native resolution, averaged locally, Polish tests re-baselined; the server's own downsampling left most of the Tatras empty at 5 m): the sources used the KRON86 coverages (`DTM_PL-KRON86-NH_TIFF`, `DSM_PL-KRON86-NH`), whose sheet indexes end in 2019. The WCS also has `DTM_PL-EVRF2007-NH` (ASCII grid only) and `DSM_PL-EVRF2007-NH`. Checked on 2026-10-24 by comparing 200×200 m windows of both coverages with the sheet files (difference of differences, so the resampling of the WCS cancels out): the difference between the two coverages equals the difference between the newest KRON86 and the newest EVRF2007 sheet (residual median 0.00 m, p5–p95 about ±0.2 m) at Żabi Koń (2013 vs 2023), Kasprowy (2012 vs 2025), Sokoliki (2012 vs 2025) and Gdańsk (2018 vs 2024); in Warsaw the EVRF2007 coverage matches the 2025 sheet within ±0.1 m. So **the KRON86 coverage holds surveys up to 2019 and the EVRF2007 one the newest**, 5–13 years newer in these places. Before step 2: switch NMT and NMPT to EVRF2007 (NMT only as ASCII grid: `fmt="image/x-aaigrid"`) and re-baseline the Polish regression tests. To watch: some newest sheets come from aerial photos, not laser scanning (Sokoliki 2025); at Żabi Koń the 2024 "aerial photo" sheet holds exactly the values of the 2023 laser scan.

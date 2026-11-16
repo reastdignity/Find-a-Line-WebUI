@@ -12,7 +12,7 @@ import cache
 
 from ..indexes.metalink import MetalinkIndex
 from ..indexes.zipdir import ZipDirectories, ZipPerTile, ZipTile
-from ..readers.zipmember import ZipMember
+from ..readers.zipmember import TransformFix, ZipMember
 from .indexed import IndexedTiles
 from .metalink import MetalinkTiles
 
@@ -27,14 +27,18 @@ class ZipMemberTiles(MetalinkTiles):
     <folder>/<east // 10>_<north // 10>/<east>_<north>[_<year>]_<crc8>.tif.
 
     floor and ring are ZipMember's: pixels below floor, and those within ring pixels of one, made no data when
-    the tile is written (a survey's artifact; the source's gap filler fills them). A 404 of an archive or a
+    the tile is written (a survey's artifact; the source's gap filler fills them); so is fix (TransformFix: the
+    member's transform corrected before the tile is written; None leaves it as the file says); with clip the tile
+    keeps only the member's pixels inside its own box of tile_m (ZipMember.placed: a member reaching into the next
+    tile's box, Bremerhaven's DOM1 after its shift, gives that box to the next tile). A 404 of an archive or a
     member not where its directory said makes the directories be read again (the share's token resolved again)
     and the member tried once more from there; the 0.25° answers are forgotten then, so they are made again from
     the new directories."""
 
     def __init__(self, description: str, archives: Sequence[str], name: str, folder: str, crs: str, prefix: str,
                  share: Optional[str] = None, native_res: float = 1.0, tile_m: float = 1000,
-                 bytes_per_tile: float = 2e6, floor: Optional[float] = None, ring: int = 0):
+                 bytes_per_tile: float = 2e6, floor: Optional[float] = None, ring: int = 0,
+                 fix: Optional[TransformFix] = None, clip: bool = False):
         IndexedTiles.__init__(self, description, share or archives[0], prefix, folder, native_res=native_res,
                               bytes_per_tile=bytes_per_tile)
         self.metalinks, self.name, self.index_crs, self.crs, self.tile_m = tuple(archives), name, crs, crs, tile_m
@@ -42,7 +46,8 @@ class ZipMemberTiles(MetalinkTiles):
         top = folder.split("/")[0]
         self.listing = ZipDirectories(archives, name, crs, native_res, top, prefix, tile_m, share)
         self.index = MetalinkIndex(description, self.listing, ZipPerTile(folder, crs, tile_m), prefix, top)
-        self.reader = ZipMember(description, crs=crs, floor=floor, ring=ring, renew=self._renew)
+        self.reader = ZipMember(description, crs=crs, floor=floor, ring=ring, renew=self._renew, fix=fix,
+                                clip=tile_m if clip else None)
         self._renew_lock = threading.Lock()
 
     def _current(self, tile: ZipTile) -> Optional[ZipTile]:
