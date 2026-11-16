@@ -27,6 +27,7 @@ RCLONE = os.environ.get(mp.RCLONE_ENV) or shutil.which("rclone")
 pytestmark = pytest.mark.skipif(not RCLONE, reason="rclone is not installed (FINDALINE_RCLONE or PATH)")
 
 REAL_CALL = mp.Rclone._call  # rclone itself, before any test's patch
+REAL_MARGIN = mp.MARGIN_BYTES  # before the fixture lowers it
 REMOTE = "mirrorfixture"  # the remote's name: no line of the tool's output may hold it
 # The fixture datasets: the real dataset names (their rows, cards and catalogue sources are used), tiny tiles
 DATASETS = {
@@ -418,7 +419,8 @@ def test_second_publish_refused_on_the_lock(world, capsys):
     lock.write_text(held)
     assert world.run("publish", "madeira", "--to", world.to, "--mirror", str(world.mirror)) == 1
     out = capsys.readouterr().out
-    assert "locked by other-pc" in out and "--break-lock" in out
+    assert "locked since 2026-11-16T10:00:00Z (publish aosta)" in out and "--break-lock" in out
+    assert "other-pc" not in out  # the other PC's name stays in the lock file, never in the output
     assert lock.read_text() == held and not (world.server / "public").exists()
     assert world.run("unpublish", "madeira", "--to", world.to) == 1
     assert lock.read_text() == held
@@ -478,15 +480,20 @@ def test_stats_prints_no_address(world, capsys):
          "lim": "-", "v": "<script>198.51.100.11"},
         {"t": "2026-11-15T10:00:04Z", "s": 200, "b": 10, "rt": 0.0, "ds": "-", "a": "198.51.100.12",
          "lim": "-", "v": "198.51.100.12"},
-    ]
+    ] + [  # an address spelt other ways, in every free field
+        {"t": "2026-11-15T10:00:05Z", "s": 429, "b": 0, "rt": 0.0, "ds": spelt, "a": "203.0.113.7", "lim": spelt,
+         "v": spelt} for spelt in ("203-0-113-7", "203.0.113_7", "1.2.3.4", "ip-203-0-113-7", "3405803783",
+                                   "203_0_113_7")]
     text = "\n".join(json.dumps(line) for line in lines) + "\nnot json from 192.0.2.44\n"
     (logs / "access-2026-11-15.log").write_text(text, encoding="utf-8")
     (logs / "access-2026-11-16.log").write_text(json.dumps({**lines[0], "t": "2026-11-16T00:00:00Z"}) + "\n")
     (logs / "heartbeat").write_text("x")
     assert world.run("stats", "--from", f"{REMOTE}:logs") == 0
     out = capsys.readouterr().out
-    for address in ("203.0.113.7", "2001:db8::1", "198.51.100", "192.0.2.44"):
+    for address in ("203.0.113.7", "2001:db8::1", "198.51.100", "192.0.2.44", "203-0-113-7", "203.0.113_7",
+                    "1.2.3.4", "3405803783", "203_0", "113"):
         assert address not in out
+    assert "2026-11-15  other                7 requests" in out  # the spelt addresses' "ds"
     assert "2026-11-15  slovakia             2 requests       0.006 GB" in out
     assert "2026-11-15  madeira              1 requests" in out
     assert "2026-11-15  rate                 1" in out
@@ -550,8 +557,9 @@ def test_resolutions_required_are_the_catalogues():
 
 def test_layout_is_grid_tile_name():
     """The tiles publish copies are named as GridTiles reads them (grid_tile_name, sk_tiles.tile_name)."""
-    index = {"tiles": {"-3_4": "a", "12_2": "b", "0_0": None}, "block": 10}
-    assert mp._index_tiles(index) == {src.grid_tile_name(-3, 4): "a", sk_tiles.tile_name(12, 2): "b"}
+    a, b = "a" * 64, "b" * 64
+    index = {"tiles": {"-3_4": a, "12_2": b, "0_0": None}, "block": 10}
+    assert mp._index_tiles(index) == {src.grid_tile_name(-3, 4): a, sk_tiles.tile_name(12, 2): b}
     assert set(mp._index_tiles(index)) == {"-1_0/-3_4.tif", "1_0/12_2.tif"}
 
 
@@ -568,3 +576,290 @@ def test_cards_state_the_changes():
     assert "2 m and 5 m" in sk and "mean" in sk and "2 × 2" in sk and "5 × 5" in sk
     aosta = mp.cards()["aosta"]
     assert SOURCES["aosta_valley"].attribution in aosta and mp.PUBLISHABLE["aosta"]["licence_url"] in aosta
+
+
+# Fix round 1 (the code and scope reviews of 2026-11-16)
+
+REAL_SHA = getattr(mp.Remote, "sha256_of", None)  # getattr: these tests also ran against the tool before it
+SECRET = b"ERROR : sftp://secretuser@secret-host.example:2222//srv/secret-root/staging: failed\n"
+
+
+def _publish(world, name, *more):
+    return world.run("publish", name, "--to", world.to, "--mirror", str(world.mirror), *more)
+
+
+def _other_lock():
+    return json.dumps({"pc": "other-pc", "time": "2026-11-16T11:00:00Z", "command": "publish aosta",
+                       "token": "b" * 32})
+
+
+@pytest.mark.parametrize("name", ["slovakia/dmr5", "..", "../../../logs", "", ".", "/abs/path", "C:\\abs", "a\\b",
+                                  "Madeira", "madeira/"])
+def test_bad_dataset_names_refused_before_any_request(world, monkeypatch, capsys, name):
+    """F1: publish and unpublish refuse a name outside [a-z0-9_-]+ before any rclone call; the server's tree byte for
+    byte as before."""
+    assert _publish(world, "madeira") == 0 and _publish(world, "aosta") == 0
+    before = tree(world.server)
+    calls = _watch(monkeypatch, world, ["madeira", "aosta"])
+    capsys.readouterr()
+    for args in (("unpublish", name, "--to", world.to), ("publish", name, "--to", world.to, "--mirror",
+                                                          str(world.mirror))):
+        assert world.run(*args) == 1
+        out = capsys.readouterr().out
+        assert "refused:" in out and "not a dataset's name" in out
+    assert calls == [] and tree(world.server) == before
+
+
+def test_unpublish_only_a_published_folder(world, capsys):
+    """F1: unpublish of a valid name that public/v1/tiles does not list: refused, nothing moved, datasets.json as it
+    was, no lock left."""
+    assert _publish(world, "madeira") == 0
+    before = tree(world.server)
+    assert world.run("unpublish", "slovakia", "--to", world.to) == 1
+    out = capsys.readouterr().out
+    assert "refused:" in out and "slovakia is not published" in out
+    assert tree(world.server) == before
+
+
+def test_release_leaves_another_runs_lock(world, monkeypatch, capsys):
+    """F3: a lock overwritten by another run during this run is not deleted by this run's release."""
+    lock = world.server / "staging" / ".lock"
+
+    def after(argv, done):
+        if "copy" in argv:
+            lock.write_text(_other_lock())
+        return done
+    _watch(monkeypatch, world, ["madeira"], after=after)
+    assert _publish(world, "madeira") == 0
+    assert "holds another run's lock now: left as it is" in capsys.readouterr().out
+    assert lock.read_text() == _other_lock()
+
+
+def test_a_run_reading_another_token_after_its_write_stops(world, monkeypatch, capsys):
+    """F3: two runs write the lock at the same moment: the one that reads back the other's token stops without
+    touching anything (the other's lock stays)."""
+    lock = world.server / "staging" / ".lock"
+    real_write = mp.Remote.write
+
+    def write(self, rel, data):
+        real_write(self, rel, data)
+        if rel == mp.LOCK:
+            lock.write_text(_other_lock())
+    monkeypatch.setattr(mp.Remote, "write", write)
+    calls = _watch(monkeypatch, world, ["madeira"])
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "refused:" in out and "another run took the lock" in out
+    assert lock.read_text() == _other_lock()
+    assert not any("copy" in a or "deletefile" in a or "moveto" in a for a in calls)
+    assert set(tree(world.server)) == {"staging/.lock"}
+
+
+def test_server_hashing_proven_on_the_lock(world, monkeypatch, capsys):
+    """U35: a server that does not give the lock file's sha256 (its config claims a hash it cannot compute) is
+    refused right after the lock is taken: the lock released, nothing copied. The real server hashes it."""
+    monkeypatch.setattr(mp.Remote, "sha256_of", lambda self, rel: None)
+    calls = _watch(monkeypatch, world, ["madeira"])
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "could not hash the lock file" in out and "sha256sum_command = sha256sum" in out
+    assert not any("copy" in a for a in calls) and tree(world.server) == {}
+    monkeypatch.setattr(mp.Remote, "sha256_of", REAL_SHA)
+    calls.clear()
+    assert _publish(world, "madeira") == 0
+    assert any("hashsum" in a for a in calls)
+    calls.clear()
+    assert world.run("unpublish", "madeira", "--to", world.to) == 0
+    assert _publish(world, "madeira", "--read-back") == 0
+    assert not any("hashsum" in a for a in calls)  # --read-back: no server hashing to prove
+
+
+def test_a_failed_check_between_the_moves_keeps_the_lock(world, monkeypatch, capsys):
+    """Scope R19 (a): a listing that fails inside the check of the first move keeps the lock and says where the
+    complete copy is."""
+    assert _publish(world, "madeira") == 0
+    state = {"moved": False, "failed": False}
+
+    def call(self, argv, data, progress):
+        if state["moved"] and not state["failed"] and "lsjson" in argv and "-R" in argv:
+            state["failed"] = True
+            return subprocess.CompletedProcess(argv, 1, b"", SECRET)
+        done = REAL_CALL(self, argv, data, progress)
+        state["moved"] |= "moveto" in argv
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert _publish(world, "madeira", "--same-values") == 1
+    out = capsys.readouterr().out
+    assert "could not be checked; the complete copy is in one of them" in out
+    assert "the lock staging/.lock is kept" in out and (world.server / "staging" / ".lock").exists()
+
+
+@pytest.mark.parametrize("command", ["publish", "unpublish", "clean"])
+def test_rclone_gone_after_the_lock(world, monkeypatch, capsys, command):
+    """F9: rclone that cannot be started once the lock is written: the message says the lock is left and names
+    --break-lock."""
+    if command == "unpublish":
+        assert _publish(world, "madeira") == 0
+    state = {"locked": False}
+
+    def call(self, argv, data, progress):
+        if state["locked"]:
+            raise OSError("gone")
+        done = REAL_CALL(self, argv, data, progress)
+        state["locked"] |= "rcat" in argv and argv[-1].endswith(".lock")
+        return done
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    args = {"publish": ("publish", "madeira", "--to", world.to, "--mirror", str(world.mirror)),
+            "unpublish": ("unpublish", "madeira", "--to", world.to), "clean": ("clean", "--to", world.to)}[command]
+    capsys.readouterr()
+    assert world.run(*args) == 1
+    out = capsys.readouterr().out
+    assert "rclone could not be started" in out and "the lock staging/.lock is left" in out and "--break-lock" in out
+    assert (world.server / "staging" / ".lock").exists()
+
+
+@pytest.mark.parametrize("where", ["folder", "remote"])
+def test_verify_tiles_without_an_index(world, capsys, where):
+    """F5: a product folder that has lost its index.json (its tiles still there) is a fault."""
+    place = str(world.mirror / "slovakia") if where == "folder" else f"{REMOTE}:slovakia"
+    if where == "remote":
+        (world.tmp / "rclone.conf").write_text(f"[{REMOTE}]\ntype = alias\nremote = {world.mirror.as_posix()}\n")
+    (world.mirror / "slovakia" / "dmr5" / "1m" / "index.json").unlink()
+    assert world.run("verify", place) == 1
+    assert "dmr5/1m/: tiles without an index.json" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", ["block 0", "block text", "block true", "short digest", "digest with a newline",
+                                 "path as a key", "tiles not an object"])
+def test_verify_malformed_index_is_a_fault(world, capsys, bad):
+    """F6: a malformed index is a fault on a folder and on a remote, never a crash or a line injected into the SUM
+    file."""
+    path = world.mirror / "aosta" / "dtm" / "2m" / "index.json"
+    index = json.loads(path.read_text())
+    if bad.startswith("block"):
+        index["block"] = {"block 0": 0, "block text": "x", "block true": True}[bad]
+    elif bad == "short digest":
+        index["tiles"]["176_2518"] = "abc"
+    elif bad == "digest with a newline":
+        index["tiles"]["176_2518"] = "a" * 64 + "\n" + "b" * 64 + "  ../../outside.tif"
+    elif bad == "path as a key":
+        index["tiles"]["../x"] = None
+    else:
+        index["tiles"] = ["176_2518"]
+    path.write_text(json.dumps(index))
+    (world.tmp / "rclone.conf").write_text(f"[{REMOTE}]\ntype = alias\nremote = {world.mirror.as_posix()}\n")
+    for place in (str(world.mirror / "aosta"), f"{REMOTE}:aosta"):
+        assert world.run("verify", place) == 1
+        out = capsys.readouterr().out
+        assert "dtm/2m/index.json: malformed" in out and "Traceback" not in out, out
+
+
+@pytest.mark.parametrize("args", [("publish", "madeira", "--to", "localword"), ("unpublish", "madeira", "--to", "word"),
+                                  ("clean", "--to", "word"), ("stats", "--from", "logs"),
+                                  ("publish", "madeira", "--to", "C:/x")])
+def test_to_and_from_name_a_remote(world, monkeypatch, capsys, args):
+    """F8: --to and --from must name an rclone remote; a bare word (a folder of the PC to rclone) is refused and
+    nothing is written anywhere."""
+    cwd = world.tmp / "cwd"
+    for word in ("localword", "word", "logs"):  # folders of those names: rclone would take them as the server
+        (cwd / word).mkdir(parents=True)
+    (cwd / "logs" / "access-2026-11-16.log").write_text("{}\n")
+    before = tree(cwd)
+    monkeypatch.chdir(cwd)
+    extra = ("--mirror", str(world.mirror)) if args[0] == "publish" else ()
+    assert world.run(*args, *extra) == 1
+    assert "refused:" in capsys.readouterr().out
+    assert tree(cwd) == before and tree(world.server) == {}
+
+
+def test_free_space_rule_with_the_real_margin(world, monkeypatch, capsys):
+    """The real margin (10 GB) beyond the bytes not staged yet (a partly staged dataset): one byte less is refused,
+    exactly enough is accepted."""
+    assert REAL_MARGIN == 10 * 10 ** 9
+    monkeypatch.setattr(mp, "MARGIN_BYTES", REAL_MARGIN)
+    pre = sorted(p for p in world.files["madeira"] if p.endswith(".tif"))[:2]
+    for rel in pre:
+        target = world.server / "staging" / "madeira" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(world.mirror / "madeira" / rel, target)
+    need = sum((world.mirror / "madeira" / rel).stat().st_size for rel in world.files["madeira"] if rel not in pre)
+    need += len(mp.cards()["madeira"].encode("utf-8"))
+    monkeypatch.setattr(mp.Remote, "free", lambda self: need + REAL_MARGIN - 1)
+    assert _publish(world, "madeira") == 1
+    assert "GB to keep" in capsys.readouterr().out
+    assert not (world.server / "staging" / ".lock").exists()
+    monkeypatch.setattr(mp.Remote, "free", lambda self: need + REAL_MARGIN)
+    assert _publish(world, "madeira") == 0
+    published_ok(world, "madeira")
+
+
+def test_free_space_unknown_or_no_root(world, monkeypatch, capsys):
+    monkeypatch.setattr(mp.Remote, "free", lambda self: None)
+    assert _publish(world, "madeira") == 1
+    assert "does not tell its free space" in capsys.readouterr().out
+    assert tree(world.server) == {}
+    (world.tmp / "rclone.conf").write_text(f"[{REMOTE}]\ntype = alias\nremote = {(world.tmp / 'nothere').as_posix()}\n")
+    assert _publish(world, "madeira") == 1
+    assert "<root> does not exist on the server" in capsys.readouterr().out
+    assert not (world.tmp / "nothere").exists()
+
+
+def test_a_move_never_lands_on_an_existing_target(world, monkeypatch, capsys):
+    """Remote.move's guard: a trash folder of the same name stops the swap before any move; public intact, the lock
+    kept."""
+    assert _publish(world, "madeira") == 0
+    monkeypatch.setattr(mp, "_stamp", lambda: "20260101T000000Z")
+    trash = world.server / "trash" / "madeira-20260101T000000Z"
+    trash.mkdir(parents=True)
+    (trash / "x").write_text("x")
+    assert _publish(world, "madeira", "--same-values") == 1
+    out = capsys.readouterr().out
+    assert "trash/madeira-20260101T000000Z exists" in out and "kept" in out
+    published_ok(world, "madeira")
+    assert tree(trash) == {"x": b"x"} and (world.server / "staging" / ".lock").exists()
+
+
+def test_verify_read_back(world, monkeypatch, capsys):
+    """verify --read-back on a remote: rclone checksum --download, faults found."""
+    (world.tmp / "rclone.conf").write_text(f"[{REMOTE}]\ntype = alias\nremote = {world.mirror.as_posix()}\n")
+    flipped = world.mirror / "aosta" / "dtm" / "2m" / "17_251" / "176_2518.tif"
+    data = bytearray(flipped.read_bytes())
+    data[1] ^= 1
+    flipped.write_bytes(bytes(data))
+    calls = _watch(monkeypatch, world, [])
+    assert world.run("verify", f"{REMOTE}:aosta", "--read-back") == 1
+    assert "176_2518.tif: sha256 differs from its index" in capsys.readouterr().out
+    assert any("checksum" in a and "--download" in a for a in calls)
+    assert not any("backend" in a for a in calls)  # no hash check with --read-back
+
+
+def test_rclone_stderr_never_printed(world, monkeypatch, capsys):
+    """Every command against a runner whose stderr names a user, a host, a port and a path (what rclone writes over
+    SFTP): none of it in the tool's output or an exception's text, when the calls succeed and when they all fail;
+    --log FILE gets it."""
+    log = world.tmp / "rclone.log"
+    words = ("secretuser", "secret-host", "2222", "/srv/secret-root", "sftp://")
+
+    def noisy(self, argv, data, progress):
+        done = REAL_CALL(self, argv, data, progress)
+        return subprocess.CompletedProcess(argv, done.returncode, done.stdout, done.stderr + SECRET)
+
+    def failing(self, argv, data, progress):
+        if argv[-1] == "version":
+            return REAL_CALL(self, argv, data, progress)
+        return subprocess.CompletedProcess(argv, 1, b"", SECRET)
+    (world.server / "logs").mkdir()
+    (world.server / "logs" / "access-2026-11-16.log").write_text("")
+    runs = [("publish", "madeira", "--to", world.to, "--mirror", str(world.mirror), "--log", str(log)),
+            ("verify", f"{REMOTE}:public/v1/tiles"), ("stats", "--from", f"{REMOTE}:logs"),
+            ("clean", "--to", world.to), ("unpublish", "madeira", "--to", world.to)]
+    for runner in (noisy, failing):
+        monkeypatch.setattr(mp.Rclone, "_call", runner)
+        for args in runs:
+            try:
+                world.run(*args)
+            except Exception as e:  # noqa: BLE001 - the text of anything that escapes is checked too
+                assert not any(w in str(e) for w in words), e
+            out = capsys.readouterr().out
+            assert not any(w in out for w in words), out
+        assert b"secret-host" in log.read_bytes()

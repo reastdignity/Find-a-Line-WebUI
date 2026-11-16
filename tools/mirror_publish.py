@@ -15,21 +15,31 @@ log).
     python tools/mirror_publish.py stats --from <remote>:<root>/logs
 
 Every command takes --config FILE (the rclone config to use; rclone's own default otherwise) and --log FILE
-(rclone's own messages appended there; they are never printed: they may name the remote's host and user).
+(rclone's own messages appended there; they are never printed: they may name the remote's host and user). --to and
+--from name an rclone remote (name:path, the name two characters or more); a dataset's name is [a-z0-9_-]+ (the
+served pattern's), anything else is refused before any request.
 
 verify: for every index.json below the folder or remote path: every tile it lists with a sha256 is there with that
 sha256, no tile file (<i>_<j>.tif) it does not list, the index not "partial". On a folder the tool hashes the files
 itself (other files than tiles, a .part of a cut, are not looked at: they are never copied); on a remote the server
 hashes them (rclone checksum sha256 against a SUM file made from the index), and every file of a product folder but
-index.json must be a listed tile. --read-back hashes by reading the files back (rclone checksum --download) where the
+index.json must be a listed tile. A product folder holding tiles without an index.json, and an index that is not
+what the cutting tools write (its tiles' keys, their sha256 as 64 hex digits, a block of 1 or more), are faults.
+--read-back hashes by reading the files back (rclone checksum --download) where the
 remote has no sha256. Exit code 1 and the list of faults otherwise.
 
 publish: refuses (before anything is written) a dataset without a complete, approved row in PUBLISHABLE, one whose
-master fails verify, one lacking a folder of a resolution the catalogue declares for its source (GridTiles(averaged=)),
-one already published unless --same-values (a re-encoding with the same values: a recut with other values is a new
-edition, a new folder name), a server whose sha256 is not available (unless --read-back), a server locked by another
-publish, and a <root> with less free space (rclone about) than the bytes not staged yet plus MARGIN_BYTES. Then:
-1. takes the lock (staging/.lock: the PC and the time; --break-lock after a crash);
+master fails verify (the master is hashed on every run, a resumed one too: U36), one lacking a folder of a resolution
+the catalogue declares for its source (GridTiles(averaged=)), a remote that reports no sha256 (unless --read-back) and
+a server locked by another run. Then:
+1. takes the lock (staging/.lock: the PC, the time, the command and a token of this run, read back after writing:
+   the run goes on only with its own token there; released only while it still holds that token; --break-lock
+   after a crash). Under the lock it refuses, the lock released: a server whose sha256 of the lock file is not ours
+   (a config may claim a hash the server cannot compute: U35; not with --read-back), a dataset already published
+   unless --same-values (a re-encoding with the same values: a recut with other values is a new edition, a new
+   folder name), and a <root> with less free space than the bytes not staged yet plus MARGIN_BYTES. The free space
+   is rclone about's "free"; over SFTP that is the filesystem's free blocks (statvfs f_bfree, pkg/sftp's
+   FreeSpace), which on Linux include the blocks reserved for root: the account may be able to write less;
 2. copies exactly the files the indexes list and the indexes into staging/<dataset>/ (rclone copy --files-from: a
    rerun skips what is there), and writes the dataset's card README.md there from CARDS;
 3. verifies the staged copy on the server against the master's sha256 (every file, the card too; any other file is a
@@ -37,11 +47,12 @@ publish, and a <root> with less free space (rclone about) than the bytes not sta
 4. moves public/v1/tiles/<dataset> to trash/<dataset>-<UTC> when it exists, then staging/<dataset> to
    public/v1/tiles/<dataset> (rclone moveto: a rename on the server; a target that exists is never moved onto, since
    rclone would merge into it), and after each move checks that the source is gone and the target holds the files
-   expected. A move that fails or checks wrong stops the tool with the lock kept and says where the dataset is
-   complete;
+   expected. From the first move until datasets.json is written every failure stops the tool with the lock kept
+   and says where the dataset is complete;
 5. writes public/v1/datasets.json from the server's copy of every published dataset (through
    public/v1/.datasets.json.new, a dot-file the server does not serve, and a rename), releases the lock.
-unpublish: the dataset to trash, datasets.json rewritten (a takedown: no row needed). clean: removes the trash
+unpublish: the dataset to trash, datasets.json rewritten (a takedown: no row needed; only a folder that
+public/v1/tiles lists). clean: removes the trash
 folders whose UTC stamp is keep-days or more back. stats: requests and bytes per day and dataset, refusals per day
 and limit, client versions, from the server's log files (access-YYYY-MM-DD.log, one JSON object per line: t, s, b,
 rt, ds, a, lim, v); its output never holds an address.
@@ -56,6 +67,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -82,11 +94,17 @@ LOCK = "staging/.lock"
 LIST, LIST_TMP = "public/v1/datasets.json", "public/v1/.datasets.json.new"
 CARD = "README.md"
 TILE_FILE = re.compile(r"^(-?\d+)_(-?\d+)\.tif$")
+TILE_KEY = re.compile(r"^-?\d+_-?\d+$")
+DIGEST = re.compile(r"^[0-9a-f]{64}$")
+# A dataset's name: the served pattern's <dataset> (A.2); nothing else reaches a path on the server
+DATASET_NAME = re.compile(r"^[a-z0-9_-]+$")
+# --to / --from: an rclone remote, "name:path" with a name of two characters or more (one letter is a drive)
+REMOTE_PLACE = re.compile(r"^([^:/\\]+):(.*)$", re.S)
 LOG_FILE = re.compile(r"^access-(\d{4}-\d{2}-\d{2})\.log$")
-# What the server's log may hold in its free fields (a visitor sends them); anything else counts as "other"
-SAFE = {"ds": re.compile(r"^(-|[a-z0-9_-]{1,64})$"), "lim": re.compile(r"^[a-z0-9_-]{1,32}$"),
-        "v": re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")}
-ADDRESS_LIKE = re.compile(r"\d+\.\d+\.\d+\.\d+")  # four dotted numbers: maybe an IPv4 address, never printed
+# What stats prints of the log's free fields (a visitor sends them): a limit's word, a client version of two or
+# three numbers; a dataset only when it is one of PUBLISHABLE (or "-"); anything else counts as "other"
+LIMIT_WORD = re.compile(r"^[a-z_]{1,32}$")
+CLIENT_VERSION = re.compile(r"^\d{1,4}\.\d{1,4}(\.\d{1,4})?$")
 # rclone's own detection never adds sha256 (it tries md5 and sha1 only): the remote names it by hand
 NO_SHA256 = ("the remote reports no sha256 among its hashes: set in the remote's section of the rclone config "
              "`shell_type = unix`, `hashes = sha256` and `sha256sum_command = sha256sum` (the server's shell must "
@@ -162,8 +180,10 @@ PUBLISHABLE: Dict[str, Dict] = {
         not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by the Regione Autonoma Valle d'Aosta.",
         notes="The licence asks for its credit sentence word for word, a link to the licence and whether changes were "
               "made (the card). A second PDF on the same server (open_data_dtm.pdf) names CC BY 2.5 Italia and its "
-              "own sentence does not name distributing. \"non per download massivi\" (the download service's manual) "
-              "is about that service, not about redistribution.",
+              "own sentence does not name distributing. \"non per download massivi\" stands only in the catalogue's "
+              "comment (sources/catalogue/italy.py), which credits it to the service's istruzioni.pdf; that PDF "
+              "answered 404 on 2026-11-15 and the sentence was not seen there; as quoted it is about the download "
+              "service, not about redistribution.",
         approved="publish, the user's word of 2026-11-15 (U12)"),
 }
 
@@ -229,6 +249,21 @@ class Failed(Exception):
         self.keep_lock = keep_lock
 
 
+class NoRclone(Failed):
+    """rclone could not be started (it was there at the start)."""
+
+
+class BadIndex(ValueError):
+    """An index.json that is not what tools/sk_tiles.py writes."""
+
+
+def check_dataset(name: str) -> str:
+    """name when it is a dataset's name ([a-z0-9_-]+, the served pattern's); Refused before any request otherwise."""
+    if not isinstance(name, str) or not DATASET_NAME.match(name):
+        raise Refused(f"{name!r} is not a dataset's name (lower-case letters, digits, '_' and '-' only)")
+    return name
+
+
 def _meaning(code: int) -> str:
     return f"exit {code}: {EXIT_MEANING.get(code, 'an error')}"
 
@@ -248,7 +283,7 @@ class Rclone:
         try:
             done = self._call(argv, data, progress)
         except OSError as e:
-            raise Refused(f"rclone could not be started ({type(e).__name__})") from None
+            raise NoRclone(f"rclone could not be started ({type(e).__name__})") from None
         if self.log and done.stderr:
             with open(self.log, "ab") as f:
                 f.write(done.stderr)
@@ -300,16 +335,15 @@ def make_rclone(config: Optional[str] = None, log: Optional[str] = None) -> Rclo
     return rc
 
 
-def parse_place(text: str) -> str:
-    """A --to / --from / verify argument: an rclone remote ("name:path", the name two characters or more) or a
-    local folder (an absolute or relative path). A one-letter name is refused: rclone takes it for a drive letter
-    on Windows."""
-    if not text:
-        raise Refused("no place given")
-    if os.path.isabs(text) or re.match(r"^[A-Za-z]:[\\/]", text):
-        return text
-    found = re.match(r"^([^:/\\]+):", text)
-    if found and len(found[1]) == 1:
+def parse_remote(text: str) -> str:
+    """A --to / --from argument: an rclone remote, "name:path" with a name of two characters or more. A bare word
+    or a local path is refused (it would publish into a folder of the PC), so is a one-letter name (rclone takes it
+    for a drive letter on Windows)."""
+    found = REMOTE_PLACE.match(text or "")
+    if not found:
+        raise Refused("--to and --from name an rclone remote: name:path (the remote of the server, from the rclone "
+                      "config)")
+    if len(found[1]) == 1:
         raise Refused("a remote's name of one letter is taken for a drive letter on Windows: rename the remote")
     return text
 
@@ -399,6 +433,13 @@ class Remote:
             raise self._failed("read the features of", "", done)
         return [h.lower() for h in json.loads(done.stdout).get("Hashes") or []]
 
+    def sha256_of(self, rel: str) -> Optional[str]:
+        """The sha256 of one file as the server computes it (rclone hashsum sha256), None when it gives none."""
+        done = self.rc.run("hashsum", "sha256", self.path(rel))
+        first = done.stdout.split()[:1] if done.returncode == 0 else []
+        digest = first[0].decode("ascii", "replace").lower() if first else ""
+        return digest if DIGEST.match(digest) else None
+
     def checksum(self, sums: Dict[str, str], rel: str, read_back: bool) -> Dict[str, List[str]]:
         """rel's files against sums ({path below rel: sha256}) by rclone checksum (the server hashes; read_back:
         rclone reads the files back): {"=": same, "*": different, "+": missing, "-": not in sums, "!": unreadable}.
@@ -435,11 +476,38 @@ def _now() -> datetime.datetime:
 
 # verify
 
-def _index_tiles(index: Dict) -> Dict[str, str]:
-    """{path below the product folder: sha256} of an index's tiles with data."""
-    block = int(index.get("block", 10))
-    return {grid_tile_name(*map(int, key.split("_")), block): digest
-            for key, digest in index["tiles"].items() if digest is not None}
+def _index_tiles(index) -> Dict[str, str]:
+    """{path below the product folder: sha256} of an index's tiles with data; BadIndex for an index that is not
+    what the cutting tools write (a "tiles" object of <i>_<j> keys with 64 hex digits or null, a block of 1 or
+    more)."""
+    if not isinstance(index, dict) or not isinstance(index.get("tiles"), dict):
+        raise BadIndex("no \"tiles\" object")
+    block = index.get("block", 10)
+    if isinstance(block, bool) or not isinstance(block, int) or block < 1:
+        raise BadIndex(f"block {str(block)[:20]!r} is not a whole number of 1 or more")
+    tiles = {}
+    for key, digest in index["tiles"].items():
+        if not TILE_KEY.match(key):
+            raise BadIndex(f"key {key[:30]!r} is not a tile's <i>_<j>")
+        if digest is None:
+            continue
+        if not isinstance(digest, str) or not DIGEST.match(digest):
+            raise BadIndex(f"the sha256 of {key} is not 64 hex digits")
+        tiles[grid_tile_name(*map(int, key.split("_")), block)] = digest
+    return tiles
+
+
+def _unindexed(paths: Iterable[str], indexed: set) -> List[str]:
+    """The product folders (the folder above a tile's block folder) that hold tile files but no index.json, from
+    paths below one root ("" for the root itself)."""
+    found = set()
+    for path in paths:
+        parts = path.split("/")
+        if TILE_FILE.match(parts[-1]):
+            product = "/".join(parts[:-2])
+            if product not in indexed:
+                found.add(product)
+    return sorted(found)
 
 
 def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str, int]]]:
@@ -461,6 +529,9 @@ def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str
             with open(index_path, encoding="utf-8") as f:
                 index = json.load(f)
             tiles = _index_tiles(index)
+        except BadIndex as e:
+            faults.append(f"{label}/{prefix}index.json: malformed ({e})")
+            continue
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             faults.append(f"{label}/{prefix}index.json: cannot be read ({type(e).__name__})")
             continue
@@ -475,6 +546,10 @@ def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str
                         faults.append(f"{label}/{prefix}{path}: not listed in its index")
         for path, digest in tiles.items():
             jobs.append((prefix + path, digest))
+    every = (os.path.relpath(os.path.join(root, name), folder).replace("\\", "/")
+             for root, _, names in os.walk(folder) for name in names)
+    for product in _unindexed(every, {"" if rel == "." else rel for rel in indexes}):
+        faults.append(f"{label}/{product + '/' if product else ''}: tiles without an index.json")
     start, last = time.time(), time.time()
 
     def check(job):
@@ -506,11 +581,16 @@ def verify_remote(remote: Remote, read_back: bool) -> Tuple[List[str], int]:
     if not indexes:
         return ["<path>: no index.json below it"], 0
     faults, checked = [], 0
+    for product in _unindexed(listing, {p[:-len("index.json")].rstrip("/") for p in indexes}):
+        faults.append(f"{product + '/' if product else ''}: tiles without an index.json")
     for index_rel in indexes:
         folder = index_rel[:-len("index.json")].rstrip("/")
         try:
             index = json.loads(remote.cat(index_rel))
             tiles = _index_tiles(index)
+        except BadIndex as e:
+            faults.append(f"{index_rel}: malformed ({e})")
+            continue
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             faults.append(f"{index_rel}: cannot be read ({type(e).__name__})")
             continue
@@ -533,7 +613,7 @@ def verify(place: str, rc: Optional[Rclone], read_back: bool = False) -> int:
         checked = sum(1 for p in files if not p.endswith("index.json"))
     else:
         rc = rc or make_rclone()
-        remote = Remote(rc, parse_place(place))
+        remote = Remote(rc, parse_remote(place))
         if not read_back and "sha256" not in remote.hashes():
             raise Refused(NO_SHA256)
         print("verify: <remote>", flush=True)
@@ -546,37 +626,87 @@ def verify(place: str, rc: Optional[Rclone], read_back: bool = False) -> int:
 
 # publish
 
-def _lock_text(command: str) -> bytes:
-    return json.dumps({"pc": socket.gethostname(), "time": _now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                       "command": command}).encode("utf-8")
-
-
 class Lock:
-    """staging/.lock taken (refused while another holds it, unless broken) and released only by the run that took
-    it."""
+    """staging/.lock: a JSON file naming the PC, the time, the command and a token of this run. Taken only when no
+    lock is there (unless broken), then read back: the run goes on only with its own token in it. Released only by
+    the run whose token it still holds. `hold`: once set (the first move started), every failure keeps the lock and
+    the message names where the dataset is."""
 
     def __init__(self, remote: Remote, command: str, force: bool):
-        self.remote, self.command, self.force, self.taken = remote, command, force, False
+        self.remote, self.command, self.force = remote, command, force
+        self.taken, self.token, self.text, self.hold = False, None, b"", None
 
     def check(self):
+        """Refused while another run's lock is there (its time and command are named, never its PC)."""
         if self.remote.exists(LOCK) and not self.force:
             try:
                 held = json.loads(self.remote.cat(LOCK))
-                who = f" by {held.get('pc')} since {held.get('time')} ({held.get('command')})"
+                since = f" since {held.get('time')} ({held.get('command')})"
             except (ValueError, Failed, AttributeError):
-                who = ""
-            raise Refused(f"the server is locked{who}: another publish runs, or one stopped; --break-lock after a "
-                          "crash, once the server's state is understood")
+                since = ""
+            raise Refused(f"the server is locked{since}: another run is going on, or one stopped; --break-lock "
+                          "after a crash, once the server's state is understood")
+
+    def _held(self) -> Optional[str]:
+        """The token in the lock now (None: no lock, or not a lock of this tool)."""
+        if not self.remote.exists(LOCK):
+            return None
+        try:
+            return json.loads(self.remote.cat(LOCK)).get("token")
+        except (ValueError, AttributeError):
+            return None
 
     def take(self):
         self.check()
-        self.remote.write(LOCK, _lock_text(self.command))
-        self.taken = True
+        token = secrets.token_hex(16)
+        text = json.dumps({"pc": socket.gethostname(), "time": _now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           "command": self.command, "token": token}).encode("utf-8")
+        self.remote.write(LOCK, text)
+        self.taken, self.token, self.text = True, token, text
+        if self._held() != token:
+            self.taken = False  # another run's lock now: never touched
+            raise Refused("another run took the lock at the same moment: nothing was done; run again later")
+
+    def prove_hashing(self):
+        """U35: the server's sha256 of the lock file equals ours (its config may claim a hash it cannot compute)."""
+        if self.remote.sha256_of(LOCK) != hashlib.sha256(self.text).hexdigest():
+            raise Refused("the server could not hash the lock file: " + NO_SHA256)
 
     def release(self):
-        if self.taken:
+        """The lock deleted when it still holds this run's token; left (and said so) when another run's is there."""
+        if not self.taken:
+            return
+        self.taken = False
+        held = self._held()
+        if held == self.token:
             self.remote.delete(LOCK)
-            self.taken = False
+        elif held is not None or self.remote.exists(LOCK):
+            print(f"  {LOCK} holds another run's lock now: left as it is", flush=True)
+
+
+def locked(lock: Lock, work) -> None:
+    """work() under the lock: taken first; released after it, and after a failure before lock.hold is set;
+    kept after a failure once lock.hold names where the dataset is (the message then says so). rclone that cannot
+    be started any more leaves the lock, and the message says so."""
+    try:
+        lock.take()
+        work()
+    except NoRclone as e:
+        if not lock.text:  # stopped before the lock was written
+            raise
+        raise Failed(f"{e}; the lock {LOCK} is left: --break-lock once the server's state is understood",
+                      keep_lock=True) from None
+    except (Failed, Refused) as e:
+        if lock.hold is not None or getattr(e, "keep_lock", False):
+            where = f"; {lock.hold}" if lock.hold and lock.hold not in str(e) else ""
+            raise Failed(f"{e}{where} (the lock {LOCK} is kept: look at the server, then --break-lock)",
+                         keep_lock=True) from None
+        try:
+            lock.release()
+        except Failed:
+            raise Failed(f"{e}; the lock {LOCK} could not be released: --break-lock") from None
+        raise
+    lock.release()
 
 
 def _stamp() -> str:
@@ -595,7 +725,11 @@ def checked_move(remote: Remote, source: str, target: str, expected: set):
     (a move that fell back to copying, or stopped in the middle, shows here). Failed with the lock kept otherwise,
     naming where the complete copy is."""
     remote.move(source, target)
-    left, after = remote.listing(source), remote.listing(target) or {}
+    try:
+        left, after = remote.listing(source), remote.listing(target) or {}
+    except Failed as e:
+        raise Failed(f"{e}: the move from {source} to {target} could not be checked; the complete copy is in one of "
+                     "them", keep_lock=True) from None
     if left is None and set(after) == expected:
         print(f"  {source} moved to {target} ({len(after)} files)", flush=True)
         return
@@ -638,6 +772,7 @@ def write_datasets(remote: Remote) -> Dict:
 
 def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_values: bool = False,
             break_lock: bool = False, read_back: bool = False) -> int:
+    check_dataset(dataset)
     row = PUBLISHABLE.get(dataset)
     if row is None:
         raise Refused(f"{dataset}: no row in PUBLISHABLE (only {', '.join(sorted(PUBLISHABLE))} may be published)")
@@ -647,6 +782,7 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
     card = cards().get(dataset)
     if not card:
         raise Refused(f"{dataset}: no card text")
+    remote = Remote(rc, parse_remote(to))
     mirror = mirror or os.environ.get(MIRROR_ENV)
     if not mirror or not os.path.isdir(mirror):
         raise Refused(f"no master: set {MIRROR_ENV} or --mirror to the mirror folder")
@@ -664,32 +800,33 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         for fault in faults:
             print(f"  fault: {fault}")
         raise Refused(f"{label} fails verify ({len(faults)} faults)")
-    remote = Remote(rc, parse_place(to))
     if not read_back and "sha256" not in remote.hashes():
         raise Refused(NO_SHA256)
+    if not remote.exists(""):
+        raise Refused("<root> does not exist on the server (the mirror stack's install makes it)")
     lock = Lock(remote, f"publish {dataset}", break_lock)
     lock.check()
-    published = remote.exists(f"{TILES}/{dataset}")
-    if published and not same_values:
-        raise Refused(f"{dataset} is published already: a recut with other values is a new edition (a new folder "
-                      "name); --same-values replaces it, a promise that the values are the same")
     card_bytes = card.encode("utf-8")
-    staging = f"{STAGING}/{dataset}"
-    staged = remote.listing(staging) or {}
-    need = sum(size for path, (_, size) in files.items() if staged.get(path) != size) + len(card_bytes)
-    free = remote.free()
-    if free is None:
-        if not remote.exists(""):
-            raise Refused("<root> does not exist on the server (the mirror stack's install makes it)")
-        raise Refused("the server does not tell its free space (rclone about)")
-    if free < need + MARGIN_BYTES:
-        raise Refused(f"<root> has {free / 1e9:.1f} GB free, {need / 1e9:.1f} GB to copy plus "
-                      f"{MARGIN_BYTES / 1e9:.0f} GB to keep")
-    tiles = sum(1 for p in files if not p.endswith("index.json"))
-    print(f"  {tiles} tiles and {len(files) - tiles} indexes, {sum(s for _, s in files.values()) / 1e9:.2f} GB; "
-          f"{need / 1e9:.2f} GB to copy", flush=True)
-    lock.take()
-    try:
+    staging, target = f"{STAGING}/{dataset}", f"{TILES}/{dataset}"
+
+    def work():
+        if not read_back:
+            lock.prove_hashing()
+        published = remote.exists(target)  # read under the lock
+        if published and not same_values:
+            raise Refused(f"{dataset} is published already: a recut with other values is a new edition (a new "
+                          "folder name); --same-values replaces it, a promise that the values are the same")
+        staged = remote.listing(staging) or {}
+        need = sum(size for path, (_, size) in files.items() if staged.get(path) != size) + len(card_bytes)
+        free = remote.free()
+        if free is None:
+            raise Refused("the server does not tell its free space (rclone about)")
+        if free < need + MARGIN_BYTES:
+            raise Refused(f"<root> has {free / 1e9:.1f} GB free, {need / 1e9:.1f} GB to copy plus "
+                          f"{MARGIN_BYTES / 1e9:.0f} GB to keep")
+        tiles = sum(1 for p in files if not p.endswith("index.json"))
+        print(f"  {tiles} tiles and {len(files) - tiles} indexes, {sum(s for _, s in files.values()) / 1e9:.2f} GB;"
+              f" {need / 1e9:.2f} GB to copy", flush=True)
         # 2. the copy
         with tempfile.TemporaryDirectory(prefix="mirror-publish-") as tmp:
             names = os.path.join(tmp, "files.txt")
@@ -703,53 +840,48 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         sums = {path: digest for path, (digest, _) in files.items()}
         sums[CARD] = hashlib.sha256(card_bytes).hexdigest()
         found = remote.checksum(sums, staging, read_back)
-        wrong = found["*"] + found["-"]
         bad = [f"{p}: differs" for p in found["*"]] + [f"{p}: missing" for p in found["+"]] + \
               [f"{p}: not expected" for p in found["-"]] + [f"{p}: could not be hashed" for p in found["!"]]
         if bad:
             for fault in bad[:50]:
                 print(f"  fault: {staging}/{fault}")
-            for path in wrong:
+            for path in found["*"] + found["-"]:
                 remote.delete(f"{staging}/{path}")
             raise Failed(f"the staged copy has {len(bad)} faults (the changed and unexpected files deleted from "
                          f"{staging}); publish again")
         print(f"  {staging}: {len(sums)} files verified on the server", flush=True)
-        # 4. the moves
-        target = f"{TILES}/{dataset}"
+        # 4. the moves: from here on every failure keeps the lock and names where the dataset is
         if published:
+            lock.hold = (f"the dataset is complete in {target} or in {TRASH}/, the new copy in {staging} or "
+                         f"{target}")
             _to_trash(remote, dataset)
+        lock.hold = f"the new copy is complete in {staging} or {target}"
         checked_move(remote, staging, target, set(sums))
         # 5. the list
+        lock.hold = f"the dataset is published in {target}; {LIST} is not rewritten yet"
         write_datasets(remote)
-    except Failed as e:
-        if not e.keep_lock:
-            lock.release()
-        else:
-            e.args = (e.args[0] + f" (the lock {LOCK} is kept: look at the server, then --break-lock)",)
-        raise
-    except Refused:  # rclone could not be started any more: nothing public was touched by this run's last step
-        lock.release()
-        raise
-    lock.release()
+
+    locked(lock, work)
     print(f"published {dataset}", flush=True)
     return 0
 
 
 def unpublish(dataset: str, to: str, rc: Rclone, break_lock: bool = False) -> int:
-    remote = Remote(rc, parse_place(to))
+    """A takedown (no row needed): only a folder that public/v1/tiles lists, moved to the trash, datasets.json
+    rewritten."""
+    check_dataset(dataset)
+    remote = Remote(rc, parse_remote(to))
     lock = Lock(remote, f"unpublish {dataset}", break_lock)
-    lock.take()
-    try:
-        if remote.exists(f"{TILES}/{dataset}"):
-            _to_trash(remote, dataset)
-        else:
-            print(f"  {TILES}/{dataset} is not published", flush=True)
+
+    def work():
+        if dataset not in remote.folders(TILES):
+            raise Refused(f"{dataset} is not published (no folder {TILES}/{dataset}): nothing moved")
+        lock.hold = f"the dataset is in {TILES}/{dataset} or {TRASH}/"
+        _to_trash(remote, dataset)
+        lock.hold = f"the dataset is in {TRASH}/; {LIST} is not rewritten yet"
         write_datasets(remote)
-    except Failed as e:
-        if not e.keep_lock:
-            lock.release()
-        raise
-    lock.release()
+
+    locked(lock, work)
     print(f"unpublished {dataset}", flush=True)
     return 0
 
@@ -767,39 +899,46 @@ def trash_age_days(name: str, now: datetime.datetime) -> Optional[float]:
 
 
 def clean(to: str, rc: Rclone, keep_days: float = KEEP_DAYS, break_lock: bool = False) -> int:
-    remote = Remote(rc, parse_place(to))
+    remote = Remote(rc, parse_remote(to))
     lock = Lock(remote, "clean", break_lock)
-    lock.take()
-    removed = kept = 0
-    try:
+    counts = {"removed": 0, "kept": 0}
+
+    def work():
         now = _now()
         for name in remote.folders(TRASH):
             age = trash_age_days(name, now)
             if age is None:
                 print(f"  {TRASH}/{name}: no UTC stamp in its name, left")
-                kept += 1
+                counts["kept"] += 1
             elif age >= keep_days:
                 done = rc.run("purge", remote.path(f"{TRASH}/{name}"))
                 if done.returncode:
                     raise Failed(f"rclone could not remove {TRASH}/{name} ({_meaning(done.returncode)})")
                 print(f"  {TRASH}/{name}: removed ({age:.1f} days)")
-                removed += 1
+                counts["removed"] += 1
             else:
-                kept += 1
-    except Failed:
-        lock.release()
-        raise
-    lock.release()
-    print(f"clean: {removed} removed, {kept} kept")
+                counts["kept"] += 1
+
+    locked(lock, work)
+    print(f"clean: {counts['removed']} removed, {counts['kept']} kept")
     return 0
 
 
 # stats
 
+def _safe_fields(fields: Dict[str, str]) -> Dict[str, str]:
+    """The log's free fields as stats may print them (a visitor sends them, and an address can be spelt many
+    ways): a dataset only of PUBLISHABLE (or "-"), a limit's word of letters and underscores (or "-"), a client
+    version of two or three numbers; anything else "other"."""
+    return {"ds": fields["ds"] if fields["ds"] == "-" or fields["ds"] in PUBLISHABLE else "other",
+            "lim": fields["lim"] if fields["lim"] == "-" or LIMIT_WORD.match(fields["lim"]) else "other",
+            "v": fields["v"] if CLIENT_VERSION.match(fields["v"]) else "other"}
+
+
 def stats(source: str, rc: Rclone) -> int:
     """Requests and bytes per day and dataset, refusals per day and limit, client versions, from the server's log
     files; no address, no raw line is printed (a line that is not a log record is counted, not shown)."""
-    remote = Remote(rc, parse_place(source))
+    remote = Remote(rc, parse_remote(source))
     listing = remote.listing("")
     if listing is None:
         raise Refused("the log folder does not exist")
@@ -819,11 +958,11 @@ def stats(source: str, rc: Rclone) -> int:
             try:
                 record = json.loads(line)
                 status, sent = int(record["s"]), int(record["b"])
-                fields = {k: str(record.get(k, "")) for k in SAFE}
+                fields = {k: str(record.get(k, "")) for k in ("ds", "lim", "v")}
             except (ValueError, KeyError, TypeError, AttributeError):
                 unreadable += 1
                 continue
-            fields = {k: v if SAFE[k].match(v) and not ADDRESS_LIKE.search(v) else "other" for k, v in fields.items()}
+            fields = _safe_fields(fields)
             requests[day, fields["ds"]][0] += 1
             requests[day, fields["ds"]][1] += sent
             statuses[status // 100] += 1
@@ -879,6 +1018,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if args.command == "verify":
             rc = None if os.path.isdir(args.place) else make_rclone(args.config, args.log)
             return verify(args.place, rc, args.read_back)
+        if args.command in ("publish", "unpublish"):
+            check_dataset(args.dataset)  # before any request
+        parse_remote(args.source if args.command == "stats" else args.to)
         rc = make_rclone(args.config, args.log)
         if args.command == "publish":
             return publish(args.dataset, args.to, rc, args.mirror, args.same_values, args.break_lock, args.read_back)
