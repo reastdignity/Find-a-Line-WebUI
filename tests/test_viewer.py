@@ -2010,6 +2010,29 @@ console.log(JSON.stringify({json.dumps(details + refusals)}.map((d) => m.detailM
     assert "the strongest first: One line per pair of anchor squares to 5 m; Clearance model" in found[6]
 
 
+def test_coded_text_takes_the_servers_reading(tmp_path):
+    """A coded message whose info names the reading the server chose (`key`: the public site's wording of a note,
+    with that reading's params) is worded by that key (i18n.ts errorText, and detailMessage through it): the public
+    reading of "access_skipped" shows no memory figure and no placeholder; without `key` the code's own text with
+    its params, as before; a key this page's catalogue lacks falls back to the code's own text, and to the server's
+    text when the code is unknown too."""
+    import messages
+    params = {"need": 7.7, "have": 4.6}
+    infos = [{"code": "access_skipped", "params": params},
+             {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}},
+             {"code": "access_skipped", "key": "error.no_such_reading", "params": params},
+             {"code": "no_such_code", "key": "error.no_such_reading", "params": {}},
+             {"code": "access_skipped", "key": "error.access_skipped", "params": params}]
+    found = run_ts(tmp_path, "i18n", f"""
+const infos = {json.dumps(infos)};
+console.log(JSON.stringify({{text: infos.map((i) => m.errorText(i, "the server's text")),
+                            detail: infos.map((i) => m.detailMessage({{...i, message: "the server's text"}}, "fallback"))}}));""")
+    local, public = messages.text("error.access_skipped", **params), messages.text("error.access_skipped_public")
+    assert found["text"] == found["detail"] == [local, public, local, "the server's text", local]
+    assert "GiB" in local and "7.7" in local
+    assert not re.search(r"\d|GiB|\{\{", public) and public.startswith("The anchors' access will not be marked"), public
+
+
 def test_area_searched_by_local_day(tmp_path):
     """searched.ts: the finished searches of /api/usage `area` grouped by the viewer's day (Warsaw here: a UTC
     time before midnight is the next day there), 30 days ending today across the clock change of 25 Oct,

@@ -17,10 +17,13 @@ export const t = translator(en as Texts);
 /** The label of a field of the search (field.<name>.label). */
 export const label = (field: string): string => t(`field.${field}.label`);
 
-/** The parameters of a coded error or note (messages.py UserError, Note): {code, params}. */
-export interface ErrorInfo { code: string; params?: Record<string, unknown> }
+/** The parameters of a coded error or note (messages.py UserError, Note): {code, params}, and `key`: the
+ *  catalogue key of the reading the server chose where it is not the code's own "error.<code>" (the public site's
+ *  wording of a note: "error.access_skipped_public", with the params that reading takes). */
+export interface ErrorInfo { code: string; params?: Record<string, unknown>; key?: string }
 
-/** The text of a coded error ("error.<code>") in the page's language, as messages.Coded.web_text: a
+/** The text of a coded error in the page's language, as messages.Coded.web_text: the reading the server chose
+ *  (`info.key`) when it names one and this page's catalogue has it, else the code's own ("error.<code>"); a
  *  parameter "field" gives the label ("label"), "advice" the text "advice_text". `fallback` (the
  *  server's English text) when the catalogue has no such code (a newer server). */
 export function errorText(info: ErrorInfo, fallback?: string): string {
@@ -28,6 +31,10 @@ export function errorText(info: ErrorInfo, fallback?: string): string {
   const params: Record<string, unknown> = {...(info.params || {})};
   if (typeof params.field === "string" && params.label === undefined) params.label = label(params.field);
   if (params.advice_text === undefined) params.advice_text = adviceText(params.advice);
+  if (typeof info.key === "string" && info.key !== key) {
+    const chosen = t(info.key, params);
+    if (chosen !== info.key) return chosen;  // (a key this catalogue lacks: the code's own text, or the fallback)
+  }
   const text = t(key, params);
   return text === key && fallback ? fallback : text;
 }
@@ -50,9 +57,10 @@ export function quantity(field: string, value: number): string {
 /** The text of an error answer's detail (web.py error_detail) in the page's language: a coded one's
  *  text, else its message or the plain text (errors.ts detailText). */
 export function detailMessage(detail: unknown, fallback = "error"): string {
-  const coded = detail as {code?: unknown; params?: Record<string, unknown>; message?: string} | null;
+  const coded = detail as {code?: unknown; params?: Record<string, unknown>; message?: string; key?: unknown} | null;
   if (coded && typeof coded === "object" && typeof coded.code === "string") {
-    return errorText({code: coded.code, params: coded.params}, detailText(detail, fallback));
+    return errorText({code: coded.code, params: coded.params, key: typeof coded.key === "string" ? coded.key : undefined},
+                     detailText(detail, fallback));
   }
   return detailText(detail, fallback);
 }
