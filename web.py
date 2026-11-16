@@ -1665,7 +1665,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         os.replace(path, taken)  # FileNotFoundError when it is not there (any more)
         with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
             title = json.load(f).get("name")
-        return taken, f"{title.strip() if isinstance(title, str) and title.strip() else run_id}.{name.rpartition('.')[2]}"
+        stem = title.strip() if isinstance(title, str) and title.strip() else run_id
+        return taken, f"{stem}.{name.rpartition('.')[2]}"
 
     @app.get("/api/runs/{run}/export/{name}")
     async def download_export(name: str, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
@@ -1682,6 +1683,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(404, "no such export")
         return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)],
                         headers={"Content-Disposition": content_disposition(title, f"{run}.{found.group(1)}")})
+
     # --- Favourite lines: marked on a run's map, listed in the app ---
 
     @app.get("/api/runs/{run}/favourites")

@@ -343,8 +343,8 @@ def test_web_process_never_imports_the_store(clip_store, tmp_path):
             "base_url='http://127.0.0.1:8765')\n"
             f"a = c.post('/api/runs/{run_id}/export', json={{'format': 'csv'}}, headers={{'x-findaline-token': 't'}})\n"
             f"b = c.get('/api/runs/{run_id}/export/{name}')\n"
-            "print(json.dumps([a.status_code, b.status_code, b.text, sorted(m for m in sys.modules if m.split('.')[0] in "
-            "('numba', 'linesearch', 'search', 'linestore', 'pyarrow'))]))")
+            "print(json.dumps([a.status_code, b.status_code, b.text, sorted(m for m in sys.modules "
+            "if m.split('.')[0] in ('numba', 'linesearch', 'search', 'linestore', 'pyarrow'))]))")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout.strip().splitlines()[-1]) == [503, 200, "{}", []]
