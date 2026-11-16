@@ -5,6 +5,7 @@ kept per package (PackageListing), and one version of each place, the newest sur
 A member's name gives its tile (the DTM user guide's figure 4): 1km<zone><east><north>[<year>]<project>, east
 and north in 100 m units of NAD83(CSRS) / UTM of the zone, the year missing in some projects (Ottawa River)."""
 
+import collections
 import contextlib
 import glob
 import gzip
@@ -28,7 +29,7 @@ from grid import Grid
 from .. import net
 from ..net import _part
 from ..readers.windows import _same_crs
-from ..readers.zipmember import ArchiveChanged, RangeRefused
+from ..readers.zipmember import DEFLATED, FLAG_ENCRYPTED, STORED, ArchiveChanged, RangeRefused
 from .arcgis import query_features
 from .cached import CachedIndex, IndexUnavailable, Listing, Versions, index_tiles
 from .versions import _answers
@@ -55,6 +56,13 @@ HOLE_SHARE = 0.75
 class PackageGone(IndexUnavailable):
     """A package that answers but cannot be read: an HTTP status (a 404 of a renamed or removed package), not a ZIP
     archive, a Range answered with the whole file. Not the network's failure (an IndexUnavailable)."""
+
+
+def _readable(method: int, flags: int) -> bool:
+    """Whether ZipMember reads a member: stored or deflated, not encrypted. CLOCA Lidar 2018's and SNC Lidar
+    2018-19's DTM packages hold Deflate64 (method 9: neither zlib nor zipfile reads it, 2026-11-16): such members
+    are not listed, so an older survey or the gap filler covers their tiles (never a failed search)."""
+    return method in (STORED, DEFLATED) and not flags & FLAG_ENCRYPTED
 
 
 def member_tile(name: str) -> Optional[Tuple[int, int, int, int]]:
@@ -156,8 +164,13 @@ class PackageListing(Listing):
             raise PackageGone(f"{where}: {cache.clean_error(e)}") from e
         except (RuntimeError, requests.RequestException) as e:
             raise IndexUnavailable(f"{where}: {cache.clean_error(e)}") from e
-        return {"url": url, "etag": etag, "length": length,
-                "members": [list(m) for m in listed if self._wanted(m.name)]}
+        members = [list(m) for m in listed if self._wanted(m.name)]
+        unreadable = collections.Counter(m[1] for m in members if not _readable(m[1], m[2]))
+        if unreadable:
+            print(f"{self.key}: {where}: {sum(unreadable.values())} members compressed by a method ZipMember cannot "
+                  f"read ({', '.join(f'{n} of method {k}' for k, n in sorted(unreadable.items()))}: 9 is Deflate64) "
+                  f"are left out; older surveys or the gap filler cover their tiles")
+        return {"url": url, "etag": etag, "length": length, "members": members}
 
     def _store(self, path: str, kept: Dict):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -234,7 +247,7 @@ class PackageListing(Listing):
             date = project_date(project, self.dates)
             for name, method, flags, crc, size, usize, offset in kept["members"]:
                 tile = member_tile(name)
-                if tile is None or tile[0] not in self.zones:
+                if tile is None or tile[0] not in self.zones or not _readable(method, flags):
                     continue
                 zone, east, north, year = tile
                 crs = self.zones[zone]

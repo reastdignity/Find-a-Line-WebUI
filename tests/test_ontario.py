@@ -490,6 +490,36 @@ def test_moved_member_read_from_the_new_directory(http_server, layer, tmp_path):
         src.download_layers([(layer, "terrain")], grid, cache_dir, "all")
 
 
+def _with_method(body: bytes, method: int) -> bytes:
+    """A ZIP whose members say compression method `method` (in their local headers and the central directory)."""
+    data = bytearray(body)
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        for info in zf.infolist():
+            data[info.header_offset + 8:info.header_offset + 10] = method.to_bytes(2, "little")
+    pos = data.find(b"PK\x01\x02")
+    while pos >= 0:
+        data[pos + 10:pos + 12] = method.to_bytes(2, "little")
+        pos = data.find(b"PK\x01\x02", pos + 4)
+    return bytes(data)
+
+
+def test_deflate64_members_left_out(http_server, layer, tmp_path, capsys):
+    """CLOCA Lidar 2018's and SNC Lidar 2018-19's DTM packages hold Deflate64 members (method 9, 2026-11-16), which
+    ZipMember cannot read: they are not listed (a warning when the directory is read), so the older survey
+    covers the place and the search goes on."""
+    _package(http_server, "Old", [(_name(17, EAST, NORTH, 2015, "GTA2015_DTM"), _raster(EAST, NORTH, 100.0))])
+    body = _with_method(_zip([(_name(17, EAST, NORTH, 2018, "CLOCA_DTM"), _raster(EAST, NORTH, 300.0))]), 9)
+    http_server.add(f"{PACKAGES}New.zip", body, "application/zip", headers={"ETag": '"n1"'})
+    _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18"),
+                                 _feature(http_server, "New", "CLOCA Lidar 2018", box=FOOTPRINTS["Old"])])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert "1 members compressed by a method ZipMember cannot read (1 of method 9" in capsys.readouterr().out
+    (tile,) = layer.tiles(grid)
+    assert tile.project == "GTA 2014-18" and len(layer.files(grid, cache_dir)) == 1
+
+
 def test_renamed_package_listed_anew(http_server, layer, tmp_path):
     """The reviewer's sequence: A listed and kept, then renamed to A2 (A answers 404, the index lists A2). The first
     search's read of A fails, and its directory cannot be read again: the answers are forgotten all the same, so
