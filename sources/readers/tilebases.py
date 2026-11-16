@@ -21,7 +21,7 @@ from ..composed import Reader
 # layout of the data server, e.g. <mirror>/slovakia/dmr5/1m/...)
 MIRROR_ENV = "FINDALINE_MIRROR"
 # The project's data server (deploy/mirror): its origin only; a dataset's tiles are at
-# <origin>/v1/tiles/<mirror folder>. FINDALINE_MIRROR_URL overrides it; an empty value turns it off
+# <origin>/v1/tiles/<mirror folder>. FINDALINE_MIRROR_URL overrides it; "off" (or empty) turns it off
 MIRROR_URL = "https://mirror.findaline.lukawski.org"
 MIRROR_URL_ENV = "FINDALINE_MIRROR_URL"
 TILES_PATH = "v1/tiles"
@@ -39,15 +39,28 @@ _KEY = re.compile(r"-?[0-9]+_-?[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
+OFF = "off"  # FINDALINE_MIRROR_URL's word for "no data server" (as an empty value, which Windows cannot keep)
+
+
+class MirrorUrlError(ValueError):
+    """FINDALINE_MIRROR_URL is neither an http:// or https:// address nor off (or empty)."""
+
+
 def mirror_url() -> Optional[str]:
-    """The data server's origin (MIRROR_URL, or FINDALINE_MIRROR_URL when set); None when that is empty. Another
-    address than MIRROR_URL's (a mirror on a LAN, the local test stack) takes the manners of MIRROR_HOST in net
-    (net.LIMITS_AS): 2 connections, 600 requests a minute, whatever host it names."""
-    origin = os.environ.get(MIRROR_URL_ENV, MIRROR_URL).strip().rstrip("/") or None
-    if origin and re.match(r"https?://", origin):
-        address = urlsplit(origin).netloc.lower()
-        if urlsplit(origin).hostname != MIRROR_HOST and net.LIMITS_AS.get(address) != MIRROR_HOST:
-            net.LIMITS_AS[address] = MIRROR_HOST
+    """The data server's origin (MIRROR_URL, or FINDALINE_MIRROR_URL when set); None when that is off or empty
+    (the user's U37: "off" too, since on Windows an empty value deletes the variable and the default would be
+    used); any other value that is not an http:// or https:// address is MirrorUrlError, never the default or off.
+    Another address than MIRROR_URL's (a mirror on a LAN, the local test stack) takes the manners of MIRROR_HOST in
+    net (net.LIMITS_AS): 2 connections, 600 requests a minute, whatever host it names."""
+    origin = os.environ.get(MIRROR_URL_ENV, MIRROR_URL).strip().rstrip("/")
+    if not origin or origin.lower() == OFF:
+        return None
+    if not re.match(r"https?://[^/\s]+", origin):
+        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {origin[:60]!r}: it must be an http:// or https:// address, or "
+                             f"{OFF} (or empty) for no data server")
+    address = urlsplit(origin).netloc.lower()
+    if urlsplit(origin).hostname != MIRROR_HOST and net.LIMITS_AS.get(address) != MIRROR_HOST:
+        net.LIMITS_AS[address] = MIRROR_HOST
     return origin
 
 
@@ -111,6 +124,17 @@ def _checked_index(found) -> Tuple[Dict, Optional[Tuple[int, int, int, int]]]:
     return tiles, _key_extent(tiles, found.get("partial"))
 
 
+def _server_failed(base: str, error: RuntimeError) -> RuntimeError:
+    """The error of a remote base whose requests failed (net._get's attempts spent), naming its host only: the
+    text reaches the pages (a 3D view's "The data could not be downloaded: ..."), so no path or query."""
+    status = getattr(error, "status", None)
+    state = "is busy" if status == 429 else "does not answer"
+    found = RuntimeError(f"the data server at {urlsplit(base).hostname} {state} "
+                         f"({f'HTTP {status}' if status else 'no answer'})")
+    found.status = status
+    return found
+
+
 class _Kept:
     """The index of a remote base kept in memory: (tiles, extent, when) as one value, so a thread reading it
     without the lock sees a whole one; `generation` counts the fetches (a thread waiting on the lock takes the
@@ -170,7 +194,7 @@ class TileBases(Reader):
         where = (f"{os.environ[MIRROR_ENV]}/{self.mirror} does not exist" if os.environ.get(MIRROR_ENV)
                  else f"set {MIRROR_ENV} to the folder holding {self.mirror} (made by {self.tool})")
         return (f"{self.description}: no copy of the tiles is set up ({where}, and {MIRROR_URL_ENV}, the project's "
-                f"data server, is empty)")
+                f"data server, is {OFF})")
 
     # A local mirror folder
 
@@ -220,7 +244,8 @@ class TileBases(Reader):
             return self._kept.setdefault(base, _Kept())
 
     def _remote_index(self, base: str, used: Optional[int] = None, timeout=MIRROR_TIMEOUT,
-                      retries: int = net.RETRIES) -> Tuple[Dict, Optional[Tuple[int, int, int, int]], int]:
+                      retries: int = net.RETRIES, stop_on: Tuple[int, ...] = ()
+                      ) -> Tuple[Dict, Optional[Tuple[int, int, int, int]], int]:
         """(tiles, extent, generation) of a remote base's index: the kept one while it is fresh, else fetched
         (net._get: its rate turn, no host slot). used: the generation a thread found wrong (a tile's 404 or
         sha256): taken again unless another thread did so meanwhile. A thread that waited for another's fetch
@@ -236,7 +261,8 @@ class TileBases(Reader):
             if index is not None:
                 return index[0], index[1], kept.generation
             try:
-                response = net._get(f"{base}/index.json", timeout=timeout, binary_types=("json",), retries=retries)
+                response = net._get(f"{base}/index.json", timeout=timeout, binary_types=("json",), retries=retries,
+                                    stop_on=stop_on)
                 if response is None:
                     raise IndexMissing(f"{cache.clean_url(base)}/index.json is not on the server (HTTP 404): this "
                                        f"dataset or resolution is not published there")
@@ -280,6 +306,8 @@ class TileBases(Reader):
                            if response is None else f"{cache.clean_url(url)} does not match the sha256 of its index")
             except (IndexMissing, IndexUnreadable) as e:  # as a mismatch: once more after the pause
                 problem, used = str(e), None
+            except RuntimeError as e:  # net._get's attempts spent: said by the host alone (no path; U40)
+                raise _server_failed(base, e) from None
             if healed:
                 raise RuntimeError(f"{problem}, also after taking the index again")
             healed = True
@@ -304,7 +332,10 @@ class TileBases(Reader):
         tiles are read from a local folder first (or there is no base at all: unavailable says why); else why
         not. Asks each remote base for its index.json (REACH_TIMEOUT, REACH_ATTEMPTS) unless a fresh one is
         kept: no HTTP answer, any 5xx and a 404 of the index are "does not answer", remembered for
-        UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers."""
+        UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers at once (U39: net._get stops at it,
+        no other attempt, no pause). A local folder first answers without a request (U38), also when it lacks an
+        averaged resolution: a grid of that resolution then reads it from the server with no start check, and a
+        server that does not answer fails the phase (U6's "in the middle"), never a fall-back."""
         bases = self.bases()
         if not bases or not _is_remote(bases[0]):
             return None
@@ -321,7 +352,7 @@ class TileBases(Reader):
         if remembered is not None and _clock() - remembered[0] < UNANSWERED_SECONDS:
             return remembered[1]
         try:
-            self._remote_index(base, timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS)
+            self._remote_index(base, timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS, stop_on=(429,))
         except RuntimeError as e:
             status = getattr(e, "status", None)
             if status == 429:

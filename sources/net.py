@@ -342,13 +342,14 @@ def verify(url: Optional[str]):
 
 
 def _get(url: str, params=None, timeout=300, binary_types=("image", "octet", "tiff", "multipart"),
-         retries: int = RETRIES):
+         retries: int = RETRIES, stop_on: Tuple[int, ...] = ()):
     """GET with retries; raises RuntimeError with the server message on failure (without the
     query of the URL or a key's value: cache.clean_error), its `status` the last answer's HTTP status
     (None: no answer). Every attempt waits for its turn (rate_turn) and is counted (servicecounts, the
     host only; a 200 that is not data counts as `other`). A 429 or 503 (the server asks us to slow down)
     backs off longer: _sleep(attempt + 3), about 8, 16 and 32 s. timeout: requests' (seconds, or
-    (connect, read)); retries: the attempts (the start check of the data server asks twice)."""
+    (connect, read)); retries: the attempts (the start check of the data server asks twice); stop_on: statuses
+    that end it at once, without another attempt or a pause (the start check's 429: a busy server answers)."""
     last_error, status = None, None
     for attempt in range(retries):
         slow_down, status = False, None
@@ -369,6 +370,8 @@ def _get(url: str, params=None, timeout=300, binary_types=("image", "octet", "ti
             return response
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
+            if status in stop_on:
+                break
             _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)

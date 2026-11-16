@@ -5,7 +5,7 @@ the later phases of a job on the source its first phase chose.
 The tests use a fixture mirror made from tests/data/zabi_kon_nmt.tif (2 km tiles on its pixel edges, as
 tools/mirror_tiles.py lays them out), served by tests/http_server.py at /v1/tiles/ as the data server serves them,
 and two test sources of a made-up country "zz": one reading the mirror, one reading the file itself, its fall-back.
-No test asks the real data server: FINDALINE_MIRROR_URL is empty or the local server. No test waits for a timeout:
+No test asks the real data server: FINDALINE_MIRROR_URL is off (as tests/conftest.py sets it), empty, or the local server. No test waits for a timeout:
 the timeouts are asserted as the values passed, the pauses (net._sleep) are patched, the kept answers' clock too."""
 
 import gc
@@ -75,29 +75,26 @@ AT_COLLECTION = _os_level_url()  # when pytest imports this module: only tests/c
 
 
 def set_url(value):
-    """FINDALINE_MIRROR_URL for this test (None: unset, the default address; nothing asks it then). Not through
-    monkeypatch: on Windows os.environ's "" deletes the variable for the processes started later (the CRT's
-    putenv), so the empty value is put back as tests/conftest.py puts it."""
+    """FINDALINE_MIRROR_URL for this test (None: unset, the default address; nothing asks it then). The autouse
+    fixture puts "off" back after each test, as tests/conftest.py sets it (an empty value would be deleted for the
+    processes started later on Windows: the CRT's putenv)."""
     if value is None:
         os.environ.pop("FINDALINE_MIRROR_URL", None)
         return
     os.environ["FINDALINE_MIRROR_URL"] = value
-    if os.name == "nt":
-        import ctypes
-        ctypes.windll.kernel32.SetEnvironmentVariableW("FINDALINE_MIRROR_URL", value)
 
 
 @pytest.fixture(autouse=True)
 def no_mirror_settings(monkeypatch):
     """No mirror folder of this PC's (the user-level FINDALINE_MIRROR) and no data server unless a test sets one
-    (set_url; empty again after it); net's pauses are not waited for (each recorded)."""
+    (set_url; off again after it); net's pauses are not waited for (each recorded)."""
     monkeypatch.delenv("FINDALINE_MIRROR", raising=False)
-    set_url("")
+    set_url("off")
     pauses = []
     monkeypatch.setattr(net, "_sleep", pauses.append)
     monkeypatch.setattr(net, "LIMITS_AS", {})  # the addresses a test named take no other host's manners later
     yield pauses
-    set_url("")
+    set_url("off")
 
 
 @pytest.fixture
@@ -322,8 +319,10 @@ def _phases(monkeypatch, data_dir, request, between=lambda: None):
 # Where the tiles come from
 
 def test_the_bases_and_the_setting(tmp_path, monkeypatch):
-    """The local folder (when it holds the dataset), then the data server (MIRROR_URL, or FINDALINE_MIRROR_URL; empty
-    turns it off), then the catalogue's URLs; with none of them the text names both settings."""
+    """The local folder (when it holds the dataset), then the data server (MIRROR_URL, or FINDALINE_MIRROR_URL; "off"
+    in any case, or empty, turns it off: U37), then the catalogue's URLs; with none of them the text names both
+    settings and the word off. A value that is no http(s) address nor off is an error with a clear text, never the
+    default and never off, refused at a search's start (choose_source, so plan_search's "no_source")."""
     layer = mirrored_layer(["https://other.example/test/dtm/1m"])
     reader = layer.readers[1.0]
     set_url(None)
@@ -334,12 +333,27 @@ def test_the_bases_and_the_setting(tmp_path, monkeypatch):
     root = make_mirror(tmp_path / "local")
     monkeypatch.setenv("FINDALINE_MIRROR", root)
     assert reader.bases()[0] == os.path.join(root, "test", "dtm", "1m") and len(reader.bases()) == 3
-    set_url("")
     monkeypatch.delenv("FINDALINE_MIRROR")
     alone = mirrored_layer()
-    assert alone.bases() == [] and alone.remote_base() is None
+    for off in ("off", "OFF", " Off ", ""):
+        set_url(off)
+        assert tilebases.mirror_url() is None and alone.bases() == [] and alone.remote_base() is None, off
     why = alone.unavailable()
     assert "set FINDALINE_MIRROR" in why and "FINDALINE_MIRROR_URL" in why and "data server" in why
+    assert why.endswith("FINDALINE_MIRROR_URL, the project's data server, is off)")
+    import search
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "zz")  # offline, whatever happens
+    for wrong in ("mirror.findaline.lukawski.org", "ftp://example.org", "none", "http://"):
+        set_url(wrong)
+        with pytest.raises(tilebases.MirrorUrlError, match="must be an http:// or https:// address, or off"):
+            alone.bases()
+        with pytest.raises(ValueError, match="FINDALINE_MIRROR_URL is"):
+            src.choose_source("auto", *CENTRE, str(tmp_path))
+    paths = search.Paths(str(tmp_path / "data"), str(tmp_path / "data" / "work"))
+    set_url("mirror.example.org")
+    with pytest.raises(search.SearchError, match="FINDALINE_MIRROR_URL is 'mirror.example.org': it must be") as refused:
+        search.plan_search(search.SearchParams(**POINT), paths, lambda kind, text: None)
+    assert refused.value.code == "no_source"
 
 
 def test_the_same_files_as_from_the_folder(tmp_path, mirror):
@@ -589,19 +603,32 @@ def test_reach_without_an_answer(tmp_path, mirror, monkeypatch, two_sources):
 
 
 def test_the_local_folder_wins(tmp_path, mirror, monkeypatch, two_sources):
-    """With the local folder holding the dataset its tiles come from there; the start check asks nothing (the folder
-    answers), however the data server is."""
+    """With the local folder holding the dataset its tiles come from there, each without a host slot (N1: the slot
+    is taken for a host, and the folder has none); the start check asks nothing (the folder answers), however the
+    data server is."""
+    import contextlib
+    import sources.layer as layer_module
+    slots = []
+    real = layer_module.host_slot
+
+    @contextlib.contextmanager
+    def counted(cache_dir, url):
+        slots.append(url)
+        with real(cache_dir, url):
+            yield
+    monkeypatch.setattr(layer_module, "host_slot", counted)
     monkeypatch.setenv("FINDALINE_MIRROR", make_mirror(tmp_path / "local"))
     mirror.status = 503
     layer = mirrored_layer()
     assert layer.reach() is None and layer.remote_base() is None
     _download(layer, tmp_path / "cache")
+    assert len(slots) == 5 and not any(net._host(url) for url in slots), slots  # every tile: the folder, no host
     assert src.choose_source("auto", *CENTRE, str(tmp_path), reach=True)[0].id == "test_mirrored"
     assert mirror.asked() == []
 
 
 def test_no_data_server(tmp_path, http_server, monkeypatch, two_sources):
-    """FINDALINE_MIRROR_URL empty and no folder: the source is unavailable as before, nothing is asked."""
+    """FINDALINE_MIRROR_URL off and no folder: the source is unavailable as before, nothing is asked."""
     Mirror(http_server, make_mirror(tmp_path / "served"))
     source, why = src.choose_source("auto", *CENTRE, str(tmp_path), reach=True)
     assert source.id == "test_plain" and "FINDALINE_MIRROR_URL" in why
@@ -668,7 +695,7 @@ def test_later_phases_and_finished_runs_with_the_server_down(tmp_path, monkeypat
     assert len(hashes) == 1
     # The same search with the mirror off: the local folder, choose_source as before
     monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "zz")
-    set_url("")
+    set_url("off")
     monkeypatch.setenv("FINDALINE_MIRROR", make_mirror(tmp_path / "local"))
     os.makedirs(tmp_path / "off" / "work")
     off = search.plan_search(jb.search_params(request), search.Paths(str(tmp_path / "off"), str(tmp_path / "off" / "work")),
@@ -692,9 +719,9 @@ def test_later_phases_and_finished_runs_with_the_server_down(tmp_path, monkeypat
 
 def test_down_in_the_middle(tmp_path, monkeypatch, mirror, offline, two_sources):
     """The data server answers the start check of a job's download phase, then fails a tile at every attempt: the
-    phase fails with "Could not download" (U6's "in the middle"), the job is "failed" with that text, the tile that
-    came is cached; the search run again (a new job, as the page's "run again" makes one) asks the server for the
-    missing tile only and completes on the same source."""
+    phase fails with "Could not download" (U6's "in the middle"), the job is "failed" with that text, saying the data
+    server does not answer by its host alone, the tile that came is cached; the search run again (a new job, as the
+    page's "run again" makes one) asks the server for the missing tile only and completes on the same source."""
     import jobs as jb
     _in_process(monkeypatch)
     data = tmp_path / "data"
@@ -707,7 +734,8 @@ def test_down_in_the_middle(tmp_path, monkeypatch, mirror, offline, two_sources)
     jb.run_phase(str(data), job, "download")
     row = jobs.get(job)
     assert row["status"] == "failed" and row["source"] == "test_mirrored"
-    assert f"Could not download Test DTM (mirrored) tile {src.grid_tile_name(*DATA_TILES[1])}: HTTP 503" in row["error"]
+    assert (f"Could not download Test DTM (mirrored) tile {src.grid_tile_name(*DATA_TILES[1])}: the data server at "
+            f"127.0.0.1 does not answer (HTTP 503)") in row["error"], row["error"]
     cache_dir, layer = str(data / "cache"), two_sources.nmt
     assert [cache.state(cache_dir, layer.tile_path(cache_dir, (1.0, *t))) for t in DATA_TILES] == ["ok", None]
     assert not os.path.exists(layer.tile_path(cache_dir, (1.0, *DATA_TILES[1])))
@@ -851,15 +879,15 @@ def test_index_requests_take_their_turn(tmp_path, mirror, monkeypatch):
 
 
 def test_the_processes_of_the_tests_ask_no_data_server():
-    """Guards tests/conftest.py's OS-level line: when pytest imported this module (before any test ran, so before
-    this module's set_url), a process started then would have inherited FINDALINE_MIRROR_URL empty, not unset (the
-    default address). On Windows os.environ's "" alone leaves it unset for child processes: AT_COLLECTION is then
-    None and this fails. The child started below runs after this module's set_url(""): that half guards set_url,
-    not conftest."""
+    """Guards tests/conftest.py's line: when pytest imported this module (before any test ran, so before this
+    module's set_url), a process started then would have inherited FINDALINE_MIRROR_URL "off", never unset (the
+    default address) nor what the calling shell had. Without conftest's line AT_COLLECTION is the shell's value
+    (unset, or empty: Git Bash keeps it, PowerShell cannot set it), and this fails, unless the shell itself had "off".
+    The child started below runs after this module's set_url("off"): that half guards set_url, not conftest."""
     import subprocess
-    assert AT_COLLECTION == ""
+    assert AT_COLLECTION == "off"
     code = "import os; print(repr(os.environ.get('FINDALINE_MIRROR_URL', 'unset')))"
-    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "''"
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "'off'"
 
 
 def test_a_job_falls_back_when_the_server_does_not_answer(tmp_path, monkeypatch, offline, mirror, two_sources):
@@ -877,7 +905,7 @@ def test_a_job_falls_back_when_the_server_does_not_answer(tmp_path, monkeypatch,
 
 
 def test_no_request_with_the_url_empty(tmp_path, monkeypatch, offline, two_sources):
-    """FINDALINE_MIRROR_URL empty: no request at all to a data server, through a first planning (reach=True), an
+    """FINDALINE_MIRROR_URL off, or empty: no request at all to a data server, through a first planning (reach=True), an
     estimate and a download, the request functions themselves failing the test on any call: net._get on any call
     (these searches have no other remote data), requests' sessions on any URL of a data server (its host, or a
     /v1/tiles/ path; the run's place name still asks Nominatim, through the dead proxy): with no folder (the source
@@ -895,10 +923,14 @@ def test_no_request_with_the_url_empty(tmp_path, monkeypatch, offline, two_sourc
     monkeypatch.setattr(net, "_get", refuse)
     monkeypatch.setattr(requests.Session, "send", guarded)  # requests.get goes through it too
     params = search.SearchParams(**_request()["params"])
-    for folder, expected in ((None, "test_plain"), (make_mirror(tmp_path / "local"), "test_mirrored")):
+    local = make_mirror(tmp_path / "local")
+    for setting, folder, expected in (("off", None, "test_plain"), ("", None, "test_plain"),
+                                      ("off", local, "test_mirrored"), ("", local, "test_mirrored")):
+        set_url(setting)
         if folder:
             monkeypatch.setenv("FINDALINE_MIRROR", folder)
-        paths = search.Paths(str(tmp_path / expected), str(tmp_path / expected / "work"))
+        name = f"{expected}-{setting or 'empty'}"
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
         os.makedirs(paths.work)
         plan = search.plan_search(params, paths, lambda kind, text: None, reach=True)
         assert plan.source.id == expected and two_sources.nmt.reach() is None
@@ -985,3 +1017,84 @@ def test_a_tile_falling_through_a_local_folder_takes_a_slot(tmp_path, http_serve
     served.delay = 0.1
     layer.download(grid, str(tmp_path / "cache"), None, "test")
     assert len(served.asked("tile")) == 6 and http_server.peak("/v1/tiles/", ".tif") == 2
+
+
+def test_a_busy_server_answers_at_once(tmp_path, mirror, monkeypatch, no_mirror_settings):
+    """A 429 at the start check answers at once (U39): one request, no pause, no other attempt; a source whose two
+    layers are both busy costs two requests in all. Every other caller of net._get keeps its attempts and pauses: a
+    tile's 429 is asked RETRIES times with the long back-off (_sleep(attempt + 3)) between them."""
+    mirror.status = 429
+    layer = mirrored_layer()
+    assert layer.reach() is None
+    assert mirror.asked() == [f"/v1/tiles/{MIRROR}/index.json"] and no_mirror_settings == []
+    two = Source(id="test_two", name="Test two layers", description="two layers of our own tiles", nmt=mirrored_layer(),
+                 nmpt=mirrored_layer(), countries=("zz",), crs=CRS, default_resolution=1.0, grid_origin=ORIGIN)
+    assert src.choose.source_unreachable(two) is None
+    assert len(mirror.asked()) == 1 + 2 and no_mirror_settings == []
+    with pytest.raises(RuntimeError) as busy:  # the default of net._get, unchanged
+        net._get(f"{mirror.base()}/index.json", binary_types=("json",))
+    assert busy.value.status == 429 and len(mirror.asked()) == 3 + net.RETRIES
+    assert no_mirror_settings == [3, 4, 5]
+    with pytest.raises(RuntimeError, match=r"the data server at 127.0.0.1 is busy \(HTTP 429\)"):
+        mirrored_layer().download_tile((1.0, *DATA_TILES[0]), str(tmp_path / "t.tif"))  # the downloads: as before
+
+
+def test_the_mixed_case(tmp_path, mirror, monkeypatch, no_mirror_settings):
+    """U38, as built: a local folder holding the 1 m tiles but not the averaged ones answers the start check without
+    a request; a grid of the averaged resolution then reads it from the data server (C.5: the same values), and with
+    the server down that download fails the phase ("does not answer"), never a fall-back to the 1 m tiles."""
+    make_averaged(mirror.root)
+    monkeypatch.setenv("FINDALINE_MIRROR", make_mirror(tmp_path / "local"))  # 1 m only
+    layer = mirrored_layer(averaged=(2,))
+    assert layer.reach() is None and mirror.asked() == []
+    assert layer.resolution(2.0) == 2.0 and layer.readers[2.0].bases() == [mirror.base("test/dtm/2m")]
+    _download(layer, tmp_path / "cache", res=2.0)
+    assert mirror.asked("tile") and all("/test/dtm/2m/" in p for p in mirror.asked())
+    mirror.status = 503
+    down = mirrored_layer(averaged=(2,))
+    assert down.reach() is None  # the folder answers for the layer
+    with pytest.raises(RuntimeError, match=r"the data server at 127.0.0.1 does not answer \(HTTP 503\)"):
+        _download(down, tmp_path / "other", res=2.0)
+
+
+def test_a_3d_view_with_the_server_down(tmp_path, monkeypatch, offline, mirror, two_sources):
+    """U40: a finished run's 3D patch that needs a tile not in the cache while the data server does not answer fails
+    through the patch's error path with a text saying so, by the host's name alone (no address, no path); no
+    fall-back."""
+    import jobs as jb
+    import messages
+    import search
+    data = tmp_path / "data"
+    row, _, _ = _phases(monkeypatch, data, _request())  # radius 290: the patch's square reaches tiles not cached
+    mirror.status = 503
+    two_sources.nmt.readers[1.0]._kept.clear()  # the quick lane is another process: no index kept from the phases
+    with pytest.raises(search.SearchError) as failed:
+        jb.quick_patch(str(data), {"run": row["run_id"], "line": LINE})
+    detail = messages.user_error(failed.value).detail()
+    assert detail["code"] == "download_failed", detail
+    assert "the data server at 127.0.0.1 does not answer (HTTP 503)" in detail["message"], detail
+    assert "/v1/tiles" not in str(detail) and "http" not in str(detail), detail
+
+
+def test_the_tools_indexes_pass_the_check(tmp_path, monkeypatch):
+    """N2: one rule for an index's "block" on both sides. The indexes tools/sk_tiles.py writes (cut, then average)
+    and tools/mirror_tiles.py writes (cut) all say block 10 and pass the client's check (_checked_index), their
+    tiles and extent as a local folder reads them."""
+    import test_sources
+    import test_mirror_tiles as tmt
+    import sk_tiles
+    import mirror_tiles as mt
+    (tmp_path / "sk").mkdir()
+    mirror, root, _, _, _ = test_sources._cut(tmp_path / "sk", monkeypatch)
+    sk_tiles.average("test", str(mirror / "slovakia"), (2,))
+    tmt._spec(monkeypatch, "asc", url="https://example.org/dl/test.zip", member="T.ASC")
+    work, out = tmp_path / "mt" / "work", tmp_path / "mt" / "mirror"
+    tmt._zip(work, "T.ASC", tmt._asc_text(tmt._asc_values()), "test.zip")
+    mt.extract("asc", str(work))
+    mt.cut("asc", str(work), str(out))
+    paths = [root / "index.json", root.parent / "2m" / "index.json", out / "aosta" / "dtm" / "2m" / "index.json"]
+    for path in paths:
+        index = json.loads(path.read_text(encoding="utf-8"))
+        assert index["block"] == tilebases.BLOCK == 10, path
+        tiles, extent = tilebases._checked_index(index)
+        assert tiles == index["tiles"] and any(tiles.values()) and extent is not None, path

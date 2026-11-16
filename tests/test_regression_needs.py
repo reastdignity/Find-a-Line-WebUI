@@ -36,26 +36,17 @@ def test_unmet_needs(tmp_path, monkeypatch):
     assert regression.unmet_needs({"needs_env": "OPENTOPOGRAPHY_API_KEY"}, "http://127.0.0.1:8080") is not None
 
 
-def _empty_url():
-    """FINDALINE_MIRROR_URL empty as tests/conftest.py leaves it, also at the OS level on Windows (where os.environ's
-    "" deletes it for the processes started later: they would ask the default address)."""
-    os.environ["FINDALINE_MIRROR_URL"] = ""
-    if os.name == "nt":
-        import ctypes
-        ctypes.windll.kernel32.SetEnvironmentVariableW("FINDALINE_MIRROR_URL", "")
-
-
 def test_the_data_server_only_when_named(tmp_path, monkeypatch):
-    """regression.py asks the project's data server only with --mirror-url: FINDALINE_MIRROR_URL empty otherwise, for
-    its searches and for itself. (Not monkeypatch.setenv: its undo would delete the empty value on Windows.) The
-    child process at the end guards this test's own restoring of the empty value (_empty_url), not conftest's line:
-    tests/test_mirror_client.py::test_the_processes_of_the_tests_ask_no_data_server guards that."""
+    """regression.py asks the project's data server only with --mirror-url: FINDALINE_MIRROR_URL off otherwise, for
+    its searches and for itself. The child process at the end guards this test's own putting back of "off" (as
+    tests/conftest.py sets it), not conftest's line: tests/test_mirror_client.py::
+    test_the_processes_of_the_tests_ask_no_data_server guards that."""
     import subprocess
     import sys
     monkeypatch.setattr(regression, "write_doc", lambda tests: None)
     try:
         os.environ["FINDALINE_MIRROR_URL"] = "https://elsewhere.example"
-        for argv, expected in ((["--mirror-url", "http://127.0.0.1:9"], "http://127.0.0.1:9"), ([], "")):
+        for argv, expected in ((["--mirror-url", "http://127.0.0.1:9"], "http://127.0.0.1:9"), ([], "off")):
             monkeypatch.setattr(sys, "argv", ["regression.py", "--write-doc", *argv])
             try:
                 regression.main()
@@ -63,9 +54,9 @@ def test_the_data_server_only_when_named(tmp_path, monkeypatch):
                 pass
             assert os.environ["FINDALINE_MIRROR_URL"] == expected
     finally:
-        _empty_url()
+        os.environ["FINDALINE_MIRROR_URL"] = "off"
     code = "import os; print(repr(os.environ.get('FINDALINE_MIRROR_URL', 'unset')))"
-    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "''"
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "'off'"
 
 
 def test_mirror_entries_name_their_folders():

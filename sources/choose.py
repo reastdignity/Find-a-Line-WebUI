@@ -10,6 +10,7 @@ import osm
 
 from .source import MIN_RESOLUTION, Source
 from .layers.files import FileLayer
+from .readers.tilebases import mirror_url
 from .catalogue import SOURCES
 
 # Rough boxes used when the country cannot be looked up (offline): the sources' own
@@ -83,6 +84,7 @@ def choose_source(name: str, lat: float, lon: float, cache_dir: str, elevation_f
         native = source.nmt.native_res
         source.default_resolution = float(round(native)) if native >= 5 else max(MIN_RESOLUTION, round(native, 1))
         return source, "--elevation-file given"
+    mirror_url()  # FINDALINE_MIRROR_URL neither an address nor off: refused at every search's start (ValueError)
     if name != "auto":
         why = _cannot_use(SOURCES[name], reach)
         if why:

@@ -186,7 +186,8 @@ class HttpServer:
             return [r for r in self.log if r.path.startswith(path_prefix)]
 
     def peak(self, path_prefix: str = "", suffix: str = "") -> int:
-        """The most requests to paths starting with path_prefix (and ending with suffix) answered at the same moment."""
+        """The most requests to paths starting with path_prefix (and ending with suffix) answered at the same moment:
+        from their arrival to just before their answer's headers were sent (the time a route takes, Mirror.delay)."""
         with self._lock:
             spans = [(r.started, r.ended or float("inf")) for r in self.log
                      if r.path.startswith(path_prefix) and r.path.endswith(suffix)]
@@ -223,7 +224,7 @@ class HttpServer:
         try:
             self._answer(handler, head, request)
         finally:
-            request.ended = time.monotonic()
+            request.ended = request.ended or time.monotonic()  # an answer that sent no headers (a fault, an error)
 
     def _answer(self, handler: BaseHTTPRequestHandler, head: bool, request: Request):
         answer = self._find(request)
@@ -261,6 +262,9 @@ class HttpServer:
         for name, value in headers.items():
             handler.send_header(name, value)
         handler.send_header("Content-Length", str(len(body)))
+        # Its end for peak(), before the headers leave: the client cannot have the answer and send its next request
+        # on this connection before this, so two requests in a row on one connection never count as overlapping
+        request.ended = time.monotonic()
         handler.end_headers()
         if fault == "truncate":
             handler.wfile.write(body[:len(body) // 2])
