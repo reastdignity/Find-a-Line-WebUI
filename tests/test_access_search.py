@@ -680,20 +680,36 @@ def test_too_wide_for_the_mark_runs_without_it(tmp_path, offline, monkeypatch):
 
 def test_estimate_of_a_search_too_wide_for_the_mark(tmp_path, offline, monkeypatch):
     """The web app's estimate (jobs.quick_estimate, a compute slot's budget) of a search too wide for the access grid:
-    nothing refused, its messages carry the note with its code and params; with the budget large enough, no note."""
+    nothing refused, its messages carry the note with its code and params; with the budget large enough, no note. The
+    note's two readings (the user's word of 2026-11-16): locally with the memory (error.access_skipped), on the public
+    site without it (error.access_skipped_public, the quick lane's jobs.PUBLIC_TEXTS), the code and params on both."""
     import jobs
     write_raster(tmp_path / "est.tif", scene(), LEFT, TOP)
     request = {"params": dict(elevation_file=str(tmp_path / "est.tif"), northing=TOP - SIZE / 2,
                               easting=LEFT + SIZE / 2, radius=135, resolution=1, nmpt="off", water="off",
                               fill_gaps="off", ortho="never", access=True)}
-    for budget, noted in ((10_000, True), (10 ** 10, False)):
+    for budget, noted, public in ((10_000, True, False), (10_000, True, True), (10 ** 10, False, False)):
         monkeypatch.setattr(jobs, "SLOT_MEMORY", budget)
+        monkeypatch.setattr(jobs, "PUBLIC_TEXTS", public)
         result = jobs.quick_estimate(str(tmp_path), request)
         coded = [m for m in result["messages"] if len(m) == 3 and m[2]["code"] == "access_skipped"]
         assert len(coded) == int(noted), result["messages"]
         if noted:
             kind, text, info = coded[0]
-            assert kind == "warning" and set(info["params"]) == {"need", "have"} and "GiB" in text and "--" not in text
+            assert kind == "warning" and set(info["params"]) == {"need", "have"} and "--" not in text
+            key = "error.access_skipped_public" if public else "error.access_skipped"
+            assert text == messages.text(key, **info["params"]) and ("GiB" in text) != public
+
+
+def test_the_public_reading_of_a_coded_note():
+    """messages.Coded.web_text(public=True) takes the catalogue's "error.<code>_public" where it has one (the note
+    access_skipped without the memory), else the code's own text (a note without a public reading)."""
+    note = messages.Note("cli text", "access_skipped", need=4.2, have=2.5)
+    local, public = note.web_text(), note.web_text(public=True)
+    assert "4.2 GiB" in local and "2.5 GiB" in local and "GiB" not in public
+    assert public == messages.text("error.access_skipped_public") and public.startswith(local.split(" (about")[0])
+    other = messages.Note("cli", "store_failed")
+    assert other.web_text(public=True) == other.web_text() == messages.text("error.store_failed")
 
 
 def test_disk_estimate_counts_the_access_grid(tmp_path, offline):
