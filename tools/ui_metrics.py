@@ -1055,7 +1055,8 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                 "total": round(sum(r["seconds"].values()), 2)} for r in records if r.get("page") and "seconds" in r]
     seconds.sort(key=lambda x: (-x["total"], x["state"]))
     return {"per_device_theme": dict(sorted(per.items())), "lists": lists, "seconds_slowest": seconds[:10],
-            "seconds_total": round(sum(s["total"] for s in seconds), 1), "states": len(seconds),
+            "seconds_total": round(sum(s["total"] for s in seconds), 1),
+            "states": len(ok),  # measured: neither failed nor left out (a failed state also has its seconds)
             "states_failed": sum(1 for r in records if "error" in r),
             "states_left_out": sum(1 for r in records if "left_out" in r),
             "left_out": _left_out(records),

@@ -641,6 +641,17 @@ def test_links_in_a_sentence_apart():
     assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
 
 
+def test_headline_counts_with_failures():
+    """The headline: a state whose measuring failed (it keeps its seconds) is failed, not also measured; a state left
+    out is neither."""
+    failed = {"page": "b", "device": "iphone", "theme": "light", "error": "failed: E",
+              "seconds": {"load": 1.0, "steps": 0.0, "measure": 0.2}}
+    left = {"page": "c", "device": "iphone", "theme": "light", "left_out": "the device does not show .x"}
+    s = ui_metrics.summarise([_state("a", "iphone", 1, 0), failed, left])
+    assert (s["states"], s["states_failed"], s["states_left_out"]) == (1, 1, 1)
+    assert "1 states measured, 1 failed, 1 left out" in ui_metrics.pages_markdown(s)
+
+
 def test_summarise_again_from_the_log(tmp_path):
     """--summarise rebuilds pages.json and pages.md from pages-states.jsonl alone."""
     records = [_state("a", "iphone", 2, 10), {"page": "bad", "device": "iphone", "theme": "light", "error": "E"}]
