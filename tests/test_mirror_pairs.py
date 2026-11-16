@@ -129,13 +129,20 @@ def _hosts(text: str) -> set:
 
 
 def test_one_host_everywhere():
-    """The client's MIRROR_URL, the SWAG conf's server_name, the server's README and the client's manners in
-    sources/net.py name one host (the landing page names none: it is served under it)."""
+    """The client's MIRROR_URL, Telegraf's two checks of the data server (their addresses are the client's origin), the
+    SWAG conf's server_name, the server's README and the client's manners in sources/net.py name one host (the landing
+    page names none: it is served under it)."""
+    import tomllib
     assert tilebases.MIRROR_URL == f"https://{HOST}"
+    telegraf = tomllib.loads(_read("deploy", "monitoring", "telegraf.conf"))["inputs"]
+    (check,) = [i for i in telegraf["http_response"] if i.get("name_override") == "mirror_http_response"]
+    (cert,) = [i for i in telegraf["x509_cert"] if i.get("name_override") == "mirror_x509_cert"]
+    assert check["urls"] == [f"{tilebases.MIRROR_URL}/v1/datasets.json"]
+    assert cert["sources"] == [tilebases.MIRROR_URL]
     swag = _read("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf")
     assert re.findall(r"^\s*server_name (\S+);", swag, re.M) == [HOST]
     for parts in [("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf"), ("deploy", "mirror", "README.md"),
-                  ("sources", "net.py"), ("sources", "readers", "tilebases.py")]:
+                  ("sources", "net.py"), ("sources", "readers", "tilebases.py"), ("deploy", "monitoring", "telegraf.conf")]:
         assert _hosts(_read(*parts)) == {HOST}, parts
     assert _hosts(_read("deploy", "mirror", "landing", "index.html")) == set()
 

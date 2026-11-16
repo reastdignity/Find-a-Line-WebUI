@@ -406,6 +406,46 @@ def test_telegraf_reads_the_contract_paths():
         "unattended-upgrades.service"])
 
 
+def test_telegraf_checks_the_data_server():
+    """C7, C8 (docs/mirror-hosting/spec.md D.2, D.3): the data server's list every minute (status 200 and a body
+    naming "datasets") and its certificate, as measurements of their own (mirror_http_response, mirror_x509_cert):
+    the site's rules and panels (C5, C6) and G2's read http_response and x509_cert, never the mirror's, and the
+    mirror's rules read only theirs. "Data server not answering" waits 45 minutes (P26) and alerts on a vanished
+    series too; its host is the client's (tests/test_mirror_pairs.py)."""
+    config = _telegraf()
+    checks = [i for i in config["inputs"]["http_response"] if i.get("name_override") == "mirror_http_response"]
+    certs = [i for i in config["inputs"]["x509_cert"] if i.get("name_override") == "mirror_x509_cert"]
+    assert len(checks) == len(certs) == 1
+    check, cert = checks[0], certs[0]
+    assert check["urls"] == ["https://mirror.findaline.lukawski.org/v1/datasets.json"] and check["interval"] == "1m"
+    assert check["response_status_code"] == 200 and check["response_string_match"] == '"datasets"'
+    assert check["method"] == "GET" and check["follow_redirects"] is False
+    assert set(check["fieldinclude"]) == {"http_response_code", "response_time", "result_code"}
+    assert cert["sources"] == ["https://mirror.findaline.lukawski.org"] and set(cert["fieldinclude"]) == {"expiry", "verification_code"}
+    # The site's own inputs keep their measurement names
+    others = [i for name in ("http_response", "x509_cert") for i in config["inputs"][name] if i not in (check, cert)]
+    assert len(others) == 2 and not any("name_override" in i for i in others)
+    rules = {r["uid"]: r for r in _rules()}
+    for uid, rule in rules.items():
+        expr = rule["data"][0]["model"]["expr"]
+        if rule["labels"]["row"] in ("C7", "C8"):
+            assert re.findall(r"\b(?:http_response|x509_cert)_\w+", expr.replace("mirror_", "MIRROR_")) == [], uid
+        else:
+            assert "mirror_" not in expr, uid
+    down = rules["c7-mirror-down"]
+    assert down["for"] == "45m" and down["noDataState"] == "OK"
+    expr = down["data"][0]["model"]["expr"]
+    assert "min_over_time(mirror_http_response_result_code[3m])) > 0" in expr
+    assert "absent_over_time(mirror_http_response_result_code[3m])" in expr
+    assert down["data"][1]["model"]["conditions"][0]["evaluator"] == {"type": "gt", "params": [0]}
+    certificate = rules["c8-mirror-certificate"]
+    assert certificate["data"][0]["model"]["expr"] == 'min by (host) (mirror_x509_cert_expiry{type="leaf"}) / 86400'
+    assert certificate["data"][1]["model"]["conditions"][0]["evaluator"] == {"type": "lt", "params": [14]}
+    for where, expr in _queries():
+        if "mirror_" in expr:
+            assert where.startswith(("site ", "overview ", "rule c7", "rule c8")), where
+
+
 # nginx's error lines (deploy/nginx/findaline.conf writes them with `client: <address>`) and the
 # application's, each with what must not survive Telegraf's processor
 LOG_LINES = [
@@ -524,8 +564,8 @@ def test_alert_rules():
         rows.add(rule["labels"]["row"])
     # The alert and info rows (docs/monitoring.md, "Alerts"); G1 is healthchecks.io's, D4 goes from
     # the host to ntfy itself (deploy/monitoring/ssh-login.sh)
-    assert rows == {"A1", "A2", "A3", "A4", "A7", "A8", "B1", "B2", "C1", "C2", "C5", "C6", "D1", "D2", "D3",
-                    "E1", "G2", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F11", "F13"}
+    assert rows == {"A1", "A2", "A3", "A4", "A7", "A8", "B1", "B2", "C1", "C2", "C5", "C6", "C7", "C8", "D1", "D2",
+                    "D3", "E1", "G2", "F1", "F2", "F3", "F5", "F6", "F7", "F8", "F11", "F13"}
     levels = {}
     for rule in rules:
         levels.setdefault(rule["labels"]["row"], set()).add(rule["labels"]["level"])

@@ -637,6 +637,74 @@ groups:
           __dashboardUid__: site
           __panelId__: "10"
         isPaused: false
+      # The project's data server (docs/mirror-hosting/spec.md D.3): no good answer to its list of
+      # datasets for 45 minutes (P26: short maintenance stops of the home server must not page). A
+      # good answer (result_code 0) within the last 3 minutes keeps it quiet; a series that vanished
+      # (the input gone) counts as no answer, as G2's rule on silent sources does
+      - uid: c7-mirror-down
+        title: "C7 Data server not answering"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (min_over_time(mirror_http_response_result_code[3m])) > 0 or label_set(absent_over_time(mirror_http_response_result_code[3m]), \"result\", \"no samples\")"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 45m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C7
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The data server (mirror.findaline.lukawski.org) gave no good answer to /v1/datasets.json for 45 min (result code {{ humanize (index .Values \"A\").Value }} {{ index .Labels \"result\" }}: 1 another body or no samples at all, 3 no connection, 4 no answer in time, 5 no DNS name, 6 not 200). Searches of its regions fall back to coarser data."
+          __dashboardUid__: site
+          __panelId__: "50"
+        isPaused: false
+      - uid: c8-mirror-certificate
+        title: "C8 Data server's certificate expires"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "min by (host) (mirror_x509_cert_expiry{type=\"leaf\"}) / 86400"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [14]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C8
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The data server's certificate expires in {{ humanize (index .Values \"A\").Value }} days (SWAG renews from 30)."
+          __dashboardUid__: site
+          __panelId__: "52"
+        isPaused: false
       - uid: d1-unit-failed
         title: "D1 systemd unit failed"
         condition: C
