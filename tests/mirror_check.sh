@@ -837,6 +837,8 @@ refused() {  # <id> <what> <request>: the gate refuses it (status not 0, "refuse
 
 g_door() {
     local r out sum name="we ird;name \$x'q.bin" before after i
+    # A clean start (the self-test runs this group once per door variant on the same volume)
+    as_root "$PROJECT-door-root" 'rm -rf /v/staging/x /v/public/v1/tiles/x'
     docker exec "$PROJECT-sshc" sh -c 'head -c 200000 /dev/urandom > /root/a.bin'
     sum=$(docker exec "$PROJECT-sshc" sha256sum /root/a.bin | cut -d' ' -f1)
     r=$(dsftp "ls /mirror")

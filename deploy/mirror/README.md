@@ -159,8 +159,8 @@ What the door is:
 - its port published on the server's **LAN address only** (`PUBLISH_ADDRESS`, required; never `0.0.0.0`; the
   router forwards nothing to it), on a network of its own, never the mirror's internal one;
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
-  mounts fails: tried with `public` as a mount of its own, sftp's rename answers "Failure" and the folder stays in
-  `staging`; rclone 1.76 then exits 1 and leaves the files in staging, as the research for this door saw),
+  mounts fails: tried with `public` as a mount of its own in the check script's self-test, the rename fails; the
+  research for this door saw rclone 1.76 then exit 1 with "Failure" and leave the files in `staging`),
   `authorized_keys` and the door's host key mounted read-only, nothing else of the host. Files it writes get
   mode 644 and folders 755, so the file server (uid 101) reads them; it reads `<root>/logs` through group 101
   (`tools/mirror_publish.py stats`). On the host they belong to uid 1000, whichever user that is there (on many
