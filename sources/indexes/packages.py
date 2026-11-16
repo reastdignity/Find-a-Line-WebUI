@@ -5,16 +5,20 @@ kept per package (PackageListing), and one version of each place, the newest sur
 A member's name gives its tile (the DTM user guide's figure 4): 1km<zone><east><north>[<year>]<project>, east
 and north in 100 m units of NAD83(CSRS) / UTM of the zone, the year missing in some projects (Ottawa River)."""
 
+import contextlib
 import glob
 import gzip
 import json
+import math
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Pattern, Sequence, Set, Tuple
 
 import requests
+from filelock import FileLock, Timeout
 from rasterio.warp import transform_bounds
 
 import cache
@@ -40,6 +44,17 @@ MEMBER = re.compile(r"(?:^|/)1km(?P<zone>\d{2})(?P<east>\d{4})(?P<north>\d{5})(?
 MARGIN_DEG = 0.02
 # The link of a package in the index is an HTML anchor (<a href="...zip" ...>)
 HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
+# A package that answers but cannot be read (a 404 of a renamed or removed one, not a ZIP archive) is left out of
+# a 0.25° tile's answer, with a warning; that answer is asked again after this many seconds (not on every search)
+GONE_RETRY_S = 24 * 3600
+# Where two versions cover a place and the newest one's member is under this share of another's size (compressed,
+# from the directory: no data compresses to almost nothing), that other is used too and fills the newest's holes
+HOLE_SHARE = 0.75
+
+
+class PackageGone(IndexUnavailable):
+    """A package that answers but cannot be read: an HTTP status (a 404 of a renamed or removed package), not a ZIP
+    archive, a Range answered with the whole file. Not the network's failure (an IndexUnavailable)."""
 
 
 def member_tile(name: str) -> Optional[Tuple[int, int, int, int]]:
@@ -83,13 +98,18 @@ class PackageListing(Listing):
     geometry: Ontario's footprints are 34 MB), each package's link checked to lie under packages (the host's
     folder), then the package's central directory (read_directory: a HEAD, then the tail by Range), kept per
     package in <top>/zipdir/<key>/<package>.json.gz with its ETag and length for ttl_days: read again then, or
-    with an update, and kept as it was when its ETag and length did not change. Every directory read holds a
-    slot of the host (net.host_slot). Members whose names match exclude (a second copy in another height datum)
-    or are no tile's (member_tile) are left out.
+    with an update, and kept as it was when its ETag and length did not change. A directory is read under a slot
+    of the host (net.host_slot), then a lock of its own (not a tile's lock: the answer's tile lock is held around
+    fetch, a tile's around a renewal, and two of those could be one file): everywhere a tile's lock, then a slot,
+    then a directory's lock. A package that answers but cannot be read (PackageGone: a renamed or removed one) is
+    left out with a warning, and the answer is asked again after GONE_RETRY_S (a marker beside it: PackageIndex);
+    the network's failure leaves the whole answer unavailable. Members whose names match exclude (a second copy in
+    another height datum) or are no tile's (member_tile) are left out.
 
     Every member over the 0.25° tile is listed as {crs (its zone's), zone, east, north (km), year (its name's,
     else the project's), date (the project's: project_date), project, res, url, member, method, flags, crc, size,
-    usize, offset, length (the package's), extent (in crs)}. cache_dir and update are set by PackageIndex."""
+    usize, offset, length (the package's), extent (in crs)}; the packages left out as "gone" ({url, error}).
+    cache_dir and update are set by PackageIndex."""
 
     def __init__(self, url: str, packages: str, zones: Dict[int, str], dates: Dict[str, str], top: str, key: str,
                  res: float, exclude: Optional[str] = None, ttl_days: float = 180):
@@ -116,24 +136,28 @@ class PackageListing(Listing):
     def _wanted(self, name: str) -> bool:
         return member_tile(name) is not None and not (self.exclude and self.exclude.search(name))
 
-    def _read(self, url: str, previous: Optional[Dict], slot: bool = True) -> Dict:
+    def _read(self, url: str, previous: Optional[Dict]) -> Dict:
         """The package's directory as kept: its HEAD (length, ETag), then its directory unless previous holds it
-        for the same ETag and length; under a slot of the host unless slot is False (a tile's download holds one
-        already)."""
-        def read() -> Dict:
+        for the same ETag and length. PackageGone when the package answers but cannot be read, IndexUnavailable
+        when the host cannot be reached."""
+        where = f"package {cache.clean_url(url)}"
+        try:
             length, etag = head(url)
-            if previous and etag and previous.get("etag") == etag and previous.get("length") == length:
-                return previous
-            try:
-                listed = read_directory(url, length)
-            except (ValueError, ArchiveChanged, RangeRefused, RuntimeError, requests.RequestException) as e:
-                raise IndexUnavailable(f"package {cache.clean_url(url)}: {cache.clean_error(e)}") from e
-            return {"url": url, "etag": etag, "length": length,
-                    "members": [list(m) for m in listed if self._wanted(m.name)]}
-        if not slot:
-            return read()
-        with net.host_slot(self.cache_dir, url):
-            return read()
+        except IndexUnavailable as e:
+            status = re.search(r"HTTP (\d{3})", str(e))
+            if e.__cause__ is None and status and 400 <= int(status.group(1)) < 500:  # 404, 410, 403: gone
+                raise PackageGone(str(e)) from None
+            raise  # the network, or a server's error (5xx): the whole answer waits
+        if previous and etag and previous.get("etag") == etag and previous.get("length") == length:
+            return previous
+        try:
+            listed = read_directory(url, length)
+        except (ValueError, ArchiveChanged, RangeRefused) as e:  # not a ZIP archive, a 404, the whole file
+            raise PackageGone(f"{where}: {cache.clean_error(e)}") from e
+        except (RuntimeError, requests.RequestException) as e:
+            raise IndexUnavailable(f"{where}: {cache.clean_error(e)}") from e
+        return {"url": url, "etag": etag, "length": length,
+                "members": [list(m) for m in listed if self._wanted(m.name)]}
 
     def _store(self, path: str, kept: Dict):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -143,21 +167,43 @@ class PackageListing(Listing):
         os.replace(tmp, path)
         cache.record(self.cache_dir, path, url=kept["url"], etag=kept.get("etag"))
 
+    @contextlib.contextmanager
+    def _directory_lock(self, cache_dir: str, path: str):
+        """The lock of a package's kept directory: a file of its own in cache/locks/packages (not one of the tile
+        locks, which the answer's and a tile's holders share by their hash)."""
+        name = f"{self.key}-{os.path.basename(path)}.lock"
+        lock = FileLock(os.path.join(net._locks(cache_dir, "packages"), name))
+        try:
+            lock.acquire(timeout=net.LOCK_WAIT_S)
+        except Timeout:
+            raise RuntimeError(f"{cache.relative(cache_dir, path)} is being read by another search "
+                               f"(waited {net.LOCK_WAIT_S // 60} min); try again later") from None
+        try:
+            yield
+        finally:
+            lock.release()
+
     def directory(self, url: str, force: bool = False, slot: bool = True) -> Dict:
-        """A package's kept directory, read when not kept or due (at most once per process), or now with force."""
+        """A package's kept directory, read when not kept or due (at most once per process), or now with force:
+        under a slot of the host (unless slot is False: a tile's download holds one already), then its lock."""
         cache_dir = self.cache_dir
         path = self.directory_path(cache_dir, url)
         due = lambda: force or cache.due(cache_dir, path, update=self.update, ttl=self.ttl_days)  # noqa: E731
         if force or (path not in self._asked and due()):
-            with net.tile_lock(cache_dir, path):  # another search may be reading it now
+            with (net.host_slot(cache_dir, url) if slot else contextlib.nullcontext()), \
+                    self._directory_lock(cache_dir, path):  # another search may be reading it now
                 if due():
-                    self._store(path, self._read(url, self._kept(path), slot))
+                    self._store(path, self._read(url, self._kept(path)))
             with self._lock:
                 self._asked.add(path)
         kept = self._kept(path)
         if kept is None:
             raise IndexUnavailable(f"{cache.relative(cache_dir, path)} cannot be read")
         return kept
+
+    def retry_path(self, cache_dir: str, lat: float, lon: float) -> str:
+        """The marker beside a 0.25° tile's answer that left out a package: when to ask that answer again."""
+        return os.path.join(cache_dir, self.top, "sheet-index", self.key, f"{osm.tile_name(lat, lon)}.json.retry")
 
     def packages_over(self, west: float, south: float, east: float, north: float) -> Dict[str, Tuple[str, float]]:
         """The packages whose footprints meet a box (WGS84): {url: (project, resolution)}, in the index's order."""
@@ -176,9 +222,15 @@ class PackageListing(Listing):
         box = (lon - m, lat - m, lon + osm.TILE_DEG + m, lat + osm.TILE_DEG + m)
         packages = self.packages_over(*box)
         bounds: Dict[str, Tuple[float, float, float, float]] = {}
-        items = []
+        items, gone = [], []
         for url, (project, res) in packages.items():
-            kept = self.directory(url)
+            try:
+                kept = self.directory(url)
+            except PackageGone as e:
+                print(f"{self.key}: {cache.clean_url(url)} left out ({cache.clean_error(e)}); the 0.25° tile "
+                      f"{osm.tile_name(lat, lon)} is listed without it and asked again in {GONE_RETRY_S // 3600} h")
+                gone.append({"url": url, "error": cache.clean_error(e)})
+                continue
             date = project_date(project, self.dates)
             for name, method, flags, crc, size, usize, offset in kept["members"]:
                 tile = member_tile(name)
@@ -197,16 +249,38 @@ class PackageListing(Listing):
                               "url": url, "member": name, "method": method, "flags": flags, "crc": crc, "size": size,
                               "usize": usize, "offset": offset, "length": kept["length"],
                               "extent": [x, y, x + TILE_M, y + TILE_M]})
-        return {"packages": list(packages), "sheets": items}
+        marker = self.retry_path(self.cache_dir, lat, lon)
+        if gone:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(str(time.time() + GONE_RETRY_S))
+        elif os.path.exists(marker):
+            with contextlib.suppress(OSError):
+                os.remove(marker)
+        return {"packages": list(packages), "sheets": items, "gone": gone}
 
 
 class PackageIndex(CachedIndex):
     """A CachedIndex of a PackageListing: tells the listing the cache folder and update mode of each answer it
-    asks for (it keeps the packages' directories there)."""
+    asks for (it keeps the packages' directories there), and forgets an answer that left out a package once its
+    retry marker's time has come (PackageListing.retry_path), so it is asked again."""
     listing: PackageListing
 
     def answers(self, cache_dir: str, lat: float, lon: float, update: Optional[str] = None) -> List[Dict]:
         self.listing.cache_dir, self.listing.update = cache_dir, update
+        marker = self.listing.retry_path(cache_dir, lat, lon)
+        if os.path.exists(marker):
+            try:
+                with open(marker, encoding="utf-8") as f:
+                    when = float(f.read().strip() or 0)
+            except (OSError, ValueError):
+                when = 0.0
+            if time.time() >= when:
+                try:
+                    cache.forget(cache_dir, [self.index_path(cache_dir, lat, lon)])
+                    os.remove(marker)
+                except OSError:  # another process forgot it now
+                    pass
         return super().answers(cache_dir, lat, lon, update)
 
 
@@ -243,22 +317,43 @@ PACKAGE_FILE = re.compile(r"[\\/]epsg(\d+)[\\/]-?\d+_-?\d+[\\/](-?\d+)_(-?\d+)_(
 
 def _order(tile: PackageTile) -> tuple:
     """Newer first: the member's year (its survey's: a project of several years names each tile's), then the
-    project's date (two projects of one year), then its key. Ontario's tile index (2026-10-28): of 30 414 places
-    in two or more projects, 54 would go the other way by the project's date first, each to the older survey
-    (Huron-Georgian Bay's tiles of 2022 against GTA 2023's and Kawartha Lakes 2023's)."""
-    return tile.year, tile.date, tile.key
+    project's date (two projects of one year), then the larger member (its compressed size in the directory: of two
+    members of one project and year at a place, a partial copy in a neighbouring package loses), then its name.
+    Ontario's tile index (2026-10-28): of 30 414 places in two or more projects, 54 would go the other way by the
+    project's date first, each to the older survey (Huron-Georgian Bay's tiles of 2022 against GTA 2023's)."""
+    return tile.year, tile.date, tile.size, tile.member, tile.key
 
 
 class PackageVersions(Versions):
-    """One version of each place (a 1 km tile of a zone): the newest survey's (_order: the member's year, then the
-    project's date from the catalogue's table), so where two projects cover a tile the newer is used whole and its
-    holes go to the source's gap filler. The tiles are used newest first, and of equal ones those in the working
-    CRS first (copied as they are). A member is known by its CRC-32: a changed member has another name in the
-    cache and is read again, and the cached files of a place's other versions are deleted then (prune).
-    Cached as <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<crc8>.tif."""
+    """The versions of each place (a 1 km tile of a zone) that are used: the newest survey's (_order: the member's
+    year, then the project's date from the catalogue's table, then the larger member), and each other whose member
+    the newest's is under HOLE_SHARE of in size (the newest is partial there: no data compresses to almost
+    nothing), which fills the newest's holes; what neither covers goes to the source's gap filler. The tiles are
+    used newest first (the mosaic writes a pixel from the first file holding it: the newest, then its fillers), of
+    equal ones those in the working CRS first (copied as they are). A member is known by its CRC-32: a changed
+    member has another name in the cache and is read again, and the cached files of a place's versions no longer
+    used are deleted (prune). Cached as <folder>/epsg<code>/<east // 10>_<north // 10>/<east>_<north>_<year>_<crc8>.tif."""
 
     def __init__(self, folder: str):
         self.folder = folder
+
+    @staticmethod
+    def _places(tiles: Sequence[PackageTile]) -> Dict[Tuple[str, int, int], List[PackageTile]]:
+        """The distinct members of each place, newest first."""
+        places: Dict[Tuple[str, int, int], Dict[Tuple[str, str], PackageTile]] = {}
+        for tile in tiles:
+            places.setdefault((tile.crs, tile.east, tile.north), {}).setdefault((tile.url, tile.member), tile)
+        return {place: sorted(found.values(), key=_order, reverse=True) for place, found in places.items()}
+
+    @classmethod
+    def _used(cls, tiles: Sequence[PackageTile]) -> List[PackageTile]:
+        """Of each place its newest version, and the others whose member the newest's is under HOLE_SHARE of."""
+        used = []
+        for versions in cls._places(tiles).values():
+            newest = versions[0]
+            used.append(newest)
+            used += [other for other in versions[1:] if newest.size < HOLE_SHARE * other.size]
+        return used
 
     @staticmethod
     def tile(item: Dict) -> PackageTile:
@@ -267,24 +362,18 @@ class PackageVersions(Versions):
                            item["offset"], item["method"], item["flags"], item["crc"], item["size"], item["usize"],
                            item["length"])
 
-    @staticmethod
-    def _newest(tiles: Sequence[PackageTile]) -> Dict[Tuple[str, int, int], PackageTile]:
-        newest: Dict[Tuple[str, int, int], PackageTile] = {}
-        for tile in tiles:
-            place = (tile.crs, tile.east, tile.north)
-            old = newest.get(place)
-            if old is None or _order(tile) > _order(old):
-                newest[place] = tile
-        return newest
+    @classmethod
+    def _newest(cls, tiles: Sequence[PackageTile]) -> Dict[Tuple[str, int, int], PackageTile]:
+        return {place: versions[0] for place, versions in cls._places(tiles).items()}
 
     @staticmethod
     def _sorted(tiles, grid_crs: str) -> List[PackageTile]:
         same = {crs: _same_crs(crs, grid_crs) for crs in {t.crs for t in tiles}}
-        return sorted(tiles, key=lambda t: (t.year, t.date, same[t.crs], t.key, t.crs, t.north, t.east),
-                      reverse=True)
+        return sorted(tiles, key=lambda t: (t.year, t.date, same[t.crs], t.size, t.member, t.key, t.crs, t.north,
+                                            t.east), reverse=True)
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        """The newest tile of each place over the grid (and the area's shape), newest first."""
+        """The used versions of each place over the grid (and the area's shape: _used), newest first."""
         items = [item for answer in _answers(index, cache_dir, index_tiles(grid), update) for item in answer]
         bounds = {crs: transform_bounds(grid.crs, crs, *grid.bounds) for crs in {item["crs"] for item in items}}
         shapes = {}
@@ -306,7 +395,7 @@ class PackageVersions(Versions):
                 if not shapes[item["crs"]].intersects(box(left, bottom, right, top)):
                     continue
             tiles.append(self.tile(item))
-        return self._sorted(self._newest(tiles).values(), grid.crs)
+        return self._sorted(self._used(tiles), grid.crs)
 
     def path(self, cache_dir: str, tile) -> str:
         code = tile.crs.split(":")[-1]
@@ -330,23 +419,32 @@ class PackageVersions(Versions):
                 and (t := self._of(os.path.join(folder, n))) is not None and (t.east, t.north) == (tile.east, tile.north)]
 
     def prune(self, cache_dir: str, tiles: list) -> int:
-        older = []
+        """Of each place whose newest version (its first among tiles, which are newest first) is cached, delete the
+        cached files of the versions not among tiles (an older survey, a changed member; never a filler in use)."""
+        used: Dict[Tuple[str, int, int], Set[str]] = {}
+        newest: Dict[Tuple[str, int, int], PackageTile] = {}
         for tile in tiles:
+            place = (tile.crs, tile.east, tile.north)
+            used.setdefault(place, set()).add(os.path.basename(self.path(cache_dir, tile)))
+            newest.setdefault(place, tile)
+        older = []
+        for place, tile in newest.items():
             if os.path.exists(self.path(cache_dir, tile)):
-                older += self._others(cache_dir, tile)
+                older += [p for p in self._others(cache_dir, tile) if os.path.basename(p) not in used[place]]
         cache.forget(cache_dir, older)
         return len(older)
 
     def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
-        """The listed tiles of one 0.25° tile whose place is cached in another version: read again, and the older
-        files deleted then."""
-        newest = self._newest([self.tile(item) for item in index.answers(cache_dir, lat, lon, "all")])
-        todo = [t for t in newest.values()
+        """The newest tiles of one 0.25° tile whose place is cached in another version: read again; the versions
+        used there are kept, the others deleted then."""
+        listed = [self.tile(item) for item in index.answers(cache_dir, lat, lon, "all")]
+        todo = [t for t in self._newest(listed).values()
                 if not os.path.exists(self.path(cache_dir, t)) and self._others(cache_dir, t)]
-        return todo, todo
+        return todo, sorted(self._used(listed), key=_order, reverse=True)
 
     def cached(self, grid: Grid, cache_dir: str) -> list:
-        """The cached tiles over the grid (the index cannot be reached), the newest of each place by year."""
+        """The cached tiles over the grid (the index cannot be reached), newest first by year (a filler after the
+        newest of its place)."""
         tiles = []
         bounds: Dict[str, Tuple[float, float, float, float]] = {}
         for path in glob.glob(os.path.join(cache_dir, self.folder, "epsg*", "*", "*.tif")):
@@ -359,17 +457,17 @@ class PackageVersions(Versions):
             x, y = tile.east * TILE_M, tile.north * TILE_M
             if x < g_right and x + TILE_M > g_left and y < g_top and y + TILE_M > g_bottom:
                 tiles.append(tile)
-        newest: Dict[Tuple[str, int, int], PackageTile] = {}
-        for tile in tiles:
-            place = (tile.crs, tile.east, tile.north)
-            if place not in newest or (tile.year, tile.key) > (newest[place].year, newest[place].key):
-                newest[place] = tile
-        return self._sorted(newest.values(), grid.crs)
+        return self._sorted(tiles, grid.crs)
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:
+        """Whether a listed tile lies within metres of the point (every 0.25° tile within them asked); None when
+        the index cannot be asked."""
+        d_lat = metres / 111_320.0
+        d_lon = metres / (111_320.0 * max(0.01, math.cos(math.radians(lat))))
         try:
-            items = [item for corner in osm.tiles(lon, lat, lon, lat) for item in index.answers(cache_dir, *corner)]
+            items = [item for corner in osm.tiles(lon - d_lon, lat - d_lat, lon + d_lon, lat + d_lat)
+                     for item in index.answers(cache_dir, *corner)]
         except requests.RequestException:
             return None
         from rasterio.warp import transform

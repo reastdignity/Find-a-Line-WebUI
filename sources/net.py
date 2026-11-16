@@ -183,10 +183,16 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # read by Range): no published limits. Read 2026-11-16: the Open Government Licence – Ontario
     # (https://www.ontario.ca/page/open-government-licence-ontario: "Copy, modify, publish, translate, adapt,
     # distribute or otherwise use the Information in any medium, mode or format for any lawful purpose"), the DTM
-    # and DSM user guides (https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DTM-Lidar-Derived-User-Guide.docx,
-    # section 2.2), the GeoHub's "Access and terms of use" (no number) and ontario.ca's terms of use
-    # (https://www.ontario.ca/page/terms-use: "you must not: interfere with or disrupt this website or any of our
-    # computer systems"); the host's robots.txt answers 404. Two at once
+    # and DSM user guides (https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DTM-Lidar-Derived-User-Guide.docx and
+    # https://www.publicdocs.mnr.gov.on.ca/mirb/Ontario-DSM-Lidar-Derived-User-Guide.docx, section 2.2: the
+    # attribution statement, no limit), the package index items (https://www.arcgis.com/home/item.html?id=
+    # ae2f11bd9e0e473080a4c5ded9ff93da and ...?id=516dab8d9fb7432d82644640095f5b31: licence OGL - Ontario, no limit),
+    # the GeoHub's "Access and terms of use" (https://geohub.lio.gov.on.ca/, its site item
+    # 999e254b3ad0403e8b7457dddbf2e8ea: "Use of this site and any of the data, text, maps and other information on
+    # the site (collectively "content") is governed by the terms and conditions set out below"; disclaimers only,
+    # no number) and ontario.ca's terms of use (https://www.ontario.ca/page/terms-use: "you must not: interfere with
+    # or disrupt this website or any of our computer systems"); the host's robots.txt answers 404; all read
+    # 2026-11-16. Two at once
     "ws.gisetl.lrc.gov.on.ca": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path

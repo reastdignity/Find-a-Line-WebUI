@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import time
 import zipfile
 
 import numpy as np
@@ -21,8 +22,9 @@ import pytest
 import rasterio as rio
 from rasterio.env import Env
 from rasterio.transform import from_origin
-from rasterio.warp import transform
+from rasterio.warp import transform, transform_bounds
 
+import cache
 import osm
 import sources as src
 from grid import make_grid
@@ -91,31 +93,57 @@ def _name(zone: int, east: int, north: int, year, code: str = "GTA2023_DTM", ext
     return f"1km{zone}{east * 10:04d}{north * 10:05d}{year or ''}L{code}.{ext}"
 
 
-def _feature(server, package: str, project: str, res: float = 0.5) -> dict:
+FOOTPRINTS = {}  # package: the WGS84 box (west, south, east, north) of its members' tiles (_package)
+AROUND = (LON - 0.1, LAT - 0.1, LON + 0.1, LAT + 0.1)  # a footprint over Rattlesnake Point's tiles
+
+
+def _feature(server, package: str, project: str, res: float = 0.5, box=None) -> dict:
+    """A feature of the package index: its attributes, and the footprint's box the fake index answers by (box,
+    else the box of the package's members' tiles)."""
     url = server.url(f"{PACKAGES}{package}.zip")
     return {"attributes": {"Package": package, "Project": project, "Resolution": res,
-                           "DownloadLink": f'<a href="{url}" target = "_blank">Lidar DTM {package}</a>'}}
+                           "DownloadLink": f'<a href="{url}" target = "_blank">Lidar DTM {package}</a>'},
+            "box": box or FOOTPRINTS[package]}
 
 
-def _featureserver(server, features, page=None):
-    """The package index: every query answers features (in pages of page while exceededTransferLimit); it
+def _featureserver(server, features, page=None, status=200):
+    """The package index: a query answers the features whose footprint's box meets the asked envelope (in pages
+    of page while exceededTransferLimit), without their boxes; status other than 200 answers that and nothing; it
     replaces the index served before."""
     server.routes[:] = [(prefix, handler) for prefix, handler in server.routes if prefix != FS]
+
     def query(request):
+        if status != 200:
+            return Answer(status, b"busy", {"Content-Type": "text/plain"})
         q = dict(request.query)
         assert q["f"] == "json" and q["inSR"] == "4326" and q["returnGeometry"] == "false"
+        assert q["geometryType"] == "esriGeometryEnvelope" and q["spatialRel"] == "esriSpatialRelIntersects"
         assert set(q["outFields"].split(",")) == {"Package", "Project", "DownloadLink", "Resolution"}
+        west, south, east, north = (float(v) for v in q["geometry"].split(","))
+        hits = [{"attributes": f["attributes"]} for f in features
+                if f["box"][0] < east and f["box"][2] > west and f["box"][1] < north and f["box"][3] > south]
         offset, count = int(q["resultOffset"]), page or int(q["resultRecordCount"])
-        answer = {"features": features[offset:offset + count]}
-        if offset + count < len(features):
+        answer = {"features": hits[offset:offset + count]}
+        if offset + count < len(hits):
             answer["exceededTransferLimit"] = True
         return Answer(200, json.dumps(answer).encode(), {"Content-Type": "application/json"})
     server.route(FS, query)
 
 
 def _package(server, package: str, members, zip64: bool = False, etag: str = '"p1"') -> bytes:
+    """A package served at PACKAGES/<package>.zip; its footprint (FOOTPRINTS) the box of its members' tiles."""
     body = _zip(members, zip64)
     server.add(f"{PACKAGES}{package}.zip", body, "application/zip", headers={"ETag": etag})
+    boxes = []
+    for name, _ in members:
+        tile = pk.member_tile(name)
+        if tile:
+            zone, east, north, _ = tile
+            boxes.append(transform_bounds(canada.ON_ZONES[zone], "EPSG:4326", east * 1000, north * 1000,
+                                          east * 1000 + 1000, north * 1000 + 1000))
+    if boxes:
+        FOOTPRINTS[package] = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes),
+                               max(b[3] for b in boxes))
     return body
 
 
@@ -194,18 +222,21 @@ def test_every_project_of_the_index_has_its_date():
 # The listing: the index, the packages' directories
 
 def test_index_pages_and_zip64_directories(http_server, layer, tmp_path):
-    """The index asked for the 0.25° tile grown by MARGIN_DEG, page by page; each package's link checked (another
-    host's never asked); each directory read by a HEAD and one Range of the tail (a ZIP64 one too), kept per
-    package with its ETag; the members over the 0.25° tile listed with what zipfile says of them; another 0.25°
-    tile reuses the kept directories."""
+    """The index asked for the 0.25° tile grown by MARGIN_DEG, page by page (the fake answers by the footprints: a
+    package far away is not listed, nor read); each package's link checked (another host's never asked); each
+    directory read by a HEAD and one Range of the tail (a ZIP64 one too), kept per package with its ETag; the
+    members over the 0.25° tile listed with what zipfile says of them; another 0.25° tile reuses the kept
+    directories."""
     a = _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0)),
                                     (_name(17, EAST + 1, NORTH, 2023), _raster(EAST + 1, NORTH, 201.0)),
                                     (_name(17, EAST, NORTH, 2023, "Muskoka_CGVD28_DTM"), _raster(EAST, NORTH, 9.0)),
                                     ("A/readme.txt", b"text")], zip64=True)
     _package(http_server, "B", [(_name(17, 600, 4900, 2023), _raster(600, 4900, 300.0))])
-    features = [_feature(http_server, "A", "GTA 2023"), _feature(http_server, "B", "GTA 2023"),
+    _package(http_server, "Far", [(_name(17, 600, 4900, 2023), _raster(600, 4900, 300.0))])
+    features = [_feature(http_server, "A", "GTA 2023"), _feature(http_server, "Far", "GTA 2023"),
+                _feature(http_server, "B", "GTA 2023", box=AROUND),  # a footprint over the tile, its member not
                 {"attributes": {"Package": "C", "Project": "GTA 2023", "Resolution": 0.5,
-                                "DownloadLink": '<a href="https://example.com/Packages/C.zip">C</a>'}}]
+                                "DownloadLink": '<a href="https://example.com/Packages/C.zip">C</a>'}, "box": AROUND}]
     _featureserver(http_server, features, page=2)
     cache_dir = str(tmp_path)
     lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
@@ -236,6 +267,19 @@ def test_index_pages_and_zip64_directories(http_server, layer, tmp_path):
     assert len(http_server.requests(PACKAGES)) == before
 
 
+def test_footprint_beside_its_tile_found_by_the_margin(http_server, layer, tmp_path, monkeypatch):
+    """A footprint that misses its tile by about 450 m (the index's miss theirs by up to 968 m): the 0.25° tile is
+    asked grown by MARGIN_DEG, so its package is listed and the member inside the tile found; without the margin
+    nothing."""
+    _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))])
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    beside = (lon + 0.1, lat + 0.25 + 0.004, lon + 0.2, lat + 0.25 + 0.05)  # north of the tile, the member in it
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023", box=beside)])
+    assert [(i["east"], i["north"]) for i in layer.index.answers(str(tmp_path), lat, lon)] == [(EAST, NORTH)]
+    monkeypatch.setattr(pk, "MARGIN_DEG", 0.0)
+    assert layer.index.answers(str(tmp_path / "without"), lat, lon) == []
+
+
 def test_changed_package_read_again(http_server, layer, tmp_path):
     """Asked again (an update), a package whose ETag and length are unchanged keeps its directory (a HEAD only);
     a new ETag reads it again."""
@@ -255,14 +299,50 @@ def test_changed_package_read_again(http_server, layer, tmp_path):
     assert [i["year"] for i in items] == [2024]
 
 
-def test_package_unavailable(http_server, layer, tmp_path, capsys):
-    """A package that answers 404: the index is unavailable (nothing kept), and the cached files are used."""
-    _featureserver(http_server, [_feature(http_server, "Gone", "GTA 2023")])
+def test_gone_package_left_out(http_server, layer, tmp_path, capsys):
+    """A package that answers 404 (renamed or removed) beside a good one: the good one's tiles are listed and read,
+    the gone one is named in a warning and left out; the answer is not asked again (no index query, no HEAD of the
+    gone package) until its retry time, then it is."""
+    _package(http_server, "Good", [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))])
+    _featureserver(http_server, [_feature(http_server, "Good", "GTA 2023"),
+                                 _feature(http_server, "Gone", "GTA 2023", box=AROUND)])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert len(layer.files(grid, cache_dir)) == 1
+    assert "Gone.zip left out (ZIP archive" in capsys.readouterr().out
+    lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
+    marker = layer.listing.retry_path(cache_dir, lat, lon)
+    assert os.path.exists(marker) and layer.has_data_near(LAT, LON, cache_dir) is True
+    asked = len(http_server.log)
+    layer.index._listed.clear()
+    layer.listing._asked.clear()
+    assert len(layer.tiles(grid)) == 1 and len(http_server.log) == asked  # within the day: nothing asked
+    with open(marker, "w") as f:
+        f.write(str(time.time() - 1))
+    layer.index._listed.clear()
+    assert len(layer.tiles(grid)) == 1
+    again = [r.path for r in http_server.log[asked:]]
+    assert again.count(f"{PACKAGES}Gone.zip") == 1 and any(p.startswith(FS) for p in again)
+
+
+@pytest.mark.parametrize("status", [503, None])
+def test_unreachable_package_leaves_the_answer_unavailable(http_server, layer, tmp_path, capsys, status):
+    """A package host's server error (503) or no connection at all: the whole answer waits (nothing kept), and the
+    cached files are used; never a listing that silently lacks the package."""
+    if status is None:  # a package on a host that refuses connections
+        dead = {"attributes": {"Package": "D", "Project": "GTA 2023", "Resolution": 0.5,
+                               "DownloadLink": '<a href="http://127.0.0.1:9/Packages/D.zip">D</a>'}, "box": AROUND}
+        layer.listing.packages = "http://127.0.0.1:9/Packages/"
+        _featureserver(http_server, [dead])
+    else:
+        http_server.add(f"{PACKAGES}Busy.zip", b"busy", "text/plain", status=status)
+        _featureserver(http_server, [_feature(http_server, "Busy", "GTA 2023", box=AROUND)])
     grid = _grid()
     layer.index.use(str(tmp_path))
     assert layer.tiles(grid) is None
     assert "index not available" in capsys.readouterr().out
-    assert not os.path.exists(os.path.join(str(tmp_path), "ontario", "sheet-index"))
+    assert not os.path.exists(os.path.join(str(tmp_path), "ontario", "sheet-index", "ontario-dtm"))
     lat, lon = osm.tiles(LON, LAT, LON, LAT)[0]
     with pytest.raises(IndexUnavailable):
         layer.index.answers(str(tmp_path), lat, lon)
@@ -330,14 +410,35 @@ def test_member_beyond_its_box_cut_to_it(http_server, layer, tmp_path):
         assert tile.transform.c == (EAST - 1) * 1000.0
 
 
-def test_member_off_its_box_never_cached(http_server, layer, tmp_path):
-    """A member half a pixel off its tile's box (a tie point read as the corner) is refused, nothing cached."""
-    _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0, shift=TEN / 2))])
+@pytest.mark.parametrize("kind", ["half a pixel", "a pixel short", "a 500th of a pixel", "the next km"])
+def test_refused_member_left_to_the_filler(http_server, layer, tmp_path, capsys, kind):
+    """A member off its tile's box (half a pixel: a tie point read as the corner; a column short; its origin a 500th
+    of a pixel off, 1 mm at 0.5 m; lying in the next kilometre): never cached, its tile recorded as missing with one
+    warning naming the package, the member and the reason, the search goes on (the gap filler fills it); the next
+    search does not ask it again."""
+    if kind == "a pixel short":
+        with rio.io.MemoryFile() as memfile:
+            with memfile.open(driver="GTiff", width=9, height=10, count=1, dtype="float32", crs="EPSG:2958",
+                              transform=from_origin(EAST * 1000, (NORTH + 1) * 1000, TEN, TEN)) as dst:
+                dst.write(np.full((1, 10, 9), 200.0, np.float32))
+            member = memfile.read()
+    else:
+        shift = {"half a pixel": TEN / 2, "a 500th of a pixel": TEN / 500, "the next km": 1000.0}[kind]
+        member = _raster(EAST, NORTH, 200.0, shift=shift)
+    _package(http_server, "A", [(_name(17, EAST, NORTH, 2023), member)])
     _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
     grid = _grid(half=100)
-    with pytest.raises(RuntimeError, match="off its tile's box"):
-        src.download_layers([(layer, "terrain")], grid, str(tmp_path), None)
-    assert layer.files(grid, str(tmp_path)) == []
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)  # no error
+    out = capsys.readouterr().out
+    assert out.count("left to the gap filler") == 1
+    assert "package A.zip, member 1km175870481302023LGTA2023_DTM.tif: the member lies off its tile's box" in out
+    (tile,) = layer.tiles(grid)
+    path = layer.tile_path(cache_dir, tile)
+    assert not os.path.exists(path) and cache.state(cache_dir, path) == "missing"
+    asked = len(http_server.requests(PACKAGES))
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert len(http_server.requests(PACKAGES)) == asked and "left to the gap filler" not in capsys.readouterr().out
 
 
 def test_pixel_is_point_header():
@@ -389,6 +490,73 @@ def test_moved_member_read_from_the_new_directory(http_server, layer, tmp_path):
         src.download_layers([(layer, "terrain")], grid, cache_dir, "all")
 
 
+def test_renamed_package_listed_anew(http_server, layer, tmp_path):
+    """The reviewer's sequence: A listed and kept, then renamed to A2 (A answers 404, the index lists A2). The first
+    search's read of A fails, and its directory cannot be read again: the answers are forgotten all the same, so
+    the second search lists anew and reads the tile from A2, and has_data_near sees it."""
+    members = [(_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))]
+    _package(http_server, "A", members)
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    assert len(layer.tiles(grid)) == 1
+    http_server.answers.pop(("GET", f"{PACKAGES}A.zip", ()))
+    _package(http_server, "A2", members)
+    _featureserver(http_server, [_feature(http_server, "A2", "GTA 2023")])
+    with pytest.raises(RuntimeError, match="Could not download"):
+        src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        assert np.nanmax(np.abs(tile.read(1) - 200.0)) <= TILE_EPS
+    assert layer.tiles(grid)[0].url.endswith("/A2.zip") and layer.has_data_near(LAT, LON, cache_dir) is True
+
+
+def test_one_tile_lock_never_blocks_itself(http_server, layer, tmp_path, monkeypatch):
+    """With a single tile lock file (every answer's and tile's lock the same), the listing (the answer's lock, then
+    a package directory's own lock) and a renewal inside a tile's download (its lock and a host slot, then the
+    directory's lock) finish: a directory's lock is never a tile lock."""
+    monkeypatch.setattr(net, "TILE_LOCKS", 1)
+    monkeypatch.setattr(net, "LOCK_WAIT_S", 5)
+    first = (_name(17, EAST, NORTH, 2023), _raster(EAST, NORTH, 200.0))
+    other = (_name(17, EAST + 5, NORTH, 2023), _raster(EAST + 5, NORTH, 1.0))
+    _package(http_server, "A", [first, other])
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023", box=AROUND)])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    assert len(layer.tiles(grid)) == 1
+    _package(http_server, "A", [other, first], etag='"p2"')  # moved: the download renews inside the tile's lock
+    started = time.monotonic()
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    assert len(layer.files(grid, cache_dir)) == 1 and time.monotonic() - started < 5
+
+
+def test_changed_member_reads_the_directory_again(http_server, layer, tmp_path):
+    """The package replaced under the same name, its first member made again (another CRC-32 and size at offset 0,
+    where a header of the same name still stands): the first read's CRC-32 is not the directory's, so the directory
+    is read again at once and the answers forgotten; that search fails the tile (the member is another tile now),
+    the next lists the new member and reads it."""
+    name = _name(17, EAST, NORTH, 2023)
+    _package(http_server, "A", [(name, _raster(EAST, NORTH, 200.0))])
+    _featureserver(http_server, [_feature(http_server, "A", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = _grid(half=100)
+    layer.index.use(cache_dir)
+    assert len(layer.tiles(grid)) == 1
+    _package(http_server, "A", [(name, _raster(EAST, NORTH, 205.5, holes=True))], etag='"p2"')
+    before = len(http_server.requests(PACKAGES))
+    with pytest.raises(RuntimeError, match="Could not download"):
+        src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    asked = [(r.method, r.headers.get("range", "")) for r in http_server.requests(PACKAGES)[before:]]
+    assert ("HEAD", "") in asked  # the directory read again after the first read
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as tile:
+        assert np.nanmax(np.abs(tile.read(1) - 205.5)) <= TILE_EPS
+
+
 # Several surveys of a place
 
 def test_newest_project_wins_the_place(http_server, layer, tmp_path):
@@ -436,13 +604,87 @@ def test_tile_outside_every_package(http_server, layer, tmp_path):
     assert layer.missing(grid, cache_dir, None) == [] and not http_server.requests(PACKAGES)
     assert layer.has_data_near(LAT, LON, cache_dir) is False
     _package(http_server, "Far", [(_name(17, 600, 4900, 2023), _raster(600, 4900, 1.0))])
-    _featureserver(http_server, [_feature(http_server, "Far", "GTA 2023")])
+    _featureserver(http_server, [_feature(http_server, "Far", "GTA 2023", box=AROUND)])  # over the place, no member
     for lat, lon in osm.tiles(LON, LAT, LON, LAT):
         os.remove(layer.index.index_path(cache_dir, lat, lon))
     layer.index._listed.clear()
     assert layer.tiles(grid) == []
     assert {r.method for r in http_server.requests(PACKAGES)} == {"HEAD", "GET"}
     assert len(http_server.requests(PACKAGES)) == 2
+
+
+def _noisy(east: int, north: int, valid_cols: int = 100, seed: int = 0) -> bytes:
+    """A member of 100 x 100 px of 10 m: random heights (they do not compress), no data from column valid_cols on
+    (no data compresses to almost nothing: a partial member is a small one)."""
+    values = (200.0 + np.random.default_rng(seed).uniform(0, 50, (100, 100))).astype(np.float32)
+    values[:, valid_cols:] = -32767.0
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=100, height=100, count=1, dtype="float32", crs="EPSG:2958",
+                          nodata=-32767.0, transform=from_origin(east * 1000, (north + 1) * 1000, 10.0, 10.0)) as dst:
+            dst.write(values, 1)
+        return memfile.read()
+
+
+def test_older_survey_fills_the_newest_holes(http_server, layer, tmp_path):
+    """A newest tile with data in 40 % of it (GTA 2023, its member under 75 % of the older one's size) over a
+    complete older one (GTA 2014-18): both used, the newest first, so the mosaic takes the newest where it has
+    data and the older in its holes (nothing left to the gap filler there); kept after the download (no prune).
+    Where the newest is complete the older one is not read."""
+    newest, older = _noisy(EAST, NORTH, 40, seed=1), _noisy(EAST, NORTH, 100, seed=2)
+    _package(http_server, "Old", [(_name(17, EAST, NORTH, 2018, "Halton_DTM"), older),
+                                  (_name(17, EAST - 1, NORTH, 2018, "Halton_DTM"), _noisy(EAST - 1, NORTH, seed=3))])
+    _package(http_server, "New", [(_name(17, EAST, NORTH, 2023), newest),
+                                  (_name(17, EAST - 1, NORTH, 2023), _noisy(EAST - 1, NORTH, seed=4))])
+    _featureserver(http_server, [_feature(http_server, "Old", "GTA 2014-18"), _feature(http_server, "New", "GTA 2023")])
+    cache_dir = str(tmp_path)
+    grid = make_grid(((EAST - 1) * 1000, NORTH * 1000, (EAST + 1) * 1000, (NORTH + 1) * 1000), 10.0, "EPSG:2958")
+    layer.index.use(cache_dir)
+    tiles = layer.tiles(grid)
+    assert [(t.east, t.year) for t in tiles] == [(EAST - 1, 2023), (EAST, 2023), (EAST, 2018)]
+    src.download_layers([(layer, "terrain")], grid, cache_dir, None)
+    files = layer.files(grid, cache_dir)
+    assert len(files) == 3 and all(os.path.exists(f) for f in files)  # the filler kept
+    read = [r.path for r in http_server.requests(PACKAGES) if r.method == "GET"]
+    assert read.count(f"{PACKAGES}Old.zip") == 2  # its tail and the filler: not its tile under a complete newest
+    mosaic = build_mosaic(files, grid, str(tmp_path / "m.npy"), "test")
+    part = mosaic[:, 100:]  # the tile (EAST, NORTH): the east half of the grid
+    with rio.io.MemoryFile(newest) as m1, m1.open() as a, rio.io.MemoryFile(older) as m2, m2.open() as b:
+        want = np.where(np.arange(100) < 40, a.read(1), b.read(1))
+    assert np.isfinite(part).all() and np.abs(part - want).max() <= TILE_EPS
+
+
+def test_one_years_members_the_larger_wins(http_server, layer, tmp_path):
+    """Two members of one project and year at a place (a partial copy in a neighbouring package): the larger
+    member is used, whatever their CRC-32s; the smaller is no filler (it is not larger than the chosen one)."""
+    full, partial = _noisy(EAST, NORTH, 100, seed=5), _noisy(EAST, NORTH, 30, seed=6)
+    _package(http_server, "P1", [(_name(17, EAST, NORTH, 2023), partial)])
+    _package(http_server, "P2", [(_name(17, EAST, NORTH, 2023), full)])
+    _featureserver(http_server, [_feature(http_server, "P1", "GTA 2023"), _feature(http_server, "P2", "GTA 2023")])
+    layer.index.use(str(tmp_path))
+    (tile,) = layer.tiles(_grid(half=100))
+    assert tile.url.endswith("/P2.zip") and tile.size == _members_of(_zip([("x", full)]))["x"].compress_size
+    ordered = sorted([pk.PackageTile("EPSG:2958", 1, 1, 2023, "ffffffff", "2023-05-11", size=10, member="a"),
+                      pk.PackageTile("EPSG:2958", 1, 1, 2023, "00000000", "2023-05-11", size=20, member="b")],
+                     key=pk._order, reverse=True)
+    assert [t.size for t in ordered] == [20, 10]
+
+
+def test_has_data_near_across_a_tiles_edge(http_server, layer, tmp_path, monkeypatch):
+    """has_data_near asks every 0.25° tile within 2 km of the point: a provincial tile just east across the tile's
+    edge is near (True; the listing's margin turned off, so only asking the next 0.25° tile finds it: the margin's
+    0.02° are 1.6 km of longitude here, less than the 2 km); no package near: False; the index failing (503): None
+    (unknown)."""
+    monkeypatch.setattr(pk, "MARGIN_DEG", 0.0)
+    lat, lon = 43.47, -79.755  # 400 m west of the 0.25° tiles' edge at 79.75° W
+    (x,), (y,) = transform("EPSG:4326", "EPSG:2958", [-79.735], [lat])
+    east, north = int(x // 1000), int(y // 1000)
+    _package(http_server, "E", [(_name(17, east, north, 2023), _raster(east, north, 1.0))])
+    assert FOOTPRINTS["E"][0] > -79.75  # the package lies in the next 0.25° tile
+    _featureserver(http_server, [_feature(http_server, "E", "GTA 2023")])
+    assert layer.has_data_near(lat, lon, str(tmp_path / "a")) is True
+    assert layer.has_data_near(lat, lon - 0.05, str(tmp_path / "b")) is False  # 4 km farther west
+    _featureserver(http_server, [], status=503)
+    assert layer.has_data_near(lat, lon, str(tmp_path / "c")) is None
 
 
 def test_zone_border(http_server, layer, tmp_path):
@@ -545,8 +787,24 @@ def test_offline_region_boxes(tmp_path, offline, lat, lon, region):
     assert src.choose.region_codes(lat, lon, str(tmp_path), "ca") == ((region,) if region else ())
 
 
+def test_offline_search_in_southern_ontario(tmp_path, offline, monkeypatch):
+    """The whole offline path (no place lookup, every service unreachable through a dead proxy): the first box
+    holding a point wins and the USA's (24.4-49.4° N) comes before Canada's, so a search in southern Ontario gets the
+    USA's source, as it got before ontario (canada's boxes come after the USA's too); north of 49.4° N Ontario's
+    region boxes give ontario (its index unreachable: no switch to canada). The region boxes of the parametrized
+    test above choose only where the country is known and the region lookup fails."""
+    for name in ("HTTP_PROXY", "HTTPS_PROXY"):
+        monkeypatch.setenv(name, "http://127.0.0.1:9")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    assert src.choose.country_code(LAT, LON, str(tmp_path)) == "us"
+    assert src.choose_source("auto", LAT, LON, str(tmp_path))[0].id in ("usa", "usgs10m")
+    assert src.choose.country_code(49.77, -94.49, str(tmp_path)) == "ca"
+    assert src.choose_source("auto", 49.77, -94.49, str(tmp_path))[0] is ON  # Kenora
+
+
 def test_choose_ontario_or_canada(tmp_path, monkeypatch):
-    """--source auto in Ontario: ontario where the province has tiles within 2 km, canada itself elsewhere."""
+    """--source auto in Ontario: ontario where the province has tiles within 2 km, canada itself elsewhere (the
+    real rule: test_has_data_near_across_a_tiles_edge)."""
     monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "ca")
     monkeypatch.setattr(src.choose, "region_codes", lambda lat, lon, cache_dir, code: ("ca-on",))
     monkeypatch.setattr(ON.nmt, "has_data_near", lambda lat, lon, cache_dir: True)
