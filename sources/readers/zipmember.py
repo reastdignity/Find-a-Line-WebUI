@@ -44,8 +44,26 @@ class ArchiveChanged(RuntimeError):
     changed), or a local header that is not the member's (the archive was replaced)."""
 
 
+class MemberChanged(ArchiveChanged):
+    """The member's bytes are not what the directory says (its CRC-32 or size, a deflate stream that does not end
+    there): the archive may have been replaced under the same name with this member made again."""
+
+
+class Mismatch(ValueError):
+    """A member's inflated bytes differ from its directory's CRC-32 or size (ZipMember._inflate)."""
+
+
 class RangeRefused(RuntimeError):
     """The server answered a Range request with the whole file (HTTP 200): closed unread."""
+
+
+class RangeMismatch(RuntimeError):
+    """The server answered another range than the one asked (a file now shorter than the range: the answer's
+    Content-Range names the bytes it has); total: the file's size it names (None: unknown)."""
+
+    def __init__(self, message: str, total: Optional[int] = None):
+        super().__init__(message)
+        self.total = total
 
 
 def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, Optional[int], Dict[str, str]]:
@@ -76,7 +94,9 @@ def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, 
         match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+|\*)", content_range)
         if not match or (int(match.group(1)), int(match.group(2))) != (first, last):
             counted.outcome = "other"
-            raise RuntimeError(f"{cache.clean_url(url)}: Content-Range {content_range!r}, bytes {first}-{last} asked")
+            total = int(match.group(3)) if match and match.group(3) != "*" else None
+            raise RangeMismatch(f"{cache.clean_url(url)}: Content-Range {content_range!r}, bytes {first}-{last} asked",
+                                total)
         if response.headers.get("Content-Encoding", "identity").lower() not in ("", "identity"):
             counted.outcome = "other"
             raise RuntimeError(f"{cache.clean_url(url)}: content-encoded ({response.headers['Content-Encoding']})")
@@ -166,7 +186,10 @@ class ZipMember(Reader):
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
-    the tile fails."""
+    the tile fails. With renew, so does the first read whose bytes are not what the directory says (MemberChanged:
+    an archive replaced under the same name, its member made again, where a header of the same name still stands);
+    without a newer request the member is then asked again as before (a transfer's fault), and a mismatch again
+    is the error. Without renew a mismatch is asked again as before."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
@@ -180,21 +203,25 @@ class ZipMember(Reader):
     def fetch(self, request, path: str) -> Fetched:
         where = f"{self.description} tile {request.godlo}"
         try:
-            data, received = self._member(request, where)
+            data, received = self._member(request, where, changed=self.renew is not None)
         except ArchiveChanged as e:
             renewed = self.renew(request) if self.renew else None
             if renewed is None:
-                raise RuntimeError(f"Could not download {where}: {e}") from None
-            request = renewed
-            try:
-                data, received = self._member(request, where)
-            except ArchiveChanged as again:
-                raise RuntimeError(f"Could not download {where}: {again}") from None
+                if not isinstance(e, MemberChanged):
+                    raise RuntimeError(f"Could not download {where}: {e}") from None
+                data, received = self._member(request, where)  # the directory says the same: asked again
+            else:
+                request = renewed
+                try:
+                    data, received = self._member(request, where)
+                except ArchiveChanged as again:
+                    raise RuntimeError(f"Could not download {where}: {again}") from None
         self._write(data, path, where, request)
         return Fetched(received, request.url)
 
-    def _member(self, request, where: str) -> Tuple[bytes, int]:
-        """The member's inflated bytes and the bytes received."""
+    def _member(self, request, where: str, changed: bool = False) -> Tuple[bytes, int]:
+        """The member's inflated bytes and the bytes received; with changed, bytes that are not the directory's
+        raise MemberChanged at once (else they are asked again, net.RETRIES, then an error)."""
         if request.method not in (STORED, DEFLATED):
             raise RuntimeError(f"{where}: compression method {request.method} (only 0 and 8 are read)")
         if request.flags & FLAG_ENCRYPTED:
@@ -224,23 +251,34 @@ class ZipMember(Reader):
                 return data, received
             except (ArchiveChanged, RangeRefused):
                 raise
-            except (requests.RequestException, RuntimeError, ValueError, zlib.error) as e:
+            except (Mismatch, zlib.error) as e:
+                if changed:
+                    raise MemberChanged(f"{request.member}: {cache.clean_error(e)}") from None
+                error = e
+                net._sleep(attempt)
+            except RangeMismatch as e:  # the archive is shorter now than where its directory put the member
+                if changed and e.total is not None and request.length and e.total != request.length:
+                    raise MemberChanged(f"{request.member}: the archive has {e.total} bytes, its directory was "
+                                        f"read from {request.length}") from None
+                error = e
+                net._sleep(attempt)
+            except (requests.RequestException, RuntimeError, ValueError) as e:
                 error = e
                 net._sleep(attempt)
         raise RuntimeError(f"Could not download {where}: {cache.clean_error(error)}")
 
     @staticmethod
     def _inflate(raw: bytes, request) -> bytes:
-        """The member's bytes from its compressed data; ValueError unless size and CRC-32 are the directory's."""
+        """The member's bytes from its compressed data; Mismatch unless size and CRC-32 are the directory's."""
         if request.method == DEFLATED:
             inflater = zlib.decompressobj(-15)
             data = inflater.decompress(raw, request.usize + 1)  # never more than one byte beyond the size
             if not inflater.eof:
-                raise ValueError("the deflated data does not end where the directory says")
+                raise Mismatch("the deflated data does not end where the directory says")
         else:
             data = raw
         if len(data) != request.usize or zlib.crc32(data) != request.crc:
-            raise ValueError(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
+            raise Mismatch(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
         return data
 
     def placed(self, transform: Affine, width: int, height: int, request,

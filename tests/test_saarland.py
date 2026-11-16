@@ -371,6 +371,35 @@ def test_404_resolves_the_token_again(http_server, tmp_path):
         assert json.load(f)["token"] == "TOKEN2b"
 
 
+def test_changed_member_reads_the_directories_again(http_server, tmp_path, no_sleep):
+    """An archive replaced under the same name with its first member made again (another CRC-32 and size at offset
+    0, where a header of the same name still stands): the first read's CRC-32 is not the directory's, so the
+    directories are read again at once and the 0.25° answers forgotten; that read fails (the member is another
+    version now), the next search lists the new member and reads it (before, the directories were never read
+    again: every search failed until their TTL)."""
+    _share(http_server, "TOKEN1a")
+    _two_archives(http_server, "TOKEN1a")
+    cache_dir = str(tmp_path / "cache")
+    layer = _layer(http_server)
+    layer._use(cache_dir)
+    grid = _grid(1, 1)
+    (tile,) = layer.tiles(grid)
+    a = _archive([("DGM1_tif_A/dgm1_32_32700_548500_1_SL_2025.tif", _tif(EAST, NORTH, base=400.0, seed=7),
+                   zipfile.ZIP_DEFLATED, False),
+                  ("DGM1_tif_A/dgm1_32_32701_548500_1_SL_2025.tif", _tif(EAST + 1, NORTH, seed=1),
+                   zipfile.ZIP_DEFLATED, False)])
+    _serve(http_server, "/dav/TOKEN1a/A.zip", a, '"a2"')
+    heads = [r.method for r in http_server.requests("/dav/TOKEN1a/A.zip")].count("HEAD")
+    with pytest.raises(RuntimeError, match="Could not download"):
+        layer.download_tile(tile, layer.tile_path(cache_dir, tile))
+    assert [r.method for r in http_server.requests("/dav/TOKEN1a/A.zip")].count("HEAD") == heads + 1
+    assert not glob.glob(os.path.join(cache_dir, "test_sl", "sheet-index", "dgm1", "*.json"))
+    layer.download(grid, cache_dir, None, "terrain")
+    (path,) = layer.files(grid, cache_dir)
+    with rio.open(path) as cached:
+        assert cached.read(1).min() >= 400.0
+
+
 def test_404_without_a_new_place_fails(http_server, tmp_path, no_sleep, capsys):
     _share(http_server, "TOKEN1a")
     _two_archives(http_server, "TOKEN1a")
