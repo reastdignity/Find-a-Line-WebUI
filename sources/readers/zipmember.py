@@ -58,12 +58,22 @@ class RangeRefused(RuntimeError):
 
 
 class RangeMismatch(RuntimeError):
-    """The server answered another range than the one asked (a file now shorter than the range: the answer's
-    Content-Range names the bytes it has); total: the file's size it names (None: unknown)."""
+    """The server answered another range than the one asked, or none (416: the range lies beyond the file's end):
+    the file is shorter now; total: the file's size its Content-Range names (None: unknown); unsatisfiable: a 416."""
 
-    def __init__(self, message: str, total: Optional[int] = None):
+    def __init__(self, message: str, total: Optional[int] = None, unsatisfiable: bool = False):
         super().__init__(message)
-        self.total = total
+        self.total, self.unsatisfiable = total, unsatisfiable
+
+
+class WrongShape(RuntimeError):
+    """A member that opens as a raster but not as a tile of one band: what its bytes are, the same on every
+    reading (a reader may leave such a tile to its gap filler: PackageMember)."""
+
+
+# What renew may answer besides a request or None: the directory read again lists another version of the member
+# (another CRC-32: another tile), so this request cannot be read; fetch fails at once (no reading of it again)
+MEMBER_REMADE = object()
 
 
 def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, Optional[int], Dict[str, str]]:
@@ -88,6 +98,11 @@ def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, 
             counted.outcome = "other"
             raise RangeRefused(f"{cache.clean_url(url)} answered a range request with the whole file (HTTP 200); "
                                f"not read")
+        if response.status_code == 416:  # Range Not Satisfiable (RFC 9110, 15.5.17): "bytes */<size>" if given
+            counted.outcome = "other"
+            unsatisfied = re.fullmatch(r"bytes \*/(\d+)", response.headers.get("Content-Range", "").strip())
+            raise RangeMismatch(f"HTTP 416 for {cache.clean_url(url)}, bytes {first}-{last} asked",
+                                int(unsatisfied.group(1)) if unsatisfied else None, unsatisfiable=True)
         if response.status_code != 206:
             raise RuntimeError(f"HTTP {response.status_code} for {cache.clean_url(url)}")
         content_range = response.headers.get("Content-Range", "").strip()
@@ -189,7 +204,9 @@ class ZipMember(Reader):
     the tile fails. With renew, so does the first read whose bytes are not what the directory says (MemberChanged:
     an archive replaced under the same name, its member made again, where a header of the same name still stands);
     without a newer request the member is then asked again as before (a transfer's fault), and a mismatch again
-    is the error. Without renew a mismatch is asked again as before."""
+    is the error; renew answering MEMBER_REMADE (the directory lists the member made again: another tile) fails
+    the tile at once. A 416 or another range from a shorter archive counts as such a read (RangeMismatch). Without
+    renew a mismatch is asked again as before."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
@@ -206,6 +223,9 @@ class ZipMember(Reader):
             data, received = self._member(request, where, changed=self.renew is not None)
         except ArchiveChanged as e:
             renewed = self.renew(request) if self.renew else None
+            if renewed is MEMBER_REMADE:
+                raise RuntimeError(f"Could not download {where}: {e}; the directory lists the member made again "
+                                   f"(another CRC-32): the next search reads it") from None
             if renewed is None:
                 if not isinstance(e, MemberChanged):
                     raise RuntimeError(f"Could not download {where}: {e}") from None
@@ -257,9 +277,10 @@ class ZipMember(Reader):
                 error = e
                 net._sleep(attempt)
             except RangeMismatch as e:  # the archive is shorter now than where its directory put the member
-                if changed and e.total is not None and request.length and e.total != request.length:
-                    raise MemberChanged(f"{request.member}: the archive has {e.total} bytes, its directory was "
-                                        f"read from {request.length}") from None
+                if changed and (e.unsatisfiable or (e.total is not None and request.length
+                                                    and e.total != request.length)):
+                    raise MemberChanged(f"{request.member}: the archive has {e.total or 'fewer'} bytes, its "
+                                        f"directory was read from {request.length}") from None
                 error = e
                 net._sleep(attempt)
             except (requests.RequestException, RuntimeError, ValueError) as e:
@@ -291,7 +312,7 @@ class ZipMember(Reader):
         try:
             with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
                 if src.count != 1:
-                    raise RuntimeError(f"{where}: {src.count} bands, one expected")
+                    raise WrongShape(f"{where}: {src.count} bands, one expected")
                 band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
                 crs, transform = self.crs or getattr(request, "crs", None) or src.crs, src.transform
                 if self.fix is not None:
