@@ -1164,3 +1164,73 @@ def test_rclone_gone_at_the_staging_rmdir(world, monkeypatch, capsys):
     assert "published madeira" in out and "could not be removed" not in out
     published_ok(world, "madeira")
     assert not (world.server / "staging" / ".lock").exists()
+
+
+# F4 of the acceptance run: a refused move says why, in rclone's own words
+
+# rclone 1.76's lines over SFTP, as recorded on the throw-away OpenSSH server (publish/e2e-sftp-log.txt and the
+# milestone 1 trial): public/ owned by root, and staging/ and public/ on two mounts
+PERMISSION_LINES = (
+    b"2026/11/16 16:15:02 NOTICE: sftptrial: No host key validation is being performed.\n"
+    b"2026/11/16 16:15:02 ERROR : sftp://pub@127.0.0.1:22923//data/f/public/v1/tiles/madeira: Server side directory "
+    b"move failed: DirMove mkParentDir dst failed: mkdir \"/data/f/public/v1\" failed: permission denied\n"
+    b"2026/11/16 16:15:02 ERROR : Attempt 1/1 failed with 1 errors and: DirMove mkParentDir dst failed: mkdir "
+    b"\"/data/f/public/v1\" failed: permission denied\n"
+    b"2026/11/16 16:15:02 NOTICE: Failed to moveto: DirMove mkParentDir dst failed: mkdir \"/data/f/public/v1\" "
+    b"failed: permission denied\n")
+CROSS_MOUNT_LINES = (
+    b"2026/11/16 00:12:24 ERROR : sftp://pub@127.0.0.1:22922//data/b/public/v1/tiles/madeira: Server side directory "
+    b"move failed: DirMove Rename(\"/data/b/staging/madeira\",\"/data/b/public/v1/tiles/madeira\") failed: sftp: "
+    b"\"Failure\" (SSH_FX_FAILURE)\n"
+    b"2026/11/16 00:12:24 NOTICE: Failed to moveto: DirMove Rename(\"/data/b/staging/madeira\","
+    b"\"/data/b/public/v1/tiles/madeira\") failed: sftp: \"Failure\" (SSH_FX_FAILURE)\n")
+
+
+@pytest.mark.parametrize("cause, lines, reason", [
+    ("permission", PERMISSION_LINES, "failed: permission denied"),
+    ("two mounts", CROSS_MOUNT_LINES, "failed: sftp: \"Failure\" (SSH_FX_FAILURE)")])
+def test_a_refused_move_says_rclones_reason(world, monkeypatch, capsys, cause, lines, reason):
+    """F4: the move into public refused by the server: the stop text carries rclone's own last error lines (masked:
+    no address, account, port or server path) and names both likely causes; the lock is kept, the copy stays
+    complete in staging. Simulated: the local backend renames whatever the rights, so the moveto answers with the
+    lines rclone wrote over SFTP for each cause (real in the SFTP end-to-end run)."""
+    def call(self, argv, data, progress):
+        if "moveto" in argv and argv[-2].endswith("staging/madeira"):
+            return subprocess.CompletedProcess(argv, 1, b"", lines)
+        return REAL_CALL(self, argv, data, progress)
+    monkeypatch.setattr(mp.Rclone, "_call", call)
+    assert _publish(world, "madeira") == 1
+    out = capsys.readouterr().out
+    assert "stopped: the server refused the move of staging/madeira to public/v1/tiles/madeira" in out
+    assert reason in out
+    assert "Likely causes: the publishing account may not write public/ (its owner), or staging/ and public/ are on " \
+           "different disks" in out
+    for secret in ("127.0.0.1", "pub@", "sftp://", "2292", "/data/", "host key"):
+        assert secret not in out, secret
+    assert (world.server / "staging" / ".lock").exists() and "the lock staging/.lock is kept" in out
+    assert len(tree(world.server / "staging" / "madeira")) == len(world.files["madeira"]) + 1
+
+
+def test_rclones_lines_are_cut_and_masked():
+    """Remote.says: at most SAYS_LINES lines of SAYS_CHARS characters; URLs, user@host, addresses, dialled hosts,
+    the remote's name, places of the PC and absolute server paths outside <root> never pass."""
+    class Answers:
+        def run(self, *args, **kw):
+            return subprocess.CompletedProcess(args, 0, json.dumps(
+                {"Name": "door", "Root": "/srv/mirror", "String": "sftp://door@192.0.2.5:2222//srv/mirror"}).encode(),
+                b"")
+    remote = mp.Remote(Answers(), "door:/srv/mirror")
+    remote.local.append(r"C:\data\master")
+    lines = (b"2026/11/16 10:00:00 ERROR : sftp://door@192.0.2.5:2222//srv/mirror/x: mkdir \"/srv/mirror/public\": "
+             b"permission denied\n"
+             b"2026/11/16 10:00:01 NOTICE: Failed to copy: couldn't connect SSH: dial tcp 192.0.2.5:2222: refused; "
+             b"lookup nas.example: no such host; key file /home/someone/.ssh/id: denied; door:x; [2001:db8::1]:22\n"
+             rb"2026/11/16 10:00:02 ERROR : open C:\data\master\madeira\a.tif: denied " + b"y" * 400 + b"\n")
+    said = remote.says(subprocess.CompletedProcess([], 1, b"", lines))
+    parts = said.split(" | ")
+    assert len(parts) == mp.SAYS_LINES and all(len(p) <= mp.SAYS_CHARS for p in parts)
+    for secret in ("192.0.2.5", "2222", "nas.example", "/home/someone", "door", "2001:db8", r"C:\data", "/srv/"):
+        assert secret not in said, secret
+    assert "dial tcp <host>" in said and "lookup <host>" in said and "<mirror>" in said
+    first = remote.says(subprocess.CompletedProcess([], 1, b"", lines.split(b"\n")[0]))
+    assert first == "<remote>/x: mkdir \"<root>/public\": permission denied"
