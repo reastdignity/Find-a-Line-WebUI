@@ -50,6 +50,16 @@
 .ui .r-profile svg .fal-frame polyline { stroke: var(--r-frame); }
 .ui .r-profile svg .fal-frame circle { fill: var(--r-frame); }
 .ui .r-profile svg .fal-frame-label { fill: var(--r-frame); }
+/* The labels of the highest point, the trees and the smallest clearance: the hue of their curve (Profile.tsx PROFILE,
+   which stays the curves' colour), as text at 4.5:1 or more on the card's --surface in each theme */
+.ui { --r-highest-label: #6a3d9a; --r-trees-label: #3b8632; --r-min-label: #877454; }
+@media (prefers-color-scheme: dark) {
+  .ui:not([data-theme="light"]) { --r-highest-label: #9a70c6; --r-trees-label: #419437; --r-min-label: #957f5d; }
+}
+.ui[data-theme="dark"] { --r-highest-label: #9a70c6; --r-trees-label: #419437; --r-min-label: #957f5d; }
+.ui .r-profile svg .fal-label-highest { fill: var(--r-highest-label); }
+.ui .r-profile svg .fal-label-trees { fill: var(--r-trees-label); }
+.ui .r-profile svg .fal-label-min { fill: var(--r-min-label); }
 /* every placed label on a halo of the card's colour, so the curves under it do not cross its letters */
 .ui .r-profile svg .fal-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .ui .r-profile .fal-swatch-zone { height: 8px; background: color-mix(in srgb, var(--r-zone) 12%, transparent);

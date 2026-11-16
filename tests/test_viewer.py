@@ -3339,11 +3339,16 @@ def contrast(a: str, b: str) -> float:
 TOKENS_CSS = os.path.join(VIEWER, "src", "ui", "tokens.css")
 
 
+def _dark_blocks(blocks: dict) -> list:
+    """The dark theme's blocks of _css_blocks: the one that follows the system and the one set by data-theme."""
+    return [v for k, v in blocks.items() if 'data-theme="dark"' in k or 'not([data-theme="light"])' in k]
+
+
 def _themes() -> dict:
     """The tokens of the light theme and of the dark one (ui/tokens.css: .ui, then the dark block that follows the
     system and the one set by data-theme, which must agree)."""
     blocks = _css_blocks(TOKENS_CSS)
-    dark = [v for k, v in blocks.items() if "dark" in k or 'not([data-theme="light"])' in k]
+    dark = _dark_blocks(blocks)
     assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of tokens.css differ"
     return {"light": blocks[".ui"], "dark": {**blocks[".ui"], **dark[0]}}
 
@@ -3375,3 +3380,24 @@ def test_placeholder_contrast():
     assert re.search(r"\.ui \.u-input\s*\{[^}]*background:\s*var\(--surface\)", text)
     for theme, tokens in _themes().items():
         assert contrast(tokens[token.group(1)], tokens["--surface"]) >= 4.5, (theme, token.group(1))
+
+
+def test_profile_label_contrast():
+    """The profile chart's coloured labels (highest, over trees, min. clearance; profile.css) read at 4.5:1 or more on
+    the card's --surface in both themes, each from its own colour per theme, while the curves keep Profile.tsx's
+    PROFILE colours (report defect 4: 2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
+    path = os.path.join(VIEWER, "src", "profile.css")
+    blocks = _css_blocks(path)
+    dark = _dark_blocks(blocks)
+    names = ("--r-highest-label", "--r-trees-label", "--r-min-label")
+    assert len(dark) == 2 and all(d[n] == dark[0][n] for d in dark for n in names)
+    light = blocks[".ui"]
+    text = open(path, encoding="utf-8").read()
+    for cls, name in zip(("highest", "trees", "min"), names):
+        assert re.search(rf"\.fal-label-{cls}\s*\{{\s*fill:\s*var\({name}\)", text), cls
+    themes = _themes()
+    for theme, colours in (("light", light), ("dark", dark[0])):
+        for name in names:
+            assert contrast(colours[name], themes[theme]["--surface"]) >= 4.5, (theme, name, colours[name])
+    profile = open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8").read()
+    assert all(c in profile for c in ('envelope: "#6a3d9a"', 'trees: "#3f8f35"', 'terrain: "#8a7656"'))
