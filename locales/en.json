@@ -632,6 +632,8 @@
   "ui.list.col.clear_title": "smallest clearance under the webbing",
   "ui.list.col.lines": "Lines",
   "ui.list.col.lines_title": "similar lines in the spot",
+  "ui.list.sorted_desc": ", sorted largest first",
+  "ui.list.sorted_asc": ", sorted smallest first",
   "ui.list.col.anchors": "Anchors",
   "ui.list.col.anchors_title": "can you walk to anchor 1 and to anchor 2",
   "ui.tight.label": "Tight",

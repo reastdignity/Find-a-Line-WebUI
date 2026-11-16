@@ -168,7 +168,7 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
         <button type="button" title={t(c.title)} class={cx("r-col", key.key === c.key && "r-on")}
                 onClick={() => sortBy(c.key)}>
         {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}
-        {key.key === c.key && <span class="u-sr">{list.desc ? ", sorted largest first" : ", sorted smallest first"}</span>}
+        {key.key === c.key && <span class="u-sr">{list.desc ? t("ui.list.sorted_desc") : t("ui.list.sorted_asc")}</span>}
         </button></Fragment>)}
       <span />
     </div>
