@@ -615,11 +615,13 @@ MEASURE_JS = r"""(opts) => {
   const size = (b) => Math.min(b.right - b.left, b.bottom - b.top);
   const px = (v) => (v === "auto" || v === "" || v === undefined) ? null : parseFloat(v);
   // The box of a control's ::before or ::after when it is absolutely positioned against the control (its insets or
-  // sizes against the control's padding box); null when there is none or it is not seen this way
+  // sizes against the control's padding box); null when there is none, it takes no clicks (hidden, pointer-events
+  // none), the control clips it (its own overflow hidden) or it is not seen this way (a transform moves it)
   const pseudoBox = (e, which, rect) => {
     const s = getComputedStyle(e, which), own = getComputedStyle(e);
     if (!s || s.content === "none" || s.content === "normal" || s.display === "none" || s.pointerEvents === "none" ||
-        s.position !== "absolute" || own.position === "static") return null;
+        s.visibility === "hidden" || s.transform !== "none" || s.position !== "absolute" || own.position === "static" ||
+        /hidden|clip/.test(own.overflowX) || /hidden|clip/.test(own.overflowY)) return null;
     const lo = {x: rect.left + parseFloat(own.borderLeftWidth), y: rect.top + parseFloat(own.borderTopWidth)};
     const hi = {x: rect.right - parseFloat(own.borderRightWidth), y: rect.bottom - parseFloat(own.borderBottomWidth)};
     const extra = (a, b) => s.boxSizing === "border-box" ? 0 : parseFloat(s["padding" + a]) + parseFloat(s["padding" + b]) +

@@ -278,6 +278,22 @@ def test_reach_through_clipping_and_scrolling():
     assert r["unreachable"] == {"button.before": 1, "button.out": 1, "button.side": 1}
 
 
+@BROWSER
+def test_a_pseudo_element_grows_only_what_it_can():
+    """An 18 px control with an ::after of inset -12 px measures 42, but 18 when the control clips it (its own
+    overflow hidden), when the ::after is hidden, when a transform moves it (not seen) and when an ancestor clips the
+    grown target back to 18."""
+    r = _measured('<button class="hx h0">a</button><button class="hx h1">b</button><button class="hx h2">c</button>'
+                  '<button class="hx h3">d</button><div class="tight"><button class="hx h4">e</button></div>',
+                  ".hx { position: relative; width: 18px; height: 18px; border: 0; padding: 0; margin: 20px; } "
+                  ".hx::after { content: ''; position: absolute; inset: -12px; } .h1 { overflow: hidden; } "
+                  ".h2::after { visibility: hidden; } .h3::after { transform: translate(1px, 0); } "
+                  ".tight { overflow: hidden; width: 18px; height: 18px; margin: 20px; } .tight .hx { margin: 0; }")
+    sizes = {sig: (e["w"], e["h"]) for sig, e in r["control_examples"].items()}
+    assert sizes == {"button.h0.hx": (42, 42), "button.h1.hx": (18, 18), "button.h2.hx": (18, 18),
+                     "button.h3.hx": (18, 18), "button.h4.hx": (18, 18)}
+
+
 PAGE = """<!doctype html><html lang="en"><head><style>
 ::-webkit-scrollbar { width: 0; height: 0; }
 body { margin: 0; font-size: 16px; } button { font-size: 16px; }
