@@ -38,16 +38,19 @@ target, might be done addiotionally".
 
 "Keep anchors, open the rest". The option the user picked named the anchors: the logo, the Barlow Condensed
 headings, the magenta line colour and the accepted layouts (the C frame of list, map and details, the phone's sheet,
-the Basic form); the result view of mock-up 2, version 7, accepted on 2026-11-14 (docs/roadmap.md, "Decisions"), is
-one of them too. Open, and settled on mock-ups the user accepts, not here: the body font, the accent and surface
+the Basic form). Open, and settled on mock-ups the user accepts, not here: the body font, the accent and surface
 colours, shapes, spacing and the label style.
+
+An earlier decision, not part of this task's answer: the result view of mock-up 2, version 7, was accepted on
+2026-11-14 (docs/roadmap.md, "Decisions"). Another task builds that new result view beside today's result page, so
+what stays is the accepted structure of the mock-up, not today's page.
 
 ## Principles
 
 Each traced to its source. *Proposed* marks a reading with no source in the user's answers.
 
-1. **A working tool for the rigger first.** Density, speed and depth stay; the desktop is where the work is done.
-   Source: "Aim is to be good tool for 3."
+1. **A working tool for the rigger first.** Source: "Aim is to be good tool for 3." *Proposed* reading: density,
+   speed and depth stay; the desktop is where the work is done.
 2. **Depth moves, it is not removed.** What a first-timer does not need yet sits one step away (a fold, a second
    tab, a "?"), never deleted. Source: "but also not scare 1."; the step-away form is *proposed*.
 3. **Calm first screens.** A first-timer's way to a first search and a first result shows few choices at once and
@@ -56,14 +59,14 @@ Each traced to its source. *Proposed* marks a reading with no source in the user
    Source: "the more natural to use - the better". The wording rule already in force (docs/roadmap.md, UI texts,
    2026-10-30: simplified technical English with highliners' words, a "?" on every setting) is an earlier decision
    of the user, not of this task.
-5. **Phones are not a shrunk desktop.** Every flow works with a thumb, on a small screen, with nothing cut off.
-   Source: "Improve UI on phones".
-6. **Importance decides the container.** Not every group gets the same raised grey box; what matters most is set
-   apart, the rest sits on the page. Source: "Same grey box everywhere".
-7. **Short texts, explanation on demand.** A text says what the user needs at that moment; the longer story is
-   behind a link or a "?". Source: "Long explaining texts".
-8. **Words and labelled values, not symbols.** A value is written with its label and unit; characters do not stand
-   in for words or icons. Source: "Symbols and dense strings".
+5. **Phones are not a shrunk desktop.** Source: "Improve UI on phones". *Proposed* reading: every flow works with a
+   thumb, on a small screen, with nothing cut off.
+6. **Importance decides the container.** Source: "Same grey box everywhere". *Proposed* reading: not every group
+   gets the same raised grey box; what matters most is set apart, the rest sits on the page.
+7. **Short texts, explanation on demand.** Source: "Long explaining texts". *Proposed* reading: a text says what
+   the user needs at that moment; the longer story is behind a link or a "?".
+8. **Words and labelled values, not symbols.** Source: "Symbols and dense strings". *Proposed* reading: a value is
+   written with its label and unit; characters do not stand in for words or icons.
 9. **Visible means four things**: "Important things stand out, Readable text, Lines on the map, Avoid such things
    as labels overlapping etc." (the user's definition of visibility).
 10. **Measure before a rule.** A threshold is picked by the user from measured alternatives, never guessed.
@@ -81,10 +84,14 @@ Each traced to its source. *Proposed* marks a reading with no source in the user
 WCAG 2.2 level AA on the main flows (sign-in, search, result), checked with an automated scan on the rendered pages
 and a keyboard pass. The map canvas is a named exception: the list of lines is its accessible alternative.
 
+## Secondary targets
+
+Monospace capital labels and outdoor legibility. The user's words: "They are not main target, might be done
+addiotionally". The approved plan's reading: measured, improved where a round touches them anyway, never the reason
+for a round.
+
 ## Not targets
 
-- Outdoor legibility and monospace capital labels: secondary ("They are not main target, might be done
-  addiotionally"): measured, improved where a round touches them anyway, never the reason for a round.
 - A new visual identity: the anchors above stay.
 - The search, its results, its stored data: untouched by design work.
 - New tracking of visitors for measuring ease of use (*proposed*: none without privacy wording the user approves
