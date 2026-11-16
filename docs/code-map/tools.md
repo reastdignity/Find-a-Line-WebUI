@@ -189,9 +189,17 @@ selected, its card and the notes: `border_view`) over three cubes v2; `--run <fo
 shows a saved run (copied into the shots' data folder) with that line open: the pages `c-result-rigging` (the rigging
 filter) and `c-line-profile` (the profile card), with `c-line` and `view3d` of made-up counts of
 `tests/test_country_web.py::sample_cube` (`slovakia` and `testland`, as its fixture, and the study area `sk-part`).
-A page whose step `need:<expression>` stays false is left out with a note (the `c-result-shore*` pages on a run without
-uncertain shore, the clip's); a `--data-dir` used before can be used again (the Basic form's riggers get only the rigs
-they do not have yet)
+A page whose feature the run lacks (`NEEDS`: `c-result-rigging` a no-fall zone or A-frames, the `c-result-shore*` pages
+an uncertain shore, `c-result-why` the square rule; `run_features` reads run.json before any browser) is left out
+without a load, and a page whose step `need:<expression>` is false once the result is drawn as well. Selection:
+`--only`, `--exclude` (substrings), `--themes light|dark|both` (`--dark` = both), `--list` (the pages and which the run
+leaves out, no browser). Each picture is printed with its seconds, then a summary (set-up parts, passes, the ten
+slowest pages, the pages left out, timeouts, failed steps); `--timings <file>` the same as JSON; a timed-out `wait:`
+gets a quarter of its limit for the rest of the pass, a step that raises fails only its page, `--strict` stops at
+the first; exit code 1 after a timeout or a failed step. A `--data-dir` used before can be used again: its marker
+`ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module and
+the clip's files) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew); the Basic
+form's riggers get only the rigs they do not have yet, the problem report is added once
 
 ## `tools/shots_diff.py`
 
