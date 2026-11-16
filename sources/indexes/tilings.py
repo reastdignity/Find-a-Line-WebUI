@@ -156,10 +156,13 @@ class MetricCellTiling(Index):
         return remembered(self, grid, lambda: self._tiles(grid))
 
     def cells(self, grid: Grid) -> List[Tuple[int, int]]:
-        """Every cell over a grid's box (under its outline, when it has one), named or not, row by row."""
+        """Every cell over a grid's box (under its outline, when it has one), named or not, row by row. The box's
+        right and top edges are exclusive: a grid ending exactly on a cell's edge takes no cell beyond it (each such
+        cell was a download that gave the grid no pixel: a grid ending at 836 750 took Hong Kong's 7SW25D)."""
         (w, h), (x0, y0) = self.cell, self.origin
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        (i0, j0), (i1, j1) = self.cell_of(left, bottom), self.cell_of(right, top)
+        i0, j0 = self.cell_of(left, bottom)
+        i1, j1 = max(i0, math.ceil((right - x0) / w) - 1), max(j0, math.ceil((top - y0) / h) - 1)
         shape = _outline(grid, self.crs)
         if shape is not None:  # the cells of the grid's box under the outline, part by part
             return cells_under(shape, self.cell_of, lambda ii, jj: (x0 + ii * w, y0 + jj * h, x0 + (ii + 1) * w,

@@ -109,6 +109,23 @@ def test_metric_cell_tiling():
     assert tiling.tiles(far) == []
 
 
+def test_metric_cell_tiling_far_edges_exclusive():
+    """A grid ending exactly on a sheet's right or top edge takes no sheet beyond it (a download that gives no pixel);
+    one reaching a metre over takes it. Both levels of the plane rectangular grid (Tokyo's and Shizuoka's sheets)."""
+    for tiling, code in ((japan.TK_DTM.index, "09KC6361"), (japan.SZ_LEVELS["s"], "08OF0485"),
+                         (japan.SZ_LEVELS["q"], "08LD3341")):
+        zone = int(code[:2])
+        cell = (japan.jp_quad_cell if tiling.cell == japan.SHEET_QUAD else japan.jp_cell)(zone, code)
+        left, bottom, right, top = tiling.edges(cell)
+        crs = tiling.crs
+        assert tiling.cells(make_grid((left + 10, bottom + 10, right, top), 1.0, crs)) == [cell]
+        assert tiling.cells(make_grid((left, bottom, right, top), 1.0, crs)) == [cell]
+        assert tiling.cells(make_grid((left + 10, bottom + 10, right + 1, top), 1.0, crs)) == [cell, (cell[0] + 1,
+                                                                                                         cell[1])]
+        assert tiling.cells(make_grid((left + 10, bottom + 10, right, top + 1), 1.0, crs)) == [cell, (cell[0],
+                                                                                                         cell[1] + 1)]
+
+
 # --- Tokyo ----------------------------------------------------------------------------------------------------------
 @pytest.fixture
 def tokyo(http_server, monkeypatch):

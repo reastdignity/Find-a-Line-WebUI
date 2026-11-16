@@ -121,6 +121,22 @@ def test_codes_outside_the_scheme():
     assert len(codes) == 400 and all(c.startswith("7") for c in codes)
 
 
+def test_a_grid_ending_on_a_sheet_edge():
+    """A grid whose right or top edge lies exactly on a sheet's edge takes no sheet beyond it (7SW25C's box is
+    x 836 000-836 750, y 824 000-824 600: a grid ending at 836 750 took 7SW25D before, a download giving no pixel);
+    one reaching a metre over it takes the next sheet; a grid starting exactly on an edge starts with that sheet."""
+    tiling = hk.HK_DTM.index
+    cell = hk.hk_cell("7SW25C")
+    left, bottom, right, top = tiling.edges(cell)
+    assert (left, bottom, right, top) == (836000, 824000, 836750, 824600)
+    names = lambda grid: [hk.hk_sheet(*c) for c in tiling.cells(grid)]  # noqa: E731
+    assert names(make_grid((left + 100, bottom + 100, right, top), 1.0, hk.HK_CRS)) == ["7SW25C"]
+    assert names(make_grid((left, bottom, right, top), 1.0, hk.HK_CRS)) == ["7SW25C"]
+    assert names(make_grid((left + 100, bottom + 100, right + 1, top), 1.0, hk.HK_CRS)) == ["7SW25C", "7SW25D"]
+    assert names(make_grid((left + 100, bottom + 100, right, top + 1), 1.0, hk.HK_CRS)) == ["7SW25C", "7SW25A"]
+    assert names(make_grid((left - 1, bottom + 100, right, top), 1.0, hk.HK_CRS)) == ["7SW24D", "7SW25C"]
+
+
 def test_file_names_kept_as_published(monkeypatch):
     """The file names carry the sheet's corners floored to the kilometre, but on map 17 a pair is a kilometre off
     (17NW12A lies at x 861 500, y 845 000 and names e861n844): the URL is the table's name, never computed."""
