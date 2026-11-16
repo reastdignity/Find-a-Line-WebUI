@@ -105,6 +105,22 @@ Rules for every step:
    - *To do*: read the failed requests' settings by class (`tools/job_stats.py` could list failed jobs by code
      and class), then what the form could offer when a search finds nothing (the message names the settings to
      widen today), and whether the slope threshold of priority 2 is part of it.
+4. **`tools/ui_shots.py` is slow** (added by the user, 2026-11-16, during the UX and UI design task; a task of
+   its own).
+   - *What is seen*: the user: "tools/ui_shots.py seems to be slow". Every review of a UI change runs it
+     (.claude/rules/viewer.md), and the design task runs it more often (rendered checks, contact sheets, the
+     screenshots the image comps start from).
+   - *Known from the code, not measured*: one process shows one page at a time (device, then theme, then page).
+     Each of the 93 states opens a fresh page and waits a fixed 2.5 s (the event stream keeps the network busy,
+     so there is no "network idle" to wait for), 0.4 to 0.6 s after every step, up to 10 s for map tiles and up
+     to 60 s for the 3D view. Three devices and both themes are up to 558 page loads: about 23 minutes of fixed
+     waiting alone (an estimate from these numbers). The site, its users and the clip's run are set up anew at
+     every start.
+   - *To look into*: first measure where the time goes (set-up, load, fixed waits, steps, screenshot). Then the
+     candidates: a ready signal of the page instead of fixed waits; several browser contexts at once (per device
+     or per slice of the pages); a kept data folder (`--data-dir` exists); only the pages a branch's changed
+     files touch.
+   - No decision yet.
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
