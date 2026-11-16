@@ -16,11 +16,15 @@ visible text) when it took longer (indicative too: page timers against the load 
 or expected state never comes ends the walk as a dead end, named, never worked around; an exception (a navigation
 under a measurement, a timeout of an action) ends it as an error at its step, and the other walks go on. "Visible"
 means inside the viewport and every clipping ancestor, and hit by elementFromPoint (not covered by a sheet, a modal or
-a panel); a box with pointer-events: none that paints (a background, its own text, an image or svg) is made
-hit-testable for the measurement, so its words count and what it covers does not (the search form's unit labels).
+a panel); a box with pointer-events: none that hides what lies under it (at least half opaque: its effective
+opacity, and for a background colour its alpha, at least 0.5; an image, svg or its own text) is made hit-testable for
+the measurement, so its words count and what it covers does not (the search form's unit labels); a hidden tooltip,
+a light scrim or a gradient fade hides nothing.
 Only modal dialogs (showModal, aria-modal) and the named popovers (.r-pop, :popover-open) are a scope of their own:
 a dialog opened with show() leaves the page behind it usable, and is measured with it. A reading that still changed
-after 5 s is used and marked "not settled". MEASURE holds the rules.
+after 5 s is used and marked "not settled"; text that changes faster than the readings' spacing (100 ms), at a
+divisor of it, can read as settled. The feedback column stays indicative: a late 300 ms timer of a fast step can
+answer for the next step. MEASURE holds the rules.
 
 What is counted (also at the head of walks.md, COUNTED): a list row and its star and unfold buttons are three
 controls; a Leaflet map is one, its zoom and layer buttons and attribution links one each; splitters (role=separator)
@@ -348,17 +352,26 @@ def walk_errors(walks: dict, users, devices) -> list:
 # The measurement of the surface (a function of the page; no eval: the app's CSP forbids it). Returns the controls
 # (each: its kind and name, enabled or not) and the words visible, and which surface it measured.
 MEASURE = r"""() => {
-  // pointer-events: none does not hide what a box paints: such a box with a background, its own text or a replaced
-  // element (img, svg, canvas, video) is made hit-testable for the measurement (an inline style through the CSSOM,
-  // put back at the end), so its words count and what it covers does not; a transparent wrapper stays out of the way
-  const changed = [];
+  // pointer-events: none does not hide what a box paints: such a box that really hides what lies under it is made
+  // hit-testable for the measurement (an inline style through the CSSOM, put back at the end), so its words count and
+  // what it covers does not. It hides when its effective opacity (its own times its ancestors') is at least COVER and
+  // it is a replaced element (img, svg, canvas, video), has a background image of url(), a background colour of alpha
+  // at least COVER, or text of its own. A transparent wrapper, a hidden tooltip (opacity 0), a light scrim or a
+  // gradient (a fade) hide nothing, and their words do not count (the hit test does not reach them)
+  const COVER = 0.5;
+  const alpha = (c) => { const m = /rgba?\(([^)]*)\)/.exec(c); if (!m) return c === 'transparent' ? 0 : 1;
+                         const v = m[1].split(/[\s,\/]+/).filter(Boolean); return v.length > 3 ? parseFloat(v[3]) : 1; };
+  const opacity = (e) => { let o = 1; for (let a = e; a; a = a.parentElement) o *= parseFloat(getComputedStyle(a).opacity);
+                           return o; };
+  const changed = [], faint = [];  // faint: painted below COVER, its words not counted
   for (const e of document.querySelectorAll('body *')) {
     const s = getComputedStyle(e);
     if (s.pointerEvents !== 'none' || s.display === 'none') continue;
-    const painted = /^(IMG|svg|CANVAS|VIDEO)$/.test(e.tagName) || s.backgroundImage !== 'none'
-      || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(s.backgroundColor)
+    const painted = /^(IMG|svg|CANVAS|VIDEO)$/.test(e.tagName) || /url\(/.test(s.backgroundImage)
+      || alpha(s.backgroundColor) >= COVER
       || [...e.childNodes].some((n) => n.nodeType === 3 && /\S/.test(n.data));
     if (!painted) continue;
+    if (opacity(e) < COVER) { faint.push(e); continue; }
     changed.push([e, e.style.getPropertyValue('pointer-events'), e.style.getPropertyPriority('pointer-events')]);
     e.style.setProperty('pointer-events', 'auto', 'important');
   }
@@ -442,7 +455,7 @@ MEASURE = r"""() => {
   const range = document.createRange();
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const p = n.parentElement;
-    if (!shown(p)) continue;
+    if (!shown(p) || faint.some((f) => f.contains(p))) continue;
     const re = /\S+/g;
     let m;
     while ((m = re.exec(n.data))) {
@@ -578,7 +591,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
         dead = _steps(page, walk, values, touch, timeout, session, steps, shot)
     except Exception as e:  # the page went away under a measurement, a navigation failed, ...: this walk ends here
         n = steps[-1]["n"] if steps else 0
-        dead = {"step": n, "why": f"error: {type(e).__name__}: {str(e).splitlines()[0][:160] if str(e) else ''}",
+        dead = {"step": n, "why": f"error: {type(e).__name__}: {_message(e)}",
                 "error": True}
     end = len(steps)
     if dead is None and steps:
@@ -611,7 +624,9 @@ def _steps(page, walk, values, touch, timeout, session, steps, shot):
                 break
             continue
         if kind == "screen":
-            rec.update(name=s["name"], measured=measure(page), shot=shot(n, "screen"))
+            rec["name"] = s["name"]  # before the measurement: a failing one leaves a screen without words
+            rec["measured"] = measure(page)
+            rec["shot"] = shot(n, "screen")
             continue
         if kind == "sign_in":
             rec.update(user=s["user"], address=s["address"], see=s.get("see", ""))
@@ -659,7 +674,7 @@ def _steps(page, walk, values, touch, timeout, session, steps, shot):
             else:
                 page.keyboard.press(s["key"])
         except Exception as e:
-            dead = {"step": n, "why": f"the action failed: {type(e).__name__}: {str(e).splitlines()[0][:160]}"}
+            dead = {"step": n, "why": f"the action failed: {type(e).__name__}: {_message(e)}"}
             break
         if s.get("expect") and not _state(page, s["expect"], values, timeout):
             dead = {"step": n, "why": f"the expected state never came: {s['expect']}"}
@@ -673,6 +688,11 @@ def _steps(page, walk, values, touch, timeout, session, steps, shot):
             except Exception:
                 rec["feedback"] = "unknown"  # a new document, or no input event came: the watcher has nothing
     return dead
+
+
+def _message(e: BaseException) -> str:
+    """An exception's first line, shortened (empty for an exception without a message)."""
+    return (str(e).splitlines() or [""])[0][:160]
 
 
 def _enabled(loc, timeout: int) -> bool:
@@ -710,7 +730,7 @@ def totals(record: dict, desktop: bool = True) -> dict:
         "decisions": sum(1 for c in seen if c > DECISION), "decision_surfaces": len(surfaces),
         "max_controls": max(seen, default=0),
         "words_first": acts[0]["measured"]["words"] if acts else 0,
-        "words_screens": sum(s["measured"]["words"] for s in screens),
+        "words_screens": sum(s["measured"]["words"] for s in screens if s.get("measured")),
         "wait_seconds": round(sum(s.get("seconds") or 0 for s in acts), 2),
         "waits": [{"step": s["n"], "seconds": s["seconds"], "feedback": s.get("feedback")} for s in waits],
         "no_feedback": sum(1 for s in waits if s.get("feedback") == "none"),
@@ -742,8 +762,11 @@ COUNTED = """What is counted (tools/ui_walks.py):
 - Screens: the walk's own marks (its author's judgement), not detected.
 - Words: a word holds a letter or a digit; the visible ones. In a dialog the table has the visible words and the step
   lines also the dialog's whole text ("scrolled out too").
-- Seconds and the feedback within 300 ms: indicative (the machine's load, Playwright's polling). Unsettled: a reading
-  taken while the surface still changed after 5 s (marked in the step lines).
+- Covers: a box at least half opaque (effective opacity and background alpha at least 0.5) hides what lies under it,
+  pointer-events: none or not; a hidden tooltip, a light scrim or a fade hides nothing.
+- Seconds and the feedback within 300 ms: indicative (the machine's load, Playwright's polling; a late timer of a
+  fast step can answer for the next one). Unsettled: a reading taken while the surface still changed after 5 s
+  (marked in the step lines); text changing faster than the readings' 100 ms spacing can read as settled.
 """
 
 
@@ -885,7 +908,7 @@ def _walk(pw, browsers: dict, site: str, cookies: dict, values: dict, wid: str, 
     except Exception as e:
         record = {"id": wid, "title": walk["title"], "user": walk["user"], "device": walk["device"],
                   "memory": walk["memory"], "needs": walk.get("needs"), "steps": [],
-                  "dead_end": {"step": 0, "why": f"error: {type(e).__name__}: {str(e).splitlines()[0][:160]}",
+                  "dead_end": {"step": 0, "why": f"error: {type(e).__name__}: {_message(e)}",
                                "error": True}}
         record["totals"] = totals(record, desktop=not touch)
     finally:

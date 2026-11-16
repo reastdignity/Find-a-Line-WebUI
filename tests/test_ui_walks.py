@@ -259,6 +259,21 @@ def test_feedback_of_a_slow_step(page):
 
 
 @browser_test
+def test_feedback_starts_when_the_click_reaches_the_page(page):
+    """A button that becomes clickable only some time after the step began (the click waits for it) and answers at
+    once: the watcher reads the answer ("text"), not the quiet time before the click. Decided by the page's timers:
+    the answer comes at the click, the step's end 400 ms after it."""
+    page.set_content("""<button id="arm" onclick="setTimeout(() => document.getElementById('late').disabled = false,
+          1200)">Arm</button>
+        <button id="late" disabled onclick="document.getElementById('say').textContent = 'Working';
+          setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<p id=done>Done</p>'), 400)">Late</button>
+        <p id="say">Ready</p>""")
+    walk = {"steps": [uw.tap("#arm"), uw.tap("#late", "!!document.getElementById('done')")]}
+    r = uw.run_walk(page, walk, timeout=SHORT)
+    assert r["dead_end"] is None and r["steps"][1]["feedback"] == "text", r["steps"][1]
+
+
+@browser_test
 def test_a_walk_and_its_dead_end(page, tmp_path):
     """run_walk: a click and its expected state are counted; a step whose element is missing ends the walk as a dead
     end with that step named, the steps after it neither made nor counted; an "unmade" tap is counted, never made."""
@@ -373,3 +388,58 @@ def test_main_stops_the_site_and_cleans_up_when_a_step_after_serving_fails(tmp_p
     with pytest.raises(ValueError, match="no lines"):
         uw.main()
     assert stopped == [1] and not temp.exists()
+
+
+@browser_test
+def test_a_failing_screen_measurement_keeps_the_walk(page, monkeypatch):
+    """A screen whose measurement raises (a navigation under it): the walk ends as an error at that screen, the steps
+    before it kept; the screen counts as one without words."""
+    page.set_content("<button id='a'>A</button>")
+    calls, real = [], uw.measure
+
+    def failing(p, settle_ms=uw.SETTLE_MS):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("Execution context was destroyed")
+        return real(p, settle_ms)
+    monkeypatch.setattr(uw, "measure", failing)
+    walk = {"id": "S", "title": "s", "user": "admin", "device": "desktop", "memory": "new",
+            "steps": [uw.tap("#a"), uw.screen("after the tap"), uw.tap("#a")]}
+    r = uw.run_walk(page, walk, timeout=SHORT)
+    assert r["dead_end"] == {"step": 2, "why": "error: RuntimeError: Execution context was destroyed", "error": True}
+    assert [s["n"] for s in r["steps"]] == [1, 2] and r["steps"][1]["name"] == "after the tap"
+    t = r["totals"]
+    assert (t["pointer"], t["screens"], t["words_screens"], t["error"]) == (1, 1, 0, True)
+    assert "2. **screen: after the tap**" in uw.markdown([r])
+
+
+def test_an_exception_without_a_message_ends_its_walk(monkeypatch):
+    """_walk: an exception with an empty message (before the first step) is that walk's error, not the run's end."""
+    def broken(*args, **kwargs):
+        raise AssertionError()
+    monkeypatch.setattr(uw, "_context", broken)
+    record, refused = uw._walk(None, {}, "https://localhost:1", {}, {}, "R9", uw.WALKS["R2"], None)
+    assert record["dead_end"] == {"step": 0, "why": "error: AssertionError: ", "error": True} and refused == []
+    assert record["totals"]["error"] is True
+
+
+@browser_test
+def test_what_hardly_shows_covers_nothing(page):
+    """pointer-events: none boxes that hide nothing: a hidden tooltip (opacity 0, with a background and words), a 5 %
+    scrim and a fade gradient over buttons: the buttons count, the tooltip's words do not; a half-transparent parent
+    makes an opaque panel inside it hide nothing either."""
+    page.set_content("""<!doctype html><body style="margin:0;font:16px sans-serif">
+        <div style="position:relative;height:40px"><button style="position:absolute;top:0">Under tip</button>
+          <div style="position:absolute;inset:0;background:#333;color:#fff;opacity:0;pointer-events:none">Tip</div></div>
+        <div style="position:relative;height:40px"><button style="position:absolute;top:0">Under scrim</button>
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.05);pointer-events:none"></div></div>
+        <div style="position:relative;height:40px"><button style="position:absolute;top:0">Under fade</button>
+          <div style="position:absolute;inset:0;background:linear-gradient(transparent, #fff);pointer-events:none">
+          </div></div>
+        <div style="position:relative;height:40px;opacity:0.3"><button style="position:absolute;top:0">Faint</button>
+          <div style="position:absolute;inset:0;background:#fff;pointer-events:none">Faint panel</div></div>
+        </body>""")
+    m = uw.measure(page)
+    assert sorted(m["list"]) == sorted(["button: Under tip", "button: Under scrim", "button: Under fade",
+                                        "button: Faint"]), m["list"]
+    assert "Tip" not in m["text"].split() and "panel" not in m["text"].split(), m["text"]
