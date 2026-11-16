@@ -62,7 +62,7 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
     <div class="c-newmap" ref={mapRef} />
     {error && <p class="c-error c-form">{error}</p>}
     {!error && place && schema && initial !== undefined && rigs.loaded &&
-      <Form key={edit || cell || "new"} place={place} schema={schema} rigs={rigs} initial={initial} cell={!!ofCell} usage={usage}
+      <Form key={edit || cell || "new"} place={place} schema={schema} rigs={rigs} initial={initial} cell={!edit && !!ofCell} usage={usage}
             wide={wide} onStarted={onStarted} />}
   </div>;
 }

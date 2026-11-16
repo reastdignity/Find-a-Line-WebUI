@@ -400,6 +400,11 @@ def test_search_a_cell_opens_with_the_mark_on(tmp_path):
             page = _basic_page(tmp_path, port, context, f"#new&edit={old}")
             page.wait_for_function("() => !!window.FINDALINE_SEARCH", timeout=WAIT)
             r["edit"] = page.evaluate(state)
+            page.close()
+            # an address with both (made by hand): the stored search as stored, the cell's default not applied
+            page = _basic_page(tmp_path, port, context, f"#new&edit={old}&cell=slovakia:S:8:3:4")
+            page.wait_for_function("() => !!window.FINDALINE_SEARCH", timeout=WAIT)
+            r["both"] = page.evaluate(state)
             r["asked"] = asked
         finally:
             browser.close()
@@ -407,6 +412,7 @@ def test_search_a_cell_opens_with_the_mark_on(tmp_path):
     assert r["cell"] == ["advanced", True, False, True, "Search a cell", 2], r
     assert r["field"] == [True, False], r
     assert r["edit"] == ["advanced", None, True, None, "Edit & run again", 2], r
+    assert r["both"] == r["edit"], r
 
 
 SKIPPED_NOTE = ["warning", "The anchors' access will not be marked: this search's area is too wide for it (about 7.7 GiB of "

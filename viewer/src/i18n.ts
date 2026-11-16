@@ -25,7 +25,9 @@ export interface ErrorInfo { code: string; params?: Record<string, unknown>; key
 /** The text of a coded error in the page's language, as messages.Coded.web_text: the reading the server chose
  *  (`info.key`) when it names one and this page's catalogue has it, else the code's own ("error.<code>"); a
  *  parameter "field" gives the label ("label"), "advice" the text "advice_text". `fallback` (the
- *  server's English text) when the catalogue has no such code (a newer server). */
+ *  server's English text) when the catalogue has no such code (a newer server), and when it lacks the reading the
+ *  server chose: the info then carries that reading's params (none for a public one), not the code's own, so the
+ *  code's text would show its placeholders. */
 export function errorText(info: ErrorInfo, fallback?: string): string {
   const key = `error.${info.code}`;
   const params: Record<string, unknown> = {...(info.params || {})};
@@ -33,7 +35,8 @@ export function errorText(info: ErrorInfo, fallback?: string): string {
   if (params.advice_text === undefined) params.advice_text = adviceText(params.advice);
   if (typeof info.key === "string" && info.key !== key) {
     const chosen = t(info.key, params);
-    if (chosen !== info.key) return chosen;  // (a key this catalogue lacks: the code's own text, or the fallback)
+    if (chosen !== info.key) return chosen;
+    if (fallback) return fallback;  // a reading this catalogue lacks: the server's own text of it
   }
   const text = t(key, params);
   return text === key && fallback ? fallback : text;

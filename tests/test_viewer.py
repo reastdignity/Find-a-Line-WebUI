@@ -2014,13 +2014,14 @@ def test_coded_text_takes_the_servers_reading(tmp_path):
     """A coded message whose info names the reading the server chose (`key`: the public site's wording of a note,
     with that reading's params) is worded by that key (i18n.ts errorText, and detailMessage through it): the public
     reading of "access_skipped" shows no memory figure and no placeholder; without `key` the code's own text with
-    its params, as before; a key this page's catalogue lacks falls back to the code's own text, and to the server's
-    text when the code is unknown too."""
+    its params, as before; a key this page's catalogue lacks (a page older than its server; the info then has that
+    reading's params, none) gives the server's own text, never the code's text with empty placeholders. ApiError.of
+    keeps the key in its `info`, so an error worded again from it reads the same."""
     import messages
     params = {"need": 7.7, "have": 4.6}
     infos = [{"code": "access_skipped", "params": params},
              {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}},
-             {"code": "access_skipped", "key": "error.no_such_reading", "params": params},
+             {"code": "access_skipped", "key": "error.no_such_reading", "params": {}},  # as the server sends a reading
              {"code": "no_such_code", "key": "error.no_such_reading", "params": {}},
              {"code": "access_skipped", "key": "error.access_skipped", "params": params}]
     found = run_ts(tmp_path, "i18n", f"""
@@ -2028,7 +2029,9 @@ const infos = {json.dumps(infos)};
 console.log(JSON.stringify({{text: infos.map((i) => m.errorText(i, "the server's text")),
                             detail: infos.map((i) => m.detailMessage({{...i, message: "the server's text"}}, "fallback"))}}));""")
     local, public = messages.text("error.access_skipped", **params), messages.text("error.access_skipped_public")
-    assert found["text"] == found["detail"] == [local, public, local, "the server's text", local]
+    # a reading this page's catalogue lacks: the server's own text of it (the code's text would show "{{need}}")
+    assert found["text"] == found["detail"] == [local, public, "the server's text", "the server's text", local]
+    assert not any("{{" in text for text in found["text"])
     assert "GiB" in local and "7.7" in local
     assert not re.search(r"\d|GiB|\{\{", public) and public.startswith("The anchors' access will not be marked"), public
     # the server's own infos of the note (messages.Coded.info, and as a detail: the public one has the key and no
@@ -2041,6 +2044,35 @@ console.log(JSON.stringify({{text: infos.map((i) => m.errorText(i, "the server's
 const [info, publicInfo, detail, publicDetail] = {json.dumps(real)};
 console.log(JSON.stringify([m.errorText(info), m.errorText(publicInfo), m.detailMessage(detail, "x"), m.detailMessage(publicDetail, "x")]));""")
     assert worded == [note.web_text(), note.web_text(public=True)] * 2 == [local, public] * 2
+    # app/api.ts ApiError.of: the error of an answer's detail keeps the reading's key in its info, so a place that
+    # words it again from there (BasicPane's rig errors; jobError does the same from a job's error_info) reads the same
+    bundle, script = tmp_path / "api.cjs", tmp_path / "api-test.cjs"
+    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['src/app/api.ts'], bundle: true, "
+                                  f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
+                   cwd=VIEWER, check=True)
+    lines = ["globalThis.document = {querySelector: () => null};",  # the page's token is read at import
+             f"const m = require({json.dumps(str(bundle))});",
+             f"const details = {json.dumps(real[2:] + ['a plain text'])};"]
+    script.write_text(chr(10).join(lines) + """
+console.log(JSON.stringify(details.map((d) => { const e = m.ApiError.of(d, 400, "fallback");
+  return [e.message, e.info, e.info ? m.jobError({error: "stored text", error_info: e.info}) : null]; })));""",
+                      encoding="utf-8")
+    result = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", check=True)
+    errors = json.loads(result.stdout)
+    assert errors[0] == [local, {"code": "access_skipped", "params": params}, local]
+    assert errors[1] == [public, {"code": "access_skipped", "params": {}, "key": "error.access_skipped_public"}, public]
+    assert errors[2] == ["a plain text", None, None]
+
+
+def test_public_readings_take_no_params():
+    """A public reading of a coded text ("error.<code>_public" in the catalogue) has no placeholder: the server
+    sends its info without params (messages.Coded.info(public=True)), so a "{{…}}" in it would reach the page
+    unfilled."""
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        catalogue = json.load(f)
+    readings = {key: text for key, text in catalogue.items() if key.endswith("_public")}
+    assert "error.access_skipped_public" in readings
+    assert {key: text for key, text in readings.items() if "{{" in text} == {}
 
 
 def test_area_searched_by_local_day(tmp_path):
