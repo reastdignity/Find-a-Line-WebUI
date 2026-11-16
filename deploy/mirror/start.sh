@@ -16,9 +16,12 @@
 #   MIRROR_SUBNET             the project's network; X-Real-IP is believed from it
 #   MIRROR_CONTACT            the contact for abuse and takedown, shown on the landing page
 #
-# The cleanup loop: every HEARTBEAT_SECONDS it touches the heartbeat the healthcheck reads (a dead
-# loop makes the container unhealthy); every CLEANUP_SECONDS (and at start) it deletes each log
-# file whose day is KEEP_DAYS or more days back. The day is UTC, as in nginx.conf's file names.
+# The log: nginx writes one file a day, access-YYYY-MM-DD.log (UTC days); log.conf names today's
+# file. The loop: every HEARTBEAT_SECONDS (and at each midnight) it touches the heartbeat the
+# healthcheck reads (a dead loop makes the container unhealthy); when the day has changed it writes
+# log.conf for the new day and reloads nginx (a request still running then is written into the
+# file of the day it began); every CLEANUP_SECONDS (and at start) it deletes each log file whose day
+# is KEEP_DAYS or more days back.
 set -eu
 
 RUN=/tmp/mirror
@@ -101,8 +104,17 @@ landing_page() {
     sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE" > "$RUN/site/index.html"
 }
 
+# The access_log line for today's file (UTC), included by nginx.conf
+log_conf() {
+    _today=$(date -u +%F)
+    echo "access_log $LOGS/access-$_today.log mirror if=\$mirror_loggable;" > "$RUN/log.conf.new"
+    mv "$RUN/log.conf.new" "$RUN/log.conf"
+    echo "$_today" > "$RUN/log.day"
+}
+
 prepare() {
     mkdir -p "$RUN"
+    log_conf
     trusted_conf
     realip_conf
     landing_page
@@ -134,8 +146,14 @@ cleanup_loop() {
             cleanup
             _last=$_now
         fi
+        if [ "$(date -u +%F)" != "$(cat "$RUN/log.day")" ]; then
+            log_conf
+            kill -HUP "$(cat /tmp/nginx.pid)" 2> /dev/null || true
+        fi
         touch "$RUN/heartbeat"
-        sleep $HEARTBEAT_SECONDS
+        # Wake at midnight too, so the new day's file starts within a second of it
+        _left=$((86400 - $(date -u +%s) % 86400 + 1))
+        [ $_left -lt $HEARTBEAT_SECONDS ] && sleep $_left || sleep $HEARTBEAT_SECONDS
     done
 }
 

@@ -57,10 +57,19 @@ eq() {  # <id> <text> <got> <want>
     if [ "$3" = "$4" ]; then result "$1" PASS "$2 (got $3)"; else result "$1" FAIL "$2 (got '$3', want '$4')"; fi
 }
 info() { [ "$QUIET" = 1 ] || echo "INFO $*"; }
+skip() {  # <id> <why>: a check that could not run here (not a PASS; the acceptance needs it run)
+    OUT[$1]=SKIP
+    [ "$QUIET" = 1 ] || echo "SKIP $1 $2"
+}
+ua() {  # [tag]: this run's User-Agent; the log's "v" is "<MARK>.<tag>"
+    printf 'Find-a-Line/%s (highline finder; +https://site.example; contact: someone@example.org)' "$MARK${1:+.$1}"
+}
 has() { printf '%s\n' "$1" | grep -qiE "$2"; }
 hasnt() { ! printf '%s\n' "$1" | grep -qiE "$2"; }
 between() { awk -v v="$1" -v lo="$2" -v hi="$3" 'BEGIN { exit !(v + 0 >= lo + 0 && v + 0 <= hi + 0) }'; }
 hostpath() { if command -v cygpath > /dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+# The host's curl on Windows is a native program: /dev/null is NUL there
+if command -v cygpath > /dev/null 2>&1; then NULLDEV=NUL; else NULLDEV=/dev/null; fi
 now() { date +%s.%N | cut -c1-14; }
 
 # ---------------------------------------------------------------- the live checks (no fixture)
@@ -69,42 +78,46 @@ live_checks() {  # <url> [master folder]: from this machine, through the proxy
     local U=${1%/} master=${2:-} ua h c py out
     ua="Find-a-Line/check-live (mirror_check.sh; +https://site.example; contact: someone@example.org)"
     lc() { curl -sS -A "$ua" -m 60 "$@" 2> /dev/null; }
-    h=$(lc -D - -o /dev/null "$U/robots.txt" | tr -d '\r')
+    h=$(lc -D - -o "$NULLDEV" "$U/robots.txt" | tr -d '\r')
     eq LV01 "robots.txt: 200 text/plain; charset=utf-8" "$(printf '%s\n' "$h" | head -1 | cut -d' ' -f2) $(printf '%s\n' "$h" | grep -i '^content-type:' | cut -d' ' -f2-)" "200 text/plain; charset=utf-8"
     check LV02 "robots.txt disallows everything" has "$(lc "$U/robots.txt")" '^Disallow: /$'
     check LV03 "headers of an answer: nosniff, Cross-Origin-Resource-Policy, X-Robots-Tag" \
         eval 'has "$h" "^x-content-type-options: nosniff$" && has "$h" "^cross-origin-resource-policy: same-origin$" && has "$h" "^x-robots-tag: noindex$"'
     check LV04 "no Access-Control-*, Retry-After or X-Accel-Buffering towards the visitor; no version in Server" \
         eval 'hasnt "$h" "^access-control-" && hasnt "$h" "^retry-after" && hasnt "$h" "^x-accel-buffering" && hasnt "$h" "^server: [^ ]*/[0-9]"'
-    out=$(lc -o /dev/null -w '%{http_code} %{content_type}' "$U/")
+    out=$(lc -o "$NULLDEV" -w '%{http_code} %{content_type}' "$U/")
     eq LV05 "landing page: 200 text/html; charset=utf-8" "$out" "200 text/html; charset=utf-8"
     check LV06 "the landing page carries the privacy text word for word" \
         eval '[ "$(lc "$U/" | sed -e "s/<[^>]*>//g" | tr -s " \t\r\n" "    " | grep -cF "$PRIVACY")" -ge 1 ]'
     c=""
     for p in /v1/cubes/ /v1/cache/ /v1/cubes/x.bin /v1/tiles/ /outside.txt /v1/tiles/.x /index.html; do
-        c="$c $(lc -o /dev/null -w '%{http_code}' "$U$p")"
+        c="$c $(lc -o "$NULLDEV" -w '%{http_code}' "$U$p")"
     done
     eq LV07 "reserved, unknown and dot paths: 404" "$c" " 404 404 404 404 404 404 404"
-    eq LV08 "a query string: 400" "$(lc -o /dev/null -w '%{http_code}' "$U/robots.txt?x=1")" 400
-    eq LV09 "PUT and DELETE: 405" "$(lc -o /dev/null -w '%{http_code}' -X PUT -d x "$U/robots.txt") $(lc -o /dev/null -w '%{http_code}' -X DELETE "$U/robots.txt")" "405 405"
-    h=$(head -c 2048 /dev/zero | tr '\0' x | lc -D - -o /dev/null -X POST --data-binary @- "$U/robots.txt" | tr -d '\r')
+    eq LV08 "a query string: 400" "$(lc -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt?x=1")" 400
+    eq LV09 "PUT and DELETE: 405" "$(lc -o "$NULLDEV" -w '%{http_code}' -X PUT -d x "$U/robots.txt") $(lc -o "$NULLDEV" -w '%{http_code}' -X DELETE "$U/robots.txt")" "405 405"
+    h=$(head -c 2048 /dev/zero | tr '\0' x | lc -D - -o "$NULLDEV" -X POST --data-binary @- "$U/robots.txt" | tr -d '\r')
     check LV10 "a POST with a 2 KB body is refused by the proxy itself (405 without the mirror's headers)" \
         eval 'has "$h" "^HTTP/[0-9.]+ 405" && hasnt "$h" "^cross-origin-resource-policy"'
-    out=$(head -c 4096 /dev/zero | tr '\0' x | lc -o /dev/null -w '%{http_code}' -X GET --data-binary @- "$U/robots.txt")
-    eq LV11 "a GET with a 4 KB body: 413 from the proxy (at most 1 KB)" "$out" 413
+    h=$(head -c 4096 /dev/zero | tr '\0' x | lc -D - -o "$NULLDEV" -X GET --data-binary @- "$U/robots.txt" | tr -d '\r')
+    check LV11 "a GET with a 4 KB body: 413 from the proxy itself (at most 1 KB, without the mirror's headers)" \
+        eval 'has "$h" "^HTTP/[0-9.]+ 413" && hasnt "$h" "^cross-origin-resource-policy"'
     # The published datasets (none before the first publish)
-    py=$(command -v python3 || command -v python || true)
     local list="$WORK/live-datasets.json"
     out=$(lc -o "$(hostpath "$list")" -D - "$U/v1/datasets.json" | tr -d '\r')
     if ! has "$out" '^HTTP/[0-9.]+ 200'; then
-        info "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): LV12-LV15 skipped, as before the first publish"
+        skip LV12-LV15 "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): nothing published yet; the index and cap checks wait for the first publish"
         return
     fi
     check LV12 "datasets.json: application/json, Cache-Control: no-cache" \
         eval 'has "$out" "^content-type: application/json$" && has "$out" "^cache-control: no-cache$"'
+    py=""
+    for c in python3 python; do
+        if command -v "$c" > /dev/null 2>&1 && "$c" -c '' > /dev/null 2>&1; then py=$c; break; fi
+    done
     if [ -z "$py" ]; then result LV13 FAIL "python3 or python is needed to read datasets.json"; return; fi
     # Every product: the served index.json against datasets.json's index_sha256 (and the master's)
-    local products bad=0 n=0 path want got tile best=0 size bestpath=""
+    local products bad=0 n=0 path want got tile best=0 size bestpath="" gz=0 big=0
     products=$("$py" -I -c 'import json,sys
 for d in json.load(open(sys.argv[1], encoding="utf-8"))["datasets"]:
     for p in d["products"]:
@@ -118,8 +131,14 @@ for d in json.load(open(sys.argv[1], encoding="utf-8"))["datasets"]:
         if [ -n "$master" ]; then
             if [ "$got" != "$(sha256sum "$master/$path/index.json" 2> /dev/null | cut -d' ' -f1)" ]; then
                 bad=$((bad + 1))
-                info "index of $path differs from the master's"
+                info "index of $path differs from the master copy"
             fi
+        fi
+        # An index above gzip's minimum is sent compressed
+        if [ "$(wc -c < "$WORK/live-index.json")" -gt 2048 ]; then
+            big=$((big + 1))
+            lc -D - -o "$NULLDEV" -H 'Accept-Encoding: gzip' "$U/v1/tiles/$path/index.json" | tr -d '\r' \
+                | grep -qi '^content-encoding: gzip$' && gz=$((gz + 1))
         fi
         # The largest of the first 20 tiles the index lists with data: the held downloads of LV15
         for tile in $("$py" -I -c 'import json,sys
@@ -131,23 +150,28 @@ for k in keys:
             if [ "${size:-0}" -gt "$best" ]; then best=$size; bestpath="/v1/tiles/$path/$tile"; fi
         done
     done <<< "$products"
-    eq LV13 "every served index.json has the sha256 datasets.json gives${master:+ and the master copy} ($n products)" "$bad" 0
-    out=$(lc -D - -o /dev/null -H 'Accept-Encoding: gzip' "$U/v1/tiles/${products%% *}/index.json" | tr -d '\r')
-    check LV14 "an index.json is sent gzip-compressed when the client accepts it" has "$out" '^content-encoding: gzip$'
-    # The per-address cap through the real proxy: four slow downloads held open, a fifth request
-    # refused. Holds only while the proxy does not buffer (X-Accel-Buffering honoured) and the
-    # tile is larger than what the sockets on the way hold.
-    if [ -z "$bestpath" ]; then info "no tile listed: LV15 skipped"; return; fi
+    check LV13 "every served index.json has the sha256 datasets.json gives${master:+ and the master copy} ($n products, $bad wrong)" \
+        eval '[ "$n" -ge 1 ] && [ "$bad" -eq 0 ]'
+    if [ "$big" -ge 1 ]; then
+        eq LV14 "an index.json above 2 KB is sent gzip-compressed when the client accepts it ($big such)" "$gz" "$big"
+    else
+        skip LV14 "no index.json above 2 KB"
+    fi
+    # The per-address cap through the real proxy: slow downloads held open, then one request more.
+    # It shows the proxy honours X-Accel-Buffering only when the tile is larger than what the
+    # sockets and buffers on the way hold (several MB): a small tile is sent into them at once
+    # and the mirror's connection ends whatever the proxy does.
+    if [ -z "$bestpath" ]; then skip LV15 "no tile listed with data"; return; fi
     info "LV15 holds $bestpath ($best bytes) at 64 KB/s"
     local probe
-    for _ in 1 2 3; do lc -o /dev/null --limit-rate 64k -m 18 "$U$bestpath" & done
+    for _ in 1 2 3; do lc -o "$NULLDEV" --limit-rate 64k -m 18 "$U$bestpath" & done
     sleep 8
-    probe=$(lc -o /dev/null -w '%{http_code}' "$U/robots.txt")
-    lc -o /dev/null --limit-rate 64k -m 12 "$U$bestpath" &
+    probe=$(lc -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt")
+    lc -o "$NULLDEV" --limit-rate 64k -m 12 "$U$bestpath" &
     sleep 3
-    out=$(lc -o /dev/null -w '%{http_code} %header{retry-after}' "$U/robots.txt")
+    out=$(lc -o "$NULLDEV" -w '%{http_code} %header{retry-after}' "$U/robots.txt")
     wait
-    eq LV15 "through the proxy: a 4th request beside 3 held downloads 200, a 5th beside 4: 429, Retry-After 10" "$probe / $out" "200 / 429 10"
+    eq LV15 "through the proxy: a request beside 3 held downloads 200, beside 4: 429, Retry-After 10 (held: $best bytes)" "$probe / $out" "200 / 429 10"
 }
 
 # ---------------------------------------------------------------- the stack
@@ -191,11 +215,15 @@ clients_up() {
 }
 teardown() {
     [ "$KEEP" = 1 ] && { info "left running: project $PROJECT, http://127.0.0.1:$PORT"; return; }
+    remove_stack
+    rm -rf "$WORK"
+}
+remove_stack() {  # every container, network, volume and image of the project
     for name in a b c d e t1 t2 inside; do docker rm -f "$PROJECT-$name" > /dev/null 2>&1; done
     docker ps -aq --filter "name=^$PROJECT-start-" | xargs -r docker rm -f > /dev/null 2>&1
     compose down -v --remove-orphans > /dev/null 2>&1
     docker image rm "$PROJECT-files" "$PROJECT-files:orig" > /dev/null 2>&1
-    rm -rf "$WORK"
+    docker image prune -f --filter "label=mirror-check=$PROJECT" > /dev/null 2>&1
 }
 stack_up() {
     write_env
@@ -260,7 +288,8 @@ g_content() {
     eq R02 "several ranges: 416 (also with a space)" \
         "$(cx a -o /dev/null -w '%{http_code}' -A "$UA" -H 'Range: bytes=0-9,20-29' "$P$T/0_0/1_2.tif") $(cx a -o /dev/null -w '%{http_code}' -A "$UA" -H 'Range: bytes=0-9, 20-29' "$P$T/0_0/1_2.tif")" "416 416"
     # HEAD: its status, its Content-Length and no body, read raw
-    out=$(csh a "printf 'HEAD $T/0_0/1_2.tif HTTP/1.0\r\nHost: m\r\nUser-Agent: $UA\r\n\r\n' | nc proxy 8080")
+    # (nc stops at the end of its input: the sleep keeps it reading the answer)
+    out=$(csh a "(printf 'HEAD $T/0_0/1_2.tif HTTP/1.0\r\nHost: m\r\nUser-Agent: $UA\r\n\r\n'; sleep 3) | nc proxy 8080")
     info "HEAD, raw: $(printf '%s' "$out" | head -3 | tr -d '\r' | tr '\n' '|')"
     check R03 "HEAD: 200, Content-Length 10240, no body" eval '
         printf "%s" "$out" | head -1 | grep -q "^HTTP/1.1 200" &&
@@ -304,23 +333,24 @@ g_paths() {
 
 g_swag() {
     local h out
-    h=$(head -c 2048 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-a" curl -s -D - -o /dev/null -A "$UA.swag" --data-binary @- "$P/v1/cubes/" | tr -d '\r')
+    h=$(head -c 2048 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-a" curl -s -D - -o /dev/null -A "$(ua swag)" --data-binary @- "$P/v1/cubes/" | tr -d '\r')
     check S01 "through the proxy: a POST with a 2 KB body is refused by the proxy itself (405, no mirror header)" \
         eval 'has "$h" "^HTTP/1.1 405" && hasnt "$h" "^cross-origin-resource-policy"'
-    h=$(cx a -D - -o /dev/null -A "$UA.swag" -X DELETE "$P$T/0_0/1_2.tif" | tr -d '\r')
+    h=$(cx a -D - -o /dev/null -A "$(ua swag)" -X DELETE "$P$T/0_0/1_2.tif" | tr -d '\r')
     check S02 "through the proxy: DELETE refused by the proxy itself" \
         eval 'has "$h" "^HTTP/1.1 405" && hasnt "$h" "^cross-origin-resource-policy"'
-    out=$(head -c 4096 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-a" curl -s -o /dev/null -w '%{http_code}' -A "$UA.swag" -X GET --data-binary @- "$P/robots.txt")
-    eq S03 "through the proxy: a GET with a 4 KB body: 413 (at most 1 KB)" "$out" 413
+    h=$(head -c 4096 /dev/zero | tr '\0' x | docker exec -i "$PROJECT-a" curl -s -D - -o /dev/null -A "$(ua swag)" -X GET --data-binary @- "$P/robots.txt" | tr -d '\r')
+    check S03 "through the proxy: a GET with a 4 KB body: 413 from the proxy itself (at most 1 KB, no mirror header)" \
+        eval 'has "$h" "^HTTP/1.1 413" && hasnt "$h" "^cross-origin-resource-policy"'
     sleep 1
     check S04 "the proxy writes no access line for the mirror's host" \
         eval '! docker logs "$PROJECT-proxy-1" 2>&1 | grep -q "$MARK"'
 }
 
 hold() {  # <client> <seconds>: a slow download held open through the proxy
-    docker exec "$PROJECT-$1" curl -s -o /dev/null -A "$UA.hold" --limit-rate 256k -m "$2" "$P$T/0_0/1_3.tif" &
+    docker exec "$PROJECT-$1" curl -s -o /dev/null -A "$(ua hold)" --limit-rate 256k -m "$2" "$P$T/0_0/1_3.tif" &
 }
-probe() { cx "$1" -o /dev/null -w '%{http_code} %header{retry-after}' -A "$UA.probe" "$P$T/0_0/1_2.tif"; }
+probe() { cx "$1" -o /dev/null -w '%{http_code} %header{retry-after}' -A "$(ua probe)" "$P$T/0_0/1_2.tif"; }
 
 g_caps() {
     # Holds: 24 MB read at 256 KB/s. The mirror sends a visitor 4 MB/s, so without the
@@ -364,12 +394,17 @@ urls() {  # <count> <url>: curl arguments for <count> requests of <url>
     for i in $(seq "$1"); do printf -- '-o /dev/null %s ' "$2"; done
 }
 
+paced() {  # <client> <rate> <count>: the burst used up, 0.2 s, then <count> requests at <rate>: "<n> <status> ..."
+    csh "$1" "curl -s -A '$(ua rate)' $(urls 50 "$P$T/0_0/1_2.tif") > /dev/null; sleep 0.2; curl -s --rate $2 -w '%{http_code}\n' -A '$(ua rate)' $(urls "$3" "$P$T/0_0/1_2.tif")" \
+        | sort | uniq -c | tr -s ' \n' ' '
+}
+
 g_rate() {
     local t0 t1 out n200 n429 bad
     sleep 3
     t0=$(now)
     # shellcheck disable=SC2046
-    out=$(cx c -w '%{http_code}/%header{retry-after}\n' -A "$UA.rate" $(urls 60 "$P$T/0_0/1_2.tif"))
+    out=$(cx c -w '%{http_code}/%header{retry-after}\n' -A "$(ua rate)" $(urls 60 "$P$T/0_0/1_2.tif"))
     t1=$(now)
     n200=$(printf '%s\n' "$out" | grep -c '^200/$')
     n429=$(printf '%s\n' "$out" | grep -c '^429/10$')
@@ -377,21 +412,15 @@ g_rate() {
     info "60 requests back to back from one address in $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }') s: $n200 x 200, $n429 x 429"
     check Q11 "back to back: the burst of 40 (41 served at once), at most 20 a second more, then 429 with Retry-After: 10" \
         eval '[ "$bad" -eq 0 ] && [ "$n429" -ge 1 ] && [ "$n200" -ge 41 ] && awk -v n="$n200" -v a="$t0" -v b="$t1" "BEGIN { exit !(n <= 42 + 20 * (b - a)) }"'
-    # The burst is used up now: the rate itself decides
-    # shellcheck disable=SC2046
-    out=$(cx c --rate 17/s -w '%{http_code}\n' -A "$UA.rate" $(urls 51 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
-    info "51 requests at 17 a second, after the burst: $out"
+    # With the burst used up (50 back to back, in the same shell, then 0.2 s), the rate decides
+    out=$(paced c 17/s 51)
+    info "51 requests at 17 a second, the burst used up: $out"
     eq Q12 "with the burst used up, 17 requests a second: all served" "$out" " 51 200 "
-    # shellcheck disable=SC2046
-    # The burst used up again (back to back), then 24 a second for 2 s
-    # shellcheck disable=SC2046
-    cx c -A "$UA.rate" $(urls 50 "$P$T/0_0/1_2.tif") > /dev/null
-    # shellcheck disable=SC2046
-    out=$(cx c --rate 24/s -w '%{http_code}\n' -A "$UA.rate" $(urls 48 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
-    info "with the burst used up, 48 requests at 24 a second: $out"
+    out=$(paced c 24/s 48)
+    info "48 requests at 24 a second, the burst used up: $out"
     check Q13 "24 requests a second: refused (429) beyond 20 a second" has "$out" ' [0-9]+ 429 '
     # shellcheck disable=SC2046
-    out=$(cx t1 -w '%{http_code}\n' -A "$UA.rate" $(urls 100 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
+    out=$(cx t1 -w '%{http_code}\n' -A "$(ua rate)" $(urls 100 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
     eq Q14 "a trusted address: 100 requests back to back all served (no request rate)" "$out" " 100 200 "
 }
 
@@ -399,7 +428,7 @@ g_forged() {
     local out
     sleep 3
     # shellcheck disable=SC2046
-    out=$(cx e -H "X-Real-IP: $T1" -H "X-Forwarded-For: $T1" -w '%{http_code}\n' -A "$UA.forged" $(urls 60 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
+    out=$(cx e -H "X-Real-IP: $T1" -H "X-Forwarded-For: $T1" -w '%{http_code}\n' -A "$(ua forged)" $(urls 60 "$P$T/0_0/1_2.tif") | sort | uniq -c | tr -s ' \n' ' ')
     info "60 back to back with X-Real-IP and X-Forwarded-For of a trusted address: $out"
     check F01 "a visitor's forged X-Real-IP / X-Forwarded-For is not believed (still limited as a visitor)" has "$out" ' [0-9]+ 429 '
 }
@@ -408,12 +437,12 @@ g_timeouts() {
     # Straight to the mirror from a client on its network, in parallel (about 55 s)
     local d="$WORK/timeouts"
     mkdir -p "$d"
-    csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $UA.th\r\n'; sleep 12; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h12" 2>&1 &
-    csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $UA.th\r\n'; sleep 7; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h7" 2>&1 &
+    csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $(ua th)\r\n'; sleep 12; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h12" 2>&1 &
+    csh inside "(printf 'GET /robots.txt HTTP/1.1\r\nHost: m\r\nUser-Agent: $(ua th)\r\n'; sleep 7; printf 'Connection: close\r\n\r\n'; sleep 3) | nc findaline-mirror-files 8080" > "$d/h7" 2>&1 &
     # A reader that stops reading: nc's output into a pipe nobody reads for 55 s
     csh inside "(printf 'GET $T/0_0/1_4.tif HTTP/1.1\r\nHost: m\r\nUser-Agent: Find-a-Line/$MARK.send\r\nConnection: close\r\n\r\n'; sleep 55) | nc findaline-mirror-files 8080 | sleep 55" > /dev/null 2>&1 &
-    cx inside -o /dev/null -o /dev/null --rate 3/m -w '%{num_connects} ' -A "$UA.ka" "$M/robots.txt" "$M/robots.txt" > "$d/k20" &
-    cx inside -o /dev/null -o /dev/null --rate 6/m -w '%{num_connects} ' -A "$UA.ka" "$M/robots.txt" "$M/robots.txt" > "$d/k10" &
+    cx inside -o /dev/null -o /dev/null --rate 3/m -w '%{num_connects} ' -A "$(ua ka)" "$M/robots.txt" "$M/robots.txt" > "$d/k20" &
+    cx inside -o /dev/null -o /dev/null --rate 6/m -w '%{num_connects} ' -A "$(ua ka)" "$M/robots.txt" "$M/robots.txt" > "$d/k10" &
     wait
     sleep 1
     check Z01 "headers: a request whose headers stop for 12 s gets no answer (10 s)" eval '! grep -q "^HTTP/1.1" "$d/h12"'
@@ -421,7 +450,7 @@ g_timeouts() {
     eq Z03 "keep-alive: a second request 20 s later needs a new connection (15 s)" "$(cat "$d/k20")" "1 1 "
     eq Z04 "keep-alive: a second request 10 s later reuses the connection" "$(cat "$d/k10")" "1 0 "
     local line rt b
-    line=$(docker exec "$FILES" cat "/var/log/mirror/access-$(docker exec "$FILES" date -u +%F).log" | grep "\"v\":\"$MARK.send\"" | tail -1)
+    line=$(new_log_lines | cut -d' ' -f2- | grep "\"v\":\"$MARK.send\"" | tail -1)
     rt=$(printf '%s' "$line" | sed -n 's/.*"rt":\([0-9.]*\).*/\1/p')
     b=$(printf '%s' "$line" | sed -n 's/.*"b":\([0-9]*\).*/\1/p')
     info "a reader that stops: the mirror's line $line"
@@ -429,19 +458,33 @@ g_timeouts() {
         eval 'between "${rt:-0}" 29 48 && [ "${b:-0}" -lt 48000000 ]'
 }
 
+log_counts() {  # every day's file of the log with its line count: "<name> <lines>"
+    docker exec "$FILES" sh -c 'for f in /var/log/mirror/access-*.log; do [ -f "$f" ] && echo "${f##*/} $(wc -l < "$f")"; done' 2> /dev/null
+}
+new_log_lines() {  # the log's lines written since run_checks began, from every day's file: "<name> <line>"
+    local name count from
+    while read -r name count; do
+        [ -n "$name" ] || continue
+        from=$(printf '%s\n' "$LOG_FROM" | awk -v n="$name" '$1 == n { print $2 }')
+        docker exec "$FILES" cat "/var/log/mirror/$name" | tail -n "+$((${from:-0} + 1))" | sed "s|^|$name |"
+    done <<< "$(log_counts)"
+}
+
 g_log() {
-    local day file all mine out
-    day=$(docker exec "$FILES" date -u +%F)
-    file="/var/log/mirror/access-$day.log"
+    local lines all mine out
     docker exec "$FILES" /usr/local/bin/mirror-start health
     cx b -o /dev/null -A "Mozilla/5.0 (X11; Linux x86_64)" "$P$T/index.json"
     sleep 1
-    all=$(docker exec "$FILES" cat "$file" 2> /dev/null | tail -n "+$((LOG_FROM + 1))")
+    lines=$(new_log_lines)
+    all=$(printf '%s\n' "$lines" | cut -d' ' -f2-)
     mine=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK")
-    check L01 "one file a day: access-$day.log (the container's UTC day) holds this run's requests" \
-        eval '[ "$(printf "%s\n" "$mine" | grep -c .)" -ge 20 ]'
-    out=$(printf '%s\n' "$all" | grep -vcE '^\{"t":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}\+00:00","s":[0-9]{3},"b":[0-9]+,"rt":[0-9]+\.[0-9]{3},"ds":"([a-z0-9_-]+|-)","a":"[0-9.]+","lim":"(-|rate|conn|trusted)","v":"[0-9A-Za-z.+-]+"\}$')
-    eq L02 "every line: exactly the keys t, s, b, rt, ds, a, lim, v, typed" "$out" 0
+    info "this run's lines: $(printf '%s\n' "$mine" | grep -c .); refusals by limit: $(printf '%s\n' "$mine" | grep '"s":429,' | sed -n 's/.*"lim":"\([^"]*\)".*/\1/p' | sort | uniq -c | tr -s ' \n' ' ')"
+    out=$(printf '%s\n' "$lines" | grep . | awk '{ split($1, f, /[-.]/); day = f[2] "-" f[3] "-" f[4]; if (index($2, "{\"t\":\"" day "T") != 1) bad++ } END { print bad + 0 }')
+    check L01 "one file a day: each of this run's $(printf '%s\n' "$mine" | grep -c .) lines in access-<its UTC day>.log" \
+        eval '[ "$(printf "%s\n" "$mine" | grep -c .)" -ge 20 ] && [ "$out" -eq 0 ] && printf "%s\n" "$lines" | grep -q "^access-[0-9-]*\.log "'
+    out=$(printf '%s\n' "$all" | grep . | grep -vcE '^\{"t":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}\+00:00","s":[0-9]{3},"b":[0-9]+,"rt":[0-9]+\.[0-9]{3},"ds":"([a-z0-9_-]+|-)","a":"[0-9.]+","lim":"(-|rate|conn|trusted)","v":"[0-9A-Za-z.+-]+"\}$')
+    check L02 "every line: exactly the keys t, s, b, rt, ds, a, lim, v, typed ($out other lines)" \
+        eval '[ "$out" -eq 0 ] && printf "%s\n" "$all" | grep -q .'
     check L03 "the dataset of a tile's line, \"-\" for other paths" \
         eval 'printf "%s\n" "$mine" | grep -q "\"s\":200,\"b\":10240,.*\"ds\":\"madeira\"" && printf "%s\n" "$mine" | grep -q "\"s\":200,\"b\":26,.*\"ds\":\"-\""'
     check L04 "the visitor's address as the proxy passed it" \
@@ -455,9 +498,9 @@ g_log() {
     check L08 "a forged X-Real-IP is logged under the sender's own address" \
         eval 'printf "%s\n" "$mine" | grep -q "\"v\":\"$MARK.forged\"" && ! printf "%s\n" "$mine" | grep "\"v\":\"$MARK.forged\"" | grep -qv "\"a\":\"$E\""'
     check L09 "the healthcheck's requests are not logged" eval '! printf "%s\n" "$all" | grep -q "\"a\":\"127.0.0.1\""'
-    out=$(docker logs "$FILES" 2>&1)
-    check L10 "nothing of a request on the container's stdout or stderr" \
-        eval '! printf "%s\n" "$out" | grep -qE "/v1/|$MARK|\"$A\"|$A,|client: |limiting"'
+    out=$(docker logs --since "$RUN_START" "$FILES" 2>&1 | grep -E "/v1/|$MARK|$A[^0-9]|client: |limiting")
+    [ -z "$out" ] || info "on the container's stdout or stderr: $(printf '%s\n' "$out" | head -3)"
+    check L10 "nothing of a request on the container's stdout or stderr" eval '[ -z "$out" ]'
 }
 
 g_container() {
@@ -494,14 +537,14 @@ g_container() {
 }
 
 start_run() {  # <name> <env...>: the image's start with these settings; prints "<running> <exit code>"
-    local name="$PROJECT-start-$1" envs=()
+    local tag=$1 name="$PROJECT-start-$1" envs=()
     shift
     for e in "$@"; do envs+=(-e "$e"); done
     docker rm -f "$name" > /dev/null 2>&1
-    docker run -d --name "$name" --read-only --tmpfs /tmp --cap-drop ALL --network none "${envs[@]}" "$PROJECT-files" > /dev/null
+    docker run -d --name "$name" --read-only --tmpfs /tmp --tmpfs /var/log/mirror:uid=101,gid=101 --cap-drop ALL --network none "${envs[@]}" "$PROJECT-files" > /dev/null
     sleep 3
     docker inspect -f '{{.State.Running}} {{.State.ExitCode}}' "$name"
-    docker logs "$name" > "$WORK/start-$1.log" 2>&1
+    docker logs "$name" > "$WORK/start-$tag.log" 2>&1
     docker rm -f "$name" > /dev/null 2>&1
 }
 
@@ -512,7 +555,7 @@ g_start() {
     local n=3 v
     for v in 0.0.0.0/0 192.0.2.0/24 "192.0.2.1,192.0.2.2,192.0.2.3,192.0.2.4,192.0.2.5" localhost 192.0.2.256 \
         "192.0.2.1," 192.0.2.01 "192.0.2.1,192.0.2.1" 2001:db8::1; do
-        eq "T0$n" "MIRROR_TRUSTED_ADDRESSES='$v': refuses to start" "$(start_run "bad$n" "${ok[@]}" "MIRROR_TRUSTED_ADDRESSES=$v")" "false 64"
+        eq "$(printf "T%02d" "$n")" "MIRROR_TRUSTED_ADDRESSES='$v': refuses to start" "$(start_run "bad$n" "${ok[@]}" "MIRROR_TRUSTED_ADDRESSES=$v")" "false 64"
         n=$((n + 1))
     done
     eq T12 "MIRROR_SUBNET 0.0.0.0/0: refuses to start" "$(start_run subnet MIRROR_CONTACT=x@example.org MIRROR_SUBNET=0.0.0.0/0)" "false 64"
@@ -534,13 +577,27 @@ g_cleanup() {
     check E01 "the cleanup keeps a file 13 days back" eval 'case " $left" in *" access-$d13.log "*) true ;; *) false ;; esac'
     check E02 "the cleanup deletes a file 14 days back" eval 'case " $left" in *" access-$d14.log "*) false ;; *) true ;; esac'
     check E03 "the cleanup deletes a file 15 days back" eval 'case " $left" in *" access-$d15.log "*) false ;; *) true ;; esac'
-    check E04 "the cleanup leaves other names alone" eval 'case " $left" in *" access-notes.log "*" notes.txt "*) true ;; *) false ;; esac'
+    check E04 "the cleanup leaves other names alone" eval 'case " $left" in *" access-notes.log "*) ;; *) false ;; esac && case " $left" in *" notes.txt "*) true ;; *) false ;; esac'
     csh files-1 'rm -f /var/log/mirror/access-notes.log /var/log/mirror/notes.txt'
     # The heartbeat: stale -> unhealthy; the loop renews it; a dead loop -> unhealthy
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
+    # A new day, as the loop sees it: the day in effect set back; the loop writes today's log.conf
+    # and reloads nginx (new workers), and the log goes on in today's file
+    local workers day
+    workers=$(csh files-1 'pgrep -f "nginx: worker" | sort | tr "
+" " "')
+    csh files-1 'echo 2000-01-01 > /tmp/mirror/log.day; echo "access_log /var/log/mirror/access-2000-01-01.log mirror;" > /tmp/mirror/log.conf'
     check E05 "a stale heartbeat fails the healthcheck" eval '! docker exec "$FILES" /usr/local/bin/mirror-start health'
     sleep 35
     check E06 "the cleanup loop renews the heartbeat (within 30 s)" docker exec "$FILES" /usr/local/bin/mirror-start health
+    day=$(csh files-1 'date -u +%F')
+    cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
+    sleep 1
+    check E08 "a new day: the loop names the new day's file and reloads nginx; the log goes on there" eval '
+        [ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ] &&
+        [ "$(csh files-1 "pgrep -f \"nginx: worker\" | sort | tr \"
+\" \" \"")" != "$workers" ] &&
+        csh files-1 "grep -q \"$MARK.day\" /var/log/mirror/access-$day.log" && ! csh files-1 "test -e /var/log/mirror/access-2000-01-01.log"'
     csh files-1 'kill $(cat /tmp/mirror/cleanup.pid)'
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
     sleep 35
@@ -553,7 +610,8 @@ run_checks() {  # the groups named, against the running stack
     local g
     MARK="chk$RANDOM$RANDOM"
     UA="Find-a-Line/$MARK (highline finder; +https://site.example; contact: someone@example.org)"
-    LOG_FROM=$(docker exec "$FILES" sh -c 'cat /var/log/mirror/access-$(date -u +%F).log 2>/dev/null | wc -l')
+    LOG_FROM=$(log_counts)
+    RUN_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     PROXY_IP=$(docker inspect "$PROJECT-proxy-1" --format "{{(index .NetworkSettings.Networks \"${PROJECT}_mirror\").IPAddress}}")
     for g in "$@"; do
         [ "$QUIET" = 1 ] || echo "== $g"
@@ -568,7 +626,7 @@ VARIANTS=(
     'allow-list off @@ nginx.conf @@ s#location / { return 404; }#location / { autoindex on; }# @@ paths @@ N01 N02 N03 N04 N06 N07 N08'
     'served root / @@ nginx.conf @@ s#location / { return 404; }#location / { root /; }# @@ paths @@ N12'
     'symlinks followed @@ nginx.conf @@ s#disable_symlinks on;#disable_symlinks off;# @@ paths @@ N09 N10'
-    'folders not caught @@ nginx.conf @@ /if (-d \$request_filename)/d @@ paths @@ N05'
+    'folders redirected @@ nginx.conf @@ /error_page 301 =404/d @@ paths @@ N05'
     'other methods allowed @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET|HEAD|POST|PUT|DELETE|OPTIONS)$)# @@ paths @@ M01 M02'
     'HEAD refused @@ nginx.conf @@ s#!~ ^(GET|HEAD)$)#!~ ^(GET)$)# @@ content @@ R03'
     'query allowed @@ nginx.conf @@ /if (\$request_uri ~ "\?")/d @@ paths @@ Q01'
@@ -576,7 +634,9 @@ VARIANTS=(
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
     'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d @@ caps @@ C03 C04 C07'
-    'caps one lower @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;#; s#visitors_all 8;#visitors_all 7;#; s#trusted_address 4;#trusted_address 3;# @@ caps @@ C01 C02 C06'
+    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps @@ C06'
+    'all visitors: 7 at once @@ nginx.conf @@ s#visitors_all 8;#visitors_all 7;# @@ caps @@ C01'
+    'a trusted address: 3 at once @@ nginx.conf @@ s#trusted_address 4;#trusted_address 3;# @@ caps @@ C02'
     'X-Accel-Buffering off @@ nginx.conf @@ /add_header X-Accel-Buffering/d @@ caps @@ C03 C04 C07'
     'byte rates off @@ nginx.conf @@ s#visitor 4000000; trusted 16000000; default 0;#default 0;# @@ bytes @@ B01 B02'
     'trusted list ignored @@ nginx.conf @@ /include \/tmp\/mirror\/trusted.conf;/d @@ caps bytes rate @@ C05 B02 Q14'
@@ -587,12 +647,13 @@ VARIANTS=(
     'X-Forwarded-For believed from anyone @@ nginx.conf @@ s#include /tmp/mirror/realip.conf;#set_real_ip_from 0.0.0.0/0;#; s#real_ip_header X-Real-IP;#real_ip_header X-Forwarded-For;#; s#real_ip_recursive off;#real_ip_recursive on;# @@ forged log @@ F01 L08'
     'timeouts long @@ nginx.conf @@ s#client_header_timeout 10s;#client_header_timeout 60s;#; s#send_timeout 30s;#send_timeout 300s;#; s#keepalive_timeout 15s;#keepalive_timeout 75s;# @@ timeouts @@ Z01 Z03 Z05'
     'timeouts short @@ nginx.conf @@ s#client_header_timeout 10s;#client_header_timeout 5s;#; s#keepalive_timeout 15s;#keepalive_timeout 5s;# @@ timeouts @@ Z02 Z04'
-    'log on stdout @@ nginx.conf @@ s#access_log /var/log/mirror/access-$mirror_day.log#access_log /dev/stdout# @@ content log @@ L01 L10'
+    'log on stdout @@ start.sh @@ s#access_log $LOGS/access-$_today.log#access_log /dev/stdout# @@ content log @@ L01 L10'
     'log with the path @@ nginx.conf @@ s#"rt":$request_time,#"rt":$request_time,"p":"$uri",# @@ content log @@ L02 L06'
     'log with the whole User-Agent @@ nginx.conf @@ s#"v":"$mirror_version"#"v":"$http_user_agent"# @@ content log @@ L06 L07'
     'log without the refusing limit @@ nginx.conf @@ s#"lim":"$mirror_limit"#"lim":"-"# @@ caps rate log @@ L05'
     'healthcheck logged @@ nginx.conf @@ s#map $mirror_class $mirror_loggable { local 0; default 1; }#map $mirror_class $mirror_loggable { default 1; }# @@ log @@ L09'
-    'one log file @@ nginx.conf @@ s#access-$mirror_day.log#access.log# @@ content log @@ L01'
+    'one log file @@ start.sh @@ s#access-$_today.log#access.log# @@ content log @@ L01'
+    'no new file at a new day @@ start.sh @@ s#            log_conf$#            true# @@ cleanup @@ E08'
     'error log at info @@ nginx.conf @@ s#error_log /dev/stderr crit;#error_log /dev/stderr info;# @@ paths caps log @@ L10'
     'no privacy text @@ landing/index.html @@ /for 14 days, to hold the service/d @@ content @@ P10'
     'contact not put in @@ start.sh @@ s#sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE"#cat "$TEMPLATE"# @@ content @@ P11'
@@ -634,7 +695,7 @@ variant() {  # <file> <sed expression>: the variant built and the stack recreate
             landing/index.html) target=/usr/share/findaline-mirror/index.html.in ;;
         esac
         printf 'FROM %s\nCOPY --chmod=0755 patched %s\n' "$PROJECT-files:orig" "$target" > "$ctx/Dockerfile"
-        docker build -q -t "$PROJECT-files" "$(hostpath "$ctx")" > /dev/null || return 1
+        docker build -q --label "mirror-check=$PROJECT" -t "$PROJECT-files" "$(hostpath "$ctx")" > /dev/null || return 1
     fi
     compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 files proxy > "$WORK/variant-up.log" 2>&1 || {
         # A variant that cannot start (the healthcheck) is reported, the stack restored
@@ -721,13 +782,20 @@ trap teardown EXIT
 
 echo "== the stack: project $PROJECT, mirror network $SUBNET, visitors' network $FRONT, port $PORT"
 write_env
-compose down -v --remove-orphans > /dev/null 2>&1
+remove_stack
 if ! stack_up; then
     echo "FAIL the stack did not start"
     compose logs --no-color 2>&1 | tail -40
     exit 100
 fi
 info "image: $(docker exec "$FILES" nginx -v 2>&1)"
+# MIRROR_CHECK_GROUPS: only these groups (for working on the script), no live and no cleanup run
+if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
+    # shellcheck disable=SC2086
+    run_checks $MIRROR_CHECK_GROUPS
+    echo "== done, failures: $FAILS"
+    exit 0
+fi
 run_checks container content paths swag caps bytes rate forged timeouts log start
 declare -A MAIN=()
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done

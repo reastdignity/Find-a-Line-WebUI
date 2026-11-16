@@ -237,13 +237,16 @@ def test_log_keys_and_days():
     assert re.findall(r'"(\w+)":', line) == LOG_KEYS
     assert line == ('{"t":"$time_iso8601","s":$status,"b":$body_bytes_sent,"rt":$request_time,'
                     '"ds":"$mirror_dataset","a":"$remote_addr","lim":"$mirror_limit","v":"$mirror_version"}')
-    assert "access_log /var/log/mirror/access-$mirror_day.log mirror if=$mirror_loggable;" in conf
-    assert len(re.findall(r"^\s*access_log ", conf, re.M)) == 1
+    assert re.search(r"^\s*include /tmp/mirror/log\.conf;", conf, re.M)
+    assert not re.search(r"^\s*access_log ", conf, re.M)
     assert "map $mirror_class $mirror_loggable { local 0; default 1; }" in conf
     assert '"~^/v1/tiles/(?<ds>[a-z0-9_-]+)/"  $ds;' in conf
     assert '"~^Find-a-Line/(?<v>[0-9A-Za-z.+-]{1,32})(?![0-9A-Za-z.+-])"  $v;' in conf
     assert re.search(r'default\s+"other";', conf)
     start = _load("start.sh")
+    # One file a day, named by start.sh (no variable in nginx's path: see nginx.conf)
+    assert r'echo "access_log $LOGS/access-$_today.log mirror if=\$mirror_loggable;"' in start
+    assert "_today=$(date -u +%F)" in start
     for line in ["KEEP_DAYS=14", "CLEANUP_SECONDS=3600", "LOGS=/var/log/mirror"]:
         assert re.search(rf"^{line}$", start, re.M), line
     assert '"$LOGS"/access-*.log' in start and "-le \"$_cutoff\"" in start

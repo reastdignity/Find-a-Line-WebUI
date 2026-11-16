@@ -47,7 +47,9 @@ The limits are constants of `nginx.conf`, not settings. `tests/mirror_check.sh` 
    install -d -m 0755 "$ROOT" "$ROOT/public" "$ROOT/staging" "$ROOT/trash"
    install -d -o 101 -g 101 -m 0750 "$ROOT/logs"
    ```
-   The files under `public/` must be readable by uid 101 (world-readable, as the publish tool leaves them).
+   The files under `public/` must be readable by uid 101 (world-readable). How the publishing account writes
+   `staging/`, `public/` and `trash/` and reads `logs/` (for `tools/mirror_publish.py stats`) is settled with
+   that account ("The publishing account" below).
 3. Settings: `cp .env.example .env`, then set `MIRROR_ROOT`, `MIRROR_CONTACT` (the contact for abuse and
    takedown requests, shown on the landing page), `MIRROR_TRUSTED_ADDRESSES` (the site server's IPv4 address;
    at most four single addresses, or empty), and `MIRROR_SUBNET` only if `172.29.42.0/24` collides with another
@@ -162,7 +164,10 @@ dataset, the index comparison `--master <folder>` the master copy):
 ```sh
 bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
 ```
-From inside the home network the address SWAG sees may be a local one; the checks hold either way.
+From inside the home network the address SWAG sees may be a local one; the checks hold either way. The cap
+check (LV15) holds slow downloads of the largest listed tile open: it shows that SWAG honours
+`X-Accel-Buffering` only when that tile is larger than what the sockets and buffers on the way hold (several
+MB); with a small tile it fails without saying anything about SWAG.
 
 ## The log and privacy
 
@@ -195,7 +200,8 @@ A new key or another period changes this text, with the user's yes (docs/mirror-
 
 ## Testing on a PC
 
-`compose.test.yaml` adds a stand-in for SWAG (plain nginx with SWAG's `proxy.conf`, `test/swag-proxy.conf`, and
+`compose.test.yaml` adds a stand-in for SWAG (plain nginx with the settings of SWAG's `proxy.conf`,
+`test/swag-proxy.conf`, and
 this folder's SWAG conf turned into plain HTTP by `test/standin.sh`), published on `127.0.0.1:8790`; set
 `MIRROR_TEST_PORT` in the environment or in the env file to use another port. With `MIRROR_ROOT` pointing at a
 local copy of `public/` (and a `logs/` folder):
