@@ -3883,8 +3883,10 @@ island: Malta 2018 resampled to 2 m reads as float heights, the sea's 0 m fill j
   `ACCESS_DISK_BYTES` 9 (the work folder's files at most: access.npy, three masks, a region mask and its labels).
 - The rule (`_access_block_px`): the grid at once when 50 B a pixel of it fit the budget (`Plan.memory`, a compute
   slot's, else the memory free), else the largest square block whose window takes 50 B a pixel of what 8 B a pixel of
-  the grid leave (12 since the third measurement); `_check_access` refuses before step 1 (coded `access_memory`) a
-  search with `Plan.memory` whose smallest blocks do not fit (the grid-wide pass and a window of 500 m and its margins). The measured Gozo run's
+  the grid leave (12 since the third measurement); a search whose smallest blocks do not fit its budget (the
+  grid-wide pass and a window of 500 m and its margins: `access_memory`) runs without the mark (`_check_access`, before
+  step 1: the coded note `access_skipped`, run.json's and the heads' `"access_skipped": "memory"`; the user's choice of
+  2026-11-16: no search is refused for a mark that filters nothing; until then the coded error `access_memory`). The measured Gozo run's
   blocks were sized with 16 B for the grid-wide pass (the figure before this measurement): its windows of 58.6 Mpx and
   the pass count 8 x 126 Mpx + 50 x 58.6 Mpx = 3.9 GB against 2.6 GB measured; with 8 B the same budget gives blocks
   of 7 798 m.

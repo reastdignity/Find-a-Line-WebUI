@@ -143,8 +143,10 @@ blocks (`access.block_grid`, `_access_block_px`: the largest square block whose 
 `ACCESS_AREA_BYTES` per pixel of the grid leave, at least `ACCESS_BLOCK_MIN_M`, under 2^31 pixels; the same
 answers), `ACCESS_FILE` (`access.npy`) in the work folder for blocks and for a tiled search (removed with step 1's
 grids), each tile's window copied by `_tile_data` (a tile reads one grid's answers); `_check_access` (from
-`plan_search`, with `Plan.memory`) refuses before step 1 a search whose `access_memory` (the grid at once, or the
-grid-wide pass and the smallest block's window) does not fit (`access_memory`, a coded error); `_lines` after
+`plan_search`, against `_access_budget`) leaves the mark out of a search whose `access_memory` (the grid at once, or
+the grid-wide pass and the smallest block's window) does not fit: `Plan.access_skipped` "memory" (`Plan.access_on`
+false: no stage, no columns, no disk counted), the coded note `access_skipped`, run.json's and the heads'
+`access_skipped`, `progress.json`'s too (a tiled run resumes only for the same choice); `_lines` after
 `line_coordinates` calls `_access_columns`: `access1`, `access2` (uint8, `access.at` of the anchors' pixels, the
 measure's own answer; an anchor on a pixel without heights asserted impossible); `_run_params` (`access`) and
 `_search_hash` hold the option only when set; `tile_bytes` (1 B) and `estimate_search` (`ACCESS_DISK_BYTES` of the

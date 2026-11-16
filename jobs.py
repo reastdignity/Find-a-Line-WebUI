@@ -1550,8 +1550,8 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             last[0] = time.time()
             jobs.event(job_id, "progress", state)
 
-    def on_event(kind: str, text: str):
-        jobs.event(job_id, kind, text.web_text() if getattr(text, "code", None) else text)  # messages.Note
+    def on_event(kind: str, text: str):  # a messages.Note in its web text (the public site's reading there)
+        jobs.event(job_id, kind, text.web_text(public=jobs.public) if getattr(text, "code", None) else text)
 
     progress.subscribe(on_progress)
     steps = StepClock()
@@ -1671,9 +1671,9 @@ def quick_estimate(data_dir: str, request: Dict, limits: Optional[Limits] = None
 
 def _message(kind: str, text: str) -> list:
     """A message of an estimate: [kind, text], and {"code", "params"} of a coded one (messages.Note)
-    with its web text."""
+    with its web text (the public site's reading in the public quick lane: PUBLIC_TEXTS)."""
     info = getattr(text, "info", lambda: None)()
-    return [kind, text.web_text(), info] if info else [kind, str(text)]
+    return [kind, text.web_text(public=PUBLIC_TEXTS), info] if info else [kind, str(text)]
 
 
 def quick_profile(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
@@ -1742,6 +1742,7 @@ def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
 QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch,
          "reach": quick_reach}
 SLOT_MEMORY: Optional[int] = None  # the budget of a compute slot, in the quick lane's process (run_quick)
+PUBLIC_TEXTS = False  # the public site's readings of coded notes (messages.Coded.web_text), the quick lane's (run_quick)
 
 
 def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limits] = None, public: bool = False,
@@ -1756,8 +1757,9 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
 
     import progress as pg
     import search
-    global SLOT_MEMORY
+    global SLOT_MEMORY, PUBLIC_TEXTS
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
+    PUBLIC_TEXTS = public
     pg.utf8_output()  # the bars' text lines ("sea 0.31 km²") on a redirected stdout
     jobs = Jobs(data_dir, public)
 

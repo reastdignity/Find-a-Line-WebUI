@@ -386,6 +386,8 @@ def _ends(run: Dict) -> Dict:
         ends["ends"] = list(END_VALUES)
     if params.get("access"):  # the access mark: named only (the page reads a value by its name in "ends")
         ends["ends"] = ends.get("ends", []) + ACCESS
+    if run.get("access_skipped"):  # the mark asked but left out ("memory": the area too wide): no columns
+        ends["access_skipped"] = run["access_skipped"]
     if params.get("same_line_side"):
         ends.update(square=params["same_line_side"], found=run["summary"]["found"],
                     ends=ends.get("ends", []) + [STANDS_FOR])

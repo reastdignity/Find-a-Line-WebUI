@@ -573,7 +573,7 @@ def test_estimate_lists_the_layers_at_once():
     plan = types.SimpleNamespace(
         params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None, fill_gaps="off",
                                      access=False),
-        nmpt="mark", obstacles=None,
+        nmpt="mark", obstacles=None, access_on=False,
         emit=lambda kind, text: lines.append(text), layers=[Layer("terrain", 2), Layer("surface", 3)],
         grid=Grid(left=0.0, top=1000.0, res=10.0, height=100, width=100, crs="EPSG:2180"),
         paths=types.SimpleNamespace(cache="unused", work="unused"), tiles=None, area=None,

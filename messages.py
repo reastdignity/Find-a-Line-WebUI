@@ -147,11 +147,16 @@ class Coded:
     code: Optional[str] = None
     params: Dict = {}
 
-    def web_text(self, language: str = LANGUAGE) -> str:
-        """The text for the web page (str() without a code)."""
+    def web_text(self, language: str = LANGUAGE, public: bool = False) -> str:
+        """The text for the web page (str() without a code); public: the public site's reading "error.<code>_public"
+        where the catalogue has one (a text that leaves out what only a local user should read, e.g. the
+        site's memory in the note access_skipped), else the same text."""
         if not self.code:
             return str(self)
-        return text(f"error.{self.code}", language, **web_params(self.params, language))
+        key = f"error.{self.code}"
+        if public and f"{key}_public" in catalogue(language):
+            key = f"{key}_public"
+        return text(key, language, **web_params(self.params, language))
 
     def info(self) -> Optional[Dict]:
         """{"code", "params"} for the page, None without a code."""
