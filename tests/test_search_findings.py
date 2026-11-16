@@ -35,6 +35,7 @@ BEFORE = {None: "48404ab58fd24175", 7: "58018a4c32966889"}
 def _plan(params, owner=None, runs=None):
     return SimpleNamespace(params=params, source=SimpleNamespace(id="geoportal"), resolution=2.0, owner=owner,
                            paths=SimpleNamespace(runs=runs), tile_core=400, tiles=[None] * 4,
+                           access_skipped=None,  # a search without --access (search.Plan.access_skipped)
                            emit=lambda kind, text: None)
 
 

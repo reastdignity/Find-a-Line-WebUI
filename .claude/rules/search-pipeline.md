@@ -77,6 +77,12 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `saving.hand_over`, the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
   `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the profile points:
   a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
+- The access mark (`--access`): one grid per search, at once or in blocks (`access.block_grid`: the same
+  answers), each tile its window; `_check_access` counts `ACCESS_AREA_BYTES`/`ACCESS_WINDOW_BYTES` before step 1
+  and leaves the mark out of a search they cannot fit (`Plan.access_skipped`; never a refusal; on the command
+  line too, by the memory free: the same search marked or not; the hash stays the request's, progress.json
+  keeps the choice);
+  a change of `access.py`'s arrays is measured again (docs/performance.md, "The access grid's memory").
 - The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
   where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and
   refuses on a prediction, not a lower bound: an estimate over `REFUSE_FACTOR` times a limit may be a search under it
@@ -135,7 +141,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   country layer: `country.json`, `area.geojson`, `manifest.sqlite`, `run.lock`, `logs/`, `tiles/<band>/<name>.npz`,
   `cube/`, `compare.json`; the tiles' grids in `work/country-<id>/<band>-<name>/`, removed after each tile); a tiled
   search's work folder holds the area's grids of step 1 (`nmt.npy`, `nmpt.npy`, `obstacles.npy`, `wbm.npy`,
-  `water.npy`, `filled.npy`, `joined.npy`, `gap_*.npy`, `mask.npy`; its temporaries `sea.npy`, `sea_zone.npy`,
+  `water.npy`, `filled.npy`, `joined.npy`, `gap_*.npy`, `mask.npy`, `access.npy` with `--access`; its temporaries `sea.npy`, `sea_zone.npy`,
   `lake.npy`, `bare.npy`, `border.npy`, `footprint.npy`, `edge.npy`, `*_gaps.npy`, `both.npy` while they are used),
   removed after the last tile, and each tile's copies in `tile<k>/` while it is computed; layout and index in
   `cache.py`. `country run` from a worktree needs `--data-dir` of the real data folder (the worktree's own cache is

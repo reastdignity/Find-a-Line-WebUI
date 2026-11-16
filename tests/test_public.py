@@ -1916,19 +1916,19 @@ def test_jobs_database_gets_owners(tmp_path):
     from settings import Limits
     plan = _plan(tmp_path, Limits(), northing=254608, easting=553966, radius=150)
     import hashlib as hl
-    # the formula of before the elevation band, the end zone and the square rule (their fields unset or 0 are
-    # left out, so tiled runs resume)
+    # the formula of before the elevation band, the end zone, the square rule and the access mark (their fields
+    # unset, 0 or off are left out, so tiled runs resume)
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by",
                                         "min_elevation", "max_elevation", "end_zone", "anchor_lift",
-                                        "same_line_square"})
+                                        "same_line_square", "access"})
     p["fall_zone"] = 3  # the default until 2026-11-14, which the hash of a formula search keeps
     before = hl.sha1(json.dumps({"params": p, "source": plan.source.id, "resolution": plan.resolution},
                                 sort_keys=True).encode()).hexdigest()[:16]
     assert search._search_hash(plan) == before
     params = plan.params
     for name, value in (("min_elevation", 800.0), ("max_elevation", 800.0), ("end_zone", 5.0), ("anchor_lift", 2.0),
-                        ("same_line_square", 5.0)):
+                        ("same_line_square", 5.0), ("access", True)):
         plan.params = params.model_copy(update={name: value})
         assert search._search_hash(plan) != before
     plan.params = params

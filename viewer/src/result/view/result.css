@@ -68,6 +68,13 @@
 .ui .r-tight-line .r-tight { margin-right: 6px; }
 .ui .r-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
 .ui .r-legend span { display: inline-flex; align-items: center; gap: 6px; }
+/* The legend's row of the access mark (ResultSummary's AccessLegend): "Anchors", the three states, the "?" */
+.ui .r-legend-box { display: flex; flex-direction: column; gap: 6px; }
+.ui .r-legend-acc { gap: 4px 12px; align-items: center; }
+.ui .r-legend-acc > b { font-weight: 600; color: var(--ink); }
+.ui .r-acc-skipped { margin: 0; color: var(--muted); }
+.ui .r-legend-last { white-space: nowrap; }
+.ui .r-legend-last .ac-hint { margin-left: 4px; }
 .ui .r-note { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 10px;
   background: var(--warn-soft); color: var(--warn); font-size: 13px; }
 .ui .r-note .u-btn { min-height: 28px; color: inherit; }
@@ -144,6 +151,17 @@
   .ui .r-star { width: 40px; height: 40px; }
   .ui .r-row { grid-template-columns: 18px 1fr 1fr 1fr 52px 40px; }
 }
+/* With the anchors' access marks (LinesTable: a run shown has them): the column "Anchors" (two dots of 20 px)
+   before "Lines"; its heading is no button */
+.ui .r-with-acc .r-row { grid-template-columns: 18px 1fr 1fr 1fr 56px 48px 30px; }
+.ui .r-with-acc .r-member { grid-template-columns: 14px 1fr 1fr 1fr 56px 48px 30px; }
+.ui .r-col-plain { cursor: default; }
+@media (pointer: coarse) { .ui .r-with-acc .r-row { grid-template-columns: 18px 1fr 1fr 1fr 56px 52px 40px; } }
+/* a list narrower than the default (a kept width of before, a list dragged narrow): the columns closer together */
+.ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 46px 44px 30px; gap: 4px; }
+.ui .r-acc-tight .r-member { grid-template-columns: 14px 1fr 1fr 1fr 46px 44px 30px; }
+.ui .r-acc-tight .r-col-plain { letter-spacing: 0; }
+@media (pointer: coarse) { .ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 46px 48px 40px; } }
 
 /* Details of the selected line */
 .ui .r-details { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -152,6 +170,14 @@
 .ui .r-pager { display: flex; gap: 6px; }
 .ui .r-details .u-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ui .r-warn { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--warn); }
+/* "Reaching the anchors" (LineDetails' AccessBlock): a row per anchor, the mark, "Anchor 1", the state's words */
+.ui .r-acc { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px 10px; border-radius: 8px; background: var(--surface-2);
+  font-size: 13px; }
+.ui .r-acc-h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ui .r-acc-row { display: grid; grid-template-columns: 20px auto minmax(0, 1fr); gap: 8px; align-items: center; }
+.ui .r-acc-row .ac { vertical-align: 0; }
+.ui .r-acc-a { color: var(--muted); white-space: nowrap; }
+.ui .r-dtitle .ac-pair { margin-left: 2px; }
 .ui .r-var { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
 .ui .r-var .u-ib { width: 30px; height: 30px; }
 .ui .r-dots { display: flex; gap: 4px; }

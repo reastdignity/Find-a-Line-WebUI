@@ -36,7 +36,8 @@ export interface Profile {
 //  terrain, % of the line at least high_above, wall angle at anchor 1 and 2 (degrees from the
 //  downslope direction), prominence of anchor 1 and 2, drop below anchor 1 and 2 (null: not
 //  known), then the values its head's `ends` names (in a run with an end zone or A-frames END_VALUES, in a
-//  run made with the square rule STANDS_FOR last), profile] (lines.js leaves out the profile)
+//  run made with the access mark ACCESS, in a run made with the square rule STANDS_FOR last), profile]
+//  (lines.js leaves out the profile)
 export type LineRow = [number, number, number, number, number, number, number, number, number, number,
   number | null, number, number, boolean, number, number, number, number, number, number, number,
   number | null, number | null, number | null, number | null, ...(number | Profile | null)[]];
@@ -49,6 +50,11 @@ export const END_VALUES = ["lift_needed", "lift_no_zone"];
 /** The last of a head's `ends` in a run made with the square rule (--same-line-square; runs.STANDS_FOR): the
  *  found lines between the same two anchor squares that the row's line stands for (itself among them). */
 export const STANDS_FOR = "stands_for";
+/** The names in a head's `ends` of a run made with the access mark (--access; runs.ACCESS = linestore.ACCESS), after
+ *  END_VALUES and before STANDS_FOR: the mark at anchor 1 and at anchor 2 (HARD, CANNOT_TELL, EASY). */
+export const ACCESS = ["access1", "access2"] as const;
+/** The access mark's values (access.py): no walk reaches the anchor; the measure cannot tell; you can walk to it. */
+export const ACCESS_HARD = 0, ACCESS_CANNOT_TELL = 1, ACCESS_EASY = 2;
 
 export interface Line {
   lat1: number; lon1: number; lat2: number; lon2: number;
@@ -68,6 +74,9 @@ export interface Line {
   // the found lines this line stands for (the square rule: one line kept per pair of anchor squares); null or
   // missing: a run without the rule. Not saved with a favourite
   stands_for?: number | null;
+  // the access mark at each anchor (ACCESS_HARD 0, ACCESS_CANNOT_TELL 1, ACCESS_EASY 2); null or missing: a run
+  // made without the mark
+  access1?: number | null; access2?: number | null;
   prof: Profile | null;
   run?: OtherRun;  // set for the lines of another run
 }
@@ -193,9 +202,12 @@ export interface RunHead {
   terrain_sources?: TerrainSources;  // where the land's terrain came from; only when something was filled
   end_zone?: number;              // m: the run's no-fall zone at the ends (none: off)
   lift?: number;                  // m: the run's A-frame height (none: off)
-  ends?: string[];                // the names of the rows' values before the profile (END_VALUES, STANDS_FOR); none: no such
+  ends?: string[];                // the names of the rows' values before the profile (END_VALUES, ACCESS, STANDS_FOR); none: no such
   square?: number;                // m: the side of the anchor squares of a run made with the square rule (none: off)
   found?: number;                 // the lines such a run found, which its lines stand for (the sum of their counts)
+  // "memory": the search was asked to mark the anchors' access (--access) and ran without it, its area too wide for
+  // the access grid (search.py; mapping.map_heads): a run as one made without the mark, and the page says so
+  access_skipped?: string;
 }
 
 /** data.js's value (window.FINDALINE_RUN) as the file holds it: the head and a row per line. */
@@ -251,6 +263,7 @@ export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, end
           drop1: d[23], drop2: d[24],
           pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null,
           lift_needed: extra("lift_needed"), lift_no_zone: extra("lift_no_zone"), stands_for: extra(STANDS_FOR),
+          access1: extra(ACCESS[0]), access2: extra(ACCESS[1]),
           prof: profiled ? (last as Profile | null) || null : null, run};
 }
 
@@ -266,8 +279,9 @@ export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, end
 // the store's own arrays, its missing values from their validity bits.
 
 type IntArray = Int8Array | Int16Array | Int32Array;
-/** An integer array of a store's column: int8/16/32 of value × 10^decimals, uint32 of a count (linestore.COLUMNS). */
-type StoredInts = IntArray | Uint32Array;
+/** An integer array of a store's column: int8/16/32 of value × 10^decimals, uint32 of a count, uint8 of a mark
+ *  (linestore.COLUMNS). */
+type StoredInts = IntArray | Uint32Array | Uint8Array;
 const INT32_MAX = 2147483647;
 // What an integer array of a column keeps instead of a number, from its type's smallest value on: null, NaN, and a
 // value the row does not have (undefined, as toLine reads a value past a short row's end: the runs saved before
@@ -409,9 +423,9 @@ const ROW_FIELDS: [NumberField, number, number][] = [
   ["filled", 15, 10], ["hmax", 16, 0], ["hmean", 17, 100], ["highPct", 18, 10], ["angle1", 19, 10], ["angle2", 20, 10],
   ["prom1", 21, 10], ["prom2", 22, 10], ["drop1", 23, 10], ["drop2", 24, 10]];
 const OVER = 13;
-// The values a head's `ends` names (END_VALUES, then STANDS_FOR) and their scales
-const EXTRA_FIELDS: [NumberField, number][] = [["lift_needed", 100], ["lift_no_zone", 100],
-                                                     [STANDS_FOR as NumberField, 1]];
+// The values a head's `ends` names (END_VALUES, ACCESS, then STANDS_FOR) and their scales
+const EXTRA_FIELDS: [NumberField, number][] = [["lift_needed", 100], ["lift_no_zone", 100], [ACCESS[0], 1],
+                                                     [ACCESS[1], 1], [STANDS_FOR as NumberField, 1]];
 
 /** The rows of data.js or lines.js as columns, with the values toLine reads from each row: the anchors' percentile
  *  ranks from `terrain`, the values `ends` names, the profile (data.js) by its row. The rows are left as they are. */
@@ -499,7 +513,8 @@ export function lineAt(c: LineColumns, i: number, run?: OtherRun): Line {
           water: v(c.water), filled: v(c.filled), hmax: v(c.hmax), hmean: v(c.hmean), highPct: v(c.highPct),
           angle1: v(c.angle1), angle2: v(c.angle2), prom1: c.prom1.at(i), prom2: c.prom2.at(i), drop1: c.drop1.at(i),
           drop2: c.drop2.at(i), pct1: c.pct1.at(i), pct2: c.pct2.at(i), lift_needed: c.lift_needed.at(i),
-          lift_no_zone: c.lift_no_zone.at(i), stands_for: c.stands_for.at(i), prof: c.profiles.get(i) ?? null, run};
+          lift_no_zone: c.lift_no_zone.at(i), stands_for: c.stands_for.at(i), access1: c.access1.at(i),
+          access2: c.access2.at(i), prof: c.profiles.get(i) ?? null, run};
 }
 
 /** The values of line `i` of the columns, read as they are asked for (no Line made): the filters, the ranges, the
@@ -537,6 +552,8 @@ export class LineCursor implements LineValues {
   get lift_needed() { return this.c.lift_needed.at(this.i); }
   get lift_no_zone() { return this.c.lift_no_zone.at(this.i); }
   get stands_for() { return this.c.stands_for.at(this.i); }
+  get access1() { return this.c.access1.at(this.i); }
+  get access2() { return this.c.access2.at(this.i); }
 }
 
 /** A run as the page keeps it: data.js's head and its rows as columns (the caller drops the rows). */

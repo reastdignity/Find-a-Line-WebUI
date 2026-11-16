@@ -2,6 +2,7 @@
 paths:
   - "tests/test_web.py"
   - "tests/test_viewer.py"
+  - "tests/test_access_page.py"
   - "tests/test_view3d*.py"
   - "tests/test_shell_c*.py"
   - "tests/test_layout.py"

@@ -24,7 +24,7 @@ import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, t
 import { colorOf, localPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
-import { lineAt, lineColumns, LineCursor, runData, type Line, type LineColumns, type LineValues, type OtherRun,
+import { ACCESS, lineAt, lineColumns, LineCursor, runData, type Line, type LineColumns, type LineValues, type OtherRun,
          type Profile, type RunData, type RunInfo, type RunLines, type RunScript } from "../types";
 import type { OnProgress } from "./load";
 import { measuredLine } from "./measured";
@@ -75,11 +75,15 @@ export interface ShownRun {
   count: number;
 }
 
+/** Does a head's `ends` name the access mark (a run made with --access). */
+const marked = (ends: string[] | undefined): boolean => !!ends && ends.includes(ACCESS[0]);
+
 /** A run's lines among the runs shown: the indices start .. start + cols.length - 1. */
 interface Table {
   cols: LineColumns;
   start: number;
   run?: OtherRun;  // another run's
+  access: boolean;  // the run was made with the access mark (its head's `ends` names ACCESS)
 }
 
 /** The made lines are kept, however many more they are than the rows, up to this many (prune). */
@@ -253,7 +257,7 @@ export class ResultModel {
     this.data = "columns" in data ? data
       : timed("fal:run:lines", () => runData(data as RunScript), {count: (data as RunScript).lines.length});
     this.runId = data.run.id;
-    this.tables.push({cols: this.data.columns, start: 0});
+    this.tables.push({cols: this.data.columns, start: 0, access: marked(this.data.ends)});
     this.nextStart = this.data.columns.length;
     this.gather();
     this.api = options.api || SERVER_API;
@@ -289,6 +293,12 @@ export class ResultModel {
   /** How many lines the runs shown have (this run's and the other runs'). */
   get total(): number {
     return this.tables.reduce((n, t) => n + t.cols.length, 0);
+  }
+
+  /** A run shown (this one or another) was made with the access mark: the list has the column "Anchors" (a line
+   *  of a run without it shows "–" there) and the legend its row. */
+  get hasAccess(): boolean {
+    return this.tables.some((t) => t.access);
   }
 
   get nClean(): number { return this.counts.clean; }
@@ -981,7 +991,7 @@ export class ResultModel {
     const cols = "columns" in loaded ? loaded.columns : lineColumns(loaded.lines, loaded.terrain, loaded.ends);
     const start = this.nextStart;
     this.nextStart += cols.length;
-    this.tables.push({cols, start, run: {info, color}});
+    this.tables.push({cols, start, run: {info, color}, access: marked(loaded.ends)});
     this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area, start, count: cols.length});
     this.gather();
     this.compute();

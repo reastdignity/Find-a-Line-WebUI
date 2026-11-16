@@ -119,14 +119,16 @@ export function Panel({title, actions, padded = true, class: cls, children}:
 }
 
 /** A labelled field: the label with its "?" hint (Hint; `hintLabel` names it when the label is not a
- *  text), its current value on the right, the control, a help text (always shown: problems, state). */
-export function Field({label, value, help, hint, hintLabel, htmlFor, children}:
+ *  text; or `hintButton`: a "?" of the caller's own in its place, e.g. one that opens a help in place), its
+ *  current value on the right, the control, a help text (always shown: problems, state). */
+export function Field({label, value, help, hint, hintLabel, hintButton, htmlFor, children}:
                       {label: ComponentChildren; value?: ComponentChildren; help?: ComponentChildren;
-                       hint?: ComponentChildren; hintLabel?: string; htmlFor?: string; children?: ComponentChildren}) {
+                       hint?: ComponentChildren; hintLabel?: string; hintButton?: ComponentChildren; htmlFor?: string;
+                       children?: ComponentChildren}) {
   return <div class="u-field">
     <div class="u-field-lab">
       <span class="u-field-name"><label for={htmlFor}>{label}</label>
-        {hint && <Hint label={hintLabel ?? (typeof label === "string" ? label : "")}>{hint}</Hint>}</span>
+        {hintButton ?? (hint && <Hint label={hintLabel ?? (typeof label === "string" ? label : "")}>{hint}</Hint>)}</span>
       {value !== undefined && <b>{value}</b>}
     </div>
     {children}
