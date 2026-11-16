@@ -760,6 +760,9 @@ door_up() {
 door_down() {
     docker rm -f "$PROJECT-sshc" > /dev/null 2>&1
     [ -f "$WORK/door.env" ] && door_compose down -v --remove-orphans > /dev/null 2>&1
+    # Also a door left by an earlier run (--keep, or stopped): its containers hold the volumes
+    docker ps -aq --filter "label=com.docker.compose.project=$PROJECT-door" | xargs -r docker rm -f > /dev/null 2>&1
+    docker network rm "$PROJECT-door_publish" > /dev/null 2>&1
     docker volume rm "$PROJECT-door-root" "$PROJECT-door-keys" > /dev/null 2>&1
     docker image rm "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig" "$PROJECT-sshclient" > /dev/null 2>&1
 }
