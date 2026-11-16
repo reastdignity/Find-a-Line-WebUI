@@ -92,9 +92,12 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
         attribution.style.bottom = attributionUp ? `${up}px` : "";
         attribution.style.left = attribution.style.right = "";
       }
-      // Both raised and side by side on one line: the scale goes above the attribution
+      // Both raised and side by side on one line: the scale goes above the attribution; neither raised, the scale
+      // goes above the attribution where the credits run under its corner (a narrow map: lines over its width)
       const stacked = attributionUp && scaleUp && a && s && a.left < s.right;
-      if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px` : "";
+      const under = !attributionUp && !scaleUp && meet(attribution, scale);
+      if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px`
+        : under ? `${attribution!.offsetHeight}px` : "";
     };
     const sizes = new ResizeObserver(update), styles = new MutationObserver(update);
     sizes.observe(map);

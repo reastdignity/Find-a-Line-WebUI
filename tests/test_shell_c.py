@@ -1606,6 +1606,15 @@ EDITOR_JS = """() => {
   const parts = [...document.querySelectorAll('.r-editor > .r-limit:first-child .r-limit-val > *')];
   return {x: box(x), parts: parts.map((e) => [e.className || e.tagName, box(e)])};
 }"""
+# The result map's scale and credits: their boxes, and whether the scale is clear of the credits
+CORNERS_JS = """() => { const m = document.querySelector('.leaflet-container'), box = (s) => {
+  const r = m.querySelector(s).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {scale: box('.leaflet-control-scale'), attribution: box('.leaflet-control-attribution')}; }"""
+CORNERS_CLEAR = """() => { const m = document.querySelector('.leaflet-container');
+  const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect();
+  return /FABDEM/.test(m.querySelector('.leaflet-control-attribution').textContent)
+    && (s.bottom <= a.top || s.right <= a.left || s.top >= a.bottom); }"""
 SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
   document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
 
@@ -1617,11 +1626,13 @@ def _playwright() -> bool:
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
-    """The result in Playwright's Edge on a desktop and on a phone (touch: the editor's larger ×) (report defects 5
-    and 13): the "Length" editor's × never lies on the first row's number or unit, also with a long value typed;
+    """The result in Playwright's Edge on a desktop and on a phone (touch: the editor's larger ×) (report defects 5,
+    7 and 13): the map's scale clear of its credits, which wrap under its corner on both (the desktop's map column
+    is narrow); the "Length" editor's × never lies on the first row's number or unit, also with a long value typed;
     the list's sorted column says its order in its name (", sorted largest first"), with no aria-sort, which a
     button may not carry."""
     from playwright.sync_api import sync_playwright
+    add_credits(data, SMALL)  # a source's credits: the credits wrap
     page_path = stub_page(data, "cplay")
     from test_web import DESKTOP, PHONE
     r = {}
@@ -1632,6 +1643,8 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
                 page = browser.new_page(**context)
                 page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}")
                 page.wait_for_selector(".r-filters", timeout=30000)
+                page.wait_for_function(CORNERS_CLEAR, timeout=30000)  # the observers' frame after the credits came
+                r[f"{kind}_corners"] = page.evaluate(CORNERS_JS)
                 page.locator(".r-filters button", has_text="Length").first.click()
                 page.wait_for_selector(".r-editor .r-editor-x", timeout=30000)
                 r[f"{kind}_short"] = page.evaluate(EDITOR_JS)
@@ -1649,6 +1662,8 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
             found = r[f"{kind}_{value}"]
             assert len(found["parts"]) == 2, found  # the number and the unit
             assert not any(meet(found["x"], b) for _, b in found["parts"]), (kind, value, found)
+        scale, attribution = r[f"{kind}_corners"]["scale"], r[f"{kind}_corners"]["attribution"]
+        assert attribution[0] < scale[2] and scale[3] <= attribution[1], (kind, r[f"{kind}_corners"])
         count, name, sort = r[f"{kind}_sorted"]
         assert count == 0 and sort == "hmean", r
         assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
