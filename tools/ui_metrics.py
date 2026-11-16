@@ -977,6 +977,32 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
             json.dump({"setup": times, "passes": passes, "left_out_by_run": dropped}, f, indent=1)
 
 
+# The pages' families in the summary, by the prefix of their names (a page in the first that fits; the app's other
+# pages in "the app"): never by a word inside a name ("c-new-coverage" is the app's, "map-layers" a run's map)
+FAMILIES = (("coverage page", ("page-coverage",)), ("layer explorer", ("c-layer",)), ("3D view", ("view3d",)),
+            ("run's map", ("map",)), ("other pages", ("page-",)), ("the app", ("",)))
+
+
+def family_of(page: str) -> str:
+    return next(name for name, prefixes in FAMILIES if page.startswith(prefixes))
+
+
+def _families(ok: list, controls, text) -> dict:
+    """Per family (FAMILIES) of the measured states: states, controls, those under each bound, text characters and
+    those under each bound."""
+    out = {}
+    for name, _ in FAMILIES:
+        rs = [r for r in ok if family_of(r["page"]) == name]
+        if not rs:
+            continue
+        out[name] = {"states": len(rs), "controls": sum(r["controls"] for r in rs),
+                     **{f"controls_under_{b}": sum(sum(r["controls_under"][str(b)].values()) for r in rs)
+                        for b in controls},
+                     "text_chars": sum(r["text_chars"] for r in rs),
+                     **{f"text_chars_under_{b}": sum(r["text_chars_under"][str(b)] for r in rs) for b in text}}
+    return out
+
+
 def _left_out(records: list) -> dict:
     """The states left out: "page | reason" -> the devices and themes, in the records' order."""
     out = {}
@@ -1041,6 +1067,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                                         for i in IMPACTS}
             row[f"axe_{kind}_rules"] = {i: len({x["id"] for r in with_axe for x in r["axe"][kind] if x["impact"] == i})
                                         for i in IMPACTS}
+        row["families"] = _families(ok, controls, text)
         per[key] = row
 
     ok = [r for r in records if r.get("page") and "error" not in r and "left_out" not in r]
@@ -1161,6 +1188,16 @@ def pages_markdown(s: dict) -> str:
             f"`{x['example'][:70]}` |" for x in s["lists"]["axe"]]
     out += ["", "## Slowest states (seconds)", "", "| State | Load | Steps | Measure | Total |", "| --- | --- | --- | --- | --- |"]
     out += [f"| {x['state']} | {x['load']} | {x['steps']} | {x['measure']} | {x['total']} |" for x in s["seconds_slowest"]]
+    if any(r.get("families") for r in s["per_device_theme"].values()):
+        heads = (["Device, theme", "Family", "States", "Controls"] + [f"Under {b} px" for b in cs] + ["Text chars"]
+                 + [f"Text under {b} px" for b in ts])
+        out += ["", "## Page families (by the prefix of a page's name: page-coverage, c-layer, view3d, map, page-, "
+                "the rest the app)", "", "| " + " | ".join(heads) + " |", "|" + " --- |" * len(heads)]
+        for key, r in s["per_device_theme"].items():
+            for name, f in r.get("families", {}).items():
+                cells = ([key, name, f["states"], f["controls"]] + [f[f"controls_under_{b}"] for b in cs]
+                         + [f["text_chars"]] + [f[f"text_chars_under_{b}"] for b in ts])
+                out.append("| " + " | ".join(str(c) for c in cells) + " |")
     if s.get("left_out"):
         out += ["", f"## Left out ({s['states_left_out']} states: the run or the device does not show them)", ""]
         out += [f"- {page}: {reason} ({', '.join(where)})" for (page, reason), where in

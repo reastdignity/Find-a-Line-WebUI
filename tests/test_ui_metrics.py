@@ -675,6 +675,19 @@ def test_links_in_a_sentence_apart():
     assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
 
 
+def test_families_by_name_prefix():
+    """The summary's page families go by the prefix of a page's name: c-new-coverage is the app's, map-layers a run's
+    map's, not the coverage page's or the layer explorer's."""
+    names = ["page-coverage", "page-coverage-pl", "c-layer-cell", "c-new-coverage", "map-layers", "c-home",
+             "page-about", "view3d"]
+    s = ui_metrics.summarise([_state(n, "iphone", 1, 0) for n in names])
+    families = s["per_device_theme"]["iphone light"]["families"]
+    assert {k: v["states"] for k, v in families.items()} == {
+        "coverage page": 2, "layer explorer": 1, "3D view": 1, "run's map": 1, "other pages": 1, "the app": 2}
+    assert families["the app"]["controls"] == 6 and families["the app"]["controls_under_44"] == 2
+    assert "| iphone light | coverage page | 2 |" in ui_metrics.pages_markdown(s)
+
+
 def test_headline_counts_with_failures():
     """The headline: a state whose measuring failed (it keeps its seconds) is failed, not also measured; a state left
     out is neither."""
