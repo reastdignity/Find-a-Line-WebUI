@@ -297,7 +297,9 @@ spec-store.md 1.3, from the values as the store holds them): `spot` (`group_line
 by their first line's mean height), `by_spot` (rows by spot, inside a spot by mean height, clearance, length, then
 the row; NaN last), `top` (`top_level`: K-17 'Higher wins on a face', `tools/prune_study.py`'s `higher_wins` with
 `STACK_CELL`/`STACK_STEP`) and the head's `sectors` (`_ward_sectors`: Ward's clustering, scipy, of the spots' shown
-lines' ends into at most `SECTORS_MAX`; a word of `SECTOR_WORDS` or "centre"), `box`, `lengths`
+lines' ends into at most `SECTORS_MAX`; above `SECTOR_WARD_SPOTS` spots (10 000, memory by their square) Ward's of
+that many taken evenly in group order, every spot then to the nearest cluster's mean, `_nearest`; a word of
+`SECTOR_WORDS` or "centre"), `box`, `lengths`; NaN after every number in each order (`_highest_first`)
 
 ## `grouping.py`
 

@@ -210,7 +210,13 @@ SECTOR_CENTRE_M = 150.0  # a sector whose shown lines' middle lies nearer the ru
 SECTOR_CENTRE_SHARE = 0.12  # or nearer than this share of the lines' extent in a small run
 STACK_CELL = 8.0  # m: the plan cells of the top-level flag (K-17 'Higher wins on a face', tools/prune_study.py)
 STACK_STEP = 10.0  # m: a stack spans this much mean anchor height or more; its top level is this thick
-VIEW_COLUMNS = ("spot", "top", "by_spot")  # the store's columns view_columns gives (linestore.VIEW_COLUMNS)
+VIEW_COLUMNS = ("spot", "top", "by_spot")  # the store's columns view_columns gives (linestore.VIEW)
+# Ward's clustering of the sectors takes memory by the square of its spots (scipy's linkage: about 16 B per pair, its
+# distances and a copy): every spot up to this many, above it this many taken evenly (_ward_sectors). Measured
+# 2026-11-16 (docs/performance.md, "The result view's columns"): the largest cap whose extra peak stays under 900 MB
+# both at the cap (exact Ward) and above it (1.5 M lines in 200 000 spots); at least the goal case's 8 269 spots
+SECTOR_WARD_SPOTS = 10_000
+NEAREST_PART = 1 << 16  # spots per step of the nearest centroid (their distances to the centroids held meanwhile)
 
 
 def _stored(values: np.ndarray, decimals: int) -> np.ndarray:
@@ -218,22 +224,51 @@ def _stored(values: np.ndarray, decimals: int) -> np.ndarray:
     return round_floats(np.asarray(values, dtype=np.float64), decimals)
 
 
+def _highest_first(values: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Two lexsort keys (the second the more significant) that put values highest first and NaN after every
+    number, infinities included."""
+    missing = np.isnan(values)
+    return np.where(missing, 0.0, -values), missing
+
+
 def _in_spot_order(spot: np.ndarray, mean: np.ndarray, clearance: np.ndarray, length: np.ndarray) -> np.ndarray:
-    """The rows by spot, inside a spot by mean height, clearance, length (each highest first; NaN last), then
-    the row."""
-    with np.errstate(invalid="ignore"):
-        keys = [np.where(np.isnan(v), np.inf, -v) for v in (length, clearance, mean)]  # -NaN would be NaN: last too
+    """The rows by spot, inside a spot by mean height, clearance, length (each highest first; NaN after every
+    number), then the row."""
+    keys = [key for v in (length, clearance, mean) for key in _highest_first(v)]
     return np.lexsort((np.arange(len(spot)), *keys, spot))
 
 
+def _nearest(points: np.ndarray, centres: np.ndarray) -> np.ndarray:
+    """The index of each point's nearest centre (squared distance; a tie to the lower index), NEAREST_PART points
+    at a time."""
+    out = np.empty(len(points), dtype=np.int64)
+    for at in range(0, len(points), NEAREST_PART):
+        part = points[at:at + NEAREST_PART]
+        out[at:at + len(part)] = np.argmin(((part[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2), axis=1)
+    return out
+
+
 def _ward_sectors(ends: np.ndarray) -> np.ndarray:
-    """A sector per spot (0 .. k-1, unnumbered) from the ends of the spots' shown lines (a row per spot: west end
-    x, y, east end x, y): Ward's clustering (scipy) cut into at most SECTORS_MAX clusters; a run of at most
-    SECTORS_MAX spots has a sector per spot (the accepted mock-up's data, P7's tree_lib.sectors)."""
-    if len(ends) <= SECTORS_MAX:
-        return np.arange(len(ends), dtype=np.int64)
+    """A sector per spot (0 .. k-1, unnumbered; a number may be unused) from the ends of the spots' shown lines (a
+    row per spot: west end x, y, east end x, y): Ward's clustering (scipy) cut into at most SECTORS_MAX clusters;
+    a run of at most SECTORS_MAX spots has a sector per spot (the accepted mock-up's data, P7's tree_lib.sectors).
+    Above SECTOR_WARD_SPOTS spots Ward's clustering takes that many spots evenly in their order (group_lines':
+    a fixed choice, no random draw) and every spot joins the cluster whose mean of the taken spots' ends is the
+    nearest (the user's choice of 2026-11-16, "Sample")."""
+    n = len(ends)
+    if n <= SECTORS_MAX:
+        return np.arange(n, dtype=np.int64)
     from scipy.cluster.hierarchy import fcluster, linkage
-    return fcluster(linkage(ends, method="ward"), SECTORS_MAX, criterion="maxclust").astype(np.int64) - 1
+    cut = lambda points: fcluster(linkage(points, method="ward"), SECTORS_MAX,  # noqa: E731
+                                  criterion="maxclust").astype(np.int64) - 1
+    if n <= SECTOR_WARD_SPOTS:
+        return cut(ends)
+    taken = np.unique(np.linspace(0, n - 1, SECTOR_WARD_SPOTS).round().astype(np.int64))
+    label = cut(ends[taken])
+    sizes = np.bincount(label)
+    centres = np.column_stack([np.bincount(label, ends[taken, k]) for k in range(ends.shape[1])])
+    centres = centres[sizes > 0] / sizes[sizes > 0, None]
+    return _nearest(ends, centres)
 
 
 def top_level(x1: np.ndarray, y1: np.ndarray, x2: np.ndarray, y2: np.ndarray, e1: np.ndarray, e2: np.ndarray,
@@ -280,8 +315,10 @@ def view_columns(lines: LineTable, groups: Groups, centre: Tuple[float, float]) 
       top      uint8 per line: 1 when it is top level (top_level).
       by_spot  uint32: the rows by spot, inside a spot by mean height, clearance, length (each highest first,
                NaN last), then the row: a spot's lines are one run of it, its first line the spot's shown line.
-      sectors  [{"word": ..., "spots": n}, ...] in sector order: Ward's clustering of each spot's shown line's
-               ends (the west end first; _ward_sectors) into at most SECTORS_MAX sectors, numbered by their best
+      sectors  [{"word": ..., "spots": n}, ...] in sector order, none empty: Ward's clustering of each spot's
+               shown line's ends (the west end first; _ward_sectors) into at most SECTORS_MAX sectors (above
+               SECTOR_WARD_SPOTS spots Ward's clustering of that many taken evenly, every spot then to the nearest
+               cluster's mean), numbered by their best
                spot's mean height (then group_lines' order); the word one of SECTOR_WORDS by the bearing from
                the centre to the mean of its shown lines' middles, "centre" within min(SECTOR_CENTRE_M,
                SECTOR_CENTRE_SHARE x the lines' extent), the extent the larger side of the box.
@@ -307,17 +344,16 @@ def view_columns(lines: LineTable, groups: Groups, centre: Tuple[float, float]) 
                             np.where(west, x2[first], x1[first]), np.where(west, y2[first], y1[first])])
     cluster = _ward_sectors(ends)
     del ends
-    best = mean[first]
-    score = np.where(np.isnan(best), -np.inf, best)
+    value, missing = _highest_first(mean[first])  # a spot's score: its first line's mean height, NaN after all
     # Each cluster's best spot (highest score, then the lower group), the clusters numbered by it
-    by_score = np.lexsort((np.arange(count), -score, cluster))
+    by_score = np.lexsort((np.arange(count), value, missing, cluster))
     leaders = by_score[np.flatnonzero(np.concatenate([[True], np.diff(cluster[by_score]) != 0]))]
-    numbered = leaders[np.lexsort((leaders, -score[leaders]))]
+    numbered = leaders[np.lexsort((leaders, value[leaders], missing[leaders]))]
     sector_of_cluster = np.empty(int(cluster.max()) + 1, dtype=np.int64)
     sector_of_cluster[cluster[numbered]] = np.arange(len(numbered))
     sector = sector_of_cluster[cluster]
     spot_of_group = np.empty(count, dtype=np.int64)
-    spot_of_group[np.lexsort((np.arange(count), -score, sector))] = np.arange(count)
+    spot_of_group[np.lexsort((np.arange(count), value, missing, sector))] = np.arange(count)
     spot = spot_of_group[group]
     by_spot = order[np.argsort(spot_of_group[group[order]], kind="stable")]  # the order inside a spot is kept
     xs, ys = np.concatenate([x1, x2]), np.concatenate([y1, y2])

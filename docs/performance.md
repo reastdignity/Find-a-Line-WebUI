@@ -4005,3 +4005,64 @@ refusals and the warning name are half of those at 450. `tools/perf_country.py`'
   `slot_memory` does not reserve it (left as it is, the user's choice).
 - `tools/perf_lines_memory.py` was not used: it traces the heap of one process, without saving's children, the store
   or the square rule.
+
+## The result view's columns (2026-11-16, branch `view-columns`, step 3a)
+
+`mapping.view_columns` computes a new run's `spot`, `top`, `by_spot` and the head's `sectors`, `box`, `lengths` at
+saving (docs/line-volume/spec-store.md 1.3); `linestore.write` stores them. No result changes.
+
+### How it was measured
+Indicative unless marked: the shared or heavy lane of `tools/test_lock.py`, one process per case, this PC (Windows).
+A case's extra peak is the process's private bytes (and working set: the same within 2 MB) sampled every 5 ms during
+the call, less their value just before it. Made-up tables: lines on a made-up coast 40 km long, spots spread along it
+(the task's `view_scale.py`, in its private folder `V1\`, with `scale.jsonl`, `cap.jsonl`, `options_real.jsonl`,
+`row_order.jsonl`). Real tables: P1's saved runs in the target rig without the square rule, read from their `lines.js`.
+
+### The sectors' memory: Ward's clustering by the square of the spots
+scipy's `linkage(method="ward")` holds the condensed distances of every pair of spots and a copy: about 16 B a pair.
+At 1.5 M made-up lines, as specified (every spot clustered):
+
+| Spots | Seconds | Extra peak |
+|---:|---:|---:|
+| 2 000 | 0.99 | 161 MB (the part without Ward's clustering) |
+| 10 000 | 1.83 | 800 MB |
+| 15 000 | 2.62 | 1 753 MB |
+| 200 000 | not run | about 300 GB (8 B × n² × 2, extrapolated) |
+
+The spots of the reference cases: P1's BAH (target rig, no rule) 661, KOB 812, MGp 812, GZp 470, BEL 1 480, DOL
+3 067; the goal case (the Gozo coast, the square rule at 5) 8 269 (spec.md). Any `--group-distance` above 0 is
+accepted, so spots may come near the lines.
+
+### The options measured (1.5 M made-up lines in 200 000 spots) and the user's choice
+| Option | Seconds | Extra peak | Agreement with Ward on real spots (KOB, BEL, DOL, forced below their spots) |
+|---|---:|---:|---|
+| sample: Ward of 8 000 spots taken evenly, every spot to the nearest cluster's mean | 1.45 | 533 MB | 85.2 %, 81.6 %, 98.8 % |
+| cells: Ward of the means of coarse 4-D cells (400 m, 4 315 cells) | 1.73 | 194 MB | 65.5 %, 68.9 %, 89.1 % |
+| k-means (scipy `kmeans2`, k-means++, seed 0), at any size | 1.08 | 175 MB | 76.1 %, 86.4 %, 82.1 % |
+
+Agreement: the share of spots in the same sector under the best one-to-one matching (caps 300, 500, 500). fastcluster
+(Ward in linear memory) has no wheel for Python 3.15 on Windows (1.3.0: up to 3.13). The user chose "Sample"
+(2026-11-16): `SECTOR_WARD_SPOTS` spots go into Ward's clustering, every spot of a larger run to the nearest.
+
+### The cap `SECTOR_WARD_SPOTS` (1.5 M made-up lines; the largest cap whose extra peak stays under 900 MB in both)
+| Cap | Above it: 200 000 spots (sampled) | At it: the cap's spots (exact Ward) |
+|---:|---|---|
+| 8 500 | 1.47 s, 596 MB | 1.24 s, 588 MB |
+| 9 000 | 1.59 s, 663 MB | 1.30 s, 655 MB |
+| 10 000 | 1.66 s, 808 MB | 1.36 s, 800 MB |
+
+So 10 000: the goal case's 8 269 spots stay as specified.
+
+### The store's bytes and seconds (no profiles in these stores)
+| Table | Lines | `view_columns` | `write` without / with | `lines.arrow` raw without → with | gzip level 5 without → with |
+|---|---:|---:|---|---|---|
+| KOB (target rig) | 605 729 | 0.34 s | 0.35 / 0.34 s | 62.4 → 67.8 MB | 29.2 → 31.9 MB |
+| BAH (target rig) | 2 010 351 | 1.10 s | 1.23 / 1.25 s | 205.1 → 223.2 MB (+9.0 B a line) | 88.3 → 97.8 MB (+4.7 B a line) |
+
+`top` on that BAH table: 1 418 889 of 2 010 351 lines (70.6 %).
+
+### The input's row order (spec-store.md 1.10's open check)
+On KOB and BAH (above), the same lines in a random order and in the order of `by_spot`: the same groups and
+representatives, but `lines.csv` not byte for byte (KOB 2 and 4 rows, BAH 66 767 and 63 094; equal when sorted).
+Inside a group, members tied in clearance and length keep the input's order. So the rows stay in the search's order
+and `by_spot` is stored.
