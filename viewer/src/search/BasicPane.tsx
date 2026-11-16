@@ -1,6 +1,6 @@
 // The Basic tab of the search panel (docs/line-volume/spec-search.md 1.2, the accepted mock-up 1, version 3):
-// above Where (BasicTop: the goals, the sea hint) and under it (BasicBottom: the rig in use with the list of the
-// saved rigs, "Show every setting"; Where itself is the panel's, kept between the tabs); the rig's window
+// above Where (BasicTop: the goals, the sea hint) and under it (BasicBottom: "Reaching the anchors", the rig in use
+// with the list of the saved rigs, "Show every setting"; Where itself is the panel's, kept between the tabs); the rig's window
 // (RigWindow, also opened from Advanced's "Save as a new rig") and the dialog of going back to Basic
 // (ReturnDialog). Styles in search.css (s-*), the dialogs' look in app/notices.css (u-dialog).
 
@@ -9,9 +9,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, user } from "../app/api";
 import { errorText, label, t } from "../i18n";
 import { Button } from "../ui/components";
+import { useAccessHelp } from "../access";
 import {
-  cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG, valueText,
-  type Rig, type RigField, type RigValues,
+  BASIC_ACCESS, cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG,
+  valueText, type Rig, type RigField, type RigValues,
 } from "./basic";
 import type { ReturnAsk, SearchState } from "./useSearch";
 
@@ -126,9 +127,22 @@ export function BasicTop({s}: {s: SearchState}) {
   </>;
 }
 
-/** The Basic tab under Where: the rig in use, "Show every setting". */
+/** "Reaching the anchors": Basic marks the access to every anchor (basic.ts BASIC_ACCESS); the row says so and its
+ *  "?" opens the help the result page shares (access.tsx). Not shown where the site's limits leave the field out. */
+function AccessRow({s}: {s: SearchState}) {
+  const help = useAccessHelp();
+  if (!s.byName[BASIC_ACCESS]) return null;
+  return <div class="s-access s-gap">
+    <div class="u-field-lab"><span class="u-field-name">{t("basic.access.label")}{help.button}</span></div>
+    <p class="s-note">{t("basic.access.note")}</p>
+    {help.panel}
+  </div>;
+}
+
+/** The Basic tab under Where: "Reaching the anchors", the rig in use, "Show every setting". */
 export function BasicBottom({s, onRig, onEvery}: {s: SearchState; onRig(ask: RigAsk): void; onEvery(): void}) {
   return <>
+    <AccessRow s={s} />
     <RigRow s={s} onOpen={onRig} />
     <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")} ›</button></div>
   </>;

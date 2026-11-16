@@ -1,14 +1,17 @@
 // The sortable list of the spots of a result (model.rows): length, mean height, clearance (a tight line
-// marked, with the mark's key above the list), lines in the spot and the favourite star; the selected row
+// marked, with the mark's key above the list), the anchors' access marks when a run shown has them (access.tsx:
+// two dots, anchor 1 and anchor 2; "–" for a line of a run without them; not sortable), lines in the spot and
+// the favourite star; the selected row
 // highlighted with the shell's details under it, a spot's lines unfolded under its row in the spot's order
 // (model.membersOf; the shown one marked), "only in the map's view" (the selected
 // spot stays, marked outside the view), the first 100 rows and then more. Rows take the focus; Enter
 // selects. Sorting is model.list (list.ts).
 
-import type { ComponentChildren } from "preact";
+import { Fragment, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Icon } from "../../ui/icons";
 import { useMedia } from "../../ui/components";
+import { useWidthOf } from "../../ui/SidePanel";
 import { formatValue, sortKey, SORT_KEYS, type SortKey } from "../../list";
 import type { Line } from "../../types";
 import { LineGroup, type ResultModel, type Spot } from "../model";
@@ -16,8 +19,12 @@ import type { ResultMap } from "../ResultMap";
 import { cx, LineCells, TightKey, useModel } from "./common";
 import { isTight } from "../../tight";
 import { t } from "../../i18n";
+import { AccessPair } from "../../access";
 
 const PAGE = 100;
+// The list's width (px) from which the column "Anchors" has its full size (the default list of 372 px: 356), and
+// under which it is left out
+const ACC_FULL = 356, ACC_MIN = 300;
 type Column = {key: string; head: string; title: string};
 const LENGTH: Column = {key: "len", head: "ui.list.col.length", title: "ui.list.col.length_title"};
 const MEAN: Column = {key: "hmean", head: "ui.list.col.mean", title: "ui.list.col.mean_title"};
@@ -67,6 +74,7 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
   const [, setMoved] = useState(0);
   const canHover = useMedia("(hover: hover)");
   const listRef = useRef<HTMLDivElement>(null);
+  const width = useWidthOf(listRef);  // 0 until it is laid out
   const list = model.list, inView = list.inView && !!view;
 
   useEffect(() => view ? view.onMove(() => setMoved((n) => n + 1)) : undefined, [view]);
@@ -122,13 +130,19 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
         <Icon name="star" fav={model.isFavourite(l)} /></button>
     : <span />;
   const height = key.key === "hmax" ? "hmax" : "hmean";
-  const cells = (l: Line) => <LineCells line={l} height={height} lift={model.liftOf(l)} />;
+  // The column "Anchors": only when a run shown was made with the access mark (a run without it: the list of
+  // before), and only where the list has room for it: tighter columns below ACC_FULL px, none below ACC_MIN (a
+  // list dragged narrow; the marks stay in the details and the legend)
+  const access = model.hasAccess && !(width > 0 && width < ACC_MIN);
+  const tightAcc = access && width > 0 && width < ACC_FULL;
+  const cells = (l: Line) => <><LineCells line={l} height={height} lift={model.liftOf(l)} />
+    {access && <span class="r-cell-acc"><AccessPair line={l} /></span>}</>;
   const shownRows = rows.slice(0, limit);
   const unfoldedRow = shownRows.find((r) => unfolded === model.keyOf(r.group.rep) && r.n > 1);
   const tight = shownRows.some((r) => isTight(r.line.clr))
     || (!!unfoldedRow && model.membersOf(unfoldedRow.group).some((m) => isTight(m.clr)));
 
-  return <div class="r-table" ref={listRef}>
+  return <div class={cx("r-table", access && "r-with-acc", tightAcc && "r-acc-tight")} ref={listRef}>
     <div class="r-table-tools">
       <label class="r-sortby"><span class="u-small">Sort by</span>
         <select class="r-sort" value={key.key} onChange={(e) => {
@@ -146,11 +160,14 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
     {tight && <TightKey lift={model.data.lift} />}
     <div class="r-row r-head" role="presentation">
       <span />
-      {columnsOf(key.key).map((c) => <button type="button" key={c.key} title={t(c.title)}
-                                             class={cx("r-col", key.key === c.key && "r-on")}
-                                             aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
-                                             onClick={() => sortBy(c.key)}>
-        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button>)}
+      {columnsOf(key.key).map((c) => <Fragment key={c.key}>
+        {/* the anchors' marks stand before "Lines" */}
+        {access && c === LINES && <span class="r-col r-col-plain r-cell-acc" title={t("ui.list.col.anchors_title")}>
+          {t("ui.list.col.anchors")}</span>}
+        <button type="button" title={t(c.title)} class={cx("r-col", key.key === c.key && "r-on")}
+                aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
+                onClick={() => sortBy(c.key)}>
+        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button></Fragment>)}
       <span />
     </div>
     <div class="r-rows" role="listbox" aria-label="Lines">

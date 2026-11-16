@@ -193,6 +193,31 @@
    "survey": "",
    "trees": "surface"
   },
+  "ca-on": {
+   "added": "2026-11-16",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Geospatial Ontario",
+   "res": [
+    1,
+    2,
+    30
+   ],
+   "source": "ontario",
+   "survey": "lidar",
+   "trees": "yes"
+  },
   "ch": {
    "added": "2026-10-26",
    "level": 1,
@@ -288,6 +313,32 @@
    "survey": "",
    "trees": "yes"
   },
+  "de-hb": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoInformation Bremen",
+   "res": [
+    1
+   ],
+   "source": "bremen",
+   "survey": "2017",
+   "trees": "yes"
+  },
+  "de-hb-bhv": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoInformation Bremen",
+   "res": [
+    1
+   ],
+   "source": "bremerhaven",
+   "survey": "2015",
+   "trees": "yes"
+  },
   "de-he": {
    "added": "2026-11-01",
    "level": 1,
@@ -299,6 +350,19 @@
    ],
    "source": "hesse",
    "survey": "",
+   "trees": "yes"
+  },
+  "de-hh": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGV",
+   "res": [
+    1
+   ],
+   "source": "hamburg",
+   "survey": "2022",
    "trees": "yes"
   },
   "de-mv": {
@@ -583,6 +647,43 @@
    "survey": "",
    "trees": "no"
   },
+  "fr-re": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_reunion",
+   "survey": "",
+   "trees": "yes"
+  },
+  "fr-yt": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_mayotte",
+   "survey": "",
+   "trees": "no"
+  },
   "gb-eng": {
    "added": "2026-11-01",
    "level": 1,
@@ -662,6 +763,19 @@
    "source": "greenland",
    "survey": "",
    "trees": "surface"
+  },
+  "hk": {
+   "added": "2026-11-16",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "CEDD",
+   "res": [
+    1
+   ],
+   "source": "hong_kong",
+   "survey": "2019–2020",
+   "trees": "yes"
   },
   "is": {
    "added": "2026-11-03",
@@ -837,6 +951,40 @@
    "source": "trento",
    "survey": "2014",
    "trees": "yes"
+  },
+  "jp-13": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Tokyo Metropolitan Government",
+   "res": [
+    1
+   ],
+   "source": "tokyo",
+   "survey": "2022–2023",
+   "trees": "no"
+  },
+  "jp-22": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "Shizuoka Prefecture",
+   "res": [
+    1
+   ],
+   "source": "shizuoka",
+   "survey": "2019–2025",
+   "trees": "no"
   },
   "li": {
    "added": "2026-10-26",
@@ -1102,19 +1250,66 @@
    "level": 2,
    "notes": [
     {
-     "code": "mixed"
-    },
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    2
+   ],
+   "source": "madeira",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-de": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
     {
      "code": "no_trees"
     }
    ],
-   "partial": true,
+   "partial": false,
    "provider": "DROTe",
    "res": [
-    2,
-    30
+    5
    ],
-   "source": "madeira",
+   "source": "desertas",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-ps": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    5
+   ],
+   "source": "porto_santo",
+   "survey": "2018–2019",
+   "trees": "no"
+  },
+  "pt-30-se": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "DROTe",
+   "res": [
+    5
+   ],
+   "source": "selvagens",
    "survey": "2018–2019",
    "trees": "no"
   },
@@ -1242,14 +1437,17 @@
    "trees": "no"
   }
  },
- "countries": 31,
+ "countries": 33,
  "partly": {
   "de": [
    "de-bb",
    "de-be",
    "de-bw",
    "de-by",
+   "de-hb",
+   "de-hb-bhv",
    "de-he",
+   "de-hh",
    "de-mv",
    "de-ni",
    "de-nw",
@@ -1265,8 +1463,15 @@
    "gb-sct",
    "gb-wls"
   ],
+  "jp": [
+   "jp-13",
+   "jp-22"
+  ],
   "pt": [
-   "pt-30"
+   "pt-30",
+   "pt-30-de",
+   "pt-30-ps",
+   "pt-30-se"
   ]
  },
  "start": "2025-11-05",

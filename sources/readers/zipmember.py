@@ -4,14 +4,18 @@ the ZIP directories of sources/indexes/zipdir.py share.
 
 The ZIP format is PKWARE's APPNOTE.TXT, version 6.3.10 (2022-11-01); the sections named below are its."""
 
+import contextlib
+import math
 import re
 import struct
+import threading
 import zlib
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, NamedTuple, Optional, Tuple
 
 import numpy as np
 import rasterio as rio
 import requests
+from rasterio.transform import Affine
 
 import cache
 import servicecounts
@@ -36,6 +40,10 @@ HEADER_SLACK = 1024
 MEMBER_MAX = 64_000_000
 # The smallest range asked: never a single byte (a "Range: bytes=0-0" is not ours to send)
 RANGE_MIN = 2
+# GDAL's XYZ driver (3.12) reads points written in columns through a cache it keeps once per process: two such members
+# read at once by two threads evict each other's on every block, 46 s for the pair instead of 0.3 s each (Bremerhaven's
+# DGM1 474_5936, measured 2026-11-16; points in rows are read at once without it): they are read one at a time
+COLUMNS_LOCK = threading.Lock()
 
 
 class ArchiveChanged(RuntimeError):
@@ -43,8 +51,37 @@ class ArchiveChanged(RuntimeError):
     changed), or a local header that is not the member's (the archive was replaced)."""
 
 
+class MemberChanged(ArchiveChanged):
+    """The member's bytes are not what the directory says (its CRC-32 or size, a deflate stream that does not end
+    there): the archive may have been replaced under the same name with this member made again."""
+
+
+class Mismatch(ValueError):
+    """A member's inflated bytes differ from its directory's CRC-32 or size (ZipMember._inflate)."""
+
+
 class RangeRefused(RuntimeError):
     """The server answered a Range request with the whole file (HTTP 200): closed unread."""
+
+
+class RangeMismatch(RuntimeError):
+    """The server answered another range than the one asked, or none (416: the range lies beyond the file's end):
+    the file is shorter now; total: the file's size its Content-Range names (None: unknown); unsatisfiable: a 416."""
+
+    def __init__(self, message: str, total: Optional[int] = None, unsatisfiable: bool = False):
+        super().__init__(message)
+        self.total, self.unsatisfiable = total, unsatisfiable
+
+
+class WrongShape(RuntimeError):
+    """A member that opens as a raster but not as a tile of one band: what its bytes are, the same on every
+    reading (a reader may leave such a tile to its gap filler: PackageMember)."""
+
+
+# What renew may answer besides a request or None: the directory read again lists another version of the member
+# (another tile: its CRC-32, or what else the tile's cached name holds), so this request cannot be read; fetch fails
+# at once (no reading of it again)
+MEMBER_REMADE = object()
 
 
 def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, Optional[int], Dict[str, str]]:
@@ -69,13 +106,20 @@ def ranged(url: str, first: int, last: int, timeout: int = 120) -> Tuple[bytes, 
             counted.outcome = "other"
             raise RangeRefused(f"{cache.clean_url(url)} answered a range request with the whole file (HTTP 200); "
                                f"not read")
+        if response.status_code == 416:  # Range Not Satisfiable (RFC 9110, 15.5.17): "bytes */<size>" if given
+            counted.outcome = "other"
+            unsatisfied = re.fullmatch(r"bytes \*/(\d+)", response.headers.get("Content-Range", "").strip())
+            raise RangeMismatch(f"HTTP 416 for {cache.clean_url(url)}, bytes {first}-{last} asked",
+                                int(unsatisfied.group(1)) if unsatisfied else None, unsatisfiable=True)
         if response.status_code != 206:
             raise RuntimeError(f"HTTP {response.status_code} for {cache.clean_url(url)}")
         content_range = response.headers.get("Content-Range", "").strip()
         match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+|\*)", content_range)
         if not match or (int(match.group(1)), int(match.group(2))) != (first, last):
             counted.outcome = "other"
-            raise RuntimeError(f"{cache.clean_url(url)}: Content-Range {content_range!r}, bytes {first}-{last} asked")
+            total = int(match.group(3)) if match and match.group(3) != "*" else None
+            raise RangeMismatch(f"{cache.clean_url(url)}: Content-Range {content_range!r}, bytes {first}-{last} asked",
+                                total)
         if response.headers.get("Content-Encoding", "identity").lower() not in ("", "identity"):
             counted.outcome = "other"
             raise RuntimeError(f"{cache.clean_url(url)}: content-encoded ({response.headers['Content-Encoding']})")
@@ -124,6 +168,85 @@ def drop_below(band: np.ndarray, floor: Optional[float], ring: int = 0) -> np.nd
     return band
 
 
+def xyz_in_columns(data: bytes) -> bool:
+    """Whether a member is XYZ text whose first two points share their x (written in columns, as Bremerhaven's);
+    False for anything else (a GeoTIFF, points in rows)."""
+    try:
+        head = data[:1024].decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    points = []
+    for line in head.splitlines()[:4]:
+        try:
+            values = [float(v) for v in line.split()]
+        except ValueError:
+            continue  # the header line
+        if len(values) == 3:
+            points.append(values)
+    return len(points) >= 2 and points[0][0] == points[1][0] and points[0][1] != points[1][1]
+
+
+def xyz_rows(data: bytes) -> Optional[bytes]:
+    """An XYZ text member ("x y z" a line, after a header line or not) with its lines in rows, north to south and
+    west to east, for GDAL's XYZ driver: it reads points in columns only when none is missing ("does not support
+    datasets organized by columns with missing values", GDAL 3.12), and points in rows with any missing (no data
+    there). Bremerhaven's DGM1 and DOM1 are written in columns, and 41 of the DOM1's tiles hold part of their km. The
+    lines are kept as they are (no number written again). None when data is no such text (a GeoTIFF)."""
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    lines = [line for line in text.splitlines() if line.strip()]
+    header = []
+    if lines:
+        try:
+            [float(v) for v in lines[0].split()]
+        except ValueError:
+            header, lines = lines[:1], lines[1:]
+    if not lines:
+        return None
+    try:
+        values = np.array(" ".join(lines).split(), dtype=np.float64)
+    except ValueError:
+        return None
+    if values.size != 3 * len(lines):
+        return None
+    points = values.reshape(-1, 3)
+    order = np.lexsort((points[:, 0], -points[:, 1]))
+    return ("\n".join(header + [lines[i] for i in order]) + "\n").encode("ascii")
+
+
+class TransformFix(NamedTuple):
+    """A correction of a member's georeferencing before its tile is written, for archives whose files lie on the
+    right grid but say so imprecisely: offset (dx, dy) metres added to the origin first (Bremen's Bremerhaven XYZ
+    files carry the UTM zone in their eastings: (-32 000 000, 0)), then with snap the origin rounded to a multiple
+    of snap metres (Hamburg's DGM1: 552999.9999999999 for 553000). A rounding of more than tolerance of a pixel is
+    an error, never applied: it mends float noise, it never moves a member that lies off the grid. North-up
+    members only (no rotation).
+
+    shift (dx, dy) metres, added with the offset, is no correction but a deliberate move of the data off the place
+    the file gives them: Bremerhaven's DOM1, whose pixel centres lie on whole metres, half a pixel onto its terrain's
+    grid (the user's decision of 2026-11-16: copied, not interpolated, its objects up to 0.7 m off their place).
+    tools/check_source.py honours it and nothing else of the fix."""
+    offset: Tuple[float, float] = (0.0, 0.0)
+    snap: Optional[float] = None
+    tolerance: float = 1e-3  # pixels
+    shift: Tuple[float, float] = (0.0, 0.0)
+
+    def apply(self, transform: Affine, where: str) -> Affine:
+        if transform.b != 0 or transform.d != 0:
+            raise RuntimeError(f"{where}: a rotated member ({transform})")
+        x = transform.c + self.offset[0] + self.shift[0]
+        y = transform.f + self.offset[1] + self.shift[1]
+        if self.snap:
+            snapped = (round(x / self.snap) * self.snap, round(y / self.snap) * self.snap)
+            off = max(abs(snapped[0] - x) / abs(transform.a), abs(snapped[1] - y) / abs(transform.e))
+            if off > self.tolerance:
+                raise RuntimeError(f"{where}: the origin ({x}, {y}) lies {off:.3g} px off the {self.snap} m grid")
+            x, y = snapped
+        return Affine(transform.a, 0.0, x, 0.0, transform.e, y)
+
+
 class ZipMember(Reader):
     """One member of a remote ZIP archive per tile (a request with url, member, offset, method, flags, crc,
     size (compressed), usize and length (the archive's), as sources/indexes/zipdir.py's ZipTile carries
@@ -131,17 +254,30 @@ class ZipMember(Reader):
     lengths: 4.3.7; a second, small Range only when the first was short), deflated (8) or stored (0) members
     only (4.4.5; others and encrypted ones an error), inflated with zlib (raw deflate) and checked against the
     CRC-32 and size of the central directory (4.4.7-4.4.9): a mismatch is asked again (net.RETRIES), then an
-    error, never cached. The member (a GeoTIFF) is written again as a tile (float32, NaN for no data and below
-    layer.VALID_MIN), in crs's name if given; with floor, drop_below(floor, ring) first.
+    error, never cached. The member (a raster GDAL reads from memory: a GeoTIFF, an ERDAS Imagine file, or XYZ
+    text: one GDAL refuses is read again with its points in rows, xyz_rows) is written again as a tile (float32,
+    NaN for no data and below layer.VALID_MIN), in crs's name if given, else in that of the request's own crs if
+    it has one (a tile of a package in several UTM zones), else as the member says; with floor, drop_below(floor,
+    ring) first; with fix, its transform corrected first (TransformFix: an offset, a deliberate shift, a rounding to
+    the grid); then placed(transform, width, height, request, where) gives the transform it is written with and the
+    window of it kept, or refuses it (a subclass's check of where the member lies; here the member as it is, or with
+    clip only its pixels inside the request's box of clip metres).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
-    the tile fails."""
+    the tile fails. With renew, so does the first read whose bytes are not what the directory says (MemberChanged:
+    an archive replaced under the same name, its member made again, where a header of the same name still stands);
+    without a newer request the member is then asked again as before (a transfer's fault), and a mismatch again
+    is the error; renew answering MEMBER_REMADE (the directory lists the member made again: another tile) fails
+    the tile at once. A 416 or another range from a shorter archive counts as such a read (RangeMismatch). Without
+    renew a mismatch is asked again as before."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
-                 renew: Optional[Callable[[object], Optional[object]]] = None):
+                 renew: Optional[Callable[[object], Optional[object]]] = None, fix: Optional[TransformFix] = None,
+                 clip: Optional[float] = None):
         self.description, self.crs, self.floor, self.ring, self.renew = description, crs, floor, ring, renew
+        self.fix, self.clip = fix, clip
 
     def url(self, request) -> Optional[str]:
         return request.url
@@ -149,21 +285,28 @@ class ZipMember(Reader):
     def fetch(self, request, path: str) -> Fetched:
         where = f"{self.description} tile {request.godlo}"
         try:
-            data, received = self._member(request, where)
+            data, received = self._member(request, where, changed=self.renew is not None)
         except ArchiveChanged as e:
             renewed = self.renew(request) if self.renew else None
+            if renewed is MEMBER_REMADE:
+                raise RuntimeError(f"Could not download {where}: {e}; the directory lists the member made again "
+                                   f"(another version, another tile): the next search reads it") from None
             if renewed is None:
-                raise RuntimeError(f"Could not download {where}: {e}") from None
-            request = renewed
-            try:
-                data, received = self._member(request, where)
-            except ArchiveChanged as again:
-                raise RuntimeError(f"Could not download {where}: {again}") from None
-        self._write(data, path, where)
+                if not isinstance(e, MemberChanged):
+                    raise RuntimeError(f"Could not download {where}: {e}") from None
+                data, received = self._member(request, where)  # the directory says the same: asked again
+            else:
+                request = renewed
+                try:
+                    data, received = self._member(request, where)
+                except ArchiveChanged as again:
+                    raise RuntimeError(f"Could not download {where}: {again}") from None
+        self._write(data, path, where, request)
         return Fetched(received, request.url)
 
-    def _member(self, request, where: str) -> Tuple[bytes, int]:
-        """The member's inflated bytes and the bytes received."""
+    def _member(self, request, where: str, changed: bool = False) -> Tuple[bytes, int]:
+        """The member's inflated bytes and the bytes received; with changed, bytes that are not the directory's
+        raise MemberChanged at once (else they are asked again, net.RETRIES, then an error)."""
         if request.method not in (STORED, DEFLATED):
             raise RuntimeError(f"{where}: compression method {request.method} (only 0 and 8 are read)")
         if request.flags & FLAG_ENCRYPTED:
@@ -193,33 +336,96 @@ class ZipMember(Reader):
                 return data, received
             except (ArchiveChanged, RangeRefused):
                 raise
-            except (requests.RequestException, RuntimeError, ValueError, zlib.error) as e:
+            except (Mismatch, zlib.error) as e:
+                if changed:
+                    raise MemberChanged(f"{request.member}: {cache.clean_error(e)}") from None
+                error = e
+                net._sleep(attempt)
+            except RangeMismatch as e:  # the archive is shorter now than where its directory put the member
+                if changed and (e.unsatisfiable or (e.total is not None and request.length
+                                                    and e.total != request.length)):
+                    raise MemberChanged(f"{request.member}: the archive has {e.total or 'fewer'} bytes, its "
+                                        f"directory was read from {request.length}") from None
+                error = e
+                net._sleep(attempt)
+            except (requests.RequestException, RuntimeError, ValueError) as e:
                 error = e
                 net._sleep(attempt)
         raise RuntimeError(f"Could not download {where}: {cache.clean_error(error)}")
 
     @staticmethod
     def _inflate(raw: bytes, request) -> bytes:
-        """The member's bytes from its compressed data; ValueError unless size and CRC-32 are the directory's."""
+        """The member's bytes from its compressed data; Mismatch unless size and CRC-32 are the directory's."""
         if request.method == DEFLATED:
             inflater = zlib.decompressobj(-15)
             data = inflater.decompress(raw, request.usize + 1)  # never more than one byte beyond the size
             if not inflater.eof:
-                raise ValueError("the deflated data does not end where the directory says")
+                raise Mismatch("the deflated data does not end where the directory says")
         else:
             data = raw
         if len(data) != request.usize or zlib.crc32(data) != request.crc:
-            raise ValueError(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
+            raise Mismatch(f"CRC-32 or size differs from the directory's ({len(data)} of {request.usize} bytes)")
         return data
 
-    def _write(self, data: bytes, path: str, where: str):
-        try:
-            with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
-                if src.count != 1:
-                    raise RuntimeError(f"{where}: {src.count} bands, one expected")
-                band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
-                crs, transform = self.crs or src.crs, src.transform
-        except rio.errors.RasterioError as e:
-            raise RuntimeError(f"{where}: not a raster ({e})") from None
+    def placed(self, transform: Affine, width: int, height: int, request,
+               where: str) -> Tuple[Affine, Optional[rio.windows.Window]]:
+        """The transform to write the member with and the window of it to keep (None: all of it); RuntimeError
+        when the member does not lie where its tile is (a subclass's check; here the transform as it is, all, or
+        with clip the pixels whose centres lie in the request's box of clip metres: Bremerhaven's DOM1 after its
+        shift, whose 1001st column lies in the next kilometre, where that tile's own first column is kept)."""
+        if not self.clip:
+            return transform, None
+        left, bottom = request.east * self.clip, request.north * self.clip
+        right, top = left + self.clip, bottom + self.clip
+        res_x, res_y = transform.a, -transform.e
+        col0 = max(0, math.ceil((left - transform.c) / res_x - 0.5))
+        col1 = min(width, math.ceil((right - transform.c) / res_x - 0.5))
+        row0 = max(0, math.ceil((transform.f - top) / res_y - 0.5))
+        row1 = min(height, math.ceil((transform.f - bottom) / res_y - 0.5))
+        if col0 >= col1 or row0 >= row1:
+            raise RuntimeError(f"{where}: no pixel of the member lies in its tile's box ({transform}, {width} x "
+                               f"{height} px; the box {left}, {bottom}, {right}, {top})")
+        if (col0, row0, col1, row1) == (0, 0, width, height):
+            return transform, None
+        moved = Affine(transform.a, 0.0, transform.c + col0 * res_x, 0.0, transform.e, transform.f - row0 * res_y)
+        return moved, rio.windows.Window(col0, row0, col1 - col0, row1 - row0)
+
+    def _write(self, data: bytes, path: str, where: str, request=None):
+        band, crs, transform = self.raster(data, where, request)
         drop_below(band, self.floor, self.ring)
         _write_tile(path, band, crs, transform)
+
+    def raster(self, data: bytes, where: str, request=None):
+        """(band, crs, transform) of a member's bytes as its tile is written, before drop_below: the band float32
+        with NaN for no data, in crs's name if given (else the request's, else the file's), the transform fixed
+        (TransformFix) and placed (placed: the window kept); an XYZ member GDAL refuses is read again with its
+        points in rows (xyz_rows); one in columns under COLUMNS_LOCK. Only GDAL's errors are caught here (a
+        subclass's refusal from placed passes). (tools/check_source.py reads a member again by its own rules, not
+        through this: its file check finds a fix that is wrong.)"""
+        try:
+            with COLUMNS_LOCK if xyz_in_columns(data) else contextlib.nullcontext():
+                return self._raster(data, where, request)
+        except rio.errors.RasterioError as e:
+            rows = xyz_rows(data)  # an XYZ member in columns with points missing: read again in rows
+            if rows is None:
+                raise RuntimeError(f"{where}: not a raster ({e})") from None
+            try:
+                return self._raster(rows, where, request)
+            except rio.errors.RasterioError as again:
+                raise RuntimeError(f"{where}: not a raster ({again})") from None
+
+    def _raster(self, data: bytes, where: str, request=None):
+        """(band, crs, transform) of a member's bytes: float32, NaN for no data, the CRS the reader's, else the
+        request's, else the file's; the transform fixed, then placed and the band cut to placed's window;
+        WrongShape for more than one band."""
+        with rio.io.MemoryFile(data) as memfile, memfile.open() as src:
+            if src.count != 1:
+                raise WrongShape(f"{where}: {src.count} bands, one expected")
+            band = _clean(src.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
+            crs, transform = self.crs or getattr(request, "crs", None) or src.crs, src.transform
+            if self.fix is not None:
+                transform = self.fix.apply(transform, where)
+            transform, window = self.placed(transform, src.width, src.height, request, where)
+            if window is not None:
+                band = band[window.toslices()]
+        return band, crs, transform

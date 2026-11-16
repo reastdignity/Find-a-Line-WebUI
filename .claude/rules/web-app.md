@@ -31,7 +31,11 @@ tests that start Edge).
   (`tests/test_units.py::test_error_codes_in_catalogue`, which reads the codes from the source with `ast`: give a code
   as a literal, a conditional of literals, or `f"rate_{kind}"`/`f"quota_use_{kind}"`, whose kinds it lists); a text
   the web page shows goes through a code, never a text with `--option`. `error_info` holds no personal data (a code
-  and the values of the request or the search; redacted on the public site as `error`).
+  and the values of the request or the search; redacted on the public site as `error`). A code with an
+  `error.<code>_public` text: the public site sends that text and the info `{code, key, params: {}}`
+  (`Coded.web_text`/`info`/`detail` with `public`), so a new path of coded texts passes `public` too, and a
+  `_public` text takes no params (no `{{…}}`: `tests/test_viewer.py::test_public_readings_take_no_params`); the page
+  words an info by its `key` (`i18n.ts` `errorText`, `ApiError.of`).
 - The advice of a refusal for too many lines (`too_many_lines*`): `messages.line_advice` (which changes, the measured
   order) and `advice_text` render it as `viewer/src/i18n.ts` `adviceText` does, from the `error.advice.*` texts
   (`tests/test_viewer.py::test_error_texts_match_python`); a new advice needs its key in all three and in

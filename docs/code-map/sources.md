@@ -146,6 +146,27 @@ mask says invalid, so real 0 m samples stay), retried on faults and decode error
 sample missing; samples below `floor` no data; written as 256 × 256 px in EPSG:3857 on its own samples, half a cell
 west and north of the tile's corner, the shared last row and column dropped: `tile_transform`).
 
+Batch 6: `zipmember.py` `ZipMember` gains `fix` (`TransformFix`: an `offset` added to the member's origin with a
+deliberate `shift`, then with `snap` the origin rounded to a multiple of it; a rounding over `tolerance` of a pixel is
+an error, never applied; north-up members only: Hamburg's float noise, Bremerhaven's zone in its eastings, its DOM1
+moved half a pixel onto its terrain's grid by `shift`, which `tools/check_source.py` honours and nothing else of the
+fix), a member in a request's own `crs` (a package in several UTM zones), `clip` (the tile size: only the member's
+pixels inside the request's box are kept, Bremerhaven's DOM1), `placed` (a subclass's check of where the member lies
+and the window kept)
+and `WrongShape` (not one band); XYZ members: `xyz_in_columns`, `xyz_rows` (a member in columns with points missing,
+which GDAL's XYZ driver refuses, read again with its lines in rows) and `COLUMNS_LOCK` (a member in columns read under
+it: the driver keeps one column cache per process). With `renew`, a first read whose bytes are not the directory's
+(`MemberChanged`: CRC-32, size or a deflate stream that does not end there; also a 416 or another range from a
+shorter archive, `RangeMismatch`) reads the directory again once; `MEMBER_REMADE` from `renew` (the member listed
+again with other bytes: another tile) fails the tile at once; without a newer request the member is asked again as
+before. `sheetsets.py` `SheetSetFile` (one map sheet composed from every file the publisher has for it: the newest
+year first, an older one downloaded only while the sheet has holes, of one year every file read and the fuller
+first; each file a ZIP read by `SheetFile`, its members placed on the sheet's pixels by their coordinates; tags
+"sources", "years", "pixels", read back by `gave_pixels`; `paste`; no file when none gave a pixel).
+`sheetfile.py` `SheetFile(listed=True)` (every request a file the publisher lists: a 404 is `ListedFileMissing` and
+a 403 final, `net._get(final=)`, both that tile's error, never missing) and a CSV variant of XYZ text
+("n,x,y,z,flag", `_csv_points`: every row kept, VIRTUAL SHIZUOKA's).
+
 ## `sources/indexes/`
 
 Which tiles cover a grid: `tilings.py` fixed tilings (`WcsTiling`, `MetricTiling`, `DegreeTiling`,
@@ -226,6 +247,26 @@ on the ground, Web Mercator's metres times the cosine of the latitude, is not co
 `cache update`), `TileCells` (a static mask of cells with data, an `.npz` of `tools/lerc_coverage.py`), `tile_box`,
 `tile_pixels`, `MercatorBox`.
 
+Batch 6: `tilings.py` `MetricCellTiling` (cells of a fixed metric grid, not necessarily square, (w, h) from an
+origin, j northwards, each named by the publisher's scheme (`name(i, j)`, None: no cell there; `parse`); `cell_of`,
+`edges`, `bounds_wgs84`; `cells` over a grid's box with its right and top edges exclusive: a grid ending on a cell's
+edge took a cell beyond it, a download that gave no pixel); Japan's 400 × 300 m and 1000 × 750 m sheets and Hong
+Kong's 750 × 600 m share it. `sheetsets.py` `SheetSets` (a version policy whose files are whole map sheets of one or
+more levels, several files per sheet, each sheet a `SheetSet` composed newest first; one owner index tile per sheet,
+the 0.25° tile holding its centre, whose answer alone decides its sets, key, prune and offline use (until 2026-11-16 a
+sheet near a tile's edge was in two answers and keys alternated); a sheet split at another level's survey years
+(`splits`: Shizuoka's FY2022 quadrant sheets); cached as `<folder>/<level>/<cell's folders>/<year>_<code>_<key>.tif`).
+`s3listing.py` `common_prefixes` (the "folders" under a prefix, ListObjectsV2 with a delimiter). `packages.py`
+(Ontario): `member_tile` (a member's 1 km tile from its name, `1km<zone><east><north>[<year>]<project>`),
+`package_url`, `project_date`, `PackageListing` (the packages over a 0.25° tile from a FeatureServer of their
+footprints grown by `MARGIN_DEG`, each package's directory read by Range and kept per package in
+`<top>/zipdir/<key>/` with its ETag and length; a package answering 404 or 410 is `PackageGone`, left out with a
+warning and asked again after `GONE_RETRY_S`; members of another height datum (`exclude`) or that zlib cannot read
+(`_readable`: Deflate64) not listed; locks: a tile's, then the host's slot, then a directory's), `PackageIndex` (its
+`CachedIndex`), `PackageTile`, `PackageVersions` (per place the newest survey by the member's year, the project's
+date, the larger member, the CRC-32 (`_order`), and each older one whose newest member is under `HOLE_SHARE` 0.75 of
+it in bytes per pixel, filling its holes; `prune`), `package_years`, `forget_answers`.
+
 ## `sources/layers/`
 
 One module per kind of layer, each a thin `ComposedLayer` building its parts with the constructor and attributes the
@@ -294,6 +335,24 @@ when unreadable; a sheet's members by a regular expression, its box grown by `ma
 member by one Range (`ZipMember`, CRC-32 checked), joins them into one raster (`sheetfile._xyz_grid`), renews the
 directories once on a failed read and writes a renewed sheet under its new key (the members' CRC-32s), deleting the
 older file; errors through `cache.clean_error`: OSNI's 10 m DTM).
+
+Batch 6: `cellsheets.py` `CellSheetTiles` (`CellSheetTiling`: a `MetricCellTiling` whose cell is made of the ZIPs of
+a static table, `files(i, j)`, none: no tile, never asked; + `SheetSetFile` in the layer's CRS whatever the members
+name; a listed file the server does not give is that tile's error, asked again by the next search: Tokyo, Hong Kong),
+`s3sheets.py` `S3SheetSets` (sheets of one or more levels as ZIPs in an open S3 bucket: the survey folders by one
+delimiter listing kept `FOLDERS_TTL_DAYS`, a 0.25° tile's keys under `prefixes(folder, box)` read by `parse`, kept
+only for the sheets the tile owns (`_SheetListing`); a file's ETag in its name, so a file uploaded again changes its
+sheet's key; a listed file answering 404 is its sheet's error and drops the cached answers of its tiles: Shizuoka),
+`packages.py` `PackageTiles` (`PackageIndex` + `PackageVersions` read by `PackageMember`: a `ZipMember` writing in
+the tile's zone's CRS on its 1 km box exactly, a member beyond it on the same pixels cut to it, float noise dropped,
+one not covering the box on whole pixels or of two bands refused (`MemberRefused`: never cached, the tile missing
+with one warning, so the gap filler fills it); cached as
+`<folder>/epsg<code>/<e//10>_<n//10>/<e>_<n>_<year>_<date8>_<size>_<crc8>.tif`; a 404 of a package or a member not
+where or what its directory said reads that directory again and tries once more (`_renew`): Ontario).
+`zipmembers.py` `ZipMemberTiles(fix=, clip=)` (a `TransformFix` for every member: Hamburg, Bremerhaven; `clip` keeps
+each tile's own box: Bremerhaven's DOM1, whose 1001st column lies in the next kilometre after its shift); `wmsr.py`
+`WmsrTiles(nodata_below=)`, which sets `Layer.nodata_below` (heights below it are no data where the tiles are read
+onto the grid, never when one is written: IGN's overseas RGE ALTI 1 m layers).
 
 ## `sources/catalogue/`
 
@@ -374,6 +433,31 @@ gains `northern_ireland` (first in uk's SOURCES: DAERA's coastal DTM as `LercTil
 off Kintyre, fallback and `instead_without_data` `northern_ireland_10m`) and `northern_ireland_10m` (OSNI's 10 m DTM
 as `ZipSheetTiles` over `northern_ireland_10k_sheets.json`, Irish Grid TM75 EPSG:29903, no offline boxes). `usa`
 declares `mexico` as a neighbour, `country.NEIGHBOUR_CUBES` names it.
+
+Batch 6 (2026-11-15/16): `france` gains `OVERSEAS_FLOOR` (-1 m, the `nodata_below` of every overseas RGE ALTI 1 m
+layer), `france_mayotte` (RGE ALTI 1 m in RGM04 / UTM 38S, EPSG:4471 forced over the answers' tag),
+`france_reunion` (LiDAR HD MNT / MNS by WMS-R in EPSG:2975, fetched at 1 m, `_lidar_hd` with the overseas
+projection's suffix, origin (0, 0)) and `france_reunion_rgealti` (its gap filler); all chosen by bbox. `germany`
+gains `hamburg` (LGV's DGM1 and image-matching bDOM1 2022, members of two ZIP archives, `ZipMemberTiles` with
+`HH_FIX`), `bremen` and `bremerhaven` (Landesamt GeoInformation Bremen's DGM1 / DOM1 XYZ archives per city and
+model, `HB_DATA`; Bremen with `grid_origin` 0.5, Bremerhaven with `BHV_FIX` (its DOM1 shifted by `BHV_DOM_SHIFT`,
+clipped to its kilometre, `processing` 2); both before `lower_saxony`, offline
+staircases of boxes, areas `de-hb` and `de-hb-bhv`). `portugal` gains `porto_santo`, `desertas` and `selvagens`
+(`_madeira_island`: DROTe's 5 m tiles of the mirror, `GridTiles` with origin (2.5, 2.5), region pt-30, before
+`madeira`, chosen by their boxes; Porto Santo in EPSG:3061, the others EPSG:5016). `japan` (new): `tokyo`
+(`TokyoSheets`, a `CellSheetTiles` of 400 × 300 m sheets in zone IX, EPSG:6677, over the static table
+`tokyo_sheets.npz`, `tk_files` newest folder first; region jp-13; `TK_ISLAND_FLOOR` -1 m on the Izu islands' sheets
+only, `floor_of`; `TK_BOXES` the mainland's and the islands' boxes) and `shizuoka` (`S3SheetSets` of the 1/500 and quadrant sheets in zone VIII,
+EPSG:6676, `sz_prefixes`, `sz_key`; region jp-22); `jp_sheet`, `jp_quad_sheet`, `jp_cell`, `jp_quad_cell` and
+`sheet_name` name the plane rectangular grid's sheets. `hong_kong` (new): `hong_kong` (`CellSheetTiles` of 750 ×
+600 m sheets of the Hong Kong 1980 Grid, EPSG:2326, DTM and DSM over `hong_kong_sheets.npz`; `hk_sheet`, `hk_cell`,
+`hk_name`, `hk_files`; region cn-hk, `HK_BOXES` along the boundary; both models lowered by `HK_DATUM_OFFSET`,
+`CellSheetTiles(height_offset=)`). `canada` gains `ontario` (Geospatial Ontario's
+DTM / DSM, `PackageTiles` per model in the zones of `ON_ZONES`, `ON_PROJECT_DATES`, `ON_EXCLUDE`, `on_utm_crs` the
+working CRS, `ON_BOXES` region boxes inside Canada's; fallback and `instead_without_data` `canada`, then
+`canada_2m`, `mrdem30`; neighbour of `usa`, which declares it last). FAMILIES ends `..., brazil, japan, hong_kong,
+world`; `AREA_NAMES` gains the batch's areas (`de-hb-bhv` and `pt-30-ps`/`-de`/`-se` are codes of ours, `hk` the
+map's own).
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 
@@ -480,6 +564,15 @@ file wrote a pixel, for a layer with `Layer.credits_by_pixels`; `_put`/`_place(c
 `Layer.used_entries` (default `[used()]`; Tuscany one per owner), and `fill_gaps`/`_fill_gaps_rows` drop every
 entry of a filler that filled nothing (`_forget_entries`).
 
+Batch 6: `build_mosaic(below=)` (from `prepare_layer`: `Layer.floor_of` of each file, by default `nodata_below`)
+makes heights below it no data in each raster's own pixels before any resampling, so a tile cached before the floor
+and one fetched now give the same grid (nothing is written with the floor; `tests/test_sea_floor.py`); `below` is
+one number for every file or one floor (or None) per file: `japan.TokyoSheets.floor_of` floors the Izu islands'
+sheets only (`tk_island`: south of `TK_ISLANDS_NORTH`). `build_mosaic(offset=)` (from `prepare_layer`:
+`Layer.height_offset`, a datum's offset: `hong_kong.HK_DATUM_OFFSET` -1.30 m on both models) adds a constant to each
+raster's values on the grid after the floor (`_lifted`), so the mosaic is the one without it plus the constant in
+float32 on every path; never on a categorical mosaic; the cache keeps the provider's heights.
+
 ## `sources/probe.py`
 
 The source probe (`findaline.py sources check`): per source and layer at `Source.sample` on a tiny grid, the index
@@ -500,6 +593,10 @@ tile's URL from a GetFeatureInfo, then the first KB of its ZIP); `lerc` (`_lerc_
 sample at the source's resolution's level, which must start with the LERC1 magic; no index); `zipsheets`
 (`_zip_sheet_header`: the first sheet's first member's local header by one Range on the address its link redirects
 to); `window` reads `ranged` files through our own ranges and warps `warp` files.
+
+Batch 6: `sheetset` (`_zip_url_head`: the first KB of the first file of the first sheet, without a Range, which must
+start with a ZIP's local header) for `S3SheetSets`, first in `STRATEGIES` (as an `IndexedTiles` it would take the
+"index" strategy's byte range 0-0), and for `CellSheetTiles`; `zip` also for `PackageTiles` (a member's local header).
 
 ## `cache.py`
 

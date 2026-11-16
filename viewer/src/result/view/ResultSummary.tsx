@@ -1,13 +1,15 @@
 // The head of a result: "31 spots · 48 lines" (counts with a no-break space as the thousands separator), how
 // many lines the filters hide, in a run made with the square rule a second line "1 930 found. Why so many?" whose
-// link opens what the found lines are (WhyBox), the legend of the line colours (style.ts) and the model's note
-// (a link to a line, a favourite not saved).
+// link opens what the found lines are (WhyBox), the legend of the line colours (style.ts), under it the legend's
+// row of the access mark when a run shown has it (AccessLegend: the three states and the "?" of the help), and
+// the model's note (a link to a line, a favourite not saved).
 
 import { useState } from "preact/hooks";
 import { Button } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { COLORS } from "../../style";
 import { t } from "../../i18n";
+import { ACCESS_STATES, AccessMark, accessWord, useAccessHelp } from "../../access";
 import { fallbacks, layerName, percent, warns } from "../../coarser";
 import { NEED_FILTERS } from "../../filters";
 import type { ResultModel } from "../model";
@@ -74,6 +76,27 @@ function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onC
   </section>;
 }
 
+/** The legend's row of the access mark: "Anchors", the three states with their dots, the "?" and the help it
+ *  opens under the row; while no run shown has the mark nothing, or, for a run whose mark was left out, one line
+ *  that says so. */
+export function AccessLegend({model}: {model: ResultModel}) {
+  useModel(model);
+  const help = useAccessHelp();
+  // a run whose mark was asked for and left out (its area too wide: RunHead.access_skipped): one muted line in the
+  // row's place, nothing else of the mark
+  if (!model.hasAccess) {
+    return model.data.access_skipped ? <p class="u-small r-acc-skipped">{t("ui.access.skipped")}</p> : null;
+  }
+  return <div class="r-legend-box">
+    <div class="r-legend r-legend-acc"><b>{t("ui.access.legend")}</b>
+      {/* the "?" stays with the last state: it never wraps onto a line of its own (a phone of 390 px) */}
+      {ACCESS_STATES.map((state, k) => <span key={state} class={k === ACCESS_STATES.length - 1 ? "r-legend-last" : undefined}>
+        <AccessMark state={state} />{accessWord(state)}{k === ACCESS_STATES.length - 1 && help.button}</span>)}
+    </div>
+    {help.panel}
+  </div>;
+}
+
 export function ResultSummary({model, legend = true, note = true}: ResultSummaryProps) {
   useModel(model);
   const [why, setWhy] = useState(false);
@@ -101,6 +124,7 @@ export function ResultSummary({model, legend = true, note = true}: ResultSummary
       {Array.from(model.others.values()).map((r) =>
         <span key={r.info.id} title={r.info.description}><Swatch color={r.color} />{r.info.name}</span>)}
     </div>}
+    {legend && <AccessLegend model={model} />}
     <CoarserNote model={model} />
     {note && <ResultNote model={model} />}
   </div>;

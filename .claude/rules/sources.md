@@ -49,17 +49,16 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
   its sha256 check; integer files, NASADEM and the water mask, as they came), the mirror's tiles (`tools/sk_tiles.py`
-  `_write`, which `tools/mirror_tiles.py` reuses for Madeira and Valle d'Aosta: its `DATASETS` origin is the
-  catalogue's `GridTiles(origin=)`, `tests/test_mirror_tiles.py`), `tools/sk_tiles.py` `_write_averaged`
+  `_write`, reused by `tools/mirror_tiles.py`: a `DATASETS` origin is the catalogue's `GridTiles(origin=)`,
+  `tests/test_mirror_tiles.py`; its cut-once rule: providers.md), `tools/sk_tiles.py` `_write_averaged`
   (lossless ZSTD, `AVERAGED_PROFILE`: `test_slovak_tiles_averaged` pins the mirror's profile and bits; such a tile is
   one float band that is not LERC, which `old_encoding` calls old by its header alone: only `GridTiles`' `rewrites`
   False keeps the mirror's copies from `reencode` and `cache migrate`,
   `tests/test_cache_encoding.py::test_an_averaged_zstd_tile_is_never_encoded_again`), `tests/tile_values.py`
   (`TILE_EPS` 0.0051: the bound plus float32 rounding) and the regression baselines go together: a change of the bound
-  or the codec changes every `lines.csv` checksum (55 of 64 entries moved on 2026-11-05, 4 one-line spots at 0-1 cm of
-  clearance lost and 4 added), needs `old_encoding` to tell the tiles of before, and `cache migrate` on every data
-  folder (the VPS: `cache_migrate` of `deploy/vps.sh update`, `tests/test_deploy.py::test_cache_migrate_step`,
-  docs/deployment.md section 13). The layout, the paths and the 11 columns of `files` stay (older code reads LERC and
+  or the codec changes every `lines.csv` checksum (docs/roadmap.md, "Tile encoding"), needs `old_encoding` to tell
+  the tiles of before, and `cache migrate` on every data folder (the VPS: `cache_migrate` of `deploy/vps.sh update`,
+  `tests/test_deploy.py::test_cache_migrate_step`, docs/deployment.md section 13). The layout, the paths and the 11 columns of `files` stay (older code reads LERC and
   inserts rows by position); `filling.SEA_FILL_EPS` (5 mm around a source's constant sea fill) is the one rule as
   tight as the bound (`tests/test_cache_encoding.py`).
 
@@ -140,10 +139,11 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   gives N = 0 without a word when its grid is missing (PROJ_NETWORK off); `sources/vertical.py` reads the grid itself,
   checked against GeographicLib's GeoidEval (`tests/test_vertical.py`, within 1 cm).
 - **Water/gap filling order**: sea zone first, then gaps on land outside it, then the shore faces from the surface
-  model (`fill_shore_from_surface`: before 2026-11-04 the lower 5-15 m of Malta's sea cliffs, which its DTM lacks and
-  its DSM has, went to 0 m, 26 500 pixels above 20 m along its coasts, a wall straight down in the 3D view), then
-  water. Gap offsets are matched on gentle slopes only and limited to ±3 m from the overall offset; no anchors at gap
-  seams. Cliffs can be vertical: high land next to water is normal.
+  model (`fill_shore_from_surface`: docs/regression-tests.md, "Shore faces"), then water. Gap offsets are matched on
+  gentle slopes only and limited to ±3 m from the overall offset; no anchors at gap seams. Cliffs can be vertical:
+  high land next to water is normal. A layer's floor (`Layer.floor_of(path)`, default `nodata_below`) and its
+  `height_offset` apply in `build_mosaic`, never when a tile is written (cached and fresh tiles give one grid);
+  `check_source`'s file checks read tiles raw.
 - **A grid smaller than its outline**: `grid.area_shape` may be more than the grid (a country layer's tile carries the
   whole country's outline, `search.tile_grid`; a border tile's footprint, cube-v2's `reach_shape`, reaches beyond its
   box), so whatever picks data tiles, index tiles or cells under an outline also stays within the grid's box
@@ -165,4 +165,5 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - New data source or download path: `uv run tools/check_source.py <id> --lat .. --lon .. --data-dir <scratch>` (the
   shift search, the share of valid pixels at 1 and 5 m, a few tiles against the source files, alignment; see the
   regression doc, "Data checks for a new source"), and `findaline.py sources check <id>` for the probe (all sources:
-  after changing a layer kind or `sources/net.py`).
+  after changing a layer kind or `sources/net.py`). Its file check reads a ZIP member by its own rule (`_zone_free`),
+  never through the layer's `TransformFix`.

@@ -585,6 +585,11 @@ nothing once done. The extracts are kept up to date with Geofabrik's daily diffs
 `docker compose exec -T worker python findaline.py osm update` (or the *OSM* page of the
 administrator, which also downloads further regions).
 
+Batch 6 of the new sources (2026-11-15/16, not deployed) adds reunion, mayotte, hamburg, bremen,
+kanto (Tokyo, 500 MB), chubu (Shizuoka, 495 MB), hong-kong (38 MB) and ontario to the list. A
+suggestion waiting for the user's word, not made: leave the large ones (kanto, chubu, ontario) out
+as British Columbia's, in `OSM_EXTRACTS_SKIP` of `deploy/vps.sh` and its pin in `tests/test_deploy.py`.
+
 The containers' logs are rotated by Docker (10 MB, 5 files each: compose.yaml, `logging`).
 
 ## 10. The volumes and the Slovak mirror
@@ -1065,15 +1070,35 @@ findaline-heartbeat.timer`; the SSH login notice stops when its line is removed 
 `/etc/pam.d/sshd` (`setup` and `update` add it again).
 
 ## 16. The local mirror's other datasets
-The local mirror holds our own tiles of three sources, none of which the site downloads: Slovakia
-(`slovakia/`, `tools/sk_tiles.py`), Madeira (`madeira/dtm/2m`) and Valle d'Aosta (`aosta/dtm/2m`),
-both cut by `tools/mirror_tiles.py` from one file each (about 0.33 and 1.46 GB, 2026-11-15). The
-worker reads them from `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the folder that
-`FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10); copy the folders you want next to
-`slovakia/` with the same layout and make them readable as in section 10.
+The local mirror holds our own tiles of six sources, none of which the site downloads: Slovakia
+(`slovakia/`, `tools/sk_tiles.py`), Madeira (`madeira/dtm/2m`), Valle d'Aosta (`aosta/dtm/2m`)
+and, since batch 6, Madeira's other island groups: Porto Santo (`porto-santo/dtm/5m`), the
+Desertas (`desertas/dtm/5m`) and the Selvagens (`selvagens/dtm/5m`). All but Slovakia's are cut
+by `tools/mirror_tiles.py`: Madeira and Valle d'Aosta from one file each (about 0.33 and 1.46 GB,
+2026-11-15), the three islets from DROTe's 5 m ZIP (3.4 MB of tiles together, final and verified,
+2026-11-16). The worker reads them from `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the
+folder that `FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10); copy the folders you
+want next to `slovakia/` with the same layout and make them readable as in section 10.
+
+What the cutting tool leaves: in a product's folder (`<dataset>/<product>/<res>m/`) the tiles,
+`index.json`, `inputs.jsonl` (the rasters the cut read) and, once `verify` ran, `verify.json`;
+the dataset's card `README.md` beside its products. A product's folder appears only when the
+product is cut whole (the tool cuts in a staging folder and renames it in one step), so a
+dataset's folder is ready to copy as it is. `.locks/` and `.staging/` at the mirror's root are the
+tool's own folders, not datasets: never copy them. To cut on another machine, run the tool in a
+container of the project's image with the clone's `tools/` mounted (`.dockerignore` keeps it out
+of the image; the tool's docstring has the command); the image has no 7-Zip, which a Deflate64
+ZIP would need.
 
 Without a dataset's folder its source is unavailable and `--source auto` takes the next source of
-the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m); the run's text
-names the missing folder. On 2026-11-15 the VPS's mirror holds `slovakia/` only, so Madeira and
-Valle d'Aosta run on those fallbacks there until their folders are copied. The regression entries R80 and R81 are skipped without
-their folders (`needs_path`).
+the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto Santo, the
+Desertas and the Selvagens Madeira's source, then `europe`; the run's text names the missing
+folder. On 2026-11-15 the VPS's mirror holds `slovakia/` only, so Madeira and Valle d'Aosta run
+on those fallbacks there until their folders are copied. The regression entries R80, R81 and
+R86-R88 are skipped without their folders (`needs_path`).
+
+The public site is to read the mirror's datasets only through the hosted mirror (its
+specification: `docs/mirror-hosting/` in `main`); the three islet datasets wait for it, and so
+do Portugal's and Wallonia's, fetched and cut on the user's server (not built yet:
+docs/new-sources-6/spec.md). Hong Kong (`hong_kong`) is read from its provider and never a
+mirror dataset on today's terms (a copy needs CEDD's written yes).

@@ -586,9 +586,9 @@ def test_mosaic_place_averages_a_northern_ireland_tile(tmp_path, monkeypatch):
     used = []
     original = mosaic._warp
 
-    def spy(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling):
+    def spy(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling, below=None):
         used.append(resampling)
-        return original(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling)
+        return original(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling, below)
     monkeypatch.setattr(mosaic, "_warp", spy)
     left, bottom, right, top = rio.warp.transform_bounds("EPSG:3857", "EPSG:2157", *tile_box(*tile))
     for res, want in ((1.0, Resampling.average), (2.0, Resampling.average), (0.5, Resampling.bilinear)):
