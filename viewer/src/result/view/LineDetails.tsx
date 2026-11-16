@@ -121,7 +121,7 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
 
 /** "Reaching the anchors" of a line with the access mark: a row per anchor (the mark, "Anchor 1", the state's
  *  words) and the "?" of the help, which opens under the rows. */
-function AccessBlock({line: l}: {line: Line}) {
+export function AccessBlock({line: l}: {line: Line}) {
   const help = useAccessHelp();
   return <div class="r-acc">
     <div class="r-acc-h">{t("ui.access.title")}{help.button}</div>

@@ -1,0 +1,122 @@
+/* The panels of the result view (SpotList, SpotDetails, FanPanel, SpotChooser, Hint, SpotSummary, ViewFilters):
+   classes vl-*, under the kit's root class .ui (ui/tokens.css). The frame and the map's bar are B2's (v-*,
+   mapbar.css); today's pieces reused here keep their classes (r-*, result.css; ac-*, access.css). */
+
+/* ---- the list: head, blocks ---- */
+.ui .vl-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ui .vl-top-text { margin: 0; }
+.ui .vl-block { border-top: 1px solid var(--line); padding: 8px 0 6px; }
+.ui .vl-body > .vl-block:first-child, .ui .vl-body > .r-more + .vl-block { border-top: 0; }
+.ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; min-height: 30px; }
+.ui .vl-block-head h3 { margin: 0; font: 600 16px/1.2 var(--display); letter-spacing: .01em; }
+.ui .vl-more-best { min-height: 30px; padding: 0 10px; font-size: 13px; }
+.ui .vl-sort { display: inline-flex; align-items: center; gap: 6px; }
+.ui .vl-note { margin: 0; padding: 6px 8px; }
+@media (pointer: coarse) { .ui .vl-more-best { min-height: 40px; } }
+
+/* ---- rows: a list item with one button (the row) and, later, sibling controls ---- */
+.ui .vl-rows { list-style: none; margin: 0; padding: 0; }
+.ui .vl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.ui .vl-main, .ui .vl-cols { display: grid; grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) minmax(0, .8fr);
+  column-gap: 4px; align-items: center; padding: 0 8px 0 5px; border-left: 3px solid transparent; }
+.ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc { grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) 44px minmax(0, .6fr); }
+.ui .vl-main { width: 100%; min-height: 38px; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 8px 8px 0;
+  background: none; color: inherit; font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: left;
+  cursor: pointer; }
+.ui .vl-main:hover { background: var(--surface-2); }
+.ui .vl-main:focus-visible { box-shadow: var(--focus); }
+.ui .vl-sel > .vl-main { background: var(--accent-soft); border-left-color: var(--accent); }
+.ui .vl-cols { min-height: 26px; align-items: end; padding-bottom: 3px; font: 500 10.5px/1.1 var(--mono); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); }
+.ui .vl-cols > span:nth-child(n+3), .ui .vl-v { text-align: right; white-space: nowrap; }
+.ui .vl-cols > .vl-cell-acc, .ui .vl-main > .vl-cell-acc { text-align: center; }
+.ui .vl-by { color: var(--ink); }
+.ui .vl-num { font: 500 12px var(--mono); color: var(--muted); }
+.ui .vl-n { color: var(--ink-2); }
+.ui .vl-sw { width: 10px; }
+/* a pick: its name on a line of its own, above the same numbers as every row */
+.ui .vl-pick > .vl-main { row-gap: 1px; padding-block: 5px; }
+.ui .vl-pick .vl-sh { grid-column: 1; grid-row: 1 / 3; }
+.ui .vl-pick .vl-sw { grid-column: 2; grid-row: 1 / 3; }
+.ui .vl-lab { grid-column: 3 / -1; grid-row: 1; color: var(--ink-2); font-size: 13px; line-height: 1.2; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.ui .vl-pick .vl-v, .ui .vl-pick .vl-cell-acc { grid-row: 2; }
+.ui .vl-door { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 7px;
+  background: none; color: var(--muted); font-size: 17px; cursor: pointer; }
+.ui .vl-door:hover { background: var(--line); color: var(--ink); }
+@media (pointer: coarse) { .ui .vl-main { min-height: 46px; } .ui .vl-door { width: 40px; height: 40px; } }
+
+/* the marks of the map in rows: a box (B), a diamond (P), a six-sided tag (L), a circle (A) */
+.ui .vl-sh { display: block; width: 40px; height: 24px; flex: none; overflow: visible; }
+.ui .vl-sh path, .ui .vl-sh circle { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }
+.ui .vl-sh text { fill: var(--ink); font: 600 11.5px var(--font); text-anchor: middle; dominant-baseline: central; }
+
+/* ---- the tree of sectors ---- */
+.ui .vl-sec { border-top: 1px solid var(--line); }
+.ui .vl-block-head + .vl-sec, .ui .r-tight-key + .vl-sec { border-top: 0; }
+.ui .vl-sec-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; padding: 6px 8px; }
+.ui .vl-toggle { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px; align-items: start; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 2px 0; border-radius: 6px; }
+.ui .vl-toggle:focus-visible { box-shadow: var(--focus); }
+.ui .vl-caret { color: var(--muted); font-size: 12px; line-height: 20px; }
+.ui .vl-sec-name { display: block; font-weight: 600; }
+.ui .vl-meta { display: block; font-size: 12.5px; color: var(--ink-2); }
+.ui .vl-meta2 { display: block; font-size: 12px; color: var(--muted); }
+.ui .vl-sec-map { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); color: var(--ink-2); cursor: pointer; padding: 0; }
+.ui .vl-sec-map:hover { background: var(--surface-2); }
+.ui .vl-sec-map svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.ui .vl-more { margin: 4px 8px 8px; }
+@media (pointer: coarse) { .ui .vl-sec-map { width: 40px; height: 40px; } }
+
+/* ---- details of the selected spot ---- */
+.ui .vl-details { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ui .vl-dhead { display: flex; align-items: center; gap: 8px; }
+.ui .vl-dhead h3 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: .01em; }
+.ui .vl-details .u-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ui .vl-step { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.ui .vl-step .u-ib { width: 30px; height: 30px; }
+.ui .vl-stands { margin: 0; font-size: 13px; color: var(--ink-2); }
+.ui .vl-acts { display: flex; flex-direction: column; gap: 6px; }
+.ui .vl-phone .vl-acts { flex-direction: row; flex-wrap: wrap; }
+.ui .vl-phone .vl-acts .u-btn { flex: 1 1 auto; width: auto; }
+@media (pointer: coarse) { .ui .vl-step .u-ib { width: 40px; height: 40px; } }
+@media (max-width: 420px) { .ui .vl-details .u-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---- "Lines from here" ---- */
+.ui .vl-fan { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ui .vl-fan-sort .u-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+.ui .vl-fan-sort .u-seg button { font-size: 12.5px; padding: 0 5px; }
+.ui .vl-fan .vl-main, .ui .vl-fan .vl-cols { grid-template-columns: 40px minmax(0, .85fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
+  padding: 0 2px; border-left: 0; font-size: 12px; }
+.ui .vl-fan .vl-with-acc .vl-main, .ui .vl-fan .vl-cols.vl-with-acc {
+  grid-template-columns: 40px minmax(0, .85fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) 30px; }
+.ui .vl-fan .vl-main { border-radius: 6px; }
+.ui .vl-fan .vl-cols { font-size: 10px; letter-spacing: .04em; min-height: 20px; }
+.ui .vl-fan .vl-cols > span { white-space: normal; text-align: right; }
+.ui .vl-fan .vl-cols > span:first-child { text-align: left; }
+
+/* ---- the table of spots under a press ---- */
+.ui .vl-choose { position: fixed; z-index: 1100; width: min(300px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
+  gap: 2px; }
+.ui .vl-choose-new { visibility: hidden; }  /* until it is measured and placed */
+.ui .vl-choose.vl-choose-dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 55vh;
+  overflow-y: auto; }
+.ui .vl-choose-title { display: flex; align-items: center; margin: 0; padding: 0 0 2px 4px; color: var(--ink-2); }
+.ui .vl-choose .vl-main, .ui .vl-choose .vl-cols { grid-template-columns: 46px 12px repeat(3, minmax(0, 1fr)); padding: 0 4px; border-left: 0; }
+.ui .vl-choose .vl-main { border-radius: 6px; }
+
+/* ---- the hint ---- */
+.ui .vl-hint { display: inline-flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 1px 2px 1px 9px; font-size: 12.5px; color: var(--ink-2); box-shadow: var(--shadow); }
+.ui .vl-hint .r-note-x { width: 26px; height: 26px; }
+.ui .vl-hint-open { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink-2); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); padding: 0; flex: none; }
+.ui .vl-hint-open:hover { background: var(--surface-2); }
+/* on a phone: the sheet's first line */
+.ui .vl-sheet-head { display: flex; flex-direction: column; gap: 6px; }
+.ui .vl-sheet-head .vl-hint { display: flex; justify-content: space-between; padding-left: 10px; box-shadow: none; background: var(--bg); }
+.ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ui .vl-sheet-row h3 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: .01em; }
+.ui .vl-sheet-row .vl-count { flex: 1; min-width: 0; }
+@media (pointer: coarse) { .ui .vl-hint .r-note-x, .ui .vl-hint-open { width: 40px; height: 40px; } }

@@ -45,7 +45,7 @@ function lengthLabel(f: Filters): string {
 }
 
 /** The editor of a main filter, under the chips. */
-function MainEditor({model, which}: {model: ResultModel; which: Main}) {
+export function MainEditor({model, which}: {model: ResultModel; which: Main}) {
   const f = model.filters, r = model.ranges;
   if (which === "len" && r.len) {
     return <>
@@ -178,10 +178,12 @@ function LiftFilter({model}: {model: ResultModel}) {
 export interface MoreFiltersProps {
   model: ResultModel;
   onClose?: () => void;
+  /** Show the part "Grouping" (default true; the result view leaves it out: its spots are fixed). */
+  grouping?: boolean;
 }
 
 /** Every filter and the grouping of the lines. */
-export function MoreFilters({model, onClose}: MoreFiltersProps) {
+export function MoreFilters({model, onClose, grouping = true}: MoreFiltersProps) {
   useModel(model);
   const f = model.filters, r = model.ranges, s = model.state;
   const limit = (label: string, key: keyof Filters, range: typeof r.len, step: number, kind: "min" | "max",
@@ -260,7 +262,7 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
              "% of the line")}
     </div>}
 
-    <div class="r-more-sec">
+    {grouping && <div class="r-more-sec">
       <h3>Grouping</h3>
       <label class="r-check"><input type="checkbox" class="r-group" checked={s.group}
                                     onChange={(e) => model.setState({...s, group: e.currentTarget.checked})} />
@@ -274,6 +276,6 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
                     {value: "longest", label: "Longest"}, {value: "height", label: t("ui.filter.by_height")}]} /></div>
         {limit("Lines in a spot at least", "groupMin", r.group, 1, "min", "")}
       </>}
-    </div>
+    </div>}
   </section>;
 }
