@@ -1663,7 +1663,7 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
             assert len(found["parts"]) == 2, found  # the number and the unit
             assert not any(meet(found["x"], b) for _, b in found["parts"]), (kind, value, found)
         scale, attribution = r[f"{kind}_corners"]["scale"], r[f"{kind}_corners"]["attribution"]
-        assert attribution[0] < scale[2] and scale[3] <= attribution[1], (kind, r[f"{kind}_corners"])
+        assert attribution[0] < scale[2] and 0 <= attribution[1] - scale[3] <= 10, (kind, r[f"{kind}_corners"])
         count, name, sort = r[f"{kind}_sorted"]
         assert count == 0 and sort == "hmean", r
         assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r

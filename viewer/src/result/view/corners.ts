@@ -9,11 +9,15 @@ import { useEffect } from "preact/hooks";
 type Box = RefObject<HTMLElement | null> | (() => HTMLElement | null);
 const element = (box: Box) => typeof box === "function" ? box() : box.current;
 
-/** Whether the attribution's corner reaches under the scale's (on a phone it wraps over the whole width). */
-function meet(attribution: HTMLElement | null, scale: HTMLElement | null): boolean {
-  if (!attribution || !scale) return false;
-  const a = attribution.getBoundingClientRect(), s = scale.getBoundingClientRect();
-  return a.width > 0 && s.width > 0 && a.left < s.right && s.left < a.right;
+/** How high the credits of the bottom-right `corner` reach above its foot where they run under the scale's corner
+ *  (on a phone they wrap over the whole width), else 0. The credits (the attribution control) are the corner's
+ *  lowest control; other controls may stand above them there (the search's map puts its buttons in it). */
+function creditsUnder(corner: HTMLElement | null, scale: HTMLElement | null): number {
+  const credits = corner?.querySelector<HTMLElement>(".leaflet-control-attribution");
+  if (!corner || !credits || !scale) return 0;
+  const c = credits.getBoundingClientRect(), s = scale.getBoundingClientRect();
+  const meet = c.width > 0 && s.width > 0 && c.left < s.right && s.left < c.right;
+  return meet ? Math.ceil(corner.getBoundingClientRect().bottom - c.top) : 0;
 }
 
 /** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution: when raised, and in
@@ -22,7 +26,7 @@ function place(map: HTMLElement, bottom: number) {
   const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
   const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
   if (attribution) attribution.style.bottom = bottom ? `${bottom}px` : "";
-  const above = bottom || meet(attribution, scale) ? bottom + (attribution?.offsetHeight ?? 0) : 0;
+  const above = bottom ? bottom + (attribution?.offsetHeight ?? 0) : creditsUnder(attribution, scale);
   if (scale) scale.style.bottom = above ? `${above}px` : "";
 }
 
@@ -95,9 +99,9 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
       // Both raised and side by side on one line: the scale goes above the attribution; neither raised, the scale
       // goes above the attribution where the credits run under its corner (a narrow map: lines over its width)
       const stacked = attributionUp && scaleUp && a && s && a.left < s.right;
-      const under = !attributionUp && !scaleUp && meet(attribution, scale);
+      const under = !attributionUp && !scaleUp ? creditsUnder(attribution, scale) : 0;
       if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px`
-        : under ? `${attribution!.offsetHeight}px` : "";
+        : under ? `${under}px` : "";
     };
     const sizes = new ResizeObserver(update), styles = new MutationObserver(update);
     sizes.observe(map);

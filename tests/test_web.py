@@ -2857,7 +2857,7 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
     scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
     assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
-    assert scale[3] <= attribution[1], r
+    assert 0 <= attribution[1] - scale[3] <= 10, r  # right above the credits, not elsewhere on the map
     for kind in ("desktop", "phone"):
         assert r[f"{kind}_shrunk"]["rule"] and r[f"{kind}_shrunk"]["shrunk"] == [], r
 
