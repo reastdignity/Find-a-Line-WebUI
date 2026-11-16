@@ -103,8 +103,8 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   members: sheets 51-100 under a folder, a space before ".txt", sheet 11's extra "011a" west of its box, no 287 or
   290, a sheet 293 off the grid (box from its points). DAERA's tiles at 54/min (`HOST_RATES_OF`: the mail's
   promise) until DAERA answers. IPP's Rio layer is a city project's and may vanish (europe then).
-- **Batch 6, France and Germany** (2026-11-15/16): IGN's overseas RGE ALTI 1 m layers (Guadeloupe, Martinique, French
-  Guiana, SPM, Réunion's filler, Mayotte) take `nodata_below=OVERSEAS_FLOOR` (-1 m, the user's sea floor rule); the
+- **Batch 6, France, Germany and Madeira** (2026-11-15/16): IGN's overseas RGE ALTI 1 m layers (Guadeloupe,
+  Martinique, French Guiana, SPM, Réunion's filler, Mayotte) take `nodata_below=OVERSEAS_FLOOR` (-1 m, the user's sea floor rule); the
   mainland's layers and LiDAR HD never. Réunion's LiDAR HD is EPSG:2975 (the answers name EPSG:32740), its pixel
   edges at k x 0.5 m (the mainland's at .25/.75); Nominatim names Réunion and Mayotte "fr": chosen by bbox. Hamburg's
   member origins carry float noise (552999.9999999999: `TransformFix(snap=)`); the Elbe is a constant 2.00 m. Bremen
@@ -113,7 +113,10 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   zone in its eastings (`TransformFix(offset=-32 000 000)`), its DOM1 on whole metres, half a pixel off the terrain
   (the mosaic interpolates it; open). GDAL's XYZ driver refuses columns with points missing (`xyz_rows`) and keeps
   one column cache per process (`COLUMNS_LOCK`). Lower Saxony declares six neighbours already: none added. The city
-  of Bremen's overseas port (7.6 km², inside Bremerhaven) is in neither download row.
+  of Bremen's overseas port (7.6 km², inside Bremerhaven) is in neither download row. Madeira's 5 m ZIP holds a raster
+  per island group, each its own mirror dataset: Porto Santo's is EPSG:3061 with the sea written as 0, the Desertas'
+  file says EPSG:3061 but is PTRA08 (EPSG:5016); the island sources come before `madeira` in pt-30, chosen by their
+  boxes; their floor of -1 m is set at the cut (`floor=` in `DATASETS`), not by a layer.
 - **Batch 6, Japan and Hong Kong** (2026-11-15/16): Tokyo's bucket answers 403 for a key it does not have, so the
   static table (`tokyo_sheets.npz`, `tools/tokyo_sheets.py`) decides what exists and a listed 403 is asked once and
   is an error; the wards' sheets name no EPSG code and are point-registered; 85 sheets lie in both folders (2024
