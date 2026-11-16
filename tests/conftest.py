@@ -34,7 +34,7 @@ def no_host_rates(request, monkeypatch):
     """No waiting for the turns of sources.net.rate_turn (HOST_RATES_OF emptied), so a test that
     names a real host with a rate (the probe's swisstopo addresses) neither waits nor writes to the
     machine's shared bucket; tests/test_rates.py keeps the rates and moves the bucket into tmp_path."""
-    if request.module.__name__.endswith("test_rates"):
+    if request.module.__name__.endswith(("test_rates", "test_mirror_pairs")):  # the latter reads the mirror's rate
         yield
         return
     from sources import net
