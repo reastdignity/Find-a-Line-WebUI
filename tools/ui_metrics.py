@@ -11,18 +11,36 @@ are parameters). Two commands, each writing JSON and a Markdown summary into --o
 the `font:` shorthand), border radius and z-index, the colour literals (hex, rgb(), hsl()) outside ui/tokens.css (and,
 apart, in the .ts/.tsx code), the uses of the monospace font with their uppercase ones; "the same grey box" (selectors
 with a surface background, a 1 px border in var(--line), a radius of 8 px or more and var(--shadow), their rules
-merged per selector); the characters used as icons or joints (ICON_CHARS) in the code (comments left out), in CSS
-`content:` and in locales/en.json, and the "dense strings" (two of them or more, or a "·" joint); the texts of
-locales/en.json by group (words per text) and the .tsx files that hold English text in code without calling t(. CSS
-is read by a small scanner of this file (no CSS parser is installed and none may be added for this tool).
+merged per selector: a count of rules, not of the places the look appears; "pages" counts those); the characters
+used as icons or joints (ICON_CHARS) in the code (comments and regular expressions left out; inside an aria-label or
+a title listed apart as not shown; the demo pages DEMO_FILES left out unless --with-demos), in CSS `content:` and in
+locales/en.json, and the "dense strings" (two of them or more, or a "·" joint); the texts of locales/en.json by group
+(words per text) and the .tsx files that hold English text in code without calling t(. CSS is read by a small scanner
+of this file (no CSS parser is installed and none may be added for this tool): nested CSS rules are not parsed (the
+viewer has none), a `font:` whose size is var() or calc() is counted as "unresolved", colours are normalised (#FFF =
+#ffffff, the spaces of rgb()).
 
 "pages" renders every state of tools/ui_shots.py's PAGES the way that tool does (its prepared_pages: the same site,
 users, waits and steps) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line
-a state as it ends; then pages.json, pages.md): the visible, enabled controls and their boxes (under 44 px and 24 px,
-WCAG 2.5.8's size; a visually hidden checkbox or radio is measured by its label's box), the visible text and its
-rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text scaled to the screen), sideways
-scroll of the document or a scrolling panel, axe-core's violations and "incomplete" results by impact, and the
-seconds of loading, steps and measuring (indicative only: the test lock's shared lane, other sessions).
+a state as it ends; then pages.json, pages.md):
+- the visible, enabled controls (only an open modal dialog's when one is open) and the size of each one's target:
+  its own box joined with the boxes of its absolutely positioned ::before and ::after (computed from their insets,
+  sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
+  and for a checkbox or radio the largest of that and its labels' boxes; under 44 px and 24 px in width or height
+  (WCAG 2.5.8's size; its spacing exception is not modelled). A control that cannot be reached (wholly at negative
+  coordinates of the document, or clipped to nothing by an ancestor's overflow) is listed apart, not counted; one
+  below the fold of a scrolling page counts. Signatures are tag, role, input type and class names without the state
+  classes (STATE_CLASS: on, open, selected, ...), so one control in two states is one signature;
+- the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
+  scaled to the screen);
+- the document wider than its viewport (the defect), and apart the elements that scroll sideways by themselves
+  (overflow-x auto or scroll, content wider than their box);
+- "the same grey box" as rendered: the visible containers (not controls) of at least BOX_MIN px each way with an
+  opaque background, a border of 1 px or more, a radius of 8 px or more and a box shadow, beside all visible
+  containers of that size with a background or a border of their own;
+- axe-core's violations and "incomplete" results by impact (a failure of axe on a state is recorded for the state,
+  its own measurements are kept), and the seconds of loading, steps and measuring (indicative only: the test lock's
+  shared lane, other sessions). A page whose loading or steps raise is recorded with its error and the pass goes on.
 
 axe-core comes from viewer/node_modules/axe-core/axe.min.js (a development dependency of viewer/package.json; `npm
 ci` in viewer); without it the axe part is left out with a note. The app's pages forbid inline script and eval
@@ -35,6 +53,7 @@ The keys of the user's services (ESRI_API_KEY, DATAFORDELER_API_KEY) are best re
 """
 
 import argparse
+import fnmatch
 import json
 import math
 import os
@@ -45,6 +64,7 @@ import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
+from contextlib import closing
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -59,6 +79,15 @@ TEXT_BOUNDS = (12, 11, 10)  # px
 AXE = os.path.join(REPO, "viewer", "node_modules", "axe-core", "axe.min.js")
 AXE_TIMEOUT_MS = 60000  # one axe.run on a page; a page whose run takes longer gets an error, not a hang
 TOP = 25  # rows of a list in the Markdown summaries
+BOX_MIN = 40  # px each way: a container counted by "pages"' rendered grey box
+# The demo pages of the developers (?ui=kit), left out of the characters' count unless --with-demos
+DEMO_FILES = ("viewer/src/ui/Gallery.tsx", "Kit*.tsx")
+# State classes, left out of the signatures: a class that is one of these words, or ends in "-<word>"
+STATE_WORDS = ("on", "off", "open", "closed", "selected", "active", "disabled", "checked", "current", "pressed",
+               "expanded", "collapsed", "folded", "unfolded", "changed", "busy", "loading", "picking", "dragging",
+               "failed", "hidden", "shown", "focus", "focused", "hover")
+STATE_CLASS = r"(^|-)(" + "|".join(STATE_WORDS) + r")$"
+TEMP_PREFIX = "ui-shots-metrics-"  # tools/clean_temp.py removes the ui-shots-* folders of runs that did not end
 
 
 # ---------------------------------------------------------------------------------------------------------- static
@@ -148,13 +177,15 @@ def font_size_of(prop: str, value: str):
         return value
     if prop != "font":
         return None
+    unresolved = False
     for token in _split_top(value.replace(",", " , "), " "):
         if token == ",":
             break  # the family list begins
         m = SIZE.match(token)
         if m:
             return m.group(1)
-    return None
+        unresolved = unresolved or token.startswith(("var(", "calc("))
+    return "unresolved" if unresolved else None  # a size of var() or calc(): set, but not known here
 
 
 def _px(value: str):
@@ -166,7 +197,11 @@ COLOUR = re.compile(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b|\b(?
 
 
 def _colour(value: str) -> str:
-    return " ".join(value.lower().split())
+    """A colour literal normalised: lower case, #abc as #aabbcc, the spaces of rgb() and hsl() as rgb(1 2 3 / .5)."""
+    value = " ".join(value.lower().split())
+    if value.startswith("#") and len(value) in (4, 5):
+        value = "#" + "".join(c * 2 for c in value[1:])
+    return re.sub(r"\s*([,/()])\s*", lambda m: {",": ", ", "/": " / "}.get(m.group(1), m.group(1)), value)
 
 
 def _is_mono(prop: str, value: str) -> bool:
@@ -178,10 +213,11 @@ def _decode_css(value: str) -> str:
     return re.sub(r"\\([0-9a-fA-F]{1,6})\s?", lambda m: chr(int(m.group(1), 16)), value)
 
 
-def strip_comments(text: str) -> str:
+def strip_comments(text: str, blank_regex: bool = False) -> str:
     """JavaScript or TypeScript with its comments made spaces (lines kept): strings (', " and ` with ${} inside),
-    regular expressions (after an operator or a keyword) and JSX text are left as they are. A quote in JSX text
-    ("don't") is taken as a string to the end of its line, never further."""
+    regular expressions (after an operator or a keyword; made spaces too with `blank_regex`) and JSX text are left as
+    they are. A quote in JSX text ("don't") is taken as a string to the end of its line, never further; "//" right
+    after a word and a colon (https://) in JSX text is no comment."""
     out, i, n = list(text), 0, len(text)
     stack = []  # "`" in a template, "{" in a ${...} of one (its depth of braces)
     prev = ""  # the last character of code that is not a space
@@ -210,7 +246,7 @@ def strip_comments(text: str) -> str:
             stack.append("`")
             i += 1
             continue
-        if c == "/" and text.startswith("//", i):
+        if c == "/" and text.startswith("//", i) and not (i >= 2 and text[i - 1] == ":" and text[i - 2].isalpha()):
             j = text.find("\n", i)
             j = n if j < 0 else j
             out[i:j] = " " * (j - i)
@@ -237,6 +273,11 @@ def strip_comments(text: str) -> str:
                 elif text[j] == "/" and not cls:
                     break
                 j += 1
+            if j >= n or text[j] != "/":  # not closed on its line: no regular expression, a "/" of the code
+                i, prev = i + 1, "/"
+                continue
+            if blank_regex:
+                out[i:j + 1] = " " * (j + 1 - i)
             i, prev = j + 1, "/"
             continue
         if stack and stack[-1] != "`":
@@ -314,8 +355,18 @@ def english_in_code(code: str) -> list:
     return [f for f in found if re.search(r"[A-Za-z]{2,}", f)]
 
 
-def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8) -> dict:
-    """The counts of "static" for the tree at `root` (viewer/src, locales/en.json)."""
+NOT_SHOWN = re.compile(r"""(?:\baria-label|\btitle)\s*[=:]\s*(?:"[^"\n]*"|'[^'\n]*'|`[^`\n]*`|\{(?:[^{}\n]|\{[^{}\n]*\})*\})"""
+                       r"""|setAttribute\(\s*["'](?:aria-label|title)["']\s*,[^)\n]*\)""")
+
+
+def _is_demo(name: str) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(os.path.basename(name), pattern)
+               for pattern in DEMO_FILES)
+
+
+def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, with_demos: bool = False) -> dict:
+    """The counts of "static" for the tree at `root` (viewer/src, locales/en.json); the demo pages (DEMO_FILES) are
+    left out of the characters and dense strings unless `with_demos`."""
     css_files = _files(root, "viewer/src", (".css",))
     code_files = _files(root, "viewer/src", (".ts", ".tsx"))
     sizes, radii, radius_lengths, zs = defaultdict(Counter), defaultdict(Counter), Counter(), defaultdict(Counter)
@@ -372,15 +423,24 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8) -> 
     boxes.sort(key=lambda b: (-b["of_four"], b["files"], b["selector"]))
 
     # characters in the code, in CSS content and in the catalogue; dense strings
-    in_code, dense = [], []
+    in_code, not_shown, dense, demos = [], [], [], []
     for path in code_files:
         name = _rel(path, root)
-        for number, line in enumerate(strip_comments(_read(path)).split("\n"), 1):
-            found = [c for c in line if c in chars]
-            if not found:
+        if not with_demos and _is_demo(name):
+            demos.append(name)
+            continue
+        for number, line in enumerate(strip_comments(_read(path), blank_regex=True).split("\n"), 1):
+            if not any(c in chars for c in line):
                 continue
-            for c in found:
-                in_code.append({"file": name, "line": number, "char": c})
+            hidden = set()  # the positions inside an aria-label or a title: never shown
+            for m in NOT_SHOWN.finditer(line):
+                hidden.update(range(m.start(), m.end()))
+            found = []
+            for at, c in enumerate(line):
+                if c in chars:
+                    (not_shown if at in hidden else in_code).append({"file": name, "line": number, "char": c})
+                    if at not in hidden:
+                        found.append(c)
             if len(found) >= 2 or JOINT in found:
                 dense.append({"where": f"{name}:{number}", "text": line.strip()[:160]})
     catalogue = json.loads(_read(os.path.join(root, CATALOGUE)))
@@ -438,8 +498,10 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8) -> 
                          "two": sum(b["of_four"] == 2 for b in boxes),
                          "border and radius only": sum(b["border"] and b["radius"] and not b["surface"] and not b["shadow"]
                                                        for b in boxes)},
-        "chars_in_code": in_code, "chars_in_css_content": content_chars, "chars_in_catalogue": in_catalogue,
+        "chars_in_code": in_code, "chars_not_shown": not_shown, "demos_left_out": demos,
+        "chars_in_css_content": content_chars, "chars_in_catalogue": in_catalogue,
         "chars_count": {c: {"code": sum(x["char"] == c for x in in_code),
+                            "not_shown": sum(x["char"] == c for x in not_shown),
                             "css": sum(x["char"] == c for x in content_chars),
                             "catalogue": sum(x["char"] == c for x in in_catalogue)} for c in chars},
         "dense_strings": dense,
@@ -496,13 +558,19 @@ def static_markdown(r: dict) -> str:
     t = r["boxes_totals"]
     out += ["", f"## The same grey box (selectors with 2 of the 4 or more: all four {t['all four']}, three {t['three']}, "
             f"two {t['two']}; border and radius only {t['border and radius only']})", "",
+            "A count of selectors (their rules merged), not of the places the look appears: `pages` counts those.", "",
             "| Selector | Files | Surface | Border | Radius | Shadow |", "| --- | --- | --- | --- | --- | --- |"]
     out += [f"| `{b['selector'][:80]}` | {', '.join(os.path.basename(f) for f in b['files'])} | "
             + " | ".join("x" if b[k] else "" for k in ("surface", "border", "radius", "shadow")) + " |" for b in r["boxes"]]
-    out += ["", "## Characters as icons or joints", "", "| Char | Code | CSS content | Catalogue |",
-            "| --- | --- | --- | --- |"]
-    out += [f"| {c} | {n['code']} | {n['css']} | {n['catalogue']} |" for c, n in r["chars_count"].items()]
+    out += ["", "## Characters as icons or joints", "",
+            "Regular expressions and comments left out; the demo pages left out: "
+            + (", ".join(r["demos_left_out"]) or "none") + ".", "",
+            "| Char | Code (shown) | Code (aria-label, title: not shown) | CSS content | Catalogue |",
+            "| --- | --- | --- | --- | --- |"]
+    out += [f"| {c} | {n['code']} | {n['not_shown']} | {n['css']} | {n['catalogue']} |"
+            for c, n in r["chars_count"].items()]
     out += ["", "Places in the code: " + "; ".join(f"{x['file']}:{x['line']} {x['char']}" for x in r["chars_in_code"]),
+            "", "Not shown: " + "; ".join(f"{x['file']}:{x['line']} {x['char']}" for x in r["chars_not_shown"]),
             "", "In CSS content: " + "; ".join(f"{x['file']}:{x['line']} {x['char']}" for x in r["chars_in_css_content"]),
             "", "In the catalogue: " + "; ".join(f"{x['key']} {x['char']}" for x in r["chars_in_catalogue"])]
     out += ["", f"## Dense strings ({len(r['dense_strings'])}: two of the characters or more, or a `{JOINT}` joint; "
@@ -525,36 +593,102 @@ def static_markdown(r: dict) -> str:
 
 # ----------------------------------------------------------------------------------------------------------- pages
 
-# One evaluation per state: the controls, the text, sideways scroll (opts: the bounds)
+# One evaluation per state: the controls, the text, sideways scroll, the containers (opts: the state classes, BOX_MIN)
 MEASURE_JS = r"""(opts) => {
   const CONTROLS = "a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], " +
     "[role=menuitem], [role=option], [role=radio], [role=switch], [role=slider], [role=checkbox], [role=link]";
+  const STATE = new RegExp(opts.state);
   const shown = (e) => e.checkVisibility({visibilityProperty: true, opacityProperty: true});
-  const classes = (e) => [...e.classList].filter((c) => !/\d{3,}/.test(c)).sort().map((c) => "." + c).join("");
+  const classes = (e) => [...e.classList].filter((c) => !/\d{3,}/.test(c) && !STATE.test(c)).sort()
+    .map((c) => "." + c).join("");
   const sig = (e) => e.tagName.toLowerCase() + (e.getAttribute("role") ? `[role=${e.getAttribute("role")}]` : "") +
     (e.tagName === "INPUT" ? `[type=${e.type}]` : "") + classes(e);
   const short = (s) => s.replace(/\s+/g, " ").trim().slice(0, 50);
   const r1 = (v) => Math.round(v * 10) / 10;
-  const controls = [];
+  const box = (r) => ({left: r.left, top: r.top, right: r.right, bottom: r.bottom});
+  const size = (b) => Math.min(b.right - b.left, b.bottom - b.top);
+  const px = (v) => (v === "auto" || v === "" || v === undefined) ? null : parseFloat(v);
+  // The box of a control's ::before or ::after when it is absolutely positioned against the control (its insets or
+  // sizes against the control's padding box); null when there is none or it is not seen this way
+  const pseudoBox = (e, which, rect) => {
+    const s = getComputedStyle(e, which), own = getComputedStyle(e);
+    if (!s || s.content === "none" || s.content === "normal" || s.display === "none" || s.pointerEvents === "none" ||
+        s.position !== "absolute" || own.position === "static") return null;
+    const lo = {x: rect.left + parseFloat(own.borderLeftWidth), y: rect.top + parseFloat(own.borderTopWidth)};
+    const hi = {x: rect.right - parseFloat(own.borderRightWidth), y: rect.bottom - parseFloat(own.borderBottomWidth)};
+    const extra = (a, b) => s.boxSizing === "border-box" ? 0 : parseFloat(s["padding" + a]) + parseFloat(s["padding" + b]) +
+      parseFloat(s["border" + a + "Width"]) + parseFloat(s["border" + b + "Width"]);
+    const axis = (start, end, length, l, h, more) => {
+      const a = px(start), b = px(end), w = px(length);
+      if (a !== null && b !== null) return [l + a, h - b];
+      if (a !== null && w !== null) return [l + a, l + a + w + more];
+      if (b !== null && w !== null) return [h - b - w - more, h - b];
+      return null;
+    };
+    const x = axis(s.left, s.right, s.width, lo.x, hi.x, extra("Left", "Right"));
+    const y = axis(s.top, s.bottom, s.height, lo.y, hi.y, extra("Top", "Bottom"));
+    return x && y && x[1] > x[0] && y[1] > y[0] ? {left: x[0], right: x[1], top: y[0], bottom: y[1]} : null;
+  };
+  const join = (a, b) => ({left: Math.min(a.left, b.left), top: Math.min(a.top, b.top),
+                           right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom)});
+  // Reachable: not wholly before the scroll origin of a scrolling ancestor or of the document, not clipped to
+  // nothing by an ancestor that hides its overflow (a scrolling ancestor brings what is below its fold into view)
+  const escapes = (x) => {  // fixed or in the top layer: no ancestor clips it
+    if (getComputedStyle(x).position === "fixed") return true;
+    try { return x.matches(":popover-open, dialog:modal"); } catch (err) { return false; }
+  };
+  const reachable = (e, b) => {
+    let r = {...b};
+    if (escapes(e)) return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+    for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      const ab = a.getBoundingClientRect();
+      const scrolls = /auto|scroll/.test(s.overflowX) || /auto|scroll/.test(s.overflowY);
+      if (scrolls) {
+        if (r.right <= ab.left - a.scrollLeft || r.bottom <= ab.top - a.scrollTop) return false;
+        r = box(ab);
+      } else if (/hidden|clip/.test(s.overflowX) || /hidden|clip/.test(s.overflowY)) {
+        const cut = {left: Math.max(r.left, ab.left), top: Math.max(r.top, ab.top),
+                     right: Math.min(r.right, ab.right), bottom: Math.min(r.bottom, ab.bottom)};
+        if ((/hidden|clip/.test(s.overflowX) && cut.right <= cut.left) ||
+            (/hidden|clip/.test(s.overflowY) && cut.bottom <= cut.top)) return false;
+        r = {left: /hidden|clip/.test(s.overflowX) ? cut.left : r.left, right: /hidden|clip/.test(s.overflowX) ? cut.right : r.right,
+             top: /hidden|clip/.test(s.overflowY) ? cut.top : r.top, bottom: /hidden|clip/.test(s.overflowY) ? cut.bottom : r.bottom};
+      }
+      if (escapes(a)) return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+    }
+    return r.right + scrollX > 0 && r.bottom + scrollY > 0;
+  };
+  const controls = [], unreachable = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
   try { modal = document.querySelector("dialog:modal"); } catch (e) { modal = null; }
   for (const e of document.querySelectorAll(CONTROLS)) {
     if (e.disabled || e.closest("[inert], [aria-disabled=true], fieldset:disabled")) continue;
     if (modal && !modal.contains(e)) continue;
-    let box = e.getBoundingClientRect(), hidden = false;
-    const tiny = box.width <= 2 || box.height <= 2;
-    if (!shown(e) || tiny) {
-      // a visually hidden checkbox or radio (u-sr, opacity 0) is taken by its label: the label's box
-      const label = e.labels && [...e.labels].find((l) => shown(l) && l.getBoundingClientRect().width > 2);
-      if (!label || !/^(checkbox|radio)$/.test(e.type || "")) continue;
-      box = label.getBoundingClientRect();
-      hidden = true;
+    const rect = e.getBoundingClientRect();
+    const visible = shown(e) && rect.width > 2 && rect.height > 2;
+    let target = null, owner = e, how = "own";
+    if (visible) {
+      target = box(rect);
+      for (const which of ["::before", "::after"]) {
+        const p = pseudoBox(e, which, rect);
+        if (p) { target = join(target, p); how = "with " + which; }
+      }
     }
-    if (box.width === 0 || box.height === 0) continue;
+    if (/^(checkbox|radio)$/.test(e.type || "") && e.labels) {  // its labels are its target too: the largest
+      for (const l of e.labels) {
+        if (!shown(l)) continue;
+        const lb = box(l.getBoundingClientRect());
+        if (size(lb) > 0 && (!target || size(lb) > size(target))) { target = lb; owner = l; how = "by its label"; }
+      }
+    }
+    if (!target || target.right - target.left === 0 || target.bottom - target.top === 0) continue;
     const inline = e.tagName === "A" && getComputedStyle(e).display === "inline" &&
       /\S/.test([...e.parentElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""));
-    controls.push({sig: sig(e) + (hidden ? " (by its label)" : ""), w: r1(box.width), h: r1(box.height), inline,
-                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")});
+    const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline,
+                  w: r1(target.right - target.left), h: r1(target.bottom - target.top),
+                  text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
+    (reachable(owner, target) ? controls : unreachable).push(item);
   }
   const texts = [];
   const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "OPTION", "TITLE", "TEMPLATE", "desc", "title"]);
@@ -565,26 +699,49 @@ MEASURE_JS = r"""(opts) => {
     for (const n of e.childNodes) if (n.nodeType === 3) own += n.textContent;
     own = own.replace(/\s+/g, " ").trim();
     if (!own || !shown(e)) continue;
-    const box = e.getBoundingClientRect();
-    if (box.width <= 1 || box.height <= 1) continue;  // screen-reader-only text
-    let size = parseFloat(getComputedStyle(e).fontSize);
+    const b = e.getBoundingClientRect();
+    if (b.width <= 1 || b.height <= 1) continue;  // screen-reader-only text
+    let fs = parseFloat(getComputedStyle(e).fontSize);
     const svg = e instanceof SVGElement;
     if (svg && e.getScreenCTM) {  // the size on the screen of SVG text in a scaled drawing
       const m = e.getScreenCTM();
-      if (m) size *= Math.sqrt(Math.abs(m.a * m.d - m.b * m.c));
+      if (m) fs *= Math.sqrt(Math.abs(m.a * m.d - m.b * m.c));
     }
-    texts.push({sig: sig(e) + (svg ? " (svg)" : ""), size: r1(size), chars: own.length, text: short(own)});
+    texts.push({sig: sig(e) + (svg ? " (svg)" : ""), size: r1(fs), chars: own.length, text: short(own)});
   }
-  const sideways = [];
+  // Sideways: the document wider than its viewport; apart, the elements that scroll sideways by themselves
   const doc = document.scrollingElement || document.documentElement;
   const docOver = doc.scrollWidth - doc.clientWidth;
+  const scrollers = [];
+  // The containers: an opaque background, a border all round, a radius of 8 px or more, a shadow ("the grey box"),
+  // among the containers with a background or a border of their own; at least opts.boxMin px each way, not controls
+  const alpha = (c) => {
+    if (!c || c === "transparent") return 0;
+    const slash = c.match(/\/\s*([\d.]+)(%?)\s*\)\s*$/);
+    if (slash) return parseFloat(slash[1]) / (slash[2] ? 100 : 1);
+    const parts = (c.match(/\(([^)]*)\)/) || [, ""])[1].split(",");
+    return parts.length === 4 ? parseFloat(parts[3]) : 1;
+  };
+  const containers = {}, grey = {};
   for (const e of all) {
     const s = getComputedStyle(e);
-    if (!/auto|scroll/.test(s.overflowY) || !/auto|scroll/.test(s.overflowX) || !shown(e)) continue;
-    const over = e.scrollWidth - e.clientWidth;
-    if (over > 1 && e.clientWidth > 0) sideways.push({sig: sig(e), over: over});
+    if (/auto|scroll/.test(s.overflowX) && e.scrollWidth - e.clientWidth > 1 && e.clientWidth > 0 && shown(e))
+      scrollers.push({sig: sig(e), over: e.scrollWidth - e.clientWidth});
+    if (e instanceof SVGElement || e.matches(CONTROLS)) continue;
+    const b = e.getBoundingClientRect();
+    if (b.width < opts.boxMin || b.height < opts.boxMin || !shown(e)) continue;
+    const a = alpha(s.backgroundColor);
+    const sides = ["Top", "Right", "Bottom", "Left"];
+    const framed = sides.every((x) => parseFloat(s["border" + x + "Width"]) >= 1 && s["border" + x + "Style"] !== "none");
+    const anyBorder = sides.some((x) => parseFloat(s["border" + x + "Width"]) >= 1 && s["border" + x + "Style"] !== "none");
+    if (a === 0 && !anyBorder) continue;
+    const k = sig(e);
+    containers[k] = (containers[k] || 0) + 1;
+    const rad = s.borderTopLeftRadius.endsWith("%") ? parseFloat(s.borderTopLeftRadius) * Math.min(b.width, b.height) / 100
+      : parseFloat(s.borderTopLeftRadius);
+    if (a >= 0.9 && framed && rad >= 8 && s.boxShadow !== "none") grey[k] = (grey[k] || 0) + 1;
   }
-  return {controls, texts, document_over: docOver > 1 ? docOver : 0, sideways,
+  return {controls, unreachable, texts, document_over: docOver > 1 ? docOver : 0, scrollers, containers, grey,
           viewport: [innerWidth, innerHeight]};
 }"""
 
@@ -600,8 +757,9 @@ IMPACTS = ("critical", "serious", "moderate", "minor")
 
 
 def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
-    """The measurements of a prepared page: its own first, axe-core's last (its run may touch the page's state)."""
-    raw = page.evaluate(MEASURE_JS)
+    """The measurements of a prepared page: its own first, axe-core's last (its run may touch the page's state). A
+    failure of axe-core is recorded as the "axe" part's error; the page's own measurements stay."""
+    raw = page.evaluate(MEASURE_JS, {"state": STATE_CLASS, "boxMin": BOX_MIN})
     under = {b: Counter() for b in controls}
     examples = {}
     for c in raw["controls"]:
@@ -610,7 +768,7 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
                 key = c["sig"] + (" (inline link)" if c["inline"] else "")
                 under[b][key] += 1
                 if key not in examples or min(c["w"], c["h"]) < min(examples[key]["w"], examples[key]["h"]):
-                    examples[key] = {"w": c["w"], "h": c["h"], "text": c["text"]}
+                    examples[key] = {"w": c["w"], "h": c["h"], "text": c["text"], "how": c["how"]}
     total_chars = sum(t["chars"] for t in raw["texts"])
     small = {b: Counter() for b in text}
     small_chars = {b: 0 for b in text}
@@ -627,16 +785,22 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
         "controls": len(raw["controls"]),
         "controls_under": {str(b): dict(sorted(under[b].items())) for b in controls},
         "control_examples": dict(sorted(examples.items())),
+        "controls_grown": sum(c["how"].startswith("with ::") for c in raw["controls"]),
+        "unreachable": dict(sorted(Counter(c["sig"] for c in raw["unreachable"]).items())),
         "text_elements": len(raw["texts"]), "text_chars": total_chars,
         "text_chars_under": {str(b): small_chars[b] for b in text},
         "text_under": {str(b): dict(sorted(small[b].items())) for b in text},
         "text_examples": dict(sorted(text_examples.items())),
-        "document_over": raw["document_over"], "sideways": raw["sideways"],
+        "document_over": raw["document_over"], "scrollers": raw["scrollers"],
+        "containers": dict(sorted(raw["containers"].items())), "grey_boxes": dict(sorted(raw["grey"].items())),
     }
     if axe_source is not None:
-        if not page.evaluate("() => typeof axe !== 'undefined'"):
-            page.add_script_tag(content=axe_source)
-        result["axe"] = page.evaluate(AXE_RUN_JS, AXE_TIMEOUT_MS)
+        try:
+            if not page.evaluate("() => typeof axe !== 'undefined'"):
+                page.add_script_tag(content=axe_source)
+            result["axe"] = page.evaluate(AXE_RUN_JS, AXE_TIMEOUT_MS)
+        except Exception as e:  # the state keeps its own measurements
+            result["axe"] = {"error": f"{type(e).__name__}: {str(e)[:300]}"}
     return result
 
 
@@ -647,68 +811,94 @@ def _axe_source():
     return _read(AXE)
 
 
+def measure_all(pw, site: str, cookies: dict, run: str, share: str, line: str, also: str, border: str, pages: dict,
+                devices: list, themes: list, axe_source: str | None, log) -> list:
+    """Every state measured in contexts that bypass the CSP; each record also written to `log` (a line of JSON) as
+    it ends. A page whose loading or steps raise is recorded with its error and the pass goes on."""
+    import ui_shots
+    records = []
+
+    def keep(record: dict):
+        records.append(record)
+        log.write(json.dumps(record, ensure_ascii=False) + "\n")
+        log.flush()
+
+    def failed(name, device, theme, e):
+        keep({"page": name, "device": device, "theme": theme, "error": f"{type(e).__name__}: {str(e)[:300]}"})
+        print(f"{name}-{device}-{theme}: failed, {type(e).__name__}", flush=True)
+
+    for device in devices:
+        for theme in themes:  # a slice each: a failure outside a page (the browser's launch) costs this slice only
+            try:
+                gen = ui_shots.prepared_pages(pw, site, cookies, run, share, line, also, border, pages, [device],
+                                              [theme], {"bypass_csp": True}, on_error=failed)
+                with closing(gen):
+                    for shown in gen:
+                        began = time.monotonic()
+                        record = {"page": shown.name, "device": device, "theme": theme}
+                        try:
+                            record.update(measure(shown.page, axe_source))
+                        except Exception as e:  # recorded, the pass goes on
+                            record["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+                        record["seconds"] = {**{k: round(v, 2) for k, v in shown.seconds.items()},
+                                             "measure": round(time.monotonic() - began, 2)}
+                        keep(record)
+                        print(f"{shown.name}-{device}-{theme}: " + (record.get("error") or "measured"), flush=True)
+            except Exception as e:
+                keep({"page": None, "device": device, "theme": theme,
+                      "error": f"the slice stopped: {type(e).__name__}: {str(e)[:300]}"})
+                print(records[-1]["error"], flush=True)
+    return records
+
+
 def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | None) -> list:
-    """Every state measured; each written to pages-states.jsonl as it ends. The states' records."""
+    """The site of tools/ui_shots.py set up (its data folder a temporary one named for tools/clean_temp.py unless
+    `data_dir`), every state measured (pages-states.jsonl), the site stopped and the temporary folder removed."""
     import ui_shots
     from playwright.sync_api import sync_playwright
 
     os.makedirs(out, exist_ok=True)
     axe_source = _axe_source()
-    data = data_dir or tempfile.mkdtemp(prefix="ui-metrics-")
-    site, cookies, run, share, stop = ui_shots.serve(data)
-    line = ui_shots.first_line(data, run)
-    also = ";".join(ui_shots.first_line(data, run, k) for k in (40, 200))
-    border = ui_shots.border_view(data)
-    wanted = [w for w in only.split(",") if w]
-    pages = {n: p for n, p in ui_shots.PAGES.items() if not wanted or any(w in n for w in wanted)}
-    themes = ["light", "dark"] if dark else ["light"]
-    records = []
-    path = os.path.join(out, "pages-states.jsonl")
+    data = data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
+    stop = None
     try:
-        with sync_playwright() as pw, open(path, "w", encoding="utf-8") as log:
-            for device in devices:
-                for theme in themes:  # one slice each: a failure in the loop costs this slice only
-                    try:
-                        for shown in ui_shots.prepared_pages(pw, site, cookies, run, share, line, also, border, pages,
-                                                             [device], [theme], {"bypass_csp": True}):
-                            began = time.monotonic()
-                            record = {"page": shown.name, "device": device, "theme": theme}
-                            try:
-                                record.update(measure(shown.page, axe_source))
-                            except Exception as e:  # recorded, the pass goes on
-                                record["error"] = f"{type(e).__name__}: {str(e)[:300]}"
-                            record["seconds"] = {**{k: round(v, 2) for k, v in shown.seconds.items()},
-                                                 "measure": round(time.monotonic() - began, 2)}
-                            records.append(record)
-                            log.write(json.dumps(record, ensure_ascii=False) + "\n")
-                            log.flush()
-                            print(f"{shown.name}-{device}-{theme}: " + (record.get("error") or "measured"), flush=True)
-                    except Exception as e:
-                        note = {"page": None, "device": device, "theme": theme,
-                                "error": f"the slice stopped: {type(e).__name__}: {str(e)[:300]}"}
-                        records.append(note)
-                        log.write(json.dumps(note, ensure_ascii=False) + "\n")
-                        log.flush()
-                        print(note["error"], flush=True)
+        site, cookies, run, share, stop = ui_shots.serve(data)
+        line = ui_shots.first_line(data, run)
+        also = ";".join(ui_shots.first_line(data, run, k) for k in (40, 200))
+        border = ui_shots.border_view(data)
+        wanted = [w for w in only.split(",") if w]
+        pages = {n: p for n, p in ui_shots.PAGES.items() if not wanted or any(w in n for w in wanted)}
+        themes = ["light", "dark"] if dark else ["light"]
+        with sync_playwright() as pw, open(os.path.join(out, "pages-states.jsonl"), "w", encoding="utf-8") as log:
+            return measure_all(pw, site, cookies, run, share, line, also, border, pages, devices, themes, axe_source,
+                               log)
     finally:
-        stop()
+        if stop:
+            stop()
         if not data_dir:
             import gc
-            gc.collect()
+            gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
             shutil.rmtree(data, ignore_errors=True)
-    return records
+
+
+def _axe_ok(r: dict) -> bool:
+    return "axe" in r and "error" not in r["axe"]
 
 
 def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
-    """Per device and theme the totals; the lists de-duplicated by signature over all states, most frequent first."""
+    """Per device and theme the totals; the lists de-duplicated by signature over all states, most frequent first.
+    Reads the records of earlier versions too (their "sideways": the scrolling elements)."""
     groups = defaultdict(list)
     for r in records:
         groups[f"{r['device']} {r['theme']}"].append(r)
+    scrollers = lambda r: r.get("scrollers", r.get("sideways", []))  # noqa: E731
     per = {}
     for key, rs in groups.items():
         ok = [r for r in rs if r.get("page") and "error" not in r]
         row = {"states": len(ok), "errors": [f"{r.get('page')}: {r['error']}" for r in rs if "error" in r],
-               "controls": sum(r["controls"] for r in ok)}
+               "controls": sum(r["controls"] for r in ok),
+               "controls_unreachable": sum(sum(r.get("unreachable", {}).values()) for r in ok),
+               "controls_grown": sum(r.get("controls_grown", 0) for r in ok)}
         for b in controls:
             row[f"controls_under_{b}"] = sum(sum(r["controls_under"][str(b)].values()) for r in ok)
             row[f"control_signatures_under_{b}"] = len({s for r in ok for s in r["controls_under"][str(b)]})
@@ -719,10 +909,13 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
             row[f"text_chars_under_{b}"] = n
             row[f"text_share_under_{b}"] = round(n / chars, 4) if chars else None
         row["states_document_sideways"] = sorted(r["page"] for r in ok if r["document_over"])
-        row["states_panel_sideways"] = sorted(r["page"] for r in ok if r["sideways"])
-        with_axe = [r for r in ok if "axe" in r and "error" not in r["axe"]]
+        row["states_with_scrollers"] = sorted(r["page"] for r in ok if scrollers(r))
+        row["containers"] = sum(sum(r.get("containers", {}).values()) for r in ok)
+        row["grey_boxes"] = sum(sum(r.get("grey_boxes", {}).values()) for r in ok)
+        with_axe = [r for r in ok if _axe_ok(r)]
         row["axe_states"] = len(with_axe)
-        row["axe_errors"] = sorted(r["page"] for r in ok if "axe" in r and "error" in r["axe"])
+        row["axe_missing"] = len(ok) - len(with_axe)
+        row["axe_errors"] = sorted(f"{r['page']}: {r['axe']['error']}" for r in ok if "axe" in r and not _axe_ok(r))
         for kind in ("violations", "incomplete"):
             row[f"axe_{kind}_nodes"] = {i: sum(x["nodes"] for r in with_axe for x in r["axe"][kind] if x["impact"] == i)
                                         for i in IMPACTS}
@@ -747,20 +940,25 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
             row["devices"], row["pages"] = sorted(row["devices"]), len(row["pages"])
         return out
 
+    phones = lambda r: r["device"] != "desktop"  # noqa: E731
+    desktop = lambda r: r["device"] == "desktop"  # noqa: E731
     lists = {}
     for b in controls:
-        for scope, keep in (("phones", lambda r: r["device"] != "desktop"), ("desktop", lambda r: r["device"] == "desktop")):
+        for scope, keep in (("phones", phones), ("desktop", desktop)):
             lists[f"controls_under_{b}_{scope}"] = dedup(lambda r, b=b, keep=keep: [
                 (s, n, r["control_examples"].get(s)) for s, n in r["controls_under"][str(b)].items()] if keep(r) else [])
-            lists[f"controls_under_{b}_{scope}"] = [x for x in lists[f"controls_under_{b}_{scope}"] if x["states"]]
     for b in text:
         lists[f"text_under_{b}"] = dedup(lambda r, b=b: [(s, n, r["text_examples"].get(s))
                                                           for s, n in r["text_under"][str(b)].items()])
-    lists["sideways"] = dedup(lambda r: [(s["sig"], s["over"], None) for s in r["sideways"]]
-                              + ([("(the document)", r["document_over"], None)] if r["document_over"] else []))
+    lists["document_sideways"] = dedup(lambda r: [("(the document)", r["document_over"], None)] if r["document_over"]
+                                       else [])
+    lists["scrollers"] = dedup(lambda r: [(s["sig"], s["over"], None) for s in scrollers(r)])
+    lists["unreachable"] = dedup(lambda r: [(s, n, None) for s, n in r.get("unreachable", {}).items()])
+    lists["grey_boxes"] = dedup(lambda r: [(s, n, None) for s, n in r.get("grey_boxes", {}).items()])
+    lists["containers"] = dedup(lambda r: [(s, n, None) for s, n in r.get("containers", {}).items()])
     axe_rows = {}
     for r in ok:
-        if "axe" not in r or "error" in r["axe"]:
+        if not _axe_ok(r):
             continue
         for kind in ("violations", "incomplete"):
             for x in r["axe"][kind]:
@@ -776,27 +974,29 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     seconds.sort(key=lambda x: (-x["total"], x["state"]))
     return {"per_device_theme": dict(sorted(per.items())), "lists": lists, "seconds_slowest": seconds[:10],
             "seconds_total": round(sum(s["total"] for s in seconds), 1), "states": len(seconds),
-            "bounds": {"controls": list(controls), "text": list(text)}}
+            "states_failed": sum(1 for r in records if "error" in r),
+            "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
 
 
 def pages_markdown(s: dict) -> str:
     c1, c2 = s["bounds"]["controls"]
     t1, t2, t3 = s["bounds"]["text"]
-    out = ["# UI metrics: pages", "", f"{s['states']} states measured; seconds in all {s['seconds_total']} "
-           "(indicative: the shared lock, other sessions).", "",
-           f"| Device, theme | States | Controls | Under {c1} px (signatures) | Under {c2} px (signatures) | "
-           f"Text chars | Under {t1} px | Under {t2} | Under {t3} | Sideways (document / panel) | axe violations: "
-           "nodes (rules) crit / serious / moderate / minor | axe incomplete: nodes | Errors |",
-           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed; seconds in "
+           f"all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
+           f"| Device, theme | States | Controls (unreachable apart) | Under {c1} px (signatures) | Under {c2} px "
+           f"(signatures) | Text chars | Under {t1} px | Under {t2} | Under {t3} | Document sideways / states with "
+           "elements scrolling sideways | Grey boxes / containers | axe violations: nodes (rules) crit / serious / "
+           "moderate / minor | axe incomplete: nodes | No axe result | Errors |",
+           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for key, r in s["per_device_theme"].items():
         v = " / ".join(f"{r['axe_violations_nodes'][i]} ({r['axe_violations_rules'][i]})" for i in IMPACTS)
         inc = " / ".join(str(r["axe_incomplete_nodes"][i]) for i in IMPACTS)
         pct = lambda b: f"{r[f'text_chars_under_{b}']} ({(r[f'text_share_under_{b}'] or 0) * 100:.1f} %)"  # noqa: E731
-        out.append(f"| {key} | {r['states']} | {r['controls']} | {r[f'controls_under_{c1}']} "
-                   f"({r[f'control_signatures_under_{c1}']}) | {r[f'controls_under_{c2}']} "
+        out.append(f"| {key} | {r['states']} | {r['controls']} ({r['controls_unreachable']}) | "
+                   f"{r[f'controls_under_{c1}']} ({r[f'control_signatures_under_{c1}']}) | {r[f'controls_under_{c2}']} "
                    f"({r[f'control_signatures_under_{c2}']}) | {r['text_chars']} | {pct(t1)} | {pct(t2)} | {pct(t3)} | "
-                   f"{len(r['states_document_sideways'])} / {len(r['states_panel_sideways'])} | {v} | {inc} | "
-                   f"{len(r['errors']) + len(r['axe_errors'])} |")
+                   f"{len(r['states_document_sideways'])} / {len(r['states_with_scrollers'])} | "
+                   f"{r['grey_boxes']} / {r['containers']} | {v} | {inc} | {r['axe_missing']} | {len(r['errors'])} |")
 
     def rows(name: str, title: str, example) -> None:
         items = s["lists"].get(name, [])
@@ -805,14 +1005,20 @@ def pages_markdown(s: dict) -> str:
         for x in items[:TOP]:
             out.append(f"| `{x['signature'][:90]}` | {x['states']} | {x['count']} | {', '.join(x['devices'])} | "
                        f"{example(x['example'])} |")
-    ctl = lambda e: f"{e['w']}×{e['h']} “{e['text'].replace('|', '¦')}”" if e else ""  # noqa: E731
+    ctl = lambda e: (f"{e['w']}×{e['h']} “{e['text'].replace('|', '¦')}”"  # noqa: E731
+                     + (f" ({e['how']})" if e.get("how", "own") != "own" else "")) if e else ""
     txt = lambda e: f"{e['size']} px “{e['text'].replace('|', '¦')}”" if e else ""  # noqa: E731
     for b in (c1, c2):
         rows(f"controls_under_{b}_phones", f"Controls under {b} px on the phones", ctl)
         rows(f"controls_under_{b}_desktop", f"Controls under {b} px on the desktop", ctl)
+    rows("unreachable", "Controls that cannot be reached (not counted above)", lambda e: "")
     for b in (t1, t2, t3):
         rows(f"text_under_{b}", f"Text under {b} px (count: characters)", txt)
-    rows("sideways", "Sideways scroll (count: px over, summed)", lambda e: "")
+    rows("document_sideways", "The document wider than its viewport (count: px over, summed)", lambda e: "")
+    rows("scrollers", "Elements that scroll sideways by themselves (count: px over, summed)", lambda e: "")
+    rows("grey_boxes", f"Grey boxes as rendered (opaque background, border, radius ≥ 8 px, shadow; ≥ {BOX_MIN} px)",
+         lambda e: "")
+    rows("containers", f"Containers with a background or border of their own (≥ {BOX_MIN} px)", lambda e: "")
     out += ["", "## axe-core rules", "", "| Kind | Rule | Impact | WCAG | States | Nodes | Example |",
             "| --- | --- | --- | --- | --- | --- | --- |"]
     out += [f"| {x['kind']} | {x['rule']} | {x['impact']} | {'yes' if x['wcag'] else ''} | {x['states']} | {x['nodes']} | "
@@ -833,13 +1039,14 @@ def _write(out: str, name: str, data, markdown: str):
         f.write(markdown)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("static", help="counts from the source")
     s.add_argument("--out", required=True)
     s.add_argument("--chars", default=ICON_CHARS, help="the characters used as icons or joints")
     s.add_argument("--radius", type=float, default=8, help="the radius (px) of 'the same grey box' at least")
+    s.add_argument("--with-demos", action="store_true", help="count the characters of the demo pages too")
     p = sub.add_parser("pages", help="measurements of the rendered states of tools/ui_shots.py")
     p.add_argument("--out", required=True)
     p.add_argument("--only", default="", help="pages whose name contains this (comma-separated)")
@@ -847,9 +1054,9 @@ def main():
     p.add_argument("--dark", action="store_true", help="the dark theme too")
     p.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
     p.add_argument("--summarise", action="store_true", help="only the summary again, from --out's pages-states.jsonl")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "static":
-        result = static(REPO, args.chars, args.radius)
+        result = static(REPO, args.chars, args.radius, args.with_demos)
         _write(args.out, "static", result, static_markdown(result))
         print(os.path.join(args.out, "static.md"))
         return

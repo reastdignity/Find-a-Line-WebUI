@@ -1,11 +1,15 @@
-"""tools/ui_metrics.py: the counters of "static" on small inputs of known counts, the page-measuring script on a page
-of known sizes (Playwright's Edge, as tests/test_web.py), and the contexts of tools/ui_shots.py's loop (bypass_csp
-only when asked for)."""
+"""tools/ui_metrics.py: the counters of "static" on small inputs of known counts; the page-measuring script on a page
+of known sizes in Chromium (Playwright's Edge, as tests/test_web.py) and WebKit (the iPhone's engine); axe-core and its
+failures; tools/ui_shots.py's loop on a small local site (a failing step, an early stop, the contexts' CSP); the pass's
+loop with a failing state; the summary and --summarise."""
 
 import inspect
+import io
 import json
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -36,6 +40,8 @@ A_CSS = r"""/* .x { font-size: 99px; color: #123456; border-radius: 3px } */
 .ui .c::after { content: "\25BE"; }
 .ui .d::before { content: "×"; }
 .ui .e { --local: #ff0000; }
+.ui .f { color: #FFF; background: #ffffff; border-color: rgb(0,0,0); outline-color: rgb(0, 0, 0); }
+.ui .g { font: 600 var(--fs)/1.4 var(--font); }
 """
 X_TSX = """// a comment with × and ▾ that does not count
 import { t } from "./i18n";
@@ -46,6 +52,8 @@ export const A = () => <div title="Close the panel">×</div>;
 export const B = () => <p>A1 12.3 m → A2 10.1 m</p>;
 const re = /[▾]/;
 const colour = "#e10fd6";
+export const C = () => <button aria-label="Close ×">×</button>;
+export const U = () => <p>https://example.org · see ✓</p>;
 """
 Y_TSX = """import { t } from "./i18n";
 export const C = () => <b>{t("ui.x")}</b>;
@@ -53,6 +61,8 @@ export const C = () => <b>{t("ui.x")}</b>;
 Z_TSX = """import { label } from "./i18n";
 export const D = () => <span>Loading the run</span>;
 export const E = () => <i>{label("x")}</i>;
+"""
+GALLERY_TSX = """export const G = () => <p>× · ✓</p>;
 """
 CATALOGUE = {"intro.a": "One two three four five.", "intro.b": "One two three.", "hint.a": "Tap the map.",
              "field.x.help": "A help text of six words.", "ui.y.help": "Two words", "error.a": "It failed.",
@@ -64,23 +74,25 @@ def tree(tmp_path):
     (tmp_path / "viewer" / "src" / "ui").mkdir(parents=True)
     (tmp_path / "locales").mkdir()
     for name, text in (("viewer/src/ui/tokens.css", TOKENS_CSS), ("viewer/src/a.css", A_CSS),
-                       ("viewer/src/x.tsx", X_TSX), ("viewer/src/y.tsx", Y_TSX), ("viewer/src/z.tsx", Z_TSX)):
+                       ("viewer/src/x.tsx", X_TSX), ("viewer/src/y.tsx", Y_TSX), ("viewer/src/z.tsx", Z_TSX),
+                       ("viewer/src/ui/Gallery.tsx", GALLERY_TSX)):
         (tmp_path / name).write_text(text, encoding="utf-8")
     (tmp_path / "locales" / "en.json").write_text(json.dumps(CATALOGUE, ensure_ascii=False), encoding="utf-8")
     return tmp_path
 
 
 def test_css_counts(tree):
-    """Font sizes (the shorthand too, not a custom property's), radii, z-index, colours outside the tokens (a
-    custom property's too, not a comment's), monospace with its uppercase (merged over a selector's rules), the
-    four looks of a container and the characters of CSS content (an escape decoded)."""
+    """Font sizes (the shorthand too, a var() size as "unresolved", not a custom property's), radii, z-index, colours
+    outside the tokens (normalised; a custom property's too, not a comment's), monospace with its uppercase (merged
+    over a selector's rules), the four looks of a container and the characters of CSS content (an escape decoded)."""
     r = ui_metrics.static(str(tree))
-    assert {x["value"]: x["count"] for x in r["font_sizes"]} == {"13px": 2, "11.5px": 1, "11px": 1}
+    assert {x["value"]: x["count"] for x in r["font_sizes"]} == {"13px": 2, "11.5px": 1, "11px": 1, "unresolved": 1}
     assert r["font_sizes_px"] == [11, 11.5, 13]
     assert {x["value"]: x["count"] for x in r["radii"]} == {"10px": 1, "4px 4px 0 0": 1, "12px": 1, "8px": 1,
                                                             "999px": 1, "6px": 1}
     assert {x["value"]: x["count"] for x in r["z_index"]} == {"5": 2, "1000": 1}
-    assert r["colours_outside_tokens"] == {"viewer/src/a.css": {"#abc": 1, "#ff0000": 1, "rgb(1 2 3 / .5)": 1}}
+    assert r["colours_outside_tokens"] == {"viewer/src/a.css": {"#aabbcc": 1, "#ff0000": 1, "#ffffff": 2,
+                                                                "rgb(0, 0, 0)": 2, "rgb(1 2 3 / .5)": 1}}
     assert [(m["selector"], m["uppercase"]) for m in r["mono"]] == [(".ui .m", True), (".ui .m2, .ui .m3", False)]
     assert r["mono_uppercase"] == 1
     boxes = {b["selector"]: (b["surface"], b["border"], b["radius"], b["shadow"]) for b in r["boxes"]}
@@ -92,17 +104,20 @@ def test_css_counts(tree):
 
 
 def test_code_and_catalogue_counts(tree):
-    """Characters in the code (not in comments, also after a string holding "//" and in a template and a regular
-    expression), in the catalogue; dense strings; the catalogue's texts by group; the .tsx files with English in
-    code and without t(; colours in the code."""
+    """Characters in the code (not in comments or regular expressions; after a string holding "//", in a template, in
+    JSX text after "https://"); inside an aria-label or a title apart as not shown; the demo pages left out unless
+    asked for; in the catalogue; dense strings; the catalogue's texts by group; the .tsx files with English in code
+    and without t(; colours in the code."""
     r = ui_metrics.static(str(tree))
     assert [(x["file"], x["line"], x["char"]) for x in r["chars_in_code"]] == [
         ("viewer/src/x.tsx", 4, "·"), ("viewer/src/x.tsx", 6, "×"), ("viewer/src/x.tsx", 7, "→"),
-        ("viewer/src/x.tsx", 8, "▾")]
+        ("viewer/src/x.tsx", 10, "×"), ("viewer/src/x.tsx", 11, "·"), ("viewer/src/x.tsx", 11, "✓")]
+    assert [(x["line"], x["char"]) for x in r["chars_not_shown"]] == [(10, "×")]
+    assert r["demos_left_out"] == ["viewer/src/ui/Gallery.tsx"]
     assert [(x["key"], x["char"]) for x in r["chars_in_catalogue"]] == [
         ("ui.a", "▾"), ("ui.b", "·"), ("ui.c", "↑"), ("ui.c", "×"), ("ui.c", "✓")]
-    assert [d["where"] for d in r["dense_strings"]] == ["viewer/src/x.tsx:4", "locales/en.json:ui.b",
-                                                        "locales/en.json:ui.c"]
+    assert [d["where"] for d in r["dense_strings"]] == ["viewer/src/x.tsx:4", "viewer/src/x.tsx:11",
+                                                        "locales/en.json:ui.b", "locales/en.json:ui.c"]
     assert r["texts"] == {
         "intro": {"texts": 2, "words": 8, "median": 4, "p90": 5, "longest": 5},
         "hint": {"texts": 1, "words": 3, "median": 3, "p90": 3, "longest": 3},
@@ -116,8 +131,12 @@ def test_code_and_catalogue_counts(tree):
         "english, no t(": ["viewer/src/x.tsx", "viewer/src/z.tsx"],
         "english, no t( nor label(, errorText(, quantity(, detailMessage(": ["viewer/src/x.tsx"],
         "two English texts or more, no t(": ["viewer/src/x.tsx"],
-        "no t( at all": ["viewer/src/x.tsx", "viewer/src/z.tsx"]}
+        "no t( at all": ["viewer/src/ui/Gallery.tsx", "viewer/src/x.tsx", "viewer/src/z.tsx"]}
     assert r["colours_in_code"] == {"viewer/src/x.tsx": {"#e10fd6": 1}}
+    demos = ui_metrics.static(str(tree), with_demos=True)
+    assert demos["demos_left_out"] == []
+    assert [(x["file"], x["char"]) for x in demos["chars_in_code"]][:3] == [
+        ("viewer/src/ui/Gallery.tsx", "×"), ("viewer/src/ui/Gallery.tsx", "·"), ("viewer/src/ui/Gallery.tsx", "✓")]
 
 
 def test_static_is_deterministic(tree, tmp_path_factory):
@@ -131,12 +150,29 @@ def test_static_is_deterministic(tree, tmp_path_factory):
 
 
 def test_strip_comments():
-    """Comments become spaces (lines kept); strings, templates with ${} and regular expressions stay."""
-    code = 'a = "//x"; // c\nb = `/* ${"}"} */`; /* d\n e */ f = /\\/\\//g; g = h / 2; // end'
+    """Comments become spaces (lines kept); strings, templates with ${} and regular expressions stay (or become
+    spaces with blank_regex); "//" after "https:" in JSX text is no comment."""
+    code = 'a = "//x"; // c\nb = `/* ${"}"} */`; /* d\n e */ f = /\\/\\//g; g = h / 2; // end\n<p>https://x.org ×</p>'
     stripped = ui_metrics.strip_comments(code)
     assert stripped.split("\n")[0].rstrip() == 'a = "//x";'
     assert '`/* ${"}"} */`' in stripped and "/\\/\\//g" in stripped and "h / 2;" in stripped
-    assert "end" not in stripped and " d" not in stripped and stripped.count("\n") == 2
+    assert "end" not in stripped and " d" not in stripped and stripped.count("\n") == 3
+    assert stripped.split("\n")[3] == "<p>https://x.org ×</p>"
+    blanked = ui_metrics.strip_comments(code, blank_regex=True)
+    assert "/\\/\\//g" not in blanked and "h / 2;" in blanked and blanked.split("\n")[3].endswith("x.org ×</p>")
+    odd = "z = [/ a\n×]"  # a "/" that opens no regular expression on its line: the lines stay as they are
+    assert ui_metrics.strip_comments(odd, blank_regex=True) == odd
+
+
+def test_font_size_and_colour_edges():
+    """A font whose size is var() or calc() is "unresolved", "font: inherit" sets none; #FFF, #fff and #ffffff are one
+    colour, so are rgb() with and without spaces."""
+    assert ui_metrics.font_size_of("font", "600 var(--fs)/1.4 x") == "unresolved"
+    assert ui_metrics.font_size_of("font", "calc(1em + 2px) x") == "unresolved"
+    assert ui_metrics.font_size_of("font", "inherit") is None
+    assert ui_metrics.font_size_of("font", "500 12px var(--mono)") == "12px"
+    assert {ui_metrics._colour(c) for c in ("#FFF", "#fff", "#ffffff")} == {"#ffffff"}
+    assert ui_metrics._colour("rgb(0,0,0)") == ui_metrics._colour("rgb( 0, 0 , 0 )") == "rgb(0, 0, 0)"
 
 
 class _Fake:
@@ -175,54 +211,87 @@ def _playwright() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
+def _launch(p, engine: str):
+    """Edge for "chromium" (as tests/test_web.py), Playwright's WebKit for "webkit"; skipped when it is missing."""
+    try:
+        return p.chromium.launch(channel="msedge", headless=True) if engine == "chromium" else p.webkit.launch()
+    except Exception as e:
+        pytest.skip(f"{engine} not available: {type(e).__name__}")
+
+
 PAGE = """<!doctype html><html lang="en"><head><style>
+::-webkit-scrollbar { width: 0; height: 0; }
 body { margin: 0; font-size: 16px; } button { font-size: 16px; }
 #b1 { width: 30px; height: 30px; } .tiny { width: 20px; height: 50px; }
 a { display: inline-block; width: 50px; height: 50px; }
 .lab { display: inline-block; width: 100px; height: 20px; }
 .lab input { position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; }
+.big { display: inline-block; width: 200px; height: 44px; }
 .off { width: 10px; height: 10px; } .gone { display: none; }
+.hint { position: relative; width: 18px; height: 18px; border: 0; padding: 0; box-sizing: border-box; }
+.hint::after { content: ""; position: absolute; inset: -12px; }
+.seg { width: 30px; height: 30px; }
+.away { position: absolute; left: -5000px; top: 0; width: 20px; height: 20px; }
+.tall { height: 2000px; } .low { width: 20px; height: 20px; }
 .small { font-size: 10.5px; } .pan { width: 100px; height: 50px; overflow: auto; } .pan div { width: 300px; }
+.chips { width: 100px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
+.card { width: 100px; height: 60px; background: #fff; border: 1px solid #ccc; border-radius: 10px;
+  box-shadow: 0 1px 2px #0003; }
+.plain { width: 100px; height: 60px; background: #eee; }
 .wide { width: 2000px; height: 1px; }
 </style></head><body>
 <button id="b1">A</button><button class="tiny">B</button><a href="#x">Go</a>
 <label class="lab"><input type="checkbox">Tick</label>
+<label class="big"><input type="checkbox" class="vis">Show</label>
 <button class="off" disabled>x</button><button class="gone">h</button>
+<button class="hint">?</button><button class="seg u-on"></button><button class="seg"></button>
+<button class="away">Off</button>
 <p class="small">Small text here</p><p>Big</p>
 <div class="pan"><div>wide</div></div>
+<div class="chips">one two three four five six</div>
+<div class="card"></div><div class="plain"></div>
 <svg width="200" height="100" viewBox="0 0 100 50"><text x="0" y="20" font-size="10" class="lbl">Scaled</text></svg>
-<div class="wide"></div>
+<div class="wide"></div><div class="tall"></div><button class="low">Low</button>
 </body></html>"""
 
 
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
-def test_measure_a_page():
-    """Controls by box (a hidden checkbox by its label; disabled and hidden ones left out), text by its rendered size
-    (SVG text scaled to the screen), sideways scroll of a panel and of the document."""
+def test_measure_a_page(engine):
+    """Controls by their target: a hidden checkbox and a visible one by their labels, a control grown by its ::after
+    (18 px, inset -12 px: 42 px); one control in two states one signature; disabled and hidden ones left out; one at
+    -5000 px apart as unreachable, one below the fold counted. Text by its rendered size (SVG text scaled to the
+    screen). The document wider than its viewport; elements scrolling sideways by themselves (overflow-y hidden too).
+    The rendered containers and grey boxes. With a modal dialog open only its controls count."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="msedge", headless=True)
+        browser = _launch(p, engine)
         try:
             page = browser.new_page(viewport={"width": 800, "height": 600})
             page.set_content(PAGE)
             r = ui_metrics.measure(page, None)
-            # an open modal dialog: the page behind it is inert, its own controls only count
             page.evaluate("() => { const d = document.createElement('dialog'); d.innerHTML = "
                           "'<button class=\"in\">OK</button>'; document.body.append(d); d.showModal(); }")
             modal = ui_metrics.measure(page, None)
         finally:
             browser.close()
-    assert r["controls"] == 4
+    assert r["controls"] == 9
     assert r["controls_under"] == {
-        "44": {"button": 1, "button.tiny": 1, "input[type=checkbox] (by its label)": 1},
-        "24": {"button.tiny": 1, "input[type=checkbox] (by its label)": 1}}
+        "44": {"button": 1, "button.hint": 1, "button.low": 1, "button.seg": 2, "button.tiny": 1,
+               "input[type=checkbox] (by its label)": 1},
+        "24": {"button.low": 1, "button.tiny": 1, "input[type=checkbox] (by its label)": 1}}
+    assert r["control_examples"]["button.hint"] == {"w": 42, "h": 42, "text": "?", "how": "with ::after"}
     assert r["control_examples"]["input[type=checkbox] (by its label)"]["w"] == 100
-    assert r["text_chars"] == 37
+    assert r["controls_grown"] == 1
+    assert r["unreachable"] == {"button.away": 1}
+    assert r["text_chars"] == 75
     assert r["text_chars_under"] == {"12": 15, "11": 15, "10": 0}
     assert r["text_under"]["12"] == {"p.small": 15}
     assert r["text_examples"]["p.small"] == {"size": 10.5, "text": "Small text here"}
-    assert r["sideways"] == [{"sig": "div.pan", "over": 200}]
     assert r["document_over"] == 1200
+    assert sorted((s["sig"], s["over"] > 0) for s in r["scrollers"]) == [("div.chips", True), ("div.pan", True)]
+    assert [s["over"] for s in r["scrollers"] if s["sig"] == "div.pan"] == [200]
+    assert r["containers"] == {"div.card": 1, "div.plain": 1} and r["grey_boxes"] == {"div.card": 1}
     assert "axe" not in r
     assert modal["controls"] == 1 and modal["controls_under"]["44"] == {"button.in": 1}
 
@@ -248,24 +317,193 @@ def test_axe_on_a_page():
     assert rules["html-has-lang"]["impact"] == "serious"
 
 
+AXE_REJECTS = "window.axe = {run: () => Promise.reject(new Error('axe broke'))}"
+AXE_HANGS = "window.axe = {run: () => new Promise(() => {})}"
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_axe_failure_keeps_the_measurements(monkeypatch):
+    """axe-core rejecting or not answering in time: the state's "axe" holds the error, its own measurements stay."""
+    from playwright.sync_api import sync_playwright
+    monkeypatch.setattr(ui_metrics, "AXE_TIMEOUT_MS", 300)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            results = []
+            for source in (AXE_REJECTS, AXE_HANGS):
+                page = browser.new_page()
+                page.set_content("<!doctype html><html lang='en'><body><button>OK</button><p>Some text</p></body></html>")
+                results.append(ui_metrics.measure(page, source))
+                page.close()
+        finally:
+            browser.close()
+    rejected, hung = results
+    assert "axe broke" in rejected["axe"]["error"] and rejected["controls"] == 1 and rejected["text_chars"] == 11
+    assert hung["axe"] == {"error": "axe.run took over 300 ms"} and hung["controls"] == 1
+
+
+def test_axe_missing(monkeypatch, tmp_path, capsys):
+    """Without viewer/node_modules/axe-core/axe.min.js the axe part is left out with one line."""
+    monkeypatch.setattr(ui_metrics, "AXE", str(tmp_path / "axe.min.js"))
+    assert ui_metrics._axe_source() is None
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and "axe-core not found" in out
+
+
+class _Site(BaseHTTPRequestHandler):
+    """Every path: a small page under a strict CSP (the app's script-src 'self')."""
+    def do_GET(self):
+        body = (b"<!doctype html><html lang='en'><head><title>t</title></head><body><main><h1>Page</h1>"
+                b"<button>OK</button><p>Some text</p></main></body></html>")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def site():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Site)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+FAILING = {"one": ("/one", "", None, "visitor"),
+           "bad": ("/bad", "", "js:(() => { throw new Error('step broke') })()", "visitor"),
+           "two": ("/two", "", None, "visitor")}
+
+
+def _chromium(p):
+    try:
+        return p.chromium.launch()
+    except Exception as e:
+        pytest.skip(f"Playwright's Chromium not installed: {type(e).__name__}")
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_prepared_pages_failing_step_and_early_stop(site):
+    """A step that raises ends ui_shots' loop (its default); with on_error the failed page is reported and the rest
+    are prepared. A caller that stops early gets its page closed."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        _chromium(p).close()
+        with pytest.raises(Exception, match="step broke"):
+            for _ in ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"]):
+                pass
+        failed = []
+        names = [shown.name for shown in ui_shots.prepared_pages(
+            p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"],
+            on_error=lambda *args: failed.append(args[:3]))]
+        assert names == ["one", "two"] and failed == [("bad", "desktop", "light")]
+        gen = ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"])
+        first = next(gen)
+        gen.close()
+        assert first.name == "one" and first.page.is_closed()
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_contexts_and_the_csp_on_a_page(site):
+    """On a page under a strict CSP the measuring pass's context runs an injected script; a context made as
+    ui_shots makes it cannot."""
+    from playwright.sync_api import sync_playwright
+    inject = ("() => { const s = document.createElement('script'); s.textContent = 'window.injected = 1'; "
+              "document.head.append(s); return window.injected === 1; }")
+    ran = {}
+    with sync_playwright() as p:
+        _chromium(p).close()
+        for name, options in (("ui_shots", None), ("ui_metrics", {"bypass_csp": True})):
+            gen = ui_shots.prepared_pages(p, site, {}, "r", "s", "l", "a", "b", {"one": FAILING["one"]},
+                                          ["desktop"], ["light"], options)
+            with ui_metrics.closing(gen):
+                ran[name] = next(gen).page.evaluate(inject)
+    assert ran == {"ui_shots": False, "ui_metrics": True}
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_measure_all_goes_on_after_failures(site):
+    """The pass's loop: a page whose step fails is recorded with its error, axe failing on the others keeps their
+    measurements; every record is written to the log; the summary counts the states without an axe result."""
+    from playwright.sync_api import sync_playwright
+    log = io.StringIO()
+    with sync_playwright() as p:
+        _chromium(p).close()
+        records = ui_metrics.measure_all(p, site, {}, "r", "s", "l", "a", "b", FAILING, ["desktop"], ["light"],
+                                         AXE_REJECTS, log)
+    assert [(r["page"], "error" in r) for r in records] == [("one", False), ("bad", True), ("two", False)]
+    assert "step broke" in records[1]["error"]
+    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[0], records[2]))
+    assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == ["one", "bad", "two"]
+    row = ui_metrics.summarise(records)["per_device_theme"]["desktop light"]
+    assert (row["states"], len(row["errors"]), row["axe_missing"], row["controls"]) == (2, 1, 2, 2)
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_run_pages_removes_its_temporary_folder(monkeypatch, tmp_path):
+    """The temporary data folder is named as tools/clean_temp.py's ui-shots-* and removed also when setting up the
+    site fails."""
+    import clean_temp
+    made = []
+
+    def broken(data, run_folder=None):
+        made.append(data)
+        raise RuntimeError("no site")
+    monkeypatch.setattr(ui_shots, "serve", broken)
+    monkeypatch.setattr(ui_metrics, "AXE", str(tmp_path / "missing.js"))
+    with pytest.raises(RuntimeError, match="no site"):
+        ui_metrics.run_pages(str(tmp_path / "out"), "", ["desktop"], False, None)
+    assert len(made) == 1 and not os.path.exists(made[0])
+    os.makedirs(made[0])  # as a killed run would leave it
+    try:
+        with os.scandir(os.path.dirname(made[0])) as entries:
+            kinds = [clean_temp._kind(e) for e in entries if e.name == os.path.basename(made[0])]
+        assert kinds == ["ui-shots"]
+    finally:
+        os.rmdir(made[0])
+
+
+def _state(page, device, n44, chars_small):
+    return {"page": page, "device": device, "theme": "light", "controls": 3,
+            "controls_under": {"44": {"button.x": n44}, "24": {}},
+            "control_examples": {"button.x": {"w": 30, "h": 30, "text": "X", "how": "own"}},
+            "unreachable": {"button.away": 1}, "controls_grown": 0,
+            "text_chars": 100, "text_chars_under": {"12": chars_small, "11": 0, "10": 0},
+            "text_under": {"12": {"span.s": chars_small}, "11": {}, "10": {}},
+            "text_examples": {"span.s": {"size": 11.5, "text": "s"}}, "document_over": 0,
+            "scrollers": [{"sig": "div.row", "over": 10}], "containers": {"div.card": 2}, "grey_boxes": {"div.card": 1},
+            "axe": {"violations": [{"id": "color-contrast", "impact": "serious", "tags": ["wcag2aa"], "nodes": 2,
+                                    "example": ".m"}], "incomplete": []},
+            "seconds": {"load": 3.0, "steps": 1.0, "measure": 0.5}}
+
+
 def test_summary_deduplicates():
     """The summary: totals per device and theme, signatures counted once per state over all states."""
-    def state(page, device, n44, chars_small):
-        return {"page": page, "device": device, "theme": "light", "controls": 3,
-                "controls_under": {"44": {"button.x": n44}, "24": {}},
-                "control_examples": {"button.x": {"w": 30, "h": 30, "text": "X"}},
-                "text_chars": 100, "text_chars_under": {"12": chars_small, "11": 0, "10": 0},
-                "text_under": {"12": {"span.s": chars_small}, "11": {}, "10": {}},
-                "text_examples": {"span.s": {"size": 11.5, "text": "s"}}, "document_over": 0, "sideways": [],
-                "axe": {"violations": [{"id": "color-contrast", "impact": "serious", "tags": ["wcag2aa"], "nodes": 2,
-                                        "example": ".m"}], "incomplete": []},
-                "seconds": {"load": 3.0, "steps": 1.0, "measure": 0.5}}
-    s = ui_metrics.summarise([state("a", "iphone", 2, 10), state("b", "iphone", 1, 30), state("a", "desktop", 4, 0)])
+    s = ui_metrics.summarise([_state("a", "iphone", 2, 10), _state("b", "iphone", 1, 30), _state("a", "desktop", 4, 0)])
     phone = s["per_device_theme"]["iphone light"]
     assert phone["controls_under_44"] == 3 and phone["control_signatures_under_44"] == 1
     assert phone["text_share_under_12"] == 0.2 and phone["axe_violations_nodes"]["serious"] == 4
+    assert (phone["controls_unreachable"], phone["grey_boxes"], phone["containers"], phone["axe_missing"]) == (2, 2, 4, 0)
+    assert phone["states_with_scrollers"] == ["a", "b"] and phone["states_document_sideways"] == []
     row = s["lists"]["controls_under_44_phones"][0]
     assert (row["signature"], row["states"], row["count"], row["pages"]) == ("button.x", 2, 3, 2)
     assert s["lists"]["controls_under_44_desktop"][0]["count"] == 4
     assert s["lists"]["axe"][0]["states"] == 3 and s["seconds_total"] == 13.5
+    assert s["lists"]["grey_boxes"][0]["count"] == 3 and s["lists"]["unreachable"][0]["states"] == 3
     assert "| iphone light | 2 |" in ui_metrics.pages_markdown(s)
+
+
+def test_summarise_again_from_the_log(tmp_path):
+    """--summarise rebuilds pages.json and pages.md from pages-states.jsonl alone."""
+    records = [_state("a", "iphone", 2, 10), {"page": "bad", "device": "iphone", "theme": "light", "error": "E"}]
+    (tmp_path / "pages-states.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"])
+    expected = json.loads(json.dumps(ui_metrics.summarise(records)))
+    assert json.loads((tmp_path / "pages.json").read_text(encoding="utf-8")) == expected
+    assert "1 states measured, 1 failed" in (tmp_path / "pages.md").read_text(encoding="utf-8")
