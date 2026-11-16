@@ -301,15 +301,15 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     552999.9999999999, lands on the same pixels), with the layer's floor rule applied as the layer applies it (its
     0 m patches would differ otherwise). The member's own georeferencing, not the layer's fix: a member without a CRS
     (XYZ text) in the tile's, an easting with the zone in front without it (_zone_free), moved only by a shift the
-    fix declares as deliberate (TransformFix.shift: Bremerhaven's DOM1 half a pixel onto its terrain's grid; its
-    offset and rounding are not taken, so a wrong one is found); an XYZ member in columns
-    with points missing (GDAL refuses it) read in rows (zipmember.xyz_rows: only the lines' order). A tile that
+    fix declares as deliberate (TransformFix.shift: Bremerhaven's DOM1 half a pixel onto its terrain's grid; taken on
+    trust, so a wrong shift passes; its offset and rounding are not taken, so a wrong one is found); an XYZ member in
+    columns with points missing (GDAL refuses it) read in rows (zipmember.xyz_rows: only the lines' order). A tile that
     names its own CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the
     files name it otherwise: NAD83 for NAD83(CSRS), a compound CRS). GDAL's /vsizip/ is not used: its requests
     would read the archive's directory outside sources.net."""
     data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
     own = getattr(tile, "crs", None)
-    shift = tuple(getattr(getattr(layer.reader, "fix", None), "shift", (0.0, 0.0)))
+    shift = _declared_shift(layer)
     try:
         values = _member_values(data, profile, own, shift)
     except rio.errors.RasterioError:
@@ -443,7 +443,15 @@ def check_valid(layer, args, data, work, cache_dir) -> Check:
     return Check("valid", status, text, **{f"valid_{res:g}m": share for res, share in shares.items()})
 
 
+def _declared_shift(layer) -> Tuple[float, float]:
+    """The deliberate shift a layer's fix declares (TransformFix.shift: Bremerhaven's DOM1), (0, 0) without one."""
+    return tuple(float(v) for v in getattr(getattr(getattr(layer, "reader", None), "fix", None), "shift", (0.0, 0.0)))
+
+
 def check_files(layer, grid, cache_dir, samples: int) -> Check:
+    """A few cached tiles against their source files read again by the check's own rules (the values, the place the
+    files give them, a zone in front of an easting): it proves the values and the offset, never a shift the layer's
+    fix declares, which it takes from that fix and names in its line (a wrong declared shift passes)."""
     if isinstance(layer, src.FileLayer):  # not in the cache (it may lie on another drive): nothing to compare
         return Check("files", NA, "a local file")
     tiles = _cached_tiles(layer, grid, cache_dir)
@@ -499,6 +507,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
     status = PASS if worst <= EQUAL_M and same >= 0.999 and not problems else WARN
     text = (f"{len(results)} tiles against their files: max |d| {worst:.4f} m, equal {100 * equal:.2f}%, "
             f"same pixels without data {100 * same:.2f}%")
+    shift = _declared_shift(layer)
+    if shift != (0.0, 0.0):  # taken from the layer's own fix: the check cannot tell a wrong shift
+        text += f" (the layer's declared shift of ({shift[0]:g}, {shift[1]:g}) m allowed for)"
     if problems:
         text += "; " + "; ".join(problems)
     return Check("files", status, text, tiles=results, problems=problems)

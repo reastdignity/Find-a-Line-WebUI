@@ -402,11 +402,14 @@ HB_CREDIT = Credit("DGM1 / DOM1 (Landesamt GeoInformation Bremen)", f"{HB_ATTRIB
 #   terrain. Moved half a pixel onto the terrain's grid (the user's decision of 2026-11-16: a copy, its heights as
 #   measured, its objects up to 0.7 m off their place; no interpolation, which lowers a thin obstacle): each value at
 #   (x, y) fills the pixel [x, x + 1] x [y, y + 1], BHV_DOM_SHIFT (+0.5, +0.5) m. Measured against its own DGM1 of the
-#   same survey on seven full tiles (bare ground within 0.3 m of the DGM1 at all four places a value may go; the RMS
-#   on its sloped part): (+0.5, +0.5) the lowest on 4 of 7 (467_5926 by 58 % over the second, the other three by
-#   0.8-1.7 %), (-0.5, -0.5) on two and (-0.5, +0.5) on one (by 0.3-3.5 %): no shift clearly best, so the convention
-#   that keeps a tile's points in its own kilometre (the files: x from E*1000 to (E+1)*1000, 1001 columns, y from
-#   N*1000 to N*1000 + 999, 1000 rows; the first point at the km's south-west corner). The 1001st column (x =
+#   same survey on seven tiles, four full and three partial (467_5926, 469_5939, 476_5929), with bare ground within
+#   0.3 m of the DGM1 at all four places a value may go and the RMS on its sloped part: on the four full tiles the best
+#   shift leads the second by 0.3-1.7 % ((+0.5, +0.5) on three, (-0.5, -0.5) on one; the one lead of 58 % is the
+#   partial 467_5926's); the correlation of the high-passed rasters was flat (by a hair best at (-0.5, +0.5) on 5 of 7,
+#   all at 0.19 or lower). The measurement did not decide. The rows settle +0.5 north: the files hold y from N*1000 to
+#   N*1000 + 999 (1000 rows), which +0.5 keeps in their own kilometre. The columns are settled only by reading the
+#   first point as the kilometre's south-west corner: x runs from E*1000 to (E+1)*1000 (1001 columns, one too many
+#   either way); with y at +0.5 the RMS prefers x at +0.5 on 6 of 7 tiles. The 1001st column (x =
 #   (E+1)*1000) then lies in the next tile's kilometre, whose own first column has the same x: the two differ
 #   (median 0.29-1.81 m, 6-10 % within 1 cm on three pairs: each file's edge column made from its own kilometre's
 #   points), so a tile keeps only its own kilometre (ZipMemberTiles' clip). The 41 partial tiles hold 402 ha of

@@ -226,6 +226,27 @@ def test_a_deliberate_shift_then_the_rounding():
         Affine(1.0, 0.0, 12.0, 0.0, -1.0, 17.0)
 
 
+def _serve_surface(http_server, monkeypatch, members):
+    """Bremerhaven's DOM1 layer of the catalogue on one archive served here: members {(east, north) km: {(x, y):
+    z}}, each written as the provider writes them (the zone in its eastings, columns from the south)."""
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    layer = src.SOURCES["bremerhaven"].nmpt
+    body = _archive([(f"Gitternetz_DOM1_2015_BHV/dom1_32{e}_{n}_1_hb.xyz",
+                      _xyz([(32_000_000 + x, y, f"{z:.3f}") for (x, y), z in sorted(points.items())]),
+                      zipfile.ZIP_DEFLATED, False) for (e, n), points in members.items()])
+    _serve(http_server, "/dom.zip", body)
+    url = http_server.url("/dom.zip")
+    monkeypatch.setattr(layer.listing, "urls", [url])
+    monkeypatch.setattr(layer.listing, "url", url)
+    monkeypatch.setattr(layer.index, "_listed", {})  # the process's answers of an earlier test (another server)
+    return layer
+
+
+# A full tile's 1001 columns (x 474000-475000) and its east neighbour's first columns (other values), 4 rows
+EDGE_WEST = {(474000 + i, 5936000 + j): round(10 + 0.137 * (i % 50) + 3.1 * j, 3) for i in range(1001) for j in range(4)}
+EDGE_EAST = {(475000 + i, 5936000 + j): round(40 + 0.211 * i + 2.3 * j, 3) for i in range(4) for j in range(4)}
+
+
 def test_the_surface_copied_onto_the_grid_at_the_kilometres_edge(http_server, tmp_path, monkeypatch):
     """Bremerhaven's DOM1 on the catalogue's own layer, a full tile's 1001 columns (x 474000-475000) and its east
     neighbour's first columns (x from 475000, other values): each value at (x, y) fills the pixel [x, x + 1] x
@@ -233,25 +254,15 @@ def test_the_surface_copied_onto_the_grid_at_the_kilometres_edge(http_server, tm
     475000 holds the east tile's own value; the mosaic on a 1 m grid in EPSG:25832 copies the tiles (each pixel one
     file value within LERC's bound, the cached tile's to the bit), no pixel a mean of two points."""
     from grid import make_grid
-    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    west, east = EDGE_WEST, EDGE_EAST
     bhv = src.SOURCES["bremerhaven"]
-    west = {(474000 + i, 5936000 + j): round(10 + 0.137 * (i % 50) + 3.1 * j, 3) for i in range(1001) for j in range(3)}
-    east = {(475000 + i, 5936000 + j): round(40 + 0.211 * i + 2.3 * j, 3) for i in range(4) for j in range(3)}
-    members = [("Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz", west),
-               ("Gitternetz_DOM1_2015_BHV/dom1_32475_5936_1_hb.xyz", east)]
-    body = _archive([(name, _xyz([(32_000_000 + x, y, f"{z:.3f}") for (x, y), z in sorted(points.items())]),
-                      zipfile.ZIP_DEFLATED, False) for name, points in members])
-    _serve(http_server, "/dom.zip", body)
-    url = http_server.url("/dom.zip")
-    monkeypatch.setattr(bhv.nmpt.listing, "urls", [url])
-    monkeypatch.setattr(bhv.nmpt.listing, "url", url)
-    monkeypatch.setattr(bhv.nmpt.index, "_listed", {})
+    _serve_surface(http_server, monkeypatch, {(474, 5936): west, (475, 5936): east})
     cache_dir = str(tmp_path / "cache")
     grid = make_grid((474990, 5936000, 475003, 5936003), 1.0, "EPSG:25832", bhv.grid_origin)
     out = np.load(src.mosaic.prepare_layer(bhv.nmpt, grid, cache_dir, str(tmp_path / "nmpt.npy"), "surface"))
     tiles = {(t.east, t.north): bhv.nmpt.tile_path(cache_dir, t) for t in bhv.nmpt.tiles(grid)}
     with rio.open(tiles[(474, 5936)]) as cached:
-        assert cached.transform == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5936003.0) and cached.shape == (3, 1000)
+        assert cached.transform == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5936004.0) and cached.shape == (4, 1000)
         cached_west = cached.read(1)
     assert out.shape == (3, 13) and np.isfinite(out).all()
     for row in range(3):
@@ -260,9 +271,70 @@ def test_the_surface_copied_onto_the_grid_at_the_kilometres_edge(http_server, tm
             expected = west[(x, y)] if x < 475000 else east[(x, y)]
             assert abs(float(out[row, col]) - expected) <= 0.0051, (x, y, out[row, col], expected)
             if x < 475000:
-                assert out[row, col] == cached_west[row, x - 474000]  # a copy of the cached tile
+                assert out[row, col] == cached_west[5936003 - y, x - 474000]  # a copy of the cached tile
     assert abs(float(out[0, 10]) - east[(475000, 5936002)]) <= 0.0051  # the east tile's own, not the 1001st column
     assert abs(west[(475000, 5936002)] - east[(475000, 5936002)]) > 1
+
+
+def test_a_coarser_grid_averages_each_kilometres_own_pixels(http_server, tmp_path, monkeypatch):
+    """On a search grid of 2 m over the kilometre's edge each cell is the mean of its own 2 x 2 file values (the
+    mosaic averages a finer raster), the cell at x 475000 of the east tile's own columns, never the west tile's
+    1001st."""
+    from grid import make_grid
+    bhv = _serve_surface(http_server, monkeypatch, {(474, 5936): EDGE_WEST, (475, 5936): EDGE_EAST})
+    grid = make_grid((474990, 5936000, 475004, 5936004), 2.0, "EPSG:25832", src.SOURCES["bremerhaven"].grid_origin)
+    out = np.load(src.mosaic.prepare_layer(bhv, grid, str(tmp_path / "cache"), str(tmp_path / "nmpt.npy"), "surface"))
+    assert out.shape == (2, 7)
+    for row in range(2):
+        for col in range(7):
+            x, y = 474990 + 2 * col, 5936002 - 2 * row  # the cell's south-west corner
+            own = EDGE_WEST if x < 475000 else EDGE_EAST
+            expected = np.mean([own[(x + i, y + j)] for i in (0, 1) for j in (0, 1)])
+            assert abs(float(out[row, col]) - expected) <= 0.0055, (x, y, out[row, col], expected)
+    west_1001st = np.mean([EDGE_WEST[(475000, 5936002 + j)] for j in (0, 1)] + [EDGE_EAST[(475001, 5936002 + j)]
+                                                                                for j in (0, 1)])
+    assert abs(float(out[0, 5]) - west_1001st) > 1  # the west tile's 1001st column took no part
+
+
+def test_a_member_of_1001_rows_loses_its_top_row(http_server, tmp_path, monkeypatch):
+    """A member reaching a row into the next kilometre north (y 5936000-5937000, 1001 rows) keeps its kilometre's
+    1000 rows: the top row cut, its columns and every other value as the file's."""
+    from grid import make_grid
+    points = {(474000 + i, 5936000 + j): round(5 + 0.3 * i + 0.017 * j, 3) for i in range(4) for j in range(1001)}
+    bhv = _serve_surface(http_server, monkeypatch, {(474, 5936): points})
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((474000, 5936990, 474004, 5937000), 1.0, "EPSG:25832")
+    bhv.download(grid, cache_dir, None, "surface")
+    (tile,) = bhv.tiles(grid)
+    with rio.open(bhv.tile_path(cache_dir, tile)) as cached:
+        assert cached.transform == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5937000.0) and cached.shape == (1000, 4)
+        z = cached.read(1)
+    expected = np.array([[points[(474000 + i, 5936999 - r)] for i in range(4)] for r in range(1000)])
+    assert np.abs(z - expected).max() <= 0.0051
+
+
+def test_a_tile_of_the_unshifted_processing_is_fetched_again(http_server, tmp_path, monkeypatch):
+    """A surface tile recorded by processing 1 (written before the shift) is due for the layer's processing 2: listed
+    as missing, written again and recorded as 2, on the shifted grid."""
+    import cache
+    from grid import make_grid
+    bhv = _serve_surface(http_server, monkeypatch, {(474, 5936): {(474000 + i, 5936000 + j): 7.5 for i in range(3)
+                                                                  for j in range(3)}})
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((474000, 5936000, 474003, 5936003), 1.0, "EPSG:25832")
+    assert bhv.processing == 2
+    monkeypatch.setattr(bhv, "processing", 1)
+    bhv.download(grid, cache_dir, None, "surface")
+    (tile,) = bhv.tiles(grid)
+    path = bhv.tile_path(cache_dir, tile)
+    assert cache.state(cache_dir, path, 1) == "ok" and cache.state(cache_dir, path, 2) is None
+    monkeypatch.setattr(bhv, "processing", 2)
+    assert bhv.missing(grid, cache_dir, None) == [tile]
+    bhv.download(grid, cache_dir, None, "surface")
+    assert cache.state(cache_dir, path, 2) == "ok" and bhv.missing(grid, cache_dir, None) == []
+
+
+def test_changed_archives_read_again_as_saarlands():
     """Bremen's and Bremerhaven's readers (XYZ members, a TransformFix or none) renew their archive's directory after
     a 404, a moved or a changed member (a 416 too) as Saarland's and Hamburg's: every ZipMemberTiles does."""
     for sid in ("bremen", "bremerhaven", "saarland", "hamburg"):
@@ -398,6 +470,27 @@ def test_check_source_finds_a_wrong_fix(http_server, tmp_path, monkeypatch, sid,
         assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
     else:
         assert check["status"] == cs.WARN, check["text"]
+    # A shift the layer declares is taken on trust, and the line says so (Bremerhaven's DOM1 only)
+    named = "(the layer's declared shift of (0.5, 0.5) m allowed for)" in check["text"]
+    assert named == ((sid, kind) == ("bremerhaven", "nmpt")), check["text"]
+
+
+def test_check_source_takes_a_declared_shift_on_trust(http_server, tmp_path, monkeypatch):
+    """A wrong declared shift (TransformFix.shift) passes the file check, which proves the values and the offset,
+    never the shift: its line names the shift it allowed for, in metres."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    from grid import make_grid
+    points = {(474000 + i, 5936000 + j): round(3 + 0.7 * i + 0.3 * j, 3) for i in range(20) for j in range(20)}
+    layer = _serve_surface(http_server, monkeypatch, {(474, 5936): points})
+    monkeypatch.setattr(layer.reader, "fix", layer.reader.fix._replace(shift=(-0.5, 0.5)))
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((474002, 5936002, 474015, 5936015), 1.0, "EPSG:25832")
+    layer.download(grid, cache_dir, None, "surface")
+    check = cs.check_files(layer, grid, cache_dir, 2)
+    assert check["status"] == cs.PASS, check["text"]
+    assert check["text"].endswith("(the layer's declared shift of (-0.5, 0.5) m allowed for)")
 
 
 def test_sources():
