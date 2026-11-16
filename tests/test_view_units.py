@@ -813,29 +813,179 @@ done();
                              "order": [spot]}
 
 
-def test_fit_and_gate(tmp_path, bundle, made_path, run):
-    """The fit between a run's grid and the map (an affine map of the anchors): its residual against numpy's least
-    squares, over 2 km and over 60 km; a run of one line (a turn and a scale); and the gate before the view opens
-    (viewOf): the columns, the spots in runs, the sectors, the fit."""
+FIT_MAX = 0.5
+# The five grids the fit was measured on (2026-11-16): name, CRS, a longitude and latitude in it
+GRIDS = [("utm36", "EPSG:32633", 14.3, 36.0), ("utm49", "EPSG:32634", 20.0, 49.2), ("pl1992", "EPSG:2180", 19.8, 50.1),
+         ("albers", "EPSG:3005", -123.0, 50.0), ("laea", "EPSG:3035", 11.0, 47.0)]
+FIT_SIZES = {2: 1, 15: 2, 50: 2, 100: 3}  # the side of the area, km: the degree the fit takes
+
+
+def _anchored(crs, lon0, lat0, lonlat):
+    """Rows of data.js for lines between pairs of points (lon, lat): only the anchors matter."""
     from pyproj import Transformer
+    lon, lat = np.round(lonlat[:, 0], 7), np.round(lonlat[:, 1], 7)
+    x, y = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(lon, lat)
+    half = len(lon) // 2
+    rows = [[float(lat[i]), float(lon[i]), float(lat[half + i]), float(lon[half + i]), float(x[i]), float(y[i]),
+             float(x[half + i]), float(y[half + i]), 50.0, 5.0, None, 100.0, 100.0, False, 0, 0, 20.0, 10.0, 50.0, 10.0, 10.0,
+             None, None, None, None] for i in range(half)]
+    return rows, lon, lat, np.asarray(x), np.asarray(y)
+
+
+def _area(lon0, lat0, km, rng, lines=200):
+    """`lines` pairs of points spread over a square of `km` around (lon0, lat0)."""
+    half_lat = km * 1000 / 2 / 111000
+    half_lon = half_lat / math.cos(math.radians(lat0))
+    return np.column_stack([rng.uniform(lon0 - half_lon, lon0 + half_lon, 2 * lines),
+                            rng.uniform(lat0 - half_lat, lat0 + half_lat, 2 * lines)])
+
+
+def _numpy_residual(lon, lat, x, y, degree):
+    """The largest and the root mean square distance of the least-squares polynomial of `degree` at the anchors."""
+    u, v = (lon - lon.mean()) / (np.ptp(lon) or 1), (lat - lat.mean()) / (np.ptp(lat) or 1)
+    design = np.column_stack([u ** i * v ** j for i in range(degree + 1) for j in range(degree + 1 - i)])
+    dx = design @ np.linalg.lstsq(design, x - x.mean(), rcond=None)[0] - (x - x.mean())
+    dy = design @ np.linalg.lstsq(design, y - y.mean(), rcond=None)[0] - (y - y.mean())
+    d = np.hypot(dx, dy)
+    return float(d.max()), float(np.sqrt((d ** 2).mean()))
+
+
+FIT_SCRIPT = r"""
+const cases = JSON.parse(fs.readFileSync(%s, "utf-8"));
+for (const [name, c] of Object.entries(cases)) {
+  const cols = m.lineColumns(c.rows), fit = m.gridFit(cols, m.FIT_MAX);
+  if (!fit) { out[name] = null; continue; }
+  out[name] = {degree: fit.degree, residual: fit.residual, rms: fit.rms, back: fit.back, anchors: fit.anchors, margin: fit.margin,
+               turn: fit.turn, points: (c.points || []).map(([lat, lon]) => fit.toGrid(lat, lon)),
+               places: (c.places || []).map(([x, y]) => fit.toLatLng(x, y)),
+               scales: (c.points || []).map(([lat, lon]) => fit.scale(lat, lon))};
+}
+out.empty = m.gridFit(m.lineColumns([]));
+out.max = m.FIT_MAX; out.needs = m.FIT_ANCHORS; out.margins = [m.FIT_MARGIN, m.FIT_MARGIN_SHARE];
+done();
+"""
+
+
+def test_fit_degrees(tmp_path, bundle, made_path, run):
+    """The fit between a run's grid and the map (viewgeom.ts gridFit): the lowest degree, 1 to 3, within 0.5 m at the
+    anchors, on five real grids over 2, 15, 50 and 100 km, its residual against numpy's least squares; a degree only
+    with three times as many distinct anchors as it has numbers per axis; anchors on one line and a run of one line
+    by a turn and a scale; every point clamped to the anchors' box and its margin before it is asked."""
+    from pyproj import Geod, Transformer
+    rng = np.random.default_rng(21)
+    cases, want = {}, {}
+    for name, crs, lon0, lat0 in GRIDS:
+        for km in FIT_SIZES:
+            rows, lon, lat, x, y = _anchored(crs, lon0, lat0, _area(lon0, lat0, km, rng))
+            # a point in the middle, one on the box's edge, and one 80 km east of the area (clamped to its margin)
+            points = [[lat0, lon0], [float(lat.max()), float(lon.max())], [lat0, lon0 + 1.2]]
+            cases[f"{name}-{km}"] = {"rows": rows, "points": points, "places": [[float(x.mean()), float(y.mean())],
+                                                                                [float(x.max()) + 1e5, float(y.mean())]]}
+            want[f"{name}-{km}"] = (crs, lon, lat, x, y, points)
+    # all anchors within 300 m, the run's head would say nothing else: the box is the anchors' own
+    lon0, lat0 = 20.0, 49.2
+    rows, lon, lat, x, y = _anchored("EPSG:32634", lon0, lat0, _area(lon0, lat0, 0.3, rng, lines=40))
+    cases["clustered"] = {"rows": rows, "points": [[lat0 + 0.5, lon0 + 0.7], [lat0 - 0.5, lon0 - 0.7]],
+                          "places": [[float(x.min()) - 5e4, float(y.max()) + 5e4]]}
+    clustered = (lon, lat, x, y)
+    # anchors on one straight line of the map (12 lines along it), and a point 200 m beside it
+    along = np.linspace(-0.006, 0.006, 24)
+    rows, lon, lat, x, y = _anchored("EPSG:32634", lon0, lat0, np.column_stack([lon0 + along, lat0 + 0.4 * along]))
+    cases["collinear"] = {"rows": rows, "points": [[lat0 + 0.0018, lon0]]}
+    # six lines (12 anchors) over 15 km: too few for degree 2, and degree 1 is metres off
+    rows, lon, lat, x, y = _anchored("EPSG:32634", lon0, lat0, _area(lon0, lat0, 15, rng, lines=6))
+    cases["few"] = {"rows": rows}
+    few = _numpy_residual(lon, lat, x, y, 1)
+    cases["one"] = {"rows": run.rows()[100:101], "points": [[float(run.lat1[101]), float(run.lon1[101])]]}
+    cases["made"] = {"rows": run.rows()}
+    path = tmp_path / "fits.json"
+    path.write_text(json.dumps(cases), encoding="utf-8")
+    found = node(tmp_path, bundle, made_path, FIT_SCRIPT % json.dumps(str(path)))
+    assert found["max"] == FIT_MAX and found["needs"] == [2, 9, 18, 30] and found["margins"] == [200, 0.1]
+    assert found["empty"] is None
+    geod = Geod(ellps="WGS84")
+    for key, (crs, lon, lat, x, y, points) in want.items():
+        km = int(key.split("-")[1])
+        got = found[key]
+        residuals = {d: _numpy_residual(lon, lat, x, y, d) for d in (1, 2, 3)}
+        degree = next(d for d in (1, 2, 3) if residuals[d][0] <= FIT_MAX)
+        assert got["degree"] == degree == FIT_SIZES[km], (key, residuals)
+        assert got["residual"] == pytest.approx(residuals[degree][0], abs=5e-3) and got["residual"] <= FIT_MAX, key
+        assert got["rms"] == pytest.approx(residuals[degree][1], abs=5e-3) and got["back"] <= FIT_MAX, key
+        assert got["anchors"] == 400 and got["margin"] == pytest.approx(max(200, 0.1 * max(np.ptp(x), np.ptp(y)))), key
+        # inside the area the fit is the grid within its residual; a place comes back to its latitude and longitude
+        to_grid = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+        for (la, lo), at in zip(points[:2], got["points"][:2]):
+            assert math.dist(at, to_grid.transform(lo, la)) <= max(2 * got["residual"], 0.05), key
+        back = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform(float(x.mean()), float(y.mean()))
+        assert abs(got["places"][0][0] - back[1]) < 1e-5 and abs(got["places"][0][1] - back[0]) < 1e-5, key
+        # far outside, a point is asked at the box's margin: never farther than the margin from the anchors' box
+        beyond = got["points"][2][0] - x.max()
+        assert 0.5 * got["margin"] < beyond < 1.6 * got["margin"], (key, beyond, got["margin"])
+        far = to_grid.transform(got["places"][1][1], got["places"][1][0])
+        assert 0.5 * got["margin"] < far[0] - x.max() < 1.6 * got["margin"], key
+        # the grid's metres per metre on the ground, along the east, at the middle
+        # (the ground's metre as the sphere of the map's distances has it: the two cancel in the metres per pixel)
+        east = to_grid.transform(points[0][1] + 5e-5, points[0][0])
+        west = to_grid.transform(points[0][1] - 5e-5, points[0][0])
+        ground = math.radians(1e-4) * 6371008.8 * math.cos(math.radians(points[0][0]))
+        assert got["scales"][0] == pytest.approx(math.dist(east, west) / ground, rel=2e-4), key
+        _, _, true = geod.inv(points[0][1] - 5e-5, points[0][0], points[0][1] + 5e-5, points[0][0])
+        assert got["scales"][0] == pytest.approx(math.dist(east, west) / true, rel=5e-3), key
+    lon, lat, x, y = clustered
+    got = found["clustered"]
+    assert got["degree"] == 1 and got["residual"] < 0.05 and got["margin"] == 200
+    for at in got["points"]:  # 50 km away both ways: asked at the corner of the box and its margin
+        assert x.min() - 350 < at[0] < x.max() + 350 and y.min() - 350 < at[1] < y.max() + 350
+        assert min(abs(at[0] - x.min()), abs(at[0] - x.max())) > 100 and min(abs(at[1] - y.min()), abs(at[1] - y.max())) > 100
+    assert lat.max() < got["places"][0][0] < lat.max() + 0.004 and lon.min() - 0.006 < got["places"][0][1] < lon.min()
+    # anchors on one line: a turn and one scale; a point beside the line is still placed within decimetres
+    got = found["collinear"]
+    assert got["degree"] == 0 and got["residual"] < 0.05 and got["anchors"] == 24
+    beside = Transformer.from_crs("EPSG:4326", "EPSG:32634", always_xy=True).transform(lon0, lat0 + 0.0018)
+    assert math.dist(got["points"][0], beside) < 0.5
+    # too few anchors for degree 2: the fit stays at degree 1 with its residual, and the gate refuses the run
+    got = found["few"]
+    assert got["degree"] == 1 and got["anchors"] == 12 and got["residual"] == pytest.approx(few[0], abs=5e-3) and few[0] > FIT_MAX
+    got = found["one"]
+    assert got["degree"] == 0 and got["residual"] < 0.02 and got["anchors"] == 2
+    assert math.dist(got["points"][0], [run.x1[101], run.y1[101]]) < 0.5
+    made = found["made"]
+    worst, rms = _numpy_residual(np.concatenate([run.lon1, run.lon2]), np.concatenate([run.lat1, run.lat2]),
+                                 np.concatenate([run.x1, run.x2]), np.concatenate([run.y1, run.y2]), 1)
+    assert made["degree"] == 1 and made["residual"] == pytest.approx(worst, abs=1e-3) and worst < FIT_MAX
+    assert made["rms"] == pytest.approx(rms, abs=1e-3) and made["anchors"] == 2 * run.n
+    # the grid's north on the map: UTM 34N's meridian convergence west of 21 E turns it a little off true north
+    to_wgs = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    lon_a, lat_a = to_wgs.transform(X0 + SIDE / 2, Y0 + SIDE / 2)
+    lon_b, lat_b = to_wgs.transform(X0 + SIDE / 2, Y0 + SIDE / 2 + 1000)
+    turn = math.degrees(math.atan2((lon_b - lon_a) * math.cos(math.radians(lat_a)), lat_b - lat_a)) % 360
+    assert abs((made["turn"] - turn + 180) % 360 - 180) < 0.05 and 0.1 < min(made["turn"], 360 - made["turn"]) < 3
+
+
+def test_gate(tmp_path, bundle, made_path, run):
+    """The gate before the view opens (spots.ts viewOf): the view's columns, every line once in runs of spots, the
+    sectors' spots, a fit within FIT_MAX: a run over 60 km opens (degree 2), one whose anchors are too few for the
+    degree it needs does not, and the reason names the degree and the distance."""
     wide = Run(seed=5, side=60000.0, spots=40)
     wide_path = tmp_path / "wide.json"
     wide_path.write_text(json.dumps(wide.made()), encoding="utf-8")
+    rng = np.random.default_rng(22)
+    rows, lon, lat, x, y = _anchored("EPSG:32634", 20.0, 49.2, _area(20.0, 49.2, 15, rng, lines=6))
+    few = {"rows": rows, "view": {"spot": [0] * 6, "top": [1] * 6, "by_spot": list(range(6))},
+           "head": {**run.made()["head"], "sectors": [{"word": "centre", "spots": 1}], "ends": []}}
+    few_path = tmp_path / "few.json"
+    few_path.write_text(json.dumps(few), encoding="utf-8")
     found = node(tmp_path, bundle, made_path, r"""
-const data = dataOf(), fit = m.gridFit(data.columns);
-const wide = dataOf(JSON.parse(fs.readFileSync(%s, "utf-8"))), wideFit = m.gridFit(wide.columns);
-const r17 = made.rows[17];
-out.fit = {residual: fit.residual, rms: fit.rms, anchors: fit.anchors, turn: fit.turn, at: fit.toGrid(r17[0], r17[1]),
-           back: fit.toLatLng(r17[4], r17[5]), round: fit.toGrid(...fit.toLatLng(424321.5, 5455432.25))};
-out.wide = {residual: wideFit.residual, rms: wideFit.rms};
+const [widePath, fewPath] = %s;
+const wide = dataOf(JSON.parse(fs.readFileSync(widePath, "utf-8"))), few = dataOf(JSON.parse(fs.readFileSync(fewPath, "utf-8")));
+const said = (r) => typeof r === "string" ? r : "ok";
+const gate = (change) => { const d = dataOf(); change(d); return said(m.viewOf(d)); };
 const one = {...made, rows: made.rows.slice(100, 101), view: {spot: [0], top: [1], by_spot: [0]},
              head: {...made.head, sectors: [{word: "centre", spots: 1}]}};
-const oneData = dataOf(one), oneFit = m.gridFit(oneData.columns), near = made.rows[101];
-out.one = {residual: oneFit.residual, near: oneFit.toGrid(near[0], near[1]), want: [near[4], near[5]], gate: typeof m.viewOf(oneData)};
-out.empty = m.gridFit(m.lineColumns([]));
-const gate = (change) => { const d = dataOf(); change(d); const r = m.viewOf(d); return typeof r === "string" ? r : "ok"; };
 out.gate = {
   ok: gate(() => {}), same: (() => { const d = dataOf(); return m.viewOf(d) === m.viewOf(d); })(),
+  degree: m.viewOf(dataOf()).fit.degree,
   noView: gate((d) => { delete d.view; }), noSectors: gate((d) => { delete d.sectors; }),
   short: gate((d) => { d.view.top = d.view.top.subarray(1); }),
   twice: gate((d) => { d.view.bySpot[5] = d.view.bySpot[4]; }),
@@ -843,55 +993,28 @@ out.gate = {
   gap: gate((d) => { for (let i = 0; i < d.view.spot.length; i++) if (d.view.spot[i] > 3) d.view.spot[i]++; }),
   mixed: gate((d) => { const a = d.view.bySpot[0]; d.view.bySpot[0] = d.view.bySpot[d.view.bySpot.length - 1]; d.view.bySpot[d.view.bySpot.length - 1] = a; }),
   sectors: gate((d) => { d.sectors = [{word: "north", spots: 5}]; }),
-  empty: (() => { const r = m.viewOf({...made.head, sectors: [], box: null, columns: m.lineColumns([]), view: {spot: new Uint32Array(0), top: new Uint8Array(0), bySpot: new Uint32Array(0)}}); return typeof r; })(),
-  wide: (() => { const r = m.viewOf(wide); return typeof r === "string" ? r : "ok"; })(),
-  max: m.FIT_MAX,
+  empty: said(m.viewOf({...made.head, sectors: [], box: null, columns: m.lineColumns([]), view: {spot: new Uint32Array(0), top: new Uint8Array(0), bySpot: new Uint32Array(0)}})),
+  wide: said(m.viewOf(wide)), wideFit: [m.viewOf(wide).fit.degree, m.viewOf(wide).fit.residual],
+  few: said(m.viewOf(few)), fewFit: (() => { const f = m.gridFit(few.columns, m.FIT_MAX); return Math.max(f.residual, f.back); })(),
+  one: said(m.viewOf(dataOf(one))),
 };
+const data = dataOf();
 out.has = [m.hasView(data), m.hasView({...data, view: undefined}), m.hasView({...data, sectors: undefined})];
 let thrown = "";
 try { m.createSpotView(new m.ResultModel({...dataOf(), view: undefined}, {ungrouped: true, favourites: false, profiles: false, api})); } catch (e) { thrown = e.message; }
 out.thrown = thrown;
 done();
-""" % json.dumps(str(wide_path)))
-
-    def numpy_fit(of):
-        """The largest and the root mean square distance of an affine least-squares map of the anchors."""
-        lat, lon = np.concatenate([of.lat1, of.lat2]), np.concatenate([of.lon1, of.lon2])
-        x, y = np.concatenate([of.x1, of.x2]), np.concatenate([of.y1, of.y2])
-        u, v = (lon - lon.mean()) * 111000 * math.cos(math.radians(lat.mean())), (lat - lat.mean()) * 111000
-        design = np.column_stack([u, v, np.ones(len(u))])
-        dx = design @ np.linalg.lstsq(design, x - x.mean(), rcond=None)[0] - (x - x.mean())
-        dy = design @ np.linalg.lstsq(design, y - y.mean(), rcond=None)[0] - (y - y.mean())
-        d = np.hypot(dx, dy)
-        return float(d.max()), float(np.sqrt((d ** 2).mean()))
-    worst, rms = numpy_fit(run)
-    fit = found["fit"]
-    assert fit["anchors"] == 2 * run.n
-    assert fit["residual"] == pytest.approx(worst, abs=1e-3) and fit["rms"] == pytest.approx(rms, abs=1e-3)
-    assert fit["residual"] < 0.6  # 2.6 km of anchors: the grid's curve against a flat map, decimetres at the corners
-    assert math.dist(fit["at"], [run.x1[17], run.y1[17]]) <= fit["residual"] + 1e-9
-    assert abs(fit["back"][0] - run.lat1[17]) < 6e-6 and abs(fit["back"][1] - run.lon1[17]) < 9e-6
-    assert fit["round"] == pytest.approx([424321.5, 5455432.25], abs=1e-6)
-    # the grid's north on the map: UTM 34N's meridian convergence west of 21° E turns it a little west of north
-    to_wgs = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
-    lon_a, lat_a = to_wgs.transform(X0 + SIDE / 2, Y0 + SIDE / 2)
-    lon_b, lat_b = to_wgs.transform(X0 + SIDE / 2, Y0 + SIDE / 2 + 1000)
-    turn = math.degrees(math.atan2((lon_b - lon_a) * math.cos(math.radians(lat_a)), lat_b - lat_a)) % 360
-    assert abs((fit["turn"] - turn + 180) % 360 - 180) < 0.05 and 0.1 < min(fit["turn"], 360 - fit["turn"]) < 3
-    worst, rms = numpy_fit(wide)
-    assert found["wide"]["residual"] == pytest.approx(worst, rel=1e-3) and found["wide"]["rms"] == pytest.approx(rms, rel=1e-3)
-    assert found["wide"]["residual"] > found["gate"]["max"]  # 60 km: metres, the view does not open
-    assert "fit" in found["gate"]["wide"] and f"{found['wide']['residual']:.2f} m" in found["gate"]["wide"]
-    # one line: the grid's turn and scale from its two anchors place a point 30 m away within decimetres
-    assert found["one"]["residual"] < 0.02 and found["one"]["gate"] == "object"
-    assert math.dist(found["one"]["near"], found["one"]["want"]) < 0.5 and found["empty"] is None
+""" % json.dumps([str(wide_path), str(few_path)]))
     gate = found["gate"]
-    assert gate["ok"] == "ok" and gate["same"] is True and gate["empty"] == "string"
+    assert gate["ok"] == "ok" and gate["same"] is True and gate["degree"] == 1 and gate["one"] == "ok"
+    assert "no lines" in gate["empty"]
     for name in ("noView", "noSectors", "short"):
         assert "no columns" in gate[name], name
     assert "every line once" in gate["twice"] and "every line once" in gate["beyond"]
     assert "in runs" in gate["gap"] and ("in runs" in gate["mixed"] or "every line once" in gate["mixed"])
     assert "sectors" in gate["sectors"]
+    assert gate["wide"] == "ok" and gate["wideFit"][0] == 2 and gate["wideFit"][1] < FIT_MAX  # 60 km: degree 2
+    assert gate["fewFit"] > FIT_MAX and f"{gate['fewFit']:.2f} m" in gate["few"] and "degree 1" in gate["few"]
     assert found["has"] == [True, False, False] and "no columns" in found["thrown"]
 
 
@@ -1033,6 +1156,9 @@ def test_frame_in_edge(tmp_path, run):
     assert out["phoneDrawn"] is True and phone["same"] is True and phone["best"] == "all"
     assert phone["slots"] == first["slots"] and phone["pill"] == "Made up" and phone["footAbove"] is True
     assert 300 < phone["sheet"] < phone["height"] and phone["covered"] == f"{phone['sheet']}px"
-    # the view's rectangle ends at the sheet's top
-    assert out["phoneView"]["top"] / out["phoneView"]["mpp"] == pytest.approx(phone["height"] - phone["sheet"], abs=3)
+    # in view, counted in grid metres through the fit, against a count in the map's own pixels: the whole map in
+    # the columns, on a phone the part above the sheet (the sheet's part holds more spots)
+    assert abs(zoomed["m"] - zoomed["pixels"]) <= 1
+    above = out["phoneView"]
+    assert abs(above["above"] - above["pixels"]) <= 1 and above["whole"] > above["pixels"] > 0
     assert test_web._violations(dom) == []

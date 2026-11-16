@@ -10,6 +10,7 @@ import "../src/ui/ui.css";
 import { ResultModel } from "../src/result/model";
 import type { SpotMap } from "../src/result/SpotMap";
 import type { SpotView } from "../src/result/spots";
+import { clipper } from "../src/result/viewgeom";
 import { opensView, SpotColumns, viewWanted } from "../src/result/view/SpotColumns";
 import { lineColumns, type LineRow, type RunData, type RunHead } from "../src/types";
 
@@ -33,6 +34,19 @@ const text = (selector: string) => document.querySelector(selector)?.textContent
 const pressed = () => Array.from(document.querySelectorAll<HTMLElement>(".v-levels button"),
                                  (b) => [b.dataset.level, b.getAttribute("aria-pressed"), b.classList.contains("v-now")]);
 const measures = () => [...new Set(performance.getEntriesByType("measure").map((e) => e.name))].sort();
+/** The spots whose shown line crosses a rectangle of the map's box, counted in the map's own pixels from the
+ *  line's latitudes and longitudes (the page counts them in grid metres through its fit). */
+function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number {
+  const leaflet = (window as any).FINDALINE_MAP, c = view.model.data.columns;
+  const cross = clipper([[left, top], [right, top], [right, bottom], [left, bottom]]);
+  let n = 0;
+  for (const spot of view.order) {
+    const row = view.shownOf(spot);
+    const a = leaflet.latLngToContainerPoint([c.lat1.at(row), c.lon1.at(row)]), b = leaflet.latLngToContainerPoint([c.lat2.at(row), c.lon2.at(row)]);
+    if (cross(a.x, a.y, b.x, b.y)) n++;
+  }
+  return n;
+}
 
 (async () => { try {
   const made = (window as any).MADE as Made;
@@ -74,8 +88,9 @@ const measures = () => [...new Set(performance.getEntriesByType("measure").map((
   const leaflet = (window as any).FINDALINE_MAP;
   leaflet.setZoom(leaflet.getZoom() + 2.5, {animate: false});
   await until(() => view.level !== "area");
+  const mapSize = leaflet.getSize();
   const spots = {level: view.level, m: view.inView.m, best: view.inView.best.length, numbered: view.inView.numbered, status: status(),
-                 zoom: leaflet.getZoom(), mpp: view.mpp};
+                 zoom: leaflet.getZoom(), mpp: view.mpp, pixels: inPixels(view, [0, 0, mapSize.x, mapSize.y])};
   const select = document.querySelector<HTMLSelectElement>(".v-best select")!;
   select.value = "all";
   select.dispatchEvent(new Event("change", {bubbles: true}));
@@ -107,9 +122,10 @@ const measures = () => [...new Set(performance.getEntriesByType("measure").map((
                footAbove: foot.bottom <= sheet.top + 1, slots: [text("[data-slot=list]"), text("[data-slot=details]")],
                covered: (document.querySelector(".v-map") as HTMLElement).style.getPropertyValue("--v-covered"),
                pill: text(".c-pill-name"), level: phone.view.level};
-  // the same map's view counted whole (no sheet): no fewer spots than above the sheet alone
-  const above = phone.view.inView.m, quadAbove = (phone.view as any).quad as [number, number][];
-  out.phoneView = {above, top: quadAbove[0][1] - quadAbove[3][1], mpp: phone.view.mpp};
+  // the spots in view against a count in the map's own pixels: above the sheet, and with the sheet's part too
+  const size = (window as any).FINDALINE_MAP.getSize();
+  out.phoneView = {above: phone.view.inView.m, pixels: inPixels(phone.view, [0, 0, size.x, size.y - (box.bottom - sheet.top)]),
+                   whole: inPixels(phone.view, [0, 0, size.x, size.y])};
   render(null, root);
   localStorage.removeItem("findaline.view");
   out.after = viewWanted();

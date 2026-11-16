@@ -79,7 +79,11 @@ export class SpotMap {
     };
     const quad: Quad = [corner(box.left, box.top), corner(box.right, box.top), corner(box.right, box.bottom),
                         corner(box.left, box.bottom)];
-    const mpp = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]) / (box.right - box.left);
+    // metres of the grid per pixel at the view's middle: the map's metres on the ground there, by the grid's scale
+    // (the corners above are clamped to the run's box by the fit, so their distance is not the view's width)
+    const y = (box.top + box.bottom) / 2, x = (box.left + box.right) / 2, span = Math.min(64, (box.right - box.left) / 2);
+    const west = map.containerPointToLatLng([x - span, y]), east = map.containerPointToLatLng([x + span, y]);
+    const mpp = map.distance(west, east) / (2 * span) * fit.scale((west.lat + east.lat) / 2, (west.lng + east.lng) / 2);
     this.redrawing = true;
     try {
       this.view.setView(quad, mpp);
