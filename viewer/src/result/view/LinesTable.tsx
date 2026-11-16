@@ -164,10 +164,12 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
         {/* the anchors' marks stand before "Lines" */}
         {access && c === LINES && <span class="r-col r-col-plain r-cell-acc" title={t("ui.list.col.anchors_title")}>
           {t("ui.list.col.anchors")}</span>}
+        {/* the order said in the button's name: aria-sort belongs to a column header, which this row is not */}
         <button type="button" title={t(c.title)} class={cx("r-col", key.key === c.key && "r-on")}
-                aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
                 onClick={() => sortBy(c.key)}>
-        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button></Fragment>)}
+        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}
+        {key.key === c.key && <span class="u-sr">{list.desc ? ", sorted largest first" : ", sorted smallest first"}</span>}
+        </button></Fragment>)}
       <span />
     </div>
     <div class="r-rows" role="listbox" aria-label="Lines">
