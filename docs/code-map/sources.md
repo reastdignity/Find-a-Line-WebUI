@@ -68,8 +68,16 @@ before, never missing, one printed line per split tile, the pieces at `SPLIT_RAT
 (England's 1798 answers of 429 at the full rate, 2026-11-10 to 13); England's two layers: the Environment Agency's
 500 is positional, for any box not wholly covered by its granules, which follow England's outline, so a 2 km tile of real
 land at the Welsh border (Hay-on-Wye, 161_121) failed whole and in quarters while 500 and 250 px pieces on its English
-side answered, and 16 px boxes fail on their own; measured 2026-11-08), `tilebases.py` `TileBases` (our own tiles: the
-mirror, then URLs; `grid_tile_name`, `MIRROR_ENV`), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
+side answered, and 16 px boxes fail on their own; measured 2026-11-08), `tilebases.py` `TileBases` (our own tiles:
+the local folder `FINDALINE_MIRROR` when it holds the dataset, then the project's data server
+`<mirror_url()>/v1/tiles/<mirror>`, then the catalogue's URLs; `grid_tile_name`, `BLOCK`, `MIRROR_ENV`; `MIRROR_URL`
+the server's origin, `FINDALINE_MIRROR_URL` overriding it, `off` or empty for none, anything else `MirrorUrlError`;
+over HTTP index-driven as a folder: the index fetched once for all threads, kept `INDEX_SECONDS` in memory
+(`_remote_index`, never stored), `IndexMissing` on its 404, `IndexUnreadable` for another shape or `block`, a tile's
+sha256 compared before the file is written, one refetch of index and tile after `net._sleep`, a failure named by the
+host and a kind in fixed words (`_server_failed`); `reach` the start check (`REACH_TIMEOUT`, `REACH_ATTEMPTS`, a 429
+answers at once through `net._get(stop_on=)`, a failure remembered `UNANSWERED_SECONDS` for later start checks only,
+a local folder first answers without a request); docs/mirror-hosting/spec.md, solution C), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
 a UTF-8 BOM left out, an XYZ split into its regular grids by their offset from the listed resolution's lattice
 (`_lattices`: GUGiK's survey 70159 holds 5 m grids and 1 + 5 m patchworks in sheets listed at 1 m), each grid's
 spacing (`_step`) the smallest step between points one after another that `STEP_SUPPORT` (1 %) of them share, moves

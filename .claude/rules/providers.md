@@ -3,6 +3,9 @@ paths:
   - "sources/catalogue/**"
   - "orthophoto.py"
   - "tools/sk_tiles.py"
+  - "tools/mirror_tiles.py"
+  - "tools/mirror_publish.py"
+  - "sources/readers/tilebases.py"
 ---
 # Providers: adding a source, their quirks, credits
 
@@ -28,9 +31,10 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   cached per 0.25° tile in `cache/poland/sheet-index/`. The sheet files on opendata.geoportal.gov.pl download at ~17
   MB/s; the geoportal pages give no request limits (technical contact sigservicedesk@geoportal.gov.pl). Sheet
   attributes and coverage are in docs/roadmap.md ("To check").
-- **Our own Slovak tiles** come from the local mirror (`FINDALINE_MIRROR`, the folder above `slovakia/`) until they
-  are on Hugging Face (`SLOVAK_TILES` in `sources/catalogue/slovakia.py`); without it `--source auto` falls back to
-  `europe` and the Slovak regression test is skipped. `tools/sk_tiles.py extract` unpacks the TIFF first (GDAL's
+- **Our own Slovak tiles** come from a local copy (`FINDALINE_MIRROR`, the folder above `slovakia/`) when it holds
+  them, else from the project's data server (`FINDALINE_MIRROR_URL`, `off` for none: then `--source auto` falls back
+  to `europe` and the Slovak regression test is skipped without the folder; `SLOVAK_TILES` in
+  `sources/catalogue/slovakia.py`). `tools/sk_tiles.py extract` unpacks the TIFF first (GDAL's
   `/vsizip/` reads it about 60 times slower than Python's `zipfile` inflates it); `cut` reads full-width 2 km bands
   (several GB of RAM) and writes tiles on all cores: one cut at a time. `tools/sk_tiles.py average` writes `dmr5/2m`,
   `dmr5/5m` (and `dmp1/...`) next to `1m` in about 6.5 min per product on all cores (12 826 tiles with data: 23.6 and
@@ -105,3 +109,17 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   half of the requests with 404, and its session cookie keeps a browser on the failing server: not used. A tile with
   white 8×8 blocks is on the edge of the coverage and is composed from the transparent PNG of the WMS over the base
   (`orthophoto.tile_content`).
+
+## The project's data server: the publish tool and the client (docs/mirror-hosting/spec.md B, C)
+
+- `tools/mirror_publish.py` `PUBLISHABLE`: its datasets are `mirror_tiles.DATASETS`' folders and Slovakia, each
+  `source_id` a catalogue source (its credit is the row's attribution), its required folders `GridTiles(averaged=)`,
+  each card states the changes; a new dataset needs its row with the user's approval and date. A recut with other
+  values is a new edition (a new folder name, U24). `BLOCK` 10 in `sk_tiles`, `mirror_tiles`, `mirror_publish` and
+  `tilebases` (`tests/test_mirror_pairs.py`).
+- The client (`tilebases.py`): `MIRROR_URL`'s host is the key of `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (another address
+  takes its manners through `net.LIMITS_AS`) and Telegraf's address; `off` (or empty) turns it off, also in conftest,
+  `tests/regression.py` and the privacy sentence; a test never sets it empty (Windows deletes the variable: the real
+  host): `off`. `reach` only where the specification's C.3 passes `reach=True`; a later phase takes the job's stored
+  source (`plan_search(source_id=)`). `net._get(stop_on=)` is the start check's 429 rule; `_server_failed`'s text
+  reaches the page through `error.download_failed`.

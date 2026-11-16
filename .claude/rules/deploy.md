@@ -41,3 +41,21 @@ loads with `deploy/monitoring/` too.
   go per server, never into `conf.d/`). Anything written at run time must go to the data folder or `/tmp` (`HOME`,
   `NUMBA_CACHE_DIR`, `MPLCONFIGDIR` point into `/data/home`); a file the image needs at run time must not be excluded
   by `.dockerignore` (it keeps only the scripts and `viewer/dist`).
+
+## The project's data server (`deploy/mirror/`, docs/mirror-hosting/spec.md)
+
+- Not on the VPS: the home server, two projects (`findaline-mirror`: one service, no port; `findaline-mirror-publish`:
+  the SFTP door). The repository names its host (`mirror.findaline.lukawski.org`) and SWAG and Unraid as setups it
+  supports, never a fact of the user's own server (platform, uplink, addresses, other services, power).
+- Must stay in step (`tests/test_mirror_deploy.py`, `tests/test_mirror_pairs.py`): the base images' digests of
+  `Dockerfile`, `test/*`, `publish/Dockerfile`, `test/sshclient.Dockerfile` and `mirror_check.sh`'s `CURL_IMAGE`; the
+  served patterns and `grid_tile_name`, `res_name`, the publish tool's layout and `DATASET_NAME`; the limits of
+  `nginx.conf` and the client's `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (at most half of one visitor's); the log's keys
+  `t s b rt ds a lim v` and 14 days, `mirror_publish.py stats`, the privacy texts (spec section 7, README, the landing
+  page, `mirror_check.sh`'s `PRIVACY`, CLAUDE.md's exception): another key or period changes the texts, with the
+  user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form.
+- SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
+  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 75 min: `--timeout 7200` under the lock.
+- Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env
+  (a local replay copies that step), the tests' processes get `off` from conftest; the VPS leaves it unset. CI's
+  rclone (test parts, by sha256) stays at `mirror_publish.MIN_VERSION` or newer; no `RCLONE_*` name in its step.

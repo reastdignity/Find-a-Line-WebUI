@@ -142,9 +142,24 @@ def test_one_host_everywhere():
     swag = _read("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf")
     assert re.findall(r"^\s*server_name (\S+);", swag, re.M) == [HOST]
     for parts in [("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf"), ("deploy", "mirror", "README.md"),
-                  ("sources", "net.py"), ("sources", "readers", "tilebases.py"), ("deploy", "monitoring", "telegraf.conf")]:
+                  ("sources", "net.py"), ("sources", "readers", "tilebases.py"), ("deploy", "monitoring", "telegraf.conf"),
+                  ("README.md",), ("findaline.env.example",), ("docs", "deployment.md"), ("docs", "monitoring.md")]:
         assert _hosts(_read(*parts)) == {HOST}, parts
     assert _hosts(_read("deploy", "mirror", "landing", "index.html")) == set()
+
+
+def test_the_readmes_privacy_note():
+    """README's privacy note of the data server is the approved text word for word (the server's landing page's:
+    tests/test_mirror_deploy.py test_landing_page). The marker PRIVACY-LAST-SENTENCE stands right after its last
+    sentence until the user approves the sentence that names `off` (U37); the planner replaces both."""
+    readme = _read("README.md")
+    note = re.search(r"^\*\*Privacy\.\*\* (.+)$", readme, re.M)
+    assert note
+    text = note.group(1)
+    if "<!-- PRIVACY-LAST-SENTENCE -->" in text:
+        assert text.endswith("data.<!-- PRIVACY-LAST-SENTENCE -->")
+        text = text.removesuffix("<!-- PRIVACY-LAST-SENTENCE -->")
+    assert " ".join(text.replace("`", "").split()) == _privacy_text()
 
 
 # 3. The version a client sends, the server's log and the publish tool's rule

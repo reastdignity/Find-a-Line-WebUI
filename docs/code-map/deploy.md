@@ -29,6 +29,22 @@ docs/deployment.md, "Backups"); `tests/test_deploy.py` checks the filter, the ma
 published ports, the metrics log format and groups, the firewall's bridges and the monitoring's units;
 `tests/nginx_check.sh` (CI) runs the nginx and fail2ban files
 
+## `deploy/mirror/`
+
+The project's data server ("the mirror", docs/mirror-hosting/spec.md; runs on the home server, never on the VPS;
+install and checks: its `README.md`). Two compose projects: `findaline-mirror` (`compose.yaml`: one service `files`
+built by `Dockerfile` from nginx's unprivileged image pinned by digest, `nginx.conf` (the served patterns of `/v1/`,
+the limits per class keyed on `X-Real-IP`, the JSON log of eight keys, one file a UTC day), `start.sh` (entry point
+`serve|check|health|cleanup`: the trusted list, the landing page with `MIRROR_CONTACT`, the log's day switch, the
+hourly cleanup by 14 days and `LOG_CAP_BYTES`, the heartbeat), `landing/index.html`, `robots.txt`; no port, one
+internal network that SWAG joins by `docker network connect findaline-mirror_mirror swag`;
+`swag/findaline-mirror.subdomain.conf` for SWAG; `compose.test.yaml` a stand-in for SWAG on `127.0.0.1:8790`; `test/`
+the check script's fixture, stand-in and door-check files) and `findaline-mirror-publish` (`publish/`: the SFTP door,
+Alpine + OpenSSH with a command gate `gate.sh`, its port on one LAN address). `tests/mirror_check.sh` runs every
+behaviour and, with `--self-test`, each switched off (CI job `mirror`; `--live <url>` against a running mirror);
+`tests/test_mirror_deploy.py` reads it all statically; `tests/test_mirror_pairs.py` the pairs with the client and the
+publish tool.
+
 ## `deploy/monitoring/`
 
 The monitoring of the public site (docs/monitoring.md the plan, docs/deployment.md section 15): `compose.yaml`
@@ -52,4 +68,6 @@ processor masks addresses, `/s/<token>` and `/auth/...?<query>`; Grafana's logs 
 `grafana_plugins` (version and sha256 pinned there) into `/var/lib/findaline-grafana-plugins`, mounted read-only as
 `GF_PATHS_PLUGINS` (Grafana's preinstall stays off: it would fetch default apps too); `ssh-login.sh` →
 `/usr/local/sbin/findaline-ssh-login` and `session optional pam_exec.so quiet` in `/etc/pam.d/sshd` (D4: ntfy from
-`secrets/ntfy_url`, a detached `curl -m 5`, `ssh.json` under `flock`, always exit 0)
+`secrets/ntfy_url`, a detached `curl -m 5`, `ssh.json` under `flock`, always exit 0). The data server (C7, C8):
+Telegraf's `mirror_http_response` (its `/v1/datasets.json` every minute) and `mirror_x509_cert`, measurements of their
+own beside the site's, the rules `c7-mirror-down` and `c8-mirror-certificate`, a row of *Site* and two Overview tiles
