@@ -197,11 +197,12 @@ export const user: PageUser = JSON.parse(
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly info: ErrorInfo | null = null) { super(message); }
 
-  /** The error of an answer's detail: a text, or {message, code, params} (i18n.ts detailMessage). */
+  /** The error of an answer's detail: a text, or {message, code, params[, key]} (i18n.ts detailMessage); `info`
+   *  keeps the reading the server chose (`key`), so a place that words the error again from it takes the same one. */
   static of(detail: unknown, status: number, fallback: string): ApiError {
-    const coded = detail as {code?: unknown; params?: Record<string, unknown>} | null;
-    const info = coded && typeof coded === "object" && typeof coded.code === "string"
-      ? {code: coded.code, params: coded.params || {}} : null;
+    const coded = detail as {code?: unknown; params?: Record<string, unknown>; key?: unknown} | null;
+    const info: ErrorInfo | null = coded && typeof coded === "object" && typeof coded.code === "string"
+      ? {code: coded.code, params: coded.params || {}, ...(typeof coded.key === "string" ? {key: coded.key} : {})} : null;
     return new ApiError(detailMessage(detail, fallback), status, info);
   }
 }

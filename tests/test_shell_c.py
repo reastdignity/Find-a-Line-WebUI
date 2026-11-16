@@ -1213,16 +1213,16 @@ def test_shell_c_layout(data, tmp_path):
         n = _edge(port, narrow + f"?ui=c#run={SMALL}", tmp_path / "edge-narrow", size="900,460")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     start = r["start"]
-    assert (start["list"], start["details"]) == (340, 380) and start["kept"] is None, r
+    assert (start["list"], start["details"]) == (372, 380) and start["kept"] is None, r
     cols = start["cols"]  # the window less what the shell takes beside the result
-    list_max, details_max = min(560, cols - 360 - 380), min(600, cols - 360 - 340)
-    assert start["listAria"] == [340, 260, list_max] and start["detailsAria"] == [380, 300, details_max], r
+    list_max, details_max = min(560, cols - 360 - 380), min(600, cols - 360 - 372)
+    assert start["listAria"] == [372, 260, list_max] and start["detailsAria"] == [380, 300, details_max], r
     assert not start["tabInSeparator"] and start["tabs"] == ["Collapse the list", "Collapse the details"], r
     assert start["credits"] == {"toggle": False, "credits": True}, r  # no card: unfolded
     # The list's edge: keys, Home and End, a double click, the pointer (kept when released)
-    assert r["listKeys"] == {"width": 420, "aria": [420, 260, list_max], "kept": 420}, r
-    assert (r["listHome"], r["listEnd"], r["listReset"]) == (260, list_max, [340, 340]), r
-    assert r["listDrag"] == {"width": 380, "during": 340, "kept": 380}, r
+    assert r["listKeys"] == {"width": 452, "aria": [452, 260, list_max], "kept": 452}, r
+    assert (r["listHome"], r["listEnd"], r["listReset"]) == (260, list_max, [372, 372]), r
+    assert r["listDrag"] == {"width": 412, "during": 372, "kept": 412}, r
     assert r["detailsKey"] == [396, 396] and r["detailsDrag"] == {"width": 426, "during": 396, "kept": 426}, r
     assert r["detailsReset"] == [380, 380], r
     # Collapsed and expanded: the tab, the rail, Enter
@@ -1276,7 +1276,7 @@ def test_shell_c_layout(data, tmp_path):
     assert "timeout" not in n and "error" not in n, json.dumps(n)
     forced = n["forced"]
     assert "c-collapsed" in forced["details"] and "c-forced" in forced["details"] and forced["auto"] == "auto", n
-    assert forced["list"] == [True, 340] and forced["kept"] is None, n
+    assert forced["list"] == [True, 372] and forced["kept"] is None, n
     preferred = n["preferred"]
     assert preferred["details"] == [True, 380] and "c-forced" in preferred["list"] and preferred["auto"], n
     assert preferred["focus"] and preferred["kept"]["list"]["open"] is True, n  # the forced collapse is not kept

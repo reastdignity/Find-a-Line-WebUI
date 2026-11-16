@@ -13,6 +13,9 @@
   /* the coarser terrain (coarserLayer.ts): its box's swatch; on the map, whose tiles stay light, one slate */
   --coarse: #3b3f5c; --coarse-map: #3b3f5c;
   --layer-1: #86b6ef; --layer-2: #3987e5; --layer-3: #256abf; --layer-4: #184f95; --layer-5: #0d366b;  /* the highline layer's density classes (app/c/LayerPage.tsx) */
+  /* the access mark (access.tsx): the dot of each state and the sign inside it; on the map, whose tiles stay light, the light theme's */
+  --acc-easy: #1a994f; --acc-tell: #ed8c0d; --acc-hard: #2f3a45; --acc-easy-sign: #ffffff; --acc-tell-sign: #2b1a00; --acc-hard-sign: #ffffff;
+  --acc-map-easy: #1a994f; --acc-map-tell: #ed8c0d; --acc-map-hard: #2f3a45; --acc-map-tell-sign: #2b1a00; --acc-map-edge: #4d4538;
   --shadow: 0 1px 2px rgb(20 30 25 / .08), 0 8px 24px rgb(20 30 25 / .10);
   --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
   --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
@@ -32,6 +35,7 @@
     --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
     --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
     --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
+    --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
     --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
     color-scheme: dark;
   }
@@ -44,6 +48,7 @@
   --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
   --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
   --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
+  --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
   --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
   color-scheme: dark;
 }

@@ -3165,10 +3165,12 @@ def _old_csv_and_features(lines, groups):
             "anchor2_northing": round(y2, 2), "anchor2_easting": round(x2, 2),
             "anchor2_wall_angle": round(r["angle2"], 1),
             "anchor2_prominence_m": rn.rounded(r["prom2"], 1), "anchor2_drop_m": rn.rounded(r["drop2"], 1),
+            # a run with the access mark (--access): each anchor's answer, after the anchors' columns
+            **({"access1": r["access1"], "access2": r["access2"]} if "access1" in r else {}),
             # a run with the square rule (--same-line-square): the found lines each line stands for, the last column
             **({"stands_for": r["stands_for"]} if "stands_for" in r else {})})
     table = io.StringIO(newline="")
-    fields = list(rows[0]) if ends or "stands_for" in lines.columns else rn.FIELDS
+    fields = list(rows[0]) if ends or "stands_for" in lines.columns or "access1" in lines.columns else rn.FIELDS
     writer = csv.DictWriter(table, fieldnames=fields)
     writer.writeheader()
     writer.writerows(rows)
@@ -3192,6 +3194,8 @@ def _old_map_rows(lines, profiles: bool):
                rn.rounded(r["drop2"], 1)]
         if "lift_needed" in r:  # wave 2b: the head's "ends", before the profile
             row += [round(r["lift_needed"], 2), round(r["lift_no_zone"], 2)]
+        if "access1" in r:  # the access mark: named by the head's "ends", after the A-frame heights
+            row += [r["access1"], r["access2"]]
         if "stands_for" in r:  # the square rule: the last of the head's "ends"
             row.append(r["stands_for"])
         if profiles:
@@ -3200,16 +3204,18 @@ def _old_map_rows(lines, profiles: bool):
     return rows
 
 
-@pytest.mark.parametrize("ends, square", [(False, False), (True, False), (False, True), (True, True)],
-                         ids=["plain", "end-zone", "square", "end-zone-square"])
-def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
+@pytest.mark.parametrize("ends, square, access", [(False, False, False), (True, False, False), (False, True, False),
+                                                  (True, True, False), (False, False, True), (True, True, True)],
+                         ids=["plain", "end-zone", "square", "end-zone-square", "access", "all"])
+def test_saved_text_as_before(tmp_path, monkeypatch, ends, square, access):
     """lines.csv, lines.geojson, data.js and lines.js built column by column: the same text as
     csv.DictWriter and json.dumps of the rows of Python values wrote, for values hard to round
     (halves, negative zero, NaN, infinities, very large and small), a missing clearance and
     non-ASCII names; with an end zone and A-frames (ends) also the two A-frame heights (after
     clearance_nmpt_m, before the profile) and the heads' "ends"; with the square rule (square) the found
     lines each line stands for (the last column, the last value before the profile and of "ends") and the
-    heads' "square" and "found"."""
+    heads' "square" and "found"; with the access mark (access) each anchor's answer (uint8: after the anchors'
+    columns and before the count, before the profile, named in "ends" after the A-frame heights)."""
     import json
     from shapely.geometry import Point
     import mapping as mp
@@ -3235,6 +3241,9 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
         lines.columns["lift_needed"], lines.columns["lift_no_zone"] = np.roll(hard, 5), np.roll(hard, -7)
     if square:
         lines.columns["stands_for"] = np.array([1, 2, 10 ** 12] + [7] * (n - 3), dtype=np.int64)
+    if access:
+        lines.columns["access1"] = (np.arange(n) % 3).astype(np.uint8)
+        lines.columns["access2"] = (2 - np.arange(n) % 3).astype(np.uint8)
     lines.profiles[2] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
     groups = mp.Groups(np.array([4, 0]), np.array([4, *range(5, n), 3, 0, 1, 2]), np.array([0, n - 4, n]))
     meta = {"name": "Żabi Koń „ß”", "summary": {"lines": n}}
@@ -3244,6 +3253,8 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
     if square:
         run.setdefault("params", {})["same_line_side"] = 10
         run["summary"] = {"lines": n, "found": int(lines.columns["stands_for"].sum())}
+    if access:
+        run.setdefault("params", {})["access"] = True
     monkeypatch.setattr(rn, "LINES_CHUNK", 5)
     monkeypatch.setattr(mp, "LINES_CHUNK", 5)
     rn.save_results(str(tmp_path), lines, groups, meta)
@@ -3259,7 +3270,8 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
         expected = json.dumps(_old_map_rows(lines, profiles), separators=(",", ":"))
         assert text[text.index('"lines":[') + len('"lines":'):] == expected + "};\n"
         head = json.loads(text[text.index(" = {") + 3:text.index(',"lines":[')] + "}")
-        names = (["lift_needed", "lift_no_zone"] if ends else []) + (["stands_for"] if square else [])
+        names = ((["lift_needed", "lift_no_zone"] if ends else []) + (["access1", "access2"] if access else [])
+                 + (["stands_for"] if square else []))
         assert head.get("ends") == (names or None), name
         assert (head.get("square"), head.get("found")) == ((10, 10 ** 12 + 3 + 7 * (n - 3)) if square else (None, None))
     assert '"name":"\\u017babi Ko\\u0144' in (tmp_path / "data.js").read_text(encoding="utf-8")
@@ -3267,6 +3279,8 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
     assert ("lift_needed_m" in header) == ends and header[6:8] == (["lift_needed_m", "lift_no_zone_m"] if ends else
                                                                    ["over_trees_buildings", "water_m"])
     assert ("stands_for" in header) == square and (header[-1] == "stands_for") == square
+    assert header[len(header) - square - 2:len(header) - square] == (["access1", "access2"] if access else
+                                                                     ["anchor2_prominence_m", "anchor2_drop_m"])
     import helpers as sh
     assert rn.END_COLUMNS == sh.END_VALUES  # runs repeats them (the web process imports runs, not helpers)
 
@@ -3531,7 +3545,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     results' apart from the map's) are byte for byte those save_results and save_map write in
     one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
     a lift ("zone", "lift"), the A-frame heights of a run with those options, the found lines each
-    line stands for of a run with the square rule (an int64 column), profiles that
+    line stands for of a run with the square rule (an int64 column), the access mark of a run with --access
+    (two uint8 columns), profiles that
     are dicts, lines without one and values hard to round; the children's progress reaches the Compute bars
     "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
     removed; a failing child raises RuntimeError naming its file."""
@@ -3561,6 +3576,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     lines.columns["lift_no_zone"] = lines.columns["lift_needed"] + rng.random(n) * 5
     lines.columns["lift_no_zone"][:len(hard)] = np.roll(hard, 3)
     lines.columns["stands_for"] = np.random.default_rng(8).integers(1, 5000, n).astype(np.int64)  # --same-line-square
+    for name in ("access1", "access2"):  # --access: each anchor's answer, 0 to 2 (uint8)
+        lines.columns[name] = rng.integers(0, 3, n).astype(np.uint8)
     batch = _batch_profiles(n, rng)
     zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
     zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
@@ -3575,7 +3592,7 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00",
             "summary": {"lines": n, "found": int(lines.columns["stands_for"].sum())},
             "attribution": [], "source": {"id": "files"},
-            "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2, "same_line_side": 5},
+            "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2, "same_line_side": 5, "access": True},
             "data": [{"file": "C:/a/b.tif"}]}
     one = tmp_path / "one"
     one.mkdir()
@@ -3583,6 +3600,7 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     mp.save_map(lines, Area, str(one), str(tmp_path / "runs"), meta, "EPSG:2180")
     files = ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json", "ATTRIBUTION.txt", "map.html")
     assert sorted(os.listdir(one)) == sorted(files)
+    assert (one / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[0].endswith(",access1,access2,stands_for")
 
     work = tmp_path / "work"
     for count in (4, 2):
@@ -3600,7 +3618,7 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
         for name in files:
             assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
         assert b"lift_no_zone_m" in (folder / "lines.csv").read_bytes()
-        assert b'"ends":["lift_needed","lift_no_zone","stands_for"]' in (folder / "lines.js").read_bytes()
+        assert b'"ends":["lift_needed","lift_no_zone","access1","access2","stands_for"]' in (folder / "lines.js").read_bytes()
         assert (folder / "lines.csv").read_bytes().splitlines()[0].endswith(b",stands_for")
         assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
         # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)

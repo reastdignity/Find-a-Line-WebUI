@@ -2198,6 +2198,43 @@
     "seconds": 11.0,
     "notes": "added 2026-11-15: --source auto picks northern_ireland_10m (GB-NIR; the coastal DTM's cells hold nothing near: northern_ireland's instead_without_data); two sheets of OSNI's 10 m DTM (members of about 4.5 MB of two archives, one Range each, 11 s on an empty cache); 8 lines, 6 spots on the escarpment's rim (55.1134-55.1164 N, 6.9245-6.9266 W, anchors at 285-323 m); 10 m data interpolated from the Enhanced DTM: the walls smoothed, only long lines"
   },
+  "R83": {
+    "place": "as R16 with the access mark (--access): the access grid once on the area's whole grid, each tile its window (sea, shore faces and gaps filled); the marks of the line ends counted, and lines.csv without access1, access2 is R16's",
+    "extends": "R16",
+    "args": "--access",
+    "sets": [
+      "water",
+      "search"
+    ],
+    "without_access_as": "R16",
+    "expected": {
+      "anchors": 6409,
+      "open": 3669,
+      "checked": 10754,
+      "lines": 9337,
+      "spots": 240,
+      "csv_sha256": "264766cb3e314c6168b29dec49707085bc7337ead3a4625ab71cfe1a447614a5",
+      "length_km": 1982.371,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.213,
+      "clearance_max": 29.57,
+      "over_trees": 0,
+      "coverage": 49.48,
+      "empty_tiles": 0,
+      "filled_km2": 2.58,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 6.08,
+      "water_lines": 9261,
+      "water_spots": 232,
+      "access_ends": [
+        10242,
+        788,
+        7644
+      ]
+    },
+    "notes": "re-baselined 2026-11-15: the measure's own answer at the anchors on shore faces (the mapping to cannot tell dropped, the user's choice): line ends hard / cannot tell / easy 7 565 / 3 616 / 7 493 -> 10 242 / 788 / 7 644; lines.csv less access1, access2 still R16's",
+    "seconds": 10.6
+  },
   "R84": {
     "place": "Okutama, Tokyo (JP-13): the rock walls of the Tama river's valley, the Tokyo Digital Twin's 0.5 m lidar grid (Tama, 2022-2023) from its sheets of 400 x 300 m, JGD2011 / Japan Plane Rectangular CS IX",
     "args": "--lat 35.8179 --lon 139.0875 --radius 400 --min-length 20 --max-length 100",

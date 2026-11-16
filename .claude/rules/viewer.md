@@ -27,6 +27,16 @@ catalogue), `browser-tests.md`.
   page makes a Line only through `ResultModel.lineAt`, so code that goes through every line reads the columns
   (`forEachLine`, a `LineCursor`), never `rep`/`members` of every spot (each makes Lines).
 
+- The access mark (`access.tsx`; run-files.md for the files' side): its values (`types.ts` `ACCESS_HARD` 0,
+  `ACCESS_CANNOT_TELL` 1, `ACCESS_EASY` 2 = `access.py`'s) and the names in a head's `ends` (`ACCESS` = `runs.ACCESS`);
+  the three states' words (`ui.access.*`) are the accepted mock-up's (2026-11-15) and stand in the legend, the
+  details, the help's key and A2's `field.access.help`: change them together; the colours are the tokens `--acc-*`
+  (`ui/tokens.css`: light, dark, and `--acc-map-*` for the map, whose tiles stay light). The form's default lives in
+  `search/basic.ts` (`basicValues`: on), never in `SearchParams` or the schema: the form sends what differs from the
+  schema's default, so a default moved there would drop the ticked value from the request. A search too wide for the
+  access grid runs without the mark: the estimate's note has the code `access_skipped` (`basic.ts` `ACCESS_SKIPPED` =
+  `search.py`'s note) and the run's heads the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_heads`).
+
 ## Pitfalls
 
 - **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over

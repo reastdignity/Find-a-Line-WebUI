@@ -37,7 +37,7 @@ import { LinesTable } from "./LinesTable";
 import { DEFAULT_LAYOUT, LIMITS, fitColumns, maxColumnWidth, type Column, type Layout } from "./layout";
 import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock, profileShown } from "./ProfileDock";
-import { ResultSummary } from "./ResultSummary";
+import { AccessLegend, ResultSummary } from "./ResultSummary";
 import { RunActions, type RunActionsProps } from "./RunActions";
 import { RunLoading } from "./RunLoading";
 import { useLayout, type LayoutState } from "./useLayout";
@@ -402,7 +402,9 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
       {model.selected && <LineDetails model={model} part="body" onZoom={zoom} linkOf={link && ((l) => link(model, l))}
                                       view3dOf={view3dOf && ((l) => view3dOf(model, l))} />}
       <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={closeMeasured} class="r-dock-sheet" />
-      {model.selected && <ResultSummary model={model} />}
+      {/* the access mark's legend stands above the filters and the list also while nothing is selected (the sheet's
+          head then shows the summary without its legend) */}
+      {model.selected ? <ResultSummary model={model} /> : <AccessLegend model={model} />}
       <FilterBar model={model} />
       <LinesTable model={model} view={view} onSelect={reveal} follow={false} />
     </Sheet>
