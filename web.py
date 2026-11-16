@@ -2307,6 +2307,11 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
         ("IP addresses", "The application stores none. The reverse proxy in front of it may log requests with "
          "their addresses to protect the site (its operator's configuration); sign-in requests are counted per "
          "address in memory only."),
+        # The project's data server (deploy/mirror; docs/mirror-hosting/spec.md, section 7: the user's approved text,
+        # word for word; its log's privacy text is README's and the server's landing page's)
+        ("Elevation data from the project's data server", "The elevation data of some regions come from a data "
+         "server run by the project. This site's server asks it for them; your browser and your address never "
+         "reach it."),
     ]
     facts = [
         "Administrators can see every search and open every run, also private ones (to run the site and to "

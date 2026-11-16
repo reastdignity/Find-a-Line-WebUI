@@ -74,6 +74,30 @@ jobs:
       - name: Python dependencies
         run: uv sync --frozen --group tui
 
+      # rclone for tests/test_mirror_publish.py (skipped without it): the publish tool needs 1.76 or newer
+      # (mirror_publish.MIN_VERSION). The release's zip from rclone's own downloads, checked against the
+      # sha256 of its SHA256SUMS (https://downloads.rclone.org/v1.76.0/SHA256SUMS, read 2026-11-16), found by
+      # the tool through FINDALINE_RCLONE. Not in the 3D parts, which run no such test. No RCLONE_* name in the
+      # step's environment: rclone reads every one as a flag of its own (RCLONE_VERSION stopped it)
+      - name: rclone
+        if: matrix.part == 'tests'
+        shell: bash
+        env:
+          RELEASE: "1.76.0"
+          SHA256_LINUX: b00f00b3266c3764413afe599d3ec316f6f43b3e0ea8a0bc1d186d2133e46df7
+          SHA256_WINDOWS: 8b4fd2737ade4e70c057ef4a49deb7cffe94b0fb9d7587c189d149823f21a1dc
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then arch=windows-amd64 sum=$SHA256_WINDOWS exe=rclone.exe
+          else arch=linux-amd64 sum=$SHA256_LINUX exe=rclone; fi
+          name="rclone-v$RELEASE-$arch"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://downloads.rclone.org/v$RELEASE/$name.zip"
+          echo "$sum  $name.zip" | sha256sum -c -
+          uv run --frozen --no-sync --project "$GITHUB_WORKSPACE" python -m zipfile -e "$name.zip" .
+          chmod +x "$name/$exe"
+          "./$name/$exe" version | sed -n 1p   # sed reads it all: no broken pipe under pipefail
+          echo "FINDALINE_RCLONE=$RUNNER_TEMP/$name/$exe" >> "$GITHUB_ENV"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 24
@@ -142,6 +166,9 @@ jobs:
           cp findaline.env.example findaline.env
           # web --public starts only with a sign-in provider; the ids (and secrets below) are dummies
           printf 'FINDALINE_GITHUB_CLIENT_ID=ci-dummy\nFINDALINE_GOOGLE_CLIENT_ID=ci-dummy\n' >> findaline.env
+          # a test stack never asks the project's data server (its default address is the real one); on the
+          # VPS the setting stays absent
+          printf 'FINDALINE_MIRROR_URL=off\n' >> findaline.env
           printf 'WORKER_CPUS=2\nWORKER_MEMORY=4g\n' > .env
           for name in findaline_session_secret findaline_github_client_secret findaline_google_client_secret \
               findaline_microsoft_client_secret; do
@@ -188,6 +215,8 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: findaline.example.org' http://127.0.0.1:8765/metrics)" = 404
           # numba's threads follow WORKER_CPUS, not the cores the container sees
           test "$(docker compose exec -T worker python -c 'import numba; print(numba.config.NUMBA_NUM_THREADS)')" = 2
+          # the test stack's worker never asks the project's data server
+          test "$(docker compose exec -T worker printenv FINDALINE_MIRROR_URL)" = off
           docker compose stop worker
           docker compose ps --all
           test "$(docker inspect --format '{{.State.ExitCode}}' "$(docker compose ps --all --quiet worker)")" = 0

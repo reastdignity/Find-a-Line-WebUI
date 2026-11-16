@@ -344,3 +344,57 @@ def test_publishable_is_the_catalogues_and_the_tools():
         folder = mirror_tiles.tile_folder(spec)
         row = mp.PUBLISHABLE[spec["folder"]]
         assert folder in mp.required_folders(row["source_id"]), folder
+
+
+# The site's side: the privacy page, the test stacks, CI's rclone
+
+def test_the_privacy_pages_entry_is_the_approved_text():
+    """web.privacy_page carries the specification's entry (section 7, the user's U13) word for word, with the ring of
+    the 3D view on and off."""
+    import web
+    spec = " ".join(_read("docs", "mirror-hosting", "spec.md").split())
+    found = re.search(r'Title: "([^"]+)"\. Text: "([^"]+)"', spec)
+    assert found
+    title, text = found.groups()
+    for ring in (False, True):
+        page = web.privacy_page("admin@example.org", 30, ring=ring)
+        assert f"<dt>{web.html.escape(title)}</dt><dd>{web.html.escape(text)}</dd>" in page
+
+
+def test_test_stacks_never_ask_the_data_server():
+    """The site's settings leave FINDALINE_MIRROR_URL absent (the VPS downloads from the data server, U4): compose.yaml
+    sets none and findaline.env.example only names it in a comment, with `off`; CI's docker job, which builds its
+    findaline.env from that example (tests/nginx_check.sh checks the same running stack), appends `off` and checks
+    that the worker sees it. The tests' own processes: tests/conftest.py (tests/test_mirror_client.py
+    test_the_processes_of_the_tests_ask_no_data_server); tests/regression.py sets `off` unless --mirror-url."""
+    import yaml
+    assert "FINDALINE_MIRROR_URL" not in _read("compose.yaml").replace("# tiles from the project's data server "
+                                                                       "(FINDALINE_MIRROR_URL in findaline.env", "")
+    example = _read("findaline.env.example")
+    assert re.findall(r"^#?FINDALINE_MIRROR_URL=.*$", example, re.M) == ["#FINDALINE_MIRROR_URL=off"]
+    assert _hosts(example) <= {HOST}
+    jobs = yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]
+    steps = {step.get("name"): step.get("run", "") for step in jobs["docker"]["steps"]}
+    settings = steps["Example settings and secrets"]
+    assert "cp findaline.env.example findaline.env" in settings
+    assert r"printf 'FINDALINE_MIRROR_URL=off\n' >> findaline.env" in settings
+    assert 'test "$(docker compose exec -T worker printenv FINDALINE_MIRROR_URL)" = off' in steps["Services"]
+    assert 'os.environ["FINDALINE_MIRROR_URL"] = "off"' in _read("tests", "conftest.py")
+    assert 'os.environ["FINDALINE_MIRROR_URL"] = args.mirror_url or "off"' in _read("tests", "regression.py")
+
+
+def test_ci_installs_the_rclone_the_tool_needs():
+    """CI's test jobs (the parts named "tests", Linux and Windows) install rclone at the publish tool's MIN_VERSION or
+    newer, pinned by sha256, and name it by FINDALINE_RCLONE, so tests/test_mirror_publish.py runs there instead of
+    skipping."""
+    import yaml
+    tests = yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]["tests"]
+    (step,) = [s for s in tests["steps"] if s.get("name") == "rclone"]
+    assert step["if"] == "matrix.part == 'tests'"
+    assert {m["os"] for m in tests["strategy"]["matrix"]["include"] if m["part"] == "tests"} == {"ubuntu-latest",
+                                                                                                  "windows-latest"}
+    version = tuple(int(n) for n in step["env"]["RELEASE"].split("."))
+    assert version[:2] >= mp.MIN_VERSION
+    assert all(re.fullmatch(r"[0-9a-f]{64}", step["env"][k]) for k in ("SHA256_LINUX", "SHA256_WINDOWS"))
+    assert not [k for k in step["env"] if k.startswith("RCLONE_")]   # rclone reads those as its flags
+    assert 'sha256sum -c -' in step["run"] and f'>> "$GITHUB_ENV"' in step["run"] and mp.RCLONE_ENV in step["run"]
