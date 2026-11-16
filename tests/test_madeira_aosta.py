@@ -1,4 +1,5 @@
-"""Madeira (portugal.py) and Valle d'Aosta (italy.py): our own 2 km tiles from the local mirror (tools/mirror_tiles.py).
+"""Madeira (portugal.py) and Valle d'Aosta (italy.py): our own 2 km tiles (tools/mirror_tiles.py) from the local mirror
+folder or the project's data server (FINDALINE_MIRROR_URL: empty in the tests, so the folder alone here).
 --source auto takes them in their regions when the mirror holds them; without it says why and takes the next source
 of the place (TINITALY in Valle d'Aosta, europe in Madeira, as Slovakia); the offline boxes keep Valle d'Aosta off
 France."""
@@ -58,6 +59,9 @@ def test_without_the_mirror(tmp_path, monkeypatch, online):
     for sid, tool in (("madeira", "tools/mirror_tiles.py"), ("aosta_valley", "tools/mirror_tiles.py"),
                       ("slovakia", "tools/sk_tiles.py")):
         assert f"(made by {tool})" in src.SOURCES[sid].nmt.unavailable(), sid
+        assert "FINDALINE_MIRROR_URL" in src.SOURCES[sid].nmt.unavailable(), sid  # both settings named
+    for sid in ("madeira", "aosta_valley"):  # where their tiles come from, in their texts
+        assert "from the project's data server or a local copy" in src.SOURCES[sid].description, sid
     source, why = src.choose_source("auto", *CABO_GIRAO, str(tmp_path))
     assert source.id == "europe" and why.startswith("the centre is in PT-30, but") and "FINDALINE_MIRROR" in why
     source, why = src.choose_source("auto", *ARNAD, str(tmp_path))

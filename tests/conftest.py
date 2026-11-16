@@ -16,6 +16,7 @@ from http_server import HttpServer  # noqa: E402
 # A PYTHONIOENCODING of the calling shell hid the quick lane's "km²" from the tests (4901833)
 for _name in ("PYTHONIOENCODING", "PYTHONUTF8"):
     os.environ.pop(_name, None)
+os.environ["FINDALINE_MIRROR_URL"] = "off"  # no test asks the project's data server (a test may set a local one)
 
 
 @pytest.fixture

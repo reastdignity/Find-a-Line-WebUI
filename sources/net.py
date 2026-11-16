@@ -173,6 +173,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # OpenDataNI's downloads (OSNI's 10 m DTM archives; the stable links redirect to signed URLs on Cloudflare R2,
     # read by Range): no published limits (the packages and OpenDataNI's terms, read 2026-11-15): two at once
     "admin.opendatani.gov.uk": 2,
+    # The project's own data server (our own tiles: sources/readers/tilebases.py MIRROR_URL; deploy/mirror): half of
+    # the 4 requests at once it allows an address (docs/mirror-hosting/spec.md A.5, C.6), so two installations
+    # behind one address fit; its index requests take no slot (their turn only)
+    "mirror.findaline.lukawski.org": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -209,7 +213,14 @@ HOST_RATES_OF: Dict[str, int] = {
     # of 2026-11-15 promises, "at most one request per second" (less 10 %), until DAERA answers (no limits published:
     # the items, the services and OpenDataNI's pages, read 2026-11-15)
     "tiles-eu1.arcgis.com": 54,
+    # The project's own data server (sources/readers/tilebases.py MIRROR_URL): 20 requests a second per address
+    # (burst 40) by its limits (docs/mirror-hosting/spec.md A.5); half of it, 600 a minute (C.6)
+    "mirror.findaline.lukawski.org": 600,
 }
+# Addresses (host:port, lower case) whose requests take another host's limits in HOST_SLOTS_OF and HOST_RATES_OF: the
+# project's data server under an address of the user's choosing (FINDALINE_MIRROR_URL: a mirror on a LAN, the local
+# test stack) keeps the manners of its own host; sources/readers/tilebases.py adds the address in use (limits_host)
+LIMITS_AS: Dict[str, str] = {}
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
 _rate_limiters: Dict[Tuple[str, str, int], object] = {}  # (database, host, rate) -> pyrate_limiter.Limiter
@@ -233,6 +244,17 @@ def _host(url: Optional[str]) -> Optional[str]:
     return urlsplit(url).hostname if url and re.match(r"https?://", url) else None
 
 
+def limits_host(url: Optional[str]) -> Optional[str]:
+    """The host whose entries of HOST_SLOTS_OF and HOST_RATES_OF a request to url takes: its own, or the one
+    LIMITS_AS names for its address (None: a local path)."""
+    host = _host(url)
+    return LIMITS_AS.get(urlsplit(url).netloc.lower(), host) if host else None
+
+
+class TurnTimeout(RuntimeError):
+    """No turn of a host's rate within RATE_WAIT_S (rate_turn): this machine's other searches use it."""
+
+
 def rate_turn(url: Optional[str], share: float = 1.0):
     """Wait for this request's turn when the host of url has a rate (HOST_RATES_OF), the turns
     spread evenly (one every 60/n s) over every thread and process of the machine: a pyrate-limiter
@@ -245,7 +267,7 @@ def rate_turn(url: Optional[str], share: float = 1.0):
     tile) also takes a turn of a bucket of its own at that share of the rate (at least 1 a minute), after
     the host's turn: the host's rate still bounds every request, and these stay under their share."""
     host = _host(url)
-    per_minute = HOST_RATES_OF.get(host) if host else None
+    per_minute = HOST_RATES_OF.get(limits_host(url)) if host else None
     if not per_minute:
         return
     _turn(host, per_minute)
@@ -276,7 +298,7 @@ def _turn(host: str, per_minute: int):
     deadline = time.monotonic() + RATE_WAIT_S
     while not limiter.try_acquire(host, timeout=0):
         if time.monotonic() > deadline:
-            raise RuntimeError(f"{host} is busy with the requests of other searches "
+            raise TurnTimeout(f"{host} is busy with the requests of other searches "
                                f"(waited {RATE_WAIT_S // 60} min); try again later")
         time.sleep(interval * (0.1 + 0.2 * random.random()))  # waiters spread; late, never early
 
@@ -323,21 +345,25 @@ def verify(url: Optional[str]):
         return path
 
 
-def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
+def _get(url: str, params=None, timeout=300, binary_types=("image", "octet", "tiff", "multipart"),
+         retries: int = RETRIES, stop_on: Tuple[int, ...] = ()):
     """GET with retries; raises RuntimeError with the server message on failure (without the
-    query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
-    (rate_turn) and is counted (servicecounts, the host only; a 200 that is not data counts as
-    `other`). A 429 or 503 (the server asks us to slow down) backs off longer: _sleep(attempt + 3),
-    about 8, 16 and 32 s."""
-    last_error = None
-    for attempt in range(RETRIES):
-        slow_down = False
+    query of the URL or a key's value: cache.clean_error), its `status` the last answer's HTTP status
+    (None: no answer). Every attempt waits for its turn (rate_turn) and is counted (servicecounts, the
+    host only; a 200 that is not data counts as `other`). A 429 or 503 (the server asks us to slow down)
+    backs off longer: _sleep(attempt + 3), about 8, 16 and 32 s. timeout: requests' (seconds, or
+    (connect, read)); retries: the attempts (the start check of the data server asks twice); stop_on: statuses
+    that end it at once, without another attempt or a pause (the start check's 429: a busy server answers)."""
+    last_error, status = None, None
+    for attempt in range(retries):
+        slow_down, status = False, None
         try:
             rate_turn(url)
             with servicecounts.request(url) as counted:
                 response = counted.got(requests.get(url, params=params, timeout=timeout,
                                                     headers=cache.http_headers(), verify=verify(url)))
                 content_type = response.headers.get("content-type", "")
+                status = response.status_code
                 if response.status_code == 404:
                     return None
                 if response.status_code != 200 or not any(t in content_type for t in binary_types):
@@ -348,10 +374,15 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
             return response
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
+            if status in stop_on:
+                break
             _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)
-    raise RuntimeError(cache.clean_error(last_error))
+    error = RuntimeError(cache.clean_error(last_error))
+    error.status = status  # the last attempt's (the data server's start check tells a busy server apart)
+    error.last = last_error  # the last attempt's own error, for its kind (tilebases names it without its text)
+    raise error
 
 
 def _sleep(attempt: int):
@@ -436,7 +467,7 @@ def host_slot(cache_dir: str, url: Optional[str]):
         yield
         return
     folder = _locks(cache_dir, "hosts")
-    slots = list(range(HOST_SLOTS_OF.get(host, HOST_SLOTS)))
+    slots = list(range(HOST_SLOTS_OF.get(limits_host(url), HOST_SLOTS)))
     key = (folder, host, len(slots))
     with _queues_lock:
         queue = _queues.setdefault(key, _Queue(len(slots)))

@@ -90,12 +90,17 @@ class ResolutionBases(Reader):
     def unavailable(self) -> Optional[str]:
         return self.readers[self.native].unavailable()
 
+    def reach(self) -> Optional[str]:
+        """The native resolution's start check (TileBases.reach): the averaged ones are available whenever a
+        remote base is set (GridTiles), so their choice never depends on a request."""
+        return self.readers[self.native].reach()
+
 
 class GridTiles(ComposedLayer):
     """Square tiles on a fixed grid in a metric CRS, our own hosted tiles (tools/sk_tiles.py,
     tools/mirror_tiles.py), as <base>/<grid_tile_name>: a MetricTiling read by TileBases (the local
-    mirror first, then the URLs). Tile (res, i, j) covers [i, i + 1) x [j, j + 1) tile sizes in the
-    CRS from origin (x, y in metres: the data's pixel edges modulo tile_m, so a tile holds whole
+    mirror folder first, then the project's data server, then the URLs). Tile (res, i, j) covers
+    [i, i + 1) x [j, j + 1) tile sizes in the CRS from origin (x, y in metres: the data's pixel edges modulo tile_m, so a tile holds whole
     pixels; (0, 0) for Slovakia, (1, 1) for Madeira's edges on odd metres). tool: what makes the
     mirror's tiles (tools/sk_tiles.py, tools/mirror_tiles.py), named when the mirror is missing.
 
@@ -106,7 +111,10 @@ class GridTiles(ComposedLayer):
     reads them (a mosaic of them is the native tiles' averaged by GDAL, byte for byte: the
     pixels of a 2 km tile divide into whole blocks, and a working grid's edges lie on
     multiples of its resolution), any other grid the native tiles as before; a resolution the
-    mirror or a URL does not have yet falls back to the native tiles too. averaged_bytes: the size of
+    local folder does not have, without a remote base, falls back to the native tiles too. With a remote
+    base (the data server) every averaged resolution is available, so the choice is the same in every
+    phase and process; its missing index is then an error, never a switch to the native tiles
+    (docs/mirror-hosting/spec.md C.5). averaged_bytes: the size of
     a tile at each of those resolutions, for estimate (bytes_per_tile is the native tiles'; an
     averaged tile without one counts as a native one).
     """
@@ -138,12 +146,21 @@ class GridTiles(ComposedLayer):
         """Where the native tiles come from, in order (see TileBases.bases)."""
         return self.readers[self.native_res].bases()
 
+    def remote_base(self) -> Optional[str]:
+        """The first base of the native tiles when it is a remote one (the data server), else None."""
+        bases = self.bases()
+        return bases[0] if bases and re.match(r"https?://", bases[0]) else None
+
     def resolution(self, grid_res: float, grid_crs: Optional[str] = None) -> float:
         """The resolution of the tiles a grid of grid_res reads (the native, or an averaged one;
         a grid of another CRS than the tiles' always the native)."""
         return self.index.resolution(grid_res, grid_crs)
 
     def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
-        """(tiles, tiles to download, MB), the averaged tiles at their own size (averaged_bytes)."""
-        tiles, todo, _ = super().estimate(grid, cache_dir, update)
-        return tiles, todo, todo * self._sizes.get(self.resolution(grid.res, grid.crs), self._bytes) / 1e6
+        """(tiles, tiles to download, MB), the averaged tiles at their own size (averaged_bytes). Read from a
+        remote base first, the tiles its kept index lists without data are not counted (TileBases.listed_empty);
+        without a kept index every tile not cached is, an upper bound, as for a local folder."""
+        res = self.resolution(grid.res, grid.crs)
+        reader = self.readers[res]
+        todo = sum(not reader.listed_empty(tile[1:]) for tile in self.missing(grid, cache_dir, update))
+        return len(self.tiles(grid)), todo, todo * self._sizes.get(res, self._bytes) / 1e6

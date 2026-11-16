@@ -12,7 +12,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
   cache, or its address answering a HEAD with its size; never downloaded); blocks found through an index
   (LidarBcBlocks) their index asked, then 16 x 16 pixels at the centre of the first block from its newest file;
-  a local mirror is looked for on disk; a WCS 1.0.0 in a geographic CRS (GeoWcsTiles) a GetCoverage of
+  a local mirror is looked for on disk; our own tiles on the project's data server (no local folder first)
+  get the start check as their index (reach: the index.json) and one byte of the first tile it lists with data;
+  a WCS 1.0.0 in a geographic CRS (GeoWcsTiles) a GetCoverage of
   16 x 16 of its own pixels at the sample (no index: a fixed tiling); a sheet of a geographic grid
   (GeoSheetTiles) the first 8 bytes of its file, which must be a TIFF's (never a range of one byte); a
   plain XYZ file
@@ -74,7 +76,7 @@ from .layers.fileblocks import FileBlocks
 from .readers.windows import _forget, _read_ranged, _same_crs, _values_on, _wrong_crs
 from .vertical import Geoid
 from .layers.gridtiles import GridTiles
-from .readers.tilebases import grid_tile_name
+from .readers.tilebases import MirrorUrlError, grid_tile_name, mirror_url
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
@@ -474,6 +476,36 @@ def _deep(cache_dir: str, layer: Layer, tile, folder: str) -> str:
     return f"tile {fetched.received / 1e6:.1f} MB, {100 * share:.0f}% with data"
 
 
+def _remote_grid_tiles(cache_dir: str, source: Source, layer: GridTiles, row: Row, deep: bool, folder: str) -> Row:
+    """Our own tiles read from the project's data server (no local folder first): the index column is the start
+    check (layer.reach: the native index.json); the read is one byte of the first tile its index lists with
+    data, the sample's tiles first (a tile the index lists as null is not on the server), with --deep that
+    tile downloaded and checked."""
+    why = layer.reach()
+    if why:
+        row.index = FAILED
+        row.notes.append(why)
+        return row
+    row.index = OK
+    try:
+        base = layer.remote_base()
+        tiles, _ = layer.readers[layer.native_res].remote_index(base)
+        sample = [f"{t[1]}_{t[2]}" for t in layer.tiles(_grid(source)) if t[0] == layer.native_res]
+        key = next((k for k in sample + list(tiles) if tiles.get(k)), None)
+        if key is None:
+            raise RuntimeError("its index lists no tile with data")
+        tile = tuple(map(int, key.split("_")))
+        if deep:
+            row.notes.append(_deep(cache_dir, layer, (layer.native_res, *tile), folder))
+        else:
+            _read(cache_dir, f"{base}/{grid_tile_name(*tile)}")
+        row.read = OK
+    except (requests.RequestException, RuntimeError, ValueError, OSError, rio.errors.RasterioError) as e:
+        row.read = FAILED
+        row.notes.append(cache.clean_error(e))
+    return row
+
+
 def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder: str, deep: bool) -> Row:
     """Index and read of one layer; errors go into the notes."""
     row = Row(source.id, what)
@@ -505,6 +537,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             if deep and row.read == OK:
                 row.notes.append(_deep(cache_dir, layer, _lerc_tile(source, layer), folder))
             return row
+        if isinstance(layer, GridTiles) and layer.remote_base():
+            return _remote_grid_tiles(cache_dir, source, layer, row, deep, folder)
         grid = _grid(source)
         printed = io.StringIO()
         try:
@@ -635,6 +669,11 @@ def run(cache_dir: str, ids: Sequence[str] = (), deep: bool = False, key: Option
     if unknown:
         raise ValueError(f"unknown source: {', '.join(unknown)} (one of {', '.join(sources)})")
     OpenTopographyTiles.api_key = key or OpenTopographyTiles.api_key
+    try:
+        mirror_url()  # a FINDALINE_MIRROR_URL that is neither an address nor off: its text alone, exit code 1
+    except MirrorUrlError as e:
+        print(e, file=sys.stderr)
+        return 1
     folder = tempfile.mkdtemp(prefix="findaline-probe-")
     done: Dict[int, Row] = {}
     checked = failed = skipped = 0

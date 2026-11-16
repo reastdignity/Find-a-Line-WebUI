@@ -69,6 +69,11 @@ class Reader:
         """Why the reader cannot be used here, or None."""
         return None
 
+    def reach(self) -> Optional[str]:
+        """Why its server does not answer now (the start check, asked only where a caller passes reach=True:
+        choose.source_unreachable), or None: answers, or nothing to ask."""
+        return None
+
 
 class ComposedLayer(Layer):
     """A layer whose tiles come from an index and are fetched by a reader (set by the
@@ -162,3 +167,6 @@ class ComposedLayer(Layer):
 
     def unavailable(self) -> Optional[str]:
         return super().unavailable() or self.reader.unavailable()
+
+    def reach(self) -> Optional[str]:
+        return self.reader.reach()
