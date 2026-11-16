@@ -2031,6 +2031,16 @@ console.log(JSON.stringify({{text: infos.map((i) => m.errorText(i, "the server's
     assert found["text"] == found["detail"] == [local, public, local, "the server's text", local]
     assert "GiB" in local and "7.7" in local
     assert not re.search(r"\d|GiB|\{\{", public) and public.startswith("The anchors' access will not be marked"), public
+    # the server's own infos of the note (messages.Coded.info, and as a detail: the public one has the key and no
+    # params): the page words each as the server's web text
+    note = messages.Note("cli text", "access_skipped", **params)
+    real = [note.info(), note.info(public=True), {"message": note.web_text(), **note.info()},
+            {"message": note.web_text(public=True), **note.info(public=True)}]  # as an error answer's detail
+    assert real[1] == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}} and "key" not in real[0]
+    worded = run_ts(tmp_path, "i18n", f"""
+const [info, publicInfo, detail, publicDetail] = {json.dumps(real)};
+console.log(JSON.stringify([m.errorText(info), m.errorText(publicInfo), m.detailMessage(detail, "x"), m.detailMessage(publicDetail, "x")]));""")
+    assert worded == [note.web_text(), note.web_text(public=True)] * 2 == [local, public] * 2
 
 
 def test_area_searched_by_local_day(tmp_path):

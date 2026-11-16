@@ -538,6 +538,11 @@ def test_a_real_search_too_wide_for_the_mark_on_the_page(tmp_path, monkeypatch):
         os.makedirs(tmp_path / "est", exist_ok=True)
         estimates[public] = jobs.quick_estimate(str(tmp_path / "est"), {"params": {**values, "access": True}})["messages"]
     assert all(any(len(m) == 3 and m[2]["code"] == "access_skipped" for m in found) for found in estimates.values())
+    # the two shapes of the note's info: locally its params, on the public site the public reading's key and no params
+    noted = {public: next(m for m in found if len(m) == 3 and m[2]["code"] == "access_skipped") for public, found in estimates.items()}
+    assert set(noted[False][2]["params"]) == {"need", "have"} and "key" not in noted[False][2] and "GiB" in noted[False][1]
+    assert noted[True][2] == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}
+    assert "GiB" not in noted[True][1], noted[True]
     # the run of the same search with too little memory for the access grid
     monkeypatch.setattr(search, "available_memory", lambda: 10_000)
     data = tmp_path / "data"
