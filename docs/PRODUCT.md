@@ -7,10 +7,10 @@ has it and proposes rules; neither file sets a colour or a font.
 
 ## Who uses it, and where
 
-- **The experienced rigger at a desk** (the main user): plans trips, runs many searches, compares lines, saves and
-  shares them. Works on a desktop with a mouse and a keyboard, often for a long sitting.
-- **The first-timer on a phone** (the guard): signs in for the first time, runs a first search, tries to understand
-  the result. Has no idea yet what an anchor, a clearance or a no-fall zone means here.
+- **The experienced rigger at a desk** (the main user). *Proposed* description: runs many searches, edits and
+  repeats them, compares lines, saves and shares them; works with a mouse and a keyboard.
+- **The first-timer on a phone** (the guard). *Proposed* description: signs in for the first time, runs a first
+  search and tries to understand the result, without knowing yet what the app's words mean.
 - The user's decision when their needs conflict: "Aim is to be good tool for 3. but also not scare 1." (3 = the
   rigger at a desk, 1 = the first-timer on a phone.) Being outdoors at the spot was offered and not picked.
 
@@ -30,8 +30,9 @@ spot. The search's results are not a design matter: the interface shows them, it
 ## The three tells to remove (aim 4)
 
 The user's words for what makes the interface look "Claude Code style": "Same grey box everywhere, Long explaining
-texts, Symbols and dense strings". Two more tells were offered: monospace capital labels, and outdoor legibility as
-a target; on them the user said: "They are not main target, might be done addiotionally".
+texts, Symbols and dense strings". A fourth tell was offered and not picked, monospace capital labels; outdoor
+legibility, offered as a part of visibility, was not picked either. On those two the user said: "They are not main
+target, might be done addiotionally".
 
 ## What stays
 
