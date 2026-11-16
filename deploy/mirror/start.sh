@@ -7,6 +7,8 @@
 #                        cleanup loop, then nginx in the foreground
 #   mirror-start check   the same files, then `nginx -t` (the settings checked without serving)
 #   mirror-start health  the healthcheck: robots.txt on the loopback and a fresh heartbeat
+#   mirror-start cleanup [cap]  one pass of the cleanup now, with another size cap (bytes) if
+#                        given: the check script's hook
 #
 # Settings (compose.yaml passes them from .env):
 #   MIRROR_TRUSTED_ADDRESSES  at most four single IPv4 addresses, comma-separated (the site's
@@ -29,6 +31,8 @@ RUN=/tmp/mirror
 LOGS=/var/log/mirror
 TEMPLATE=/usr/share/findaline-mirror/index.html.in
 KEEP_DAYS=14
+# The log folder's size bound (U45): provisionally 2 GB, the user decides the number
+LOG_CAP_BYTES=2000000000
 CLEANUP_SECONDS=3600
 HEARTBEAT_SECONDS=30
 HEARTBEAT_MAX_AGE=120
@@ -135,7 +139,45 @@ prepare() {
     landing_page
 }
 
-# Deletes each access-YYYY-MM-DD.log whose day is KEEP_DAYS or more days back (UTC)
+# The day of a log file's name, only when the name is access-<a real date>.log (else fails)
+log_day() {
+    _name=${1##*/access-}
+    _name=${_name%.log}
+    case $_name in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+        *) return 1 ;;
+    esac
+    [ "$(date -u -d "$_name 00:00:00" +%F 2> /dev/null)" = "$_name" ] || return 1
+    printf '%s' "$_name"
+}
+
+# The size bound: while the access-<day>.log files together are above the cap, the oldest day's
+# file goes (the glob is in name order, which is day order); today's file never goes, and when it
+# alone is above the cap it is emptied in place: nginx writes it with O_APPEND, so it goes on at
+# the new end, without a reload or a restart (the heartbeat is untouched)
+cap_logs() {
+    _cap=$1
+    _today=$(date -u +%F)
+    _total=0
+    for _file in "$LOGS"/access-*.log; do
+        [ -f "$_file" ] && log_day "$_file" > /dev/null || continue
+        _total=$((_total + $(stat -c %s "$_file")))
+    done
+    for _file in "$LOGS"/access-*.log; do
+        [ "$_total" -gt "$_cap" ] || break
+        [ -f "$_file" ] && log_day "$_file" > /dev/null || continue
+        [ "${_file##*/}" = "access-$_today.log" ] && continue
+        _size=$(stat -c %s "$_file")
+        rm -f -- "$_file"
+        _total=$((_total - _size))
+    done
+    if [ "$_total" -gt "$_cap" ] && [ -f "$LOGS/access-$_today.log" ]; then
+        : > "$LOGS/access-$_today.log"
+    fi
+}
+
+# Deletes each access-YYYY-MM-DD.log whose day is KEEP_DAYS or more days back (UTC), then applies
+# the size bound
 cleanup() {
     _now=$(date -u +%s)
     _cutoff=$(date -u -d "@$((_now - KEEP_DAYS * 86400))" +%Y%m%d)
@@ -153,6 +195,7 @@ cleanup() {
             rm -f -- "$_file"
         fi
     done
+    cap_logs "${1:-$LOG_CAP_BYTES}"
 }
 
 cleanup_loop() {
@@ -191,11 +234,15 @@ case "${1:-serve}" in
         prepare
         exec nginx -t -q
         ;;
+    cleanup)
+        # One pass of the cleanup now, with another cap if given (tests/mirror_check.sh's hook)
+        cleanup "${2:-$LOG_CAP_BYTES}"
+        ;;
     health)
         health
         ;;
     *)
-        echo "usage: mirror-start [serve|check|health]" >&2
+        echo "usage: mirror-start [serve|check|health|cleanup [cap]]" >&2
         exit 2
         ;;
 esac

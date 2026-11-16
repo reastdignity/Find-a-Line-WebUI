@@ -415,3 +415,18 @@ def test_publishing_door_readme_checks_the_binding():
     readme = _load("README.md")
     assert "docker compose port sftp 2222" in readme
     assert "`0.0.0.0:<port>` or `[::]:<port>`" in readme and "docker compose down" in readme
+
+
+def test_log_size_bound_and_readme_part_b():
+    """U42-U45: the log folder's size bound beside the 14 days (the number is the user's); the README's
+    default SWAG attachment by docker network connect with a check that shows when it is missing, the
+    other way with its risk; the door's own log; "conn" covering both connection limits."""
+    start = _load("start.sh")
+    assert re.search(r"^LOG_CAP_BYTES=\d+$", start, re.M)
+    assert 'cap_logs "${1:-$LOG_CAP_BYTES}"' in start and ': > "$LOGS/access-$_today.log"' in start
+    readme = " ".join(_load("README.md").split())
+    for words in ["docker network connect findaline-mirror_mirror swag", "NOT ATTACHED",
+                  "cannot start while that network is missing", "502",
+                  "the publishing PC's LAN address and the key's fingerprint",
+                  "covers both the address's 4 and all visitors' 8", "fewer than 14 days"]:
+        assert words in readme, words

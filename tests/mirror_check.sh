@@ -359,6 +359,24 @@ g_swag() {
     sleep 1
     check S04 "the proxy writes no access line for the mirror's host" \
         eval '! docker logs "$PROJECT-proxy-1" 2>&1 | grep -q "$MARK"'
+    # The proxy off the mirror's network (as SWAG after its update, before the network is connected
+    # again): it still starts and answers the mirror's name with 502; connected again: 200
+    local pc="$PROJECT-proxy-1" run off on=""
+    docker network disconnect "${PROJECT}_mirror" "$pc" > /dev/null 2>&1
+    docker restart "$pc" > /dev/null 2>&1
+    sleep 3
+    run=$(docker inspect -f '{{.State.Running}}' "$pc")
+    off=$(cx a -o /dev/null -w '%{http_code}' -A "$UA" "$P/robots.txt")
+    docker network connect "${PROJECT}_mirror" "$pc" > /dev/null 2>&1
+    docker start "$pc" > /dev/null 2>&1
+    for _ in $(seq 45); do
+        on=$(cx a -o /dev/null -w '%{http_code}' -A "$UA" "$P/robots.txt")
+        [ "$on" = 200 ] && break
+        sleep 1
+    done
+    info "the proxy off the mirror's network: running $run, the mirror's name answered $off; connected again: $on"
+    check S05 "SWAG off the mirror's network still starts and answers 502 (an outage, its other sites untouched); connected again: 200" \
+        eval '[ "$run" = true ] && [ "$off" = 502 ] && [ "$on" = 200 ]'
 }
 
 hold() {  # <client> <seconds>: a slow download held open through the proxy
@@ -562,6 +580,9 @@ g_log() {
         eval 'printf "%s\n" "$mine" | grep -q "\"v\":\"$MARK.$(tag forged)\"" && ! printf "%s\n" "$mine" | grep "\"v\":\"$MARK.$(tag forged)\"" | grep -qv "\"a\":\"$E\""'
     check L09 "the healthcheck's requests are not logged" \
         eval '! printf "%s\n" "$all" | grep "\"a\":\"127.0.0.1\"" | grep -q "\"v\":\"other\""'
+    # The log's size, measured on this run's lines (bytes with the newline; averages)
+    avg() { awk '{ n++; s += length($0) + 1 } END { if (n) printf "%.0f (%d lines)", s / n, n; else printf "none" }'; }
+    info "log line sizes: a served tile $(printf '%s\n' "$all" | grep '"s":200,"b":10240,' | avg), a 404 $(printf '%s\n' "$all" | grep '"s":404,' | avg), a 429 $(printf '%s\n' "$all" | grep '"s":429,' | avg)"
     out=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK.$(tag dsprobe)\"")
     check L11 "ds: \"-\" for paths outside the served names (a 300-letter name with an address, a tile's path folded into one name); the dataset for a served one" \
         eval '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 4 ] && ! printf "%s\n" "$out" | grep -qv "\"ds\":\"-\"" && printf "%s\n" "$all" | grep "\"v\":\"$MARK.$(tag dsserved)\"" | grep -q "\"s\":404,.*\"ds\":\"madeira\""'
@@ -655,7 +676,7 @@ g_cleanup() {
     check E02 "the cleanup deletes a file 14 days back" eval 'case " $left" in *" access-$d14.log "*) false ;; *) true ;; esac'
     check E03 "the cleanup deletes a file 15 days back" eval 'case " $left" in *" access-$d15.log "*) false ;; *) true ;; esac'
     check E04 "the cleanup leaves other names alone, also impossible dates (2000-13-45, 0000-00-00)" \
-        eval 'for n in access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done'
+        eval '(for n in access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done)'
     csh files-1 'cd /var/log/mirror && rm -f access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log'
     # The heartbeat: stale -> unhealthy; the loop renews it; a dead loop -> unhealthy
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
@@ -689,6 +710,30 @@ g_cleanup() {
     sleep 35
     check E10 "the next turn tries again and switches" eval '[ "$(csh files-1 "cat /tmp/mirror/log.day")" = "$day" ]'
     csh files-1 'rm -f /var/log/mirror/access-2000-01-02.log'
+    # The size bound, through the start script's hook (one cleanup pass with a small cap): files of
+    # three earlier days of 100 kB and today's; other names beside them
+    local d1 d2 d3 t cap
+    days=$(csh files-1 'n=$(date -u +%s); for k in 1 2 3; do date -u -d "@$((n - k * 86400))" +%F; done' | tr '\n' ' ')
+    read -r d1 d2 d3 <<< "$days"
+    csh files-1 "cd /var/log/mirror && for d in $d3 $d2 $d1; do head -c 100000 /dev/zero > access-\$d.log; done; head -c 500000 /dev/zero > notes.txt; head -c 100000 /dev/zero > access-x.log"
+    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
+    cap=$((250000 + t))
+    csh files-1 "/usr/local/bin/mirror-start cleanup $cap"
+    left=$(csh files-1 'ls /var/log/mirror' | tr '\n' ' ')
+    info "the size bound at $cap bytes (today's file $t): $left"
+    check E11 "above the size bound the oldest day's file goes first; the newer days, today's and other names stay" \
+        eval '(case " $left" in *" access-$d3.log "*) exit 1 ;; esac; for n in access-$d2.log access-$d1.log access-$day.log notes.txt access-x.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done)'
+    csh files-1 "/usr/local/bin/mirror-start cleanup 1000"
+    cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
+    sleep 1
+    left=$(csh files-1 'ls /var/log/mirror' | tr '\n' ' ')
+    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
+    info "the size bound at 1000 bytes: $left; today's file now $t bytes"
+    check E12 "today's file alone above the bound is emptied in place: nginx goes on writing it, the healthcheck holds" \
+        eval '(case " $left" in *" access-$d2.log "*|*" access-$d1.log "*) exit 1 ;; *" notes.txt "*) ;; *) exit 1 ;; esac) &&
+            [ "$t" -gt 0 ] && [ "$t" -lt 1000 ] && csh files-1 "grep -q \"$MARK.$(tag day)\" /var/log/mirror/access-$day.log" &&
+            docker exec "$FILES" /usr/local/bin/mirror-start health'
+    csh files-1 'rm -f /var/log/mirror/notes.txt /var/log/mirror/access-x.log'
     csh files-1 'kill $(cat /tmp/mirror/cleanup.pid)'
     csh files-1 "touch -d '2000-01-01 00:00:00' /tmp/mirror/heartbeat"
     sleep 35
@@ -933,6 +978,9 @@ VARIANTS=(
     'no reload at a new day @@ start.sh @@ s#kill -HUP "$_master" 2> /dev/null || return 0#true# @@ cleanup @@ E08'
     'a failed reload taken as the switch @@ start.sh @@ s#if \[ -f "$LOGS/access-$_today.log" \] && \[ -n "$_after" \] && \[ "$_after" != "$_before" \]; then#if true; then# @@ cleanup @@ E09'
     'impossible dates cleaned @@ start.sh @@ /Only a real date/{n;d} @@ cleanup @@ E04'
+    'no size bound @@ start.sh @@ s#^    cap_logs "${1:-$LOG_CAP_BYTES}"$#    true# @@ cleanup @@ E11 E12'
+    'the newest day first @@ start.sh @@ s#for _file in "$LOGS"/access-\*.log; do$#for _file in $(ls -r "$LOGS"/access-*.log); do# @@ cleanup @@ E11'
+    'today deleted by the bound @@ start.sh @@ /\[ "${_file##\*\/}" = "access-$_today.log" \] && continue/d @@ cleanup @@ E12'
     'error log at info @@ nginx.conf @@ s#error_log /dev/stderr crit;#error_log /dev/stderr info;# @@ paths caps log @@ L10'
     'no privacy text @@ landing/index.html @@ /for 14 days, to hold the service/d @@ content @@ P10'
     'contact not put in @@ start.sh @@ s#sed "s|@MIRROR_CONTACT@|$_replacement|g" "$TEMPLATE"#cat "$TEMPLATE"# @@ content @@ P11'
@@ -943,6 +991,7 @@ VARIANTS=(
     'logs kept 15 days @@ start.sh @@ s#KEEP_DAYS=14#KEEP_DAYS=15# @@ cleanup @@ E02'
     'healthcheck without the heartbeat @@ start.sh @@ s#\[ $(($(date -u +%s) - _beat)) -le $HEARTBEAT_MAX_AGE \]#true# @@ cleanup @@ E05 E07'
     'SWAG conf without its refusals @@ swag/findaline-mirror.subdomain.conf @@ /if ($request_method/,/^    }/d; s#client_max_body_size 1k;#client_max_body_size 0;#; /access_log off;/d @@ swag @@ S01 S02 S03 S04'
+    'SWAG with a fixed upstream @@ swag/findaline-mirror.subdomain.conf @@ s#proxy_pass $upstream_proto://$upstream_app:$upstream_port;#proxy_pass http://findaline-mirror-files:8080;# @@ swag @@ S05'
     # The publishing door ("keys writable" last: it lets the account overwrite the host key)
     'gate runs any command @@ publish/gate.sh @@ s#^set -u$#set -u; [ -n "${SSH_ORIGINAL_COMMAND-}" ] \&\& exec sh -c "$SSH_ORIGINAL_COMMAND"# @@ door @@ D04 D06 D12 D13 D14 D18 D19 D20 D21 D22 D23'
     'gate reads the path as text only @@ publish/gate.sh @@ s#resolved=$(readlink -f -- "$path" 2> /dev/null) || refuse#resolved=$path#; /\[ -f "$resolved" \] && \[ ! -L "$resolved" \] || refuse/d @@ door @@ D15 D16 D17'

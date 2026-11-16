@@ -76,11 +76,18 @@ out of the host): SWAG joins it as its second network, so the mirror's only neig
 believes the visitor's address (`X-Real-IP`, which SWAG's `proxy.conf` sets) from any sender on this network:
 **attach nothing else to it**.
 
+The default way attaches the **running** SWAG container to that network with one command. It needs no alias:
+SWAG's conf reaches the mirror by the mirror's own alias on that network, `findaline-mirror-files`.
 ```sh
 docker network connect findaline-mirror_mirror swag          # "swag": SWAG's container name
 cp swag/findaline-mirror.subdomain.conf /path/to/swag/config/nginx/proxy-confs/
 docker restart swag                                           # or SWAG_AUTORELOAD
 ```
+The attachment lasts until SWAG's container is recreated (an image update recreates it): **run the
+`docker network connect` again after every update of SWAG**, and check it (below). This way can never stop SWAG:
+the conf names the mirror through a variable and SWAG's resolver, so SWAG starts and serves its other sites
+whether the mirror is there or not (tried with the test stack's stand-in: taken off the mirror's network and
+restarted, it started and answered the mirror's name with 502).
 
 `swag/findaline-mirror.subdomain.conf` answers `mirror.findaline.lukawski.org`, passes requests on with SWAG's
 own `proxy.conf`, refuses every method but GET and HEAD and any body over 1 KB itself (405 and 413, never 403,
@@ -89,28 +96,31 @@ would hold the tile's path and the visitor's address). It sets no `proxy_ignore_
 the mirror sends `X-Accel-Buffering: no`, without which SWAG would take a whole file into its temporary files at
 once and the mirror's connection caps would count nothing. Keep it so when editing SWAG's configuration.
 
-**Making the attachment lasting.** `docker network connect` lasts until SWAG's container is recreated (an image
-update recreates it). Then the mirror is unreachable (an outage, never an exposure) until SWAG is attached again.
-- SWAG run by compose: add the network to SWAG's compose file instead, so every recreation attaches it:
-  ```yaml
-  services:
-    swag:
-      networks: [default, findaline-mirror]
-  networks:
-    findaline-mirror:
-      external: true
-      name: findaline-mirror_mirror
-  ```
-  The mirror's project must then be up before SWAG starts (SWAG refuses to start without the network).
-- SWAG run from a platform's container template: add the network in the template where the platform allows
-  several networks per container; otherwise run the `docker network connect` above after every update of SWAG
-  (a script the platform runs after Docker starts and after updates).
-
-**Checking it** (after every update of SWAG):
+**Checking it** (after every update of SWAG, and whenever the mirror does not answer):
 ```sh
-docker inspect swag --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'   # lists findaline-mirror_mirror
+docker inspect swag --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+  | grep -q findaline-mirror_mirror && echo attached || echo "NOT ATTACHED: run docker network connect again"
 docker exec swag curl -s -o /dev/null -w '%{http_code}\n' http://findaline-mirror-files:8080/robots.txt   # 200
 ```
+While SWAG is not attached, a visitor of `https://mirror.findaline.lukawski.org` gets 502 from SWAG: the mirror is
+unreachable (an outage, never an exposure: nothing of the mirror is reachable any other way), and SWAG's other
+sites are untouched.
+
+**The other way: the network in SWAG's own compose file.** Where SWAG runs from a compose file, the mirror's
+network can be named there as an external network, so every recreation of SWAG attaches it by itself:
+```yaml
+services:
+  swag:
+    networks: [default, findaline-mirror]
+networks:
+  findaline-mirror:
+    external: true
+    name: findaline-mirror_mirror
+```
+Its risk: **SWAG, and every site behind it, cannot start while that network is missing**, for instance after the
+mirror's project was taken down (`docker compose down` removes the network) or before it was first started. Where
+SWAG runs from a platform's container template, the template may allow several networks per container, with the
+same risk.
 
 ## Certificate: a planned maintenance stop
 
@@ -156,6 +166,11 @@ What the door is:
   (`tools/mirror_publish.py stats`). On the host they belong to uid 1000, whichever user that is there (on many
   systems the first person's account): that user can change the published files.
 - no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
+
+The door's own log (Docker's json-file log of `findaline-mirror-publish-sftp-1`, `docker compose logs` in
+`publish/`) is kept: sshd writes there the publishing PC's LAN address and the key's fingerprint at each login,
+and refused attempts. It is the record of when the publishing key was used. It is bounded by the json-file size
+cap of `publish/compose.yaml` (3 files of 1 MB) and goes with the container when it is removed.
 
 What the key can still read, accepted: the container's own read-only files (an Alpine system, no secret) and the
 door's host key (sshd runs as the account and needs it). Whoever holds the publishing key could therefore copy the
@@ -266,13 +281,20 @@ MB); with a small tile it fails without saying anything about SWAG.
 
 One JSON line per request, with exactly the keys `t` (time), `s` (status), `b` (bytes sent), `rt` (request time,
 seconds), `ds` (the dataset, the first path part after `/v1/tiles/`, only for a request for one of the served
-names and at most 40 characters, else `-`), `a` (the visitor's address), `lim` (the limit that refused: `rate`,
-`conn` for a visitor's concurrent requests, `trusted`; `-` when served), `v` (the version of a
+names and at most 40 characters, else `-`), `a` (the visitor's address), `lim` (the limit that refused: `rate`;
+`conn` for a visitor's concurrent requests, which covers both the address's 4 and all visitors' 8, so `stats`
+cannot tell those two apart; `trusted`; `-` when served), `v` (the version of a
 `Find-a-Line/<version>` User-Agent: two or three numbers of at most three digits, optionally the word `a`, `b`,
 `rc`, `.dev` or `.post` without its number, a local label dropped; `unknown` as it is; else `other`, so no
 written form of an address is logged there). Never the tile's path, the query or the
 rest of the User-Agent; `tools/mirror_publish.py stats` reads it. Docker's own log of the container holds nothing
 of the requests (the error log runs at "critical"). The healthcheck's own requests are not logged.
+
+The folder's size is bounded too: every hour, after deleting the files 14 or more days old, the cleanup deletes
+the oldest days' files while all `access-*.log` files together are above `LOG_CAP_BYTES` (start.sh;
+provisionally 2 GB, the number is the user's); if today's file alone is above it, today's file is emptied in
+place (nginx goes on writing it, nothing restarts). So under a flood of requests the log may hold fewer than
+14 days.
 
 The text the landing page carries (the privacy note of the project's README says the same):
 
