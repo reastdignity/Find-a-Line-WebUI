@@ -47,3 +47,9 @@ method, flags, CRC-32, compressed and uncompressed sizes and local header's offs
 `sources/indexes/zipdir.py` read them by Range), and `Sheet011av2.txt.gz`, one member read whole (a beach west of
 sheet 11: "x y z" lines of 10 m cell centres). Land & Property Services (OSNI),
 [OGL v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+
+`bremen/directories.json.gz`: the central directories of Landesamt GeoInformation Bremen's four XYZ archives (the DGM1
+and DOM1 of Bremen 2017 and of Bremerhaven 2015) as `sources/indexes/zipdir.py` read them by Range on 2026-11-15: each
+archive's length and ETag, each member's name, method, flags, CRC-32, compressed and uncompressed sizes and local
+header's offset, for `tests/test_bremen.py` (the member names against the layers' expressions). Landesamt
+GeoInformation Bremen, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

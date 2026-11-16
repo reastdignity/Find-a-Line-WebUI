@@ -4,8 +4,10 @@ DOM1 from WCS), Saxony (GeoSN's DGM1 and DOM1, zipped 2 km GeoTIFFs) and Baden-W
 and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs), Bavaria (LDBV's DGM1 and DOM20 listed by
 Metalinks), Rhineland-Palatinate (LVermGeo RP's DGM1 and DOM1 listed by Metalinks), North Rhine-Westphalia
 (Geobasis NRW's DGM1 and DOM1 from WCS), Brandenburg with Berlin (LGB's DGM1 and DOM1 from WCS),
-Schleswig-Holstein (LVermGeo SH's DGM1, plain XYZ files listed by a GeoJSON index) and Saarland (LVGL's DGM1
-and DOM1, members of district ZIP archives read by HTTP Range)."""
+Schleswig-Holstein (LVermGeo SH's DGM1, plain XYZ files listed by a GeoJSON index), Saarland (LVGL's DGM1
+and DOM1, members of district ZIP archives read by HTTP Range), Hamburg (LGV's DGM1 and bDOM1, members of two ZIP
+archives) and the Land Bremen's two cities, Bremen and Bremerhaven (the DGM1 and DOM1 of Landesamt GeoInformation
+Bremen, XYZ members of a ZIP archive per city and model, on two grids: two sources)."""
 
 from typing import List
 
@@ -368,6 +370,63 @@ def _hh(kind: str, archive: str, description: str, bytes_per_tile: float) -> Zip
                           f"hamburg/{folder}-2022", "EPSG:25832", folder, bytes_per_tile=bytes_per_tile, fix=HH_FIX)
 
 
+# Landesamt GeoInformation Bremen's open data (MetaVer's record "ATKIS - DGM1 Land Bremen - Downloaddienst",
+# https://metaver.de/trefferanzeige?docuuid=C448202A-0F15-413A-99E6-F22F10E190C9, read 2026-11-15: "Nutzungsbedingungen
+# Creative Commons Namensnennung 4.0 International Quellenvermerk: Landesamt GeoInformation Bremen", "Es gelten keine
+# Zugriffsbeschränkungen"; the DOM1 has no record of its own: the open-data decree of 22.05.2024,
+# https://geo.bremen.de/sixcms/media.php/13/2024-05-22_Verf%C3%BCgung_BetroffeneGeobasisdaten_DVO_hvD.pdf, names "Digitale
+# Geländemodelle (DGM1 und DGM5)" and "Digitale Oberflächenmodelle (DOM1, DOM5)" among the open geobasis data, under CC BY
+# 4.0 instead of the AGNB); "Daten geändert" for CC BY (a mosaic on our grid), as for LGLN
+HB_ATTRIBUTION = "Landesamt GeoInformation Bremen"
+HB_CREDIT = Credit("DGM1 / DOM1 (Landesamt GeoInformation Bremen)", f"{HB_ATTRIBUTION}, Daten geändert", *CC_BY)
+# The DGM1 and DOM1 of the Land's two cities from laser scanning (the record: Bremerhaven 2015, Bremen 2017; the height
+# system not named), one ZIP per city and model on the INSPIRE download server (1.09 / 1.24 GB for Bremen, 0.61 / 0.32 GB
+# for Bremerhaven), each member a 1 km tile of plain "x y z" text with a header line and CRLF (deflated, 2.7-4.1 MB; 21
+# to 29 MB inflated), read by Range; GDAL's XYZ driver reads every layout below from memory. The archives' names hold
+# the survey year: a new survey is set by hand (the probe sees a missing archive). The two cities lie on grids half a
+# pixel apart (the user's decision of 2026-11-15: two sources, each on its own grid):
+# - Bremen (dgm1_32<E>_<N>_1_hb.xyz, 395 tiles of E 465-499, N 5873-5897 in both): whole-metre coordinates without
+#   the zone, rows north to south, centimetres; the values are samples at those points (against LGLN's DGM1 and DOM1 of
+#   2017 at 483_5876, 2026-11-15: RMS 0.079 m at no shift, 0.150 at half a pixel; NCC 0.982 / 0.888 at no shift),
+#   so pixel centres lie on whole metres (grid_origin 0.5) in both models; the tiles hold Lower Saxony's land in them
+# - Bremerhaven: eastings with the zone (32466000.5: TransformFix's offset). The DGM1 (dgm1_32<E>__<N>_1_hb.xyz, a
+#   double underscore; 188 tiles, E 466-477, N 5924-5940, Lower Saxony's land around the city in them) at x.5, columns
+#   north to south, millimetres: its values are samples at those points (against LGLN's DGM1 of 2020-2025 on five
+#   tiles, the NCC of the high-passed rasters peaking within a quarter of a pixel of no shift on each; at 474_5936 RMS
+#   0.150 m at no shift, 0.19-0.25 at half a pixel), so its edges lie on whole metres (grid_origin 0). The DOM1
+#   (dom1_32<E>_<N>_1_hb.xyz, one underscore; 114 tiles of the city only, 41 with fewer points than a full km, each a
+#   rectangle of part of it, read 2026-11-16; a full one 1001 x 1000 points) at whole metres, columns south to north:
+#   its values sit at those points (against LGLN's DOM1 of 2025, the NCC at no shift and the best at half a pixel on
+#   both axes: 474_5936 0.404 / 0.375, 472_5938 0.283 / 0.267, 471_5938 0.164 / 0.159, 475_5937 0.085 / 0.068; two
+#   small partial tiles of NCC 0.12-0.18 scatter, neither peak at half a pixel on both axes), half a pixel off its own
+#   terrain: written as it lies and interpolated onto the terrain's grid by the mosaic (bilinear, as any off-grid
+#   raster; a choice for the user). The 41 partial tiles hold 402 ha of exactly constant planes of 1 ha or more, 245 ha
+#   of them beyond the Land (filling each rectangle beyond the boundary), 83 ha more than 3 m above the terrain (475_5937
+#   17.35 m over 15 ha, 13 m above it, beyond the boundary; 468_5937 23.85 m over 13 ha, 26 m above it, and 469_5935
+#   88.14 m over 2.5 ha, 90 m above it, in the port and on the Weser inside the Land), left as they are
+HB_DATA = "https://gdi2.geo.bremen.de/inspire/download/{kind}/data/Gitternetz_{kind}1_{year}_{city}_ASCII_XYZ.zip"
+HB_NAME = r"(?i)(?:^|/){kind}1_32(?P<east>\d{{3}})_{{1,2}}(?P<north>\d{{4}})_1_hb\.xyz$"
+BHV_ZONE = -32_000_000.0  # Bremerhaven's eastings less the zone 32's prefix
+BHV_FIX = {"dgm": TransformFix(offset=(BHV_ZONE, 0.0), snap=1.0), "dom": TransformFix(offset=(BHV_ZONE, 0.0), snap=0.5)}
+# The Land's DOP10 of 2025, a WMS (EPSG:4326 offered; Fees "Creative Commons Namensnennung (CC-BY), Quellenvermerk:
+# Landesamt GeoInformation Bremen", AccessConstraints "Es gelten keine Zugriffsbeschränkungen"), one layer per city
+HB_WMS = "https://geodienste.bremen.de/wms_dop_lb"
+
+
+def _hb_dop(city: str) -> OrthoService:
+    return OrthoService(f"DOP10 2025 {city} (Landesamt GeoInformation Bremen)", HB_WMS,
+                        f"dop10_2025_{'HB' if city == 'Bremen' else 'BHV'}", f"{city.lower()}/ortho/2025",
+                        f"{HB_ATTRIBUTION}, CC BY 4.0", attribution_url=CC_BY[1])
+
+
+def _hb(kind: str, city: str, year: str, description: str, bytes_per_tile: float) -> ZipMemberTiles:
+    """DGM1 or DOM1 of one of the Land's cities (city: HB or BHV): members of its archive, read by HTTP Range."""
+    top = {"HB": "bremen", "BHV": "bremerhaven"}[city]
+    return ZipMemberTiles(description, [HB_DATA.format(kind=kind.upper(), year=year, city=city)],
+                          HB_NAME.format(kind=kind), f"{top}/{kind}1-{year}", "EPSG:25832", f"{kind}1",
+                          bytes_per_tile=bytes_per_tile, fix=BHV_FIX[kind] if city == "BHV" else None)
+
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -441,6 +500,55 @@ SOURCES: List[Source] = [
              f"surface model comes from image matching of aerial photographs, not from laser scanning: smoother over "
              f"trees and less exact. The terrain model gives the Elbe and the harbour basins a constant 2.00 m.",
         coverage=Coverage(provider="LGV", added="2026-11-15", survey="2022")),
+    # Bremen and Bremerhaven before Lower Saxony, whose offline box holds both: offline, a staircase of boxes inside
+    # each city (bands of 0.02 degrees of latitude, the runs of 0.01-degree columns at least 75 % inside the city's OSM
+    # outline: Bremen's 14 hold 85 % of it and 1.9 % other land, Bremerhaven's 7 76 % and 3.4 %), so Delmenhorst,
+    # Lilienthal, Stuhr or Nordenham keep Lower Saxony's source. Nominatim names both cities DE-HB: each is chosen by its
+    # bbox, the city's own box (the outlines of the city of Bremen, relation 62559, south of 53.3 degrees, and of
+    # Bremerhaven, 62658, with the city of Bremen's overseas port, 7.6 km2 of 62559 inside Bremerhaven, whose tiles
+    # Bremerhaven's archives hold). Lower Saxony declares six neighbours already (countcube.PARTNERS), so neither names
+    # it: their gaps beyond their tiles are filled by FABDEM / Copernicus. Two areas of the coverage map: de-hb (the city
+    # of Bremen) and de-hb-bhv (Bremerhaven; ISO 3166-2 names neither city)
+    Source(
+        id="bremen", name="GeoInformation Bremen (DGM1 / DOM1, Bremen)",
+        description="Landesamt GeoInformation Bremen (the city of Bremen, Germany): terrain and surface models 1 m of "
+                    "2017 (laser scanning), XYZ members of two ZIP archives read by HTTP Range, ETRS89 / UTM 32N",
+        nmt=_hb("dgm", "HB", "2017", "DGM1 (terrain)", 2.8e6), nmpt=_hb("dom", "HB", "2017", "DOM1 (trees, buildings)", 3.1e6),
+        countries=("de",), regions=("de-hb",), bbox=(53.01, 53.23, 8.48, 9.00), crs="EPSG:25832", grid_origin=(0.5, 0.5),
+        ortho=_hb_dop("Bremen"), credits=(HB_CREDIT,),
+        listing=ReadmeRow("Bremen, the city (DE)", "GeoInformation Bremen DGM1, 1 m (2017)",
+                          "GeoInformation Bremen DOM1, 1 m (2017)", "GeoInformation Bremen DOP10"),
+        offline=(("de-hb", (53.02, 53.04, 8.82, 8.86)), ("de-hb", (53.02, 53.04, 8.88, 8.94)),
+                 ("de-hb", (53.04, 53.06, 8.71, 8.76)), ("de-hb", (53.04, 53.06, 8.77, 8.97)),
+                 ("de-hb", (53.06, 53.08, 8.71, 8.96)), ("de-hb", (53.08, 53.10, 8.69, 8.96)),
+                 ("de-hb", (53.10, 53.12, 8.66, 8.95)), ("de-hb", (53.12, 53.14, 8.65, 8.86)),
+                 ("de-hb", (53.12, 53.14, 8.90, 8.97)), ("de-hb", (53.14, 53.16, 8.63, 8.84)),
+                 ("de-hb", (53.16, 53.18, 8.62, 8.73)), ("de-hb", (53.18, 53.20, 8.54, 8.58)),
+                 ("de-hb", (53.18, 53.20, 8.62, 8.63)), ("de-hb", (53.20, 53.22, 8.50, 8.54))),
+        sample=(53.0760, 8.8075),  # the Marktplatz
+        note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid). Laser scanning of 2017.",
+        coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb",), survey="2017")),
+    Source(
+        id="bremerhaven", name="GeoInformation Bremen (DGM1 / DOM1, Bremerhaven)",
+        description="Landesamt GeoInformation Bremen (the city of Bremerhaven, Germany): terrain and surface models 1 m "
+                    "of 2015 (laser scanning), XYZ members of two ZIP archives read by HTTP Range, ETRS89 / UTM 32N",
+        nmt=_hb("dgm", "BHV", "2015", "DGM1 (terrain)", 3.2e6), nmpt=_hb("dom", "BHV", "2015", "DOM1 (trees, buildings)", 2.8e6),
+        countries=("de",), regions=("de-hb",), bbox=(53.47, 53.62, 8.49, 8.66), crs="EPSG:25832",
+        ortho=_hb_dop("Bremerhaven"), credits=(HB_CREDIT,),
+        listing=ReadmeRow("Bremerhaven (DE)", "GeoInformation Bremen DGM1, 1 m (2015)",
+                          "GeoInformation Bremen DOM1, 1 m (2015; the city only)", "GeoInformation Bremen DOP10"),
+        offline=(("de-hb", (53.48, 53.50, 8.51, 8.56)), ("de-hb", (53.50, 53.52, 8.55, 8.64)),
+                 ("de-hb", (53.52, 53.54, 8.56, 8.64)), ("de-hb", (53.54, 53.56, 8.55, 8.63)),
+                 ("de-hb", (53.56, 53.58, 8.53, 8.62)), ("de-hb", (53.58, 53.60, 8.51, 8.59)),
+                 ("de-hb", (53.58, 53.60, 8.60, 8.63))),
+        sample=(53.5400, 8.5800),  # the centre, by the Geeste
+        note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid; the surface model, whose "
+             f"pixels lie half a pixel off the terrain's, interpolated onto it). Laser scanning of 2015. The surface "
+             f"model covers the city. Its tiles at the city's edge hold flat planes of a constant height (about 400 "
+             f"ha, most of it beyond the boundary; 83 ha more than 3 m above the terrain, up to 90 m, in the port and "
+             f"on the Weser too), which mark lines over them as over trees or buildings; beyond those tiles lines are "
+             f"checked against the bare terrain.",
+        coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb-bhv",), survey="2015")),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
         description="LGLN (Lower Saxony, Germany): ALS terrain and surface models 1 m, newest survey per "

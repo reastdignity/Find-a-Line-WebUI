@@ -58,4 +58,8 @@ AREA_NAMES: Dict[str, str] = {
     "nl": "Nederland", "nl-bq1": "Bonaire, Nederland", "nl-bq2": "Saba, Nederland", "nl-bq3": "Sint Eustatius, Nederland",
     "fo": "Føroyar", "mx": "México", "cy": "Κύπρος", "ee": "Eesti", "pt-30": "Madeira, Portugal",
     "it-23": "Valle d'Aosta", "gb-nir": "Northern Ireland", "br": "Brasil",
-    "de-hh": "Hamburg, Deutschland", "fr-re": "La Réunion", "fr-yt": "Mayotte"}
+    "de-hh": "Hamburg, Deutschland", "fr-re": "La Réunion", "fr-yt": "Mayotte",
+    # The city of Bremen (Nominatim's relation 62559, also for "Bremen, Deutschland"; with the city's overseas port in
+    # Bremerhaven, which the source's coverage boxes leave out of a download) and Bremerhaven (relation 62658; the
+    # area's code is ours: ISO 3166-2 names neither city; checked 2026-11-16)
+    "de-hb": "Freie Hansestadt Bremen", "de-hb-bhv": "Bremerhaven"}

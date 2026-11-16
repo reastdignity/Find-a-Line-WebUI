@@ -111,7 +111,7 @@ def test_the_whole_list_by_continent_and_country(settings):
     async def body(pilot):
         groups = {group.id: group.title for group in app.query(Collapsible)}
         assert groups == {
-            "group-europe": "Europe (47)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (14)",
+            "group-europe": "Europe (49)", "group-europe-finland": "Finland (2)", "group-europe-germany": "Germany (16)",
             "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
             "group-north-america": "North America (18)", "group-north-america-canada": "Canada (3)",
@@ -119,7 +119,7 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
             "group-asia": "Asia (1)", "group-africa": "Africa (2)", "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 75
+        assert len(app.area_rows()) == 77
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]

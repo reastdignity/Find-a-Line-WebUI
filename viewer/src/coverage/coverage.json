@@ -288,6 +288,32 @@
    "survey": "",
    "trees": "yes"
   },
+  "de-hb": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoInformation Bremen",
+   "res": [
+    1
+   ],
+   "source": "bremen",
+   "survey": "2017",
+   "trees": "yes"
+  },
+  "de-hb-bhv": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoInformation Bremen",
+   "res": [
+    1
+   ],
+   "source": "bremerhaven",
+   "survey": "2015",
+   "trees": "yes"
+  },
   "de-he": {
    "added": "2026-11-01",
    "level": 1,
@@ -1299,6 +1325,8 @@
    "de-be",
    "de-bw",
    "de-by",
+   "de-hb",
+   "de-hb-bhv",
    "de-he",
    "de-hh",
    "de-mv",

@@ -331,7 +331,9 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      # "ireland-and-northern-ireland" (checked in Geofabrik's index, 2026-11-15)
                      "gb-nir": "ireland-and-northern-ireland",
                      # Hamburg: Geofabrik's "hamburg" (europe/germany/hamburg, checked 2026-11-15)
-                     "de-hh": "hamburg"}
+                     "de-hh": "hamburg",
+                     # Bremen and Bremerhaven: Geofabrik's "bremen" (europe/germany/bremen, checked 2026-11-15)
+                     "de-hb": "bremen"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",),
                        # France's overseas territories (checked in Geofabrik's index, 2026-11-15): its "france"
