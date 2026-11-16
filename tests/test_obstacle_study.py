@@ -251,6 +251,56 @@ def test_fine_grid(tmp_path, offset):
     assert os.path.getmtime(call / "fine-nmpt.npy") == built and set(again["seconds"]) == set(fine["seconds"])
 
 
+def test_fine_grid_reads_as_the_search(tmp_path, monkeypatch):
+    """The fine grids take the call's source's layers as prepare_layer does: a height offset on both models (Hong
+    Kong's datum) and each file's floor (Layer.floor_of). On a synthetic source whose layers have the offset -1.30 m
+    and a floor above every height of the surface's east file: fine-nmt and the west of fine-nmpt are the grids of
+    a call without a source plus the offset bit for bit (so are s-max and s-med over them), the east file gives
+    nothing, h-max (surface less terrain) is the same within float32 rounding. A source the catalogue does not
+    hold, and every catalogue source but Hong Kong's (its own test), read the files as they are."""
+    import sources as src
+    rows, cols = 8, 60
+    nmt, nmpt = write_model(str(tmp_path / "cache"), face_ground, face_surface, rows, cols)
+
+    class Floored(src.Layer):
+        height_offset = -1.30
+
+        def __init__(self, floors):
+            self.floors = floors
+
+        def floor_of(self, path):
+            return self.floors.get(path)
+    monkeypatch.setitem(src.SOURCES, "offset_test", SimpleNamespace(nmt=Floored({}), nmpt=Floored({nmpt[1]: 1e6})))
+    folders = {}
+    for name, sid in (("plain", None), ("moved", "offset_test")):
+        call = tmp_path / name / "call-0"
+        call.mkdir(parents=True)
+        with open(call / "grid.json", "w") as f:
+            json.dump({"crs": CRS, "left": LEFT, "top": TOP, "res": 1.0, "height": rows, "width": cols, "core": None,
+                       "source": sid, "nmt_files": nmt, "nmpt_files": nmpt}, f)
+        assert study.fine_grid(str(call))["res"] == 0.5
+        folders[name] = call
+    plain, moved = ({n: np.load(folders[k] / f"{n}.npy") for n in ("fine-nmt", "fine-nmpt", "s-max", "s-med", "h-max")}
+                    for k in ("plain", "moved"))
+    c = np.float32(-1.30)
+    assert np.array_equal(moved["fine-nmt"].view(np.uint32), (plain["fine-nmt"] + c).view(np.uint32))
+    east = 2 * (cols // 2)  # the surface's east file begins 30 m from the grid's left edge: fine column 60
+    west = moved["fine-nmpt"][:, :east]
+    assert np.isfinite(west).all() and np.array_equal(west.view(np.uint32),
+                                                      (plain["fine-nmpt"][:, :east] + c).view(np.uint32))
+    assert np.isnan(moved["fine-nmpt"][:, east:]).all() and np.isfinite(plain["fine-nmpt"][:, east:]).all()
+    for name in ("s-max", "s-med"):
+        assert np.array_equal(moved[name][:, :30].view(np.uint32), (plain[name][:, :30] + c).view(np.uint32))
+        assert np.isnan(moved[name][:, 30:]).all()
+    np.testing.assert_allclose(moved["h-max"][:, :30], plain["h-max"][:, :30], atol=1e-4)
+    assert study.read_as_searched({"source": "no_such_source"}, "nmpt", nmpt) == {}
+    assert study.read_as_searched({}, "nmt", nmt) == {}
+    assert study.read_as_searched({"source": "swisstopo"}, "nmpt", nmpt) == {"below": [None, None], "offset": 0.0}
+    rules = {sid: study.read_as_searched({"source": sid}, "nmpt", nmpt) for sid, s in src.SOURCES.items()
+             if s.nmpt is not None and sid != "offset_test"}
+    assert {sid for sid, r in rules.items() if r != {"below": [None, None], "offset": 0.0}} == {"hong_kong"}
+
+
 def test_fine_grid_none(tmp_path):
     """No surface files, or none finer than three quarters of the grid's pixels: nothing to measure."""
     nmt, nmpt = write_model(str(tmp_path / "cache"), face_ground, face_surface, 4, 10)

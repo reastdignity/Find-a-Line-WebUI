@@ -166,6 +166,17 @@ def test_one_floor_per_file(tmp_path, rows):
     assert np.nanmin(second[3:7, 4:9]) < -1  # the second file's heights in the first's holes, not floored
     with pytest.raises(ValueError, match="2 floors for 1 files"):
         mosaic.build_mosaic(files[:1], grid, str(tmp_path / "x.npy"), "t", below=[-1.0, None])
+    # An array is one floor per file too, counted as a list is (never one floor for all, nor broadcast); a numpy
+    # number is a plain number
+    array = np.asarray(mosaic.build_mosaic(files, grid, str(tmp_path / "a.npy"), "t", below=np.array([-1.0, -1.0]),
+                                           rows=rows))
+    assert np.array_equal(array.view(np.uint32), once.view(np.uint32))
+    scalar = np.asarray(mosaic.build_mosaic(files, grid, str(tmp_path / "n.npy"), "t", below=np.float64(-1.0),
+                                            rows=rows))
+    assert np.array_equal(scalar.view(np.uint32), once.view(np.uint32))
+    for wrong in (np.array([-1.0]), np.array([-1.0, -1.0, -1.0])):
+        with pytest.raises(ValueError, match=f"{len(wrong)} floors for 2 files"):
+            mosaic.build_mosaic(files, grid, str(tmp_path / "x.npy"), "t", below=wrong)
 
 
 def _serve(server, layer, tile, values, nodata):

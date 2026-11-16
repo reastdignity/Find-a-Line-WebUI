@@ -311,7 +311,8 @@ SOURCES: List[Source] = [
         note="Data: Tokyo Metropolitan Government, Tokyo Digital Twin point cloud data, CC BY 4.0 (Tokyo Open Data "
              "terms). Terrain only (no surface model: trees and buildings are not in the data). Ogasawara was not "
              "surveyed. Near the Izu islands' coasts the grids hold some seabed heights: there heights below -1 m are "
-             "taken as no data, so the sea is filled at 0 m.",
+             "taken as no data, filled as sea at 0 m in the search's sea zone and outside it as gaps on land from "
+             "the fallback model.",
         coverage=Coverage(provider="Tokyo Metropolitan Government", added="2026-11-15", partial=True,
                           survey="2022–2023")),
     Source(

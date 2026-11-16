@@ -123,7 +123,14 @@ def hk_files(layer: str, i: int, j: int) -> List[Tuple[str, str, int]]:
 # HK_DATUM_OFFSET (the user's decision of 2026-11-16) where the tiles are read onto the grid (Layer.height_offset,
 # mosaic.prepare_layer): heights about mean sea level; the cache keeps CEDD's heights, so nothing is fetched again
 # (2026-11-16: R91 the same 8 lines, each anchor 1.30 m lower; at Cape D'Aguilar, radius 400 m, the same 8 lines and
-# clearances, 1 988 anchors fewer: the fringe's step down to the sea's 0 m fill is gone, its pixels now water).
+# clearances, 1 988 anchors fewer: the fringe's step down to the sea's 0 m fill is gone). With it the rule every
+# source has at mean sea level applies here too: data in the sea zone (the OSM sea grown by the shore buffer) at
+# most filling.SEA_LEVEL_TOLERANCE (1.0 m) high count as water, which was 1.0 m above HKPD and is now 2.30 m above
+# it. At Cape D'Aguilar the water with data in the circle went from 1 328 to 15 071 px of 1 m (of them the fringe of
+# +1.1 to +1.3 m, 877 px, and the band of +1.0 to +1.5 m, 3 028; the data within 3 m of the 0 m fill have a median
+# of 1.61 m above HKPD). That water marks the lines' metres over water (water_m), is left out of the terrain's
+# statistics and borders the uncertain shore (filling.shore_rows); it removes no anchor by itself (search._anchors
+# reads no water mask: the anchors fewer come from the lower heights).
 # The sea and the land beyond Hong Kong's boundary are nodata in both models (2NE20D on the Shenzhen River: 73.9 %
 # nodata, the same pixels in both; 12SW22A's surface off Tung Lung Chau: 97.1 %, its lowest pixel 0.738 m), with a
 # fringe of water at +1.1 to +1.3 m above HKPD along the shore (-0.2 to 0 m once lowered: water, as is any data in

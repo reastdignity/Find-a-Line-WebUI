@@ -1,6 +1,7 @@
 """Layers brought onto the working grid: downloads, mosaics, a slope file; the record of the data used."""
 
 import math
+import numbers
 import os
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -116,9 +117,10 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     bilinear reprojection at one resolution smooths (filling.NEIGHBOUR_SAME_RESOLUTION).
     wrote: a list given, whether each file wrote at least one pixel (one more pass over each part it covers: off
     unless asked; the mosaic's values the same either way) is appended to it, in the order of files.
-    below: heights below it are no data, in each raster's own pixels before any resampling; None: none. A number
-    is the floor of every file; a sequence one floor (or None) per file, in the order of files (prepare_layer:
-    Layer.floor_of of each, Tokyo's island sheets floored and its mainland's not).
+    below: heights below it are no data, in each raster's own pixels before any resampling; None: none. A plain
+    number is the floor of every file; anything else (a list, a tuple, an array) one floor (or None) per file, in
+    the order of files, as many as there are files (prepare_layer: Layer.floor_of of each, Tokyo's island sheets
+    floored and its mainland's not).
     offset: metres added to every height (Layer.height_offset: Hong Kong's datum), after the floor, to each
     raster's values on the grid before they go into the mosaic, so the mosaic is the one without it plus the
     constant in float32 on every path (NaN stays NaN); 0: none. Never for a categorical mosaic.
@@ -128,7 +130,8 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
             raise ValueError(f"resampling must be one of {', '.join(RESAMPLINGS)} for a mosaic of heights")
     if categorical and offset:
         raise ValueError("a categorical mosaic takes no height offset")
-    floors = list(below) if isinstance(below, (list, tuple)) else [below] * len(files)
+    # A plain number (or None) is every file's floor; anything else (a list, a tuple, an array) one floor per file
+    floors = [below] * len(files) if below is None or isinstance(below, numbers.Real) else list(below)
     if len(floors) != len(files):
         raise ValueError(f"{len(floors)} floors for {len(files)} files")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
