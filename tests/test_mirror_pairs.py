@@ -149,17 +149,17 @@ def test_one_host_everywhere():
 
 
 def test_the_readmes_privacy_note():
-    """README's privacy note of the data server is the approved text word for word (the server's landing page's:
-    tests/test_mirror_deploy.py test_landing_page). The marker PRIVACY-LAST-SENTENCE stands right after its last
-    sentence until the user approves the sentence that names `off` (U37); the planner replaces both."""
+    """README's privacy note of the data server, the specification's text (section 7: U13, U22, U46, U47) and the
+    server's landing page carry one text word for word (the landing page against the specification alone:
+    tests/test_mirror_deploy.py test_landing_page); it names `off`, the setting's word (U37, U46)."""
     readme = _read("README.md")
     note = re.search(r"^\*\*Privacy\.\*\* (.+)$", readme, re.M)
     assert note
-    text = note.group(1)
-    if "<!-- PRIVACY-LAST-SENTENCE -->" in text:
-        assert text.endswith("data.<!-- PRIVACY-LAST-SENTENCE -->")
-        text = text.removesuffix("<!-- PRIVACY-LAST-SENTENCE -->")
-    assert " ".join(text.replace("`", "").split()) == _privacy_text()
+    text = " ".join(note.group(1).replace("`", "").split())
+    assert text == _privacy_text()
+    assert f"set FINDALINE_MIRROR_URL to {tilebases.OFF};" in text
+    page = _read("deploy", "mirror", "landing", "index.html")
+    assert text in " ".join(re.sub(r"<[^>]+>", "", page).split())
 
 
 # 3. The version a client sends, the server's log and the publish tool's rule
@@ -245,7 +245,7 @@ def test_the_logs_keys_and_the_privacy_sentence():
     items = [item.strip() for item in re.split(r",(?: and)? ", listed)]
     assert set(SENTENCE_OF_KEY) == set(LOG_KEYS)
     assert sorted(set(SENTENCE_OF_KEY.values())) == sorted(items), "a key or a noun of the sentence changed alone"
-    assert "It keeps this for 14 days" in text   # tests/test_mirror_deploy.py test_log_keys_and_days: KEEP_DAYS=14
+    assert "It keeps this for at most 14 days" in text   # KEEP_DAYS=14: tests/test_mirror_deploy.py test_log_keys_and_days
 
 
 def test_stats_reads_a_line_the_server_writes(monkeypatch, capsys):

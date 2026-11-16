@@ -82,6 +82,10 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U43 | The publishing container's own log (the PC's LAN address, the key's fingerprint) | "a": kept, and said in the README |
 | U44 | One log word (`conn`) for two limits | "a": accepted |
 | U45 | The request log has no size bound | "a": the hourly cleanup also caps the log folder's size, the oldest files first; the number brought to the user after measuring; under a flood fewer than 14 days |
+| U46 | The privacy text's last sentence, with `off` | "To never contact the data server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use coarser data." |
+| U47 | "It keeps this for 14 days" (a flood can make the log hold less) | "It keeps this for at most 14 days", and the same two words in the `CLAUDE.md` line of U30 |
+| U48 | The log's size bound (hourly; the oldest days first; today's file emptied whole and started again when it alone passes it) | 2 GB |
+| U49 | CI's job `mirror` (about 75 minutes with its self-test) | it runs only when the mirror's files or its check script change, plus by hand |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -229,8 +233,8 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    without its number, a local label dropped; `unknown` as it is; else `other`). Never the tile's path, the query or
    the rest of the User-Agent. One file per day (UTC) in `<root>/logs`; a loop started by the start script beside
    the server deletes, every hour, each file whose date is 14 or more days back, then the oldest days' files while
-   the folder is above `LOG_CAP_BYTES` (today's file emptied in place when it alone is above it; U45: under a flood
-   the log may hold fewer than 14 days), and touches a heartbeat file the healthcheck reads (a dead loop makes the
+   the folder is above `LOG_CAP_BYTES`, 2 GB (today's file emptied in place when it alone is above it; U45, U48:
+   under a flood the log may hold fewer than 14 days, hence the privacy text's "at most", U47), and touches a heartbeat file the healthcheck reads (a dead loop makes the
    container unhealthy). Nothing of the requests goes
    to the container's stdout, so Docker's own log holds no visitor data; the server's error log runs at its
    "critical" level (P18; wave 0: server, a refused symlink wrote the full request at error level).
@@ -666,7 +670,7 @@ U4, U13, U15, U16; P3, P26.
    `docs/code-map/*`, the rules `deploy.md`, `providers.md`, `sources.md`, `metrics.md`, `web-app.md` (the new
    pairs named in A, B, C and below), and `CLAUDE.md`'s line on personal data in logs (A.7, U26).
 
-### Privacy texts (approved by the user on 2026-11-15: U13 "yes", U22 "a"; used word for word)
+### Privacy texts (approved by the user on 2026-11-15: U13 "yes", U22 "a"; the last two sentences as changed on 2026-11-16: U46, U47; used word for word)
 A visitor of the public site never reaches the mirror: the site's server asks it.
 - Privacy page, a new entry with its title and its text as the page's other entries have them. Title:
   "Elevation data from the project's data server". Text: "The elevation data of some regions come from a data
@@ -674,9 +678,9 @@ A visitor of the public site never reaches the mirror: the site's server asks it
 - README and the mirror's landing page: "An installation that downloads from the project's data server shows it
   its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the
   tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of
-  each request. It keeps this for 14 days, to hold the service within its limits, and uses it for nothing else.
-  To never contact the data server, set `FINDALINE_MIRROR_URL` to empty; the regions it serves then use coarser
-  data."
+  each request. It keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing
+  else. To never contact the data server, set `FINDALINE_MIRROR_URL` to `off`; the regions it serves then use
+  coarser data."
 The pair to keep: these texts ↔ the log's keys and its 14 days (A.7); another key or period changes the texts,
 with the user's yes. (The log's status and "the limit that refused" are "whether the request was served or
 refused"; the log has no other key than the sentence names.)
@@ -809,8 +813,8 @@ The build is done when every line below holds; each names its test or command.
 
 **The mirror stack (A)**
 - [ ] `pytest tests/test_mirror_deploy.py` green.
-- [ ] `tests/mirror_check.sh` in the CI job `mirror`: every line PASS, and its self-test FAILs every check with
-      the behaviour switched off.
+- [ ] `tests/mirror_check.sh` in the CI job `mirror` (run when the mirror's files or the check script change, and
+      by hand: U49): every line PASS, and its self-test FAILs every check with the behaviour switched off.
 - [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
       out, no log file older than 14 days; SWAG attached (U42); the door's port on the LAN address only.

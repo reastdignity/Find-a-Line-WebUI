@@ -1100,7 +1100,7 @@ SWAG's certificate in a planned stop, set up the door and check it all: `deploy/
 Publishing a dataset from the PC that holds the master: `tools/mirror_publish.py` (README, "The
 project's data server"). The VPS watches it (section 15: C7 when it gives no good answer for 45
 minutes, C8 for its certificate); its request log holds the addresses of the installations that
-download, for 14 days (README's privacy note).
+download, for at most 14 days (README's privacy note).
 
 **The monthly item** (nothing reminds of it):
 1. The base images: the file server's (`deploy/mirror/Dockerfile`, `ARG NGINX_IMAGE`) and the

@@ -73,7 +73,7 @@ before. Planning without opening those files, or briefing a subagent: read the r
 - Stored data (cache layout, runs, SQLite databases): every change decides "automatic migration" or
   "none" and states it in the commit message.
 - Keys, tokens and personal data never in the repository, a run's files, a printed text or a log; the one
-  exception: the mirror's request log (`deploy/mirror`) holds addresses, for 14 days.
+  exception: the mirror's request log (`deploy/mirror`) holds addresses, for at most 14 days.
 - Before adding a dependency: the current docs of the version that gets installed, and the tests with
   deprecation warnings visible.
 - Libraries first: before an own implementation look for a popular, maintained library and present a
