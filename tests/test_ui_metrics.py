@@ -294,6 +294,16 @@ def test_a_pseudo_element_grows_only_what_it_can():
                      "button.h3.hx": (18, 18), "button.h4.hx": (18, 18)}
 
 
+@BROWSER
+def test_a_decorating_pseudo_element_grows_nothing():
+    """An absolutely positioned ::before inside the control's box (a dot, the 3D view's .v3-opt-dot) is no growth:
+    the control is "own", not "with ::before", and not counted in controls_grown."""
+    r = _measured('<button class="dot">a</button>',
+                  ".dot { position: relative; width: 18px; height: 18px; border: 0; padding: 0; } "
+                  ".dot::before { content: ''; position: absolute; inset: 4px; background: red; }")
+    assert r["control_examples"]["button.dot"]["how"] == "own" and r["controls_grown"] == 0
+
+
 PAGE = """<!doctype html><html lang="en"><head><style>
 ::-webkit-scrollbar { width: 0; height: 0; }
 body { margin: 0; font-size: 16px; } button { font-size: 16px; }

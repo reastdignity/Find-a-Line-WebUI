@@ -689,7 +689,10 @@ MEASURE_JS = r"""(opts) => {
       target = box(rect);
       for (const which of ["::before", "::after"]) {
         const p = pseudoBox(e, which, rect);
-        if (p) { target = join(target, p); how = "with " + which; }
+        if (!p) continue;
+        const joined = join(target, p);  // "with" only when it grows the target (not a decoration inside it)
+        if (joined.right - joined.left > target.right - target.left + 0.05 ||
+            joined.bottom - joined.top > target.bottom - target.top + 0.05) { target = joined; how = "with " + which; }
       }
     }
     if (/^(checkbox|radio)$/.test(e.type || "") && e.labels) {  // its labels are its target too: the largest
