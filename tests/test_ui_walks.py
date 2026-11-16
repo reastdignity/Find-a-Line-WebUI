@@ -69,8 +69,31 @@ def test_the_guard_refuses_only_the_starts_of_work():
     assert not refused("POST", "https://localhost:1/api/jobs/20261116-1-abc/cancel")
 
 
-def _act(n, kind, controls, words, seconds=0.1, **more):
-    return {"n": n, "kind": kind, "measured": {"controls": controls, "words": words}, "seconds": seconds, **more}
+@browser_test
+def test_the_guard_is_installed_in_every_context(page):
+    """_context: a page of the site that posts a new job gets it refused (and listed); an estimate goes on."""
+    site = "https://walks.test"
+    browsers = {"chromium": page.context.browser}  # the Edge of the module's fixture, not a browser of its own
+    context, refused = uw._context(None, browsers, "desktop", "returning", None, site)
+    try:
+        context.route(site + "/", lambda route: route.fulfill(status=200, content_type="text/html",
+                                                              body="<!doctype html><title>t</title>"))
+        p = context.new_page()
+        p.goto(site + "/")
+        said = p.evaluate("""async () => {
+            const tried = async (path) => { try { await fetch(path, {method: 'POST', body: '{}'}); return 'answered'; }
+                                            catch (e) { return 'failed'; } };
+            return [await tried('/api/jobs'), await tried('/api/jobs/x/again'), await tried('/api/estimate')]; }""")
+        assert said[:2] == ["failed", "failed"]
+        assert refused == [f"POST {site}/api/jobs", f"POST {site}/api/jobs/x/again"]  # not the estimate
+    finally:
+        context.close()
+
+
+def _act(n, kind, controls, words, seconds=0.1, settled=True, **more):
+    return {"n": n, "kind": kind, "measured": {"controls": controls, "words": words, "settled": settled,
+                                              "scope": "viewport", "list": ["c"] * controls},
+            "seconds": seconds, **more}
 
 
 def test_totals_of_a_record():
@@ -79,26 +102,40 @@ def test_totals_of_a_record():
     record = {"dead_end": None, "steps": [
         {"n": 1, "kind": "screen", "name": "first", "measured": {"controls": 7, "words": 40}},
         _act(2, "tap", 7, 40),
-        _act(3, "type", 3, 12, text="100"),
+        _act(3, "type", 3, 12, text="100", settled=False),
         _act(4, "key", 3, 12, seconds=0.5, key="Enter", feedback="none"),
         {"n": 5, "kind": "note", "text": "a note"},
         {"n": 6, "kind": "screen", "name": "second", "measured": {"controls": 2, "words": 9}},
         _act(7, "swipe", 2, 9, seconds=1.2, feedback="busy"),
-        {"n": 8, "kind": "unmade", "measured": {"controls": 5, "words": 20}, "made": False},
+        {"n": 8, "kind": "unmade", "measured": {"controls": 7, "words": 20, "scope": "viewport", "list": ["c"] * 7},
+         "made": False},
         {"n": 9, "kind": "end", "measured": {"controls": 5, "words": 20}}]}
     t = uw.totals(record)
     assert (t["screens"], t["pointer"], t["keystrokes"], t["switches"]) == (2, 3, 4, 2)
     assert (t["decisions"], t["max_controls"], t["words_first"], t["words_screens"]) == (2, 7, 40, 49)
+    assert t["decision_surfaces"] == 1  # steps 2 and 8: the same surface, counted once
+    assert (t["unsettled"], t["error"]) == (1, False)
     assert t["waits"] == [{"step": 4, "seconds": 0.5, "feedback": "none"}, {"step": 7, "seconds": 1.2, "feedback": "busy"}]
     assert (t["no_feedback"], t["not_made"], t["dead_end"]) == (1, 1, None)
     assert uw.totals(record, desktop=False)["switches"] is None  # phones: no keyboard to leave
-    again = {"dead_end": None, "steps": [dict(s, measured=dict(s["measured"], words=s["measured"]["words"] + 1))
+    again = {"dead_end": None, "steps": [dict(s, measured=dict(s["measured"], words=s["measured"]["words"] + 1,
+                                                               settled=True))
                                          if s.get("measured") and s["n"] == 3 else s for s in record["steps"]]}
     a = [{"id": "Z", "totals": t, "steps": record["steps"]}]
     b = [{"id": "Z", "totals": uw.totals(again), "steps": again["steps"]}]
-    assert uw.compare(a, a) == [] and uw.compare(a, b) == ["Z step 3 words: 12 / 13"]
-    assert uw.markdown([{"id": "Z", "title": "t", "user": "admin", "device": "desktop", "memory": "new",
-                         "totals": t, "dead_end": None, "steps": record["steps"]}]).count("\n## Z t") == 1
+    assert uw.compare(a, a) == []
+    assert uw.compare(a, b) == ["Z unsettled: 1 / 0", "Z step 3 words: 12 / 13", "Z step 3 settled: False / True"]
+    md = uw.markdown([{"id": "Z", "title": "t", "user": "admin", "device": "desktop", "memory": "new",
+                       "totals": t, "dead_end": None, "steps": record["steps"]}])
+    assert md.count("\n## Z t") == 1 and md.startswith(uw.COUNTED)
+    assert "3. type '100' into [3 controls, 12 words; not settled]" in md
+    broken = {"dead_end": {"step": 2, "why": "error: Error: gone", "error": True}, "steps": record["steps"][:2]}
+    tb = uw.totals(broken)
+    assert (tb["error"], tb["dead_end"]) == (True, 2)
+    row = [line for line in uw.markdown([{"id": "E", "title": "e", "user": "admin", "device": "desktop",
+                                          "memory": "new", "totals": tb, **broken}]).splitlines()
+           if line.startswith("| E e")][0]
+    assert row.endswith("| 2 (error) |")
 
 
 # A page of known controls and words: visible and enabled 5 (two buttons, a link, a text field, a styled radio's
@@ -134,6 +171,38 @@ def test_counting_on_a_known_page(page):
 
 
 @browser_test
+def test_pointer_events_none_neither_hides_its_words_nor_shows_what_it_covers(page):
+    """A unit label with pointer-events: none beside a field counts its word; an opaque such panel over a button hides
+    the button and counts its own words; a transparent such wrapper over a button hides nothing; the page's styles are
+    as before afterwards."""
+    page.set_content("""<!doctype html><body style="margin:0;font:16px sans-serif">
+        <div style="position:relative;width:200px"><input aria-label="Height" style="width:150px">
+          <span id="unit" style="position:absolute;right:8px;top:2px;pointer-events:none">m</span></div>
+        <div style="position:relative;height:40px"><button style="position:absolute;top:0">Hidden</button>
+          <div id="cover" style="position:absolute;inset:0;background:#fff;pointer-events:none">Cover</div></div>
+        <div style="position:relative;height:40px"><button style="position:absolute;top:0">Seen</button>
+          <div style="position:absolute;inset:0;pointer-events:none"></div></div>
+        <div role="separator" tabindex="0" aria-label="Width of the list" style="height:8px;background:#ccc"></div>
+        <svg width="100" height="40"><rect class="fal-hover" role="slider" tabindex="0" aria-label="Point"
+          width="100" height="40" fill="transparent"/></svg></body>""")
+    m = uw.measure(page)
+    assert sorted(m["list"]) == sorted(["input: Height", "button: Seen"]), m["list"]
+    assert sorted(m["text"].split()) == sorted(["m", "Cover", "Seen"]), m["text"]
+    assert page.evaluate("document.getElementById('cover').style.pointerEvents") == "none"
+    assert page.evaluate("document.getElementById('unit').getAttribute('style').includes('auto')") is False
+
+
+@browser_test
+def test_a_reading_that_never_settles_is_marked(page):
+    """Text that keeps changing: the reading comes back after the settling time, marked not settled."""
+    page.set_content("""<p id="t">0</p><script>let i = 0;
+        setInterval(() => { document.getElementById('t').textContent = 'tick ' + i++; }, 30)</script>""")
+    assert uw.measure(page, settle_ms=600)["settled"] is False
+    page.set_content("<p>Still</p>")
+    assert uw.measure(page, settle_ms=600)["settled"] is True
+
+
+@browser_test
 def test_counting_inside_a_modal_dialog(page):
     """With a modal dialog open only what is in it counts; the page behind is none."""
     page.set_content(PAGE + """<dialog id="d"><p>Hello there, friend</p><button>Yes</button><button>No</button>
@@ -150,10 +219,10 @@ def test_counting_inside_a_modal_dialog(page):
 
 @browser_test
 def test_counting_inside_a_popover_and_the_map(page):
-    """An open popover (.r-pop) alone counts; a Leaflet map is one control, its panes' controls and words none, its
-    corner controls and attribution each."""
+    """An open popover (.r-pop) alone counts; a Leaflet map (tabindex=0, as Leaflet makes it) is one control listed as
+    the map, its panes' controls and words none, its corner controls and attribution each."""
     page.set_content("""<button>Outside</button><p>Words outside</p>
-        <div class="leaflet-container" style="position:relative;width:300px;height:200px">
+        <div class="leaflet-container" tabindex="0" style="position:relative;width:300px;height:200px">
           <div class="leaflet-map-pane"><a href="#m" style="position:absolute;top:50px">Marker label</a>
             <span style="position:absolute;top:90px">Pane words</span></div>
           <div class="leaflet-control-container"><button style="position:absolute;top:0">Zoom in</button>
@@ -170,7 +239,8 @@ def test_counting_inside_a_popover_and_the_map(page):
 @browser_test
 def test_feedback_of_a_slow_step(page):
     """A step slower than 300 ms: "none" when nothing changed on the screen within 300 ms, "busy" with a busy mark,
-    "text" when the visible text changed; a fast step has no such entry."""
+    "text" when the visible text changed, each within 300 ms of the click reaching the page (the page's own timers
+    decide, not the test's clock); a fast step has no entry, or "text" when the machine made it slow."""
     page.set_content("""<button id="quiet" onclick="setTimeout(() => document.body.insertAdjacentHTML('beforeend',
           '<p id=a>Done</p>'), 800)">Quiet</button>
         <button id="busy" onclick="this.setAttribute('aria-busy', 'true'); setTimeout(() =>
@@ -183,8 +253,9 @@ def test_feedback_of_a_slow_step(page):
                       for name, p in (("quiet", "a"), ("busy", "b"), ("told", "c"), ("fast", "d"))]}
     r = uw.run_walk(page, walk, timeout=SHORT)
     assert r["dead_end"] is None
-    assert [s.get("feedback") for s in r["steps"][:4]] == ["none", "busy", "text", None]
-    assert r["totals"]["no_feedback"] == 1 and [w["step"] for w in r["totals"]["waits"]] == [1, 2, 3]
+    assert [s.get("feedback") for s in r["steps"][:3]] == ["none", "busy", "text"]
+    assert r["steps"][3].get("feedback") in (None, "text")
+    assert r["totals"]["no_feedback"] == 1 and [w["step"] for w in r["totals"]["waits"]][:3] == [1, 2, 3]
 
 
 @browser_test
@@ -219,3 +290,86 @@ def test_a_start_that_stays_disabled_is_a_dead_end(page):
     walk = {"steps": [uw.unmade("role=button[name='Start search']")]}
     r = uw.run_walk(page, walk, timeout=SHORT)
     assert r["dead_end"]["step"] == 1 and r["totals"]["not_made"] == 0
+
+
+@browser_test
+def test_an_error_inside_a_walk_ends_it_with_its_step(page, monkeypatch):
+    """An exception under a measurement (a navigation, a page gone) ends the walk as an error at its step; the steps
+    before it are kept."""
+    page.set_content("<button id='a'>A</button><button id='b'>B</button>")
+    calls, real = [], uw.measure
+
+    def failing(p, settle_ms=uw.SETTLE_MS):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("Execution context was destroyed")
+        return real(p, settle_ms)
+    monkeypatch.setattr(uw, "measure", failing)
+    r = uw.run_walk(page, {"steps": [uw.tap("#a"), uw.tap("#b"), uw.tap("#a")]}, timeout=SHORT)
+    assert r["dead_end"] == {"step": 2, "why": "error: RuntimeError: Execution context was destroyed", "error": True}
+    assert [s["n"] for s in r["steps"]] == [1, 2] and r["steps"][0]["seconds"] is not None
+    assert (r["totals"]["pointer"], r["totals"]["error"]) == (1, True)
+
+
+@browser_test
+def test_an_action_takes_the_walks_timeout(page):
+    """A click on a button under a panel that takes the clicks: it fails after the walk's timeout (not Playwright's
+    30 s), as a dead end of that step."""
+    page.set_content("""<div style="position:relative;height:40px"><button id="under">Under</button>
+        <div style="position:absolute;inset:0;opacity:0.01">over</div></div>""")
+    r = uw.run_walk(page, {"steps": [uw.tap("#under")]}, timeout=SHORT)
+    assert r["dead_end"]["step"] == 1 and f"Timeout {SHORT}ms exceeded" in r["dead_end"]["why"], r["dead_end"]
+
+
+@browser_test
+def test_a_share_link_is_masked(page, tmp_path):
+    """A share link's token: masked in the words and the controls' names, and its field covered in the screenshot."""
+    Image = pytest.importorskip("PIL.Image")
+    link = "https://localhost:1/s/abcdefghijklmnopqrstuvwxyz012345/map.html"
+    page.set_content(f"""<div class="r-pop" role="dialog" style="padding:20px"><p>Copy this link: {link}</p>
+        <input id="link" style="width:500px;height:30px" value="{link}"></div>""")
+    m = uw.measure(page)
+    assert "abcdefghijklmnop" not in m["text"] + " ".join(m["list"])
+    assert "/s/<token>" in m["text"] and any("/s/<token>" in c for c in m["list"])
+    r = uw.run_walk(page, {"steps": [uw.screen("the link")]}, out=str(tmp_path), timeout=SHORT)
+    box = page.locator("#link").bounding_box()
+    pixel = Image.open(r["steps"][0]["shot"]).convert("RGB").getpixel((int(box["x"] + box["width"] / 2),
+                                                                         int(box["y"] + box["height"] / 2)))
+    assert pixel == (255, 0, 255)  # Playwright's mask
+
+
+def test_main_refuses_a_data_folder_with_a_job_before_serving(tmp_path, monkeypatch):
+    """A --data-dir holding a job: main() stops before serve() can start its worker."""
+    pytest.importorskip("playwright")
+    from jobs import Jobs
+    (tmp_path / "data").mkdir()
+    Jobs(str(tmp_path / "data")).add({"params": {}}, "a waiting search", None)
+
+    def serve(*args, **kwargs):
+        raise AssertionError("serve() started with a job waiting")
+    monkeypatch.setattr(ui_shots, "serve", serve)
+    monkeypatch.setattr(sys, "argv", ["ui_walks.py", "--out", str(tmp_path / "out"),
+                                      "--data-dir", str(tmp_path / "data")])
+    for name in ("ESRI_API_KEY", "DATAFORDELER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(SystemExit, match="has jobs before the walks"):
+        uw.main()
+
+
+def test_main_stops_the_site_and_cleans_up_when_a_step_after_serving_fails(tmp_path, monkeypatch):
+    """first_line failing after serve(): the site is stopped and the temporary data folder removed."""
+    pytest.importorskip("playwright")
+    temp, stopped = tmp_path / "ui-walks-x", []
+    monkeypatch.setattr(uw.tempfile, "mkdtemp", lambda prefix="": (temp.mkdir(), str(temp))[1])
+    monkeypatch.setattr(ui_shots, "serve", lambda data: ("https://localhost:1", {}, "run", "share",
+                                                        lambda: stopped.append(1)))
+
+    def first_line(*args):
+        raise ValueError("no lines")
+    monkeypatch.setattr(ui_shots, "first_line", first_line)
+    monkeypatch.setattr(sys, "argv", ["ui_walks.py", "--out", str(tmp_path / "out")])
+    for name in ("ESRI_API_KEY", "DATAFORDELER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(ValueError, match="no lines"):
+        uw.main()
+    assert stopped == [1] and not temp.exists()

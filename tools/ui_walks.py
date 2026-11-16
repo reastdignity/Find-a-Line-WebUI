@@ -11,18 +11,40 @@ viewport; with a modal dialog or a popover open only what is in it):
 - the words visible (text nodes and fields' values or placeholders; a word holds a letter or a digit, so "·" or "⋯"
   is none; the map's panes hold none);
 then it does the action and times the seconds until the step's expected state (indicative only), and whether the
-page showed anything within 300 ms (a busy mark, a progress bar or changed visible text) when it took longer. A
-step whose element or expected state never comes ends the walk as a dead end, named, never worked around. "Visible"
+page showed anything within 300 ms of the action's first input event (a new busy mark or progress bar, or changed
+visible text) when it took longer (indicative too: page timers against the load of the machine). A step whose element
+or expected state never comes ends the walk as a dead end, named, never worked around; an exception (a navigation
+under a measurement, a timeout of an action) ends it as an error at its step, and the other walks go on. "Visible"
 means inside the viewport and every clipping ancestor, and hit by elementFromPoint (not covered by a sheet, a modal or
-a panel); MEASURE holds the rules.
+a panel); a box with pointer-events: none that paints (a background, its own text, an image or svg) is made
+hit-testable for the measurement, so its words count and what it covers does not (the search form's unit labels).
+Only modal dialogs (showModal, aria-modal) and the named popovers (.r-pop, :popover-open) are a scope of their own:
+a dialog opened with show() leaves the page behind it usable, and is measured with it. A reading that still changed
+after 5 s is used and marked "not settled". MEASURE holds the rules.
+
+What is counted (also at the head of walks.md, COUNTED): a list row and its star and unfold buttons are three
+controls; a Leaflet map is one, its zoom and layer buttons and attribution links one each; splitters (role=separator)
+and the profile chart's hover area are not counted (no choice of a task); a decision point is counted per action, so
+one surface can give several (the table also has the distinct surfaces with more than 4 controls); a tap not made
+(sign-in, Start) and a swipe count as pointer actions; screens are the walk author's marks; in a dialog the table has
+the visible words, the step lines also its whole text.
 
 Per walk: screens (the walk's marks "a new screen"), pointer actions, keystrokes, changes between pointer and
 keyboard (desktop), decision points and the largest number of controls seen, the words before the first action and
 summed over the screens, the waits, dead ends. A screenshot per step into --out/<walk>/, walks.json and walks.md.
 
 No walk starts a search: the site has a worker and a started job would download elevation data. A walk ends at the
-enabled "Start" (step kind "unmade": counted, never tapped), the page's job requests are refused (and fail the walk),
-and the data folder must have no job at the end.
+enabled "Start" (step kind "unmade": counted, never tapped), the page's job requests are refused (and fail the run),
+the data folder must have no job before serve() starts and none at the end. A run still reaches outside, as
+tools/ui_shots.py's Basic pages do: the estimate of a new search makes the worker fetch the source's map-sheet index
+(geoportal.gov.pl at the clip's place, about 5 MB into the data folder's cache) and a place lookup (Nominatim) when a
+walk sets a place; the maps load their tiles (OpenTopoMap, OpenStreetMap).
+
+Selectors: by role and visible name where that is not ambiguous; by class where the page has no distinct name, kept
+in step with the page: .c-card[data-run] and .c-card-open (Home's card and its name link), .r-filters (the result's
+chips), .r-head (the list's column heads), .r-details (the details' favourite button, the list's star has the same
+name), .r-dock .fal-profile-chart (the profile), .leaflet-container (the place map); the expected states (READY,
+RESULT, PROFILE, HOME, POPOVER, FORM, chip()) read the page's classes.
 
     uv sync --group ui
     uv run playwright install chromium webkit
@@ -148,6 +170,7 @@ def chip(text: str) -> str:
 
 
 CARD = ".c-card[data-run='{run}']"  # the run's card on Home
+LINES = "role=listbox[name='Lines'] >> role=option"  # the result's list of lines (its rows)
 OPEN_RUN = [tap(CARD + " .c-card-open", RESULT, "the result: the lines' list, the map, the details' column"),
             screen("the result")]
 THE_PLACE = (50.1559508, 19.7562722)  # the clip's place (ui_shots.POINT)
@@ -163,7 +186,7 @@ WALKS = {
                  "clip's run without a job, so neither the card's menu nor the result's header offers it)",
         "steps": [
             wait(HOME), screen("Home"),
-            tap(CARD + " .c-card-menu", POPOVER, "the card's menu"),
+            tap(CARD + " >> role=button[name='Actions']", POPOVER, "the card's menu"),
             screen("the card's menu"),
             tap("role=menuitem[name='Edit & run again']", FORM, "the search form with the run's settings"),
             screen("Edit & run again"),
@@ -191,7 +214,7 @@ WALKS = {
             tap("role=spinbutton[name='Height above the ground at least']", None, "the field has the focus"),
             type_("role=spinbutton[name='Height above the ground at least']", "20"),
             key("Enter", chip("Height ≥ 20"), "the chip reads Height ≥ 20 m"),
-            tap(".r-rows [role=option]", f"{LINE} && {PROFILE}", "the line's details and its profile over the map"),
+            tap(LINES, f"{LINE} && {PROFILE}", "the line's details and its profile over the map"),
             screen("the line: details and profile"),
         ]},
     "R3": {
@@ -208,9 +231,9 @@ WALKS = {
             key("Escape", NO_POPOVER, "the popover closed"),
             note("two lines: the UI has no side-by-side comparison; the nearest is one line's details, then "
                  "another's"),
-            tap(".r-rows [role=option] >> nth=0", LINE, "the first line's details and profile"),
+            tap(LINES + " >> nth=0", LINE, "the first line's details and profile"),
             screen("line 1"),
-            tap(".r-rows [role=option] >> nth=1", "!location.hash.endsWith('{line}')",
+            tap(LINES + " >> nth=1", "!location.hash.endsWith('{line}')",
                 "the second line's details replace the first's"),
             screen("line 2"),
         ]},
@@ -224,11 +247,11 @@ WALKS = {
             note("signing in at the provider is not walked; a new account waits for an administrator's approval"),
             sign_in("walker", "/", "the app as a newly approved user (no saved rig), just signed in"),
             wait(DIALOG), screen("the beta notice"),
-            tap("dialog[open] >> role=button[name='Understood']", NO_DIALOG, "Home"),
+            tap("role=button[name='Understood']", NO_DIALOG, "Home"),
             screen("Home"),
             tap("role=link[name='New search']", DIALOG, "the search, and over it its intro"),
             screen("How a search works"),
-            tap("dialog[open] >> role=button[name='Got it']", f"{NO_DIALOG} && {FORM}",
+            tap("role=button[name='Got it']", f"{NO_DIALOG} && {FORM}",
                 "the search: the map, the form under it"),
             screen("New search"),
             note("the place: a tap on the map where the clip lies (the map opens near it); finding one's own place "
@@ -246,9 +269,9 @@ WALKS = {
             tap(CARD + " .c-card-open", None, "the result loads"),
             wait(f"{RESULT} || {DIALOG}"),
             screen("the result's first view"),
-            tap("dialog[open] >> role=button[name='Got it']", NO_DIALOG, "the result: the map and the list"),
+            tap("role=button[name='Got it']", NO_DIALOG, "the result: the map and the list"),
             screen("the result"),
-            tap(".r-rows [role=option]", LINE, "the line's details in the sheet"),
+            tap(LINES, LINE, "the line's details in the sheet"),
             screen("the line's details"),
             swipe(".r-dock .fal-profile-chart", None, "the profile further down the sheet"),
             screen("the line's profile"),
@@ -270,20 +293,21 @@ WALKS = {
             wait(HOME), screen("Home"),
             *OPEN_RUN,
             note("the list's star saves to the top level at once; a folder is chosen in the line's details"),
-            tap(".r-rows [role=option]", LINE, "the line's details"),
+            tap(LINES, LINE, "the line's details"),
             screen("the line's details"),
             tap(".r-details >> role=button[name='Add to favourites']", POPOVER, "Save to a folder"),
             screen("Save to a folder"),
-            tap(".r-pop >> role=button[name='New folder']", "!!document.querySelector('.r-newfolder input')",
+            tap("role=dialog[name='Favourite folders'] >> role=button[name='New folder']",
+                "!!document.querySelector('.r-newfolder input')",
                 "the folder's name field, with the focus"),
-            type_(".r-newfolder input", "Tatras"),
+            type_("role=textbox[name=\"New folder's name\"]", "Tatras"),
             key("Enter", "!!document.querySelector('.r-details .r-fav.r-on')", "the line is a favourite, in Tatras"),
             tap(".r-head >> role=button[name='Length']",
                 "/^Length/.test(document.querySelector('.r-head button[aria-sort]')?.textContent || '')",
                 "the list sorted by length"),
             tap("role=button[name='Share']", POPOVER, "Share's popover"),
             screen("Share"),
-            tap(".r-pop >> role=button[name=/^(Make a link|New link)$/]",
+            tap("role=dialog[name='Share'] >> role=button[name=/^(Make a link|New link)$/]",
                 "!!document.querySelector('.r-pop input')?.value", "the link, shown once"),
             screen("the link"),
         ]},
@@ -324,11 +348,33 @@ def walk_errors(walks: dict, users, devices) -> list:
 # The measurement of the surface (a function of the page; no eval: the app's CSP forbids it). Returns the controls
 # (each: its kind and name, enabled or not) and the words visible, and which surface it measured.
 MEASURE = r"""() => {
+  // pointer-events: none does not hide what a box paints: such a box with a background, its own text or a replaced
+  // element (img, svg, canvas, video) is made hit-testable for the measurement (an inline style through the CSSOM,
+  // put back at the end), so its words count and what it covers does not; a transparent wrapper stays out of the way
+  const changed = [];
+  for (const e of document.querySelectorAll('body *')) {
+    const s = getComputedStyle(e);
+    if (s.pointerEvents !== 'none' || s.display === 'none') continue;
+    const painted = /^(IMG|svg|CANVAS|VIDEO)$/.test(e.tagName) || s.backgroundImage !== 'none'
+      || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(s.backgroundColor)
+      || [...e.childNodes].some((n) => n.nodeType === 3 && /\S/.test(n.data));
+    if (!painted) continue;
+    changed.push([e, e.style.getPropertyValue('pointer-events'), e.style.getPropertyPriority('pointer-events')]);
+    e.style.setProperty('pointer-events', 'auto', 'important');
+  }
+  try { return count(); } finally {
+    for (const [e, v, p] of changed) {
+      if (v) e.style.setProperty('pointer-events', v, p); else e.style.removeProperty('pointer-events');
+    }
+  }
+  function count() {
   const SCOPES = ['dialog:modal', '[aria-modal=true]', '.r-pop', ':popover-open'];
   const CONTROLS = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=link], ' +
     '[role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=tab], [role=radio], [role=checkbox], ' +
     '[role=switch], [role=option], [role=slider], [role=combobox], [contenteditable=true], ' +
     '[tabindex]:not([tabindex^="-"])';
+  // no choice of a task: a splitter between panels (drag handle) and the profile chart's hover area (its cursor)
+  const NOT_CHOICES = '[role=separator], .fal-hover';
   const MAP = '.leaflet-container', PANES = '.leaflet-map-pane';
   const W = innerWidth, H = innerHeight;
   const matches = (e, sel) => { try { return e.matches(sel); } catch (x) { return false; } };
@@ -376,10 +422,10 @@ MEASURE = r"""() => {
     controls.push({kind, name: kind === 'map' ? 'the map' : nameOf(e), enabled: !disabled});
   };
   for (const m of root.querySelectorAll(MAP)) {
-    if (!m.closest(CONTROLS) && seen(m)) add(m, 'map');
+    if (!m.parentElement?.closest(CONTROLS) && seen(m)) add(m, 'map');  // Leaflet gives it tabindex=0
   }
   for (const e of root.querySelectorAll(CONTROLS)) {
-    if (e === scope || inPanes(e)) continue;
+    if (e === scope || inPanes(e) || e.matches(NOT_CHOICES)) continue;
     if (seen(e)) { add(e, e.getAttribute('role') || e.tagName.toLowerCase()); continue; }
     // a field hidden for its label's look (a styled radio or checkbox): the label is what the person sees
     const label = e.labels && e.labels[0];
@@ -429,24 +475,31 @@ MEASURE = r"""() => {
   return {scope: scopeName, controls: enabled.length, disabled: controls.length - enabled.length,
           words: words.length, words_in_scope: inScope,
           list: controls.map((c) => `${c.enabled ? '' : '(disabled) '}${c.kind}: ${c.name}`), text: words.join(' ')};
+  }
 }"""
 
 # A watcher installed just before an action: did a new busy mark or progress bar come, or the visible text change,
-# within FEEDBACK_MS? (the text compared by its length and a cheap hash of document.body.innerText)
-FEEDBACK = r"""(ms) => {
+# within FEEDBACK_MS of the action's first input event reaching the page (Playwright's wait for the element to be
+# actionable is not in it)? (the text compared by its length and a cheap hash of document.body.innerText)
+FEEDBACK = r"""([ms, now]) => {
   const sig = () => { const t = document.body ? document.body.innerText : ''; let h = 0;
                       for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return t.length + ':' + h; };
   const marks = () => [...document.querySelectorAll('[aria-busy=true], progress, [role=progressbar], .u-spin, .u-spinner')];
   const before = sig(), had = new Set(marks());  // a busy mark shown before the action is no feedback of it
   window.__walkFeedback = null;
-  setTimeout(() => { window.__walkFeedback = marks().some((e) => !had.has(e)) ? 'busy'
-                                             : sig() !== before ? 'text' : 'none'; }, ms);
+  const watch = () => setTimeout(() => { window.__walkFeedback = marks().some((e) => !had.has(e)) ? 'busy'
+                                                                 : sig() !== before ? 'text' : 'none'; }, ms);
+  if (now) return watch();  // no input event comes (a swipe, the map's click): from now
+  const kinds = ['pointerdown', 'mousedown', 'touchstart', 'keydown'];
+  const first = () => { for (const k of kinds) removeEventListener(k, first, true); watch(); };
+  for (const k of kinds) addEventListener(k, first, true);
 }"""
 
-# The measurement repeated until the surface stops changing (three equal readings 100 ms apart), at most `ms`
+# The measurement repeated until the surface stops changing (three equal readings 100 ms apart, the words' text
+# included), at most `ms`
 SETTLED = r"""async (ms) => {
   const measure = """ + MEASURE + r""";
-  const key = (m) => m.scope + '|' + m.controls + '|' + m.disabled + '|' + m.words + '|' + m.list.join(';');
+  const key = (m) => [m.scope, m.controls, m.disabled, m.words, m.list.join(';'), m.text].join('|');
   const end = performance.now() + ms;
   let m = measure(), same = 0;
   while (same < 2 && performance.now() < end) {
@@ -470,9 +523,10 @@ TOKEN = re.compile(r"/s/[A-Za-z0-9_-]{8,}")  # a share link's token: never in an
 LINK_FIELDS = ".r-pop input, .c-card-panel input"  # where a share link is shown: covered in the screenshots
 
 
-def measure(page) -> dict:
-    """The surface the person looks at, once it stopped changing (share links' tokens masked)."""
-    m = page.evaluate(SETTLED, SETTLE_MS)
+def measure(page, settle_ms: int = SETTLE_MS) -> dict:
+    """The surface the person looks at, once it stopped changing ("settled" false: it still changed after
+    `settle_ms`); share links' tokens masked."""
+    m = page.evaluate(SETTLED, settle_ms)
     m["text"] = TOKEN.sub("/s/<token>", m["text"])
     m["list"] = [TOKEN.sub("/s/<token>", c) for c in m["list"]]
     return m
@@ -506,7 +560,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
     `session(page, user, address)`: a sign_in step's change of user (the caller's: cookies and the address).
     Returns the walk's record: each step with what was measured before it, and the totals (totals())."""
     values = values or {}
-    steps, dead = [], None
+    steps = []
     if out:
         os.makedirs(out, exist_ok=True)
 
@@ -520,6 +574,28 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             return None
         return path
 
+    try:
+        dead = _steps(page, walk, values, touch, timeout, session, steps, shot)
+    except Exception as e:  # the page went away under a measurement, a navigation failed, ...: this walk ends here
+        n = steps[-1]["n"] if steps else 0
+        dead = {"step": n, "why": f"error: {type(e).__name__}: {str(e).splitlines()[0][:160] if str(e) else ''}",
+                "error": True}
+    end = len(steps)
+    if dead is None and steps:
+        try:
+            steps.append({"n": end + 1, "kind": "end", "measured": measure(page), "shot": shot(end + 1, "end")})
+        except Exception as e:
+            dead = {"step": end + 1, "why": f"error: {type(e).__name__}", "error": True}
+    record = {"id": walk.get("id", ""), "title": walk.get("title", ""), "user": walk.get("user"),
+              "device": walk.get("device"), "memory": walk.get("memory"), "needs": walk.get("needs"),
+              "steps": steps, "dead_end": dead}
+    record["totals"] = totals(record, desktop=not touch)
+    return record
+
+
+def _steps(page, walk, values, touch, timeout, session, steps, shot):
+    """run_walk's loop: the steps made and recorded into `steps`; the dead end (or None)."""
+    dead = None
     for i, s in enumerate(walk["steps"]):
         n, kind = i + 1, s["kind"]
         rec = {"n": n, "kind": kind}
@@ -558,7 +634,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             break
         rec.update(measured=measure(page), shot=shot(n, kind))
         if kind in ("tap", "unmade") and not s.get("map"):
-            rec["in_view"] = loc.evaluate(IN_VIEW)  # False: the walk needs a swipe before it
+            rec["in_view"] = loc.evaluate(IN_VIEW, timeout=timeout)  # False: the walk needs a swipe before it
         if kind == "unmade":
             if not _enabled(loc, timeout):
                 dead = {"step": n, "why": f"{s['target']} is not enabled"}
@@ -566,7 +642,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             rec["made"] = False  # counted, never tapped (no search is started)
             continue
         try:
-            page.evaluate(FEEDBACK, FEEDBACK_MS)
+            page.evaluate(FEEDBACK, [FEEDBACK_MS, kind == "swipe" or bool(s.get("map"))])
         except Exception:
             pass
         t0 = time.perf_counter()
@@ -575,11 +651,11 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
                 if not page.evaluate(MAP_CLICK, s["map"]):
                     raise RuntimeError("no place map")
             elif kind == "tap":
-                loc.tap() if touch else loc.click()
+                loc.tap(timeout=timeout) if touch else loc.click(timeout=timeout)
             elif kind == "swipe":
-                loc.scroll_into_view_if_needed()
+                loc.scroll_into_view_if_needed(timeout=timeout)
             elif kind == "type":
-                loc.press_sequentially(s["text"])
+                loc.press_sequentially(s["text"], timeout=timeout)
             else:
                 page.keyboard.press(s["key"])
         except Exception as e:
@@ -595,16 +671,8 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
                 page.wait_for_function("() => typeof window.__walkFeedback === 'string'", timeout=2000)
                 rec["feedback"] = page.evaluate("() => window.__walkFeedback")
             except Exception:
-                rec["feedback"] = "unknown"  # a new document: the watcher went with the old one
-    end = len(steps)
-    if dead is None and steps:
-        rec = {"n": end + 1, "kind": "end", "measured": measure(page), "shot": shot(end + 1, "end")}
-        steps.append(rec)
-    record = {"id": walk.get("id", ""), "title": walk.get("title", ""), "user": walk.get("user"),
-              "device": walk.get("device"), "memory": walk.get("memory"), "needs": walk.get("needs"),
-              "steps": steps, "dead_end": dead}
-    record["totals"] = totals(record, desktop=not touch)
-    return record
+                rec["feedback"] = "unknown"  # a new document, or no input event came: the watcher has nothing
+    return dead
 
 
 def _enabled(loc, timeout: int) -> bool:
@@ -632,11 +700,15 @@ def totals(record: dict, desktop: bool = True) -> dict:
     hand = ["pointer" if s["kind"] in POINTER else "keyboard" for s in acts]
     switches = sum(1 for a, b in zip(hand, hand[1:]) if a != b) if desktop else None
     seen = [s["measured"]["controls"] for s in acts]
+    # the same surface (scope and controls) counted once
+    surfaces = {s["measured"].get("scope", "") + "|" + "; ".join(s["measured"].get("list", [])) for s in acts
+                if s["measured"]["controls"] > DECISION}
     screens = [s for s in steps if s["kind"] == "screen"]
     waits = [s for s in acts if (s.get("seconds") or 0) * 1000 > FEEDBACK_MS]
     return {
         "screens": len(screens), "pointer": pointer, "keystrokes": keys, "switches": switches,
-        "decisions": sum(1 for c in seen if c > DECISION), "max_controls": max(seen, default=0),
+        "decisions": sum(1 for c in seen if c > DECISION), "decision_surfaces": len(surfaces),
+        "max_controls": max(seen, default=0),
         "words_first": acts[0]["measured"]["words"] if acts else 0,
         "words_screens": sum(s["measured"]["words"] for s in screens),
         "wait_seconds": round(sum(s.get("seconds") or 0 for s in acts), 2),
@@ -644,20 +716,41 @@ def totals(record: dict, desktop: bool = True) -> dict:
         "no_feedback": sum(1 for s in waits if s.get("feedback") == "none"),
         "not_made": sum(1 for s in acts if s.get("made") is False),
         "dead_end": record["dead_end"]["step"] if record["dead_end"] else None,
+        "error": bool(record["dead_end"] and record["dead_end"].get("error")),
+        "unsettled": sum(1 for s in steps if s.get("measured") and s["measured"].get("settled") is False),
     }
 
 
 COLUMNS = [("screens", "Screens"), ("pointer", "Taps/clicks"), ("keystrokes", "Keystrokes"),
-           ("switches", "Pointer↔keyboard"), ("decisions", "Decision points (>4)"), ("max_controls", "Most controls"),
+           ("switches", "Pointer↔keyboard"), ("decisions", "Decision points (>4)"),
+           ("decision_surfaces", "Surfaces with >4 (each once)"), ("max_controls", "Most controls"),
            ("words_first", "Words before 1st action"), ("words_screens", "Words over screens"),
-           ("wait_seconds", "Seconds waited (indicative)"), ("no_feedback", "Waits >300 ms without feedback"),
-           ("dead_end", "Dead end at step")]
+           ("wait_seconds", "Seconds waited (indicative)"),
+           ("no_feedback", "Waits >300 ms without feedback (indicative)"),
+           ("unsettled", "Unsettled readings"), ("dead_end", "Dead end at step")]
+
+# The head of walks.md: what is counted (the module's docstring has the same)
+COUNTED = """What is counted (tools/ui_walks.py):
+- Controls: the visible, enabled links, buttons, fields, options, tabs, menu items and focusable elements of the
+  surface (a modal dialog or a named popover alone, else the viewport). A list row and its star and unfold buttons
+  are three. A Leaflet map is one, its zoom and layer buttons and attribution links one each. Not counted: splitters
+  (role=separator) and the profile chart's hover area: a person does not choose them as a step of a task.
+- A decision point: an action whose surface has more than 4 controls, counted per action (typing and its Enter on
+  one surface count twice); "Surfaces with >4" counts the same surface (scope and controls) once.
+- Taps/clicks: every pointer action, the ones not made (a provider's sign-in, Start) and swipes included.
+- Keystrokes: characters typed plus keys (a chord is one).
+- Screens: the walk's own marks (its author's judgement), not detected.
+- Words: a word holds a letter or a digit; the visible ones. In a dialog the table has the visible words and the step
+  lines also the dialog's whole text ("scrolled out too").
+- Seconds and the feedback within 300 ms: indicative (the machine's load, Playwright's polling). Unsettled: a reading
+  taken while the surface still changed after 5 s (marked in the step lines).
+"""
 
 
 def _step_line(s: dict) -> str:
     """One step for the Markdown path: what was done, what the person saw before it."""
     m = s.get("measured")
-    seen = (f" [{m['controls']} controls, {m['words']} words"
+    seen = (f" [{m['controls']} controls, {m['words']} words" + ("; not settled" if m.get("settled") is False else "")
             + (f"; {m['words_in_scope']} in the {m['scope']}, scrolled out too" if m.get("words_in_scope") is not None
                and m["words_in_scope"] > m["words"] else "") + "]") if m else ""
     if s["kind"] == "note":
@@ -680,7 +773,7 @@ def _step_line(s: dict) -> str:
 
 def markdown(records: list) -> str:
     """The table of all walks, then each walk's path step by step."""
-    lines = ["| Walk | " + " | ".join(c for _, c in COLUMNS) + " |", "| --- " * (len(COLUMNS) + 1) + "|"]
+    lines = [COUNTED, "| Walk | " + " | ".join(c for _, c in COLUMNS) + " |", "| --- " * (len(COLUMNS) + 1) + "|"]
     for r in records:
         t = r["totals"]
         if t is None:  # not walked
@@ -688,6 +781,8 @@ def markdown(records: list) -> str:
         else:
             cells = ["n/a" if t[k] is None and k == "switches" else ("–" if t[k] is None else str(t[k]))
                      for k, _ in COLUMNS]
+            if t.get("error"):
+                cells[-1] += " (error)"
         lines.append(f"| {r['id']} {r['title']} | " + " | ".join(cells) + " |")
     for r in records:
         lines += ["", f"## {r['id']} {r['title']} ({r['user']}, {r['device']}, {r['memory']} visit)", ""]
@@ -710,8 +805,8 @@ def markdown(records: list) -> str:
 def compare(a: list, b: list) -> list:
     """What differs between two runs of the walks in the counts (not in the seconds): a list of texts."""
     diffs = []
-    keys = ("screens", "pointer", "keystrokes", "switches", "decisions", "max_controls", "words_first",
-            "words_screens", "dead_end")
+    keys = ("screens", "pointer", "keystrokes", "switches", "decisions", "decision_surfaces", "max_controls",
+            "words_first", "words_screens", "unsettled", "dead_end", "error")
     other = {r["id"]: r for r in b}
     for r in a:
         o = other.get(r["id"])
@@ -722,12 +817,13 @@ def compare(a: list, b: list) -> list:
             if (r["totals"] is None) != (o["totals"] is None):
                 diffs.append(f"{r['id']}: walked in one run only")
             continue
-        diffs += [f"{r['id']} {k}: {r['totals'][k]} / {o['totals'][k]}" for k in keys if r["totals"][k] != o["totals"][k]]
+        diffs += [f"{r['id']} {k}: {r['totals'].get(k)} / {o['totals'].get(k)}" for k in keys
+                  if r["totals"].get(k) != o["totals"].get(k)]
         for s, t in zip(r["steps"], o["steps"]):
             if s.get("measured") and t.get("measured"):
-                for k in ("controls", "words"):
-                    if s["measured"][k] != t["measured"][k]:
-                        diffs.append(f"{r['id']} step {s['n']} {k}: {s['measured'][k]} / {t['measured'][k]}")
+                for k in ("controls", "words", "settled"):
+                    if s["measured"].get(k) != t["measured"].get(k):
+                        diffs.append(f"{r['id']} step {s['n']} {k}: {s['measured'].get(k)} / {t['measured'].get(k)}")
     return diffs
 
 
@@ -771,9 +867,58 @@ def _context(pw, browsers: dict, device: str, memory: str, cookie: str | None, s
     return context, refused
 
 
+def _walk(pw, browsers: dict, site: str, cookies: dict, values: dict, wid: str, walk: dict, out: str):
+    """One walk in a context of its own: its record (an error before its first step ends it at step 0) and the
+    requests its guard refused."""
+    refused, context = [], None
+    touch = walk["device"] != "desktop"
+    try:
+        context, refused = _context(pw, browsers, walk["device"], walk["memory"], cookies.get(walk["user"]), site)
+
+        def session(page, user, address, memory=walk["memory"]):
+            page.context.clear_cookies()
+            page.context.add_cookies(_cookies(cookies[user], memory))
+            page.goto(site + address, timeout=TIMEOUT_MS)
+        page = context.new_page()
+        page.goto(site + _fill(walk["start"], values), timeout=TIMEOUT_MS)
+        record = run_walk(page, {**walk, "id": wid}, out, values, touch=touch, session=session)
+    except Exception as e:
+        record = {"id": wid, "title": walk["title"], "user": walk["user"], "device": walk["device"],
+                  "memory": walk["memory"], "needs": walk.get("needs"), "steps": [],
+                  "dead_end": {"step": 0, "why": f"error: {type(e).__name__}: {str(e).splitlines()[0][:160]}",
+                               "error": True}}
+        record["totals"] = totals(record, desktop=not touch)
+    finally:
+        if context:
+            try:
+                context.close()
+            except Exception:
+                pass
+    record["refused"] = refused
+    return record, refused
+
+
+def _write(out: str, records: list):
+    """walks.json and walks.md of the walks so far."""
+    with open(os.path.join(out, "walks.json"), "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=1)
+    with open(os.path.join(out, "walks.md"), "w", encoding="utf-8") as f:
+        f.write(markdown(records))
+
+
 def _jobs(data: str) -> int:
-    from jobs import Jobs
-    return len(Jobs(data, public=True).all())
+    """The jobs in the data folder's jobs.sqlite (read only; none without the file, which is not made)."""
+    import contextlib
+    import pathlib
+    import sqlite3
+    path = pathlib.Path(data, "jobs.sqlite")
+    if not path.exists():
+        return 0
+    with contextlib.closing(sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)) as db:
+        try:
+            return db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        except sqlite3.OperationalError:  # no table yet
+            return 0
 
 
 def main():
@@ -813,12 +958,13 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-walks-")
-    site, cookies, run, share, stop = ui_shots.serve(data)
-    values = {"run": run, "line": ui_shots.first_line(data, run)}
-    if _jobs(data):
-        sys.exit("the data folder has jobs before the walks: a fresh --data-dir is needed")
-    records, refused_all = [], []
+    os.makedirs(data, exist_ok=True)
+    records, refused_all, stop, jobs = [], [], None, 0
     try:
+        if _jobs(data):  # before serve() starts its worker, which would claim a waiting job
+            sys.exit("the data folder has jobs before the walks: a fresh --data-dir is needed")
+        site, cookies, run, share, stop = ui_shots.serve(data)
+        values = {"run": run, "line": ui_shots.first_line(data, run)}
         with sync_playwright() as pw:
             browsers = {}
             if args.command == "probe":
@@ -861,38 +1007,25 @@ def main():
                                         "device": walk["device"], "memory": walk["memory"], "steps": [],
                                         "dead_end": None, "skipped": walk["skip"], "totals": None})
                         print(wid, "not walked:", walk["skip"])
+                        _write(args.out, records)
                         continue
-                    context, refused = _context(pw, browsers, walk["device"], walk["memory"],
-                                                cookies.get(walk["user"]), site)
-
-                    def session(page, user, address, memory=walk["memory"]):
-                        page.context.clear_cookies()
-                        page.context.add_cookies(_cookies(cookies[user], memory))
-                        page.goto(site + address)
-                    page = context.new_page()
-                    page.goto(site + _fill(walk["start"], values))
-                    touch = walk["device"] != "desktop"
-                    record = run_walk(page, {**walk, "id": wid}, os.path.join(args.out, wid), values, touch=touch,
-                                      session=session)
-                    record["refused"] = refused
+                    record, refused = _walk(pw, browsers, site, cookies, values, wid, walk,
+                                            os.path.join(args.out, wid))
                     records.append(record)
                     refused_all += refused
+                    _write(args.out, records)  # what was measured so far stays, whatever comes after
                     print(wid, json.dumps(record["totals"]))
-                    context.close()
             for b in browsers.values():
                 b.close()
     finally:
-        stop()
-        jobs = _jobs(data)
+        if stop:
+            stop()
+            jobs = _jobs(data)
         if not args.data_dir:
             import gc
             gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
             shutil.rmtree(data, ignore_errors=True)
     if records:
-        with open(os.path.join(args.out, "walks.json"), "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=1)
-        with open(os.path.join(args.out, "walks.md"), "w", encoding="utf-8") as f:
-            f.write(markdown(records))
         print(os.path.join(args.out, "walks.md"))
     if refused_all or jobs:
         sys.exit(f"a walk asked to start work: {refused_all}; jobs in the data folder: {jobs}")
