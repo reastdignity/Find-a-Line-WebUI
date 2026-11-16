@@ -8,6 +8,8 @@
 import { useRef, useState } from "preact/hooks";
 import { api, type Place } from "../app/api";
 import type { PlaceMap } from "../app/PlaceMap";
+import { t } from "../i18n";
+import { TOUCH, useMedia } from "../ui/components";
 import { Icon } from "../ui/icons";
 
 let ids = 0;
@@ -15,6 +17,7 @@ let ids = 0;
 export function PlaceBox({place}: {place: PlaceMap}) {
   const [id] = useState(() => `s-place-${++ids}`);
   const [text, setText] = useState("");
+  const touch = useMedia(TOUCH);  // no Enter key named on a touch screen
   const [found, setFound] = useState<Place[] | null>(null);  // null: nothing looked up (or closed)
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -61,7 +64,8 @@ export function PlaceBox({place}: {place: PlaceMap}) {
   return <div class="s-placebox">
     <div class="s-placebox-input">
       <Icon name="search" />
-      <input id={id} class="u-input" type="search" value={text} placeholder="Go to a place (Enter)"
+      <input id={id} class="u-input" type="search" value={text}
+             placeholder={touch ? t("ui.search.place_placeholder_touch") : t("ui.search.place_placeholder")}
              aria-label="Go to a place" role="combobox" list={undefined} aria-expanded={open}
              aria-controls={`${id}-list`}
              aria-activedescendant={open ? `${id}-${active}` : undefined} autocomplete="off"

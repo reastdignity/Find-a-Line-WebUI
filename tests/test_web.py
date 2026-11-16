@@ -2765,6 +2765,88 @@ DESKTOP = {"viewport": {"width": 1280, "height": 900}}
 SHOWN_JS = "(sel) => { const e = document.querySelector(sel); return e ? [e.textContent.trim(), e.getClientRects().length > 0] : null; }"
 
 
+# The controls whose own font rule loses to the base rule `.ui button, .ui input, ...` (ui.css): their computed font
+# with the base rule weakened to :where(.ui) in the CSSOM differs from the font the page shows
+SHRUNK_JS = """() => {
+  const controls = [...document.querySelectorAll('button, input, select, textarea')].filter((e) => e.getClientRects().length);
+  const font = (e) => { const s = getComputedStyle(e); return [s.fontSize, s.fontWeight, s.fontFamily].join(' '); };
+  const before = controls.map(font);
+  let found = null;
+  for (const sheet of document.styleSheets) {
+    const rules = sheet.cssRules;
+    for (let i = 0; i < rules.length && !found; i++) {
+      if ((rules[i].selectorText || '').replace(/\\s+/g, ' ') === '.ui button, .ui input, .ui select, .ui textarea') {
+        found = [sheet, i, rules[i].cssText];
+        sheet.deleteRule(i);
+        sheet.insertRule(found[2].replace(/^[^{]+/, ':where(.ui) button, :where(.ui) input, :where(.ui) select, :where(.ui) textarea '), i);
+      }
+    }
+    if (found) break;
+  }
+  const after = controls.map(font);
+  if (found) { found[0].deleteRule(found[1]); found[0].insertRule(found[2], found[1]); }
+  return {rule: !!found, shrunk: controls.map((e, i) => [e.className, before[i], after[i]]).filter(([, b, a]) => b !== a)};
+}"""
+# The boxes of the place map's scale and attribution: the scale is clear of the credits where they share a strip
+CORNERS_JS = """() => {
+  const map = document.querySelector('.n-map .leaflet-container') || document.querySelector('.leaflet-container');
+  const box = (sel) => { const r = map.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {scale: box('.leaflet-control-scale'), attribution: box('.leaflet-control-attribution')};
+}"""
+CORNERS_CLEAR = ("() => { const m = document.querySelector('.leaflet-container'); "
+                 "const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(), "
+                 "a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(); "
+                 "return a.height > 0 && (s.bottom <= a.top || s.right <= a.left); }")
+WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), document.querySelector('.s-placebox input').placeholder,
+  [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place'),
+  document.querySelector('.s-bar').textContent, getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_search_form_words_and_corners_by_device(tmp_path):
+    """The search form on a desktop and on a phone (touch) in Playwright's Edge (report defects 2, 7 and 10): the
+    texts name a click and the Enter key on the desktop, a tap and no key on the phone; "Clear the place" shows only
+    with a place set; the place map's scale is clear of its credits on the phone, where the two lines of credits run
+    under the scale's corner; the "Data coverage" button at its own 13 px, and no control whose own font rule loses
+    to the base rule."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = _basic_page(tmp_path, port, browser, **context)
+                page.wait_for_function("() => /OpenTopoMap/.test(document.querySelector('.leaflet-control-attribution')"
+                                       "?.textContent)", timeout=WAIT)
+                r[f"{kind}_touch"] = page.evaluate("() => matchMedia('(pointer: coarse)').matches")
+                r[f"{kind}_empty"] = page.evaluate(WHERE_JS)
+                page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)  # the observer's frame after the credits came
+                r[f"{kind}_corners"] = page.evaluate(CORNERS_JS)
+                r[f"{kind}_shrunk"] = page.evaluate(SHRUNK_JS)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                r[f"{kind}_point"] = page.evaluate(WHERE_JS)
+                page.close()
+        finally:
+            browser.close()
+    assert r["desktop_touch"] is False and r["phone_touch"] is True, r
+    hint, placeholder, clear, bar, size = r["desktop_empty"]
+    assert (hint, placeholder, clear) == ("Click the map to set the centre of the search.", "Go to a place (Enter)", False)
+    assert "Select the centre of the search: click the map." in bar and size == "13px", r
+    hint, placeholder, clear, bar, size = r["phone_empty"]
+    assert (hint, placeholder, clear) == ("Tap the map to set the centre of the search.", "Go to a place", False)
+    assert "Select the centre of the search: tap the map." in bar and size == "13px", r
+    assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
+    assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
+    # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
+    scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
+    assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
+    assert scale[3] <= attribution[1], r
+    for kind in ("desktop", "phone"):
+        assert r[f"{kind}_shrunk"]["rule"] and r[f"{kind}_shrunk"]["shrunk"] == [], r
+
+
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_basic_form_paths(tmp_path):
     """More of the Basic form in Playwright's Edge (each wait an event with a deadline): a refused start shows its

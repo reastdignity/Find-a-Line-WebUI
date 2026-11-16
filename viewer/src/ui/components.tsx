@@ -21,6 +21,9 @@ export function Screen({theme = "auto", screen = true, class: cls, children}:
     {children}</div>;
 }
 
+/** The media query of a touch screen (its main pointer coarse): texts say "tap" there, not "click", and no key. */
+export const TOUCH = "(pointer: coarse)";
+
 /** Whether a media query matches, following its changes. */
 export function useMedia(query: string): boolean {
   const get = () => typeof matchMedia === "function" && matchMedia(query).matches;

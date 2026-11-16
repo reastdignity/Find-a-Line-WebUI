@@ -59,7 +59,10 @@ export function buildRequest(place: Place, values: Record<string, unknown>, draw
   if (place.name.trim()) params.name = place.name.trim();
   let geometry = null;
   if (place.mode === "point") {
-    if (!place.point) return t("error.no_centre");
+    if (!place.point) {  // "tap the map" on a touch screen (ui/components.tsx TOUCH)
+      return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? t("error.no_centre_touch")
+        : t("error.no_centre");
+    }
     Object.assign(params, {lat: place.point[0], lon: place.point[1], radius: place.radius});
   } else if (place.mode === "draw") {
     geometry = drawn;
