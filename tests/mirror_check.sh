@@ -28,7 +28,7 @@
 # object it makes, default mirror-check), MIRROR_CHECK_SUBNET and MIRROR_CHECK_FRONT_SUBNET (two
 # free /24 networks, defaults 172.29.142.0/24 and 172.29.143.0/24), MIRROR_CHECK_PORT (the stand-in's
 # port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the door's, default 8793); with --live,
-# MIRROR_LIVE_PRODUCTS (a pattern of product paths LV15 takes its tile from, default all).
+# MIRROR_LIVE_PRODUCTS (a pattern of product paths LV15 and LV17 take their tile from, default all).
 set -u
 export MSYS_NO_PATHCONV=1
 
@@ -44,13 +44,18 @@ DOOR_PORT=${MIRROR_CHECK_DOOR_PORT:-8793}
 CONTACT='abuse@example.org <check&co>'
 CONTACT_HTML='abuse@example.org &lt;check&amp;co&gt;'
 PRIVACY="An installation that downloads from the project's data server shows it its address and which tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this for at most 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data server, set FINDALINE_MIRROR_URL to off; the regions it serves then use coarser data."
-# --live's User-Agent; LV15's search for a tile to hold (per product, in all) and the smallest tile
-# with which the cap can show through a proxy (measured with the test stack's stand-in: see
+# --live's User-Agent; LV15's search for a tile (per product, in all); the smallest tile with which
+# LV15's eight requests at once show the cap, and the smallest with which LV17's held downloads
+# show the proxy passing X-Accel-Buffering (both measured with the test stack's stand-in: see
 # deploy/mirror/README.md, "Checks")
 LIVE_UA="Find-a-Line/check-live (mirror_check.sh; +https://site.example; contact: someone@example.org)"
 LV15_PER_PRODUCT=15
 LV15_MAX_HEADS=60
-LV15_MIN_BYTES=16000000   # measured: the cap showed every time from 16 MB, 12 MB now and then (2026-11-16)
+# Measured 2026-11-16, 5 tries a size from the host and from a container: 0.05 and 0.1 MB never
+# (8 x 200), 0.25-8 MB every time (4 x 200, 4 x 429). 1 MB leaves a served request 0.24 s at the
+# mirror, room for eight connections over a real network to start further apart than here.
+LV15_MIN_BYTES=1000000
+LV17_MIN_BYTES=16000000   # measured: from 16 MB every time, 12-14 MB now and then, 8 MB never
 CAP_UNPROVEN=0
 
 declare -A OUT=()
@@ -133,7 +138,8 @@ live_checks() {  # <url> [master folder]: from this machine, through the proxy
     local list="$WORK/live-datasets.json"
     out=$(lc -o "$(hostpath "$list")" -D - "$U/v1/datasets.json" | tr -d '\r')
     if ! has "$out" '^HTTP/[0-9.]+ 200'; then
-        skip LV12-LV15 "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): nothing published yet; the index and cap checks wait for the first publish"
+        skip LV12-LV17 "no /v1/datasets.json (status $(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)): nothing published yet; the index and cap checks wait for the first publish"
+        CAP_UNPROVEN=1
         return
     fi
     check LV12 "datasets.json: application/json, Cache-Control: no-cache" \
@@ -195,34 +201,68 @@ for k in (keys if len(keys) <= n else [keys[round(x * (len(keys) - 1) / (n - 1))
         skip LV14 "no index.json above 2 KB"
     fi
     live_cap LV15 "$U" "$bestpath" "$best"
+    live_hold LV17 "$U" "$bestpath" "$best"
 }
 
-# The per-address cap through the proxy: slow downloads held open, then one request more. It shows
-# the proxy honours X-Accel-Buffering only when the tile is larger than what the sockets and the
-# proxy's buffers on the way hold: a smaller tile is sent into them at once and the mirror's
-# connection ends whatever the proxy does. Below LV15_MIN_BYTES (measured with the test stack's
-# stand-in, see LV15_MIN_BYTES) the check is a SKIP that says so, never a FAIL and never a PASS.
+mb() { awk -v b="$1" 'BEGIN { printf "%.2f", b / 1e6 }'; }
+
+# The per-address cap through the proxy: eight requests for one tile started at once from this
+# address (eight connections: curl --parallel-immediate opens one a request, over HTTP/1.1 or 2).
+# The mirror sends a visitor's request at 4 MB/s whatever the client reads, so each served one
+# stays open at the mirror for about its size / 4 MB/s; the eight overlap when that is longer than
+# the spread of their starts: exactly 4 answers 200 and 4 answers 429 with Retry-After: 10. Below
+# about 0.25 MB a request ends at once (its first 256 KB go without waiting: sendfile_max_chunk)
+# and all eight are served. Up to three tries, 3 s apart (within the visitor's request rate); the
+# check passes on the first try with exactly that answer. Below LV15_MIN_BYTES a SKIP that says so,
+# never a FAIL and never a PASS, and the summary says the cap is still unproven.
 live_cap() {  # <id> <url> <tile path> <its bytes>
-    local id=$1 U=$2 tile=$3 bytes=$4 probe out
+    local id=$1 U=$2 tile=$3 bytes=$4 out="" tries="" try args=""
     if [ -z "$tile" ]; then
         skip "$id" "no tile listed with data"
         CAP_UNPROVEN=1
         return
     fi
     if [ "$bytes" -lt "$LV15_MIN_BYTES" ]; then
-        skip "$id" "the connection cap cannot be shown with tiles of $(awk -v b="$bytes" 'BEGIN { printf "%.2f", b / 1e6 }') MB (the largest found); publish a dataset with tiles of at least $((LV15_MIN_BYTES / 1000000)) MB"
+        skip "$id" "the connection cap cannot be shown with tiles of $(mb "$bytes") MB (the largest found); publish a dataset with tiles of at least $(mb "$LV15_MIN_BYTES") MB"
         CAP_UNPROVEN=1
         return
     fi
+    for _ in 1 2 3 4 5 6 7 8; do args="$args -o $NULLDEV $U$tile"; done
+    for try in 1 2 3; do
+        sleep 3
+        # shellcheck disable=SC2086
+        out=$(curl -s -A "$LIVE_UA" -m 60 --parallel --parallel-immediate --parallel-max 8 \
+                -w '%{http_code} %header{retry-after}\n' $args 2> /dev/null \
+            | tr -d '\r' | sort | uniq -c | awk '{ $1 = $1; printf "%s%s", (NR > 1 ? "; " : ""), $0 }')
+        tries="$tries${tries:+ | }$out"
+        [ "$out" = "4 200; 4 429 10" ] && break
+    done
+    info "$id: 8 requests at once for $tile ($bytes bytes), per try: $tries"
+    eq "$id" "through the proxy: 8 requests at once from one address: 4 served, 4 refused with Retry-After 10 (tile: $(mb "$bytes") MB)" \
+        "$out" "4 200; 4 429 10"
+}
+
+# The proxy passes the mirror's X-Accel-Buffering: no (it streams, never buffers a whole tile):
+# slow downloads held open, then one request more. It shows only when the tile is larger than what
+# the sockets and the proxy's buffers on the way hold: a smaller tile is sent into them at once and
+# the mirror's request ends whatever the proxy does. Below LV17_MIN_BYTES a SKIP that says so.
+live_hold() {  # <id> <url> <tile path> <its bytes>
+    local id=$1 U=$2 tile=$3 bytes=$4 probe out
+    if [ -z "$tile" ] || [ "$bytes" -lt "$LV17_MIN_BYTES" ]; then
+        skip "$id" "the proxy's streaming (X-Accel-Buffering) cannot be shown with tiles of $(mb "${bytes:-0}") MB (the largest found); it needs tiles of at least $(mb "$LV17_MIN_BYTES") MB"
+        return
+    fi
     info "$id holds $tile ($bytes bytes) at 64 KB/s"
-    for _ in 1 2 3; do lc -o "$NULLDEV" --limit-rate 64k -m 18 "$U$tile" & done
-    sleep 8
-    probe=$(lc -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt")
-    lc -o "$NULLDEV" --limit-rate 64k -m 12 "$U$tile" &
     sleep 3
-    out=$(lc -o "$NULLDEV" -w '%{http_code} %header{retry-after}' "$U/robots.txt")
+    for _ in 1 2 3; do curl -s -A "$LIVE_UA" -o "$NULLDEV" --limit-rate 64k -m 18 "$U$tile" & done
+    sleep 8
+    probe=$(curl -s -A "$LIVE_UA" -m 60 -o "$NULLDEV" -w '%{http_code}' "$U/robots.txt")
+    curl -s -A "$LIVE_UA" -o "$NULLDEV" --limit-rate 64k -m 12 "$U$tile" &
+    sleep 3
+    out=$(curl -s -A "$LIVE_UA" -m 60 -o "$NULLDEV" -w '%{http_code} %header{retry-after}' "$U/robots.txt")
     wait
-    eq "$id" "through the proxy: a request beside 3 held downloads 200, beside 4: 429, Retry-After 10 (held: $bytes bytes)" "$probe / $out" "200 / 429 10"
+    eq "$id" "through the proxy: slow downloads stay open at the mirror (X-Accel-Buffering): beside 3 held a request 200, beside 4: 429, Retry-After 10 (held: $(mb "$bytes") MB)" \
+        "$probe / $out" "200 / 429 10"
 }
 
 # ---------------------------------------------------------------- the stack
@@ -472,6 +512,15 @@ g_caps() {
     sleep 2
     eq C07 "one visitor address: a 5th concurrent request: 429, Retry-After: 10" "$(probe d)" "429 10"
     wait
+}
+
+g_livecap() {
+    # --live's cap check (LV15) with a tile of Madeira's size (1.8 MB, written for this check and
+    # removed after it), from this machine through the stand-in's published port, where its
+    # controls can switch the cap off
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "head -c 1800000 /dev/urandom > /f$T/0_0/2_1.tif && chmod 0644 /f$T/0_0/2_1.tif" > /dev/null
+    live_cap K01 "http://127.0.0.1:$PORT" "$T/0_0/2_1.tif" 1800000
+    docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "rm -f /f$T/0_0/2_1.tif" > /dev/null
 }
 
 refusal_rate() {  # <id> <what> <code> <curl options> <path>: one address, straight to the mirror
@@ -1045,7 +1094,8 @@ VARIANTS=(
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
     'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d; /limit_conn trusted_all 4;/d @@ caps @@ C03 C04 C05 C07'
-    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps @@ C06'
+    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps livecap @@ C06 K01'
+    'an address without its cap @@ nginx.conf @@ /limit_conn visitor_address 4;/d @@ livecap @@ K01'
     'all visitors: 7 at once @@ nginx.conf @@ s#visitors_all 8;#visitors_all 7;# @@ caps @@ C01'
     'a trusted address: 3 at once @@ nginx.conf @@ s#trusted_address 4;#trusted_address 3;# @@ caps @@ C02'
     'the trusted class: 3 at once @@ nginx.conf @@ s#trusted_all 4;#trusted_all 3;# @@ caps @@ C02'
@@ -1280,7 +1330,7 @@ if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
     echo "== done, failures: $FAILS"
     exit 0
 fi
-run_checks container content paths swag caps bytes rate refusals forged timeouts log start
+run_checks container content paths swag caps livecap bytes rate refusals forged timeouts log start
 declare -A MAIN=()
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== live mode against the stand-in (http://127.0.0.1:$PORT)"
@@ -1288,7 +1338,7 @@ sleep 3
 live_checks "http://127.0.0.1:$PORT"
 # LV15's other side: with a tile below the size that can show the cap (the fixture's 10 kB tile at
 # 0.5 m), its procedure is a SKIP that says why, never a FAIL or a PASS (beside it, LV15 with the
-# 48 MB tile ran the cap itself)
+# 48 MB tile ran the cap itself, and K01 the same procedure with its controls)
 QUIET=1
 live_cap LV15small "http://127.0.0.1:$PORT" "$H/0_0/0_1.tif" 10240
 QUIET=0

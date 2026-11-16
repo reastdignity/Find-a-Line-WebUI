@@ -279,18 +279,24 @@ bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
 ```
 From inside the home network the address SWAG sees may be a local one; the checks hold either way.
 
-The cap check (LV15) holds slow downloads of the largest tile it finds (up to 15 tiles of every published
-product, at most 60 looked at) and asks once more: it shows that SWAG honours `X-Accel-Buffering` only when that
-tile is larger than what the proxy's buffers and the sockets on the way hold, for a small tile is sent into them
-at once and the mirror's connection ends whatever the proxy does. With the test stack's stand-in the cap showed
-every time from 16 MB tiles on (from this PC through Docker's published port and from a container beside the
-stand-in; 12 MB only now and then, 8 MB and less never: `LV15_MIN_BYTES` in the check script). Below that size
-LV15 is a SKIP that names the size found and the size needed, and the summary says the cap is still unproven.
-So at the rollout LV15 skips after Madeira and after Valle d'Aosta (tiles of about 2 MB), and Slovakia's 1 m
-tiles (about 7 MB, the largest 8.2) are below it too: as measured here, none of today's datasets can show the
-cap through the proxy. The real SWAG's buffers and the internet's sockets may hold more or less than the
-stand-in's (an estimate, not measured); the cap through the real proxy is the open item M2 of the
-specification.
+The cap check (LV15) takes the largest tile it finds (up to 15 tiles of every published product, at most 60
+looked at) and asks for it eight times at once from one address: 4 answers 200 and 4 answers 429 with
+`Retry-After: 10` show the cap of 4 per address through SWAG. The mirror sends a request no faster than 4 MB/s
+whatever the client reads, so each served request stays open about its size / 4 MB/s and the eight overlap; it
+needs no HTTP/2 (curl opens eight connections). With the test stack's stand-in (5 tries a size, from this PC
+through Docker's published port and from a container beside the stand-in) it showed every time from 0.25 MB on
+and never at 0.1 MB, where a request ends at once (its first 256 KB go without waiting). The check asks for 1 MB
+(`LV15_MIN_BYTES`: 0.24 s a request, room for eight connections over the internet to start further apart) and
+tries up to three times. Below that size LV15 is a SKIP that names the size found and the size needed, and the
+summary says the cap is still unproven. So LV15 can be expected to run after the first publish, Madeira (tiles
+of about 1.8 MB); Valle d'Aosta (about 1.9 MB) and Slovakia's 1 m (about 7 MB) as well.
+
+LV17 holds slow downloads of the same tile and asks once more: it shows that SWAG passes `X-Accel-Buffering` on
+(streams a tile instead of buffering it), which LV15 does not, but only when the tile is larger than what the
+proxy's buffers and the sockets on the way hold. With the stand-in that was every time from 16 MB tiles on
+(12-14 MB now and then, 8 MB never: `LV17_MIN_BYTES`); below it LV17 is a SKIP naming the sizes. None of
+today's datasets has such tiles, so through the real SWAG that part stays unproven (the specification's open
+item M2); the test stack's C03-C07 show it with the stand-in.
 
 ## The log and privacy
 
