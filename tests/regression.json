@@ -2289,26 +2289,27 @@
       "porto-santo/dtm/5m"
     ],
     "expected": {
-      "anchors": 16492,
-      "open": 12924,
-      "checked": 52151,
-      "lines": 7052,
-      "spots": 410,
-      "csv_sha256": "2a2381c3e0137617e819e6b4fc77652ccd5357392aca4eb229b4d926e619dc44",
-      "length_km": 1442.081,
+      "anchors": 16605,
+      "open": 12922,
+      "checked": 52824,
+      "lines": 7184,
+      "spots": 431,
+      "csv_sha256": "4c10650797f3c984aaab872c2487b9b187079b788102fd86a31b148bf453b9b1",
+      "length_km": 1457.807,
       "clearance_min": 0.0,
-      "clearance_mean": 2.027,
-      "clearance_max": 14.83,
+      "clearance_mean": 2.041,
+      "clearance_max": 18.15,
       "over_trees": 0,
       "coverage": 63.44,
       "empty_tiles": 0,
-      "filled_km2": 0.04,
+      "filled_km2": 0.0,
       "filled_from": "FABDEM + Copernicus DEM",
-      "sea_km2": 2.56,
-      "water_lines": 24,
-      "water_spots": 6
+      "sea_km2": 2.61,
+      "water_lines": 167,
+      "water_spots": 34
     },
-    "seconds": 26.7
+    "seconds": 26.7,
+    "notes": "added 2026-11-15; re-baselined 2026-11-16 on the OSM coastline: its first baseline (7052 lines, sea 2.56 km2) had taken the Copernicus fallback while Overpass did not answer (the same tiles with --coastline copernicus still give those 7052 lines); skipped without FINDALINE_MIRROR/porto-santo/dtm/5m"
   },
   "R87": {
     "place": "Deserta Grande's west cliffs, the Desertas, Madeira (Portugal): DROTe's MDT 5 m (photogrammetry 2018-2019) of the Desertas (its file labelled EPSG:3061, read as PTRA08 / UTM 28N), our own 2 km tiles from the mirror on the data's grid (edges at 2.5 m)",
