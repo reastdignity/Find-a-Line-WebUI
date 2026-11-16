@@ -595,6 +595,30 @@ def test_summary_deduplicates():
     assert "| iphone light | 2 |" in ui_metrics.pages_markdown(s)
 
 
+def _sized(page="a", device="iphone"):
+    """A record with kept sizes: three controls (42 px, 30 × 20 px, a 60 × 15 px link in a sentence), three texts."""
+    record = {"page": page, "device": device, "theme": "light", "controls": 3,
+              "control_sizes": [["button.x", 42, 42, "own", False, "X"], ["button.y", 30, 20, "own", False, "Y"],
+                                ["a", 60, 15, "own", True, "L"]],
+              "text_sizes": [["p", 11.5, 10, "t"], ["span", 10.5, 4, "s"], ["h1", 20, 5, "h"]], "text_chars": 19,
+              "unreachable": {}, "document_over": 0, "scrollers": [], "containers": {}, "grey_boxes": {},
+              "seconds": {"load": 1.0, "steps": 0.0, "measure": 0.1}}
+    return {**record, **ui_metrics.recut(record)}
+
+
+def test_other_bounds_from_a_kept_log(tmp_path):
+    """Every size is kept, so other bounds are answered from the log: --summarise --controls 40,24 --text 11 writes
+    pages-c40-24-t11.json beside the default summary."""
+    record = _sized()
+    assert record["controls_under"]["44"] == {"a (inline link)": 1, "button.x": 1, "button.y": 1}
+    assert record["text_chars_under"] == {"12": 14, "11": 4, "10": 0}
+    (tmp_path / "pages-states.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise", "--controls", "40,24", "--text", "11"])
+    row = json.loads((tmp_path / "pages-c40-24-t11.json").read_text(encoding="utf-8"))["per_device_theme"]["iphone light"]
+    assert (row["controls_under_40"], row["controls_under_24"], row["text_chars_under_11"]) == (2, 2, 4)
+    assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
+
+
 def test_summarise_again_from_the_log(tmp_path):
     """--summarise rebuilds pages.json and pages.md from pages-states.jsonl alone."""
     records = [_state("a", "iphone", 2, 10), {"page": "bad", "device": "iphone", "theme": "light", "error": "E"}]

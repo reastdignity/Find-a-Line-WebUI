@@ -780,44 +780,54 @@ AXE_RUN_JS = """(ms) => Promise.race([
 IMPACTS = ("critical", "serious", "moderate", "minor")
 
 
+def recut(record: dict, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
+    """The counts under the bounds `controls` and `text` from a state's kept sizes ("control_sizes": [signature,
+    width, height, how, inline, example]; "text_sizes": [signature, size, characters, example]): the controls under
+    each bound by signature and an example of each (the smallest), the text characters under each bound in all and
+    by signature, an example of each. Any bounds can be asked of a kept log (`pages --summarise --controls ...`)."""
+    under = {str(b): Counter() for b in controls}
+    examples = {}
+    for sig, w, h, how, inline, example in record["control_sizes"]:
+        key = sig + (" (inline link)" if inline else "")
+        for b in controls:
+            if min(w, h) < b:
+                under[str(b)][key] += 1
+                if key not in examples or min(w, h) < min(examples[key]["w"], examples[key]["h"]):
+                    examples[key] = {"w": w, "h": h, "text": example, "how": how}
+    small = {str(b): Counter() for b in text}
+    chars = {str(b): 0 for b in text}
+    text_examples = {}
+    for sig, size, n, example in record["text_sizes"]:
+        for b in text:
+            if size < b:
+                small[str(b)][sig] += n
+                chars[str(b)] += n
+                if sig not in text_examples or size < text_examples[sig]["size"]:
+                    text_examples[sig] = {"size": size, "text": example}
+    return {"controls_under": {b: dict(sorted(c.items())) for b, c in under.items()},
+            "control_examples": dict(sorted(examples.items())),
+            "text_chars_under": chars, "text_under": {b: dict(sorted(c.items())) for b, c in small.items()},
+            "text_examples": dict(sorted(text_examples.items()))}
+
+
 def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     """The measurements of a prepared page: its own first, axe-core's last (its run may touch the page's state). A
-    failure of axe-core is recorded as the "axe" part's error; the page's own measurements stay."""
+    failure of axe-core is recorded as the "axe" part's error; the page's own measurements stay. Every control's
+    and every text's size is kept (control_sizes, text_sizes), the counts under `controls` and `text` cut from them
+    (recut)."""
     raw = page.evaluate(MEASURE_JS, {"state": STATE_CLASS, "base": list(BASE_CLASSES), "boxMin": BOX_MIN})
-    under = {b: Counter() for b in controls}
-    examples = {}
-    for c in raw["controls"]:
-        for b in controls:
-            if min(c["w"], c["h"]) < b:
-                key = c["sig"] + (" (inline link)" if c["inline"] else "")
-                under[b][key] += 1
-                if key not in examples or min(c["w"], c["h"]) < min(examples[key]["w"], examples[key]["h"]):
-                    examples[key] = {"w": c["w"], "h": c["h"], "text": c["text"], "how": c["how"]}
-    total_chars = sum(t["chars"] for t in raw["texts"])
-    small = {b: Counter() for b in text}
-    small_chars = {b: 0 for b in text}
-    text_examples = {}
-    for t in raw["texts"]:
-        for b in text:
-            if t["size"] < b:
-                small[b][t["sig"]] += t["chars"]
-                small_chars[b] += t["chars"]
-                if t["sig"] not in text_examples or t["size"] < text_examples[t["sig"]]["size"]:
-                    text_examples[t["sig"]] = {"size": t["size"], "text": t["text"]}
     result = {
         "viewport": raw["viewport"],
         "controls": len(raw["controls"]),
-        "controls_under": {str(b): dict(sorted(under[b].items())) for b in controls},
-        "control_examples": dict(sorted(examples.items())),
+        "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"]] for c in raw["controls"]],
         "controls_grown": sum(c["how"].startswith("with ::") for c in raw["controls"]),
         "unreachable": dict(sorted(Counter(c["sig"] for c in raw["unreachable"]).items())),
-        "text_elements": len(raw["texts"]), "text_chars": total_chars,
-        "text_chars_under": {str(b): small_chars[b] for b in text},
-        "text_under": {str(b): dict(sorted(small[b].items())) for b in text},
-        "text_examples": dict(sorted(text_examples.items())),
+        "text_elements": len(raw["texts"]), "text_chars": sum(t["chars"] for t in raw["texts"]),
+        "text_sizes": [[t["sig"], t["size"], t["chars"], t["text"]] for t in raw["texts"]],
         "document_over": raw["document_over"], "scrollers": raw["scrollers"],
         "containers": dict(sorted(raw["containers"].items())), "grey_boxes": dict(sorted(raw["grey"].items())),
     }
+    result.update(recut(result, controls, text))
     if axe_source is not None:
         try:
             if not page.evaluate("() => typeof axe !== 'undefined'"):
@@ -927,7 +937,13 @@ def _axe_ok(r: dict) -> bool:
 
 def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     """Per device and theme the totals; the lists de-duplicated by signature over all states, most frequent first.
-    Reads the records of earlier versions too (their "sideways": the scrolling elements)."""
+    The counts under `controls` and `text` are cut anew from the records' kept sizes (recut); records of earlier
+    versions, without sizes, are read as they are (their "sideways": the scrolling elements) and only with the
+    bounds they were cut at."""
+    if any("control_sizes" not in r for r in records if "controls" in r) and \
+            (tuple(controls), tuple(text)) != (CONTROL_BOUNDS, TEXT_BOUNDS):
+        raise SystemExit("the log keeps no sizes (a pass before they were kept): only the default bounds")
+    records = [{**r, **recut(r, controls, text)} if "control_sizes" in r else r for r in records]
     groups = defaultdict(list)
     for r in records:
         groups[f"{r['device']} {r['theme']}"].append(r)
@@ -1019,24 +1035,25 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
 
 
 def pages_markdown(s: dict) -> str:
-    c1, c2 = s["bounds"]["controls"]
-    t1, t2, t3 = s["bounds"]["text"]
+    cs, ts = s["bounds"]["controls"], s["bounds"]["text"]
+    columns = (["Device, theme", "States", "Controls (unreachable apart)"]
+               + [f"Under {b} px (signatures)" for b in cs] + ["Text chars"] + [f"Text under {b} px" for b in ts]
+               + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
+                  "axe violations: nodes (rules) crit / serious / moderate / minor", "axe incomplete: nodes",
+                  "No axe result", "Errors"])
     out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed; seconds in "
            f"all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
-           f"| Device, theme | States | Controls (unreachable apart) | Under {c1} px (signatures) | Under {c2} px "
-           f"(signatures) | Text chars | Under {t1} px | Under {t2} | Under {t3} | Document sideways / states with "
-           "elements scrolling sideways | Grey boxes / containers | axe violations: nodes (rules) crit / serious / "
-           "moderate / minor | axe incomplete: nodes | No axe result | Errors |",
-           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+           "| " + " | ".join(columns) + " |", "|" + " --- |" * len(columns)]
     for key, r in s["per_device_theme"].items():
         v = " / ".join(f"{r['axe_violations_nodes'][i]} ({r['axe_violations_rules'][i]})" for i in IMPACTS)
         inc = " / ".join(str(r["axe_incomplete_nodes"][i]) for i in IMPACTS)
         pct = lambda b: f"{r[f'text_chars_under_{b}']} ({(r[f'text_share_under_{b}'] or 0) * 100:.1f} %)"  # noqa: E731
-        out.append(f"| {key} | {r['states']} | {r['controls']} ({r['controls_unreachable']}) | "
-                   f"{r[f'controls_under_{c1}']} ({r[f'control_signatures_under_{c1}']}) | {r[f'controls_under_{c2}']} "
-                   f"({r[f'control_signatures_under_{c2}']}) | {r['text_chars']} | {pct(t1)} | {pct(t2)} | {pct(t3)} | "
-                   f"{len(r['states_document_sideways'])} / {len(r['states_with_scrollers'])} | "
-                   f"{r['grey_boxes']} / {r['containers']} | {v} | {inc} | {r['axe_missing']} | {len(r['errors'])} |")
+        cells = ([key, r["states"], f"{r['controls']} ({r['controls_unreachable']})"]
+                 + [f"{r[f'controls_under_{b}']} ({r[f'control_signatures_under_{b}']})" for b in cs]
+                 + [r["text_chars"]] + [pct(b) for b in ts]
+                 + [f"{len(r['states_document_sideways'])} / {len(r['states_with_scrollers'])}",
+                    f"{r['grey_boxes']} / {r['containers']}", v, inc, r["axe_missing"], len(r["errors"])])
+        out.append("| " + " | ".join(str(c) for c in cells) + " |")
 
     def rows(name: str, title: str, example) -> None:
         items = s["lists"].get(name, [])
@@ -1048,11 +1065,11 @@ def pages_markdown(s: dict) -> str:
     ctl = lambda e: (f"{e['w']}×{e['h']} “{e['text'].replace('|', '¦')}”"  # noqa: E731
                      + (f" ({e['how']})" if e.get("how", "own") != "own" else "")) if e else ""
     txt = lambda e: f"{e['size']} px “{e['text'].replace('|', '¦')}”" if e else ""  # noqa: E731
-    for b in (c1, c2):
+    for b in cs:
         rows(f"controls_under_{b}_phones", f"Controls under {b} px on the phones", ctl)
         rows(f"controls_under_{b}_desktop", f"Controls under {b} px on the desktop", ctl)
     rows("unreachable", "Controls that cannot be reached (not counted above)", lambda e: "")
-    for b in (t1, t2, t3):
+    for b in ts:
         rows(f"text_under_{b}", f"Text under {b} px (count: characters)", txt)
     rows("document_sideways", "The document wider than its viewport (count: px over, summed)", lambda e: "")
     rows("scrollers", "Elements that scroll sideways by themselves (count: px over, summed)", lambda e: "")
@@ -1094,6 +1111,9 @@ def main(argv=None):
     p.add_argument("--dark", action="store_true", help="the dark theme too")
     p.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
     p.add_argument("--summarise", action="store_true", help="only the summary again, from --out's pages-states.jsonl")
+    p.add_argument("--controls", default=",".join(map(str, CONTROL_BOUNDS)),
+                   help="the bounds of the controls, px (comma-separated)")
+    p.add_argument("--text", default=",".join(map(str, TEXT_BOUNDS)), help="the bounds of the text, px (comma-separated)")
     args = parser.parse_args(argv)
     if args.command == "static":
         result = static(REPO, args.chars, args.radius, args.with_demos)
@@ -1105,9 +1125,15 @@ def main(argv=None):
             records = [json.loads(line) for line in f if line.strip()]
     else:
         records = run_pages(args.out, args.only, args.devices.split(","), args.dark, args.data_dir)
-    summary = summarise(records)
-    _write(args.out, "pages", summary, pages_markdown(summary))
-    print(os.path.join(args.out, "pages.md"))
+    number = lambda v: int(v) if float(v).is_integer() else float(v)  # noqa: E731
+    controls = tuple(number(v) for v in args.controls.split(",") if v)
+    text = tuple(number(v) for v in args.text.split(",") if v)
+    summary = summarise(records, controls, text)
+    # other bounds than the defaults: a summary of their own beside pages.json/.md
+    name = "pages" if (controls, text) == (CONTROL_BOUNDS, TEXT_BOUNDS) else \
+        "pages-c" + "-".join(map(str, controls)) + "-t" + "-".join(map(str, text))
+    _write(args.out, name, summary, pages_markdown(summary))
+    print(os.path.join(args.out, name + ".md"))
 
 
 if __name__ == "__main__":
