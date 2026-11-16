@@ -851,14 +851,14 @@ def _axe_source():
 def record_of(row: dict) -> dict | None:
     """A state's record from a row of ui_shots.shoot_page: its measurements when the outcome is "done"; a row that
     "timed out" or "failed" is recorded as not measured ("error": the outcome and its reason) and counts in no total;
-    None for a page left out on a device (not recorded)."""
+    a page left out on a device (a click finds nothing, a "need:" is false) as "left_out" with its reason."""
     seconds = {"load": round(sum(row[k] or 0 for k in ("load", "settle", "tiles")), 2),
                "steps": round(sum(s["seconds"] for s in row["steps"]), 2), "measure": round(row["shot"] or 0, 2)}
     record = {"page": row["page"], "device": row["device"], "theme": row["theme"]}
     if row["outcome"] == "done":
         return {**record, **row["result"], "seconds": seconds}
     if row["outcome"] == "left out":
-        return None
+        return {**record, "left_out": row["reason"] or "left out"}
     why = row["error"] if row["outcome"] == "failed" else "; ".join(row["timeouts"])
     return {**record, "error": f"{row['outcome']}: {why}", "seconds": seconds}
 
@@ -873,24 +873,30 @@ class _Logged(list):
 
     def append(self, row):
         super().append(row)
-        record = record_of(row)
-        if record is None:
-            return
+        self.keep(record_of(row))
+
+    def keep(self, record: dict):
         self.records.append(record)
         self.log.write(json.dumps(record, ensure_ascii=False) + "\n")
         self.log.flush()
-        print(f"{row['page']}-{row['device']}-{row['theme']}: " + (record.get("error") or "measured"), flush=True)
+        what = record.get("error") or ("left out, " + record["left_out"] if "left_out" in record else "measured")
+        print(f"{record['page']}-{record['device']}-{record['theme']}: {what}", flush=True)
 
 
 def measure_all(pw, site: dict, shown: list, devices: list, themes: list, axe_source: str | None, log,
-                times: dict | None = None, passes: list | None = None) -> list:
+                times: dict | None = None, passes: list | None = None, dropped: dict | None = None) -> list:
     """Every page of `shown` measured through ui_shots.shoot_all (its passes, pages, waits and steps; `act` in place
     of the screenshot) in contexts that bypass the CSP; each record also written to `log` as it ends. A page whose
     loading, steps or measuring raise, or whose wait timed out, is recorded as not measured and the pass goes on.
-    `site`: ui_shots' dict (url, cookies, run, share, line, also, border)."""
+    `site`: ui_shots' dict (url, cookies, run, share, line, also, border). `dropped`: the pages the run lacks the
+    feature of (ui_shots.left_out_by_run: page -> reason), recorded as left out on every device and theme first."""
     import ui_shots
     records = []
     rows = _Logged(records, log)
+    for device in devices:
+        for theme in themes:
+            for name, reason in (dropped or {}).items():
+                rows.keep({"page": name, "device": device, "theme": theme, "left_out": reason})
     ui_shots.shoot_all(pw, site, shown, devices, themes, None, False, {} if times is None else times, rows,
                        [] if passes is None else passes,
                        act=lambda page, name, device, theme: measure(page, axe_source), bypass_csp=True)
@@ -922,7 +928,7 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
         shown = [name for name in pages if name not in dropped]
         themes = ["light", "dark"] if dark else ["light"]
         with sync_playwright() as pw, open(os.path.join(out, "pages-states.jsonl"), "w", encoding="utf-8") as log:
-            return measure_all(pw, site, shown, devices, themes, axe_source, log, times, passes)
+            return measure_all(pw, site, shown, devices, themes, axe_source, log, times, passes, dropped)
     finally:
         if stop:
             stop()
@@ -932,6 +938,15 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
             shutil.rmtree(data, ignore_errors=True)
         with open(os.path.join(out, "pages-run.json"), "w", encoding="utf-8") as f:
             json.dump({"setup": times, "passes": passes, "left_out_by_run": dropped}, f, indent=1)
+
+
+def _left_out(records: list) -> dict:
+    """The states left out: "page | reason" -> the devices and themes, in the records' order."""
+    out = {}
+    for r in records:
+        if "left_out" in r:
+            out.setdefault(f"{r['page']} | {r['left_out']}", []).append(f"{r['device']} {r['theme']}")
+    return out
 
 
 def _axe_ok(r: dict) -> bool:
@@ -953,8 +968,9 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     scrollers = lambda r: r.get("scrollers", r.get("sideways", []))  # noqa: E731
     per = {}
     for key, rs in groups.items():
-        ok = [r for r in rs if r.get("page") and "error" not in r]
+        ok = [r for r in rs if r.get("page") and "error" not in r and "left_out" not in r]
         row = {"states": len(ok), "errors": [f"{r.get('page')}: {r['error']}" for r in rs if "error" in r],
+               "left_out": sorted(f"{r['page']}: {r['left_out']}" for r in rs if "left_out" in r),
                "controls": sum(r["controls"] for r in ok),
                "controls_unreachable": sum(sum(r.get("unreachable", {}).values()) for r in ok),
                "controls_grown": sum(r.get("controls_grown", 0) for r in ok)}
@@ -986,7 +1002,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                                         for i in IMPACTS}
         per[key] = row
 
-    ok = [r for r in records if r.get("page") and "error" not in r]
+    ok = [r for r in records if r.get("page") and "error" not in r and "left_out" not in r]
 
     def dedup(get) -> list:
         rows = {}
@@ -1041,6 +1057,8 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     return {"per_device_theme": dict(sorted(per.items())), "lists": lists, "seconds_slowest": seconds[:10],
             "seconds_total": round(sum(s["total"] for s in seconds), 1), "states": len(seconds),
             "states_failed": sum(1 for r in records if "error" in r),
+            "states_left_out": sum(1 for r in records if "left_out" in r),
+            "left_out": _left_out(records),
             "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
 
 
@@ -1052,7 +1070,8 @@ def pages_markdown(s: dict) -> str:
                + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
                   "axe violations: nodes (rules) crit / serious / moderate / minor", "axe incomplete: nodes",
                   "No axe result", "Errors"])
-    out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed; seconds in "
+    out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed, "
+           f"{s.get('states_left_out', 0)} left out; seconds in "
            f"all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
            "| " + " | ".join(columns) + " |", "|" + " --- |" * len(columns)]
     for key, r in s["per_device_theme"].items():
@@ -1096,6 +1115,10 @@ def pages_markdown(s: dict) -> str:
             f"`{x['example'][:70]}` |" for x in s["lists"]["axe"]]
     out += ["", "## Slowest states (seconds)", "", "| State | Load | Steps | Measure | Total |", "| --- | --- | --- | --- | --- |"]
     out += [f"| {x['state']} | {x['load']} | {x['steps']} | {x['measure']} | {x['total']} |" for x in s["seconds_slowest"]]
+    if s.get("left_out"):
+        out += ["", f"## Left out ({s['states_left_out']} states: the run or the device does not show them)", ""]
+        out += [f"- {page}: {reason} ({', '.join(where)})" for (page, reason), where in
+                ((tuple(k.split(" | ", 1)), v) for k, v in s["left_out"].items())]
     errors = [e for r in s["per_device_theme"].values() for e in r["errors"] + [f"axe: {p}" for p in r["axe_errors"]]]
     if errors:
         out += ["", "## Errors", ""] + [f"- {e}" for e in errors]

@@ -483,6 +483,7 @@ def site():
 FAILING = {"one": ("/one", "", None, "visitor"),
            "bad": ("/bad", "", "js:(() => { throw new Error('step broke') })()", "visitor"),
            "slow": ("/slow", "", "wait:false", "visitor"),
+           "miss": ("/miss", "", ".nothing-here", "visitor"),
            "two": ("/two", "", None, "visitor")}
 
 
@@ -523,22 +524,30 @@ def test_contexts_and_the_csp_on_a_page(site):
 def test_measure_all_goes_on_after_failures(site, monkeypatch):
     """The pass's loop through ui_shots.shoot_all: a page whose step fails and one whose wait timed out are recorded
     as not measured with their reasons and count in no total; axe failing on the others keeps their measurements;
-    every record is written to the log as it is made."""
+    a page the device does not show (its click finds nothing) and one the run lacks the feature of are recorded as
+    left out with their reasons; every record is written to the log as it is made."""
     from playwright.sync_api import sync_playwright
     monkeypatch.setattr(ui_shots, "PAGES", FAILING)
     monkeypatch.setattr(ui_shots, "WAIT_MS", 400)
     log = io.StringIO()
     with sync_playwright() as p:
         _chromium(p).close()
-        records = ui_metrics.measure_all(p, _site_of(site), list(FAILING), ["desktop"], ["light"], AXE_REJECTS, log)
-    assert [(r["page"], r.get("error", "").split(":")[0]) for r in records] == [
-        ("one", ""), ("bad", "failed"), ("slow", "timed out"), ("two", "")]
-    assert "step broke" in records[1]["error"] and records[2]["error"] == "timed out: false"
-    assert "controls" not in records[1] and "controls" not in records[2]
-    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[0], records[3]))
-    assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == ["one", "bad", "slow", "two"]
-    row = ui_metrics.summarise(records)["per_device_theme"]["desktop light"]
-    assert (row["states"], len(row["errors"]), row["axe_missing"], row["controls"]) == (2, 2, 2, 2)
+        records = ui_metrics.measure_all(p, _site_of(site), list(FAILING), ["desktop"], ["light"], AXE_REJECTS, log,
+                                         dropped={"why": "the run has no square rule"})
+    assert [(r["page"], r.get("error", "").split(":")[0], r.get("left_out")) for r in records] == [
+        ("why", "", "the run has no square rule"), ("one", "", None), ("bad", "failed", None),
+        ("slow", "timed out", None), ("miss", "", "the device does not show .nothing-here"), ("two", "", None)]
+    assert "step broke" in records[2]["error"] and records[3]["error"] == "timed out: false"
+    assert not any("controls" in records[k] for k in (0, 2, 3, 4))
+    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[1], records[5]))
+    assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == [
+        "why", "one", "bad", "slow", "miss", "two"]
+    s = ui_metrics.summarise(records)
+    row = s["per_device_theme"]["desktop light"]
+    assert (row["states"], len(row["errors"]), len(row["left_out"]), row["axe_missing"], row["controls"]) ==         (2, 2, 2, 2, 2)
+    assert s["left_out"] == {"why | the run has no square rule": ["desktop light"],
+                             "miss | the device does not show .nothing-here": ["desktop light"]}
+    assert "- why: the run has no square rule (desktop light)" in ui_metrics.pages_markdown(s)
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
