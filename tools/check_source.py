@@ -21,7 +21,8 @@ layer's own path into the cache of --data-dir:
    /vsizip/): the largest difference, the share of equal values, the same pixels without
    data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
    against the files after its geoid's correction, as it caches them; a member of a remote ZIP
-   (ZipMemberTiles) read again by Range and opened by GDAL, with the layer's floor rule applied). n/a for WCS tiles and local files.
+   (ZipMemberTiles, PackageTiles) read again by Range and opened by GDAL, with the layer's floor rule applied, in
+   the tile's own CRS when it names one). n/a for WCS tiles and local files.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).
@@ -284,14 +285,18 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     """A tile's member of a remote ZIP read again by the layer's Range reader (its inflating and CRC-32
     check), then opened by GDAL's GTiff driver on the pixels of the cached tile, with the layer's floor
     rule applied as the layer applies it (its 0 m patches would differ otherwise); GDAL's /vsizip/ is
-    not used: its requests would read the archive's directory outside sources.net."""
+    not used: its requests would read the archive's directory outside sources.net. A tile that names its own
+    CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the files name it
+    otherwise: NAD83 for NAD83(CSRS), a compound CRS)."""
     data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
+    own = getattr(tile, "crs", None)
     with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
         with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                       height=profile["height"], resampling=Resampling.nearest) as vrt:
+                       height=profile["height"], resampling=Resampling.nearest,
+                       **({"src_crs": own} if own else {})) as vrt:
             values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
-    return drop_below(values, layer.floor, layer.ring)
+    return drop_below(values, getattr(layer, "floor", None), getattr(layer, "ring", 0))
 
 
 def _read_grid(layer: src.InegiSheets, url: str, tile, profile: Dict) -> np.ndarray:
@@ -425,7 +430,7 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_zip(layer, url, profile)
                 elif isinstance(layer, src.GeoJsonTiles):
                     source = _read_xyz(url, profile)
-                elif isinstance(layer, src.ZipMemberTiles):
+                elif isinstance(layer, (src.ZipMemberTiles, src.PackageTiles)):
                     source = _read_member(layer, tile, profile)
                 elif isinstance(layer, src.InegiSheets):
                     source = _read_grid(layer, url, tile, profile)
