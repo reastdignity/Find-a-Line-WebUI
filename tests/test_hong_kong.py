@@ -329,10 +329,18 @@ def test_the_sheets_tool(http_server, tmp_path, monkeypatch):
     http_server.add(url[len(http_server.base):] + "?" + "&".join(f"{k}={v}" for k, v in params.items()),
                     json.dumps({"features": [feature(r) for r in _rows("dsm")]}).encode(), "application/json")
     monkeypatch.setattr(tool, "PAUSE_S", 0)
-    out, work = str(tmp_path / "t.npz"), str(tmp_path / "work")
-    tool.main(["--work", work, "--out", out, "--data-dir", str(tmp_path / "data")])
+    out, work, data = str(tmp_path / "t.npz"), str(tmp_path / "work"), str(tmp_path / "data")
+    tool.main(["--count", "--work", work, "--out", out, "--data-dir", data])  # writes nothing, asks nothing
+    assert not any(os.path.exists(p) for p in (out, work, data)) and len(http_server.requests("/fs/")) == 2
+    tool.main(["--work", work, "--out", out, "--data-dir", data])
     asked = len(http_server.requests("/fs/"))
     assert asked == 5
+    # the data folder whose host slots the requests took is a cache of the current layout (the app opens it)
+    data_cache = os.path.join(data, "cache")
+    assert os.path.isdir(os.path.join(data_cache, "locks"))
+    with open(os.path.join(data_cache, "LAYOUT")) as f:
+        assert f.read().strip() == str(cache.LAYOUT)
+    cache.check_layout(data_cache)  # no SystemExit
     tool.main(["--work", work, "--out", out, "--data-dir", str(tmp_path / "data")])
     assert len(http_server.requests("/fs/")) == asked
     monkeypatch.setattr(hk, "HK_SHEETS", out)

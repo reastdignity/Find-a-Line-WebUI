@@ -144,6 +144,7 @@ def main(argv=None):
         return
     import cache
     cache_dir = os.path.join(cache.data_dir(args.data_dir), "cache")
+    cache.check_layout(cache_dir)  # a new cache is marked first: the host slots' lock files would make it unusable
     features, tiles, empty = [], 0, 0
     for folder, name, x, y in todo:
         path = os.path.join(args.work, f"{folder}-{name}", str(ZOOM), str(x), f"{y}.pbf")

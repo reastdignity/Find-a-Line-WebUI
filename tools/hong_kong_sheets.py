@@ -131,12 +131,12 @@ def main(argv=None):
     parser.add_argument("--out", default=os.path.join(HERE, "sources", "catalogue", "hong_kong_sheets.npz"))
     parser.add_argument("--data-dir", help="the data folder whose host slots the requests take (default: the app's)")
     args = parser.parse_args(argv)
-    os.makedirs(args.work, exist_ok=True)
     todo = [layer for layer in LAYERS if not os.path.exists(os.path.join(args.work, f"{layer}.json"))]
-    if args.count:
+    if args.count:  # writes nothing
         print(f"{len(todo)} layers to ask, 2 pages each (3 253 and 3 310 rows on 2026-11-16): {2 * len(todo)} "
               f"requests, {PAUSE_S:g} s apart")
         return
+    os.makedirs(args.work, exist_ok=True)
     import cache
     cache_dir = os.path.join(cache.data_dir(args.data_dir), "cache")
     cache.check_layout(cache_dir)  # a new cache is marked first: the host slots' lock files would make it unusable

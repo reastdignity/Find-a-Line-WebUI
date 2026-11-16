@@ -226,6 +226,34 @@ def test_tokyo_sheets_tool_reads_a_saved_tile(tmp_path):
     assert tokyo_sheets.tiles_of((35.8179, 35.8179, 139.0875, 139.0875)) == [(3630, 1610)]
 
 
+def test_tokyo_sheets_tool_leaves_a_valid_cache(http_server, tmp_path, monkeypatch):
+    """tools/tokyo_sheets.py's whole run on a fresh --data-dir: --count writes and asks nothing; a run that fetches a
+    tile under the host's slots leaves a cache of the current layout (its lock files without the LAYOUT marker made
+    the app refuse that cache before)."""
+    import tokyo_sheets
+    work, data, out = str(tmp_path / "work"), str(tmp_path / "data"), str(tmp_path / "t.npz")
+    tokyo_sheets.main(["--count", "--work", work, "--data-dir", data, "--out", out])
+    assert not any(os.path.exists(p) for p in (work, data, out))
+    served = (2023, "toushobu", 3636, 1637)
+    for folder, name, x, y in tokyo_sheets.asked():  # every other tile answered before (empty: none there)
+        if (folder, name, x, y) != served:
+            path = os.path.join(work, f"{folder}-{name}", str(tokyo_sheets.ZOOM), str(x), f"{y}.pbf")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "wb").close()
+    with open(os.path.join(RECORDED, "toushobu", "12", "3636", "1637.pbf"), "rb") as f:
+        http_server.add("/tile.pbf", f.read(), "application/x-protobuf")
+    monkeypatch.setattr(tokyo_sheets, "tile_url", lambda *a: http_server.url("/tile.pbf"))
+    monkeypatch.setattr(tokyo_sheets, "PAUSE_S", 0)
+    tokyo_sheets.main(["--work", work, "--data-dir", data, "--out", out])
+    assert len(http_server.requests("/tile.pbf")) == 1
+    assert "09RD8412" in {code for code, _ in table_rows(out)}
+    data_cache = os.path.join(data, "cache")
+    assert os.path.isdir(os.path.join(data_cache, "locks"))
+    with open(os.path.join(data_cache, "LAYOUT")) as f:
+        assert f.read().strip() == str(cache.LAYOUT)
+    cache.check_layout(data_cache)  # no SystemExit
+
+
 def table_rows(path):
     with np.load(path) as table:
         return [(c.decode(), int(f)) for c, f in zip(table["codes"], table["folders"])]
