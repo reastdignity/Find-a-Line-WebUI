@@ -98,18 +98,18 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 |---|---|---|---|---|---|
 | Basic form with 'My rig' and goals | G-11 a; D-10 a; N-01 | built (c8a079a) | search 1 | the square rule (built); count 5.5 a; the rigs' migration (next free number) | medium (server), high (page) |
 | The size of a search from a sample | G-04 a; N-02, N-05 | built (4f468d3) | search 2 | measurement 5.5 b for searches with the square rule (search U-6) | high |
-| Access mark of three states | G-09 a; D-08 c | next | search 3 | a mock-up of where it shows; search U-9, U-11 | high |
-| Lip anchors against the known lines | G-07 a; search U-12 (98 %) | a measurement first | search 4 | the PC free | medium |
-| The memory constant `LINE_BYTES` | G-05 (finding) | next | search 5.1 | exclusive runs when the PC is free | medium |
+| Access mark of three states | G-09 a; D-08 c | built (53fe802); its later parts with the result view | search 3 | – | high |
+| Lip anchors against the known lines | G-07 a; search U-12 (98 %) | measured (round 3): about 70 %, below the bar; not built | search 4 | – | medium |
+| The memory constant `LINE_BYTES` | G-05 (finding) | built (0e711bb): 900 B a line | search 5.1 | – | medium |
 | `count_tile`'s sag table per tile | finding | built (4f468d3) | search 5.2 | – | low |
 | 'Sea cliffs' without its wall-angle limit | G-11 a | built (c8a079a) | search 5.4 | count 5.5 a; search U-2 | low |
 | Owed counts: goals with the rule; a sample of kept lines | G-11, G-04 | measured (round 2) | search 5.5 | 5.3 | medium each |
-| Columns in the page from `data.js` | G-06 a; D-05 c | structural | store 1 (wave 1) | – | high |
-| The Arrow store beside today's files | G-06 a; D-04 a | structural | store 1 (wave 2) | pyarrow as a new dependency | medium ×2 |
+| Columns in the page from `data.js` | G-06 a; D-05 c | built (31f16de) | store 1 (wave 1) | – | high |
+| The Arrow store beside today's files | G-06 a; D-04 a | built (47c5fa7 the files, ef93df5 the page's reader) | store 1 (wave 2) | – | medium ×2 |
 | Exports made per download, none kept | G-06 a; store U4 | structural | store 1 (wave 3) | wave 2 | medium |
 | Text files and `file://` end; `view`; the reader of `data.js` goes | G-06 a; D-04 a | structural | store 1 (wave 4) | wave 3; view B1 | high |
 | Old runs removed, not converted (a step of store wave 4) | G-06 a; store U5 | structural | store 2 | the user's word at that time, after a `--dry-run` list | in wave 4 |
-| What is sent: brotli at saving, immutable, size, warning | G-06 a; F-10, F-12, F-30, T-34; store U12 | structural | store 4 (wave 6) | wave 2; the brotli packages compared and one confirmed by the user; a small mock-up | medium |
+| What is sent: brotli at saving, immutable, size, warning | G-06 a; F-10, F-12, F-30, T-34; store U12 | structural | store 4 (wave 6) | a small mock-up (the codec is settled: pyarrow's own brotli, no new package) | medium |
 | The ranges of six values of a kept line | G-03 b; store U1 b | structural | store 3 (wave 7) | wave 2 | medium |
 | Renaming a run | the user, 2026-11-13 | next | store 5 (wave 8) | a small mock-up | low |
 | "Best" by mean height, tight mark, headline | gate 3 settled list; G-10 a | built (c5b07be) | view A | view A-1 | low ("kept") or medium |
@@ -128,8 +128,8 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 | 1e | search 5.1 (exclusive, the PC free), 5.2, 5.4 (after 0a); phase 4's findings (section 7) | as named | any | low-medium |
 | 2a | store wave 1: columns in the page | – | store wave 2's Python half | high |
 | 2b | store wave 2: Python store (B) at once; the page's reader (C) after 2a | 2a for C | 2a (B) | medium ×2 |
-| 2c | store wave 3 (exports per download), then wave 4 (text files and the reader of `data.js` end; old runs removed in two deploys, `spec-store.md` section 2) | 2b; wave 4 also 3a and the user's word on each host after the `--dry-run` list | 2d, 2e; wave 3 with 3a | medium, high |
-| 2d | store wave 6: what is sent, brotli at saving | 2b; the brotli packages compared, one confirmed by the user; its mock-up | 2c, 2e | medium |
+| 2c | store wave 3 (exports per download), then wave 4 (text files and the reader of `data.js` end; old runs removed in two deploys, `spec-store.md` section 2) | 2b; wave 4 also 3a, share links and runs outside `runs.js` reading the store (`spec-store.md` 1.10), and the user's word on each host after the `--dry-run` list | 2d, 2e; wave 3 with 3a | medium, high |
+| 2d | store wave 6: what is sent, brotli at saving | 2b; its mock-up (the codec is settled: pyarrow's own brotli, no new package) | 2c, 2e | medium |
 | 2e | store wave 7: ranges of six values | 2b; store U2's mock-up for the page | 2c, 2d | medium |
 | 2f | – (was store wave 5, old runs converted: the user chose removal, a step of 2c's wave 4) | – | – | – |
 | 2g | store wave 8: renaming a run | its mock-up | anything | low |
@@ -148,6 +148,19 @@ beside the plan, the shore chip on phones (c7ff76e) and the rig's factors at 6 m
 "?" and the rig window's cost line). Round 3 (from 2026-11-15) builds 2a, 2b, 1d and phase 4's findings (section 7),
 and measures 0c and 5.1. Open after it: 2c-2g and 3a-3d.
 
+**State on 2026-11-16.** Done (round 3, in `main`): 2a (31f16de: the page keeps a run's lines as typed-array
+columns); 2b (47c5fa7: every new run writes the Arrow store beside today's files; ef93df5: the result page reads it
+over http, and nginx gzips it); 1d (53fe802: the access mark, `spec-search.md` 3 as built); 1e's rest (0e711bb:
+`LINE_BYTES` 900 B a line; f49026a: section 7's first findings). 0c is measured and closed: lip anchors keep about
+70 % of the matched known lines against the bar of 98 %, so they are not built (`spec-search.md` 4). Measured after
+the store on BAH in the target rig (desktop Chromium; `docs/performance.md` "From the store"): T5's heap is
+447-474 MB two frames after the first picture (met); the first picture comes after 3.06-3.37 s (the 3 s target is not
+met: the grouping takes 1.8 s of it); T6 is unchanged (a filter change about 1.2 s, a grouping change about 1.5 s).
+View B1's `by_spot` in the store (step 3a) is the planned answer to the grouping's seconds. Open: 2c, 2d, 2e, 2g and
+3a-3d. The result view (3b-3d) also takes the access mark's later parts (`spec-search.md` 3.9). Round 4 (from
+2026-11-16; the user's "1. a", "2. a") takes 3a and 2c's wave 3 side by side, then 3b; "Lines from here" comes with
+3b as specified, not onto today's page first.
+
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
 decided by a measurement first; **planner** = taken as recommended by the planner unless the user objects.
@@ -163,7 +176,7 @@ own letters; its readings, told to the user, are these:
 | store U1 | (b) a kept line carries the ranges of six values: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (+49 B a line, estimate) | `spec-store.md` 3, 6, 8; section 3 step 7 |
 | view B-1 | K-17 'Higher wins on a face' is the top-level flag, as the accepted mock-up. The user's note: K-18 'Higher wins unless clearance loses' kept 590 of the 592 matched known lines against K-17's 589 (part P3b), so it "might be useful for increasing % of lines found from slack map": a candidate to measure when the share of known lines found is worked on | `spec-view.md` B.3, B.11, E; `docs/roadmap.md` |
 | store U5 | Old runs are **removed, not converted**, on the public site and on the PC, when the text files end; the removal deletes the user's data and runs only on the user's word at that time, after a `--dry-run` list; until then every run opens as today | `spec-store.md` 1.2, 1.3, 1.9, 2; sections 3, 4, 5 |
-| store U12 | Brotli at saving; a new package: the building task compares the brotli packages first, as the project's rule on dependencies asks, and the user confirms the package | `spec-store.md` 4, 8 |
+| store U12 | Brotli at saving; a new package: the building task compares the brotli packages first, as the project's rule on dependencies asks, and the user confirms the package. Settled in round 3: pyarrow's own codec, no new package (6.5) | `spec-store.md` 4, 8 |
 | store U4 | An export (CSV, GeoJSON) is made for each download, none kept. The regression set never uses a kept file: `tests/regression.py` takes the sha256 of the CSV text the export makes from the run's store (the same bytes as today's `lines.csv`, so every checksum stays), and until the text files end it checks the export against the `lines.csv` the same run still writes, on every regression entry | `spec-store.md` 1.2, 1.4, 1.7, 1.10 |
 | search U-12 | Lip anchors become an option only if they keep at least 98 % of the matched known lines | `spec-search.md` 4 |
 | – | The refusal advice offers the square rule first when it is off: built now | section 2 |
@@ -206,7 +219,6 @@ the sectors are computed in Python at saving.
 | Id | The question | Options | Recommendation | Blocks | Class |
 |---|---|---|---|---|---|
 | store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up |
-| store U12's package | Which brotli package | after the comparison of the maintained packages | – | store wave 6 | before |
 | store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before |
 
 ### 6.4 Decided on 2026-11-15 (rounds 2 and 3)
@@ -221,20 +233,41 @@ it"; on the rig's factors: "1. ok 2. ok c)"; round 3, on its scope questions: "1
 | – | The size word's "?" and the rig window's cost line carry the measured factors at 6 m with the square rule (middle values: sag ×1.6, no-fall zone ×4.1, A-frames ×1.6); no "Lighter" hint | `main` c8a079a; `spec-search.md` 1.2 |
 | search U-9 | (a) the alpine variant of the access measure is in | `spec-search.md` 3.2, 3.11 |
 | search U-11 | The user looked at part P3d's five pictures: the colours match; the measure is ported as it is | `spec-search.md` 3.8, 3.11 |
-| – | The store's libraries: pyarrow (Python) and apache-arrow 21.2.0 (the page) accepted ("2. a"); the brotli package (store U12) still waits for its comparison | `spec-store.md` 1.5, 1.10 |
+| – | The store's libraries: pyarrow (Python) and apache-arrow 21.2.0 (the page) accepted ("2. a") | `spec-store.md` 1.5, 1.10 |
+
+### 6.5 Decided in round 3 (2026-11-15 and 2026-11-16)
+The user's words, verbatim, each on the question named.
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| store U12's package | Brotli at saving uses pyarrow's own codec (`pa.Codec("brotli", compression_level=5)`); no new package. The user, on the comparison of the packages: "a" | `spec-store.md` 1.9, 4.2, 8 |
+| – | T5's heap is the peak after loading, read two frames after the first picture. The user: "a" | `spec-store.md` 1.8 |
+| – | `search.LINE_BYTES` is 900 B a line, with no fixed term. The user: "a" | `main` 0e711bb; `spec-search.md` 5.1 |
+| search U-10 | Where the access mark shows: the mock-up's version 8 ("current mockup looks good and can be implemented"). Its three layout answers: "Selected line only", "Two dots in every row", "+ 'From a top edge' pick" (the pick comes with the result view) | `main` 53fe802; `spec-search.md` 3.6, 3.9 |
+| – | The three states are "easy access", "cannot tell" and "hard access" ("change `walkable` to `easy access`", "change `cannot tell here` to `cannot tell`", "something among \"hard access\""); the form says "No line is filtered out" ("17. it is ok"); hard access is drawn in slate, the signs are a walker and a person on a rope ("i like A slate with walker and rope"), as the project's own drawings ("use ours") | `main` 53fe802; `spec-search.md` 3.2, 3.6 |
+| – | The phone legend of two lines with a fold, its fold mark the side panels' chevron ("Make it two line, and add option to collaps it", "18. ok"): with the result view; today's phone page has no legend that scrolls sideways | `spec-search.md` 3.9 |
+| – | The access grid of a large area is computed in blocks ("Compute in blocks"); an anchor on a sea cliff's face taken from the surface model takes "The measure's own answer" | `main` 53fe802; `spec-search.md` 3.2 |
+| – | A search too wide for the access grid runs without the mark: "1, and add to roadmap for better algorith with lower memory cost". On the public site its note has no memory figures: "remove it from message when --public flag is set" | `main` 53fe802; `spec-search.md` 3.2, 3.4; `docs/roadmap.md` |
+| – | "Search a cell" of the highline layer: "open in advanced with mark on". Searches stored before the mark stay as they are: "does not matter - old runs will be removed everywhere" | `main` 53fe802 |
+| – | A store of a newer format: the text keeps both sentences ("This result was made by a newer Find-a-Line. Update Find-a-Line to open it.") | `main` ef93df5 |
+| search U-12 | Applied: lip anchors keep about 70 % of the matched known lines, below the bar of 98 %, so they are not built | `spec-search.md` 4; `docs/roadmap.md` |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
 - **The fall zone's migration and unfinished jobs:** an unfinished tiled sag job of the web app starts over after
   migration 17: the int 3 against the float 3.0 in the search's hash (`_search_hash`), so the hash differs.
+  **Fixed** (f49026a): such a job resumes.
 - **The fall zone stays 6 m** after the recall finding: the truth check at 6 m matched 306 known lines against 592 at
   3 m (recall 17 % against 33 %, sag alone, without the no-fall zone and A-frames; `docs/truth-check.md` "The fall
   zone of 6 m"); the user's closing answer "9. a)" keeps the default.
 - **The early check of the square rule:** a search stopped early by it writes no funnel counts for that grid.
+  **Fixed** (f49026a): the counts are written at the early stop.
 - **The truth check's analysis:** `tools/truth_analysis.py` has no reason for a line the rule dropped (20 known lines
-  read `unexplained` in the square rule's pass).
+  read `unexplained` in the square rule's pass). **Fixed** (f49026a): the analysis names `same_line_square`.
 - **The memory constant** `search.LINE_BYTES` (450 B; a reducer row 216 B, counted, not measured): `spec-search.md`
-  5.1. **`count_tile`'s sag table**, built per tile: `spec-search.md` 5.2.
+  5.1. **Done** (0e711bb): 900 B a line, from a slot's measured process tree; a reducer row measured at 181-287 B
+  (`docs/performance.md` "The memory constant"). **`count_tile`'s sag table**, built per tile: `spec-search.md` 5.2.
+  **Done** (4f468d3).
 - **A tiled search's line limit counts twice** (kept as a known finding: the user's closing answer "8. a)"): it
   counts the lines the tiles kept before the join, so a pair of squares with lines of two tiles counts twice until
   then: R65 searched as an area in 400 m tiles 3 497 against 3 491 after the join, and a limit of exactly 3 491

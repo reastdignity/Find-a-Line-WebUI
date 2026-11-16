@@ -37,6 +37,13 @@ not caused by its changes; the tests are unchanged):
 - `tests/test_probe.py::test_timeout` runs the probe with `timeout=0.5` over a slow source (3 s) and a fast one and
   asserts "2 checked, 1 failed": under load the fast source misses the 0.5 s too. Failed in batch 5 runs (agent CE).
 
+## `test_search_panel_on_a_phone` fails under a full pytest
+
+`tests/test_web.py::test_search_panel_on_a_phone` sometimes fails in a parallel full pytest with `KeyError: 'phone'`
+(seen 2026-11-15 and 2026-11-16 on several trees of the line-volume task, also on a tree without the task's page
+changes); alone it passed 3 of 3. The cause is not found. Run it alone before calling a failure of it a
+regression.
+
 ## Five tests fail on macOS (arm64) on `main` itself
 
 Seen 2026-11-08 on a MacBook (Apple silicon, macOS 26.6.1; Python 3.15.2 from uv, numpy 2.5.4, numba 0.68.0,
@@ -197,3 +204,27 @@ small change; not built.
 Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 whole sheets, 453 MB, and an index
 tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
 (0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.
+
+## Line volume, the store and the access mark: known and left (2026-11-16)
+
+Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
+- **A share link's page and a run outside the viewer's `runs.js` read `data.js`, not the store.** `/s/runs.js` lists
+  no runs, so the page finds no store block there; an administrator who opens another user's run meets the same. No
+  value differs; the download is the larger text. It must be solved before the text files end (store wave 4:
+  docs/line-volume/spec-store.md 1.10).
+- **Compare says "· no lines" for a store it refuses or cannot read** (a store of a newer format, a body too large,
+  a server error): the run has lines. The result page and `map.html` show the right text; Compare does not. Needs a
+  store format that does not exist yet, or a server error.
+- **A run missing from the page's list costs `runs.js` twice**: `map.html` of an unlisted run loads `/runs/runs.js`
+  two times before its `data.js`; in the app one fresh `runs.js` per open of such a run. Latency and server work
+  only.
+- **Nothing cleans an orphan "running" tiled folder**: a tiled run interrupted and never resumed keeps its work
+  folder, for example a run interrupted under one choice of the access mark (marked or left out) whose search then
+  runs under the other. As for any interrupted tiled run whose hash never returns.
+- **Whether a wide search is marked depends on the memory free when it starts** (the command line and the local
+  app): the same search may carry the access mark on one day and not on another. R83, the regression entry with
+  `--access`, would fail its `access_ends` on a PC too short of memory for its grid (not seen).
+- **Without a test:** the disk estimate of a search whose mark was left out; Compare of a run without the mark
+  (left out) with a marked run (read as correct).
+- **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
+  will not be marked reads in the receipt.

@@ -92,7 +92,8 @@ list in words, "Stay in Advanced to keep them. Or reset them to Basic's values: 
 Advanced" (focused), "Reset them to Basic's values".
 
 **The receipt line** (T-05 'A receipt line: what Basic chose'), without the cap: "30–300 m · anchors within 10 m of
-height · trees marked · <rig>: sag, no-fall zone 5 m, A-frames 2 m · access marked, no line left out"; <rig> is the
+height · trees marked · <rig>: sag, no-fall zone 5 m, A-frames 2 m · access marked, no line filtered out" (built
+with the access mark; "filtered out" is the user's word of 2026-11-15, the mock-up had "left out"); <rig> is the
 saved rig's name, "Rig" (the starting rig) or "Rig for this search"; "+ N more settings" counts other fields off the
 app's default, `same_line_square` at 5 counting as covered; "named “…”". A Where problem ("Select the centre of the
 search: click the map.", …) replaces it and disables Start. "access marked": U-4. Phones: the compact bar: one line
@@ -299,85 +300,195 @@ deploy, no migration; compare `job_funnel` "estimate" with "lines" for some week
 
 ### 3.1 Decision
 G-09 'Ease of access to the anchors', answer a: "A mark of three states, no limit"; tier next; gate 2 D-08 c 'Ease of
-access to the anchors'. The accepted form says "The result marks anchors you can walk to. No line is left out." No
-filter removes lines.
+access to the anchors'. The form says "The result marks anchors you can walk to. No line is filtered out." (the
+user's words for the second sentence, 2026-11-15, in place of the mock-up's "No line is left out"). No filter
+removes lines.
+
+**Built** in round 3 (`main` 53fe802, 2026-11-16). This section states the mark as built; where it differs from the
+text of 2026-11-14, the user's words of round 3 decided (`spec.md` 6.5). What is left for the result view: 3.9.
 
 ### 3.2 Behaviour
-- **The measure** (part P3d, its constants kept): per anchor "can walk", "cannot tell here", "cannot walk". Open
+- **The three states** and their words (the user, 2026-11-15): "easy access" (the grid's 2; the study's "can walk"),
+  "cannot tell" (1; the study's "cannot tell here"), "hard access" (0; the study's "cannot walk": an anchor that
+  hangs in the face).
+- **The measure** (part P3d, its constants kept). Open
   ground: under 30°, not water, with data, in a connected area of 1 ha or more. Standing ground: walkable within 3 m of
   the anchor, 2 m below to 3 m above it. Walkable: ≤ 40°, not water, no knife-edge crest (strict); ≤ 50°, crests
-  allowed (loose). Can walk: the strict walk of ≤ 500 m from open ground reaches it (whole-metre heights, 90 % of a
+  allowed (loose). Easy access: the strict walk of ≤ 500 m from open ground reaches it (whole-metre heights, 90 % of a
   sample: also on lightly smoothed ones). Cannot tell: only the loose walk reaches it; or smoothing changes a
-  whole-metre answer; or unreached while its walkable ground comes within 500 m of the end of the data. Else cannot
-  walk. Flat lakes held as data count as water unless the heights are whole metres.
-- **Computed** once on step 1's grid of the whole area (filled terrain, water) as a `uint8` grid (`access.npy` in a
-  tiled search's work folder, in memory for one grid); each tile takes its window (`_tile_data`): one grid's answers.
-  Each line takes its two anchors' answers after the pair search (as `water_px`). The measure needs 533 m around an
-  anchor; the grid reaches `_margin` (300 m by default) beyond the area, so edge anchors read "cannot tell" more often.
-- **Cost:** about 0.3 s per megapixel (part P3d, indicative): the Gozo coast's 126 Mpx about 40 s (estimate).
-- **When:** a search option, off by default; the web form sends it on (U-8). Old runs show no mark.
-- **Shown:** three colours and a legend; part P3d's proposal: green "you can walk to it", amber "cannot tell here",
-  dark purple "hangs in the face: cannot walk to it" (agrees with V-35 'Anchors coloured by place on the wall' on
-  78-95 % of sure ends). Where: U-10.
+  whole-metre answer; or unreached while its walkable ground comes within 500 m of the end of the data. Else hard
+  access. Flat lakes held as data count as water unless the heights are whole metres. **The alpine variant is in**
+  (U-9 a): hard access becomes cannot tell where open ground is under 5 % of the land within 250 m.
+- **Where the study's script says more than these words, the port follows the script** (U-11: "port the measure as
+  it is"; `access.py`'s docstring has each): filled gaps are no data for the walk; "within 250 m" is a square of
+  ±250 m; the rim of a hole without data is not an end of the data, a filled gap and the grid's edge are; the
+  smoothing is a Gaussian of 1 pixel; the whole-metre and the flat-lake judgements are made over the whole grid;
+  open ground may include crests; the flat lake's constants are under 3°, at least 2 000 m², heights spread at most
+  0.3 m; a window that cuts a thin open strip would differ, so the search computes one grid.
+- **An anchor on a filled pixel or on a sea cliff's face taken from the surface model** gets the measure's own
+  answer there (the user, 2026-11-15: "The measure's own answer"): those pixels are no ground to walk on, and the
+  answer is that of the ground around them. A first build read such anchors as "cannot tell"; with the measure's own
+  answer R83's line ends read cannot tell 4.2 % (19.4 % before) and BAH's hard access 59.5 % (48.0 % before; round
+  3's counts).
+- **Computed** once on step 1's grid of the whole area (filled terrain, water) as a `uint8` grid, a tiled search's
+  too (`access.npy` in its work folder); each tile takes its window: one grid's answers. Each line takes its two
+  anchors' answers after the pair search. **At once** (`access.access_grid`) when 50 B per pixel of the grid fit the
+  search's memory; **else in blocks** (`access.block_grid`; the user, 2026-11-15: "Compute in blocks"): the
+  grid-wide judgements (the whole-metre sample, the flat lakes, the open regions on the heights and the smoothed
+  heights) once on the whole grid, strip by strip, their masks memory-mapped; every block from its window of
+  533 m and 6 pixels around it. The answers are the whole grid's (0 pixels differed on the Gozo coast, the Tatras
+  circle and R83). Blocks need about 12 B per pixel of the grid and 50 B per pixel of a block's window
+  (`search.ACCESS_AREA_BYTES`, `ACCESS_WINDOW_BYTES`; blocks at least 500 m wide). The measure needs 533 m around an
+  anchor; the grid reaches `_margin` (300 m by default) beyond the area, so edge anchors read "cannot tell" more
+  often.
+- **A search too wide for the access grid runs without the mark** (the user, 2026-11-16: "1, and add to roadmap for
+  better algorith with lower memory cost"). It replaces the refusal `access_memory` of a first build: no search is
+  refused for a mark that filters nothing. `search._check_access` decides before step 1, when not even the smallest
+  blocks fit the search's memory (a compute slot's on the site; on the command line and in the local app the memory
+  free when the search starts, so the same search may be marked on one day and not on another). The run is then the
+  run of a search without the option, plus `"access_skipped": "memory"` (3.3) and the coded note `access_skipped`
+  (3.4). The request's hash stays, so its 2 % sample is the marked request's. On the public site this starts where
+  the box around the area is larger than about 19 × 19 km at 1 m data, about 40 km at 2 m (computed from the limits,
+  not run on a slot).
+- **Cost** (measured, exclusive; `docs/performance.md` "The access grid's memory"): at once about 0.25-0.35 s per
+  megapixel, in blocks about 0.4 s. The whole Gozo coast search in a VPS slot's memory: 44.0 s without the option,
+  91.7 s with it (the grid in six blocks); its peak 3 636 MB against 2 869 MB. A Basic point search: about 1 s more.
+- **When:** a search option, off by default on the command line; the web form sends it on (U-8 a): every Basic
+  search, and Advanced's ticked field "Mark anchors you can walk to". "Search a cell" of the highline layer opens
+  Advanced with the mark on (the user, 2026-11-16). Runs made without the option show no mark; a search stored
+  before the mark reopens without it (the user: "does not matter - old runs will be removed everywhere").
+- **Shown:** 3.6.
 - **Worth** (part P3d): known ends against random steep pixels 0.47 (0.5 = none), 0.70 on gentle pixels. Line ends
-  can / cannot tell / cannot: KOB 23.7/21.8/54.5 %, BAH 12.6/19.7/67.7 %, BEL 37.7/14.1/48.2 %, DOL 36.5/26.5/37.1 %,
-  MGp 0.0/1.1/98.9 %, GZp 1.7/6.8/91.5 %.
+  easy / cannot tell / hard, the study's main measure: KOB 23.7/21.8/54.5 %, BAH 12.6/19.7/67.7 %, BEL
+  37.7/14.1/48.2 %, DOL 36.5/26.5/37.1 %, MGp 0.0/1.1/98.9 %, GZp 1.7/6.8/91.5 %. With the alpine variant MGp's ends
+  read 0 / 37 831 / 25.
 
 ### 3.3 Data
-Option on: `access1`, `access2` (0 cannot walk, 1 cannot tell, 2 can walk) in `lines.csv`, `lines.geojson`, `data.js`,
-`lines.js` (before the profile; the head names them, as `END_FIELDS`), and, once the store of `spec-store.md` exists,
-two uint8 columns there; `run.json`'s params hold the option. Off: no column, today's bytes. `Line` and favourites get
-optional `access1`/`access2` (null without). Stored-data decision: none (new runs only; old runs, jobs, favourites and
-`file://` as before).
+Option on: `access1`, `access2` (0 hard access, 1 cannot tell, 2 easy access; `runs.ACCESS` = `linestore.ACCESS`):
+after the anchors' columns of `lines.csv` and in a feature's properties of `lines.geojson`, before `stands_for`; in
+`data.js` and `lines.js` before the profile, named in the heads' `ends` after the A-frame heights and before
+`stands_for`; two uint8 columns of the store (`spec-store.md` 1.3); `run.json`'s params hold the option. Off: no
+column, today's bytes. `Line` and favourites get optional `access1`/`access2` (null without; a favourite carries
+them only when its line has them). A mark asked for and left out: `"access_skipped": "memory"` in `run.json`, in
+every head (`data.js`, `lines.js`, the store's) and in a tiled run's `progress.json`, which keeps its tiles from a
+run of the other choice. Stored-data decision: none (new runs only; old runs, jobs, favourites and `file://` as
+before).
 
 ### 3.4 Interfaces
-`SearchParams.access: bool = False` ("mark whether a person can walk to each anchor: can, cannot, cannot tell"),
-`--access`, topic "anchors", `field.access.*`, a README row; unset, `_search_hash` as before. Line details: "Anchor 1:
-you can walk to it" ….
+`SearchParams.access: bool = False`, `--access`, topic "anchors", `field.access.*` (label "Mark anchors you can walk
+to"), a README row and its paragraph "Access to the anchors"; unset, `_search_hash` as before. The coded note
+`access_skipped`: "The anchors' access will not be marked: this search's area is too wide for it (about N GiB of
+memory needed, M GiB here). The search itself is not affected."; on the public site without the bracket
+(`error.access_skipped_public`; the user, 2026-11-16: "remove it from message when --public flag is set"). A coded
+message may so have a public reading: `error.<code>_public`, without params; the page words a coded message from its
+own catalogue by the code, so a text the server chose reaches it through the info's `key`
+(`.claude/rules/web-app.md`). The texts of the page: `ui.access.*`.
 
 ### 3.5 Files and pairs
-New `access.py` (numpy/scipy/numba, a port of part P3d's measure), `search.py`, `runs.py`, `mapping.py`, `saving.py`,
-`params.py`, `web.py` (`FavouriteLine`), `viewer/src/types.ts`, `favourites.ts`, the page (after U-10), README, docs.
-Pairs: `run-files.md` "A new column goes into that reference too", "new columns go before it" (the profile), the
-favourites' trio; `search-pipeline.md` "tiles give exactly the lines of one grid", `PIXEL_BYTES` measured again, "A
-new search field leaves `_search_hash` as before when unset". `country-layer.md`: not in the cube (it needs computing
-beyond the count: the user's rule of 2026-11-05); it would fit with a 0.53 km margin (part P3d).
+`access.py` (numpy/scipy/numba, a port of part P3d's measure; `access_grid`, `block_grid`, `at`), `search.py`
+(`_check_access`, `_access_grid`, `_access_columns`, the `ACCESS_*` constants), `runs.py`, `mapping.py` (`_ends`),
+`saving.py`, `linestore.py`, `params.py`, `messages.py` (a coded message's public reading), `jobs.py`, `web.py`
+(`FavouriteLine`), `viewer/src/types.ts`, `access.tsx`, `favourites.ts`, `search/basic.ts`, the result page's list,
+details, legend and map, README, docs; tests `test_access.py`, `test_access_search.py`, `test_access_page.py`.
+Pairs, as written into the rules: `run-files.md` "The access mark" (the columns' place, `runs.ACCESS` =
+`linestore.ACCESS` = `types.ts` `ACCESS`, `access_skipped` in run.json and every head = `RunHead.access_skipped`);
+`search-pipeline.md` "The access mark" (one grid per search, at once or in blocks, never a refusal; a change of
+`access.py`'s arrays is measured again); `viewer.md` "The access mark" (the values, the three states' words in the
+legend, the details, the help and `field.access.help` changed together; the tokens `--acc-*`; `basic.ts`
+`ACCESS_SKIPPED` = the search's note). `country-layer.md`: not in the cube (it needs computing beyond the count: the
+user's rule of 2026-11-05); it would fit with a 0.53 km margin (part P3d).
 
 ### 3.6 Screens
-None accepted: a mock-up first (the user's rule for UI work): the marks on the map, the line's details, the legend,
-desktop and both phones.
+The mock-up of where the mark shows (U-10) is accepted at version 8 (the user, 2026-11-15: "current mockup looks
+good and can be implemented"); its notes hold the settled proposals 1-20. Built on today's page:
+- **The list:** a column "Anchors" with two dots in every row (anchor 1, anchor 2 of the spot's shown line; the
+  user: "Two dots in every row"). The list's default width is 372 px. The column is tight under a list of 356 px and
+  left out under 300 px; the marks stay in the details. With Compare, a line of a run without the mark shows "–".
+- **The details:** a block "Reaching the anchors" with a row per anchor (the dot, "Anchor 1", the state); on a phone
+  the sheet's head repeats the two dots.
+- **The map:** only the selected line's two anchors become marks (the user: "Selected line only").
+- **The legend:** one row "Anchors" with a "?" whose help explains the three states. On a phone the row stands above
+  the filter chips and the list whenever the run has the mark (the mock-up does not settle the place).
+- **The dots:** green with a walking person (easy access), amber with "?" (cannot tell), slate with a person on a
+  rope (hard access; the user: "i like A slate with walker and rope"); 20 px in rows, details and legend, 24 px on
+  the map. The drawings are the project's own (the user: "use ours"), the walker inside the dot.
+- **The search form:** Basic's row "Reaching the anchors" with the note "The result marks anchors you can walk to.
+  No line is filtered out.", and the receipt's "access marked, no line filtered out" (on a phone "access marked");
+  the phone bar's fold mark is the side panels' chevron; a skipped mark reads in the receipt and, on the result
+  page, as the muted line "Anchors' access not marked: the search area was too wide."
+- Not settled by the mock-up, built so: the form shows an estimate's notes only as a count ("1 warning(s)").
 ### 3.7 Tests
 Made-up terrain: meadow and wall (can), mid-face ledge (cannot), 45° (cannot tell), whole metres, the data's end;
 tiles = one grid; option off byte-equal (`test_saved_text_as_before`, the R entries); the four files and
-`test_saved_by_children_as_in_process` with the columns; one new R entry with the option; part P3d's shares (3.2,
-"Worth") reproduced on its six target-rig tables by the repository's `access.py`.
+`test_saved_by_children_as_in_process` with the columns; one new R entry with the option (R83: R16 with `--access`;
+`lines.csv` less its two columns is R16's, and the marks of the line ends are counted); part P3d's shares (3.2,
+"Worth") reproduced on its six target-rig tables by the repository's `access.py`. As built also: blocks equal one
+grid (`tests/test_access_search.py`), the skipped mark, the page (`tests/test_access_page.py`). Known gaps: the
+skipped mark's disk estimate and Compare of a skipped with a marked run have no test; R83's mark depends on the
+memory free when the regression set runs (`docs/known-bugs.md`).
 
 ### 3.8 Acceptance
 Part P3d's answers equal: with the alpine variant off on its six tables (KOB, BAH, BEL, DOL, MGp, GZp), with it on
 on the two where the study ran it (KOB, MGp); a check script outside the repository, since the study's grids are
 recomputed from its runs and its comparison used known lines (counts only). About 0.3 s per megapixel (indicative);
 checksums unchanged with the option off. E7 'Trust' (gate 1): no number set; the user judged part P3d's pictures
-(U-11, 2026-11-15: the colours match).
+(U-11, 2026-11-15: the colours match). **Met** (round 3's private check): per line end the port equals part P3d's
+stored answers on all six tables with the variant off (157 012 ends, 0 differences) and on the two with it on (0).
 
 ### 3.9 Waves
-1. `access.py` and tests (Opus, high). 2. Search and files (Opus, high). 3. Mock-up, then the page after the user's
-"ok". 4. Review: full pytest, the new R entry, `tools/ui_shots.py`.
+Built (round 3): 1. `access.py` and tests. 2. Search and files, the blocks, the skip. 3. The mock-up (version 8),
+then the page. 4. Review: full pytest, R83, `tools/ui_shots.py`.
+**Later, with the result view** (`spec-view.md` B; the mock-up's notes "Later, with the result view"):
+- A1 and A2 on the map carry the state (proposal 12); the rows of "Lines from here" get a column "Far end" with the
+  far anchor's dot, and the three marks stand in the result view's map legend (proposal 13).
+- The fifth "Start here" pick, "From a top edge: walk to both anchors": the highest line on average whose two
+  anchors read easy access; shown last, also within 100 m of an earlier pick; no such line, no pick (proposal 14;
+  the user: "+ 'From a top edge' pick").
+- The phone legend of two lines, short labels, unfolded at the start, with a fold whose mark is the side panels'
+  chevron (proposals 18, 20; the user: "need to scroll legend is silly. Make it two line, and add option to collaps
+  it."). Today's phone page has no legend that scrolls sideways, so nothing of it is built yet.
+- Not in the mock-up, and so not part of these later parts (its notes: "Not in this mock-up (say if you want one of
+  them)"): a mark on the profile's labels A1 and A2, in the 3D view or on the favourites page; sorting by the mark
+  ("your answer left it out"). A filter by the mark is not offered: no line is hidden.
 
 ### 3.10 Risks and rollout
 The weak separation may mislead (the help says the site cannot see "paths, fences, private land or trees"); edge
-anchors read "cannot tell"; memory per pixel grows. VPS: deploy, no migration.
+anchors read "cannot tell"; memory per pixel grows; whether a wide search on the command line or in the local app is
+marked depends on the memory free that day. A tiled run interrupted under one choice of the mark and never resumed
+leaves its "running" folder (as any interrupted tiled run whose hash never returns). A grid that needs less memory
+is a roadmap entry (`docs/roadmap.md`, "An access grid that needs less memory"). VPS: deploy, no migration; the mark
+is then on in every Basic search (the seconds and the peak of 3.2).
 
 ### 3.11 Needs the user's word
+Nothing is open; the round-3 answers are in `spec.md` 6.5.
 - **U-8** (a) an option, off by default, on in the web form (this file; checksums stay); (b) always on (every R entry
-  re-baselined). Rec.: (a).
+  re-baselined). Rec.: (a). **Built as (a)** (`viewer/src/search/basic.ts`).
 - **U-9 The alpine variant** ("cannot walk" becomes "cannot tell" where open ground is under 5 % of the land within
   250 m; MGp's ends then 99.9 % "cannot tell"): (a) in; (b) out (part P3d's main measure). Rec.: (a), no confident
   "cannot walk" on alpine walls. **Decided (a)** on 2026-11-15 ("3. a").
-- **U-10** Where the mark shows: a mock-up before code. **U-11** The user looks at part P3d's pictures of five cases
+- **U-10** Where the mark shows: a mock-up before code. **Decided** on 2026-11-15: the mock-up's version 8 (3.6).
+  **U-11** The user looks at part P3d's pictures of five cases
   (BAH, MGp, BEL, DOL and a quarry) before building (G-09's recommendation). **Decided** on 2026-11-15 ("4. a"): the
   colours match; the measure is ported as it is.
 
 ## 4. Lip anchors measured against the known lines (a measurement, not a feature)
+**Result (round 3, 2026-11-15): lip anchors fail the bar and are not built.** All types, counts only, 1 912 known
+lines in the target rig at the 6 m fall zone:
+
+| Pair | Today's matched | Lips' matched | Today's still matched with lips | Share kept (the bar: 98 %) |
+|---|---:|---:|---:|---:|
+| P-B (lips) against P-A (today's anchors) | 802 | 577 | 561 | 69.95 % |
+| P-D (lips, square rule 5) against P-C (today's, square rule 5) | 757 | 551 | 537 | 70.94 % |
+
+By type the share is 68.90 / 69.64 % for highlines and 77.23 / 80.00 % for midlines. Lips match 16 and 14 known
+lines that today's anchors miss. Recall in the target rig, all types: P-A 44.3 %, P-B 31.9 %, P-C 41.8 %, P-D
+30.5 %. P-B's 241 new misses by the analysis' reason: clearance near the anchor 96, height difference 85, anchor
+filtered 49, others 11 (the analysis does not know lips: these are labels for "no lip pair passes here", not
+measured causes). Kept lines with the square rule at 5 m, lips against today's anchors: BAH 15 490 / 43 127
+(35.9 %), GZ2 75 394 / 236 147 (31.9 %), MG 175 901 / 467 866 (37.6 %), DOL 34 276 / 101 568 (33.7 %). By U-12 they
+go to the roadmap as measured and not taken (`docs/roadmap.md` "Line volume"); the prototype is kept under the tag
+`history/lip-anchors-p3`, never merged. The text below is the measurement as it was specified.
+
 **Decision.** G-07 'Fewer, better anchors', answer a: "Today's anchors; measure the lips against the known lines";
 tier next. Nothing changes in the search.
 **The pass.** The prototype `--lip-anchors off|only|add` (K-26 'Rim anchors: the lip, steep pixel or not'; commit
@@ -408,7 +519,15 @@ the prototype's files conflict with phase 4 and with the branch `structure-ancho
 
 ### 5.1 The memory check's constant (`search.LINE_BYTES`)
 **Decision:** G-05: "The memory check's constant goes to the specification as a finding, not changed blindly".
-**Behaviour:** 450 B is a traced heap per line of steps 3-5 (`tools/perf_lines_memory.py`); part P4 fitted the
+**Done** (round 3, `main` 0e711bb; the user's "a", 2026-11-15): `LINE_BYTES` is **900 B a line**, with no fixed
+term. Measured under the exclusive lock as a slot's whole process tree (`tools/perf_slot_memory.py`; 35 searches of
+0.7-3.5 M lines): the unique sets plus the hand-over files once fit 399 MiB + 440 B a line without the square rule;
+the largest slope between two runs is 762 B a kept line with the square rule, and 900 is that with 18 % on top. A
+reducer row of the square rule measured 181-287 B (216 B counted before). Method and tables:
+`docs/performance.md` "The memory constant". Large searches are so refused for memory a little earlier. The text
+below is the finding as it was specified.
+**Behaviour (before the fix):** 450 B is a traced heap per line of steps 3-5 (`tools/perf_lines_memory.py`); part
+P4 fitted the
 process's peak at 558 MB + 1 082 B a line on 9 runs (0.7-3.5 M lines): the check admits 2.4 times the lines that fit;
 gate 1's A6: saving's process tree 1.2-1.4 KB a line. Phase 4 left `LINE_BYTES` at 450 (a row of the square rule's
 reducer is 216 B, counted from its dtypes, not measured). The fix measures a slot's peak RSS per line (the search and
