@@ -71,10 +71,13 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   const id = useId("s-where");
   const touch = useMedia(TOUCH);  // a tap, not a click, on a touch screen
   const placed = !!(s.point || s.shapes > 0 || s.file || s.osmName || s.within || s.name);  // what clear() empties
+  const where = useRef<HTMLDivElement>(null);
+  // the button goes with what it cleared: the focus to the block's first control (the place box), not the page
+  const clear = () => { s.clear(); where.current?.querySelector<HTMLElement>("input, button")?.focus(); };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
     {s.areas === 1 ? "1 area" : `${s.areas} separate areas`}
     {s.shapes !== s.areas && ` (${s.shapes} shapes; those that overlap or touch are one area)`}</p>;
-  return <div class="s-where">
+  return <div class="s-where" ref={where}>
     {s.mode !== "file" && <PlaceBox place={s.place} />}
     <Segmented label="Where" options={phone ? PHONE_MODES : MODES} value={s.mode} onChange={s.setMode} />
     {s.mode === "point" && <>
@@ -122,7 +125,7 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
       <BufferField s={s} />
     </>}
     {placed && <div class="s-row-end">
-      <Button kind="ghost" icon="close" onClick={s.clear}>Clear the place</Button>
+      <Button kind="ghost" icon="close" onClick={clear}>Clear the place</Button>
     </div>}
   </div>;
 }

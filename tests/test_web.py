@@ -2842,6 +2842,11 @@ def test_search_form_words_and_corners_by_device(tmp_path):
                 page.evaluate(POINT_JS)
                 page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
                 r[f"{kind}_point"] = page.evaluate(WHERE_JS)
+                page.click(BUTTON % "Clear the place")  # it goes with the place: the focus to the place box
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_cleared"] = page.evaluate("() => [document.activeElement.matches('.s-placebox input'), "
+                                                     "[...document.querySelectorAll('.s-where button')]"
+                                                     ".some((b) => b.textContent.trim() === 'Clear the place')]")
                 page.close()
         finally:
             browser.close()
@@ -2854,6 +2859,7 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     assert "Select the centre of the search: tap the map." in bar and size == "13px", r
     assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
     assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
+    assert r["desktop_cleared"] == r["phone_cleared"] == [True, False], r
     # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
     scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
     assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
