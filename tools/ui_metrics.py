@@ -32,7 +32,8 @@ is recorded as not measured, with its reason, and counts in no total:
   (WCAG 2.5.8's size; its spacing exception is not modelled). A control that cannot be reached (wholly at negative
   coordinates of the document, or clipped to nothing by an ancestor's overflow) is listed apart, not counted; one
   below the fold of a scrolling page counts. Signatures are tag, role, input type and class names without the state
-  classes (STATE_CLASS: on, open, selected, ...), so one control in two states is one signature;
+  classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
+  two states is one signature;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
   scaled to the screen);
 - the document wider than its viewport (the defect), and apart the elements that scroll sideways by themselves
@@ -88,6 +89,9 @@ STATE_WORDS = ("on", "off", "open", "closed", "selected", "active", "disabled", 
                "expanded", "collapsed", "folded", "unfolded", "changed", "busy", "loading", "picking", "dragging",
                "failed", "hidden", "shown", "focus", "focused", "hover")
 STATE_CLASS = r"(^|-)(" + "|".join(STATE_WORDS) + r")$"
+# The viewer's classes that end in such a word but name what an element is, not a state it is in (Home's run cards,
+# the favourites' open buttons, the pages' "open" links, the result's loading box): kept in the signatures
+BASE_CLASSES = ("c-card-open", "c-fav-open", "c-folder-open", "p-open", "c-loading")
 TEMP_PREFIX = "ui-shots-metrics-"  # tools/clean_temp.py removes the ui-shots-* folders of runs that did not end
 
 
@@ -598,9 +602,9 @@ def static_markdown(r: dict) -> str:
 MEASURE_JS = r"""(opts) => {
   const CONTROLS = "a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], " +
     "[role=menuitem], [role=option], [role=radio], [role=switch], [role=slider], [role=checkbox], [role=link]";
-  const STATE = new RegExp(opts.state);
+  const STATE = new RegExp(opts.state), BASE = new Set(opts.base);
   const shown = (e) => e.checkVisibility({visibilityProperty: true, opacityProperty: true});
-  const classes = (e) => [...e.classList].filter((c) => !/\d{3,}/.test(c) && !STATE.test(c)).sort()
+  const classes = (e) => [...e.classList].filter((c) => !/\d{3,}/.test(c) && (BASE.has(c) || !STATE.test(c))).sort()
     .map((c) => "." + c).join("");
   const sig = (e) => e.tagName.toLowerCase() + (e.getAttribute("role") ? `[role=${e.getAttribute("role")}]` : "") +
     (e.tagName === "INPUT" ? `[type=${e.type}]` : "") + classes(e);
@@ -760,7 +764,7 @@ IMPACTS = ("critical", "serious", "moderate", "minor")
 def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     """The measurements of a prepared page: its own first, axe-core's last (its run may touch the page's state). A
     failure of axe-core is recorded as the "axe" part's error; the page's own measurements stay."""
-    raw = page.evaluate(MEASURE_JS, {"state": STATE_CLASS, "boxMin": BOX_MIN})
+    raw = page.evaluate(MEASURE_JS, {"state": STATE_CLASS, "base": list(BASE_CLASSES), "boxMin": BOX_MIN})
     under = {b: Counter() for b in controls}
     examples = {}
     for c in raw["controls"]:

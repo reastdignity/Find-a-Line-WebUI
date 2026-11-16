@@ -220,6 +220,36 @@ def _launch(p, engine: str):
         pytest.skip(f"{engine} not available: {type(e).__name__}")
 
 
+BROWSER = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
+                             reason="needs Microsoft Edge and Playwright (group ui)")
+
+
+def _measured(body: str, style: str = "", engine: str = "chromium", width: int = 800, height: int = 600) -> dict:
+    """measure() of a small page of the test's own: `style` and `body`, no margins, 16 px text, no scrollbars."""
+    from playwright.sync_api import sync_playwright
+    html = ("<!doctype html><html lang='en'><head><style>::-webkit-scrollbar { width: 0; height: 0; } "
+            "body { margin: 0; font-size: 16px; } button { font-size: 16px; } " + style + "</style></head><body>"
+            + body + "</body></html>")
+    with sync_playwright() as p:
+        browser = _launch(p, engine)
+        try:
+            page = browser.new_page(viewport={"width": width, "height": height})
+            page.set_content(html)
+            return ui_metrics.measure(page, None)
+        finally:
+            browser.close()
+
+
+@BROWSER
+def test_signatures_keep_base_classes():
+    """A state class leaves the signature (one control in two states is one signature); a base class that ends like a
+    state (c-card-open, Home's run cards) stays, so the card is not merged with every bare link."""
+    r = _measured('<a href="#r" class="c-card-open">Run</a><a href="#p">Plain</a>'
+                  '<button class="seg u-on">x</button><button class="seg">y</button>',
+                  "a, button { display: inline-block; width: 30px; height: 30px; }")
+    assert r["controls_under"]["44"] == {"a": 1, "a.c-card-open": 1, "button.seg": 2}
+
+
 PAGE = """<!doctype html><html lang="en"><head><style>
 ::-webkit-scrollbar { width: 0; height: 0; }
 body { margin: 0; font-size: 16px; } button { font-size: 16px; }
