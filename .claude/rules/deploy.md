@@ -57,7 +57,9 @@ loads with `deploy/monitoring/` too.
   rclone settings in `deploy/mirror/README.md` (`shell_type`, `hashes`, `sha256sum_command`, `known_hosts_file`, the
   top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
 - SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
-  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 75 min: `--timeout 7200` under the lock.
+  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 75 min: `--timeout 7200` under the lock;
+  in CI it is the job `mirror` of its own workflow `.github/workflows/mirror.yml` (when the mirror's files, the
+  script, `tests/test_mirror_deploy.py` or the workflow change, and by hand; 150 minutes).
 - Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env
   (a local replay copies that step), the tests' processes get `off` from conftest; the VPS leaves it unset. CI's
   rclone (test parts, by sha256) stays at `mirror_publish.MIN_VERSION` or newer; no `RCLONE_*` name in its step.

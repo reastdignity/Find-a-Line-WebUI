@@ -41,8 +41,10 @@ internal network that SWAG joins by `docker network connect findaline-mirror_mir
 `swag/findaline-mirror.subdomain.conf` for SWAG; `compose.test.yaml` a stand-in for SWAG on `127.0.0.1:8790`; `test/`
 the check script's fixture, stand-in and door-check files) and `findaline-mirror-publish` (`publish/`: the SFTP door,
 Alpine + OpenSSH with a command gate `gate.sh`, its port on one LAN address). `tests/mirror_check.sh` runs every
-behaviour and, with `--self-test`, each switched off (CI's job `mirror`, run when the mirror's files or the script
-change and by hand; `--live <url>` against a running mirror);
+behaviour and, with `--self-test`, each switched off (CI's job `mirror` of its own workflow
+`.github/workflows/mirror.yml`: when the mirror's files, the script, its static test or the workflow change, and by
+hand; 150 minutes; `--live <url>` against a running mirror: LV15's cap check from 1 MB tiles, LV17's held
+downloads from 16 MB);
 `tests/test_mirror_deploy.py` reads it all statically; `tests/test_mirror_pairs.py` the pairs with the client and the
 publish tool.
 

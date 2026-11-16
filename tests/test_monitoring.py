@@ -462,6 +462,18 @@ def test_the_data_servers_panels_read_what_telegraf_writes():
         names = {n for n in _metrics(expr)[0] if n.startswith("mirror_")}
         assert names <= written, (where, names - written)
         asked |= names
+    # Each of the data server's panels, tiles and rules on its own reads only what the two inputs write (a name that
+    # lost its prefix, or the site's own http_response, fails here)
+    mine = {f"rule {r['uid']}" for r in _rules() if r["labels"]["row"] in ("C7", "C8")}
+    for dashboard in _dashboards().values():
+        mine |= {f"{dashboard['uid']} {p['id']}" for p in dashboard["panels"]
+                 if p.get("targets") and re.search(r"\(C[78]\)", p["title"])}
+    assert mine == {"rule c7-mirror-down", "rule c8-mirror-certificate", "site 50", "site 51", "site 52",
+                    "overview 46", "overview 47"}
+    for where, expr in _queries():
+        if where in mine:
+            names = _metrics(expr)[0]
+            assert names and names <= written, (where, names - written)
     assert asked == written - {"mirror_http_response_http_response_code", "mirror_x509_cert_verification_code"}
     assert "mirror_http_response_result_code" in LIVE_METRICS   # written on every outcome, the DNS failure's too
 

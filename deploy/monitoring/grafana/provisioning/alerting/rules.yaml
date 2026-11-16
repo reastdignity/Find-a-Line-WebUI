@@ -639,9 +639,10 @@ groups:
         isPaused: false
       # The project's data server (docs/mirror-hosting/spec.md D.3): no good answer to its list of
       # datasets for 45 minutes (P26: short maintenance stops of the home server must not page). The
-      # query always gives one series without labels: the worst result code of the last 3 minutes
-      # (0 when one answer in them was good), or 1 when the series vanished (Telegraf or the VPS
-      # down, as G2's rule on silent sources counts it). One label set, so one alert instance and one
+      # query always gives one series without labels: each host's best result code of the last 3
+      # minutes (0 when one answer in them was good), then the worst host; 1 when no samples came
+      # (Telegraf or the VPS down, as G2's rule on silent sources counts it). One good answer within
+      # 3 minutes makes it 0 and resets the wait. One label set, so one alert instance and one
       # pending period run through a gap of the samples in the middle of an outage (two label sets
       # would each start their own 45 minutes); never "no data", so noDataState plays no part
       - uid: c7-mirror-down

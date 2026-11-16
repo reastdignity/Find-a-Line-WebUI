@@ -124,38 +124,44 @@ def test_conftest_keeps_the_rates_for_this_module():
 
 # 2. One host everywhere
 
-# Names a file may hold where a host is expected beside the data server's: the site's, examples, third parties
+# Names a mirror file may hold where a host is expected beside the data server's: examples and third parties; the
+# site's own host only where a file means the site (SITE_PLACES: the landing page's link to the site)
 SITE = "findaline.lukawski.org"
-OTHER_HOSTS = {SITE, "findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com"}
+OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com"}
+SITE_PLACES = {os.path.join("deploy", "mirror", "landing", "index.html")}
 # Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
 FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",
                 "rules", "js", "geojson", "csv", "example", "env", "toml", "tif", "arrow", "pem", "sample", "lock", "in",
-                "pub", "key"}
+                "pub", "key", "yml"}
 
 
 def _host_names(text: str) -> set:
-    """Every name a text holds where a host is expected: the host of an http(s) URL, a dotted name in backticks, a
-    server_name; IP addresses and file names left out."""
-    found = (set(re.findall(r"https?://([A-Za-z0-9.-]+)", text)) | set(re.findall(r"`([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)`", text))
-             | set(re.findall(r"server_name\s+([^;\s]+);", text)))
-    return {n.lower().rstrip(".") for n in found if not re.fullmatch(r"[0-9.]+", n)
-            and re.search(r"\.[a-z]{2,}$", n.lower()) and n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS}
+    """Every name a text holds where a host is expected: the host of an http(s) URL and a server_name always (a last
+    label that is also a file ending, .md or .sh, is a host there), a dotted name in backticks unless it is a file
+    name; IP addresses left out."""
+    sure = set(re.findall(r"https?://([A-Za-z0-9.-]+)", text)) | set(re.findall(r"server_name\s+([^;\s]+);", text))
+    quoted = {n for n in re.findall(r"`([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)`", text)
+              if n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS or "lukawski" in n.lower()}
+    return {n.lower().rstrip(".") for n in sure | quoted if not re.fullmatch(r"[0-9.]+", n)
+            and re.search(r"\.[a-z]{2,}$", n.lower())}
 
 
 def _hosts(text: str) -> set:
     """The names of a text under the project's domain (any name with "lukawski" in it) or starting with "mirror.",
     wherever they stand: the data server's or the site's."""
     return {n.lower() for n in re.findall(r"\b[a-z0-9-]*(?:\.[a-z0-9-]+)+\b", text, re.I)
-            if re.search(r"\.[a-z]{2,}$", n, re.I) and ("lukawski" in n.lower() or n.lower().startswith("mirror."))
-            and n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS}
+            if re.search(r"\.[a-z]{2,}$", n, re.I) and ("lukawski" in n.lower() or (
+                n.lower().startswith("mirror.") and n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS))}
 
 
 def test_one_host_everywhere():
     """The client's MIRROR_URL, Telegraf's two checks of the data server (their addresses are the client's origin), the
     SWAG conf's server_name and every place a host is expected in the mirror's docs and configs (deploy/mirror,
-    telegraf.conf, findaline.env.example, the check script) name one host, beside the site's, examples and third
-    parties: one of the README's six names changed to another domain fails here. In the larger docs and the client's
-    modules every name of the data server's or the site's kind is one of the two."""
+    telegraf.conf, findaline.env.example, the check script) name one host, beside examples and third parties; the
+    site's own host only where a file means the site (SITE_PLACES); a --live target is the data server (or the
+    loopback). One of the README's six names changed to another domain, or to a name ending in a file ending such
+    as .md, fails here. In the larger docs and the client's modules every name under the project's domain is the
+    data server's or the site's."""
     import glob
     import tomllib
     assert tilebases.MIRROR_URL == f"https://{HOST}"
@@ -170,8 +176,14 @@ def test_one_host_everywhere():
                           if os.path.isfile(f))
     for rel in mirror_files + [os.path.join("deploy", "monitoring", "telegraf.conf"), "findaline.env.example",
                                os.path.join("tests", "mirror_check.sh")]:
-        names = _host_names(_read(rel))
-        assert names <= {HOST} | OTHER_HOSTS, (rel, names - {HOST} - OTHER_HOSTS)
+        names = {n for n in _host_names(_read(rel)) if not n.endswith(".example")}   # RFC 2606's reserved TLD
+        allowed = {HOST} | OTHER_HOSTS | ({SITE} if rel in SITE_PLACES else set())
+        assert names <= allowed, (rel, names - allowed)
+    # A --live target is the data server (or the test stack on the loopback), wherever a doc names one
+    for parts in [("deploy", "mirror", "README.md"), ("tests", "mirror_check.sh"), ("docs", "mirror-hosting", "spec.md"),
+                  ("docs", "deployment.md"), ("README.md",)]:
+        for target in re.findall(r"--live\s+https?://([A-Za-z0-9.-]+)", _read(*parts)):
+            assert target.lower() in (HOST, "127.0.0.1", "localhost"), (parts, target)
     for parts in [("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf"), ("deploy", "mirror", "README.md"),
                   ("sources", "net.py"), ("sources", "readers", "tilebases.py"), ("deploy", "monitoring", "telegraf.conf"),
                   ("README.md",), ("findaline.env.example",), ("docs", "deployment.md"), ("docs", "monitoring.md")]:
@@ -354,12 +366,14 @@ def test_served_patterns_take_the_clients_and_the_tools_paths():
                 for path in mp._index_tiles(index):
                     assert _served(f"{base}/{path}"), (base, path)
     assert res_name(0.5) == "0.5m"
-    # The client's mirror folders are the tool's: every GridTiles reader with a mirror folder lies under a dataset
-    # of PUBLISHABLE (the tool's own test: tests/test_mirror_publish.py test_publishable_datasets_are_the_mirrors_datasets)
+    # The client's mirror folders are the tools': every GridTiles reader with a mirror folder lies under a dataset the
+    # cutting tools make (published or not), and each is served (batch 6's names with a hyphen too)
     from sources.layers.gridtiles import GridTiles
     folders = {reader.mirror for src in SOURCES.values() for layer in (src.nmt, src.nmpt) if isinstance(layer, GridTiles)
                for reader in layer.readers.values() if reader.mirror}
-    assert folders and {f.split("/")[0] for f in folders} <= set(mp.PUBLISHABLE)
+    assert folders and {f.split("/")[0] for f in folders} <= set(_cut_datasets())
+    for folder in folders:
+        assert _served(f"/v1/tiles/{folder}/index.json") and _served(f"/v1/tiles/{folder}/{tilebases.grid_tile_name(-3, 4)}")
 
 
 def test_dataset_names_are_the_servers():
@@ -386,21 +400,34 @@ def test_block_is_one_number():
 
 # 7. PUBLISHABLE against the catalogue and the cutting tools
 
+def _cut_datasets() -> dict:
+    """{dataset: its product folders} of the datasets the cutting tools make: tools/mirror_tiles.py DATASETS (a dict of
+    before, or a Dataset of batch 6 with its products) and Slovakia (tools/sk_tiles.py)."""
+    found = {"slovakia": [f"slovakia/{p}/1m" for p in ("dmr5", "dmp1")]}
+    for spec in mirror_tiles.DATASETS.values():
+        if isinstance(spec, dict):
+            found[spec["folder"]] = [mirror_tiles.tile_folder(spec)]
+        else:
+            found[spec.name] = [mirror_tiles.tile_folder(spec, product) for product in spec.products]
+    return found
+
+
 def test_publishable_is_the_catalogues_and_the_tools():
-    """PUBLISHABLE's datasets are tools/mirror_tiles.py DATASETS' folders and Slovakia; each source_id is a catalogue
-    source whose GridTiles mirror folders lie under the dataset, and each DATASETS entry's source is the one its row
-    names. The tool's own tests (skipped without rclone): tests/test_mirror_publish.py
-    test_publishable_datasets_are_the_mirrors_datasets, test_resolutions_required_are_the_catalogues."""
+    """Every PUBLISHABLE row names a dataset the cutting tools make (DATASETS or Slovakia) and a catalogue source whose
+    GridTiles mirror folders lie under it, among them every product folder the tools cut for it. A dataset that is cut
+    but has no row is not a failure (a row needs the user's approval): it is named in the output. The tool's own
+    tests (skipped without rclone): tests/test_mirror_publish.py test_publishable_datasets_are_the_mirrors_datasets,
+    test_resolutions_required_are_the_catalogues."""
     from sources.catalogue import SOURCES
-    assert set(mp.PUBLISHABLE) == {spec["folder"] for spec in mirror_tiles.DATASETS.values()} | {"slovakia"}
+    cut = _cut_datasets()
     for name, row in mp.PUBLISHABLE.items():
+        assert name in cut, f"{name}: a row for a dataset no tool cuts"
         assert row["dataset"] == name and row["source_id"] in SOURCES, name
         folders = mp.required_folders(row["source_id"])
         assert folders and {f.split("/")[0] for f in folders} == {name}, name
-    for spec in mirror_tiles.DATASETS.values():
-        folder = mirror_tiles.tile_folder(spec)
-        row = mp.PUBLISHABLE[spec["folder"]]
-        assert folder in mp.required_folders(row["source_id"]), folder
+        assert set(cut[name]) <= set(folders), (name, set(cut[name]) - set(folders))
+    without = sorted(set(cut) - set(mp.PUBLISHABLE))
+    print("cut, without a PUBLISHABLE row (not published until the user approves one):", ", ".join(without) or "none")
 
 
 # The site's side: the privacy page, the test stacks, CI's rclone
@@ -441,7 +468,15 @@ def test_test_stacks_never_ask_the_data_server():
     assert re.findall(r"^#?FINDALINE_MIRROR_URL=.*$", example, re.M) == ["#FINDALINE_MIRROR_URL=off"]
     assert _hosts(example) == {HOST}
     jobs = yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]
-    commands = [line for step in jobs["docker"]["steps"] for line in _commands(step.get("run", ""))]
+    docker = jobs["docker"]
+    # The job and the steps that carry the commands below run and fail the job: no `if:` (or one that always holds),
+    # no continue-on-error
+    assert docker.get("if", "always()") == "always()" and not docker.get("continue-on-error")
+    for step in docker["steps"]:
+        if any(word in step.get("run", "") for word in ("FINDALINE_MIRROR_URL", "docker compose up")):
+            assert step.get("if", "always()") in ("always()", "success()"), step.get("name")
+            assert not step.get("continue-on-error"), step.get("name")
+    commands = [line for step in docker["steps"] for line in _commands(step.get("run", ""))]
     copy, append = "cp findaline.env.example findaline.env", r"printf 'FINDALINE_MIRROR_URL=off\n' >> findaline.env"
     check = 'test "$(docker compose exec -T worker printenv FINDALINE_MIRROR_URL)" = off'
     up = next(n for n, line in enumerate(commands) if line.startswith("docker compose up"))
@@ -453,14 +488,19 @@ def test_test_stacks_never_ask_the_data_server():
 
 
 def test_no_test_sets_the_data_server_empty():
-    """No test sets FINDALINE_MIRROR_URL to an empty string by monkeypatch.setenv, os.environ or an environment
-    mapping: on Windows that deletes the variable from the process's environment block, and a process started then
-    asks the default address, the real host (.claude/rules/mirror.md: `off`). tests/test_mirror_client.py's
-    set_url("") cases test the empty value in the test's own process on purpose, and its fixture puts `off` back."""
-    name = r"""(?:["']FINDALINE_MIRROR_URL["']|MIRROR_URL_ENV)"""
+    """No test sets FINDALINE_MIRROR_URL to an empty string: on Windows that deletes the variable from the process's
+    environment block, and a process started then asks the default address, the real host (.claude/rules/mirror.md:
+    `off`). Found, line by line: monkeypatch.setenv and os.putenv with the name or the module's constant (qualified
+    or not, `value=` too), os.environ[...] = "", a mapping's "name": "", the keyword form (dict(os.environ, ...),
+    os.environ.update(...)) and a shell assignment of nothing in quotes or at the line's end. Out of its reach: a
+    variable holding the name, and the shell's inline form (`FINDALINE_MIRROR_URL= python ...`).
+    tests/test_mirror_client.py's set_url("") cases test the empty value in the test's own process on purpose, and its
+    fixture puts `off` back."""
+    name = r"""(?:["']FINDALINE_MIRROR_URL["']|[\w.]*MIRROR_URL_ENV)"""
     empty = r"""(?:""|'')"""
-    patterns = [rf"setenv\(\s*{name}\s*,\s*{empty}\s*\)", rf"environ\[\s*{name}\s*\]\s*=\s*{empty}",
-                rf"{name}\s*:\s*{empty}", rf"FINDALINE_MIRROR_URL={empty}?\s*$"]
+    patterns = [rf"(?:setenv|putenv)\(\s*{name}\s*,\s*(?:value\s*=\s*)?{empty}\s*\)",
+                rf"environ\[\s*{name}\s*\]\s*=\s*{empty}", rf"{name}\s*:\s*{empty}",
+                rf"\bFINDALINE_MIRROR_URL\s*=\s*{empty}", r"\bFINDALINE_MIRROR_URL=\s*$"]
     found = []
     for folder, _, files in os.walk(os.path.join(ROOT, "tests")):
         for file in files:

@@ -657,9 +657,9 @@ U4, U13, U15, U16; P3, P26.
 3. **The rules** (to the site's contact point; ids the next free ones of the site's group, titles starting with
    the id as the pinned set requires): "Mirror down", no good answer for 45 minutes (P26: short maintenance stops
    of the home server are normal and must not page), written so that a vanished series alerts too, as the
-   existing "source silent" rule is, and as one alert instance (one series without labels: the worst result
-   code of 3 minutes, or 1 when the series vanished), so that one wait runs through a gap of the samples in an
-   outage (the code review's S1); "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
+   existing "source silent" rule is, and as one alert instance (one series without labels: each host's best
+   result code of the last 3 minutes, then the worst host; 1 when no samples came), so that one wait runs through a
+   gap of the samples in an outage (the code review's S1); one good answer within 3 minutes resets the wait; "Mirror certificate", as the site's. One row on the *Site* dashboard: up,
    answer time, certificate days; the *Overview* has two tiles of them beside the site's (its test asks a tile
    for every row with a rule). The VPS's own traffic to the mirror shows in the existing per-host counts.
 4. **The monthly item** in `docs/deployment.md`: check the mirror's base image for a newer digest (the door's
@@ -784,8 +784,10 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    (`docker network connect findaline-mirror_mirror swag`, U42); the name added to SWAG's certificate in a
    maintenance stop (A's Risks); the publishing door (`PUBLISH_ADDRESS`, `PUBLISH_PORT`, `PUBLISH_KEYS`; its
    binding checked with `docker compose port sftp 2222`; one mount for `<root>`, U34); `mirror_check.sh --live`
-   with an empty public folder; E1. `--live`'s check of the cap through the real SWAG needs a tile larger than the
-   proxy's buffers: Madeira's 2 MB tiles do not show it, Valle d'Aosta's or Slovakia's do (step 2).
+   with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
+   one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
+   1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
+   today (M2).
 2. Publish Madeira (0.33 GB), check; then Valle d'Aosta, then Slovakia; `verify` on the remote after each.
 3. M2 on the real path; the user confirms or corrects the numbers; a rework round if they change.
 4. The squash into `main` (the client and the address in one commit), push; the VPS updated (its Telegraf then
@@ -818,9 +820,11 @@ The build is done when every line below holds; each names its test or command.
 
 **The mirror stack (A)**
 - [ ] `pytest tests/test_mirror_deploy.py` green.
-- [ ] `tests/mirror_check.sh` in the CI job `mirror` (run when the mirror's files or the check script change, and
-      by hand: U49): every line PASS, and its self-test FAILs every check with the behaviour switched off.
-- [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them).
+- [ ] `tests/mirror_check.sh` in CI's job `mirror`, a workflow of its own (`.github/workflows/mirror.yml`: run when
+      the mirror's files, the check script, its static test or the workflow change, and by hand: U49; at most 150
+      minutes): every line PASS, and its self-test FAILs every check with the behaviour switched off.
+- [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them,
+      LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M2).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
       out, no log file older than 14 days; SWAG attached (U42); the door's port on the LAN address only.
 
