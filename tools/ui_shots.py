@@ -32,8 +32,8 @@ folder ready, but starts no browser). `--dark` is `--themes both`.
 
 A data folder given with `--data-dir` is kept and can be used again: its marker ui-shots.json holds the clip run
 shown there and a key (data_key: the sha256 of the repository's root *.py, this tool, tests/test_country_web.py and
-the clip's two files). A start whose key is the marker's keeps the clip run and the three cubes (about 25 s of
-set-up); another key, no marker (a folder of before) or `--fresh` makes them anew. The default data folder is a
+the clip's two files). A start whose key is the marker's keeps the clip run and the three cubes (4 s of a 13 s
+desktop start on 2026-11-16 with numba's cache warm; more when it is cold); another key, no marker (a folder of before) or `--fresh` makes them anew. The default data folder is a
 temporary one, removed at the end.
 
 Each saved picture is printed with its seconds; at the end a summary: the set-up's parts, the seconds of each pass
