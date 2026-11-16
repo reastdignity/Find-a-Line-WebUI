@@ -418,14 +418,15 @@ def test_measure_a_page(engine):
         "44": {"button": 1, "button.hint": 1, "button.low": 1, "button.seg": 2, "button.tiny": 1,
                "input[type=checkbox] (by its label)": 1},
         "24": {"button.low": 1, "button.tiny": 1, "input[type=checkbox] (by its label)": 1}}
-    assert r["control_examples"]["button.hint"] == {"w": 42, "h": 42, "text": "?", "how": "with ::after"}
+    assert r["control_examples"]["button.hint"] == {"w": 42, "h": 42, "text": "?", "how": "with ::after",
+                                                     "zone": None, "within": None}
     assert r["control_examples"]["input[type=checkbox] (by its label)"]["w"] == 100
     assert r["controls_grown"] == 1
     assert r["unreachable"] == {"button.away": 1}
     assert r["text_chars"] == 75
     assert r["text_chars_under"] == {"12": 15, "11": 15, "10": 0}
     assert r["text_under"]["12"] == {"p.small": 15}
-    assert r["text_examples"]["p.small"] == {"size": 10.5, "text": "Small text here"}
+    assert r["text_examples"]["p.small"] == {"size": 10.5, "text": "Small text here", "zone": None, "within": None}
     assert r["document_over"] == 1200
     assert sorted((s["sig"], s["over"] > 0) for s in r["scrollers"]) == [("div.chips", True), ("div.pan", True)]
     assert [s["over"] for s in r["scrollers"] if s["sig"] == "div.pan"] == [200]
@@ -659,6 +660,7 @@ def test_other_bounds_from_a_kept_log(tmp_path):
     ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise", "--controls", "40,24", "--text", "11"])
     row = json.loads((tmp_path / "pages-c40-24-t11.json").read_text(encoding="utf-8"))["per_device_theme"]["iphone light"]
     assert (row["controls_under_40"], row["controls_under_24"], row["text_chars_under_11"]) == (1, 1, 4)
+    assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
 
 
 def test_links_in_a_sentence_apart():
@@ -672,7 +674,6 @@ def test_links_in_a_sentence_apart():
     s = ui_metrics.summarise([record])
     assert s["lists"]["inline_links_under_24_phones"][0]["signature"] == "a"
     assert "Links in a sentence under 24 px" in ui_metrics.pages_markdown(s)
-    assert "Text under 11 px" in (tmp_path / "pages-c40-24-t11.md").read_text(encoding="utf-8")
 
 
 def test_families_by_name_prefix():
