@@ -66,7 +66,8 @@ COUNTRIES = {
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
     "us": "United States", "vi": "U.S. Virgin Islands",
     "bl": "Saint-Barthélemy", "mf": "Saint-Martin (France)", "pm": "Saint-Pierre and Miquelon", "uy": "Uruguay", "nl": "Netherlands", "fo": "Faroe Islands",
-    "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil", "jp": "Japan"}
+    "mx": "Mexico", "cy": "Cyprus", "ee": "Estonia", "pt": "Portugal", "br": "Brazil", "jp": "Japan",
+    "hk": "Hong Kong"}
 # A territory's row sits under its country in the window (its title and continent stay its own). Empty: every code is a
 # country of its own.
 PARENTS = {"bl": "fr", "mf": "fr", "pm": "fr", "pr": "us", "vi": "us", "ax": "fi"}

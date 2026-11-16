@@ -67,3 +67,17 @@ index vector tile over Mikurajima (fields MESH_NO, URL). Tokyo Metropolitan Gove
 ("n,x,y,z,flag", decimetres) and `08OF0485_2019.zip` the first 300 of FY2019's `08OF0485_DEM.txt` ("x y z"), the lines
 untouched, each re-zipped alone. VIRTUAL SHIZUOKA point cloud data (Shizuoka Prefecture),
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (modified: cut).
+
+`hong_kong/`: CEDD's 2020 lidar sheets as the CSDI Portal served them on 2026-11-16, for `tests/test_hong_kong.py`:
+`sheets.json`, rows of the index (the FeatureServer's layers DTM_2020 and DSM_2020 as `tools/hong_kong_sheets.py`
+keeps them: code, file name, URL, footprint in EPSG:2326), 23 terrain and 4 surface sheets spread over the 17 maps;
+`2NE20D_dtm.head.bin` and `2NE20D_dtm.tail.bin`, the TIFF of the terrain sheet on the Shenzhen River without its
+pixels: the 1 214 bytes before its first tile and the 3 048 after its last (the IFD and the GeoTIFF keys), as
+published (EPSG:2326, 0.5 m, nodata -9999, 120 tiles of 128 x 128 float32, uncompressed, in order); the tests put
+their own pixels between them, so no height of CEDD's is kept here (the CSDI terms name reproducing, not modifying).
+LiDAR Data (2020), Civil Engineering and Development Department, © the Government of the Hong Kong Special
+Administrative Region, from the Common Spatial Data Infrastructure (CSDI) Portal under its
+[terms and conditions](https://portal.csdi.gov.hk/csdi-webpage/doc/TNC).
+`nominatim/reverse-hong-kong.json`: Nominatim's reverse answers (zoom 3 and 8) of Lion Rock, Chek Lap Kok and Tung Lung
+Chau, recorded on 2026-11-16 (`osm.reverse`): "cn" at zoom 3, ISO3166-2-lvl3 CN-HK at zoom 8. Data © OpenStreetMap
+contributors, [ODbL 1.0](https://osm.org/copyright).

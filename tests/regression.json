@@ -2407,5 +2407,30 @@
     },
     "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines)",
     "seconds": 3.2
+  },
+  "R91": {
+    "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD",
+    "args": "--lat 22.3518 --lon 114.1872 --radius 600 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "hk"
+    ],
+    "expected": {
+      "anchors": 158727,
+      "open": 1228,
+      "checked": 126,
+      "lines": 8,
+      "spots": 3,
+      "csv_sha256": "02a93e778650cc230e80c13c8c0f75f7e2c70156c6847928300a91db3f1445d4",
+      "length_km": 0.206,
+      "clearance_min": 0.19,
+      "clearance_mean": 0.545,
+      "clearance_max": 0.99,
+      "over_trees": 3,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "added 2026-11-16: --source auto picks hong_kong (CN-HK); the centre moved from the findings' 22.352, 114.187 to the centroid of the steep pixels of the 1 m mosaic (5 394 over 70 degrees within 600 m, 26 m south of the old centre); 12 sheets of each model (5.7 MB a ZIP here: 238 MB for the 42 terrain sheets of tools/check_source.py's 1.5 km circle); the surface model on: 3 of the 8 lines lie over trees or buildings; only 1 228 of the 158 727 anchors have an open direction on the rock's steep scrub-covered slopes; a trial with lines up to 300 m gave the same 8 lines (4 400 candidate pairs, 132 checked); on an empty cache the same lines.csv after 24 sheets and the water mask, 137 MB in 6 min 20 s (0.36 MB/s; 0.96 MB/s for tools/check_source.py an hour before); the seconds are those of the cached run",
+    "seconds": 35.1
   }
 }
