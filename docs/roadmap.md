@@ -130,11 +130,23 @@ Rules for every step:
        estimate. In the screenshot run this was about a third of the whole time.
      - 38 of the 540 states are never shown: 24 need another run (the shore states, `c-result-why`), 14 exist
        on one kind of device only.
-   - *To look into*: first measure where the time goes (set-up, load, fixed waits, steps, screenshot). Then the
-     candidates: a ready signal of the page instead of fixed waits; several browser contexts at once (per device
-     or per slice of the pages); a kept data folder (`--data-dir` exists); only the pages a branch's changed
-     files touch.
-   - No decision yet.
+   - *Decided* (the user, 2026-11-16, on the task's report: "Go with recomended route"): first no dead waits,
+     times and fail-fast; then a measured run of the whole set; then waits that follow the page instead of fixed
+     ones, in the tool only (no ready mark in the viewer). Not built now: map tiles recorded and replayed, passes
+     in parallel, a site kept between runs, both themes from one load.
+   - *Stage 1, done* (2026-11-16, tag `history/ui-shots-speed`): a page whose feature the run lacks is left out
+     before any load (`run_features`, `NEEDS`); a summary of seconds per part and page, `--timings`, exit code 1
+     after a timeout or a failed step; a wait that timed out shortens its later limits in the pass, `--strict`
+     stops the run; a kept `--data-dir` keeps its clip run and cubes (about 4 s of a 13 s start: the search takes
+     about 3 s on a warm PC); `--list`, `--exclude`, `--themes`; `tools/shots_diff.py` compares two folders of
+     pictures. Measured on the result pages (`--only c-result,c-line,map --dark`, three devices, the same data
+     folder, shared test lock): 1253 s before, 375 to 411 s after in three runs, 95 of the 96 pictures still
+     shot the same (one map without tiles); of 404 s, 256 s are the fixed 2.5 s after each load. Found on the
+     way: the coverage page's whole-page picture on the iPhone is over WebKit's 32 767 pixels; it is taken at
+     one pixel per CSS pixel now, and the tool as it was could not get past that page.
+   - *Open*: stage 2 (two runs of the whole set: the real split, each wait's longest time as the basis for its
+     limit, what differs between two runs' pictures); stage 3 (the fixed waits replaced, the pictures compared
+     with stage 2's); `c-basic-sea` on the desktop takes 43 to 68 s in every run, cause not known.
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
