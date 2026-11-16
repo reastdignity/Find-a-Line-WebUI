@@ -506,6 +506,107 @@ def serve(data: str, run_folder: str | None = None):
     return site, cookies, run, share, stop
 
 
+def select_pages(only: str = "") -> dict:
+    """The pages of PAGES whose name contains one of `only`'s comma-separated parts (all for none)."""
+    wanted = [w for w in only.split(",") if w]
+    return {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
+
+
+def page_steps(steps) -> list:
+    """A page's actions as a list of steps (one step, a list or None)."""
+    return [steps] if isinstance(steps, str) else list(steps or [])
+
+
+def page_storage(name: str) -> str:
+    """The init script of a page: its kept layouts (LAYOUTS, LAYER_LAYOUTS) set, or removed for the defaults."""
+    kept, layer = LAYOUTS.get(name), LAYER_LAYOUTS.get(name)
+    return "try { " + (
+        f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
+        else "localStorage.removeItem('findaline.layout'); ") + (
+        f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
+        else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}"
+
+
+def page_url(site: dict, ui: str, hash_: str) -> str:
+    """A page's address on the site (`site`: url, run, share, line, also, border)."""
+    start = {"map": f"/runs/{site['run']}/map.html", "shared": f"/s/{site['share']}/map.html"}.get(
+        ui, ui if ui.startswith("/") else f"/?ui={ui}")
+    return f"{site['url']}{start}{hash_.format(run=site['run'], line=site['line'], also=site['also'], border=site['border'])}"
+
+
+def run_step(page, step: str, label: str) -> str | None:
+    """One step of a page (PAGES' actions) on a Playwright page: "missing" when the page is left out (a click
+    finds nothing to click, a "need:" stays false), else None."""
+    if step.startswith("scroll:"):
+        page.evaluate("(sel) => { const e = document.querySelector(sel) || "
+                      "document.scrollingElement; e.scrollTop = e.scrollHeight; }", step[7:])
+        page.wait_for_timeout(400)
+        return None
+    if step.startswith("js:"):
+        page.evaluate(step[3:])
+        page.wait_for_timeout(600)
+        return None
+    if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
+        try:  # a function: an expression would need eval, which the CSP forbids
+            page.wait_for_function(f"() => ({step[5:]})", timeout=60000)
+        except Exception:
+            print(f"{label}: still waiting for {step[5:]}")
+        page.wait_for_timeout(600)
+        return None
+    if step.startswith("need:"):  # what the page shows, absent in this run: no page
+        try:
+            page.wait_for_function(f"() => ({step[5:]})", timeout=NEED_WAIT_MS)
+        except Exception:
+            print(f"{label}: left out, this run does not have {step[5:]}")
+            return "missing"
+        page.wait_for_timeout(600)
+        return None
+    if step.startswith("low:"):  # the last one, at the bottom of its panel
+        page.evaluate(LOWEST, step[4:])
+        step = "[data-shot-low]"
+    target = page.query_selector(step)
+    if not (target and target.is_visible()):
+        return "missing"
+    if step != "[data-shot-low]":
+        target.scroll_into_view_if_needed()
+    target.click()
+    page.wait_for_timeout(600)
+    return None
+
+
+def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str) -> str | None:
+    """One page from its load to its screenshot in a browser context: the picture's path, None when the page is
+    left out on this device."""
+    ui, hash_, steps, *who = PAGES[name]
+    context.clear_cookies()
+    user = who[0] if who else "admin"
+    if user != "visitor":
+        context.add_cookies([{"name": "__Host-findaline", "value": site["cookies"][user],
+                              "domain": "localhost", "path": "/", "secure": True,
+                              "httpOnly": True, "sameSite": "Lax"}])
+    page = context.new_page()  # a fresh page each: no menu or route of the one before
+    page.add_init_script(page_storage(name))
+    page.goto(page_url(site, ui, hash_))
+    page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
+    try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
+        page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",
+                               timeout=10000)
+    except Exception:
+        print(f"{name} ({device}): map tiles still loading")
+    full = False
+    for step in page_steps(steps):
+        if step == "full":
+            full = True
+            continue
+        if run_step(page, step, f"{name} ({device})") == "missing":  # this device does not show it
+            page.close()
+            return None
+    path = os.path.join(out, f"{name}-{device}-{theme}.png")
+    page.screenshot(path=path, full_page=full)
+    page.close()
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", required=True, help="folder of the screenshots")
@@ -525,8 +626,8 @@ def main():
     line = args.line or first_line(data, run)
     also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines of the run ("view3d-others")
     border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
-    wanted = [w for w in args.only.split(",") if w]
-    pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
+    site_of = {"url": site, "cookies": cookies, "run": run, "share": share, "line": line, "also": also, "border": border}
+    pages = select_pages(args.only)
     themes = ["light", "dark"] if args.dark else ["light"]
     try:
         with sync_playwright() as pw:
@@ -548,77 +649,10 @@ def main():
                                                       ("coverage.view", "coverage.scale", "coverage.lang", "layer.coverage"))
                                             + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); "
                                                       for intro in INTROS) + "} catch (e) {}")
-                    for name, (ui, hash_, steps, *who) in pages.items():
-                        context.clear_cookies()
-                        user = who[0] if who else "admin"
-                        if user != "visitor":
-                            context.add_cookies([{"name": "__Host-findaline", "value": cookies[user],
-                                                  "domain": "localhost", "path": "/", "secure": True,
-                                                  "httpOnly": True, "sameSite": "Lax"}])
-                        page = context.new_page()  # a fresh page each: no menu or route of the one before
-                        kept, layer = LAYOUTS.get(name), LAYER_LAYOUTS.get(name)
-                        page.add_init_script("try { " + (
-                            f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
-                            else "localStorage.removeItem('findaline.layout'); ") + (
-                            f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
-                            else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}")
-                        start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
-                            ui, ui if ui.startswith("/") else f"/?ui={ui}")
-                        page.goto(f"{site}{start}{hash_.format(run=run, line=line, also=also, border=border)}")
-                        page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
-                        try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
-                            page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",
-                                                   timeout=10000)
-                        except Exception:
-                            print(f"{name} ({device}): map tiles still loading")
-                        missing = full = False
-                        for step in ([steps] if isinstance(steps, str) else steps or []):
-                            if step == "full":
-                                full = True
-                                continue
-                            if step.startswith("scroll:"):
-                                page.evaluate("(sel) => { const e = document.querySelector(sel) || "
-                                              "document.scrollingElement; e.scrollTop = e.scrollHeight; }", step[7:])
-                                page.wait_for_timeout(400)
-                                continue
-                            if step.startswith("js:"):
-                                page.evaluate(step[3:])
-                                page.wait_for_timeout(600)
-                                continue
-                            if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
-                                try:  # a function: an expression would need eval, which the CSP forbids
-                                    page.wait_for_function(f"() => ({step[5:]})", timeout=60000)
-                                except Exception:
-                                    print(f"{name} ({device}): still waiting for {step[5:]}")
-                                page.wait_for_timeout(600)
-                                continue
-                            if step.startswith("need:"):  # what the page shows, absent in this run: no page
-                                try:
-                                    page.wait_for_function(f"() => ({step[5:]})", timeout=NEED_WAIT_MS)
-                                except Exception:
-                                    print(f"{name} ({device}): left out, this run does not have {step[5:]}")
-                                    missing = True
-                                    break
-                                page.wait_for_timeout(600)
-                                continue
-                            if step.startswith("low:"):  # the last one, at the bottom of its panel
-                                page.evaluate(LOWEST, step[4:])
-                                step = "[data-shot-low]"
-                            target = page.query_selector(step)
-                            if not (target and target.is_visible()):
-                                missing = True
-                                break
-                            if step != "[data-shot-low]":
-                                target.scroll_into_view_if_needed()
-                            target.click()
-                            page.wait_for_timeout(600)
-                        if missing:  # this device does not show it
-                            page.close()
-                            continue
-                        path = os.path.join(args.out, f"{name}-{device}-{theme}.png")
-                        page.screenshot(path=path, full_page=full)
-                        page.close()
-                        print(path)
+                    for name in pages:
+                        path = shoot_page(context, site_of, name, device, theme, args.out)
+                        if path:
+                            print(path)
                     context.close()
                 browser.close()
     finally:
