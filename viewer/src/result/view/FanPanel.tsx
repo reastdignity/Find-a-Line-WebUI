@@ -17,7 +17,7 @@ import { t } from "../../i18n";
 import type { Fan, FanRow, FanSort, SpotView } from "../spots";
 import { bearing, FAN_HERE } from "../viewgeom";
 import { count, cx, TightKey, TightMark } from "./common";
-import { metres, rowKeys, Shape, tightRow, useViewPanels, Value, withAccess } from "./SpotList";
+import { metres, rowKeys, Shape, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
 import type { PanelProps } from "./SpotPanels";
 import { clearanceText } from "../../tight";
 
@@ -56,6 +56,7 @@ export function FanHead({view}: {view: SpotView}) {
 
 function FanLine({p, r}: {p: PanelProps; r: FanRow}) {
   const {view, map, padding} = p, v = view.values, c = view.model.data.columns, row = r.row;
+  const hover = useHover(map, row);
   const far = accessState(r.near === 1 ? c.access2.at(row) : c.access1.at(row));
   const press = () => {
     view.select(view.spotOf(row), row);  // selects the line and closes the fan
@@ -63,8 +64,7 @@ function FanLine({p, r}: {p: PanelProps; r: FanRow}) {
   };
   return <li class="vl-row">
     <button type="button" class="vl-main" data-row={row} data-label={r.label} onClick={press}
-            onPointerEnter={(e) => { if (e.pointerType === "mouse") map?.highlight(row); }}
-            onPointerLeave={(e) => { if (e.pointerType === "mouse") map?.highlight(null); }}>
+            {...hover}>
       <Shape text={r.label} />
       <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
       <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>

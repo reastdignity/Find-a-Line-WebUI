@@ -21,6 +21,7 @@ import { AccessPair } from "../../access";
 import { t } from "../../i18n";
 import { COLORS } from "../../style";
 import { clearanceText, isTight } from "../../tight";
+import type { SpotMap } from "../SpotMap";
 import type { Best, Pick as SpotPick, SectorRow, SpotView, ViewSort } from "../spots";
 import { BEST_ROWS } from "../viewgeom";
 import { count, cx, Swatch, TightKey, TightMark } from "./common";
@@ -101,6 +102,27 @@ export function rowKeys(e: KeyboardEvent) {
   to?.focus();
 }
 
+// the line a row thickens on the map while the mouse is over it
+let hovered: {map: SpotMap; row: number} | null = null;
+
+/** A row's handlers for the mouse over it: its line is drawn wider on the map; a row that goes while the mouse is
+ *  over it (a filter, the map moving under a list that follows it) never sees the pointer leave, so it ends the
+ *  highlight itself. */
+export function useHover(map: SpotMap | null, row: number) {
+  const leave = () => {
+    if (hovered && hovered.row === row) { hovered.map.highlight(null); hovered = null; }
+  };
+  useEffect(() => leave, [map, row]);
+  return {
+    onPointerEnter: (e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || !map) return;
+      hovered = {map, row};
+      map.highlight(row);
+    },
+    onPointerLeave: (e: PointerEvent) => { if (e.pointerType === "mouse") leave(); },
+  };
+}
+
 interface RowProps extends PanelProps {
   spot: number;
   /** The row's line: the spot's shown line, or a pick's. */
@@ -127,12 +149,11 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
     const now = view.selected;
     if (now) map?.reveal(now.row, padding());  // a list's selection may move the map
   };
-  const label = view.label(spot);
+  const label = view.label(spot), hover = useHover(map, row);
   return <li class={cx("vl-row", on && "vl-sel", pick && "vl-pick")} id={id}>
     <button type="button" class="vl-main" aria-pressed={on} tabIndex={tab ? 0 : -1} data-spot={spot} data-row={row}
             onClick={press}
-            onPointerEnter={(e) => { if (e.pointerType === "mouse") map?.highlight(row); }}
-            onPointerLeave={(e) => { if (e.pointerType === "mouse") map?.highlight(null); }}>
+            {...hover}>
       {mark ? <Shape text={mark} /> : <span class="vl-num">{label}</span>}
       {pick && <span class="vl-lab" title={pick}>{pick}</span>}
       <Cells view={view} row={row} height={height} />
@@ -143,15 +164,16 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
   </li>;
 }
 
-/** The headings of the rows (hidden from a screen reader: a row's values carry their names); `ranked`: the column
- *  the list is sorted by is marked "▾" (not for the picks, which are not ranked). */
+/** The headings of the rows (hidden from a screen reader: a row's values carry their names); sorted by the highest
+ *  point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked "▾"
+ *  (not for the picks, which are not ranked). */
 function Heads({view, ranked}: {view: SpotView; ranked: boolean}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
   const head = (key: string, text: string) => <span class={by === key ? "vl-by" : undefined}>{text}{by === key && " ▾"}</span>;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc")} aria-hidden="true">
     <span /><span />
     {head("len", t("ui.list.col.length"))}
-    {head("h", t(ranked && view.sort === "hmax" ? "ui.list.col.highest" : "ui.list.col.mean"))}
+    {head("h", t(view.sort === "hmax" ? "ui.list.col.highest" : "ui.list.col.mean"))}
     {head("clr", t("ui.list.col.clear"))}
     {withAccess(view) && <span class="vl-cell-acc">{t("ui.list.col.anchors")}</span>}
     {head("n", t("ui.list.col.lines"))}
@@ -176,14 +198,14 @@ const NEXT_BEST: Record<string, {best: Best; text: string}> = {
 /** The top block: "Start here" at the Area level, else the best spots in view (with All: the spots in view). */
 function TopBlock(p: PanelProps) {
   const {view} = p, area = view.level === "area", all = view.best === "all", v = view.inView;
-  const height = !area && view.sort === "hmax" ? "hmax" : "hmean";
+  const height = view.sort === "hmax" ? "hmax" : "hmean";
   let title: string, rows: ComponentChildren[] = [], note = "", more: {best: Best; text: string} | null = null, tight = false;
   if (area) {
     title = t("ui.view.start");
     const picks: SpotPick[] = view.picks();
     const stop = Math.max(0, picks.findIndex((k) => view.selected?.spot === k.spot && view.selected.row === k.row));
     rows = picks.map((k, r) => <Row key={k.kind} {...p} spot={k.spot} row={k.row} id={`vl-top-${k.kind}`} tab={r === stop}
-                                    mark={"P" + k.n} pick={t(`ui.view.pick.${k.kind}`)} height="hmean" />);
+                                    mark={"P" + k.n} pick={t(`ui.view.pick.${k.kind}`)} height={height} />);
     tight = picks.some((k) => tightRow(view, k.row));
     if (!picks.length) note = t("ui.view.none_pass");
   } else {

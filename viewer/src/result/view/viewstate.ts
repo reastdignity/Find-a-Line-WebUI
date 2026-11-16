@@ -113,8 +113,9 @@ export function watchPanels(view: SpotView, f: () => void): () => void {
 
 /** Sort the list of spots and keep the choice. */
 export function sortBy(view: SpotView, sort: ViewSort) {
+  const hint = holdOf(view).state.hint;  // first: a view's first use of its panel state gives it the kept sort
   view.setSort(sort);
-  keep({sort, hint: holdOf(view).state.hint});
+  keep({sort, hint});
 }
 
 /** Show or hide the hint and keep the choice. */

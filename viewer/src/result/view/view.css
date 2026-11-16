@@ -20,7 +20,8 @@
 .ui .vl-main, .ui .vl-cols { display: grid; grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) minmax(0, .8fr);
   column-gap: 4px; align-items: center; padding: 0 8px 0 5px; border-left: 3px solid transparent; }
 .ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc { grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) 44px minmax(0, .6fr); }
-.ui .vl-main { width: 100%; min-height: 38px; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 8px 8px 0;
+/* positioned: the hidden names of its values (u-sr) stay inside the row */
+.ui .vl-main { position: relative; width: 100%; min-height: 38px; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 8px 8px 0;
   background: none; color: inherit; font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: left;
   cursor: pointer; }
 .ui .vl-main:hover { background: var(--surface-2); }
