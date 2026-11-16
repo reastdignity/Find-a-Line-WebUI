@@ -38,7 +38,8 @@ is recorded as not measured, with its reason, and counts in no total:
   classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
   two states is one signature;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
-  scaled to the screen);
+  scaled to the screen), also without what lies in a map's credits or scale (a text's or control's zone, "credits" or
+  "scale", is kept with its size and makes a signature of its own; its nearest named ancestor is kept too);
 - the document wider than its viewport (the defect), and apart the elements that scroll sideways by themselves
   (overflow-x auto or scroll, content wider than their box);
 - "the same grey box" as rendered: the visible containers (not controls) of at least BOX_MIN px each way with an
@@ -690,6 +691,18 @@ MEASURE_JS = r"""(opts) => {
     if (!hit || hit === e || e.contains(hit) || owner.contains(hit) || hit.contains(e)) return false;
     return !(e.labels && [...e.labels].some((l) => l.contains(hit)));
   };
+  // Where an element lies: "credits" inside a map's credits (Leaflet's attribution control, the 3D view's credits, the
+  // home cards' mini-map credits), "scale" inside Leaflet's scale control, else null; and its nearest named ancestor
+  // (one with an id, a landmark, a dialog or a section: its tag and id, or its first two classes)
+  const ZONES = [["credits", ".leaflet-control-attribution, .v3-credits, .c-thumb-credit"],
+                 ["scale", ".leaflet-control-scale"]];
+  const zone = (e) => { for (const [name, sel] of ZONES) if (e.closest(sel)) return name; return null; };
+  const NAMED = "[id], dialog, main, nav, header, footer, aside, section, [role=dialog], [role=region]";
+  const within = (e) => {
+    const a = e.parentElement && e.parentElement.closest(NAMED);
+    if (!a) return null;
+    return a.tagName.toLowerCase() + (a.id ? "#" + a.id : classes(a).split(".").slice(0, 3).join("."));
+  };
   const controls = [], unreachable = [], hidden = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
   try { modal = document.querySelector("dialog:modal"); } catch (e) { modal = null; }
@@ -721,7 +734,8 @@ MEASURE_JS = r"""(opts) => {
       /\S/.test([...e.parentElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""));
     const part = reachable(owner, target);  // the target as far as no ancestor clips it; null: none of it
     const cut = part || target;
-    const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline,
+    const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline, zone: zone(e),
+                  within: within(e),
                   w: r1(cut.right - cut.left), h: r1(cut.bottom - cut.top),
                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
     (!part ? unreachable : covered(e, owner) ? hidden : controls).push(item);
@@ -743,7 +757,8 @@ MEASURE_JS = r"""(opts) => {
       const m = e.getScreenCTM();
       if (m) fs *= Math.sqrt(Math.abs(m.a * m.d - m.b * m.c));
     }
-    texts.push({sig: sig(e) + (svg ? " (svg)" : ""), size: r1(fs), chars: own.length, text: short(own)});
+    texts.push({sig: sig(e) + (svg ? " (svg)" : ""), size: r1(fs), chars: own.length, text: short(own),
+                zone: zone(e), within: within(e)});
   }
   // Sideways: the document wider than its viewport; apart, the elements that scroll sideways by themselves
   const doc = document.scrollingElement || document.documentElement;
@@ -794,34 +809,42 @@ IMPACTS = ("critical", "serious", "moderate", "minor")
 
 def recut(record: dict, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     """The counts under the bounds `controls` and `text` from a state's kept sizes ("control_sizes": [signature,
-    width, height, how, inline, example]; "text_sizes": [signature, size, characters, example]): the controls under
+    width, height, how, inline, example, zone, within]; "text_sizes": [signature, size, characters, example, zone,
+    within]; zone: "credits" or "scale" of a map, else None; within: the nearest named ancestor): the controls under
     each bound by signature (links inside a sentence apart: WCAG 2.5.8 exempts them) and an example of each (the
-    smallest), the text characters under each bound in all and by signature, an example of each. Any bounds can be
-    asked of a kept log (`pages --summarise --controls ...`)."""
+    smallest), the text characters under each bound in all, outside a map's credits and scale, and by signature, an
+    example of each. Any bounds can be asked of a kept log (`pages --summarise --controls ...`)."""
     under = {str(b): Counter() for b in controls}
     inline_under = {str(b): Counter() for b in controls}
     examples = {}
-    for sig, w, h, how, inline, example in record["control_sizes"]:
+    for sig, w, h, how, inline, example, *where in record["control_sizes"]:
+        sig = sig + (f" [{where[0]}]" if where and where[0] else "")  # a map's credits or scale: a signature apart
         key = sig + (" (inline link)" if inline else "")
         for b in controls:
             if min(w, h) < b:
                 (inline_under if inline else under)[str(b)][sig] += 1
                 if key not in examples or min(w, h) < min(examples[key]["w"], examples[key]["h"]):
-                    examples[key] = {"w": w, "h": h, "text": example, "how": how}
+                    examples[key] = {"w": w, "h": h, "text": example, "how": how,
+                                     **dict(zip(("zone", "within"), where))}
     small = {str(b): Counter() for b in text}
     chars = {str(b): 0 for b in text}
+    outside = {str(b): 0 for b in text}
     text_examples = {}
-    for sig, size, n, example in record["text_sizes"]:
+    for sig, size, n, example, *where in record["text_sizes"]:
+        zone = where[0] if where else None
+        sig = sig + (f" [{zone}]" if zone else "")
         for b in text:
             if size < b:
                 small[str(b)][sig] += n
                 chars[str(b)] += n
+                outside[str(b)] += 0 if zone else n
                 if sig not in text_examples or size < text_examples[sig]["size"]:
-                    text_examples[sig] = {"size": size, "text": example}
+                    text_examples[sig] = {"size": size, "text": example, **dict(zip(("zone", "within"), where))}
     return {"controls_under": {b: dict(sorted(c.items())) for b, c in under.items()},
             "inline_links_under": {b: dict(sorted(c.items())) for b, c in inline_under.items()},
             "control_examples": dict(sorted(examples.items())),
-            "text_chars_under": chars, "text_under": {b: dict(sorted(c.items())) for b, c in small.items()},
+            "text_chars_under": chars, "text_chars_under_outside_credits": outside,
+            "text_under": {b: dict(sorted(c.items())) for b, c in small.items()},
             "text_examples": dict(sorted(text_examples.items()))}
 
 
@@ -834,12 +857,13 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
     result = {
         "viewport": raw["viewport"],
         "controls": len(raw["controls"]),
-        "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"]] for c in raw["controls"]],
+        "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"], c["zone"], c["within"]]
+                          for c in raw["controls"]],
         "controls_grown": sum(c["how"].startswith("with ::") for c in raw["controls"]),
         "unreachable": dict(sorted(Counter(c["sig"] for c in raw["unreachable"]).items())),
         "covered": dict(sorted(Counter(c["sig"] for c in raw["covered"]).items())),
         "text_elements": len(raw["texts"]), "text_chars": sum(t["chars"] for t in raw["texts"]),
-        "text_sizes": [[t["sig"], t["size"], t["chars"], t["text"]] for t in raw["texts"]],
+        "text_sizes": [[t["sig"], t["size"], t["chars"], t["text"], t["zone"], t["within"]] for t in raw["texts"]],
         "document_over": raw["document_over"], "scrollers": raw["scrollers"],
         "containers": dict(sorted(raw["containers"].items())), "grey_boxes": dict(sorted(raw["grey"].items())),
     }
@@ -1001,6 +1025,9 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
             n = sum(r["text_chars_under"][str(b)] for r in ok)
             row[f"text_chars_under_{b}"] = n
             row[f"text_share_under_{b}"] = round(n / chars, 4) if chars else None
+            m = sum(r.get("text_chars_under_outside_credits", {}).get(str(b), 0) for r in ok)  # a map's credits, scale
+            row[f"text_chars_under_{b}_outside_credits"] = m
+            row[f"text_share_under_{b}_outside_credits"] = round(m / chars, 4) if chars else None
         row["states_document_sideways"] = sorted(r["page"] for r in ok if r["document_over"])
         row["states_with_scrollers"] = sorted(r["page"] for r in ok if scrollers(r))
         row["containers"] = sum(sum(r.get("containers", {}).values()) for r in ok)
@@ -1082,7 +1109,7 @@ def pages_markdown(s: dict) -> str:
     cs, ts = s["bounds"]["controls"], s["bounds"]["text"]
     columns = (["Device, theme", "States", "Controls (unreachable / covered apart)"]
                + [x for b in cs for x in (f"Under {b} px (signatures)", f"Links in a sentence under {b} px")]
-               + ["Text chars"] + [f"Text under {b} px" for b in ts]
+               + ["Text chars"] + [f"Text under {b} px (outside a map's credits and scale)" for b in ts]
                + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
                   "axe violations: nodes (rules) crit / serious / moderate / minor", "axe incomplete: nodes",
                   "No axe result", "Errors"])
@@ -1097,7 +1124,8 @@ def pages_markdown(s: dict) -> str:
         cells = ([key, r["states"], f"{r['controls']} ({r['controls_unreachable']} / {r.get('controls_covered', 0)})"]
                  + [x for b in cs for x in (f"{r[f'controls_under_{b}']} ({r[f'control_signatures_under_{b}']})",
                                             r.get(f"inline_links_under_{b}", 0))]
-                 + [r["text_chars"]] + [pct(b) for b in ts]
+                 + [r["text_chars"]] + [f"{pct(b)} ({r.get(f'text_chars_under_{b}_outside_credits', '–')})"
+                                        for b in ts]
                  + [f"{len(r['states_document_sideways'])} / {len(r['states_with_scrollers'])}",
                     f"{r['grey_boxes']} / {r['containers']}", v, inc, r["axe_missing"], len(r["errors"])])
         out.append("| " + " | ".join(str(c) for c in cells) + " |")
@@ -1112,6 +1140,7 @@ def pages_markdown(s: dict) -> str:
     ctl = lambda e: (f"{e['w']}×{e['h']} “{e['text'].replace('|', '¦')}”"  # noqa: E731
                      + (f" ({e['how']})" if e.get("how", "own") != "own" else "")) if e else ""
     txt = lambda e: f"{e['size']} px “{e['text'].replace('|', '¦')}”" if e else ""  # noqa: E731
+
     for b in cs:
         rows(f"controls_under_{b}_phones", f"Controls under {b} px on the phones", ctl)
         rows(f"controls_under_{b}_desktop", f"Controls under {b} px on the desktop", ctl)

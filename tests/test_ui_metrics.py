@@ -329,6 +329,25 @@ def test_covered_controls_apart():
 
 
 @BROWSER
+def test_text_in_a_maps_credits_and_scale_apart():
+    """Text and controls inside a map's credits (Leaflet's attribution) or scale are marked and counted apart: their
+    signatures carry the zone, the text under 12 px is given with and without them; every text keeps its nearest
+    named ancestor."""
+    r = _measured('<div class="leaflet-control-attribution"><a href="#o">OpenStreetMap</a> contributors</div>'
+                  '<div class="leaflet-control-scale"><div class="line">50 m</div></div>'
+                  '<section id="side"><p class="small">tiny text</p></section>',
+                  ".leaflet-control-attribution, .leaflet-control-scale, .small { font-size: 10px; }")
+    assert r["text_under"]["12"] == {"a [credits]": 13, "div.leaflet-control-attribution [credits]": 12,
+                                     "div.line [scale]": 4, "p.small": 9}
+    assert r["text_chars_under"]["12"] == 38 and r["text_chars_under_outside_credits"]["12"] == 9
+    assert r["text_examples"]["p.small"]["within"] == "section#side"
+    assert r["inline_links_under"]["24"] == {"a [credits]": 1}
+    row = ui_metrics.summarise([{**r, "page": "p", "device": "iphone", "theme": "light",
+                                 "seconds": {"load": 1, "steps": 0, "measure": 0}}])["per_device_theme"]["iphone light"]
+    assert (row["text_chars_under_12"], row["text_chars_under_12_outside_credits"]) == (38, 9)
+
+
+@BROWSER
 def test_a_decorating_pseudo_element_grows_nothing():
     """An absolutely positioned ::before inside the control's box (a dot, the 3D view's .v3-opt-dot) is no growth:
     the control is "own", not "with ::before", and not counted in controls_grown."""
