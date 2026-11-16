@@ -252,7 +252,8 @@ def strip_comments(text: str, blank_regex: bool = False) -> str:
             stack.append("`")
             i += 1
             continue
-        if c == "/" and text.startswith("//", i) and not (i >= 2 and text[i - 1] == ":" and text[i - 2].isalpha()):
+        url = (i >= 2 and text[i - 1] == ":" and text[i - 2].isalpha() and i + 2 < n and not text[i + 2].isspace())
+        if c == "/" and text.startswith("//", i) and not url:  # "https://x" in JSX text; "default:// a note" is one
             j = text.find("\n", i)
             j = n if j < 0 else j
             out[i:j] = " " * (j - i)
@@ -264,8 +265,9 @@ def strip_comments(text: str, blank_regex: bool = False) -> str:
             out[i:j] = _blank(text[i:j])
             i = j
             continue
-        # a regular expression after an operator or a keyword (not after "<": a closing tag)
-        if c == "/" and (prev == "" or prev in "(,=:[!&|?{};+-*%>~^"
+        # a regular expression after an operator, an arrow or a keyword; not after "<" (a closing tag), nor after "}"
+        # or ">" (JSX text: "{a} / {b}", "<p>/ day")
+        if c == "/" and (prev == "" or prev in "(,=:[!&|?{;+-*%~^" or text[max(0, i - 200):i].rstrip().endswith("=>")
                          or re.search(r"\b(return|typeof|case)\s*$", text[max(0, i - 8):i])):
             j, cls = i + 1, False  # a regular expression
             while j < n and text[j] != "\n":

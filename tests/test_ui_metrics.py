@@ -162,6 +162,11 @@ def test_strip_comments():
     assert "/\\/\\//g" not in blanked and "h / 2;" in blanked and blanked.split("\n")[3].endswith("x.org ×</p>")
     odd = "z = [/ a\n×]"  # a "/" that opens no regular expression on its line: the lines stay as they are
     assert ui_metrics.strip_comments(odd, blank_regex=True) == odd
+    # JSX text: a "/" after "}" or ">" opens no regular expression; "word:// note" is a comment, an arrow's regex is one
+    jsx = "<p>{a} / {b} ×</p>\n<p>/ day ×</p>\nx = default:// note\nf = (s) => /×/.test(s)"
+    lines = ui_metrics.strip_comments(jsx, blank_regex=True).split("\n")
+    assert lines[:2] == ["<p>{a} / {b} ×</p>", "<p>/ day ×</p>"]
+    assert lines[2].rstrip() == "x = default:" and "×" not in lines[3] and lines[3].endswith(".test(s)")
 
 
 def test_font_size_and_colour_edges():
