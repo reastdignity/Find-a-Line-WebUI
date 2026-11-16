@@ -219,14 +219,19 @@ PUBLISHABLE: Dict[str, Dict] = {
 }
 
 
-def cards() -> Dict[str, str]:
-    """The dataset cards (README.md) the mirror serves, written by publish (P21): the texts of the tools that cut
-    the datasets."""
+def cards(mirror: Optional[str] = None, only: Optional[str] = None) -> Dict[str, str]:
+    """The dataset cards (README.md) the mirror serves, written by publish (P21), by the mirror's dataset folder:
+    the texts of the tools that cut the datasets: tools/sk_tiles.py CARD for Slovakia, tools/mirror_tiles.py
+    card_text for each of its DATASETS (a fixed card of before, Madeira's and Valle d'Aosta's, or one generated
+    from the dataset's record; mirror: the master, whose final indexes a generated card names missing inputs from;
+    only: that dataset's card alone)."""
     import sk_tiles
     import mirror_tiles
     found = {"slovakia": sk_tiles.CARD}
-    for spec in mirror_tiles.DATASETS.values():
-        found[spec["folder"]] = spec["card"]
+    for key in mirror_tiles.DATASETS:
+        ds = mirror_tiles.dataset(key)
+        if only is None or ds.name == only:
+            found[ds.name] = mirror_tiles.card_text(ds, mirror)
     return found
 
 
@@ -597,6 +602,14 @@ def _unindexed(paths: Iterable[str], indexed: set) -> List[str]:
     return sorted(found)
 
 
+def _walk(folder: str):
+    """os.walk without the folders whose name starts with "." (a mirror's .staging and .locks of
+    tools/mirror_tiles.py: a cut in progress and its locks, never a dataset)."""
+    for root, dirs, names in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        yield root, dirs, names
+
+
 def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str, int]]]:
     """A mirror folder (a dataset's, or the whole mirror) verified by hashing every listed tile: (faults,
     {path below folder: (sha256, bytes)} of every listed tile and every index.json). label stands for folder in
@@ -605,7 +618,7 @@ def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str
     files: Dict[str, Tuple[str, int]] = {}
     jobs = []
     indexes = sorted(os.path.relpath(root, folder).replace("\\", "/")
-                     for root, _, names in os.walk(folder) if "index.json" in names)
+                     for root, _, names in _walk(folder) if "index.json" in names)
     if not indexes:
         return [f"{label}: no index.json below it"], files
     for rel in indexes:
@@ -625,7 +638,7 @@ def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str
         if index.get("partial"):
             faults.append(f"{label}/{prefix}index.json: partial (still being cut)")
         files[prefix + "index.json"] = (_sha256(index_path), os.path.getsize(index_path))
-        for sub, _, names in os.walk(here):
+        for sub, _, names in _walk(here):
             for name in names:
                 if TILE_FILE.fullmatch(name):
                     path = os.path.relpath(os.path.join(sub, name), here).replace("\\", "/")
@@ -634,7 +647,7 @@ def read_master(folder: str, label: str) -> Tuple[List[str], Dict[str, Tuple[str
         for path, digest in tiles.items():
             jobs.append((prefix + path, digest))
     every = (os.path.relpath(os.path.join(root, name), folder).replace("\\", "/")
-             for root, _, names in os.walk(folder) for name in names)
+             for root, _, names in _walk(folder) for name in names)
     for product in _unindexed(every, {"" if rel == "." else rel for rel in indexes}):
         faults.append(f"{label}/{product + '/' if product else ''}: tiles without an index.json")
     start, last = time.time(), time.time()
@@ -664,6 +677,8 @@ def verify_remote(remote: Remote, read_back: bool) -> Tuple[List[str], int]:
     listing = remote.listing("")
     if listing is None:
         return ["<path>: not found"], 0
+    # a copy of a master read through a remote: its .staging and .locks are no dataset (_walk)
+    listing = {p: size for p, size in listing.items() if not any(part.startswith(".") for part in p.split("/")[:-1])}
     indexes = sorted(p for p in listing if p == "index.json" or p.endswith("/index.json"))
     if not indexes:
         return ["<path>: no index.json below it"], 0
@@ -931,7 +946,7 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
     faults = row_faults(row)
     if faults:
         raise Refused(f"{dataset}: its PUBLISHABLE row is not complete: {'; '.join(faults)}")
-    card = cards().get(dataset)
+    card = cards(mirror or os.environ.get(MIRROR_ENV), only=dataset).get(dataset)
     if not card:
         raise Refused(f"{dataset}: no card text")
     remote = Remote(rc, parse_remote(to))

@@ -521,12 +521,22 @@ def test_clean_removes_old_trash_only(world, capsys):
 
 # The pairs
 
+# The datasets tools/mirror_tiles.py cuts that have no PUBLISHABLE row (no approval to publish them): Madeira's
+# islets of batch 6. A new one is named here when it is added; a row is added only on the user's word
+CUT_WITHOUT_A_ROW = {"porto-santo", "desertas", "selvagens"}
+
+
 def test_publishable_datasets_are_the_mirrors_datasets():
-    """PUBLISHABLE's datasets: tools/mirror_tiles.py DATASETS and Slovakia (tools/sk_tiles.py); every one has a
-    card; source_id names the catalogue source whose mirror folders lie under the dataset."""
-    assert set(mp.PUBLISHABLE) == {spec["folder"] for spec in mirror_tiles.DATASETS.values()} | {"slovakia"}
-    assert set(mp.cards()) == set(mp.PUBLISHABLE)
+    """Every PUBLISHABLE row's dataset is cut by tools/mirror_tiles.py (DATASETS, by its folder name) or is Slovakia
+    (tools/sk_tiles.py); the datasets cut without a row are allowed and named (CUT_WITHOUT_A_ROW); every dataset has a
+    card, Madeira's and Valle d'Aosta's the fixed texts of before; source_id names the catalogue source whose mirror
+    folders lie under the dataset."""
+    cut = {mirror_tiles.dataset(key).name for key in mirror_tiles.DATASETS}
+    assert set(mp.PUBLISHABLE) <= cut | {"slovakia"}
+    assert cut - set(mp.PUBLISHABLE) == CUT_WITHOUT_A_ROW
+    assert set(mp.cards()) == cut | {"slovakia"}
     assert mp.cards()["slovakia"] == sk_tiles.CARD
+    assert mp.cards()["madeira"] == mirror_tiles.MADEIRA_CARD and mp.cards()["aosta"] == mirror_tiles.AOSTA_CARD
     for name, row in mp.PUBLISHABLE.items():
         assert row["dataset"] == name and row["source_id"] in SOURCES
         folders = mp.required_folders(row["source_id"])
@@ -571,6 +581,8 @@ def test_cards_state_the_changes():
         return " ".join(card.split("Changes made:", 1)[1].split("\n\n", 1)[0].split())
 
     for name, card in mp.cards().items():
+        if name not in mp.PUBLISHABLE:
+            continue  # a card of a dataset without a row is the cutting tool's own (generated), never served
         assert "5 mm" in changes(card) and "Values are not otherwise changed" in changes(card), name
         assert "not endorsed by" in card
     sk = changes(mp.cards()["slovakia"])
@@ -1234,3 +1246,40 @@ def test_rclones_lines_are_cut_and_masked():
     assert "dial tcp <host>" in said and "lookup <host>" in said and "<mirror>" in said
     first = remote.says(subprocess.CompletedProcess([], 1, b"", lines.split(b"\n")[0]))
     assert first == "<remote>/x: mkdir \"<root>/public\": permission denied"
+
+
+# After batch 6's tools/mirror_tiles.py (main 75615fc): its files in the master
+
+def test_the_cutters_own_files_never_leave_the_master(world, capsys):
+    """A final product folder of tools/mirror_tiles.py holds inputs.jsonl and verify.json, the dataset its card
+    README.md, the mirror's root .locks and .staging (a cut in progress: tiles without an index yet). verify of the
+    master (the dataset and the whole mirror) passes; publish copies none of them (the staged verify passes, the
+    server holds exactly the listed files and the tool's card)."""
+    product = world.mirror / "madeira" / "dtm" / "2m"
+    (product / "inputs.jsonl").write_text('{"id": "MDT_2m.zip!MDT_2m.tif", "stamp": "x"}\n')
+    (product / "verify.json").write_text('{"ok": true}\n')
+    (world.mirror / "madeira" / "README.md").write_text("the cutter's card\n")
+    (world.mirror / ".locks").mkdir()
+    (world.mirror / ".locks" / "madeira.dtm.2m.lock").write_text("pid 1")
+    staged = world.mirror / ".staging" / "porto-santo" / "dtm" / "5m" / "0_0"
+    staged.mkdir(parents=True)
+    (staged / "1_1.tif").write_bytes(b"a tile of a cut in progress")
+    assert world.run("verify", str(world.mirror / "madeira")) == 0
+    assert world.run("verify", str(world.mirror)) == 0
+    assert "0 faults" in capsys.readouterr().out
+    assert _publish(world, "madeira") == 0
+    published_ok(world, "madeira")  # exactly the listed files and the tool's card
+    names = {p.rsplit("/", 1)[-1] for p in tree(world.server)}
+    assert not names & {"inputs.jsonl", "verify.json", "madeira.dtm.2m.lock", "1_1.tif"}
+    assert not any(".staging" in p or ".locks" in p for p in tree(world.server))
+    assert tree(world.server / "public" / "v1" / "tiles" / "madeira")["README.md"].decode() == mirror_tiles.MADEIRA_CARD
+
+
+def test_a_cut_dataset_without_a_row_is_refused(world, capsys):
+    """Batch 6's islets are cut by tools/mirror_tiles.py but have no PUBLISHABLE row: publish refuses them with the
+    tool's text for a dataset without a row, before any request."""
+    for name in sorted(CUT_WITHOUT_A_ROW):
+        assert _publish(world, name) == 1
+        out = capsys.readouterr().out
+        assert f"refused: {name}: no row in PUBLISHABLE" in out
+    assert tree(world.server) == {}
