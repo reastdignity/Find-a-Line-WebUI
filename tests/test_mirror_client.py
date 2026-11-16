@@ -52,15 +52,29 @@ DATA_TILES = [(276, 127), (277, 127)]
 WIDE = (547000.5, 254400.5, 554200.5, 254800.5)
 
 
+def set_url(value):
+    """FINDALINE_MIRROR_URL for this test (None: unset, the default address; nothing asks it then). Not through
+    monkeypatch: on Windows os.environ's "" deletes the variable for the processes started later (the CRT's
+    putenv), so the empty value is put back as tests/conftest.py puts it."""
+    if value is None:
+        os.environ.pop("FINDALINE_MIRROR_URL", None)
+        return
+    os.environ["FINDALINE_MIRROR_URL"] = value
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.kernel32.SetEnvironmentVariableW("FINDALINE_MIRROR_URL", value)
+
+
 @pytest.fixture(autouse=True)
 def no_mirror_settings(monkeypatch):
-    """No mirror folder of this PC's (the user-level FINDALINE_MIRROR) and no data server unless a test sets one;
-    net's pauses are not waited for (each recorded)."""
+    """No mirror folder of this PC's (the user-level FINDALINE_MIRROR) and no data server unless a test sets one
+    (set_url; empty again after it); net's pauses are not waited for (each recorded)."""
     monkeypatch.delenv("FINDALINE_MIRROR", raising=False)
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", "")
+    set_url("")
     pauses = []
     monkeypatch.setattr(net, "_sleep", pauses.append)
-    return pauses
+    yield pauses
+    set_url("")
 
 
 @pytest.fixture
@@ -172,7 +186,7 @@ class Mirror:
 def mirror(tmp_path, http_server, monkeypatch):
     """The fixture mirror on the local server, FINDALINE_MIRROR_URL naming it."""
     served = Mirror(http_server, make_mirror(tmp_path / "served"))
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", served.url)
+    set_url(served.url)
     return served
 
 
@@ -264,15 +278,15 @@ def test_the_bases_and_the_setting(tmp_path, monkeypatch):
     turns it off), then the catalogue's URLs; with none of them the text names both settings."""
     layer = mirrored_layer(["https://other.example/test/dtm/1m"])
     reader = layer.readers[1.0]
-    monkeypatch.delenv("FINDALINE_MIRROR_URL")
+    set_url(None)
     assert tilebases.mirror_url() == tilebases.MIRROR_URL == "https://mirror.findaline.lukawski.org"  # no request
     assert reader.bases() == [f"{tilebases.MIRROR_URL}/v1/tiles/test/dtm/1m", "https://other.example/test/dtm/1m"]
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", "http://127.0.0.1:8080/")  # http:// accepted (P28), the slash dropped
+    set_url("http://127.0.0.1:8080/")  # http:// accepted (P28), the slash dropped
     assert reader.bases()[0] == "http://127.0.0.1:8080/v1/tiles/test/dtm/1m"
     root = make_mirror(tmp_path / "local")
     monkeypatch.setenv("FINDALINE_MIRROR", root)
     assert reader.bases()[0] == os.path.join(root, "test", "dtm", "1m") and len(reader.bases()) == 3
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", "")
+    set_url("")
     monkeypatch.delenv("FINDALINE_MIRROR")
     alone = mirrored_layer()
     assert alone.bases() == [] and alone.remote_base() is None
@@ -694,7 +708,7 @@ def test_the_web_pages_make_no_request(tmp_path, http_server, monkeypatch):
     import socket
     import web
     from settings import Limits
-    monkeypatch.setenv("FINDALINE_MIRROR_URL", http_server.base)
+    set_url(http_server.base)
     monkeypatch.setattr(socket.socket, "connect", lambda *a: pytest.fail("a connection from the web process"))
     monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("a request from the web process"))
     assert web.schema(Limits()) and web.schema()
@@ -724,3 +738,11 @@ def test_index_requests_take_their_turn(tmp_path, mirror, monkeypatch):
     assert f"{mirror.base()}/index.json" in turns
     assert sum(u.endswith(".tif") for u in turns) == len(DATA_TILES)
     assert layer.tile_url((1.0, *DATA_TILES[0])) == mirror.base()  # the host the tiles' slots are of
+
+
+def test_the_processes_of_the_tests_ask_no_data_server():
+    """A process a test starts (a worker's phase, the quick lane, a search) inherits the empty FINDALINE_MIRROR_URL
+    of tests/conftest.py, also on Windows, where os.environ's "" alone would leave it unset (the default address)."""
+    import subprocess
+    code = "import os; print(repr(os.environ.get('FINDALINE_MIRROR_URL', 'unset')))"
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "''"
