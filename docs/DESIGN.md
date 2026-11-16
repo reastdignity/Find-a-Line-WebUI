@@ -317,9 +317,8 @@ components:
 **Status: a draft (2026-11-16), not in force.** Two parts:
 
 - **Part 1, "Today"** (the eight sections from Overview to Do's and Don'ts): the design language as the code has it
-  at `main` 2f019d6, described, not judged. The token header above holds these values only. Defects found in the
-  baseline are being fixed on a branch of their own (among them the contrast of `--muted` and the "Data coverage"
-  button's 9.75 px), so a few numbers below will move.
+  at `main` 2f019d6, described, not judged. The token header above holds these values only. The numbers are of
+  that commit; later changes of the code move them.
 - **Part 2, "Proposed rules"** (the last section): rules that do not depend on the new look, each with today's
   number, measured alternatives and a recommendation. **None is in force**: the user picks.
 
@@ -348,7 +347,7 @@ element of the class `ui` (never `:root`, so other pages keep their look) [C `ui
   blue accent (`--accent`) for links, the primary button, chips and segments that are on.
 - Headings in Barlow Condensed (`--display`, bundled, weights 500 to 700), text in the system's font (`--font`),
   values, status chips, column heads and some labels in the system's monospace (`--mono`).
-- 33 stroked icons of its own (24 × 24, drawn at 18 px), the logo with the magenta line writing "line".
+- 34 stroked icons of its own (24 × 24, drawn at 18 px), the logo with the magenta line writing "line".
 - Two themes: the system's, or the one chosen (`data-theme`); the map's tiles stay light in the dark theme.
 - Touch: `--touch` 36 px for buttons and inputs, 44 px on coarse pointers [C `ui/tokens.css`].
 
@@ -390,7 +389,7 @@ measured here.
 **Colours outside the tokens** [S]: 50 distinct values in 80 places of the CSS (18 of them the sign-in buttons'
 brand colours, kept after the providers' guidelines [C `ui/pages.css`]) and 60 distinct in 83 places of the code
 (the coverage map's palette 32, the profile chart 17, the other runs' colours 8, the result map 8, the other 18 in
-9 files).
+10 files).
 
 ## Typography
 
@@ -413,7 +412,8 @@ in monospace capitals, stats' numbers 22 px with tabular figures.
 46 declarations are under 12 px. These are counts of CSS declarations, not of what is drawn. Which values a scale
 would keep and which it would fold into a step: R5 (below).
 
-**Text as drawn** [P] (share of the visible characters under a size; the two themes measured the same in pass 1):
+**Text as drawn** [P] (share of the visible characters under a size; in pass 1 the two themes differed by at most
+12 characters):
 
 | Device (states, characters) | Under 12 px | Under 11 px | Under 10 px |
 | --- | --- | --- | --- |
@@ -422,7 +422,7 @@ would keep and which it would fold into a step: R5 (below).
 | Pixel 7 (85, 178 354) | 22 703 (12.7 %) | 13 010 (7.3 %) | 5 450 (3.1 %) |
 
 Where it is: the map's credits and scale (9.8 px on the desktop, 10 px on phones, on nearly every state with a map),
-the "Data coverage" button (9.75 px, a slip: `.ui button { font: inherit }` beats its own size), the highline
+the "Data coverage" button (9.75 px: the rule `.ui button { font: inherit }` overrides its own 13 px), the highline
 layer's bar numbers (9 px; 8 px on the iPhone) and chart names (11.5 px), the 3D view's notes (11 px), the list's
 column heads (11 px), the bottom bar's labels on phones (11.5 px), the eyebrow lines and the "?" (11.5 px), the
 profile chart's labels (11 px).
@@ -455,9 +455,8 @@ lines, the size word, the side panel's rail, field values, the coverage page's l
 - **Shadows in use** [O: every `box-shadow` declaration of the CSS, its value as written]: 63 declarations, 25
   distinct values; 27 use `var(--shadow)`, 5 `var(--focus)`, 8 `none`, the rest are single literal shadows (the
   segment that is on, the splitter's tab, the sheet's upward shadow, the 3D view's marks and others). What a
-  scale would keep: the token, the focus ring and `none` (40 of the 63); what it would fold: the other 23 (four of
-  them combine the token with a ring), into the token or into a second, smaller shadow for things raised inside a
-  panel (an observation, not counted per element).
+  scale would keep: the token, the focus ring and `none` (40 of the 63); what it would fold: the other 23 (three of
+  them combine the token with a ring).
 - **Layers** [S]: 17 distinct z-index values (1, 2, 4, 5, 6, 7, 8, 9, 10, 900, 1000, 1001, 1002, 1100, 1150,
   1200, 1300), no named scale. They fall into two bands: 1 to 10 inside a page's own parts (panels, the sheet, the
   splitter, the bottom bar) and 900 to 1300 for what goes over the map (Leaflet's corners of controls sit at
@@ -466,8 +465,9 @@ lines, the size word, the side panel's rail, field values, the coverage page's l
   radius of 8 px or more and a shadow; 21 more with three of the four, 28 with two. As rendered [P], by the same
   four (and at least 40 px): 65 of 1 364 containers on the desktop, 31 of 1 706 on the iPhone (the coverage page's
   cards and legends, the 3D view's credits, Home's panels, the profile card, the dialogs). **This strict count does
-  not measure what the user calls "the same grey box"**: most of that look is boxes without a shadow (grey tiles,
-  side panels, chips). A count that does needs the user's marks on screenshots first.
+  not measure the user's tell, "Same grey box everywhere"**. A reading, not the user's words: most of that look is
+  boxes without a shadow (grey tiles, side panels, chips). A count that does needs the user's marks on screenshots
+  first.
 
 ## Shapes
 
@@ -506,7 +506,7 @@ status, progress and stats, sheet and bottom bar), `?ui=kit-result`, `?ui=kit-se
 Panels, cards, dialogs, popovers and legends share one look: what sets them apart is their place, not their
 container.
 
-**Icons** (`ui/icons.tsx`): 33 icons (search, folder, pin, poly, file, cliff, layers, share, download, star, back,
+**Icons** (`ui/icons.tsx`): 34 icons (search, folder, pin, poly, file, cliff, layers, share, download, star, back,
 next, down, filter, bars, ruler, user, close, plus, check, clock, list, home, link, zoom, compare, edit, more,
 locate, info, rope, warn, menu, refresh), stroked with the text's colour; the access mark's three signs; the logo
 and its mark (`ui/logo/`).
@@ -634,11 +634,12 @@ the user picks. Rules here do not depend on the new look.
   - a. 44 px (the platforms' advice).
   - b. 40 px.
   - c. 24 px (the minimum of WCAG 2.2 level AA, 2.5.8).
-- Beside it, for the desktop: 24 px as the floor (today 1 866 of 4 870 controls under 24 px over 81 states, 452 of
-  them links in text; without the coverage page and the layer: 869 of 2 664, 368 links in text).
-- **Recommendation**: a for the main flows on phones (sign-in, search, result, Home), with 24 px as the floor
-  everywhere; decide between a and b when the 40 px count exists. 44 is what both phone platforms advise, and the
-  phones are the user's second aim.
+- **R2 desktop, a floor for the desktop** (links in text exempt). Today [P; O]: 1 866 of 4 870 controls under
+  24 px over 81 states, 452 of them links in text; without the coverage page and the layer, 869 of 2 664, 368 of
+  them links in text. Options: a. 24 px (WCAG 2.2 AA, 2.5.8); b. no floor on the desktop.
+- **Recommendation**: a for the main flows on phones (sign-in, search, result, Home), and R2 desktop a; decide
+  between a and b on phones when the 40 px count exists. 44 is what both phone platforms advise, and the phones are
+  the user's second aim.
 
 ### R3 The contrast of text
 
@@ -684,7 +685,8 @@ the user picks. Rules here do not depend on the new look.
   - c. 12, 13, 14, 16, 20, 30 (six steps). 110 change (98 up, 12 down): 18–24 → 20; 26, 32 → 30.
   - d. 12, 14, 16, 20, 30 (five steps). 149 change (102 up, 47 down): 12.5 → 12, 13 → 14.
 - **Recommendation**: a with R1 a (b with R1 b). The 13 px step keeps today's most used sizes (12.5 and 13 px: 74
-  declarations) on one step; the heading sizes stay for the mock-up to confirm.
+  declarations) on one step. The rule's matter is the number of steps and the smallest step (R1); the steps from
+  13 px up (text, headings) depend on the body font and the look, and may move on the pilot's mock-up.
 
 ### R6 A radius scale
 
@@ -708,7 +710,9 @@ the user picks. Rules here do not depend on the new look.
   - b. 0, 2, 4, 6, 8, 12, 16, 24, 32. 238 change (10 px, 97 uses, → 12).
   - c. 0, 4, 8, 12, 16, 24, 32 (a 4 px grid). 386 change (6 px, 101 uses, → 8; 2 px → 4).
 - **Recommendation**: b: few enough steps to be a rule, and 10 px moving to 12 is a visible but small change; a
-  keeps today's look most closely but is nearly every even number.
+  keeps today's look most closely but is nearly every even number. As with R6: spacing is open for the mock-ups
+  ("Keep anchors, open the rest"), so the values may move on the pilot's mock-up; the number of steps is this rule's
+  matter.
 
 ### R8 Levels of container
 
@@ -717,14 +721,16 @@ the user picks. Rules here do not depend on the new look.
 - **Today** [S, P]: panels, cards, dialogs, popovers and legends share one look (Components); 18 selectors use all
   four of surface, border, radius and shadow. No count yet measures what the user sees (Elevation).
 - **Options**:
-  - a. Three levels: **ground** (sections on the page itself, set apart by space, a heading or a rule, no box),
-    **raised** (what floats over the map or other content: the sheet, popovers, dialogs, the profile card, map
-    controls; the only level with a shadow), **inset** (a value or control set into its container: inputs, tiles,
-    the segmented track; no shadow).
-  - b. Two levels: ground and raised; no tiles.
-  - c. Four levels: ground, band (a tinted section without a border), raised, overlay (a dialog over a scrim).
+  - a. Three levels: **ground** (the page's own sections: groups of a form, the parts of a side panel),
+    **raised** (what floats over the map or over other content: the sheet, popovers, dialogs, the profile card, map
+    controls), **inset** (a value or a control set into its container: inputs, tiles, the segmented track).
+  - b. Two levels: ground and raised; what a holds as inset belongs to its container's level.
+  - c. Four levels: ground, band (a section set apart from the ground on a long page: the result's details, a
+    form's advanced part), raised, overlay (a dialog that blocks the page until it is answered).
   - d. In addition to a, b or c (answerable on its own, "R8 d yes / no"): no box around a single sentence; a group
     gets a box only when it can be moved or folded, or lies over something else.
+- Today's look, the mock-up decides: the ground has no box; raised things carry the shadow; tiles and controls
+  have none.
 - No number grounds this rule yet: the rendered count of boxes does not measure what the user sees (Elevation),
   and the user's marks on screenshots are open.
 - **Recommendation**: a and d. They match the kinds the code already has (side panels and sections, floating
@@ -811,6 +817,10 @@ Settled on the pilot's mock-up.
 #### Corner and edge shapes
 
 Settled on the pilot's mock-up.
+
+#### Spacing values
+
+Settled on the pilot's mock-up (the number of steps: R7).
 
 #### The containers' look
 
