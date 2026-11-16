@@ -70,7 +70,7 @@
   "field.drop_radius.label": "Drop: measured within",
   "field.drop_radius.unit": "m",
   "field.drop_radius.help": "The distance around each anchor where the search finds the lowest ground for the drop.",
-  "field.access.label": "Mark the access to anchors",
+  "field.access.label": "Mark anchors you can walk to",
   "field.access.unit": "",
   "field.access.help": "Marks each anchor: easy access (you can walk to the anchor on foot), cannot tell, or hard access. Read from the ground alone: the map cannot see paths, fences, private land or trees. No line is filtered out.",
 

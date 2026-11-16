@@ -111,7 +111,8 @@ cards, a dot and "reset" for a value that differs from Basic's, "Save into" / "S
 model) and `EstimateBar`, the bar of both tabs (the size word, the receipt, Start; a phone's compact bar);
 `BasicPane.tsx` the Basic tab (with "Reaching the anchors": the access mark is on in every Basic search, `basic.ts`
 `BASIC_ACCESS`, where the site's schema has the field; the schema's and the command line's default stays off, so
-the form sends `access: true` as a changed value and Advanced, filled from Basic, shows it ticked), the rig's window
+the form sends `access: true` as a changed value and Advanced, filled from Basic, shows it ticked; Advanced's field
+takes the "?" of the same help through `Field`'s `hintButton`), the rig's window
 and the dialog of going back to Basic; `basic.ts` the form's rules
 as pure functions (spec-search 1.2: `basicRequestValues` (every value explicit), `basicProblem` (a site that leaves
 out a field Basic must send), `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`, `sizeOf`, the rig's words and

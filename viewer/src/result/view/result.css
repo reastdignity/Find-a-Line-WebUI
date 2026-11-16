@@ -155,10 +155,10 @@
 .ui .r-col-plain { cursor: default; }
 @media (pointer: coarse) { .ui .r-with-acc .r-row { grid-template-columns: 18px 1fr 1fr 1fr 56px 52px 40px; } }
 /* a list narrower than the default (a kept width of before, a list dragged narrow): the columns closer together */
-.ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 44px 44px 30px; gap: 4px; }
-.ui .r-acc-tight .r-member { grid-template-columns: 14px 1fr 1fr 1fr 44px 44px 30px; }
+.ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 46px 44px 30px; gap: 4px; }
+.ui .r-acc-tight .r-member { grid-template-columns: 14px 1fr 1fr 1fr 46px 44px 30px; }
 .ui .r-acc-tight .r-col-plain { letter-spacing: 0; }
-@media (pointer: coarse) { .ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 44px 48px 40px; } }
+@media (pointer: coarse) { .ui .r-acc-tight .r-row { grid-template-columns: 18px 1fr 1fr 1fr 46px 48px 40px; } }
 
 /* Details of the selected line */
 .ui .r-details { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

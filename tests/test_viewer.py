@@ -3201,7 +3201,7 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert pieces["mark"] == ["svg", "ac ac-2", "img", "easy access", "0 0 16 16", True]
     assert 'class="ac-map ac-0"' in pieces["svg"] and 'width="24"' in pieces["svg"] and pieces["mapMark"] == 24
     assert 'aria-label="Anchor 2: hard &quot;access&quot; &lt;b&gt;"' in pieces["svg"]
-    assert pieces["noStyle"] and 1 in pieces["signs"]
+    assert pieces["noStyle"] and pieces["signs"] == [0, 1, 2]  # a sign for every state, no style attribute
     # a favourite
     favourite = out["favourite"]
     assert favourite["sent"] == favourite["back"] == [2, 0]

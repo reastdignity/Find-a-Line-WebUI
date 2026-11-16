@@ -2742,7 +2742,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["edit_old"][1] == "4 values differ from Basic's: they have a dot. “reset” puts Basic's value back.", r
     title, items, note, focused = r["dialog"]
     assert title == "Basic cannot show 4 of your settings" and focused == "Stay in Advanced", r
-    assert sorted(items) == ["A-frame height 0 m", "Mark the access to anchors: no", "No-fall zone at the ends 5 m",
+    assert sorted(items) == ["A-frame height 0 m", "Mark anchors you can walk to: no", "No-fall zone at the ends 5 m",
                              "One line per pair of anchor squares: off"], r
     assert note == ("Stay in Advanced to keep them. Or reset them to Basic's values: The best lines here; Heavy: sag, "
                     "no-fall zone 3 m, A-frames 2 m."), r
@@ -3058,7 +3058,7 @@ def test_access_mark_in_the_form(tmp_path):
     """The access mark in the web form (the accepted mock-up, step 1d-P): Basic's row "Reaching the anchors" with
     its note and the "?" that opens the help in place (the key of the three states); the receipt ends with "access
     marked, no line filtered out" and opens the field in Advanced; Advanced, filled from Basic, has the field
-    ticked without a dot; unticked it gets the dot, the receipt loses its part and the request no longer carries
+    "Mark anchors you can walk to" ticked without a dot, its "?" opens the same help; unticked it gets the dot, the receipt loses its part and the request no longer carries
     the field; "reset" ticks it again. No CSP violations."""
     from playwright.sync_api import sync_playwright
     _search_page(tmp_path, "", folder_name="basictest")
@@ -3093,6 +3093,15 @@ def test_access_mark_in_the_form(tmp_path):
                         box.closest('[data-topic]').dataset.topic, document.querySelector('.s-receipt').textContent.includes('access marked'),
                         window.FINDALINE_SEARCH.request.params.access ?? null]; }"""
             r["advanced"] = page.evaluate(field)
+            # Advanced's field: the mock-up's label, and its "?" opens the same help in place (no bubble of its own)
+            page.click(".s-pane [data-field=access] .ac-hint")
+            page.wait_for_selector(".s-pane [data-field=access] .ac-help", timeout=WAIT)
+            r["field"] = page.evaluate("""() => { const box = document.querySelector('.s-pane [data-field=access]');
+                return [box.querySelector('label').textContent, box.querySelector('.ac-hint').getAttribute('aria-label'),
+                        box.querySelectorAll('.ac-help .ac-key-row').length, box.querySelector('.ac-help p').textContent,
+                        box.querySelectorAll('.u-hint-wrap').length]; }""")
+            page.click(".s-pane [data-field=access] .ac-hint")
+            page.wait_for_selector(".s-pane [data-field=access] .ac-help", state="detached", timeout=WAIT)
             page.click(".s-pane [data-field=access] input")
             page.wait_for_function("() => document.querySelector('.s-pane [data-field=access].s-is-changed')", timeout=WAIT)
             r["unticked"] = page.evaluate(field)
@@ -3111,6 +3120,7 @@ def test_access_mark_in_the_form(tmp_path):
     assert r["receipt"][0].endswith("Rig: sag, no-fall zone 5 m, no A-frames · access marked, no line filtered out"), r
     assert r["receipt"][1:] == [True, True], r
     assert r["advanced"] == ["advanced", True, False, True, "anchors", True, True], r
+    assert r["field"] == ["Mark anchors you can walk to", "About Mark anchors you can walk to", 3, text, 0], r
     assert r["unticked"] == ["advanced", False, True, False, "anchors", False, None], r
     assert r["reset"] == r["advanced"], r
     assert r["csp"] == [], r

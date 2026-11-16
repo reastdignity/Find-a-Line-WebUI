@@ -13,7 +13,8 @@ import { errorText, label, t } from "../i18n";
 import { Button, Field, Hint, Progress, Range, RangePair, Segmented, type Option } from "../ui/components";
 import { Icon } from "../ui/icons";
 import { IntroLink, useIntro } from "../ui/Intro";
-import { differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
+import { useAccessHelp } from "../access";
+import { BASIC_ACCESS, differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
 import { BasicBottom, BasicTop, GoalCards, ReturnDialog, RigWindow, type RigAsk } from "./BasicPane";
 import { PlaceBox } from "./PlaceBox";
 import { SearchIntro } from "./SearchIntro";
@@ -220,14 +221,20 @@ function Setting({s, field}: {s: SearchState; field: SchemaField}) {
   const id = useId("s-f");
   const changed = s.differs(field.name);
   const problem = s.problems[field.name];
+  // The access mark's "?" opens the help it shares with Basic's row and the result page (the key of the three
+  // states), in place under the field, not the bubble of the field's own hint
+  const access = field.name === BASIC_ACCESS;
+  const help = useAccessHelp(t("hint.about", {label: label(field.name)}));
   return <div class={cx("s-setting", changed && "s-is-changed")} data-field={field.name}>
     <Field htmlFor={id} label={<Dotted on={changed}>{label(field.name)}</Dotted>}
-           hintLabel={label(field.name)} hint={hintOf(field)}
+           hintLabel={label(field.name)} hint={access ? undefined : hintOf(field)}
+           hintButton={access ? help.button : undefined}
            value={<ResetButton s={s} names={[field.name]} focusId={id} />}
            help={problem && <span class="s-problem">{problem}</span>}>
       <ParamInput id={id} field={field} value={s.values[field.name]} invalid={!!problem}
                   onChange={(v) => s.setValue(field.name, v)} />
     </Field>
+    {access && help.panel}
   </div>;
 }
 

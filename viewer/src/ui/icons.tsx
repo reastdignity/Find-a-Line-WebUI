@@ -46,11 +46,22 @@ export type IconName = keyof typeof ICONS;
 
 /** The signs inside the access mark's dots (access.tsx AccessMark; a grid of 16 × 16 with the dot's circle of
  *  r 7.5 at its middle), by the mark's value (types.ts ACCESS_*): strokes carry the class `ac-s`, filled parts
- *  `ac-d` (access.css gives both the sign's colour of the state). Static markup, as ICONS. */
+ *  `ac-d` (access.css gives both the sign's colour of the state). Static markup, as ICONS. The two figures are the
+ *  page's own drawings (the accepted mock-up's; the user's "use ours", 2026-11-16, over an icon library's), each
+ *  kept inside the dot: the walker's head and feet leave a rim of the dot's colour of about 1 px at 20 px, the
+ *  rope ends just inside the dot's edge. */
 export const ACCESS_SIGNS: Record<number, string> = {
+  // hard access: a person on a rope (the rope from edge to edge, the head, the bent body, the arm to the rope)
+  0: '<path class="ac-s" stroke-width="1.1" d="M10.25 1.43V14.57"/>' +
+    '<g transform="translate(8 8) scale(1.18) translate(-8 -8.2)"><circle class="ac-d" cx="6.2" cy="5.5" r="1.45"/>' +
+    '<path class="ac-s" stroke-width="1.3" d="M7.3 8.1L7.8 10.6L10.5 10.1L11.1 12.6"/>' +
+    '<path class="ac-s" stroke-width="1.05" d="M7.4 8L9.8 4.8"/></g>',
   // cannot tell: "?"
   1: '<path class="ac-s" stroke-width="1.7" d="M6.1 6.3a1.95 1.95 0 1 1 3 1.65c-.65.45-1.1.85-1.1 1.6"/>' +
     '<circle class="ac-d" cx="8" cy="11.9" r="1.05"/>',
+  // easy access: a walking person (the head, the body and the legs in stride, the arms)
+  2: '<g transform="translate(8 7.75) scale(1.06) translate(-8 -7.875)"><circle class="ac-d" cx="8.6" cy="3.6" r="1.5"/>' +
+    '<path class="ac-s" stroke-width="1.85" d="M8.1 6.4L7.7 9.4L5.6 12.8M7.7 9.4L10.2 12.8M6 8.4L8.1 6.5L10.4 8"/></g>',
 };
 
 /** An icon; decorative (aria-hidden) unless it has a `title`. `fav` fills it (a marked star). */
