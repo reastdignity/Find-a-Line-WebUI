@@ -32,7 +32,9 @@ is recorded as not measured, with its reason, and counts in no total:
   (WCAG 2.5.8's size; its spacing exception is not modelled). A target's size is the part of it no ancestor clips
   (per axis; an absolutely positioned control only from its containing block up). A control that cannot be reached
   (wholly before the scroll origin of a scroller or of the document, or clipped to nothing) is listed apart, not
-  counted; one below the fold of a scrolling page or panel counts. Signatures are tag, role, input type and class names without the state
+  counted; one below the fold of a scrolling page or panel counts. A control in the viewport whose centre another
+  element covers (one hit test: elementFromPoint at the centre of its own box, or its label's) is listed apart as
+  covered and not counted; one out of the viewport is not tested, and a cover of only a part is not seen. Signatures are tag, role, input type and class names without the state
   classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
   two states is one signature;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
@@ -678,7 +680,17 @@ MEASURE_JS = r"""(opts) => {
     }
     return r.right + scrollX > 0 && r.bottom + scrollY > 0 ? own : null;
   };
-  const controls = [], unreachable = [];
+  // Covered: the centre of the control's own box (its label's, for one measured by its label), when it lies in the
+  // viewport, hits another element than the control, what it holds, its labels or an ancestor of it: a tap there
+  // goes elsewhere. One hit test a control in view; a control out of the viewport is not tested (null)
+  const covered = (e, owner) => {
+    const r = owner.getBoundingClientRect(), x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || hit === e || e.contains(hit) || owner.contains(hit) || hit.contains(e)) return false;
+    return !(e.labels && [...e.labels].some((l) => l.contains(hit)));
+  };
+  const controls = [], unreachable = [], hidden = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
   try { modal = document.querySelector("dialog:modal"); } catch (e) { modal = null; }
   for (const e of document.querySelectorAll(CONTROLS)) {
@@ -712,7 +724,7 @@ MEASURE_JS = r"""(opts) => {
     const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline,
                   w: r1(cut.right - cut.left), h: r1(cut.bottom - cut.top),
                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
-    (part ? controls : unreachable).push(item);
+    (!part ? unreachable : covered(e, owner) ? hidden : controls).push(item);
   }
   const texts = [];
   const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "OPTION", "TITLE", "TEMPLATE", "desc", "title"]);
@@ -765,7 +777,7 @@ MEASURE_JS = r"""(opts) => {
       : parseFloat(s.borderTopLeftRadius);
     if (a >= 0.9 && framed && rad >= 8 && s.boxShadow !== "none") grey[k] = (grey[k] || 0) + 1;
   }
-  return {controls, unreachable, texts, document_over: docOver > 1 ? docOver : 0, scrollers, containers, grey,
+  return {controls, unreachable, covered: hidden, texts, document_over: docOver > 1 ? docOver : 0, scrollers, containers, grey,
           viewport: [innerWidth, innerHeight]};
 }"""
 
@@ -825,6 +837,7 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
         "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"]] for c in raw["controls"]],
         "controls_grown": sum(c["how"].startswith("with ::") for c in raw["controls"]),
         "unreachable": dict(sorted(Counter(c["sig"] for c in raw["unreachable"]).items())),
+        "covered": dict(sorted(Counter(c["sig"] for c in raw["covered"]).items())),
         "text_elements": len(raw["texts"]), "text_chars": sum(t["chars"] for t in raw["texts"]),
         "text_sizes": [[t["sig"], t["size"], t["chars"], t["text"]] for t in raw["texts"]],
         "document_over": raw["document_over"], "scrollers": raw["scrollers"],
@@ -973,6 +986,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                "left_out": sorted(f"{r['page']}: {r['left_out']}" for r in rs if "left_out" in r),
                "controls": sum(r["controls"] for r in ok),
                "controls_unreachable": sum(sum(r.get("unreachable", {}).values()) for r in ok),
+               "controls_covered": sum(sum(r.get("covered", {}).values()) for r in ok),
                "controls_grown": sum(r.get("controls_grown", 0) for r in ok)}
         for b in controls:
             row[f"controls_under_{b}"] = sum(sum(r["controls_under"][str(b)].values()) for r in ok)
@@ -1036,6 +1050,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
                                        else [])
     lists["scrollers"] = dedup(lambda r: [(s["sig"], s["over"], None) for s in scrollers(r)])
     lists["unreachable"] = dedup(lambda r: [(s, n, None) for s, n in r.get("unreachable", {}).items()])
+    lists["covered"] = dedup(lambda r: [(s, n, None) for s, n in r.get("covered", {}).items()])
     lists["grey_boxes"] = dedup(lambda r: [(s, n, None) for s, n in r.get("grey_boxes", {}).items()])
     lists["containers"] = dedup(lambda r: [(s, n, None) for s, n in r.get("containers", {}).items()])
     axe_rows = {}
@@ -1065,7 +1080,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
 
 def pages_markdown(s: dict) -> str:
     cs, ts = s["bounds"]["controls"], s["bounds"]["text"]
-    columns = (["Device, theme", "States", "Controls (unreachable apart)"]
+    columns = (["Device, theme", "States", "Controls (unreachable / covered apart)"]
                + [x for b in cs for x in (f"Under {b} px (signatures)", f"Links in a sentence under {b} px")]
                + ["Text chars"] + [f"Text under {b} px" for b in ts]
                + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
@@ -1079,7 +1094,7 @@ def pages_markdown(s: dict) -> str:
         v = " / ".join(f"{r['axe_violations_nodes'][i]} ({r['axe_violations_rules'][i]})" for i in IMPACTS)
         inc = " / ".join(str(r["axe_incomplete_nodes"][i]) for i in IMPACTS)
         pct = lambda b: f"{r[f'text_chars_under_{b}']} ({(r[f'text_share_under_{b}'] or 0) * 100:.1f} %)"  # noqa: E731
-        cells = ([key, r["states"], f"{r['controls']} ({r['controls_unreachable']})"]
+        cells = ([key, r["states"], f"{r['controls']} ({r['controls_unreachable']} / {r.get('controls_covered', 0)})"]
                  + [x for b in cs for x in (f"{r[f'controls_under_{b}']} ({r[f'control_signatures_under_{b}']})",
                                             r.get(f"inline_links_under_{b}", 0))]
                  + [r["text_chars"]] + [pct(b) for b in ts]
@@ -1103,6 +1118,7 @@ def pages_markdown(s: dict) -> str:
         rows(f"inline_links_under_{b}_phones", f"Links in a sentence under {b} px on the phones (apart)", ctl)
         rows(f"inline_links_under_{b}_desktop", f"Links in a sentence under {b} px on the desktop (apart)", ctl)
     rows("unreachable", "Controls that cannot be reached (not counted above)", lambda e: "")
+    rows("covered", "Controls covered by another element at their centre (not counted above)", lambda e: "")
     for b in ts:
         rows(f"text_under_{b}", f"Text under {b} px (count: characters)", txt)
     rows("document_sideways", "The document wider than its viewport (count: px over, summed)", lambda e: "")

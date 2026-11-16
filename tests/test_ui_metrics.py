@@ -314,6 +314,21 @@ def test_a_pseudo_element_grows_only_what_it_can():
 
 
 @BROWSER
+def test_covered_controls_apart():
+    """A control whose centre another element covers is listed apart (a tap there goes elsewhere); a cover that takes
+    no clicks (pointer-events none) covers nothing; a checkbox's own label is no cover."""
+    r = _measured('<button class="under">U</button><div class="lid"></div>'
+                  '<button class="pass">P</button><div class="ghost"></div>'
+                  '<label class="lb"><input type="checkbox"> label</label>',
+                  ".under, .pass { position: absolute; top: 0; width: 30px; height: 30px; } .under { left: 0; } "
+                  ".pass { left: 200px; } .lid, .ghost { position: absolute; top: 0; width: 100px; height: 100px; "
+                  "background: #fff; } .lid { left: 0; } .ghost { left: 200px; pointer-events: none; } "
+                  ".lb { position: absolute; top: 200px; left: 0; }")
+    assert r["covered"] == {"button.under": 1} and r["controls"] == 2
+    assert r["controls_under"]["44"] == {"button.pass": 1, "input[type=checkbox] (by its label)": 1}
+
+
+@BROWSER
 def test_a_decorating_pseudo_element_grows_nothing():
     """An absolutely positioned ::before inside the control's box (a dot, the 3D view's .v3-opt-dot) is no growth:
     the control is "own", not "with ::before", and not counted in controls_grown."""
