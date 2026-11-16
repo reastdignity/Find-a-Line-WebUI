@@ -98,6 +98,9 @@ from .layers.lerc import LercTiles
 from .catalogue import brazil
 from .layers import zipsheets
 from .layers.zipsheets import ZipSheetTiles
+from .indexes import packages as packageindex
+from .layers import packages
+from .layers.packages import PackageTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -118,4 +121,5 @@ __all__ = ["SOURCES", "AREA_NAMES", "MIN_RESOLUTION", "Source", "Coverage", "Ort
            "shore_rows", "shore_segments",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
            "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing",
-           "ZipMemberTiles", "GeoWcsTiles", "GeoSheetTiles", "WfsFeatureTiles", "InegiSheets", "MetricSheetTiles", "CartotecaTiles", "LercTiles", "ZipSheetTiles"]
+           "ZipMemberTiles", "GeoWcsTiles", "GeoSheetTiles", "WfsFeatureTiles", "InegiSheets", "MetricSheetTiles", "CartotecaTiles", "LercTiles", "ZipSheetTiles",
+           "PackageTiles"]

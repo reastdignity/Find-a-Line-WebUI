@@ -199,6 +199,14 @@ def test_bremerhavens_grid_and_its_surface():
     assert bhv.nmt.shift == bhv.nmpt.shift == (0.0, 0.0)
 
 
+def test_changed_archives_read_again_as_saarlands():
+    """Bremen's and Bremerhaven's readers (XYZ members, a TransformFix or none) renew their archive's directory after
+    a 404, a moved or a changed member (a 416 too) as Saarland's and Hamburg's: every ZipMemberTiles does."""
+    for sid in ("bremen", "bremerhaven", "saarland", "hamburg"):
+        for layer in (src.SOURCES[sid].nmt, src.SOURCES[sid].nmpt):
+            assert isinstance(layer, ZipMemberTiles) and layer.reader.renew == layer._renew
+
+
 def test_a_tile_without_the_surface(http_server, tmp_path, monkeypatch):
     """Bremerhaven's DOM1 has 114 of the DGM1's 188 tiles: the catalogue's own layers on two archives served here,
     the terrain lists a tile the surface does not (the search checks lines there against the bare terrain) and a

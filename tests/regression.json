@@ -2408,6 +2408,33 @@
     "notes": "added 2026-11-15 for the sea floor of IGN's overseas RGE ALTI (OVERSEAS_FLOOR -1 m): the centre on the steepest 200 m cells of the north coast's 1 m slope map; the floor takes the sea floor (down to -28 m in the box) out of 26.8 % of the search area (data 100 % before, 73.18 % after: the sea there is filled at 0 m); the 57 427 anchors and the 6 lines in 2 spots on the cliffs (anchors at 53-71 m) stay, only their anchors' drops are measured to the sea at 0 m instead of the floor below it (72.2 -> 71.8 m); at Saint-Pierre (14.744, -61.177, radius 400 m) the floor took all 9 445 lines in 73 spots, every one anchored at 0.0 m on the sea's fill beside the sea floor, so no entry can pin that place (0 lines)",
     "seconds": 3.2
   },
+  "R90": {
+    "place": "Lion's Head, Bruce Peninsula, Ontario, Canada (CA-ON): Geospatial Ontario's DTM and DSM (Lidar-Derived) 0.5 m of DEDSFM Huron-Georgian Bay 2022-23 (GeoTIFF members of \"PixelIsPoint\" with the tie point at the first pixel's centre), 1 km tiles read by HTTP Range from the province's package ZIPs (HuronGeorgianBay-DTM-40, -DSM-38), NAD83(CSRS) / UTM 17N, averaged to the 1 m grid",
+    "args": "--lat 45.0034 --lon -81.2295 --radius 400 --min-length 15 --max-length 150",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 17241,
+      "open": 3418,
+      "checked": 10093,
+      "lines": 702,
+      "spots": 47,
+      "csv_sha256": "f020b8610b4d771a50e53097bf06fb6253d38d1c1947c1c77736e0485c62b31e",
+      "length_km": 41.499,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.294,
+      "clearance_max": 16.92,
+      "over_trees": 555,
+      "coverage": 66.75,
+      "empty_tiles": 0,
+      "filled_km2": 0.0,
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 1 m)"
+    },
+    "notes": "added 2026-11-16: the brief's place, Rattlesnake Point (43.4690, -79.9198), gives no line (radius 400 m, 15-60 m: 0; radius 1 km, 15-400 m: 1 line of 36 m with 0.05 m of clearance over trees, 800 m away; --source canada there: 0), so R90 is wave 0's other escarpment place: the centre on the steepest 200 m cell of a 1 m slope map (2 311 px over 70 degrees); the Georgian Bay side of the circle has no lidar (filled from MRDEM-30 and as water). The same circle with --source canada: 419 lines in 31 spots, its longest 141.3 m for 138.9 m on the ellipsoid (EPSG:3979's scale, +1.73 %); ontario's longest is the same pair of anchors, 140.4 m for 140.4 m",
+    "seconds": 6.5
+  },
   "R91": {
     "place": "Lion Rock, Kowloon (Hong Kong, Nominatim's \"cn\" with CN-HK): CEDD's LiDAR Data 2020, DTM and DSM 0.5 m from the CSDI Portal's sheet ZIPs of 750 x 600 m (a static table of the index's sheets), Hong Kong 1980 Grid, heights above HKPD",
     "args": "--lat 22.3518 --lon 114.1872 --radius 600 --min-length 20 --max-length 150",

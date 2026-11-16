@@ -193,6 +193,31 @@
    "survey": "",
    "trees": "surface"
   },
+  "ca-on": {
+   "added": "2026-11-16",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Geospatial Ontario",
+   "res": [
+    1,
+    2,
+    30
+   ],
+   "source": "ontario",
+   "survey": "lidar",
+   "trees": "yes"
+  },
   "ch": {
    "added": "2026-10-26",
    "level": 1,

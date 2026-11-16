@@ -20,7 +20,7 @@ from sources.indexes.sheetsets import SheetSet  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "france_guadeloupe", "france_martinique", "france_guiana",
        "france_spm", "france_mayotte", "france_reunion", "france_reunion_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "porto_santo", "desertas", "selvagens", "madeira", "spain_canarias", "spain", "mexico", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
+       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "ontario", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "northern_ireland", "northern_ireland_10m", "scotland", "wales", "england", "saba", "sint_eustatius", "bonaire", "netherlands", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "hamburg", "bremen", "bremerhaven", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "sardinia", "aosta_valley", "tuscany", "tinitaly", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "australia", "iceland", "islandsdem10", "uruguay", "faroe_islands", "cyprus", "estonia", "rio_de_janeiro", "tokyo", "shizuoka", "hong_kong", "europe", "copernicus", "nasadem"]
 
@@ -872,6 +872,41 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                           'credit': 'LidarBC DEM / DSM 1 m (GeoBC, Province of British Columbia)',
                                           'shift': (0.0, 0.0),
                                           'index_url': 'https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer'}},
+            'ontario': {'crs': None,
+                        'countries': ('ca',),
+                        'bbox': None,
+                        'fallbacks': ['canada', 'canada_2m', 'mrdem30'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 1.0,
+                        'instead_without_data': 'canada',
+                        'local_crs': 'on_utm_crs',
+                        'ortho': None,
+                        'credits': ['Ontario DTM / DSM (Lidar-Derived) 0.5 m (Geospatial Ontario, Ministry of Natural '
+                                    'Resources)'],
+                        'nmt': {'class': 'PackageTiles',
+                                'description': 'Ontario DTM (Lidar-Derived) 0.5 m (terrain)',
+                                'folder': 'ontario/dtm',
+                                'prefix': 'ontario-dtm',
+                                'native_res': 0.5,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'Ontario DTM / DSM (Lidar-Derived) 0.5 m (Geospatial Ontario, Ministry of '
+                                          'Natural Resources)',
+                                'shift': (0.0, 0.0),
+                                'index_url': 'https://services1.arcgis.com/TJH5KDher0W13Kgo/arcgis/rest/services/'
+                                             'Ontario_Digital_Terrain_Model_Lidar_Derived_WFL1/FeatureServer/0'},
+                        'nmpt': {'class': 'PackageTiles',
+                                 'description': 'Ontario DSM (Lidar-Derived) 0.5 m (trees, buildings)',
+                                 'folder': 'ontario/dsm',
+                                 'prefix': 'ontario-dsm',
+                                 'native_res': 0.5,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Ontario DTM / DSM (Lidar-Derived) 0.5 m (Geospatial Ontario, Ministry of '
+                                           'Natural Resources)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://services1.arcgis.com/TJH5KDher0W13Kgo/arcgis/rest/services/'
+                                              'Ontario_DSM_Lidar_Derived_Package_Map_WFL1/FeatureServer/0'}},
             'canada': {'crs': 'EPSG:3979',
                        'countries': ('ca',),
                        'bbox': None,
@@ -2917,7 +2952,7 @@ def test_layer_surface():
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
                        "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia",
-                       "sardinia", "tuscany", "hamburg", "bremen", "bremerhaven", "shizuoka"}
+                       "sardinia", "tuscany", "hamburg", "ontario", "bremen", "bremerhaven", "shizuoka"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg",
@@ -2970,6 +3005,12 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("ca-bc", (49.0, 60.0, -139.1, -120.0)), ("ca-bc", (48.2, 49.0, -125.0, -123.2)),
          ("ca-bc", (49.0, 51.0, -120.0, -116.0)), ("ca-bc", (49.0, 50.3, -116.0, -114.6)),
          ("ca-bc", (51.0, 51.8, -118.5, -116.6)), ("ca-bc", (51.0, 53.8, -120.0, -118.5)),
+         ("ca-on", (41.6, 45.0, -83.3, -74.34)), ("ca-on", (45.0, 45.45, -82.5, -74.34)),
+         ("ca-on", (45.45, 46.0, -84.0, -74.34)), ("ca-on", (46.0, 46.35, -79.515, -77.0)),
+         ("ca-on", (46.35, 46.75, -79.515, -78.7)), ("ca-on", (46.75, 47.8, -79.515, -79.45)),
+         ("ca-on", (46.0, 52.83, -95.15, -79.515)), ("ca-on", (52.83, 54.0, -93.35, -80.0)),
+         ("ca-on", (54.0, 55.0, -91.82, -80.0)), ("ca-on", (55.0, 56.0, -90.28, -80.0)),
+         ("ca-on", (56.0, 56.9, -88.9, -80.0)),
          ("ca", (48.9, 60.0, -139.1, -52.6)), ("ca", (48.2, 48.9, -125.0, -123.2)), ("ca", (46.0, 48.9, -95.2, -74.3)),
          ("ca", (41.6, 46.0, -83.6, -74.3)), ("ca", (43.3, 48.9, -74.3, -52.6)), ("ca", (60.0, 83.2, -141.0, -61.0)),
          ("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),
@@ -3338,6 +3379,7 @@ ATTRIBUTIONS = {
     "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
                "onto the working grid.",
     "canada": "Contains information licensed under the Open Government Licence – Canada.",
+    "ontario": "Contains information licensed under the Open Government Licence – Ontario.",
     "canada_2m": "Contains information licensed under the Open Government Licence – Canada.",
     "mrdem30": "Contains information licensed under the Open Government Licence – Canada. This product was in part "
                "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "

@@ -468,6 +468,8 @@ def test_catalogue_extracts(tmp_path):
                   "geometry": None},
                  {"properties": {"id": "british-columbia", "name": "British Columbia", "parent": "canada",
                                  "iso3166-2": ["CA-BC"]}, "geometry": None},
+                 {"properties": {"id": "ontario", "name": "Ontario", "parent": "canada",
+                                 "iso3166-2": ["CA-ON"]}, "geometry": None},
                  {"properties": {"id": "iceland", "name": "Iceland", "parent": "europe", "iso3166-1:alpha2": ["IS"]},
                   "geometry": None}]
     (tmp_path / "osm").mkdir()
@@ -485,7 +487,7 @@ def test_catalogue_extracts(tmp_path):
          "slovenia", "queensland", "greenland", "nunavut", "british-columbia", "iceland",
          "guadeloupe", "martinique", "guyane", "australia", "uruguay", "isole", "italy", "netherlands", "faroe-islands",
          "mexico", "cyprus", "estonia", "nord-ovest", "portugal", "centro", "ireland-and-northern-ireland", "sudeste",
-         "reunion", "hamburg", "mayotte", "bremen", "kanto", "chubu", "hong-kong"])
+         "reunion", "hamburg", "mayotte", "ontario", "bremen", "kanto", "chubu", "hong-kong"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))
