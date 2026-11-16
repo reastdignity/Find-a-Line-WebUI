@@ -146,10 +146,13 @@ mask says invalid, so real 0 m samples stay), retried on faults and decode error
 sample missing; samples below `floor` no data; written as 256 × 256 px in EPSG:3857 on its own samples, half a cell
 west and north of the tile's corner, the shared last row and column dropped: `tile_transform`).
 
-Batch 6: `zipmember.py` `ZipMember` gains `fix` (`TransformFix`: an `offset` added to the member's origin, then
-with `snap` the origin rounded to a multiple of it; a rounding over `tolerance` of a pixel is an error, never
-applied; north-up members only: Hamburg's float noise, Bremerhaven's zone in its eastings), a member in a request's
-own `crs` (a package in several UTM zones), `placed` (a subclass's check of where the member lies and the window kept)
+Batch 6: `zipmember.py` `ZipMember` gains `fix` (`TransformFix`: an `offset` added to the member's origin with a
+deliberate `shift`, then with `snap` the origin rounded to a multiple of it; a rounding over `tolerance` of a pixel is
+an error, never applied; north-up members only: Hamburg's float noise, Bremerhaven's zone in its eastings, its DOM1
+moved half a pixel onto its terrain's grid by `shift`, which `tools/check_source.py` honours and nothing else of the
+fix), a member in a request's own `crs` (a package in several UTM zones), `clip` (the tile size: only the member's
+pixels inside the request's box are kept, Bremerhaven's DOM1), `placed` (a subclass's check of where the member lies
+and the window kept)
 and `WrongShape` (not one band); XYZ members: `xyz_in_columns`, `xyz_rows` (a member in columns with points missing,
 which GDAL's XYZ driver refuses, read again with its lines in rows) and `COLUMNS_LOCK` (a member in columns read under
 it: the driver keeps one column cache per process). With `renew`, a first read whose bytes are not the directory's
@@ -346,7 +349,8 @@ one not covering the box on whole pixels or of two bands refused (`MemberRefused
 with one warning, so the gap filler fills it); cached as
 `<folder>/epsg<code>/<e//10>_<n//10>/<e>_<n>_<year>_<date8>_<size>_<crc8>.tif`; a 404 of a package or a member not
 where or what its directory said reads that directory again and tries once more (`_renew`): Ontario).
-`zipmembers.py` `ZipMemberTiles(fix=)` (a `TransformFix` for every member: Hamburg, Bremerhaven); `wmsr.py`
+`zipmembers.py` `ZipMemberTiles(fix=, clip=)` (a `TransformFix` for every member: Hamburg, Bremerhaven; `clip` keeps
+each tile's own box: Bremerhaven's DOM1, whose 1001st column lies in the next kilometre after its shift); `wmsr.py`
 `WmsrTiles(nodata_below=)`, which sets `Layer.nodata_below` (heights below it are no data where the tiles are read
 onto the grid, never when one is written: IGN's overseas RGE ALTI 1 m layers).
 
@@ -436,7 +440,8 @@ layer), `france_mayotte` (RGE ALTI 1 m in RGM04 / UTM 38S, EPSG:4471 forced over
 projection's suffix, origin (0, 0)) and `france_reunion_rgealti` (its gap filler); all chosen by bbox. `germany`
 gains `hamburg` (LGV's DGM1 and image-matching bDOM1 2022, members of two ZIP archives, `ZipMemberTiles` with
 `HH_FIX`), `bremen` and `bremerhaven` (Landesamt GeoInformation Bremen's DGM1 / DOM1 XYZ archives per city and
-model, `HB_DATA`; Bremen with `grid_origin` 0.5, Bremerhaven with `BHV_FIX`; both before `lower_saxony`, offline
+model, `HB_DATA`; Bremen with `grid_origin` 0.5, Bremerhaven with `BHV_FIX` (its DOM1 shifted by `BHV_DOM_SHIFT`,
+clipped to its kilometre, `processing` 2); both before `lower_saxony`, offline
 staircases of boxes, areas `de-hb` and `de-hb-bhv`). `portugal` gains `porto_santo`, `desertas` and `selvagens`
 (`_madeira_island`: DROTe's 5 m tiles of the mirror, `GridTiles` with origin (2.5, 2.5), region pt-30, before
 `madeira`, chosen by their boxes; Porto Santo in EPSG:3061, the others EPSG:5016). `japan` (new): `tokyo`

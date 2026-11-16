@@ -300,34 +300,40 @@ def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
     check), then opened by GDAL on the pixels of the cached tile (nearest: an origin off by float noise, Hamburg's
     552999.9999999999, lands on the same pixels), with the layer's floor rule applied as the layer applies it (its
     0 m patches would differ otherwise). The member's own georeferencing, not the layer's fix: a member without a CRS
-    (XYZ text) in the tile's, an easting with the zone in front without it (_zone_free); an XYZ member in columns
+    (XYZ text) in the tile's, an easting with the zone in front without it (_zone_free), moved only by a shift the
+    fix declares as deliberate (TransformFix.shift: Bremerhaven's DOM1 half a pixel onto its terrain's grid; its
+    offset and rounding are not taken, so a wrong one is found); an XYZ member in columns
     with points missing (GDAL refuses it) read in rows (zipmember.xyz_rows: only the lines' order). A tile that
     names its own CRS (PackageTiles: its zone's) takes the member's pixels in it, as the layer writes them (the
     files name it otherwise: NAD83 for NAD83(CSRS), a compound CRS). GDAL's /vsizip/ is not used: its requests
     would read the archive's directory outside sources.net."""
     data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
     own = getattr(tile, "crs", None)
+    shift = tuple(getattr(getattr(layer.reader, "fix", None), "shift", (0.0, 0.0)))
     try:
-        values = _member_values(data, profile, own)
+        values = _member_values(data, profile, own, shift)
     except rio.errors.RasterioError:
         rows = xyz_rows(data)
         if rows is None:
             raise
-        values = _member_values(rows, profile, own)
+        values = _member_values(rows, profile, own, shift)
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
     return drop_below(values, getattr(layer, "floor", None), getattr(layer, "ring", 0))
 
 
-def _member_values(data: bytes, profile: Dict, own: Optional[str] = None) -> np.ndarray:
+def _member_values(data: bytes, profile: Dict, own: Optional[str] = None,
+                   shift: Tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
     """The member's pixels on the cached tile's; own: the tile's CRS taken for the member's (its transform as it
-    is), else the member's own georeferencing (_read_member)."""
+    is), else the member's own georeferencing (_read_member), moved by shift (the fix's declared deliberate one)."""
+    from rasterio.transform import Affine
     with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
         if own:
             moved = {"src_crs": own}
-        elif source.crs is not None and source.transform.c < ZONE_PREFIXED:
+        elif source.crs is not None and source.transform.c < ZONE_PREFIXED and shift == (0.0, 0.0):
             moved = {}
         else:
-            moved = {"src_crs": source.crs or profile["crs"], "src_transform": _zone_free(source.transform)}
+            moved = {"src_crs": source.crs or profile["crs"],
+                     "src_transform": Affine.translation(*shift) @ _zone_free(source.transform)}
         with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
                        height=profile["height"], resampling=Resampling.nearest, **moved) as vrt:
             return vrt.read(1, masked=True).astype(np.float32).filled(np.nan)

@@ -5,6 +5,7 @@ the ZIP directories of sources/indexes/zipdir.py share.
 The ZIP format is PKWARE's APPNOTE.TXT, version 6.3.10 (2022-11-01); the sections named below are its."""
 
 import contextlib
+import math
 import re
 import struct
 import threading
@@ -221,15 +222,22 @@ class TransformFix(NamedTuple):
     files carry the UTM zone in their eastings: (-32 000 000, 0)), then with snap the origin rounded to a multiple
     of snap metres (Hamburg's DGM1: 552999.9999999999 for 553000). A rounding of more than tolerance of a pixel is
     an error, never applied: it mends float noise, it never moves a member that lies off the grid. North-up
-    members only (no rotation)."""
+    members only (no rotation).
+
+    shift (dx, dy) metres, added with the offset, is no correction but a deliberate move of the data off the place
+    the file gives them: Bremerhaven's DOM1, whose pixel centres lie on whole metres, half a pixel onto its terrain's
+    grid (the user's decision of 2026-11-16: copied, not interpolated, its objects up to 0.7 m off their place).
+    tools/check_source.py honours it and nothing else of the fix."""
     offset: Tuple[float, float] = (0.0, 0.0)
     snap: Optional[float] = None
     tolerance: float = 1e-3  # pixels
+    shift: Tuple[float, float] = (0.0, 0.0)
 
     def apply(self, transform: Affine, where: str) -> Affine:
         if transform.b != 0 or transform.d != 0:
             raise RuntimeError(f"{where}: a rotated member ({transform})")
-        x, y = transform.c + self.offset[0], transform.f + self.offset[1]
+        x = transform.c + self.offset[0] + self.shift[0]
+        y = transform.f + self.offset[1] + self.shift[1]
         if self.snap:
             snapped = (round(x / self.snap) * self.snap, round(y / self.snap) * self.snap)
             off = max(abs(snapped[0] - x) / abs(transform.a), abs(snapped[1] - y) / abs(transform.e))
@@ -250,9 +258,10 @@ class ZipMember(Reader):
     text: one GDAL refuses is read again with its points in rows, xyz_rows) is written again as a tile (float32,
     NaN for no data and below layer.VALID_MIN), in crs's name if given, else in that of the request's own crs if
     it has one (a tile of a package in several UTM zones), else as the member says; with floor, drop_below(floor,
-    ring) first; with fix, its transform corrected first (TransformFix: an offset, a rounding to the grid); then
-    placed(transform, width, height, request, where) gives the transform it is written with and the window of it
-    kept, or refuses it (a subclass's check of where the member lies; here the member as it is).
+    ring) first; with fix, its transform corrected first (TransformFix: an offset, a deliberate shift, a rounding to
+    the grid); then placed(transform, width, height, request, where) gives the transform it is written with and the
+    window of it kept, or refuses it (a subclass's check of where the member lies; here the member as it is, or with
+    clip only its pixels inside the request's box of clip metres).
 
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
@@ -265,9 +274,10 @@ class ZipMember(Reader):
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
-                 renew: Optional[Callable[[object], Optional[object]]] = None, fix: Optional[TransformFix] = None):
+                 renew: Optional[Callable[[object], Optional[object]]] = None, fix: Optional[TransformFix] = None,
+                 clip: Optional[float] = None):
         self.description, self.crs, self.floor, self.ring, self.renew = description, crs, floor, ring, renew
-        self.fix = fix
+        self.fix, self.clip = fix, clip
 
     def url(self, request) -> Optional[str]:
         return request.url
@@ -360,8 +370,25 @@ class ZipMember(Reader):
     def placed(self, transform: Affine, width: int, height: int, request,
                where: str) -> Tuple[Affine, Optional[rio.windows.Window]]:
         """The transform to write the member with and the window of it to keep (None: all of it); RuntimeError
-        when the member does not lie where its tile is (a subclass's check; here the transform as it is, all)."""
-        return transform, None
+        when the member does not lie where its tile is (a subclass's check; here the transform as it is, all, or
+        with clip the pixels whose centres lie in the request's box of clip metres: Bremerhaven's DOM1 after its
+        shift, whose 1001st column lies in the next kilometre, where that tile's own first column is kept)."""
+        if not self.clip:
+            return transform, None
+        left, bottom = request.east * self.clip, request.north * self.clip
+        right, top = left + self.clip, bottom + self.clip
+        res_x, res_y = transform.a, -transform.e
+        col0 = max(0, math.ceil((left - transform.c) / res_x - 0.5))
+        col1 = min(width, math.ceil((right - transform.c) / res_x - 0.5))
+        row0 = max(0, math.ceil((transform.f - top) / res_y - 0.5))
+        row1 = min(height, math.ceil((transform.f - bottom) / res_y - 0.5))
+        if col0 >= col1 or row0 >= row1:
+            raise RuntimeError(f"{where}: no pixel of the member lies in its tile's box ({transform}, {width} x "
+                               f"{height} px; the box {left}, {bottom}, {right}, {top})")
+        if (col0, row0, col1, row1) == (0, 0, width, height):
+            return transform, None
+        moved = Affine(transform.a, 0.0, transform.c + col0 * res_x, 0.0, transform.e, transform.f - row0 * res_y)
+        return moved, rio.windows.Window(col0, row0, col1 - col0, row1 - row0)
 
     def _write(self, data: bytes, path: str, where: str, request=None):
         band, crs, transform = self.raster(data, where, request)

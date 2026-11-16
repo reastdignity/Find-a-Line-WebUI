@@ -31,10 +31,12 @@ def _xyz(points, header: bool = True, newline: str = "\r\n") -> bytes:
     return (newline.join((["x y z"] if header else []) + [f"{x} {y} {z}" for x, y, z in points]) + newline).encode()
 
 
-def _fetch(http_server, tmp_path, reader: ZipMember, name: str, body: bytes):
+def _fetch(http_server, tmp_path, reader: ZipMember, name: str, body: bytes, km=None):
+    """The tile reader writes from a member served here; km: the tile's (east, north) in km, which a reader with clip
+    cuts it to (else test_saarland's)."""
     _serve(http_server, "/m.zip", body)
     path = str(tmp_path / "t.tif")
-    reader.fetch(_tile(http_server, "/m.zip", body, name), path)
+    reader.fetch(_tile(http_server, "/m.zip", body, name, *(km or ())), path)
     with rio.open(path) as written:
         return written.transform, written.read(1, masked=True).astype(np.float32).filled(np.nan)
 
@@ -62,14 +64,15 @@ def test_xyz_rows_keeps_the_lines():
 def test_a_member_in_columns_with_points_missing(http_server, tmp_path, gone, nan):
     """GDAL refuses points in columns with some missing ("does not support datasets organized by columns with
     missing values", or "Ungridded dataset"): the catalogue's own reader (Bremerhaven's DOM1) reads the member again
-    in rows, the missing points no data, the others where the whole member puts them."""
+    in rows, the missing points no data, the others where the whole member puts them (half a pixel north-east of
+    their labels: the DOM1's shift onto its terrain's grid)."""
     reader = src.SOURCES["bremerhaven"].nmpt.reader
     name = "Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz"
     whole = _archive([(name, _xyz(COLUMNS), zipfile.ZIP_DEFLATED, False)])
-    transform, z = _fetch(http_server, tmp_path, reader, name, whole)
-    assert transform == Affine(1.0, 0.0, 473999.5, 0.0, -1.0, 5936002.5) and np.allclose(z, EXPECTED)
+    transform, z = _fetch(http_server, tmp_path, reader, name, whole, (474, 5936))
+    assert transform == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5936003.0) and np.allclose(z, EXPECTED)
     part = _archive([(name, _xyz([p for p in COLUMNS if p[:2] not in gone]), zipfile.ZIP_DEFLATED, False)])
-    transform_part, z_part = _fetch(http_server, tmp_path, reader, name, part)
+    transform_part, z_part = _fetch(http_server, tmp_path, reader, name, part, (474, 5936))
     expected = EXPECTED.copy()
     for row, col in nan:
         expected[row, col] = np.nan
@@ -167,39 +170,99 @@ def test_the_surface_covers_part_of_the_terrains_tiles_in_the_record():
      "\r\n", Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5937000.0),
      [[1.0, 1.1, 1.2, 1.3], [1.001, 1.101, 1.201, 1.301], [1.002, 1.102, 1.202, 1.302]]),
     # Bremerhaven's DOM1: whole metres with the zone, columns from the south, part of a km (dom1_32475_5936_1_hb.xyz:
-    # its north-west corner)
+    # its north-west corner), moved half a pixel north-east onto its terrain's grid
     ("bremerhaven", "nmpt", "Gitternetz_DOM1_2015_BHV/dom1_32475_5936_1_hb.xyz",
      [(32475000 + i, 5936997 + j, f"{2 + 0.1 * i + 0.001 * j:.3f}") for i in range(4) for j in range(3)], True,
-     "\r\n", Affine(1.0, 0.0, 474999.5, 0.0, -1.0, 5936999.5),
+     "\r\n", Affine(1.0, 0.0, 475000.0, 0.0, -1.0, 5937000.0),
      [[2.002, 2.102, 2.202, 2.302], [2.001, 2.101, 2.201, 2.301], [2.0, 2.1, 2.2, 2.3]]),
 ])
 def test_the_catalogues_layers(http_server, tmp_path, sid, kind, name, points, header, newline, transform, expected):
     """The catalogue's own readers on members of each layout (the header or none, CRLF or LF): the zone taken off
-    Bremerhaven's eastings, each value in its pixel, the transform on the grid the measurement found (Bremen's and
-    Bremerhaven's DOM1's centres on whole metres, Bremerhaven's DGM1's edges)."""
+    Bremerhaven's eastings, each value in its pixel, the transform on the grid the measurement found (Bremen's
+    centres on whole metres, Bremerhaven's DGM1's edges) or moved onto it (Bremerhaven's DOM1, half a pixel)."""
     layer = getattr(src.SOURCES[sid], kind)
-    assert layer.listing.name.search(name)
+    match = layer.listing.name.search(name)
     body = _archive([(name, _xyz(points, header, newline), zipfile.ZIP_DEFLATED, False)])
-    got, z = _fetch(http_server, tmp_path, layer.reader, name, body)
+    got, z = _fetch(http_server, tmp_path, layer.reader, name, body, (int(match["east"]), int(match["north"])))
     assert got == transform and np.allclose(z, np.array(expected, dtype=np.float32), atol=0.006)
     with rio.open(tmp_path / "t.tif") as written:
         assert written.crs.to_epsg() == 25832
 
 
 def test_bremerhavens_grid_and_its_surface():
-    """Bremerhaven's terrain sets the grid (edges on whole metres); its surface lies half a pixel off, so the mosaic
-    interpolates it (not moved: a TransformFix rounding it to whole metres would refuse it, 0.5 px off)."""
+    """Bremerhaven's terrain sets the grid (edges on whole metres); its surface, whose centres lie on whole metres,
+    is moved half a pixel north-east onto it by TransformFix's deliberate shift (the user's decision of 2026-11-16),
+    then rounded to whole metres as the terrain; the rounding alone still refuses it (0.5 px off). Its tiles keep
+    their own kilometre (clip) and are another processing than the unshifted ones of before."""
     bhv, hb = src.SOURCES["bremerhaven"], src.SOURCES["bremen"]
     assert bhv.grid_origin == (0.0, 0.0) and hb.grid_origin == (0.5, 0.5)
     assert bhv.nmt.reader.fix == TransformFix(offset=(-32_000_000.0, 0.0), snap=1.0)
-    assert bhv.nmpt.reader.fix == TransformFix(offset=(-32_000_000.0, 0.0), snap=0.5)
+    assert bhv.nmpt.reader.fix == TransformFix(offset=(-32_000_000.0, 0.0), snap=1.0, shift=(0.5, 0.5))
     assert hb.nmt.reader.fix is None and hb.nmpt.reader.fix is None
+    member = Affine(1.0, 0.0, 32473999.5, 0.0, -1.0, 5936999.5)  # a DOM1 member as GDAL reads it
     with pytest.raises(RuntimeError, match="0.5 px off"):
-        bhv.nmt.reader.fix.apply(Affine(1.0, 0.0, 32473999.5, 0.0, -1.0, 5936999.5), "t")
+        bhv.nmt.reader.fix.apply(member, "t")
+    assert bhv.nmpt.reader.fix.apply(member, "t") == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5937000.0)
+    assert (bhv.nmpt.reader.clip, bhv.nmt.reader.clip, hb.nmpt.reader.clip) == (1000, None, None)
+    assert (bhv.nmpt.processing, bhv.nmt.processing, hb.nmpt.processing) == (2, 1, 1)
     assert bhv.nmt.shift == bhv.nmpt.shift == (0.0, 0.0)
 
 
-def test_changed_archives_read_again_as_saarlands():
+def test_a_deliberate_shift_then_the_rounding():
+    """TransformFix.shift moves a member on purpose (added with the offset, before the rounding); the rounding's rule
+    stays: a member off the grid after offset and shift is refused, and without a shift the fixes are as before
+    (Hamburg's rounding, Bremerhaven's terrain)."""
+    hamburg = src.SOURCES["hamburg"].nmt.reader.fix
+    assert hamburg == TransformFix(snap=1.0) and hamburg.shift == (0.0, 0.0)
+    noisy = Affine(1.0, 0.0, 552999.9999999999, 0.0, -1.0, 5935000.000000001)
+    assert hamburg.apply(noisy, "t") == Affine(1.0, 0.0, 553000.0, 0.0, -1.0, 5935000.0)
+    centres = Affine(1.0, 0.0, 32473999.5, 0.0, -1.0, 5936999.5)
+    for shift, origin in (((0.5, 0.5), (474000.0, 5937000.0)), ((-0.5, -0.5), (473999.0, 5936999.0))):
+        fix = TransformFix(offset=(-32_000_000.0, 0.0), snap=1.0, shift=shift)
+        assert fix.apply(centres, "t") == Affine(1.0, 0.0, origin[0], 0.0, -1.0, origin[1])
+    with pytest.raises(RuntimeError, match="off the 1.0 m grid"):
+        TransformFix(offset=(-32_000_000.0, 0.0), snap=1.0, shift=(0.25, 0.5)).apply(centres, "t")
+    assert TransformFix(shift=(2.0, -3.0)).apply(Affine(1.0, 0.0, 10.0, 0.0, -1.0, 20.0), "t") == \
+        Affine(1.0, 0.0, 12.0, 0.0, -1.0, 17.0)
+
+
+def test_the_surface_copied_onto_the_grid_at_the_kilometres_edge(http_server, tmp_path, monkeypatch):
+    """Bremerhaven's DOM1 on the catalogue's own layer, a full tile's 1001 columns (x 474000-475000) and its east
+    neighbour's first columns (x from 475000, other values): each value at (x, y) fills the pixel [x, x + 1] x
+    [y, y + 1] of the terrain's grid; the tile keeps its own kilometre (its 1001st column cut), so the pixel at x
+    475000 holds the east tile's own value; the mosaic on a 1 m grid in EPSG:25832 copies the tiles (each pixel one
+    file value within LERC's bound, the cached tile's to the bit), no pixel a mean of two points."""
+    from grid import make_grid
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    bhv = src.SOURCES["bremerhaven"]
+    west = {(474000 + i, 5936000 + j): round(10 + 0.137 * (i % 50) + 3.1 * j, 3) for i in range(1001) for j in range(3)}
+    east = {(475000 + i, 5936000 + j): round(40 + 0.211 * i + 2.3 * j, 3) for i in range(4) for j in range(3)}
+    members = [("Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz", west),
+               ("Gitternetz_DOM1_2015_BHV/dom1_32475_5936_1_hb.xyz", east)]
+    body = _archive([(name, _xyz([(32_000_000 + x, y, f"{z:.3f}") for (x, y), z in sorted(points.items())]),
+                      zipfile.ZIP_DEFLATED, False) for name, points in members])
+    _serve(http_server, "/dom.zip", body)
+    url = http_server.url("/dom.zip")
+    monkeypatch.setattr(bhv.nmpt.listing, "urls", [url])
+    monkeypatch.setattr(bhv.nmpt.listing, "url", url)
+    monkeypatch.setattr(bhv.nmpt.index, "_listed", {})
+    cache_dir = str(tmp_path / "cache")
+    grid = make_grid((474990, 5936000, 475003, 5936003), 1.0, "EPSG:25832", bhv.grid_origin)
+    out = np.load(src.mosaic.prepare_layer(bhv.nmpt, grid, cache_dir, str(tmp_path / "nmpt.npy"), "surface"))
+    tiles = {(t.east, t.north): bhv.nmpt.tile_path(cache_dir, t) for t in bhv.nmpt.tiles(grid)}
+    with rio.open(tiles[(474, 5936)]) as cached:
+        assert cached.transform == Affine(1.0, 0.0, 474000.0, 0.0, -1.0, 5936003.0) and cached.shape == (3, 1000)
+        cached_west = cached.read(1)
+    assert out.shape == (3, 13) and np.isfinite(out).all()
+    for row in range(3):
+        for col in range(13):
+            x, y = 474990 + col, 5936002 - row  # the pixel's south-west corner: the label whose value fills it
+            expected = west[(x, y)] if x < 475000 else east[(x, y)]
+            assert abs(float(out[row, col]) - expected) <= 0.0051, (x, y, out[row, col], expected)
+            if x < 475000:
+                assert out[row, col] == cached_west[row, x - 474000]  # a copy of the cached tile
+    assert abs(float(out[0, 10]) - east[(475000, 5936002)]) <= 0.0051  # the east tile's own, not the 1001st column
+    assert abs(west[(475000, 5936002)] - east[(475000, 5936002)]) > 1
     """Bremen's and Bremerhaven's readers (XYZ members, a TransformFix or none) renew their archive's directory after
     a 404, a moved or a changed member (a 416 too) as Saarland's and Hamburg's: every ZipMemberTiles does."""
     for sid in ("bremen", "bremerhaven", "saarland", "hamburg"):
@@ -235,7 +298,7 @@ def test_a_tile_without_the_surface(http_server, tmp_path, monkeypatch):
     (tile,) = bhv.nmpt.tiles(east)
     bhv.nmpt.download(east, cache_dir, None, "surface")
     with rio.open(bhv.nmpt.tile_path(cache_dir, tile)) as cached:
-        assert cached.transform == Affine(1.0, 0.0, 474999.5, 0.0, -1.0, 5936999.5) and cached.shape == (3, 2)
+        assert cached.transform == Affine(1.0, 0.0, 475000.0, 0.0, -1.0, 5937000.0) and cached.shape == (3, 2)
         assert float(cached.read(1).max()) == 9.0
     assert os.path.relpath(bhv.nmpt.tile_path(cache_dir, tile), cache_dir).startswith(
         os.path.join("bremerhaven", "dom1-2015"))
@@ -324,6 +387,11 @@ def test_check_source_finds_a_wrong_fix(http_server, tmp_path, monkeypatch, sid,
         monkeypatch.setattr(layer.reader, "fix", fix._replace(offset=(fix.offset[0] + wrong[0], fix.offset[1] + wrong[1])))
     cache_dir = str(tmp_path / "cache")
     grid = make_grid(box, 1.0, "EPSG:25832")
+    if wrong is not None and layer.reader.clip and wrong[0] >= layer.reader.clip:
+        # A layer that keeps its tile's kilometre (Bremerhaven's DOM1) refuses a member the fix puts wholly outside it
+        with pytest.raises(RuntimeError, match="no pixel of the member lies in its tile's box"):
+            layer.download(grid, cache_dir, None, kind)
+        return
     layer.download(grid, cache_dir, None, kind)
     check = cs.check_files(layer, grid, cache_dir, 2)
     if wrong is None:

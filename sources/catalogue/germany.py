@@ -399,15 +399,29 @@ HB_CREDIT = Credit("DGM1 / DOM1 (Landesamt GeoInformation Bremen)", f"{HB_ATTRIB
 #   its values sit at those points (against LGLN's DOM1 of 2025, the NCC at no shift and the best at half a pixel on
 #   both axes: 474_5936 0.404 / 0.375, 472_5938 0.283 / 0.267, 471_5938 0.164 / 0.159, 475_5937 0.085 / 0.068; two
 #   small partial tiles of NCC 0.12-0.18 scatter, neither peak at half a pixel on both axes), half a pixel off its own
-#   terrain: written as it lies and interpolated onto the terrain's grid by the mosaic (bilinear, as any off-grid
-#   raster; a choice for the user). The 41 partial tiles hold 402 ha of exactly constant planes of 1 ha or more, 245 ha
-#   of them beyond the Land (filling each rectangle beyond the boundary), 83 ha more than 3 m above the terrain (475_5937
-#   17.35 m over 15 ha, 13 m above it, beyond the boundary; 468_5937 23.85 m over 13 ha, 26 m above it, and 469_5935
-#   88.14 m over 2.5 ha, 90 m above it, in the port and on the Weser inside the Land), left as they are
+#   terrain. Moved half a pixel onto the terrain's grid (the user's decision of 2026-11-16: a copy, its heights as
+#   measured, its objects up to 0.7 m off their place; no interpolation, which lowers a thin obstacle): each value at
+#   (x, y) fills the pixel [x, x + 1] x [y, y + 1], BHV_DOM_SHIFT (+0.5, +0.5) m. Measured against its own DGM1 of the
+#   same survey on seven full tiles (bare ground within 0.3 m of the DGM1 at all four places a value may go; the RMS
+#   on its sloped part): (+0.5, +0.5) the lowest on 4 of 7 (467_5926 by 58 % over the second, the other three by
+#   0.8-1.7 %), (-0.5, -0.5) on two and (-0.5, +0.5) on one (by 0.3-3.5 %): no shift clearly best, so the convention
+#   that keeps a tile's points in its own kilometre (the files: x from E*1000 to (E+1)*1000, 1001 columns, y from
+#   N*1000 to N*1000 + 999, 1000 rows; the first point at the km's south-west corner). The 1001st column (x =
+#   (E+1)*1000) then lies in the next tile's kilometre, whose own first column has the same x: the two differ
+#   (median 0.29-1.81 m, 6-10 % within 1 cm on three pairs: each file's edge column made from its own kilometre's
+#   points), so a tile keeps only its own kilometre (ZipMemberTiles' clip). The 41 partial tiles hold 402 ha of
+#   exactly constant planes of 1 ha or more, 245 ha of them beyond the Land (filling each rectangle beyond the
+#   boundary), 83 ha more than 3 m above the terrain (475_5937 17.35 m over 15 ha, 13 m above it, beyond the
+#   boundary; 468_5937 23.85 m over 13 ha, 26 m above it, and 469_5935 88.14 m over 2.5 ha, 90 m above it, in the
+#   port and on the Weser inside the Land), left as they are (the user's decision of 2026-11-16: a known finding)
 HB_DATA = "https://gdi2.geo.bremen.de/inspire/download/{kind}/data/Gitternetz_{kind}1_{year}_{city}_ASCII_XYZ.zip"
 HB_NAME = r"(?i)(?:^|/){kind}1_32(?P<east>\d{{3}})_{{1,2}}(?P<north>\d{{4}})_1_hb\.xyz$"
 BHV_ZONE = -32_000_000.0  # Bremerhaven's eastings less the zone 32's prefix
-BHV_FIX = {"dgm": TransformFix(offset=(BHV_ZONE, 0.0), snap=1.0), "dom": TransformFix(offset=(BHV_ZONE, 0.0), snap=0.5)}
+BHV_DOM_SHIFT = (0.5, 0.5)  # the DOM1 onto its terrain's grid: TransformFix's deliberate shift
+BHV_FIX = {"dgm": TransformFix(offset=(BHV_ZONE, 0.0), snap=1.0),
+           "dom": TransformFix(offset=(BHV_ZONE, 0.0), snap=1.0, shift=BHV_DOM_SHIFT)}
+# The DOM1's tiles as written before the shift (centres on whole metres) are another processing: fetched again
+BHV_DOM_PROCESSING = 2
 # The Land's DOP10 of 2025, a WMS (EPSG:4326 offered; Fees "Creative Commons Namensnennung (CC-BY), Quellenvermerk:
 # Landesamt GeoInformation Bremen", AccessConstraints "Es gelten keine Zugriffsbeschränkungen"), one layer per city
 HB_WMS = "https://geodienste.bremen.de/wms_dop_lb"
@@ -422,9 +436,13 @@ def _hb_dop(city: str) -> OrthoService:
 def _hb(kind: str, city: str, year: str, description: str, bytes_per_tile: float) -> ZipMemberTiles:
     """DGM1 or DOM1 of one of the Land's cities (city: HB or BHV): members of its archive, read by HTTP Range."""
     top = {"HB": "bremen", "BHV": "bremerhaven"}[city]
-    return ZipMemberTiles(description, [HB_DATA.format(kind=kind.upper(), year=year, city=city)],
-                          HB_NAME.format(kind=kind), f"{top}/{kind}1-{year}", "EPSG:25832", f"{kind}1",
-                          bytes_per_tile=bytes_per_tile, fix=BHV_FIX[kind] if city == "BHV" else None)
+    shifted = (city, kind) == ("BHV", "dom")  # moved half a pixel: its 1001st column cut at the kilometre's edge
+    layer = ZipMemberTiles(description, [HB_DATA.format(kind=kind.upper(), year=year, city=city)],
+                           HB_NAME.format(kind=kind), f"{top}/{kind}1-{year}", "EPSG:25832", f"{kind}1",
+                           bytes_per_tile=bytes_per_tile, fix=BHV_FIX[kind] if city == "BHV" else None, clip=shifted)
+    if shifted:
+        layer.processing = BHV_DOM_PROCESSING
+    return layer
 
 
 SOURCES: List[Source] = [
@@ -543,7 +561,8 @@ SOURCES: List[Source] = [
                  ("de-hb", (53.58, 53.60, 8.60, 8.63))),
         sample=(53.5400, 8.5800),  # the centre, by the Geeste
         note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid; the surface model, whose "
-             f"pixels lie half a pixel off the terrain's, interpolated onto it). Laser scanning of 2015. The surface "
+             f"pixels lie half a pixel off the terrain's, shifted half a pixel onto it, so objects in it lie up to "
+             f"0.7 m off their place, their heights as measured). Laser scanning of 2015. The surface "
              f"model covers the city. Its tiles at the city's edge hold flat planes of a constant height (about 400 "
              f"ha, most of it beyond the boundary; 83 ha more than 3 m above the terrain, up to 90 m, in the port and "
              f"on the Weser too), which mark lines over them as over trees or buildings; beyond those tiles lines are "
