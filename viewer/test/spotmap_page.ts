@@ -10,6 +10,7 @@ import "../src/ui/ui.css";
 import { ResultModel } from "../src/result/model";
 import type { SpotMap } from "../src/result/SpotMap";
 import type { SpotView } from "../src/result/spots";
+import { clipper } from "../src/result/viewgeom";
 import { opensView, SpotColumns, viewWanted } from "../src/result/view/SpotColumns";
 import { lineColumns, type LineRow, type RunData, type RunHead } from "../src/types";
 
@@ -33,6 +34,31 @@ const text = (selector: string) => document.querySelector(selector)?.textContent
 const pressed = () => Array.from(document.querySelectorAll<HTMLElement>(".v-levels button"),
                                  (b) => [b.dataset.level, b.getAttribute("aria-pressed"), b.classList.contains("v-now")]);
 const measures = () => [...new Set(performance.getEntriesByType("measure").map((e) => e.name))].sort();
+/** The picture now: the page's own count of strokes, the numbers on the map, the legend's shapes (the canvas's and
+ *  the page's), the thin lines the view counted, and whether the canvas holds any ink. */
+function picture(view: SpotView, map: SpotMap) {
+  const d = map.drawn(), canvas = document.querySelector<HTMLCanvasElement>(".v-canvas")!;
+  const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+  let ink = 0;
+  for (let k = 3; k < pixels.length; k += 4) if (pixels[k]) ink++;
+  return {strokes: d.strokes, numbers: d.numbers.map((n) => n.label), shapes: Object.keys(map.legend().shapes).sort(),
+          legend: Array.from(document.querySelectorAll<HTMLElement>(".v-legend [data-kind]"), (e) => e.dataset.kind),
+          thin: view.inView.strokes, picks: view.picks().length, ink: ink > 0,
+          boxes: d.numbers.map((n) => [Math.round(n.box.left), Math.round(n.box.top), Math.round(n.box.right), Math.round(n.box.bottom)])};
+}
+/** The spots whose shown line crosses a rectangle of the map's box, counted in the map's own pixels from the
+ *  line's latitudes and longitudes (the page counts them in grid metres through its fit). */
+function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number {
+  const leaflet = (window as any).FINDALINE_MAP, c = view.model.data.columns;
+  const cross = clipper([[left, top], [right, top], [right, bottom], [left, bottom]]);
+  let n = 0;
+  for (const spot of view.order) {
+    const row = view.shownOf(spot);
+    const a = leaflet.latLngToContainerPoint([c.lat1.at(row), c.lon1.at(row)]), b = leaflet.latLngToContainerPoint([c.lat2.at(row), c.lon2.at(row)]);
+    if (cross(a.x, a.y, b.x, b.y)) n++;
+  }
+  return n;
+}
 
 (async () => { try {
   const made = (window as any).MADE as Made;
@@ -61,12 +87,14 @@ const measures = () => [...new Set(performance.getEntriesByType("measure").map((
                controls: [".leaflet-control-zoom", ".leaflet-control-layers", ".leaflet-control-scale", ".leaflet-control-attribution"]
                  .map((s) => !!document.querySelector(s)),
                header: text(".c-run-title"), actions: !!document.querySelector(".r-actions"), measures: measures(),
-               drawn: map.drawn(), bestOff: document.querySelector<HTMLSelectElement>(".v-best select")?.disabled,
+               drawn: picture(view, map), bestOff: document.querySelector<HTMLSelectElement>(".v-best select")?.disabled,
                snap: [(window as any).FINDALINE_MAP.options.zoomSnap, (window as any).FINDALINE_MAP.options.zoomDelta]};
   // a level held, and back to Auto
   document.querySelector<HTMLElement>('.v-levels button[data-level="lines"]')!.click();
   await until(() => !!document.querySelector(".v-back-auto"));
-  out.held = {level: view.level, auto: view.auto, status: text(".v-status"), pressed: pressed(), refused: !!document.querySelector(".v-refused")};
+  await sleep(50);  // the legend follows the picture
+  out.held = {level: view.level, auto: view.auto, status: text(".v-status"), pressed: pressed(), refused: !!document.querySelector(".v-refused"),
+              drawn: picture(view, map), m: view.inView.m};
   document.querySelector<HTMLElement>(".v-back-auto")!.click();
   await until(() => !document.querySelector(".v-back-auto"));
   out.back = {level: view.level, auto: view.auto, status: status()};
@@ -74,13 +102,27 @@ const measures = () => [...new Set(performance.getEntriesByType("measure").map((
   const leaflet = (window as any).FINDALINE_MAP;
   leaflet.setZoom(leaflet.getZoom() + 2.5, {animate: false});
   await until(() => view.level !== "area");
+  await sleep(50);
+  const zoomedPicture = picture(view, map);
+  const mapSize = leaflet.getSize();
   const spots = {level: view.level, m: view.inView.m, best: view.inView.best.length, numbered: view.inView.numbered, status: status(),
-                 zoom: leaflet.getZoom(), mpp: view.mpp};
+                 zoom: leaflet.getZoom(), mpp: view.mpp, pixels: inPixels(view, [0, 0, mapSize.x, mapSize.y])};
   const select = document.querySelector<HTMLSelectElement>(".v-best select")!;
   select.value = "all";
   select.dispatchEvent(new Event("change", {bubbles: true}));
   await until(() => view.best === "all" && (status() || "").includes("all"));
-  out.spots = {...spots, all: {best: view.best, status: status(), disabled: select.disabled}};
+  await sleep(50);
+  out.spots = {...spots, drawn: zoomedPicture, all: {best: view.best, status: status(), disabled: select.disabled, drawn: picture(view, map)}};
+  // a spot selected: its lines, A1 and A2 (the access mark on their corners), the rest dimmed; then "Lines from here"
+  view.select(view.spotOf(0));  // the made-up run's star: its lines leave the map's middle
+  await sleep(50);
+  const chosen = view.selected!;
+  out.selected = {drawn: picture(view, map), passing: view.passingOf(chosen.spot).length, marks: document.querySelectorAll(".v-anchor-mark").length};
+  view.openFan(leaflet.getCenter(), {row: chosen.row, end: 1});
+  await sleep(50);
+  out.fan = {drawn: picture(view, map), rows: view.fan!.rows.map((r) => r.label), marks: document.querySelectorAll(".v-anchor-mark").length};
+  view.select(null);
+  await sleep(50);
   // Esc ends the selection (the frame's key handler; nothing else is open)
   view.select(view.order[0]);
   const selected = view.selected?.spot;
@@ -107,9 +149,10 @@ const measures = () => [...new Set(performance.getEntriesByType("measure").map((
                footAbove: foot.bottom <= sheet.top + 1, slots: [text("[data-slot=list]"), text("[data-slot=details]")],
                covered: (document.querySelector(".v-map") as HTMLElement).style.getPropertyValue("--v-covered"),
                pill: text(".c-pill-name"), level: phone.view.level};
-  // the same map's view counted whole (no sheet): no fewer spots than above the sheet alone
-  const above = phone.view.inView.m, quadAbove = (phone.view as any).quad as [number, number][];
-  out.phoneView = {above, top: quadAbove[0][1] - quadAbove[3][1], mpp: phone.view.mpp};
+  // the spots in view against a count in the map's own pixels: above the sheet, and with the sheet's part too
+  const size = (window as any).FINDALINE_MAP.getSize();
+  out.phoneView = {above: phone.view.inView.m, pixels: inPixels(phone.view, [0, 0, size.x, size.y - (box.bottom - sheet.top)]),
+                   whole: inPixels(phone.view, [0, 0, size.x, size.y])};
   render(null, root);
   localStorage.removeItem("findaline.view");
   out.after = viewWanted();

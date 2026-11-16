@@ -100,6 +100,7 @@ const TOAST_MS = 3200;  // how long a message of the map stays
  *  canvas (SpotMap) fitted to the run's lines. */
 function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["ortho"], frame: {
   padding(): Padding; free(): Padding; obstacles(): DOMRect[]; onChoose(choice: ChoiceAt): void; onToast(text: string): void;
+  phone?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<L.Map | null>(null);
@@ -127,6 +128,7 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
       onToast: (text) => latest.current.onToast(text),
       obstacles: () => latest.current.obstacles(),
       free: () => latest.current.free(),
+      phone: frame.phone,
       onDrawn: () => {
         if (drawn || !made) return;
         drawn = true;
@@ -296,7 +298,7 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
       </FramePanel>
       <div class="c-col-map v-map">
         <div class="c-leaflet" ref={ref} />
-        <MapBar view={view} hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint(p)}</span>} />
+        <MapBar view={view} map={canvas} wide hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint(p)}</span>} />
         {toast && <div class="v-toast" role="status">{toast}</div>}
       </div>
       <FramePanel side="details" class="c-col-details" label={t("ui.view.map.panel_details")} column={fit.details}
@@ -328,7 +330,9 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   const [toast, say] = useToast();
   // On a phone a spot is in view when its shown line crosses the part of the map a person sees: not under the sheet
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), obstacles: () => [],
+    padding, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
+    // the top bar lies over the map: no number under it
+    obstacles: () => Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
     onChoose: setChoice, onToast: say});
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
@@ -361,7 +365,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef}>
       <div class="c-leaflet" ref={ref} />
-      <MapBar view={view} />
+      <MapBar view={view} map={canvas} wide={false} />
       {toast && <div class="v-toast" role="status">{toast}</div>}
     </div>
     <div class="c-phone-top">

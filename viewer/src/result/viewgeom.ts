@@ -6,7 +6,7 @@
 // map's visible part taken into the grid by the fit (a Quad: on the web map the grid stands slightly turned), a
 // square is a cell of the grid.
 
-import type { LineColumns } from "../types";
+import type { LineColumns, NumberColumn } from "../types";
 import type { SpotView } from "./spots";
 
 /** How much the map draws: squares, one line per spot, or the lines of the best spots. */
@@ -211,81 +211,258 @@ export function bearing(dx: number, dy: number): {deg: number; word: string} {
 }
 
 // --- the fit between the run's grid and the map ---
+// The page has no projection library; every anchor is stored both ways (latitude and longitude, grid metres), so
+// the grid's place of a point of the map is a polynomial fitted to the run's own anchors: of the lowest degree, 1
+// to 3, whose farthest anchor lies within `max` of its stored place (measured 2026-11-16 on five grids: a flat,
+// degree 1, map is 0.2 m off over 2 km, 1 m over 5 km and 10 m over 15 km, because a grid's east grows with the
+// longitude times the cosine of the latitude; degree 2 holds 6 mm over 15 km and 0.2 m over 50 km; degree 3 13 mm
+// over 100 km). A degree is tried only with at least three times as many distinct anchors as it has numbers per
+// axis (FIT_ANCHORS: its residual at the anchors then says something), and a polynomial must not be asked far
+// outside its anchors: every point is first clamped to the anchors' box widened by FIT_MARGIN (the view's
+// corners when the map is zoomed far out, a pressed point, a square's corner).
 
-/** A run's grid metres from latitudes and longitudes and back: one affine map fitted to the run's anchors, which
- *  are stored both ways (no projection library in the page). `residual`: the farthest any anchor's stored grid
- *  place lies from the fit's of its latitude and longitude, m; `rms` their root mean square; `anchors` how many
- *  were fitted; `turn` the grid north's direction on the map, degrees clockwise from true north. */
+/** A run's grid metres from latitudes and longitudes and back (gridFit). `degree`: of the polynomial (0: a turn and
+ *  one scale, of a run whose anchors are too few or on one line for more); `residual`: the farthest any anchor's
+ *  stored grid place lies from the fit's of its latitude and longitude, m; `rms` their root mean square; `back`: the
+ *  farthest an anchor's grid place comes back from its latitude and longitude through both ways, m; `anchors` how
+ *  many there are; `turn` the grid north's direction on the map at the run's middle, degrees clockwise from true
+ *  north. toGrid and toLatLng clamp their point to the anchors' box widened by `margin` metres first; `scale` is
+ *  the grid's metres per metre on the ground (along the east) at a point so clamped. */
 export interface GridFit {
   toGrid(lat: number, lon: number): [number, number];
   toLatLng(x: number, y: number): [number, number];
+  scale(lat: number, lon: number): number;
+  degree: 0 | 1 | 2 | 3;
   residual: number;
   rms: number;
+  back: number;
   anchors: number;
   turn: number;
+  margin: number;
 }
+
+/** The distinct anchors a degree needs: three times its numbers per axis (3, 6, 10). */
+export const FIT_ANCHORS = [2, 9, 18, 30];
+/** The margin around the anchors' box inside which the fit is asked: the larger of this many metres (the largest
+ *  square's side, so no square is cut) and this share of the box's longer side. */
+export const FIT_MARGIN = 200, FIT_MARGIN_SHARE = 0.1;
+const FIT_SAMPLE = 25000;  // the fit is solved on at most this many lines, taken evenly; its residual is of them all
+/** Anchors whose scatter is narrower than this, m (its standard deviation across their longest direction), count
+ *  as lying on one line: a polynomial would fit their rounding across it. */
+export const FIT_FLAT = 5;
 
 const DEG = Math.PI / 180, EARTH = 6371008.8;
 
-/** The fit of a run's lines (GridFit): least squares over both anchors of every line, about their means (so the
- *  large numbers cancel). Anchors on one straight line (a run of one line) cannot give a turned and stretched grid:
- *  the fit is then a turn and one scale (which two points give). Null without two anchors apart. */
-export function gridFit(c: LineColumns): GridFit | null {
+/** A column's value by row without its checks, where it holds every value (the anchors always do). */
+export function reader(c: NumberColumn): (i: number) => number {
+  const v = c.values, s = c.scale;
+  if (c.valid !== null || c.nulls !== null) return (i) => c.at(i) as number;
+  return s === 0 ? (i) => v[i] : (i) => v[i] / s;
+}
+
+/** The exponents (of u, of v) of a polynomial's terms up to `degree`. */
+function terms(degree: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let d = 0; d <= degree; d++) for (let i = d; i >= 0; i--) out.push([i, d - i]);
+  return out;
+}
+
+/** The solution of the normal equations a·x = b (a: n × n, symmetric, row by row; b: n × 2), or null when they are
+ *  singular (Gauss with pivots). */
+function solve(a: Float64Array, b: Float64Array, n: number): Float64Array | null {
+  const m = Float64Array.from(a), r = Float64Array.from(b);
+  let scale = 0;
+  for (let k = 0; k < n; k++) scale = Math.max(scale, Math.abs(m[k * n + k]));
+  for (let k = 0; k < n; k++) {
+    let p = k;
+    for (let i = k + 1; i < n; i++) if (Math.abs(m[i * n + k]) > Math.abs(m[p * n + k])) p = i;
+    if (!(Math.abs(m[p * n + k]) > 1e-10 * scale)) return null;
+    if (p !== k) {
+      for (let j = 0; j < n; j++) { const t = m[k * n + j]; m[k * n + j] = m[p * n + j]; m[p * n + j] = t; }
+      for (let j = 0; j < 2; j++) { const t = r[k * 2 + j]; r[k * 2 + j] = r[p * 2 + j]; r[p * 2 + j] = t; }
+    }
+    for (let i = k + 1; i < n; i++) {
+      const f = m[i * n + k] / m[k * n + k];
+      if (f === 0) continue;
+      for (let j = k; j < n; j++) m[i * n + j] -= f * m[k * n + j];
+      r[i * 2] -= f * r[k * 2]; r[i * 2 + 1] -= f * r[k * 2 + 1];
+    }
+  }
+  for (let k = n - 1; k >= 0; k--) {
+    for (let j = 0; j < 2; j++) {
+      let s = r[k * 2 + j];
+      for (let i = k + 1; i < n; i++) s -= m[k * n + i] * r[i * 2 + j];
+      r[k * 2 + j] = s / m[k * n + k];
+    }
+  }
+  return r;
+}
+
+/** A polynomial map (p, q) -> (a, b) of two numbers each within about -1 … 1: `c` its terms' two coefficients. */
+interface Poly { c: Float64Array; e: [number, number][] }
+
+function evaluate(poly: Poly, p: number, q: number, out: [number, number]) {
+  const {c, e} = poly, p2 = p * p, q2 = q * q, pw = [1, p, p2, p2 * p], qw = [1, q, q2, q2 * q];
+  let a = 0, b = 0;
+  for (let k = 0; k < e.length; k++) {
+    const t = pw[e[k][0]] * qw[e[k][1]];
+    a += c[2 * k] * t; b += c[2 * k + 1] * t;
+  }
+  out[0] = a; out[1] = b;
+}
+
+/** The least-squares polynomial of `degree` through the points `each` gives ((p, q) -> (a, b)), or null. */
+function fitPoly(degree: number, each: (f: (p: number, q: number, a: number, b: number) => void) => void): Poly | null {
+  const e = terms(degree), n = e.length, ata = new Float64Array(n * n), atb = new Float64Array(n * 2), t = new Float64Array(n);
+  each((p, q, a, b) => {
+    const p2 = p * p, q2 = q * q, pw = [1, p, p2, p2 * p], qw = [1, q, q2, q2 * q];
+    for (let k = 0; k < n; k++) t[k] = pw[e[k][0]] * qw[e[k][1]];
+    for (let k = 0; k < n; k++) {
+      const tk = t[k];
+      for (let j = k; j < n; j++) ata[k * n + j] += tk * t[j];
+      atb[2 * k] += tk * a; atb[2 * k + 1] += tk * b;
+    }
+  });
+  for (let k = 0; k < n; k++) for (let j = 0; j < k; j++) ata[k * n + j] = ata[j * n + k];
+  const c = solve(ata, atb, n);
+  return c && {c, e};
+}
+
+/** The fit of a run's lines (GridFit) over both anchors of every line: of the lowest degree that FIT_ANCHORS allows
+ *  whose residual is at most `max`; when none is, the last one tried (its residual says by how much: the caller
+ *  compares). A run whose anchors are fewer than degree 1 needs, or lie on one straight line, is fitted by a turn
+ *  and one scale (two anchors give them). Null without two anchors apart. */
+export function gridFit(c: LineColumns, max = Infinity): GridFit | null {
   const n = c.length;
   if (!n) return null;
-  const lat = [c.lat1, c.lat2], lon = [c.lon1, c.lon2], gx = [c.x1, c.x2], gy = [c.y1, c.y2];
-  let mLat = 0, mLon = 0, mX = 0, mY = 0, count = 0;
+  const lat = [reader(c.lat1), reader(c.lat2)], lon = [reader(c.lon1), reader(c.lon2)];
+  const gx = [reader(c.x1), reader(c.x2)], gy = [reader(c.y1), reader(c.y2)];
+  // the anchors' boxes both ways, and whether they are enough for each degree
+  let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  let count = 0, a0 = NaN, o0 = NaN, sp = 0, sq = 0, spp = 0, spq = 0, sqq = 0;
+  const distinct = new Set<string>(), enough = FIT_ANCHORS[3];
   for (let e = 0; e < 2; e++) {
     for (let i = 0; i < n; i++) {
-      const a = lat[e].at(i)!, o = lon[e].at(i)!, x = gx[e].at(i)!, y = gy[e].at(i)!;
+      const a = lat[e](i), o = lon[e](i), x = gx[e](i), y = gy[e](i);
       if (!(isFinite(a) && isFinite(o) && isFinite(x) && isFinite(y))) continue;
-      mLat += a; mLon += o; mX += x; mY += y; count++;
+      if (!count) { a0 = a; o0 = o; }
+      count++;
+      if (a < la0) la0 = a; if (a > la1) la1 = a; if (o < lo0) lo0 = o; if (o > lo1) lo1 = o;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (distinct.size < enough) distinct.add(x + "," + y);
+      const p = (o - o0) * DEG * EARTH * Math.cos(a0 * DEG), q = (a - a0) * DEG * EARTH;  // metres from the first anchor
+      sp += p; sq += q; spp += p * p; spq += p * q; sqq += q * q;
     }
   }
-  if (count < 2) return null;
-  mLat /= count; mLon /= count; mX /= count; mY /= count;
-  // local metres east (u) and north (v) of the mean, so both sides of the fit are metres about zero
-  const ku = DEG * EARTH * Math.cos(mLat * DEG), kv = DEG * EARTH;
-  let uu = 0, uv = 0, vv = 0, ux = 0, vx = 0, uy = 0, vy = 0;
-  for (let e = 0; e < 2; e++) {
-    for (let i = 0; i < n; i++) {
-      const a = lat[e].at(i)!, o = lon[e].at(i)!, x = gx[e].at(i)!, y = gy[e].at(i)!;
-      if (!(isFinite(a) && isFinite(o) && isFinite(x) && isFinite(y))) continue;
-      const u = (o - mLon) * ku, v = (a - mLat) * kv;
-      uu += u * u; uv += u * v; vv += v * v; ux += u * (x - mX); vx += v * (x - mX); uy += u * (y - mY); vy += v * (y - mY);
+  if (distinct.size < FIT_ANCHORS[0]) return null;
+  // how far the anchors spread across their own longest direction (the smaller axis of their scatter): on one
+  // straight line, or nearly, nothing can be said across it but by a turn and a scale
+  const vpp = spp / count - (sp / count) ** 2, vqq = sqq / count - (sq / count) ** 2, vpq = spq / count - sp * sq / (count * count);
+  const across = Math.sqrt(Math.max(0, (vpp + vqq) / 2 - Math.hypot((vpp - vqq) / 2, vpq)));
+  const flat = !(across >= FIT_FLAT);
+  // both sides about zero and within about -1 … 1: (u, v) of a latitude and longitude, (s, t) of a grid place
+  const mLat = (la0 + la1) / 2, mLon = (lo0 + lo1) / 2, hLat = (la1 - la0) / 2 || 1e-6, hLon = (lo1 - lo0) / 2 || 1e-6;
+  const mX = (x0 + x1) / 2, mY = (y0 + y1) / 2, half = Math.max(x1 - x0, y1 - y0) / 2 || 1;
+  const margin = Math.max(FIT_MARGIN, FIT_MARGIN_SHARE * 2 * half);
+  const dLat = margin / (EARTH * DEG), dLon = margin / (EARTH * DEG * Math.cos(mLat * DEG));
+  const step = Math.max(1, Math.ceil(n / FIT_SAMPLE));
+  const anchors = (every: number) => (f: (u: number, v: number, s: number, t: number) => void) => {
+    for (let e = 0; e < 2; e++) {
+      for (let i = 0; i < n; i += every) {
+        const a = lat[e](i), o = lon[e](i), x = gx[e](i), y = gy[e](i);
+        if (!(isFinite(a) && isFinite(o) && isFinite(x) && isFinite(y))) continue;
+        f((o - mLon) / hLon, (a - mLat) / hLat, (x - mX) / half, (y - mY) / half);
+      }
     }
-  }
-  if (!(uu + vv > 0)) return null;
-  const det = uu * vv - uv * uv;
-  let a11: number, a12: number, a21: number, a22: number;
-  if (det > 1e-9 * uu * vv) {
-    a11 = (ux * vv - vx * uv) / det; a12 = (vx * uu - ux * uv) / det;
-    a21 = (uy * vv - vy * uv) / det; a22 = (vy * uu - uy * uv) / det;
-  } else {  // the anchors on one line: x = p·u - q·v, y = q·u + p·v
-    const p = (ux + vy) / (uu + vv), q = (uy - vx) / (uu + vv);
-    a11 = p; a12 = -q; a21 = q; a22 = p;
-  }
-  const inv = a11 * a22 - a12 * a21;
-  if (!(Math.abs(inv) > 1e-12)) return null;
-  const toGrid = (la: number, lo: number): [number, number] => {
-    const u = (lo - mLon) * ku, v = (la - mLat) * kv;
-    return [mX + a11 * u + a12 * v, mY + a21 * u + a22 * v];
   };
-  const toLatLng = (x: number, y: number): [number, number] => {
-    const dx = x - mX, dy = y - mY;
-    return [mLat + (a11 * dy - a21 * dx) / inv / kv, mLon + (a22 * dx - a12 * dy) / inv / ku];
+  /** A turn and one scale through the sampled anchors, as polynomials of degree 1 both ways. */
+  const similar = (): [Poly, Poly] | null => {
+    // in local metres east (p) and north (q) of the middle: x = a·p - b·q, y = b·p + a·q
+    const kp = hLon * DEG * EARTH * Math.cos(mLat * DEG), kq = hLat * DEG * EARTH;
+    let pp = 0, px = 0, py = 0, qx = 0, qy = 0, mp = 0, mq = 0, ms = 0, mt = 0, m = 0;
+    anchors(step)((u, v, s, t) => { mp += u * kp; mq += v * kq; ms += s; mt += t; m++; });
+    mp /= m; mq /= m; ms /= m; mt /= m;
+    anchors(step)((u, v, s, t) => {
+      const p = u * kp - mp, q = v * kq - mq, x = (s - ms) * half, y = (t - mt) * half;
+      pp += p * p + q * q; px += p * x; py += p * y; qx += q * x; qy += q * y;
+    });
+    if (!(pp > 0)) return null;
+    const a = (px + qy) / pp, b = (py - qx) / pp, det = a * a + b * b;
+    if (!(det > 0)) return null;
+    // forward: s = ms + (a·(u·kp - mp) - b·(v·kq - mq)) / half …; back: the inverse turn and scale
+    const e = terms(1), fs = (a * -mp + b * mq) / half + ms, ft = (b * -mp - a * mq) / half + mt;
+    const forward = {e, c: Float64Array.from([fs, ft, a * kp / half, b * kp / half, -b * kq / half, a * kq / half])};
+    const bu = (-a * ms - b * mt) * half / det, bv = (b * ms - a * mt) * half / det;
+    const back = {e, c: Float64Array.from([(bu + mp) / kp, (bv + mq) / kq, a * half / det / kp, -b * half / det / kq,
+                                           b * half / det / kp, a * half / det / kq])};
+    return [forward, back];
   };
-  let worst = 0, sum = 0;
-  for (let e = 0; e < 2; e++) {
-    for (let i = 0; i < n; i++) {
-      const a = lat[e].at(i)!, o = lon[e].at(i)!, x = gx[e].at(i)!, y = gy[e].at(i)!;
-      if (!(isFinite(a) && isFinite(o) && isFinite(x) && isFinite(y))) continue;
-      const g = toGrid(a, o), d2 = (g[0] - x) * (g[0] - x) + (g[1] - y) * (g[1] - y);
-      if (d2 > worst) worst = d2;
-      sum += d2;
+  const pair = (degree: number): [Poly, Poly] | null => {
+    if (degree === 0) return similar();
+    const forward = fitPoly(degree, anchors(step));
+    const back = forward && fitPoly(degree, (f) => anchors(step)((u, v, s, t) => f(s, t, u, v)));
+    return forward && back ? [forward, back] : null;
+  };
+  const made = (degree: 0 | 1 | 2 | 3, [forward, back]: [Poly, Poly]): GridFit => {
+    const out: [number, number] = [0, 0];
+    // the residual at every anchor (on the sample first: a degree that fails there is not measured further)
+    const measure = (every: number) => {
+      let worst = 0, sum = 0, there = 0, m = 0;
+      anchors(every)((u, v, s, t) => {
+        evaluate(forward, u, v, out);
+        const d2 = ((out[0] - s) * (out[0] - s) + (out[1] - t) * (out[1] - t)) * half * half;
+        if (d2 > worst) worst = d2;
+        sum += d2; m++;
+        evaluate(back, s, t, out);
+        evaluate(forward, out[0], out[1], out);
+        const b2 = ((out[0] - s) * (out[0] - s) + (out[1] - t) * (out[1] - t)) * half * half;
+        if (b2 > there) there = b2;
+      });
+      return {residual: Math.sqrt(worst), rms: Math.sqrt(sum / Math.max(1, m)), back: Math.sqrt(there)};
+    };
+    let found = measure(step);
+    if (step > 1 && found.residual <= max && found.back <= max) found = measure(1);
+    const raw = (la: number, lo: number): [number, number] => {
+      const at: [number, number] = [0, 0];
+      evaluate(forward, (lo - mLon) / hLon, (la - mLat) / hLat, at);
+      return [mX + at[0] * half, mY + at[1] * half];
+    };
+    const clampLat = (la: number) => Math.min(la1 + dLat, Math.max(la0 - dLat, la));
+    const clampLon = (lo: number) => Math.min(lo1 + dLon, Math.max(lo0 - dLon, lo));
+    // the grid's north on the map: the direction in which a step north in the grid moves, from the back way
+    const up: [number, number] = [0, 0], here: [number, number] = [0, 0];
+    evaluate(back, 0, 0, here);
+    evaluate(back, 0, 1e-4, up);
+    const east = (up[0] - here[0]) * hLon * Math.cos(mLat * DEG), northward = (up[1] - here[1]) * hLat;
+    return {
+      degree, anchors: count, margin, ...found,
+      turn: (Math.atan2(east, northward) / DEG + 360) % 360,
+      toGrid: (la, lo) => raw(clampLat(la), clampLon(lo)),
+      toLatLng: (x, y) => {
+        const at: [number, number] = [0, 0];
+        evaluate(back, (Math.min(x1 + margin, Math.max(x0 - margin, x)) - mX) / half,
+                 (Math.min(y1 + margin, Math.max(y0 - margin, y)) - mY) / half, at);
+        return [mLat + at[1] * hLat, mLon + at[0] * hLon];
+      },
+      scale: (la, lo) => {
+        const a = clampLat(la), o = Math.min(lo1, Math.max(lo0, lo)), d = 1e-4;  // about 10 m, inwards of the box
+        const from = raw(a, o - d / 2), to = raw(a, o + d / 2);
+        return Math.hypot(to[0] - from[0], to[1] - from[1]) / (d * DEG * EARTH * Math.cos(a * DEG));
+      },
+    };
+  };
+  let last: GridFit | null = null;
+  const degrees: (0 | 1 | 2 | 3)[] = distinct.size >= FIT_ANCHORS[1] && !flat ? [1, 2, 3] : [0];
+  for (const degree of degrees) {
+    if (distinct.size < FIT_ANCHORS[degree]) break;
+    let both = pair(degree);
+    if (!both && degree === 1) {  // the anchors on one straight line: a turn and a scale, and no higher degree
+      both = pair(0);
+      return both && made(0, both);
     }
+    if (!both) break;
+    last = made(degree, both);
+    if (last.residual <= max && last.back <= max) return last;
   }
-  // the grid's north (0, 1) on the map: its east and north parts in local metres
-  const turn = (Math.atan2(-a12 / inv, a11 / inv) / DEG + 360) % 360;
-  return {toGrid, toLatLng, residual: Math.sqrt(worst), rms: Math.sqrt(sum / count), anchors: count, turn};
+  return last;
 }

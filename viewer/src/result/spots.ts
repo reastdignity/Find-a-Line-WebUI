@@ -153,10 +153,11 @@ export interface SpotView {
   destroy(): void;
 }
 
-/** The farthest an anchor may lie from the fit's place of it, m: above it the run opens in today's page.
- *  PROPOSED by the build (the planner decides): the fit only places the view's edge, the squares' corners and the
- *  point of "Lines from here" (10 m around it); the lines themselves are drawn from their own coordinates. */
-export const FIT_MAX = 2;
+/** The farthest an anchor may lie from the fit's place of it, m (the planner, 2026-11-16): the fit takes the lowest
+ *  degree that keeps within it (viewgeom.ts gridFit); a run no degree fits opens in today's page. The fit places
+ *  the view's edge, the squares' corners and the point of "Lines from here" (10 m around it); the lines themselves
+ *  are drawn from their own coordinates. */
+export const FIT_MAX = 0.5;
 
 /** What the view needs of a run, checked once per run before its model is built (viewOf). */
 export interface ViewBase { fit: GridFit; start: Uint32Array; sectorStart: Uint32Array }
@@ -197,10 +198,11 @@ function check(d: RunData): ViewBase | string {
   if (sectorStart[sectors.length] !== now + 1 || sectors.some((s) => !(s.spots > 0))) {
     return "the head's sectors do not hold the view's spots";
   }
-  const fit = gridFit(d.columns);
+  const fit = gridFit(d.columns, FIT_MAX);
   if (!fit) return "the run's grid could not be fitted to the map";
-  if (!(fit.residual <= FIT_MAX)) {
-    return `the run's grid lies up to ${fit.residual.toFixed(2)} m from its fit to the map (at most ${FIT_MAX} m)`;
+  const worst = Math.max(fit.residual, fit.back);
+  if (!(worst <= FIT_MAX)) {
+    return `the run's grid lies up to ${worst.toFixed(2)} m from its fit to the map of degree ${fit.degree} (at most ${FIT_MAX} m)`;
   }
   return {fit, start: Uint32Array.from(starts), sectorStart};
 }
