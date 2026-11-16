@@ -77,6 +77,12 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   (`tests/test_viewer.py::test_store_gives_the_rows_values` compares every value with data.js's); the page reads a store
   only when run.json's block `store` is in runs.js (`storeOf`), so `runs._listed` keeps that block; a store's file
   missing (404) falls back to data.js and lines.js, which runs keep until store wave 4.
+- The result view's order (view B1, docs/line-volume/spec-view.md B.3): `mapping.view_columns`' `by_spot` (inside a
+  spot by mean height as stored, clearance, length, then the row; NaN last) and the page's "first line" of a spot
+  and "not beaten", which assume that order: change them together (`tests/test_view_columns.py`). The spots are
+  `group_lines`' members, renumbered by sector; the result view does not regroup them (D-12 a).
+- `top` (`mapping.top_level` = `tools/prune_study.py`'s `higher_wins`, `STACK_CELL`/`STACK_STEP`) and the text of
+  "Top level only"'s count (the lines whose `top` is 0): a change of the rule changes that text's meaning.
 - A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine`, `lineColumns`' `ROW_FIELDS`
   or `EXTRA_FIELDS`, `lineAt` and `LineCursor` in `types.ts`); the head's
   `ends` names the values before the profile of a run with the no-fall zone or the A-frames (`runs.END_FIELDS` =
