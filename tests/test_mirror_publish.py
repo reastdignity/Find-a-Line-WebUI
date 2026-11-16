@@ -863,3 +863,20 @@ def test_rclone_stderr_never_printed(world, monkeypatch, capsys):
             out = capsys.readouterr().out
             assert not any(w in out for w in words), out
         assert b"secret-host" in log.read_bytes()
+
+
+def test_a_lock_written_although_rclone_reports_a_failure(world, monkeypatch, capsys):
+    """U35 over SFTP: on a server that cannot compute the hash the remote claims, rclone writes the lock and then
+    reports the upload failed. The tool takes the lock as its own (its token is in it), the hash proof refuses, and
+    the lock is released: nothing left on the server."""
+    real_write = mp.Remote.write
+
+    def write(self, rel, data):
+        real_write(self, rel, data)
+        if rel == mp.LOCK:
+            raise mp.Failed("rclone could not write staging/.lock (exit 1: an error)")
+    monkeypatch.setattr(mp.Remote, "write", write)
+    monkeypatch.setattr(mp.Remote, "sha256_of", lambda self, rel: None)
+    assert _publish(world, "madeira") == 1
+    assert "could not hash the lock file" in capsys.readouterr().out
+    assert tree(world.server) == {}

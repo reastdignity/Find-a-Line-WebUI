@@ -661,7 +661,16 @@ class Lock:
         token = secrets.token_hex(16)
         text = json.dumps({"pc": socket.gethostname(), "time": _now().strftime("%Y-%m-%dT%H:%M:%SZ"),
                            "command": self.command, "token": token}).encode("utf-8")
-        self.remote.write(LOCK, text)
+        try:
+            self.remote.write(LOCK, text)
+        except Failed:
+            # rclone checks an upload's hash when the remote claims one: on a server that cannot compute it the
+            # write "fails" with the file written (seen over SFTP). Ours when it holds our token; the hash proof
+            # then refuses and releases it
+            self.taken, self.token, self.text = True, token, text
+            if self._held() != token:
+                self.taken = False
+                raise
         self.taken, self.token, self.text = True, token, text
         if self._held() != token:
             self.taken = False  # another run's lock now: never touched
