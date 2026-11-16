@@ -414,21 +414,33 @@ MEASURE = r"""() => {
       : ['checkbox', 'radio', 'range', 'color', 'file'].includes(e.type) ? '' : (e.value || e.placeholder || '');
     for (const w of t.split(/\s+/)) if (WORD.test(w)) words.push(w);
   }
+  // In a dialog or popover also every word of it, those scrolled out of its view too (what it gives to read)
+  let inScope = null;
+  if (scope) {
+    inScope = 0;
+    const all = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+    for (let n = all.nextNode(); n; n = all.nextNode()) {
+      const p = n.parentElement;
+      if (!p || !shown(p) || p.closest('script, style, option')) continue;
+      inScope += n.data.split(/\s+/).filter((w) => WORD.test(w)).length;
+    }
+  }
   const enabled = controls.filter((c) => c.enabled);
   return {scope: scopeName, controls: enabled.length, disabled: controls.length - enabled.length,
-          words: words.length, list: controls.map((c) => `${c.enabled ? '' : '(disabled) '}${c.kind}: ${c.name}`),
-          text: words.join(' ')};
+          words: words.length, words_in_scope: inScope,
+          list: controls.map((c) => `${c.enabled ? '' : '(disabled) '}${c.kind}: ${c.name}`), text: words.join(' ')};
 }"""
 
-# A watcher installed just before an action: did a busy mark, a progress bar or the visible text change within
-# FEEDBACK_MS? (the text compared by its length and a cheap hash of document.body.innerText)
+# A watcher installed just before an action: did a new busy mark or progress bar come, or the visible text change,
+# within FEEDBACK_MS? (the text compared by its length and a cheap hash of document.body.innerText)
 FEEDBACK = r"""(ms) => {
   const sig = () => { const t = document.body ? document.body.innerText : ''; let h = 0;
                       for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return t.length + ':' + h; };
-  const busy = () => !!document.querySelector('[aria-busy=true], progress, [role=progressbar], .u-spin, .u-spinner');
-  const before = sig();
+  const marks = () => [...document.querySelectorAll('[aria-busy=true], progress, [role=progressbar], .u-spin, .u-spinner')];
+  const before = sig(), had = new Set(marks());  // a busy mark shown before the action is no feedback of it
   window.__walkFeedback = null;
-  setTimeout(() => { window.__walkFeedback = busy() ? 'busy' : sig() !== before ? 'text' : 'none'; }, ms);
+  setTimeout(() => { window.__walkFeedback = marks().some((e) => !had.has(e)) ? 'busy'
+                                             : sig() !== before ? 'text' : 'none'; }, ms);
 }"""
 
 # The measurement repeated until the surface stops changing (three equal readings 100 ms apart), at most `ms`
@@ -455,6 +467,7 @@ MAP_CLICK = """([lat, lng]) => { const p = window.FINDALINE_PLACE; if (!p) retur
 
 
 TOKEN = re.compile(r"/s/[A-Za-z0-9_-]{8,}")  # a share link's token: never in an output
+LINK_FIELDS = ".r-pop input, .c-card-panel input"  # where a share link is shown: covered in the screenshots
 
 
 def measure(page) -> dict:
@@ -502,7 +515,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             return None
         path = os.path.join(out, f"{n:02d}-{kind}.png")
         try:
-            page.screenshot(path=path)
+            page.screenshot(path=path, mask=[page.locator(LINK_FIELDS)])
         except Exception:
             return None
         return path
@@ -644,7 +657,9 @@ COLUMNS = [("screens", "Screens"), ("pointer", "Taps/clicks"), ("keystrokes", "K
 def _step_line(s: dict) -> str:
     """One step for the Markdown path: what was done, what the person saw before it."""
     m = s.get("measured")
-    seen = f" [{m['controls']} controls, {m['words']} words]" if m else ""
+    seen = (f" [{m['controls']} controls, {m['words']} words"
+            + (f"; {m['words_in_scope']} in the {m['scope']}, scrolled out too" if m.get("words_in_scope") is not None
+               and m["words_in_scope"] > m["words"] else "") + "]") if m else ""
     if s["kind"] == "note":
         return f"{s['n']}. note: {s['text']}"
     if s["kind"] == "wait":
@@ -823,7 +838,8 @@ def main():
                             break
                         loc.tap() if touch else loc.click()
                     m = measure(page)
-                    page.screenshot(path=os.path.join(args.out, f"probe-{k + 1}.png"))
+                    page.screenshot(path=os.path.join(args.out, f"probe-{k + 1}.png"),
+                                    mask=[page.locator(LINK_FIELDS)])
                     found.append({"address": address, **m})
                     print(f"{address}: {m['scope']}, {m['controls']} controls (+{m['disabled']} disabled), "
                           f"{m['words']} words")

@@ -137,11 +137,54 @@ def test_counting_on_a_known_page(page):
 def test_counting_inside_a_modal_dialog(page):
     """With a modal dialog open only what is in it counts; the page behind is none."""
     page.set_content(PAGE + """<dialog id="d"><p>Hello there, friend</p><button>Yes</button><button>No</button>
-        <a href="#">Read more</a></dialog>""")
+        <a href="#">Read more</a><div style="max-height:30px;overflow:auto"><div style="height:60px"></div>
+        <p>Scrolled out of view</p></div></dialog>""")
     page.evaluate("document.getElementById('d').showModal()")
     m = uw.measure(page)
     assert m["scope"] == "dialog:modal"
     assert (m["controls"], m["disabled"], m["words"]) == (3, 0, 3 + 1 + 1 + 2), m
+    assert m["words_in_scope"] == 7 + 4  # what the dialog gives to read, its scrolled-out part too
+    page.evaluate("document.getElementById('d').close()")
+    assert uw.measure(page)["words_in_scope"] is None  # no dialog, no such count
+
+
+@browser_test
+def test_counting_inside_a_popover_and_the_map(page):
+    """An open popover (.r-pop) alone counts; a Leaflet map is one control, its panes' controls and words none, its
+    corner controls and attribution each."""
+    page.set_content("""<button>Outside</button><p>Words outside</p>
+        <div class="leaflet-container" style="position:relative;width:300px;height:200px">
+          <div class="leaflet-map-pane"><a href="#m" style="position:absolute;top:50px">Marker label</a>
+            <span style="position:absolute;top:90px">Pane words</span></div>
+          <div class="leaflet-control-container"><button style="position:absolute;top:0">Zoom in</button>
+            <a href="#osm" style="position:absolute;bottom:0">OpenStreetMap</a></div></div>""")
+    m = uw.measure(page)
+    assert sorted(m["list"]) == sorted(["button: Outside", "map: the map", "button: Zoom in", "a: OpenStreetMap"])
+    assert m["words"] == 1 + 2 + 2 + 1, m["text"]  # Outside / Words outside / Zoom in / OpenStreetMap
+    page.evaluate("""document.body.insertAdjacentHTML('beforeend', '<div class="r-pop" role="dialog" tabindex="-1">' +
+        '<b>Save to a folder</b><button>Favourites</button><button>New folder</button></div>')""")
+    m = uw.measure(page)
+    assert (m["scope"], m["controls"], m["words"]) == (".r-pop", 2, 4 + 1 + 2), m
+
+
+@browser_test
+def test_feedback_of_a_slow_step(page):
+    """A step slower than 300 ms: "none" when nothing changed on the screen within 300 ms, "busy" with a busy mark,
+    "text" when the visible text changed; a fast step has no such entry."""
+    page.set_content("""<button id="quiet" onclick="setTimeout(() => document.body.insertAdjacentHTML('beforeend',
+          '<p id=a>Done</p>'), 800)">Quiet</button>
+        <button id="busy" onclick="this.setAttribute('aria-busy', 'true'); setTimeout(() =>
+          document.body.insertAdjacentHTML('beforeend', '<p id=b>Done</p>'), 800)">Busy</button>
+        <button id="told" onclick="document.getElementById('say').textContent = 'Working'; setTimeout(() =>
+          document.body.insertAdjacentHTML('beforeend', '<p id=c>Done</p>'), 800)">Told</button>
+        <button id="fast" onclick="document.body.insertAdjacentHTML('beforeend', '<p id=d>Done</p>')">Fast</button>
+        <p id="say">Ready</p>""")
+    walk = {"steps": [uw.tap(f"#{name}", f"!!document.getElementById('{p}')")
+                      for name, p in (("quiet", "a"), ("busy", "b"), ("told", "c"), ("fast", "d"))]}
+    r = uw.run_walk(page, walk, timeout=SHORT)
+    assert r["dead_end"] is None
+    assert [s.get("feedback") for s in r["steps"][:4]] == ["none", "busy", "text", None]
+    assert r["totals"]["no_feedback"] == 1 and [w["step"] for w in r["totals"]["waits"]] == [1, 2, 3]
 
 
 @browser_test
