@@ -1244,7 +1244,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   and the USA's OPR DEMs are other sessions'; hosting the mirror and deploying are outside the batch. What stays
   unbuilt is specified in [new-sources-6/spec.md](new-sources-6/spec.md), so that a later session builds each
   without new decisions.
-- **Built** (2026-11-15/16, on the integration branch `new-sources-6`, each part reviewed for scope and code):
+- **Built** (2026-11-15/16, its commits under the tag `history/new-sources-6`, each part reviewed for scope and code):
   - *The area download window* (`tools/area_rows.py`, `tools/area_download_tui.py`): Continent → Country → area; a
     country level only for a country of two or more rows (the user: "No, only countries with multiple options"); a
     territory under the continent where it lies ("move them to correct continent": Guadeloupe, Martinique and the
