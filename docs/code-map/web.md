@@ -89,7 +89,7 @@ on the server as i18next does, `viewer/src/i18n.ts` (i18next core, no React bind
 CLI keeps its own texts (`params.py` descriptions). Coded errors and notes: `messages.UserError` (a ValueError),
 `ServiceError` (a RuntimeError), `Note` (a str: a search's warning), `search.SearchError` and `jobs.QuotaExceeded`
 carry `code` and `params` (`messages.Coded`): str() is the command line's text (option names), `web_text()` the
-catalogue's `error.<code>` (a `field` parameter gives its `label`); `messages.user_error` unwraps pydantic's
+catalogue's `error.<code>` (a `field` parameter gives its `label`; `public=True`: `error.<code>_public` where it exists, and `info`/`detail` then give `{code, key, params: {}}`, the page reading `key`); `messages.user_error` unwraps pydantic's
 `ValidationError`; HTTP errors answer `{message, code, params}` (`web.error_detail`), job errors keep the code in
 `jobs.sqlite` `error_info`, estimate messages as a third element; the page renders them with `i18n.ts`
 `errorText`/`detailMessage` (`api.ts` `ApiError`, `jobError`), the map of a run shows `message` (`errors.ts`, no
