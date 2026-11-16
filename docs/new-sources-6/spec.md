@@ -40,8 +40,8 @@ The Azores' CRS: Flores EPSG:5014, PTRA08 / UTM 25N (the survey of 2026-10-31); 
 "PTRA08 / UTM zone 26N" with the ID EPSG:32626 (wave 0, to confirm; the survey: the central and eastern groups
 probably EPSG:5015). **Open**, settled by the first fetched files: each island group's CRS and the island codes the
 manifest holds (the fetch names folders by island code: SMG, TER, GRA appear in `tests/test_cdd_fetch.py`). The
-vertical datum is stated nowhere (DGT's standard is Cascais, EPSG:5780; mail 36 asks); **open**, settled by DGT's
-answer or a comparison with FABDEM on flat ground (as Austria's, docs/roadmap.md).
+vertical datum is stated nowhere (DGT's standard is Cascais, EPSG:5780); **open**, to learn from DGT (mail 36) or by
+a comparison with FABDEM on flat ground (as Austria's, docs/roadmap.md).
 
 **Licence.** Every collection's `license` field: "CC-BY-4.0" (GET https://cdd.dgterritorio.gov.pt/dgt-be/v1/collections,
 2026-11-15). The CDD's "Sobre": "The geographic information downloaded from the Data Center is subject to a CC-BY 4.0
@@ -49,8 +49,8 @@ usage license, which allows the free use of the data with the sole requirement o
 information is the Directorate-General for Territory." SNIG record 077a8c94-8b46-4a8a-8796-0d7fc4662f0c: "Acesso
 público sem restrições"; "Licença de utilização - CC-BY-4.0". No numeric limits were found; the legal notices: "A DGT
 reserva-se o direito de recusar ou retirar o acesso ao seu site, em qualquer momento e sem aviso prévio, aos
-utilizadores que não cumpram os Avisos legais." The Azores have no SNIG record (mail 36 asks DGT to confirm CC BY 4.0
-for them).
+utilizadores que não cumpram os Avisos legais." The Azores have no SNIG record: their CC BY 4.0 rests on the
+collections' field (**open**, to confirm with DGT, mail 36).
 
 **Access.** `tools/cdd_fetch.py` (built; `tests/test_cdd_fetch.py`): `plan` walks the public search, `fetch` signs in
 through the Keycloak form with `CDD_USER` and `CDD_PASSWORD` from an env file beside it (at most 6 sign-ins an hour),
@@ -96,8 +96,7 @@ mirror's files, alignment); the probe answers; regression entries on the OSM coa
 item 5), skipped without their folders.
 
 **Blocks today.** The fetch and the cut on the user's server; the hosted mirror (this PC reads these datasets only
-through it); mail 36 to DGT (the vertical datum, the Azores' licence) does not block the bulk copy, which CC BY 4.0
-covers.
+through it). DGT's answer to mail 36 does not block the bulk copy, which CC BY 4.0 covers.
 
 ## 2. Wallonia (mirror datasets)
 
@@ -128,7 +127,7 @@ and id). The MNS record's ordering text asks for a hard disk above 20 Go, agains
 mail 32 is a notice to SPW of the download.
 
 **Access.** `tools/cdd_fetch.py fetch-list wallonia` (built): no login; the server ignores Range, so a broken file
-starts again; each size must equal the list's. At about 2 MB/s from this PC (a 4 s test, weak) about 2.5 days.
+starts again; each size must equal the list's.
 
 **To build.**
 1. Inspect the first ZIP (Namur's terrain): the open points above decide `members`, `nodata`, `origin`, `overlap`
@@ -201,14 +200,18 @@ server answers.
 tlbg.thueringen.de and geoportal.thueringen.de answered "Link11 - CAPTCHA". **Licence** **open**: dl-de/by-2.0 "(c)
 GDI-Th" per a third party; SAGA's documentation names both CC BY 4.0 and dl-de/by-2.0
 (https://saga-gis.sourceforge.io/saga_tool_doc/9.13.0/io_webservices_13.html); the TLBG's DOP WMS says CC BY 4.0,
-"Namensnennung: © GDI-Th". Mail 16 asks for the DOM1's path, a path without the CAPTCHA (or permission), whether the
-2020-2025 period replaces whole tiles, and whether Range or HEAD may be used.
+"Namensnennung: © GDI-Th". Also **open**, to learn from TLBG (mail 16): the DOM1's path, a path without the CAPTCHA
+(or permission for scripts), whether the 2020-2025 period replaces whole tiles, and whether Range or HEAD may be
+used.
 
 **To build.** `ZippedTiles` as Saxony's, with a check of the answer's content type and the ZIP magic (a maintenance
 page with status 200 must never be cached as a tile); the newest period per tile (or both, newest first, if 2020-2025
 covers tiles in part); region de-th; neighbours the Länder whose boxes touch (`tools/border_study.py boxes`, the
 six-neighbour cap). Regression place: none chosen yet (the truth check's `tools/truth_study.py places` ranks known
 highlines per country).
+
+**Acceptance.** Nothing settled beyond the standing checks (`check_source` PASS, the probe, the tiles' content type
+and magic) until the host answers.
 
 **Blocks today.** The host (maintenance page, CAPTCHA) and the answer to mail 16.
 

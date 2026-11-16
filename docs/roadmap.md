@@ -1319,7 +1319,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   staging folder, and makes it final by one rename into `<dataset>/<product>/<res>m/` (`sources.TileBases` takes a
   dataset as there once that folder exists); changed inputs are a new edition. A product's fetched files stay until
   it is final and verified. Madeira 2 m, Valle d'Aosta and Slovakia are byte for byte unchanged.
-- **Open** (the user's decisions; each specified in the spec's "Open decisions"):
+- **Open** (the first five are the user's decisions, specified in the spec's "Open decisions"; the last two are
+  noted, not asked):
   - Tokyo's island sheets hold seabed (Mikurajima: 49 of 341 lines false; a floor of -1, -0.5 or 0 m leaves 292,
     none false); real land in the eastern wards goes down to -4.42 m, so a floor only for the island sheets (needs
     `nodata_below` per sheet).
@@ -1330,8 +1331,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - A Deflate64 reader for Ontario's two projects (a library: the user's decision after a comparison).
   - A guard in `tests/regression.py --update` against a baseline on the coastline fallback (proposed as a separate
     small change; docs/regression-tests.md, item 5).
-  - The VPS's Geofabrik extracts: leave kanto, chubu and ontario out as British Columbia's (docs/deployment.md,
-    section 9).
+  - The VPS's Geofabrik extracts: a suggestion to leave kanto, chubu and ontario out as British Columbia's
+    (docs/deployment.md, section 9), waiting for the user's word.
   - LEAP 2009 (Ontario) is in CGVD28 beside CGVD2013 data: its offset is not measured.
 - **Waiting** (mails drafted in the user's private `local/mail-drafts.md`, sent by the user): 16 TLBG (Thuringia), 29
   Valle d'Aosta (the DSM as one file), 32 SPW Wallonia (a notice), 33 CEDD Hong Kong (a re-tiled copy), 34 NSW
@@ -1471,7 +1472,7 @@ The top level of `cache/` stays one folder per country or per global dataset, so
 | Metadata | `index.sqlite` in every top-level folder, one row per file keyed by its path (which names dataset, edition and tiling): status (`ok`, `missing`), fetched/checked/last-used times, ETag, Last-Modified, sha256, date of the source data, processing version. Replaces the `.missing` files. URLs are stored without secrets (no OpenTopography key). A row without a file means missing; a file without a row is adopted. |
 | Updates | Never during a search. `--update stale|all` or `findaline cache update [folder] [--point/--bbox]`; `findaline cache status` lists folders with size, last use and stale tiles. Missing tiles are re-checked by `update` like any other (after 90 days). Checks never stop a search: offline or on errors the cached data is used with a warning. |
 | OSM | Themes (coastline, cliffs, crags...) in `osm/themes/<theme>/<tile>.geojson` on a fixed 0.25° grid, filled from Overpass by default. `findaline osm download <country>` adds a Geofabrik extract in `<country>/osm-extract/`; when present, themes are built from it and `findaline osm update` applies the daily diffs. Fallbacks as today: world water polygons, then Overpass, then the Copernicus mask. |
-| Tile encoding | Decided and built 2026-11-06: every float elevation tile is cached as LERC_ZSTD with an error bound of 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too (their sha256 is checked on the downloaded bytes first); integer files and the Slovak mirror's tiles (LERC already; its averaged 2 m and 5 m tiles lossless) stay as they are. About 40 % less disk; a study of 9 regression places lost or added no spot, the full set 4 lost and 4 added spots of one or two lines at 0-1 cm of clearance, and every `lines.csv` checksum changed (re-baselined). Migration automatic: a search re-encodes the old tiles it reads before reading them, `cache migrate` the rest; paths, `cache/LAYOUT` and the index's schema unchanged, so older code reads a migrated cache. |
+| Tile encoding | Decided and built 2026-11-06: every float elevation tile is cached as LERC_ZSTD with an error bound of 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too (their sha256 is checked on the downloaded bytes first); integer files and the Slovak mirror's tiles (LERC already; its averaged 2 m and 5 m tiles lossless) stay as they are. About 40 % less disk; a study of 9 regression places lost or added no spot, the full set 4 lost and 4 added spots of one or two lines at 0-1 cm of clearance, and every `lines.csv` checksum changed (re-baselined; counted on 2026-11-05: 55 of the 64 entries moved). Migration automatic: a search re-encodes the old tiles it reads before reading them, `cache migrate` the rest; paths, `cache/LAYOUT` and the index's schema unchanged, so older code reads a migrated cache. |
 | Runs | Each run records the data it used (`data` in `run.json`: folder, number of files, oldest and newest fetch time, survey years of sheets); `cache status` lists runs computed on data that has changed since. |
 
 **Layout**
