@@ -66,7 +66,7 @@ skip() {  # <id> <why>: a check that could not run here (not a PASS; the accepta
     OUT[$1]=SKIP
     [ "$QUIET" = 1 ] || echo "SKIP $1 $2"
 }
-TAGS=" base hold probe rate forged swag th ka day send refuse local dsprobe dsserved "
+TAGS=" base hold probe rate forged swag th ka day send refuse local dsprobe dsserved capold capnew "
 tag() {  # <tag>: its number (the log's "v" holds only version-shaped tokens: <MARK>.<number>)
     local before=${TAGS%% $1 *}
     printf '%s' "$before" | wc -w | tr -d ' '
@@ -750,15 +750,26 @@ g_cleanup() {
     info "the size bound at $cap bytes (today's file $t): $left"
     check E11 "above the size bound the oldest day's file goes first; the newer days, today's and other names stay" \
         eval '(case " $left" in *" access-$d3.log "*) exit 1 ;; esac; for n in access-$d2.log access-$d1.log access-$day.log notes.txt access-x.log; do case " $left" in *" $n "*) ;; *) exit 1 ;; esac; done)'
+    # Today's file brought well above the bound through nginx itself (25 marked requests, so that
+    # nginx's own write position is what is tested), its size read; then the pass at 1000 bytes and
+    # one more marked request: the file holds that line and none of before, below the bound
+    local tb
+    # shellcheck disable=SC2046
+    cx a -A "$(ua capold)" $(urls 25 "$P/robots.txt") > /dev/null
+    sleep 1
+    tb=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
     csh files-1 "/usr/local/bin/mirror-start cleanup 1000"
-    cx a -o /dev/null -A "$(ua day)" "$P/robots.txt"
+    cx a -o /dev/null -A "$(ua capnew)" "$P/robots.txt"
     sleep 1
     left=$(csh files-1 'ls /var/log/mirror' | tr '\n' ' ')
-    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log")
-    info "the size bound at 1000 bytes: $left; today's file now $t bytes"
-    check E12 "today's file alone above the bound is emptied in place: nginx goes on writing it, the healthcheck holds" \
-        eval '(case " $left" in *" access-$d2.log "*|*" access-$d1.log "*) exit 1 ;; *" notes.txt "*) ;; *) exit 1 ;; esac) &&
-            [ "$t" -gt 0 ] && [ "$t" -lt 1000 ] && csh files-1 "grep -q \"$MARK.$(tag day)\" /var/log/mirror/access-$day.log" &&
+    t=$(csh files-1 "stat -c %s /var/log/mirror/access-$day.log" 2> /dev/null)
+    info "the size bound at 1000 bytes: today's file $tb bytes before the pass, ${t:-none} after it and one request; $left"
+    check E12 "today's file alone above the bound ($tb bytes) is emptied in place: nginx goes on writing it (the new line only), the healthcheck holds" \
+        eval '[ "${tb:-0}" -gt 1000 ] &&
+            (case " $left" in *" access-$d2.log "*|*" access-$d1.log "*) exit 1 ;; *" notes.txt "*) ;; *) exit 1 ;; esac) &&
+            [ "${t:-0}" -gt 0 ] && [ "${t:-0}" -lt 1000 ] &&
+            csh files-1 "grep -q \"$MARK.$(tag capnew)\" /var/log/mirror/access-$day.log" &&
+            ! csh files-1 "grep -q \"$MARK.$(tag capold)\" /var/log/mirror/access-$day.log" &&
             docker exec "$FILES" /usr/local/bin/mirror-start health'
     csh files-1 'rm -f /var/log/mirror/notes.txt /var/log/mirror/access-x.log'
     # A cleanup pass that fails (a file 15 days back that cannot be removed: the log folder made
