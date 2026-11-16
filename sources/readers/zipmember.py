@@ -302,8 +302,8 @@ class ZipMember(Reader):
     def raster(self, data: bytes, where: str):
         """(band, crs, transform) of a member's bytes as its tile is written, before drop_below: the band float32
         with NaN for no data, in crs's name if given, the transform fixed (TransformFix); an XYZ member GDAL refuses
-        is read again with its points in rows (xyz_rows); one in columns under COLUMNS_LOCK. tools/check_source.py
-        reads a member again through it."""
+        is read again with its points in rows (xyz_rows); one in columns under COLUMNS_LOCK. (tools/check_source.py
+        reads a member again by its own rules, not through this: its file check finds a fix that is wrong.)"""
         try:
             with COLUMNS_LOCK if xyz_in_columns(data) else contextlib.nullcontext():
                 return self._raster(data, where)

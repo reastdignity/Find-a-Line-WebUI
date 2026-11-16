@@ -61,15 +61,15 @@ def test_xyz_rows_keeps_the_lines():
     ([(32474000, 5936002), (32474001, 5936002)], [(0, 0), (0, 1)])])    # the first columns' top
 def test_a_member_in_columns_with_points_missing(http_server, tmp_path, gone, nan):
     """GDAL refuses points in columns with some missing ("does not support datasets organized by columns with
-    missing values", or "Ungridded dataset"): the member is read again in rows, the missing points no data, the
-    others where the whole member puts them."""
+    missing values", or "Ungridded dataset"): the catalogue's own reader (Bremerhaven's DOM1) reads the member again
+    in rows, the missing points no data, the others where the whole member puts them."""
+    reader = src.SOURCES["bremerhaven"].nmpt.reader
     name = "Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz"
     whole = _archive([(name, _xyz(COLUMNS), zipfile.ZIP_DEFLATED, False)])
-    transform, z = _fetch(http_server, tmp_path, ZipMember("DOM1 (test)", crs="EPSG:25832", fix=ZONE), name, whole)
+    transform, z = _fetch(http_server, tmp_path, reader, name, whole)
     assert transform == Affine(1.0, 0.0, 473999.5, 0.0, -1.0, 5936002.5) and np.allclose(z, EXPECTED)
     part = _archive([(name, _xyz([p for p in COLUMNS if p[:2] not in gone]), zipfile.ZIP_DEFLATED, False)])
-    transform_part, z_part = _fetch(http_server, tmp_path, ZipMember("DOM1 (test)", crs="EPSG:25832", fix=ZONE),
-                                    name, part)
+    transform_part, z_part = _fetch(http_server, tmp_path, reader, name, part)
     expected = EXPECTED.copy()
     for row, col in nan:
         expected[row, col] = np.nan
@@ -233,34 +233,95 @@ def test_a_tile_without_the_surface(http_server, tmp_path, monkeypatch):
         os.path.join("bremerhaven", "dom1-2015"))
 
 
-def test_check_source_reads_a_member_as_the_reader_does(http_server, tmp_path, monkeypatch):
-    """tools/check_source.py's file check reads each member again as the layer's reader takes it (the zone taken off
-    the eastings, the surface half a pixel off the terrain): Bremerhaven's cached tiles equal their members (PASS,
-    within LERC's bound); GDAL's own transform of the member (32 000 km east) would not."""
+def _hamburg_member(values: np.ndarray) -> bytes:
+    """A GeoTIFF member of LGV Hamburg's DGM1 553_5934 as it says its origin (552999.9999999999), LZW, nodata -3.4e38."""
+    noisy = Affine(1.0, 0.0, 552999.9999999999, 0.0, -1.0, 5935000.000000001)
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=values.shape[1], height=values.shape[0], count=1, dtype="float32",
+                          crs="EPSG:25832", transform=noisy, nodata=-3.4028234663852886e38, compress="lzw") as dst:
+            dst.write(values.astype(np.float32), 1)
+        return memfile.read()
+
+
+# (source, layer, member's name, its bytes, the grid over it); the values random so a misplaced tile cannot pass
+RNG = np.random.default_rng(5)
+CHECKED = [
+    ("bremerhaven", "nmt", "Gitternetz_DGM1_2015_BHV/dgm1_32474__5936_1_hb.xyz",
+     _xyz([(32474000.5 + i, 5936999.5 - j, f"{RNG.uniform(0, 9):.3f}") for i in range(30) for j in range(20)]),
+     (474002, 5936982, 474018, 5936998)),
+    ("bremerhaven", "nmpt", "Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz",
+     _xyz([(32474000 + i, 5936980 + j, f"{RNG.uniform(0, 30):.3f}") for i in range(31) for j in range(20)]),
+     (474002, 5936982, 474018, 5936998)),
+    ("hamburg", "nmt", "s32_553/dgm1_32_553_5934_1_hh_2022.tif", _hamburg_member(RNG.uniform(0, 9, (20, 30))),
+     (553002, 5934982, 553018, 5934998))]
+
+
+def _saarland_member() -> bytes:
+    """A GeoTIFF member as LVGL's: uncompressed float32, -9999 for no data, a patch at 0 m (its floor's case)."""
+    from rasterio.transform import from_origin
+    values = np.random.default_rng(7).uniform(180, 220, (40, 40)).astype(np.float32)
+    values[:3, :] = -9999.0
+    values[20:23, 20:23] = 0.0
+    with rio.io.MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=40, height=40, count=1, dtype="float32", crs="EPSG:25832",
+                          transform=from_origin(327000.0, 5486000.0, 1.0, 1.0), nodata=-9999.0) as dst:
+            dst.write(values, 1)
+        return memfile.read()
+
+
+@pytest.mark.parametrize("sid, member", [("hamburg", _hamburg_member(np.random.default_rng(3).uniform(0, 9, (20, 30)))),
+                                         ("saarland", _saarland_member())], ids=["hamburg", "saarland"])
+def test_geotiff_members_written_as_before(tmp_path, sid, member):
+    """The reader's tile of a GeoTIFF member (Hamburg's, Saarland's) is byte for byte the tile of the path before
+    xyz_rows, COLUMNS_LOCK and ZipMember.raster: GDAL's plain read, layer._clean, the layer's fix, drop_below and
+    _write_tile (the catalogue's own readers: Hamburg's rounding, Saarland's floor and ring)."""
+    import hashlib
+    from sources.layer import _clean, _write_tile
+    from sources.readers.zipmember import drop_below
+    reader = src.SOURCES[sid].nmt.reader
+    reader._write(member, str(tmp_path / "reader.tif"), "t")
+    with rio.io.MemoryFile(member) as memfile, memfile.open() as plain:
+        band = _clean(plain.read(1, masked=True).astype(np.float32).filled(np.nan), copy=False)
+        crs, transform = reader.crs or plain.crs, plain.transform
+    if reader.fix is not None:
+        transform = reader.fix.apply(transform, "t")
+    drop_below(band, reader.floor, reader.ring)
+    _write_tile(str(tmp_path / "plain.tif"), band, crs, transform)
+    digest = [hashlib.sha256((tmp_path / f"{name}.tif").read_bytes()).hexdigest() for name in ("reader", "plain")]
+    assert digest[0] == digest[1]
+    assert (reader.fix is not None) == (sid == "hamburg") and (reader.floor is not None) == (sid == "saarland")
+
+
+@pytest.mark.parametrize("sid, kind, name, member, box", CHECKED, ids=["bremerhaven-dgm1", "bremerhaven-dom1",
+                                                                      "hamburg-dgm1"])
+@pytest.mark.parametrize("wrong", [None, (5.0, 0.0), (1_000_000.0, 0.0)], ids=["right", "5-m-east", "a-zone-east"])
+def test_check_source_finds_a_wrong_fix(http_server, tmp_path, monkeypatch, sid, kind, name, member, box, wrong):
+    """tools/check_source.py's file check reads each member by its own rules (the member's georeferencing, a zone in
+    front of an easting taken off), not through the layer's fix: Bremerhaven's and Hamburg's cached tiles equal their
+    members (PASS, within LERC's bound), and a tile the catalogue's fix put 5 m or a whole zone (1000 km) away is
+    found (WARN)."""
     import sys
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
     import check_source as cs
     from grid import make_grid
     monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
-    bhv = src.SOURCES["bremerhaven"]
-    rng = np.random.default_rng(5)
-    dgm = [(32474000.5 + i, 5936999.5 - j, f"{rng.uniform(0, 9):.3f}") for i in range(30) for j in range(20)]
-    dom = [(32474000 + i, 5936980 + j, f"{rng.uniform(0, 30):.3f}") for i in range(31) for j in range(20)]
-    archives = {"dgm": ("Gitternetz_DGM1_2015_BHV/dgm1_32474__5936_1_hb.xyz", dgm),
-                "dom": ("Gitternetz_DOM1_2015_BHV/dom1_32474_5936_1_hb.xyz", dom)}
+    layer = getattr(src.SOURCES[sid], kind)
+    _serve(http_server, "/m.zip", _archive([(name, member, zipfile.ZIP_DEFLATED, False)]))
+    url = http_server.url("/m.zip")
+    monkeypatch.setattr(layer.listing, "urls", [url])
+    monkeypatch.setattr(layer.listing, "url", url)
+    monkeypatch.setattr(layer.index, "_listed", {})  # the process's answers of an earlier case (another server)
+    if wrong is not None:
+        fix = layer.reader.fix
+        monkeypatch.setattr(layer.reader, "fix", fix._replace(offset=(fix.offset[0] + wrong[0], fix.offset[1] + wrong[1])))
     cache_dir = str(tmp_path / "cache")
-    grid = make_grid((474002, 5936982, 474018, 5936998), 1.0, "EPSG:25832")
-    for kind, layer in (("dgm", bhv.nmt), ("dom", bhv.nmpt)):
-        name, points = archives[kind]
-        _serve(http_server, f"/{kind}.zip", _archive([(name, _xyz(points), zipfile.ZIP_DEFLATED, False)]))
-        url = http_server.url(f"/{kind}.zip")
-        monkeypatch.setattr(layer.listing, "urls", [url])
-        monkeypatch.setattr(layer.listing, "url", url)
-        layer.download(grid, cache_dir, None, kind)
-        check = cs.check_files(layer, grid, cache_dir, 2)
+    grid = make_grid(box, 1.0, "EPSG:25832")
+    layer.download(grid, cache_dir, None, kind)
+    check = cs.check_files(layer, grid, cache_dir, 2)
+    if wrong is None:
         assert check["status"] == cs.PASS and check["tiles"][0]["max_abs_m"] <= 0.006, check["text"]
-    monkeypatch.setattr(bhv.nmt.reader, "fix", None)  # the member as GDAL alone places it
-    assert cs.check_files(bhv.nmt, grid, cache_dir, 2)["status"] == cs.WARN
+    else:
+        assert check["status"] == cs.WARN, check["text"]
 
 
 def test_sources():
@@ -284,11 +345,37 @@ def test_sources():
     assert (hb.ortho.layer, bhv.ortho.layer) == ("dop10_2025_HB", "dop10_2025_BHV")
     assert hb.bbox[1] < bhv.bbox[0]  # the two boxes apart: Lower Saxony between them
     assert src.HOST_SLOTS_OF["gdi2.geo.bremen.de"] == 2
-    assert hb.map_areas() == ("de-hb",) and bhv.coverage is None and "de-hb" in src.AREA_NAMES
+    # Two areas of the coverage map, each its city's (de-hb-bhv our code: ISO 3166-2 names neither city)
+    assert hb.map_areas() == ("de-hb",) and bhv.map_areas() == ("de-hb-bhv",)
+    assert (hb.coverage.survey, bhv.coverage.survey) == ("2017", "2015")
+    assert (src.AREA_NAMES["de-hb"], src.AREA_NAMES["de-hb-bhv"]) == ("Freie Hansestadt Bremen", "Bremerhaven")
     from sources import probe
     assert probe.strategy(hb.nmt) == probe.strategy(bhv.nmpt) == "zip"
     ids = list(src.SOURCES)
     assert ids.index("bremen") < ids.index("lower_saxony") and ids.index("bremerhaven") < ids.index("lower_saxony")
+
+
+def test_the_download_window_has_a_row_per_city():
+    """tools/area_rows.py makes a row of each city's area, each downloading through its own source, and
+    tools/area_download.py's plan_of clips a row's outline to its source's coverage boxes (area.clip_to_boxes):
+    Bremerhaven's row keeps Bremerhaven (bremen's boxes would leave all of it out), Bremen's keeps Bremen."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import area
+    import area_rows as ar
+    from shapely.geometry import box
+    rows = {row.name: row for row in ar.catalogue()}
+    hb, bhv = rows["germany-bremen"], rows["germany-bremerhaven"]
+    assert (hb.source, hb.area, hb.country, hb.label) == ("bremen", "osm:Freie Hansestadt Bremen", "Germany", "Bremen")
+    assert (bhv.source, bhv.area, bhv.country, bhv.label) == ("bremerhaven", "osm:Bremerhaven", "Germany",
+                                                              "Bremerhaven")
+    assert hb.continent == bhv.continent == "Europe" and hb.km2 > 200 and 50 < bhv.km2 < 200
+    in_bhv, in_hb = box(8.55, 53.50, 8.62, 53.58), box(8.72, 53.04, 8.95, 53.10)  # inside each city (lon, lat)
+    for city, own, other in ((in_bhv, "bremerhaven", "bremen"), (in_hb, "bremen", "bremerhaven")):
+        kept, dropped = area.clip_to_boxes(city, src.SOURCES[own].coverage_boxes())
+        assert dropped == 0.0 and kept.equals(city)
+        kept, dropped = area.clip_to_boxes(city, src.SOURCES[other].coverage_boxes())
+        assert kept.is_empty and dropped > 10
 
 
 # (lat, lon, Nominatim's region, the source online, the source offline)

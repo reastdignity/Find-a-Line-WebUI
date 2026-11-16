@@ -502,9 +502,11 @@ SOURCES: List[Source] = [
     # each city (bands of 0.02 degrees of latitude, the runs of 0.01-degree columns at least 75 % inside the city's OSM
     # outline: Bremen's 14 hold 85 % of it and 1.9 % other land, Bremerhaven's 7 76 % and 3.4 %), so Delmenhorst,
     # Lilienthal, Stuhr or Nordenham keep Lower Saxony's source. Nominatim names both cities DE-HB: each is chosen by its
-    # bbox, the city's own box (the Land's outline, relation 62559, south and north of 53.3 degrees; the city of Bremen's
-    # overseas port lies in Bremerhaven's). Lower Saxony declares six neighbours already (countcube.PARTNERS), so neither
-    # names it: their gaps beyond their tiles are filled by FABDEM / Copernicus
+    # bbox, the city's own box (the outlines of the city of Bremen, relation 62559, south of 53.3 degrees, and of
+    # Bremerhaven, 62658, with the city of Bremen's overseas port, 7.6 km2 of 62559 inside Bremerhaven, whose tiles
+    # Bremerhaven's archives hold). Lower Saxony declares six neighbours already (countcube.PARTNERS), so neither names
+    # it: their gaps beyond their tiles are filled by FABDEM / Copernicus. Two areas of the coverage map: de-hb (the city
+    # of Bremen) and de-hb-bhv (Bremerhaven; ISO 3166-2 names neither city)
     Source(
         id="bremen", name="GeoInformation Bremen (DGM1 / DOM1, Bremen)",
         description="Landesamt GeoInformation Bremen (the city of Bremen, Germany): terrain and surface models 1 m of "
@@ -523,9 +525,7 @@ SOURCES: List[Source] = [
                  ("de-hb", (53.18, 53.20, 8.62, 8.63)), ("de-hb", (53.20, 53.22, 8.50, 8.54))),
         sample=(53.0760, 8.8075),  # the Marktplatz
         note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid). Laser scanning of 2017.",
-        # One area for the Land's two cities (ISO 3166-2 has none of its own for either): Bremerhaven's source has no
-        # entry of its own
-        coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb",), survey="2015–2017")),
+        coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb",), survey="2017")),
     Source(
         id="bremerhaven", name="GeoInformation Bremen (DGM1 / DOM1, Bremerhaven)",
         description="Landesamt GeoInformation Bremen (the city of Bremerhaven, Germany): terrain and surface models 1 m "
@@ -542,7 +542,10 @@ SOURCES: List[Source] = [
         sample=(53.5400, 8.5800),  # the centre, by the Geeste
         note=f"Data {HB_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid; the surface model, whose "
              f"pixels lie half a pixel off the terrain's, interpolated onto it). Laser scanning of 2015. The surface "
-             f"model covers the city only: beyond it lines are checked against the bare terrain."),
+             f"model covers the city; its tiles at the city's edge hold flat planes of a constant height beyond the "
+             f"boundary (up to 13 m above the terrain over 15 ha), which mark lines over them as over trees or "
+             f"buildings; beyond those tiles lines are checked against the bare terrain.",
+        coverage=Coverage(provider="GeoInformation Bremen", added="2026-11-15", areas=("de-hb-bhv",), survey="2015")),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
         description="LGLN (Lower Saxony, Germany): ALS terrain and surface models 1 m, newest survey per "

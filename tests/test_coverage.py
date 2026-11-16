@@ -20,9 +20,6 @@ SHAPES = os.path.join(REPO, "viewer", "src", "coverage", "shapes.json")
 # Sources only used to fill the gaps of others: not on the map
 GAP_FILLERS = {"usgs10m", "canada_2m", "mrdem30", "nz8m", "france_rgealti", "malta2012", "alaska_ifsar", "nasadem",
                "europe", "copernicus", "islandsdem10", "queensland_demh", "northern_ireland_10m", "france_reunion_rgealti"}
-# Sources whose area another source's entry stands for: the Land Bremen's two cities on two grids, one area de-hb
-# (ISO 3166-2 names neither city), its entry bremen's
-SHARED_AREA = {"bremerhaven"}
 
 
 def _json(path):
@@ -49,12 +46,9 @@ def test_coverage_json_up_to_date():
 
 
 def test_every_map_source_has_a_coverage():
-    """Every source but the gap fillers colours the map; the gap fillers do not, nor a source whose area another's
-    entry stands for (Bremerhaven: de-hb is bremen's)."""
+    """Every source but the gap fillers colours the map; the gap fillers do not."""
     for sid, source in src.SOURCES.items():
-        assert (source.coverage is None) == (sid in GAP_FILLERS | SHARED_AREA), sid
-    for sid in SHARED_AREA:
-        assert src.SOURCES[sid].regions == ("de-hb",) and src.SOURCES["bremen"].map_areas() == ("de-hb",)
+        assert (source.coverage is None) == (sid in GAP_FILLERS), sid
         if source.coverage:
             assert source.coverage.provider and len(source.coverage.added) == 10, sid
 

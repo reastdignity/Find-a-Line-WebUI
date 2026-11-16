@@ -298,7 +298,20 @@
     1
    ],
    "source": "bremen",
-   "survey": "2015–2017",
+   "survey": "2017",
+   "trees": "yes"
+  },
+  "de-hb-bhv": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoInformation Bremen",
+   "res": [
+    1
+   ],
+   "source": "bremerhaven",
+   "survey": "2015",
    "trees": "yes"
   },
   "de-he": {
@@ -1296,6 +1309,7 @@
    "de-bw",
    "de-by",
    "de-hb",
+   "de-hb-bhv",
    "de-he",
    "de-hh",
    "de-mv",
