@@ -8,6 +8,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import requests
+from filelock import FileLock
 from rasterio.warp import transform_bounds
 
 import cache
@@ -19,7 +21,7 @@ from ..indexes.cached import CachedIndex
 from ..indexes.s3listing import MAX_KEYS, S3Object, S3Objects, common_prefixes, list_objects
 from ..indexes.sheetsets import SheetSets
 from ..indexes.tilings import MetricCellTiling
-from ..net import _part, tile_lock
+from ..net import LOCK_WAIT_S, _part
 from ..readers.sheetfile import ListedFileMissing
 from ..readers.sheetsets import SheetSetFile, gave_pixels
 from .indexed import IndexedTiles
@@ -27,14 +29,15 @@ from .s3blocks import Box
 
 # What a listed key is: (survey year, level, cell (i, j)); None: not a file of the layer
 KeyParser = Callable[[str], Optional[Tuple[int, str, Tuple[int, int]]]]
-# Days the bucket's list of survey folders is kept (cached in the index's folder, folders.json): a worker that runs
-# for weeks sees a new survey within a week
+# Days the bucket's list of survey folders is kept (<top>/sheet-index/<prefix>.folders.json, beside the folder of
+# the tile answers and without a row in index.sqlite, as WfsSheets' capabilities: update.py takes every row under
+# the prefix's folder for a tile answer): a worker that runs for weeks sees a new survey within a week
 FOLDERS_TTL_DAYS = 7
 
 
 class _SheetListing(S3Objects):
-    """S3Objects whose items are made against the tile's box computed once per tile (its projection took 0.2 ms
-    a key, about 9 of a cold tile's 21-26 s, 2026-11-15) and stamped with the time of the listing."""
+    """S3Objects whose answer of a tile keeps only the sheets the tile owns (SheetSets.owner: the tile holding the
+    sheet's centre), the tile's box computed once per tile, each item stamped with the time of the listing."""
 
     def __init__(self, layer: "S3SheetSets", max_keys: int):
         super().__init__(layer.bucket, layer._prefixes, layer._item, max_keys)
@@ -49,7 +52,7 @@ class _SheetListing(S3Objects):
                 item = self.layer._item_in(obj, box, listed)
                 if item is not None:
                     items.setdefault(item["url"], item)
-        return {"sheets": list(items.values())}
+        return {"sheets": self.layer.index.versions.owned(list(items.values()), lat, lon)}
 
 
 class S3SheetSets(IndexedTiles):
@@ -84,31 +87,56 @@ class S3SheetSets(IndexedTiles):
         self.index_crs = crs
         self.index = CachedIndex(description, _SheetListing(self, max_keys),
                                  SheetSets(folder, crs, native_res, levels, splits), prefix, folder.split("/")[0])
+        self.index.versions.index = self.index  # cached() reads the owners' cached answers
         self.reader = SheetSetFile(description, members)
         self._folders_lock = threading.Lock()
 
     def folders_path(self, cache_dir: str) -> str:
-        """The cached list of the survey folders, beside the index's answers."""
-        return os.path.join(os.path.dirname(self.index.index_path(cache_dir, 0.0, 0.0)), "folders.json")
+        """The cached list of the survey folders: <top>/sheet-index/<prefix>.folders.json (no row in index.sqlite)."""
+        return os.path.dirname(self.index.index_path(cache_dir, 0.0, 0.0)) + ".folders.json"
+
+    def _list_folders(self) -> List[str]:
+        return [p for p in common_prefixes(self.bucket, "") if re.fullmatch(self.folders_pattern, p)]
 
     def survey_folders(self) -> List[str]:
         """The bucket's top folders of the surveys: one delimiter listing, kept FOLDERS_TTL_DAYS in the data folder
-        (folders.json beside the index's answers; without a data folder, asked each time)."""
+        (folders_path; without a data folder, asked each time). Under a lock of its own (a file lock beside it, never
+        a tile's lock: the listing of a tile asks this under its tile's lock). When asking again fails, the folders
+        of the last listing are used (said); with none, the error (the index is not available)."""
         cache_dir = self.index.cache_dir
         if cache_dir is None:
-            return [p for p in common_prefixes(self.bucket, "") if re.fullmatch(self.folders_pattern, p)]
+            return self._list_folders()
         path = self.folders_path(cache_dir)
-        with self._folders_lock, tile_lock(cache_dir, path):
-            if cache.due(cache_dir, path, update="stale", ttl=FOLDERS_TTL_DAYS):  # also without an update
-                folders = [p for p in common_prefixes(self.bucket, "") if re.fullmatch(self.folders_pattern, p)]
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                tmp = _part(path)
-                with open(tmp, "w", encoding="utf-8") as out:
-                    json.dump({"folders": folders}, out)
-                os.replace(tmp, path)
-                cache.record(cache_dir, path, url=self.bucket)
-            with open(path, encoding="utf-8") as f:
-                return list(json.load(f)["folders"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with self._folders_lock, FileLock(path + ".lock", timeout=LOCK_WAIT_S):
+            known = None
+            try:
+                with open(path, encoding="utf-8") as f:
+                    known = json.load(f)
+            except (OSError, ValueError):
+                pass
+            old = os.path.join(os.path.dirname(self.index.index_path(cache_dir, 0.0, 0.0)), "folders.json")
+            if os.path.exists(old):  # where the code of 2026-11-15/16 (not merged) kept it, with a row
+                try:
+                    cache.forget(cache_dir, [old])
+                except OSError:
+                    pass
+            if known is not None and cache.age_days(known.get("asked", "")) <= FOLDERS_TTL_DAYS:
+                return list(known["folders"])
+            try:
+                folders = self._list_folders()
+            except requests.RequestException as e:
+                if known is None:
+                    raise
+                print(f"{self.description}: the survey folders could not be listed again ({type(e).__name__}); "
+                      f"those of {known.get('asked', '?')[:10]} are used")
+                return list(known["folders"])
+            tmp = _part(path)
+            with open(tmp, "w", encoding="utf-8") as out:
+                json.dump({"folders": folders, "asked": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+                          out)
+            os.replace(tmp, path)
+            return folders
 
     def _box(self, lat: float, lon: float) -> Box:
         """A 0.25° tile in crs."""
@@ -142,17 +170,27 @@ class S3SheetSets(IndexedTiles):
 
     def _download_and_record(self, tile, cache_dir: str, update: Optional[str] = None,
                              if_due: bool = False, role: str = "other") -> int:
-        """As every layer's; a listed file the bucket no longer has (404) drops the cached index answers of the
-        sheet's 0.25 degree tiles, so the next search lists them again, and stays this sheet's error."""
+        """As every layer's; a listed file the bucket no longer has (404) drops the cached answer of the sheet's
+        owner tile (that one only) and this process's listings, so a new search lists it anew, and stays this
+        sheet's error now."""
         try:
             return super()._download_and_record(tile, cache_dir, update, if_due, role)
         except ListedFileMissing as e:
-            west, south, east, north = transform_bounds(self.crs, "EPSG:4326",
-                                                        *self.levels[tile.level].edges((tile.i, tile.j)))
-            paths = [self.index.index_path(cache_dir, lat, lon) for lat, lon in osm.tiles(west, south, east, north)]
-            cache.forget(cache_dir, paths)
-            raise ListedFileMissing(f"{e}; the cached index answers of its {len(paths)} tile(s) were dropped, the "
-                                    f"next search lists them again") from e
+            (lat, lon), = self.index.versions.owners(tile.level, [(tile.i, tile.j)])
+            try:
+                cache.forget(cache_dir, [self.index.index_path(cache_dir, lat, lon)])
+            except OSError:  # another thread or process forgot it now
+                pass
+            self.index._listed.clear()
+            raise ListedFileMissing(f"{e}; the cached index answer of its tile {osm.tile_name(lat, lon)} was "
+                                    f"dropped: a new search lists it anew") from e
+
+    def update_index_tile(self, cache_dir: str, lat: float, lon: float) -> Tuple[int, int, int]:
+        """As every indexed layer's, then this process's listings forgotten (they may name sets it replaced)."""
+        try:
+            return super().update_index_tile(cache_dir, lat, lon)
+        finally:
+            self.index._listed.clear()
 
     def has_data_near(self, lat: float, lon: float, cache_dir: str, metres: float = 2000) -> Optional[bool]:
         return self.index.versions.has_data_near(self.index, lat, lon, cache_dir, metres)

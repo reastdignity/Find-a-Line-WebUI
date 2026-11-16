@@ -541,80 +541,6 @@ def test_shizuoka_real_lines_land_on_their_sheet(shizuoka, http_server, tmp_path
     assert np.count_nonzero(~np.isnan(values)) == 300
 
 
-def test_shizuoka_one_key_whichever_items():
-    """A sheet's sets do not depend on the items seen: a 1/500 sheet of FY2021 and FY2025 is split at FY2022 with
-    or without the quadrant sheet over it among the items; a file listed twice (two tiles' answers, uploaded again
-    in between) is taken from its newer upload, in either order."""
-    versions = japan.SZ_DTM.index.versions
-    quad = japan.jp_quad_cell(8, "08LD3341")
-    left, _, _, top = japan.SZ_LEVELS["q"].edges(quad)
-    small = japan.SZ_LEVELS["s"].cell_of(left + 450, top - 150)
-
-    def item(year, level, cell, etag="aaaaaaaa", modified="2026-11-04T00:00:00.000Z", listed=""):
-        return {"name": f"{year}_x{cell}@{etag}", "url": f"u/{year}/{level}/{cell}", "level": level,
-                "cell": list(cell), "year": year, "size": 1, "modified": modified, "listed": listed}
-    own = [item(2021, "s", small), item(2025, "s", small)]
-    alone = [(s.level, s.key) for s in versions.sets(own) if s.level == "s"]
-    with_quad = [(s.level, s.key) for s in versions.sets(own + [item(2022, "q", quad)]) if s.level == "s"]
-    assert alone == with_quad and len(alone) == 2
-    old = item(2019, "s", small, "11111111", "2026-11-04T00:00:00.000Z", "2026-11-05T00:00:00+00:00")
-    new = item(2019, "s", small, "22222222", "2026-11-10T00:00:00.000Z", "2026-11-01T00:00:00+00:00")
-    assert versions.sets([old, new])[0].files[0][0].endswith("@22222222")
-    assert versions.sets([new, old])[0].files[0][0].endswith("@22222222")
-
-
-def _straddling_sheet():
-    """A 1/500 sheet of zone VIII across the 0.25 degree line at 139.0 E (about 34.88 N), and the x of that line."""
-    from rasterio.warp import transform
-    xs, ys = transform("EPSG:4326", japan.SZ_CRS, [139.0], [34.88])
-    cell = japan.SZ_LEVELS["s"].cell_of(xs[0], ys[0])
-    xl, _ = transform("EPSG:4326", japan.SZ_CRS, [139.0, 139.0], [34.87, 34.89])
-    return cell, sum(xl) / 2
-
-
-def test_shizuoka_straddling_sheet_one_key_by_turns(shizuoka, http_server, tmp_path):
-    """A sheet across two index tiles: a search on either side reads both tiles' answers, so after a re-upload
-    seen by one tile's newer answer both searches take the newer file; searches by turns download it once, and
-    the older version (the same file name) is pruned, never the current one."""
-    cell, line_x = _straddling_sheet()
-    code = japan.jp_sheet(8, *cell)
-    key = f"2019/LP/Grid/08/{code[2:4]}/{code[4:6]}/{code}.zip"
-    objects = {key: _zip(f"{code}_DEM.txt", _sheet_text(code, 10.0))}
-    modified = {key: "2026-11-04T07:00:00.000Z"}
-    _bucket(http_server, objects, modified)
-    left, bottom, right, top = japan.SZ_LEVELS["s"].edges(cell)
-    assert left + 20 < line_x < right - 20
-    west = make_grid((left + 2, bottom + 50, line_x - 5, top - 50), 0.5, japan.SZ_CRS)
-    east = make_grid((line_x + 5, bottom + 50, right - 2, top - 50), 0.5, japan.SZ_CRS)
-    cache_dir = str(tmp_path)
-
-    def zips():
-        return len([r for r in http_server.requests() if r.path.endswith(".zip")])
-    shizuoka.download(west, cache_dir, None, "terrain")
-    shizuoka.downloaded(west, cache_dir)
-    assert zips() == 1
-    shizuoka.index._listed.clear()
-    shizuoka.download(east, cache_dir, None, "terrain")
-    assert zips() == 1  # the second search downloads nothing
-    # uploaded again in place; only the east tile's answer is asked again
-    objects[key] = _zip(f"{code}_DEM.txt", _sheet_text(code, 11.0))
-    modified[key] = "2026-11-10T07:00:00.000Z"
-    from rasterio.warp import transform_bounds
-    w, s, e, n = transform_bounds(japan.SZ_CRS, "EPSG:4326", line_x + 5, bottom, right, top)
-    east_tile = shizuoka.index.index_path(cache_dir, math.floor(s / 0.25) * 0.25, math.floor(w / 0.25) * 0.25)
-    cache.forget(cache_dir, [east_tile])
-    for grid in (east, west, east):
-        shizuoka.index._listed.clear()
-        shizuoka.download(grid, cache_dir, None, "terrain")
-        shizuoka.downloaded(grid, cache_dir)
-    assert zips() == 2  # the newer file once, whichever side asks
-    (path,) = shizuoka.files(west, cache_dir)
-    with rio.open(path) as tile:
-        assert np.allclose(tile.read(1), 11.0, atol=0.006)
-    folder = os.path.dirname(path)
-    assert [f for f in os.listdir(folder) if code in f] == [os.path.basename(path)]
-
-
 def test_shizuoka_prune_keeps_both_parts_of_a_split_sheet(shizuoka, http_server, tmp_path):
     """After a search over a split sheet (FY2025 and FY2021 parts), prune deletes neither part; a re-uploaded
     FY2021 file replaces only the FY2021 part."""
@@ -645,47 +571,6 @@ def test_shizuoka_prune_keeps_both_parts_of_a_split_sheet(shizuoka, http_server,
     assert {s.key for s in now} & {s.key for s in sheets} == {s.key for s in sheets if s.year == 2025}
     names = sorted(os.path.basename(p).split("_")[0] for p in shizuoka.files(grid, cache_dir))
     assert names == ["2021", "2025"]
-
-
-def test_shizuoka_listed_404_drops_the_index_answers(shizuoka, http_server, tmp_path):
-    """A listed key gone from the bucket: the sheet's error says the index answers of its tiles were dropped,
-    and the next search lists them again (and no longer asks for the file)."""
-    k85, k86 = "2019/LP/Grid/08/OF/04/08OF0485.zip", "2019/LP/Grid/08/OF/04/08OF0486.zip"
-    objects = {k85: _zip("08OF0485_DEM.txt", _sheet_text("08OF0485", 10.0)),
-               k86: _zip("08OF0486_DEM.txt", _sheet_text("08OF0486", 12.0))}
-    _bucket(http_server, objects)
-    cache_dir = str(tmp_path)
-    grid = _sheet_grid("08OF0485")
-    shizuoka._use(cache_dir)
-    (sheet,) = shizuoka.tiles(grid)
-    answers = glob.glob(os.path.join(cache_dir, "shizuoka", "sheet-index", "lp-grid", "*.json"))
-    assert [os.path.basename(a) for a in answers if a.endswith("folders.json")] and len(answers) >= 2
-    del objects[k85]
-    with pytest.raises(RuntimeError, match="index answers of its 1 tile.*dropped"):
-        shizuoka._download_and_record(sheet, cache_dir)
-    assert not [a for a in glob.glob(os.path.join(cache_dir, "shizuoka", "sheet-index", "lp-grid", "*.json"))
-                if not a.endswith("folders.json")]
-    lists = len([r for r in http_server.requests("/") if dict(r.query).get("list-type")])
-    shizuoka.index._listed.clear()
-    assert shizuoka.tiles(grid) == []
-    assert len([r for r in http_server.requests("/") if dict(r.query).get("list-type")]) > lists
-
-
-def test_shizuoka_survey_folders_kept_a_week(shizuoka, http_server, tmp_path, monkeypatch):
-    """The survey folders are one delimiter listing kept in the data folder for FOLDERS_TTL_DAYS: asked once
-    while fresh, again when stale."""
-    from sources.layers import s3sheets
-    objects = {"2019/LP/Grid/08/OF/04/08OF0485.zip": b"x"}
-    _bucket(http_server, objects)
-    shizuoka._use(str(tmp_path))
-
-    def delimited():
-        return len([r for r in http_server.requests("/") if dict(r.query).get("delimiter") == "/"])
-    assert shizuoka.survey_folders() == ["2019/"] and delimited() == 1
-    objects["2026/LP/Grid/08/OF/04/08OF0485.zip"] = b"y"
-    assert shizuoka.survey_folders() == ["2019/"] and delimited() == 1
-    monkeypatch.setattr(s3sheets, "FOLDERS_TTL_DAYS", -1)
-    assert shizuoka.survey_folders() == ["2019/", "2026/"] and delimited() == 2
 
 
 def test_shizuoka_has_data_near(shizuoka, http_server, tmp_path):
@@ -754,3 +639,274 @@ def test_metric_cell_tiling_edges_on_cell_edges():
     tiles = tiling.tiles(grid)
     assert cell in tiles and all(abs(i - cell[0]) <= 1 and abs(j - cell[1]) <= 1 for i, j in tiles)
     assert (cell[0] - 1, cell[1]) not in tiles and (cell[0], cell[1] - 1) not in tiles
+
+
+# --- round 3 (2026-11-16): one owner index tile per sheet -----------------------------------------------------------
+def _edge_sheets():
+    """A 1/500 sheet (S) whose box reaches across the 0.25 degree line at 139.0 E (about 34.88 N) while its centre
+    lies west of it (so it is owned by the west tile and within 250 m of the east one), and a sheet (N) 2 km east,
+    inside the east tile; their owners."""
+    from rasterio.warp import transform
+    versions = japan.SZ_DTM.index.versions
+    xs, ys = transform("EPSG:4326", japan.SZ_CRS, [139.0], [34.88])
+    tiling = japan.SZ_LEVELS["s"]
+    cell = tiling.cell_of(xs[0] - 150, ys[0])  # its box reaches over the line, its centre west of it
+    left, _, right, _ = tiling.edges(cell)
+    assert right > xs[0] - 250 and (left + right) / 2 < xs[0]  # within 250 m of the line, its centre west
+    n_cell = tiling.cell_of(xs[0] + 2000, ys[0])
+    (owner_s, owner_n) = versions.owners("s", [cell, n_cell])
+    assert owner_s != owner_n
+    return cell, n_cell, owner_s, owner_n
+
+
+def _key_of(cell, year=2019):
+    code = japan.jp_sheet(8, *cell)
+    return code, f"{year}/LP/Grid/08/{code[2:4]}/{code[4:6]}/{code}.zip"
+
+
+def _zips(http_server):
+    return len([r for r in http_server.requests() if r.path.endswith(".zip")])
+
+
+def _search(layer, grid, cache_dir):
+    layer.index._listed.clear()
+    layer.download(grid, cache_dir, None, "terrain")
+    layer.downloaded(grid, cache_dir)
+
+
+def _box_grid(cell, margin=1.0, other=None):
+    tiling = japan.SZ_LEVELS["s"]
+    left, bottom, right, top = tiling.edges(cell)
+    if other is not None:
+        o = tiling.edges(other)
+        left, bottom, right, top = min(left, o[0]), min(bottom, o[1]), max(right, o[2]), max(top, o[3])
+    return make_grid((left + margin, bottom + margin, right - margin, top - margin), 0.5, japan.SZ_CRS)
+
+
+def test_acceptance_a_edge_sheet_one_key_by_turns(shizuoka, http_server, tmp_path):
+    """A (a): a sheet within 250 m of the east tile, uploaded again between the two tiles' listings, searched alone
+    and with the east tile's sheet by turns four times: one key throughout (its owner's answer), 2 downloads in all
+    (the sheet and its neighbour once each), nothing pruned that a current key names."""
+    cell, n_cell, owner_s, owner_n = _edge_sheets()
+    code, key = _key_of(cell)
+    n_code, n_key = _key_of(n_cell)
+    objects = {key: _zip(f"{code}_DEM.txt", _sheet_text(code, 10.0)), n_key: _zip(f"{n_code}_DEM.txt",
+                                                                               _sheet_text(n_code, 20.0))}
+    modified = {key: "2026-11-04T07:00:00.000Z"}
+    _bucket(http_server, objects, modified)
+    cache_dir = str(tmp_path)
+    alone, both = _box_grid(cell), _box_grid(cell, other=n_cell)
+    _search(shizuoka, alone, cache_dir)  # lists the owner (and the east tile)
+    first = [os.path.basename(p) for p in shizuoka.files(alone, cache_dir)]
+    objects[key] = _zip(f"{code}_DEM.txt", _sheet_text(code, 11.0))  # uploaded again
+    modified[key] = "2026-11-10T07:00:00.000Z"
+    cache.forget(cache_dir, [shizuoka.index.index_path(cache_dir, *owner_n)])  # the east tile listed after it
+    for grid in (both, alone, both, alone):
+        _search(shizuoka, grid, cache_dir)
+        assert [os.path.basename(p) for p in shizuoka.files(alone, cache_dir)] == first  # one key
+    assert _zips(http_server) == 2
+    folder = os.path.dirname(shizuoka.files(alone, cache_dir)[0])
+    assert [f for f in os.listdir(folder) if code in f] == first
+
+
+def test_acceptance_b_removed_object_three_rounds(shizuoka, http_server, tmp_path):
+    """A (b): an object removed after the listing: the first search fails with the 404's message (the owner's
+    answer dropped, a new search lists anew), the second succeeds with the older survey, the third reads nothing."""
+    cell, _, owner, _ = _edge_sheets()
+    code, k19 = _key_of(cell, 2019)
+    _, k20 = _key_of(cell, 2020)
+    objects = {k19: _zip(f"{code}_DEM.txt", _sheet_text(code, 10.0)),
+               k20: _zip(f"{code}_DEM.txt", _sheet_text(code, 20.0, range(300)))}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    grid = _box_grid(cell)
+    shizuoka._use(cache_dir)
+    (sheet,) = shizuoka.tiles(grid)  # listed with both surveys
+    del objects[k20]
+    with pytest.raises(RuntimeError, match=r"404.*answer of its tile .* was dropped: a new search lists it anew"):
+        shizuoka._download_and_record(sheet, cache_dir)
+    assert not os.path.exists(shizuoka.index.index_path(cache_dir, *owner))
+    _search(shizuoka, grid, cache_dir)  # lists anew: the older survey only
+    (path,) = shizuoka.files(grid, cache_dir)
+    assert [n.split("@")[0] for n, _, _ in gave_pixels(path)] == [f"2019_{code}"]
+    before = _zips(http_server)
+    _search(shizuoka, grid, cache_dir)
+    assert _zips(http_server) == before
+
+
+def test_acceptance_c_update_and_search_by_turns(shizuoka, http_server, tmp_path):
+    """A (c): after the newest object was removed, update_index_tile on the owner tile and a search by turns: the
+    same key both ways, one download in all after the removal, the removed survey's file gone from the cache."""
+    cell, _, owner, _ = _edge_sheets()
+    code, k19 = _key_of(cell, 2019)
+    _, k20 = _key_of(cell, 2020)
+    objects = {k19: _zip(f"{code}_DEM.txt", _sheet_text(code, 10.0)),
+               k20: _zip(f"{code}_DEM.txt", _sheet_text(code, 20.0, range(300)))}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    grid = _box_grid(cell)
+    _search(shizuoka, grid, cache_dir)
+    (old,) = shizuoka.files(grid, cache_dir)
+    assert os.path.basename(old).startswith("2020_")
+    del objects[k20]
+    before = _zips(http_server)
+    new, _, deleted = shizuoka.update_index_tile(cache_dir, *owner)
+    assert (new, deleted) == (1, 1) and not os.path.exists(old)
+    (path,) = shizuoka.files(grid, cache_dir)
+    for turn in range(2):
+        _search(shizuoka, grid, cache_dir)
+        assert shizuoka.files(grid, cache_dir) == [path]
+        assert shizuoka.update_index_tile(cache_dir, *owner)[:2] == (0, 0)
+    assert _zips(http_server) == before + 1 and os.path.basename(path).startswith("2019_")
+
+
+def test_acceptance_b_one_owner_per_sheet_asked_by_query():
+    """B: every sheet of both levels over Shizuoka's offline boxes has one owner tile, the tile holding its centre,
+    and for every sheet whose box reaches across a tile line (the only ones another tile could hold) the owner is
+    among the tiles query asks for a grid of that sheet alone (computed, no request)."""
+    from rasterio.warp import transform
+    versions = japan.SZ_DTM.index.versions
+    checked = crossing = 0
+    for level, tiling in japan.SZ_LEVELS.items():
+        cells = set()
+        for _, (s, n, w, e) in japan.SZ_BOXES:
+            xs, ys = transform("EPSG:4326", japan.SZ_CRS, [w, e, w, e], [s, s, n, n])
+            (i0, j0), (i1, j1) = tiling.cell_of(min(xs), min(ys)), tiling.cell_of(max(xs), max(ys))
+            cells.update((i, j) for i in range(i0, i1 + 1) for j in range(j0, j1 + 1))
+        cells = sorted(c for c in cells if tiling.name(*c) is not None)
+        owners = versions.owners(level, cells)
+        boxes = np.array([tiling.edges(c) for c in cells])
+        lons, lats = transform(japan.SZ_CRS, "EPSG:4326", list((boxes[:, 0] + boxes[:, 2]) / 2),
+                               list((boxes[:, 1] + boxes[:, 3]) / 2))
+        assert owners == [(math.floor(a / 0.25) * 0.25, math.floor(o / 0.25) * 0.25) for a, o in zip(lats, lons)]
+        wl, sl = transform(japan.SZ_CRS, "EPSG:4326", list(boxes[:, 0]), list(boxes[:, 1]))
+        el, nl = transform(japan.SZ_CRS, "EPSG:4326", list(boxes[:, 2]), list(boxes[:, 3]))
+        for cell, owner, w, s, e, n in zip(cells, owners, wl, sl, el, nl):
+            checked += 1
+            if math.floor(w / 0.25) == math.floor(e / 0.25) and math.floor(s / 0.25) == math.floor(n / 0.25):
+                continue
+            crossing += 1
+            left, bottom, right, top = tiling.edges(cell)
+            grid = make_grid((left + 0.5, bottom + 0.5, right - 0.5, top - 0.5), 0.5, japan.SZ_CRS)
+            assert owner in versions.tiles_to_ask(grid), (level, cell)
+    assert checked > 100_000 and crossing > 1000
+
+
+def test_acceptance_c_update_and_status_over_a_listing(shizuoka, http_server, tmp_path, monkeypatch, capsys):
+    """C: `cache update --all` (update.checks) and `cache status` (update.status) over a data folder holding a
+    Shizuoka listing, fresh and aged past its lifetime: the folder list is no row of the index, every Shizuoka row
+    is a tile answer whose check names it."""
+    import sqlite3
+    import update
+    _bucket(http_server, {"2019/LP/Grid/08/OF/04/08OF0485.zip": _zip("08OF0485_DEM.txt",
+                                                                     _sheet_text("08OF0485", 10.0))})
+    cache_dir = str(tmp_path / "cache")
+    os.makedirs(cache_dir)
+    _search(shizuoka, _sheet_grid("08OF0485"), cache_dir)
+    assert os.path.exists(shizuoka.folders_path(cache_dir))
+    rows = [r["path"] for r in cache.rows(cache_dir, "shizuoka")]
+    assert not [r for r in rows if "folders" in r]
+    found = update.checks(cache_dir, update="all")
+    assert [c.what for c in found if c.path.startswith("shizuoka/sheet-index/")] == \
+        ["VIRTUAL SHIZUOKA LP grid 0.5 m (terrain): sheet index"] * len([r for r in rows if "sheet-index" in r])
+    db = sqlite3.connect(os.path.join(cache_dir, "shizuoka", "index.sqlite"))
+    db.execute("UPDATE files SET checked_at = '2020-01-01T00:00:00+00:00'")
+    db.commit()
+    db.close()
+    assert update.checks(cache_dir, update="stale")
+    update.status(cache_dir, str(tmp_path / "runs"))
+    assert "shizuoka" in capsys.readouterr().out
+
+
+def test_survey_folders_lifetime_and_failure(shizuoka, http_server, tmp_path, monkeypatch, capsys):
+    """The folder list: one delimiter listing kept FOLDERS_TTL_DAYS beside the index's folder; asked again when
+    stale; a failed re-listing keeps the last list (said); with no list at all the index is not available and a
+    search uses the cached sheets (said)."""
+    from sources.layers import s3sheets
+    objects = {"2019/LP/Grid/08/OF/04/08OF0485.zip": _zip("08OF0485_DEM.txt", _sheet_text("08OF0485", 10.0))}
+    _bucket(http_server, objects)
+    cache_dir = str(tmp_path)
+    shizuoka._use(cache_dir)
+
+    def delimited():
+        return len([r for r in http_server.requests("/") if dict(r.query).get("delimiter") == "/"])
+    assert shizuoka.survey_folders() == ["2019/"] and delimited() == 1
+    objects["2026/LP/Grid/08/OF/04/08OF0485.zip"] = b"y"
+    assert shizuoka.survey_folders() == ["2019/"] and delimited() == 1
+    monkeypatch.setattr(s3sheets, "FOLDERS_TTL_DAYS", -1)
+    assert shizuoka.survey_folders() == ["2019/", "2026/"] and delimited() == 2
+    monkeypatch.setattr(s3sheets, "common_prefixes", lambda *a: (_ for _ in ()).throw(
+        src.indexes.cached.IndexUnavailable("down")))
+    assert shizuoka.survey_folders() == ["2019/", "2026/"]
+    assert "could not be listed again" in capsys.readouterr().out
+    # no list at all and the bucket down: a search uses the cached sheets
+    os.remove(shizuoka.folders_path(cache_dir))
+    shizuoka.index._listed.clear()
+    grid = _sheet_grid("08OF0485")
+    for f in glob.glob(os.path.join(cache_dir, "shizuoka", "sheet-index", "lp-grid", "*.json")):
+        cache.forget(cache_dir, [f])
+    assert shizuoka.tiles(grid) is None
+    assert "index not available" in capsys.readouterr().out
+
+
+def test_folder_lock_is_no_tile_lock(shizuoka, http_server, tmp_path, monkeypatch):
+    """With one tile lock for every path (TILE_LOCKS 1) a tile's listing, which asks the folder list under the
+    tile's lock, still ends: the folder list takes a lock of its own."""
+    monkeypatch.setattr(src.net, "TILE_LOCKS", 1)
+    _bucket(http_server, {"2019/LP/Grid/08/OF/04/08OF0485.zip": b"x"})
+    shizuoka._use(str(tmp_path))
+    assert len(shizuoka.tiles(_sheet_grid("08OF0485"))) == 1
+
+
+def test_points_on_pixel_edges_are_an_error(shizuoka, http_server, tmp_path):
+    """Text points off the sheet's pixel centres (on whole metres: the edges) are an error naming the source, the
+    sheet, the file and the member, never binned half a pixel off."""
+    cell = japan.jp_cell(8, "08OF0485")
+    left, top = cell[0] * 400, (cell[1] + 1) * 300
+    text = "".join(f"{left + k:.3f} {top - 1:.3f} 5.000\r\n" for k in range(1, 4))
+    _bucket(http_server, {"2019/LP/Grid/08/OF/04/08OF0485.zip": _zip("08OF0485_DEM.txt", text.encode())})
+    cache_dir = str(tmp_path)
+    shizuoka._use(cache_dir)
+    (sheet,) = shizuoka.tiles(_sheet_grid("08OF0485"))
+    with pytest.raises(RuntimeError, match=r"VIRTUAL SHIZUOKA.*08OF0485 \(2019_08OF0485@\w+\) 08OF0485_DEM.txt: 3 "
+                                           r"of its 3 points are not on the sheet's 0.5 m pixel centres"):
+        shizuoka._download_and_record(sheet, cache_dir)
+
+
+def test_tokyo_raster_off_its_sheet_is_an_error(tokyo, http_server, tmp_path, monkeypatch):
+    """A GeoTIFF whose data lie off its sheet (another sheet's box) is an error of the tile, nothing recorded."""
+    with open(os.path.join(RECORDED, "09RD8410.zip"), "rb") as f:
+        http_server.add("/2023/dig/grd50/09RD8412.zip", f.read(), "application/x-zip-compressed")
+    monkeypatch.setattr(japan, "_tk_table", lambda: {"09RD8412": (2023,)})
+    cell = japan.jp_cell(9, "09RD8412")
+    with pytest.raises(RuntimeError, match=r"09RD8412 \(2023_09RD8412\): its data lie off the sheet"):
+        tokyo._download_and_record(cell, str(tmp_path))
+    assert cache.due(str(tmp_path), tokyo.tile_path(str(tmp_path), cell))
+
+
+@pytest.mark.parametrize("name, code", [("08MC4919_2025.zip", "08MC4919"), ("08OF0485_2019.zip", "08OF0485")])
+def test_old_and_new_paths_equal_on_the_real_heads(name, code):
+    """The sheet-set reader's gridding equals the old path's (SheetFile._parts as Saxony's, then pasted) on the
+    publisher's own 300 lines of each format."""
+    from types import SimpleNamespace
+    from sources.readers.sheetsets import SheetSetFile, SheetSetRequest, paste
+    with open(os.path.join(HERE, "data", "recorded", "shizuoka", name), "rb") as f:
+        data = f.read()
+    i, j = japan.jp_cell(8, code)
+    at = from_origin(i * 400, (j + 1) * 300, 0.5, 0.5)
+    reader = SheetSetFile("x", r"\.txt$")
+    tile = SimpleNamespace(url="u", godlo=code, crs=japan.SZ_CRS, res=0.5)
+    band, band_at = reader.sheet._parts(tile, data)
+    old = np.full((600, 800), np.nan, dtype=np.float32)
+    paste(old, at, band.astype(np.float32), band_at)
+    new, new_at = reader.sheet._parts(tile, data, member_grid=reader._member(SheetSetRequest((), japan.SZ_CRS, at,
+                                                                                               (600, 800), code)))
+    assert new_at == at and np.array_equal(np.isnan(old), np.isnan(new)) and np.nanmax(np.abs(old - new)) == 0
+
+
+def test_estimate_falls_back_to_bytes_per_tile(shizuoka, http_server, tmp_path, monkeypatch):
+    """A sheet listed without a size counts bytes_per_tile in the estimate."""
+    _bucket(http_server, {"2019/LP/Grid/08/OF/04/08OF0485.zip": b""})
+    cache_dir = str(tmp_path)
+    tiles, todo, mb = shizuoka.estimate(_sheet_grid("08OF0485"), cache_dir, None)
+    assert (tiles, todo) == (1, 1) and mb == pytest.approx(shizuoka.bytes_per_tile() / 1e6)

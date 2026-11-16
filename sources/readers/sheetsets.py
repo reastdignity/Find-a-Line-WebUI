@@ -14,6 +14,11 @@ from ..layer import Fetched, _clean, _write_tile
 from .sheetfile import BOM, SheetFile, _member_grid, _xyz_points
 
 
+# A text point's offset from its pixel's centre, in pixels, beyond which it is not on the sheet's pixels (the
+# coordinates are written to the millimetre: 0.002 of a 0.5 m pixel; a point on a pixel edge is 0.5 off)
+OFF_CENTRE = 0.05
+
+
 class SheetSetRequest(NamedTuple):
     """A sheet to compose: its files (name, url, survey year, bytes), newest year first, and its pixels."""
     files: Sequence[Tuple[str, str, int, int]]
@@ -84,8 +89,14 @@ class SheetSetFile(Reader):
                 xyz = _xyz_points(data, where)
             except (ValueError, RuntimeError) as e:
                 raise RuntimeError(f"{where}: {e}") from e
-            col = np.floor((xyz[:, 0] - left) / res).astype(np.int64)
-            row = np.floor((top - xyz[:, 1]) / res).astype(np.int64)
+            fx, fy = (xyz[:, 0] - left) / res, (top - xyz[:, 1]) / res
+            off = (np.abs(fx - np.floor(fx) - 0.5) > OFF_CENTRE) | (np.abs(fy - np.floor(fy) - 0.5) > OFF_CENTRE)
+            if off.any():  # points on pixel edges, or anywhere but the centres: not the sheet's pixels
+                k = int(np.argmax(off))
+                raise RuntimeError(f"{where}: {int(off.sum())} of its {len(xyz)} points are not on the sheet's "
+                                   f"{res:g} m pixel centres (the first: {xyz[k, 0]:.3f}, {xyz[k, 1]:.3f})")
+            col = np.floor(fx).astype(np.int64)
+            row = np.floor(fy).astype(np.int64)
             inside = (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
             if not inside.any():
                 raise RuntimeError(
@@ -142,14 +153,6 @@ class SheetSetFile(Reader):
                 "pixels": ",".join(str(g[2]) for g in gave), "files": ",".join(f[0] for f in request.files)}
         _write_tile(path, band, request.crs, request.transform, tags=tags)
         return Fetched(received, url)
-
-
-def set_files(path: str) -> List[str]:
-    """The names of the files a cached sheet's set was made of (tag "files"; before it, those that gave pixels)."""
-    import rasterio as rio
-    with rio.open(path) as src:
-        tags = src.tags()
-    return [n for n in (tags.get("files") or tags.get("sources", "")).split(",") if n]
 
 
 def gave_pixels(path: str) -> List[Tuple[str, int, int]]:

@@ -4,11 +4,15 @@ them, newest first (SheetSetFile)."""
 
 import glob
 import hashlib
+import json
+import math
 import os
 import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+import rasterio.warp
 import requests
 from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
@@ -17,16 +21,11 @@ import cache
 import osm
 from grid import Grid
 
-from ..readers.sheetsets import SheetSetRequest, set_files
+from ..readers.sheetsets import SheetSetRequest
 from .cached import CachedIndex, Versions, index_tiles
 from .tilings import MetricCellTiling
 
 File = Tuple[str, str, int, int]  # name, url, survey year, bytes
-
-
-def _stem(name: str) -> str:
-    """A listed file's name without its version (the ETag after "@")."""
-    return name.split("@", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -54,25 +53,76 @@ class SheetSets(Versions):
     <folder>/<level>/<the cell's folders>/<year>_<code>_<key>.tif (the year first, as IndexedTiles.used reads it;
     the folders and the code from the level's names: s/OF/04/2019_08OF0485_1a2b3c4d.tif).
 
+    One answer decides everything about a sheet: every sheet has one owner index tile, the 0.25 degree tile holding
+    the sheet's centre (owner(); from the sheet's place, no request), and only its owner's answer is read for it,
+    in query, update_tile, prune and offline (cached), so a sheet's sets and keys never depend on which tiles a grid
+    touches or when they were listed (until 2026-11-16 a sheet near a tile's edge was in two answers, listed at
+    different times: keys alternated and each search pruned the other's file). An answer keeps only the sheets its
+    tile owns (S3SheetSets' listing), and the items of an answer cached before that are filtered so when read.
+
     Newest first across the levels too: the mosaic places the sheets in the order given (the first wins), sorted
     by year. A sheet of a level is split at each of its level's `splits` years (the years of another level's
     survey, Shizuoka's FY2022 on its quadrant sheets): its files newer and older than such a year make two sheets
     of their own, so an older file never wins over a newer survey of the other level (39 sheets of 400 x 300 m of
-    FY2021 and FY2025 under FY2022's 1000 x 750 m sheets, 2026-11-15). The split is decided from the sheet's own
-    files and these fixed years, never from the other level's items seen: a sheet's sets, and so its keys, are the
-    same whichever index tiles a grid touches (until 2026-11-16 a sheet was split only when the quadrant sheet
-    over it was among the items seen, so two searches gave it two keys and each pruned the other's file); a sheet
-    of FY2021 and FY2025 outside the quadrant sheets (5 of 44) is split as well, its FY2021 part then read even
-    without holes in FY2025's.
-
-    A file listed twice (a sheet straddling two index tiles whose answers were asked at different times, the file
-    re-uploaded in between) is taken from the answer with its newer upload (LastModified, then the newer listing),
-    so it gets one key whichever answer comes first."""
+    FY2021 and FY2025 under FY2022's 1000 x 750 m sheets, 2026-11-15); decided from the sheet's own files, a sheet of
+    FY2021 and FY2025 outside the quadrant sheets (5 of 44) is split as well."""
 
     def __init__(self, folder: str, crs: str, native_res: float, levels: Dict[str, MetricCellTiling],
                  splits: Optional[Dict[str, Sequence[int]]] = None):
         self.folder, self.crs, self.native_res, self.levels = folder, crs, native_res, levels
         self.splits = {level: tuple(years) for level, years in (splits or {}).items()}
+        self.index: Optional[CachedIndex] = None  # bound by the layer: cached() reads the owners' answers
+
+    # --- owners ------------------------------------------------------------------------------------------------
+    def owners(self, level: str, cells: Sequence[Tuple[int, int]]) -> List[Tuple[float, float]]:
+        """The owner index tile (south-west corner, as osm.tiles gives it) of each sheet: the tile holding its
+        centre."""
+        if not len(cells):
+            return []
+        w, h = self.levels[level].cell
+        x0, y0 = self.levels[level].origin
+        xs = [x0 + (i + 0.5) * w for i, _ in cells]
+        ys = [y0 + (j + 0.5) * h for _, j in cells]
+        lons, lats = rasterio.warp.transform(self.crs, "EPSG:4326", xs, ys)
+        size = osm.TILE_DEG
+        return [(math.floor(lat / size) * size, math.floor(lon / size) * size) for lat, lon in zip(lats, lons)]
+
+    def owned(self, items: Sequence[Dict], lat: float, lon: float) -> List[Dict]:
+        """The items of an answer whose sheets the tile (lat, lon) owns."""
+        by_level: Dict[str, List[Dict]] = {}
+        for item in items:
+            by_level.setdefault(item["level"], []).append(item)
+        kept = []
+        for level, its in by_level.items():
+            for item, owner in zip(its, self.owners(level, [tuple(it["cell"]) for it in its])):
+                if owner == (lat, lon):
+                    kept.append(item)
+        return kept
+
+    def _answer(self, index: CachedIndex, cache_dir: str, lat: float, lon: float,
+                update: Optional[str] = None) -> List[Dict]:
+        """The items of the sheets a tile owns, from its answer (asked when not cached)."""
+        return self.owned(index.answers(cache_dir, lat, lon, update), lat, lon)
+
+    def tiles_to_ask(self, grid: Grid) -> List[Tuple[float, float]]:
+        """The owner tiles of the sheets the grid meets: its own index tiles (index_tiles: a sheet whose centre lies
+        in the grid's box, or within 0.01 degree of its outline, is owned by one of them) and the owners of the
+        sheets across the edges of its box (their centres may lie in a tile beyond)."""
+        found = set(index_tiles(grid))
+        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        for level, tiling in self.levels.items():
+            (i0, j0), (i1, j1) = tiling.cell_of(left, bottom), tiling.cell_of(right, top)
+            edge = {(i, j) for i in range(i0, i1 + 1) for j in (j0, j1)} | \
+                {(i, j) for j in range(j0, j1 + 1) for i in (i0, i1)}
+            edge = [c for c in edge if tiling.name(*c) is not None]
+            if grid.area_shape is not None and edge:  # only the sheets under the outline
+                import shapely
+                from area import project
+                shape = project(grid.area_shape, grid.crs, self.crs)
+                hit = shapely.intersects(shape, shapely.box(*np.array([tiling.edges(c) for c in edge]).T))
+                edge = [c for c, h in zip(edge, hit) if h]
+            found.update(self.owners(level, edge))
+        return sorted(found)
 
     # --- the sets of files -------------------------------------------------------------------------------
     @staticmethod
@@ -83,16 +133,14 @@ class SheetSets(Versions):
         return self.levels[level].edges((i, j))
 
     def sets(self, items: Sequence[Dict]) -> List[SheetSet]:
-        """The sheets of the listed files, newest first (then by level and place), each split at its level's
-        `splits` years; a file listed more than once taken from its newest upload."""
-        newest: Dict[str, Dict] = {}
-        for item in items:
-            old = newest.get(item["url"])
-            if old is None or (item.get("modified", ""), item.get("listed", "")) > \
-                    (old.get("modified", ""), old.get("listed", "")):
-                newest[item["url"]] = item
+        """The sheets of the listed files (of their owners' answers), newest first (then by level and place),
+        each split at its level's `splits` years; a file listed twice taken once."""
         groups: Dict[Tuple[str, int, int], List[Dict]] = {}
-        for item in newest.values():
+        seen = set()
+        for item in items:
+            if item["url"] in seen:
+                continue
+            seen.add(item["url"])
             groups.setdefault((item["level"], *item["cell"]), []).append(item)
         found = []
         for (level, i, j), files in groups.items():
@@ -129,20 +177,9 @@ class SheetSets(Versions):
         return kept
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        """The sheets over the grid. A sheet over the grid that reaches into index tiles the grid does not touch
-        is made from the answers of all of its tiles (asked if not cached), so its set is the same whichever of
-        its tiles a grid touches (a file uploaded again between two tiles' answers: the newer upload)."""
-        tiles = index_tiles(grid)
-        items = [item for lat, lon in tiles for item in index.answers(cache_dir, lat, lon, update)]
-        g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        more = set()
-        for item in items:
-            left, bottom, right, top = self._box(item["level"], *item["cell"])
-            if left < g_right and right > g_left and bottom < g_top and top > g_bottom:
-                west, south, east, north = transform_bounds(self.crs, "EPSG:4326", left, bottom, right, top)
-                more.update(osm.tiles(west, south, east, north))
-        for lat, lon in sorted(more - set(tiles)):
-            items += index.answers(cache_dir, lat, lon, update)
+        """The sheets over the grid, each from its owner's answer only."""
+        items = [item for lat, lon in self.tiles_to_ask(grid) for item in self._answer(index, cache_dir, lat, lon,
+                                                                                         update)]
         return self._within(self.sets(items), grid)
 
     # --- the cached files ------------------------------------------------------------------------------------
@@ -178,67 +215,90 @@ class SheetSets(Versions):
     def _cached_paths(self, cache_dir: str) -> List[str]:
         return glob.glob(os.path.join(cache_dir, self.folder, "**", "*.tif"), recursive=True)
 
+    def _named(self, cache_dir: str, sheets: List[SheetSet]) -> Dict[Tuple[str, int, int], set]:
+        """The keys the owners' cached answers name for each of these sheets (no request; a sheet whose owner's
+        answer is not cached has none)."""
+        named: Dict[Tuple[str, int, int], set] = {}
+        if self.index is None:
+            return named
+        places = sorted({(s.level, s.i, s.j) for s in sheets})
+        by_owner: Dict[Tuple[float, float], List[Tuple[str, int, int]]] = {}
+        for level in {p[0] for p in places}:
+            cells = [(i, j) for lv, i, j in places if lv == level]
+            for cell, owner in zip(cells, self.owners(level, cells)):
+                by_owner.setdefault(owner, []).append((level, *cell))
+        for (lat, lon), owned in by_owner.items():
+            path = self.index.index_path(cache_dir, lat, lon)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    items = self.owned(json.load(f)["sheets"], lat, lon)
+            except (OSError, ValueError, KeyError):
+                continue
+            wanted = set(owned)
+            for s in self.sets(items):
+                if (s.level, s.i, s.j) in wanted:
+                    named.setdefault((s.level, s.i, s.j), set()).add(s.key)
+        return named
+
     def cached(self, grid: Grid, cache_dir: str) -> list:
-        sheets = [s for s in (self._sheet_of(p) for p in self._cached_paths(cache_dir)) if s is not None]
-        return sorted(self._within(sheets, grid), key=lambda s: (-s.year, s.level, -s.j, s.i))
+        """The cached sheets over the grid (the index cannot be asked): a set the owner's last known answer names
+        before one it no longer names (an older upload, a set whose newest file is gone), then newest first."""
+        sheets = self._within([s for s in (self._sheet_of(p) for p in self._cached_paths(cache_dir)) if s is not None],
+                              grid)
+        named = self._named(cache_dir, sheets)
+        return sorted(sheets, key=lambda s: (s.key not in named.get((s.level, s.i, s.j), {s.key}), -s.year, s.level,
+                                             -s.j, s.i))
 
     def prune(self, cache_dir: str, tiles: List[SheetSet]) -> int:
-        """Delete the cached files of the sheets that hold only older versions of the files of a current, cached
-        set of the same sheet (every file name of theirs, without its ETag, is one of that set's, under another
-        ETag or not at all): an upload in place, a survey added. A file another current key of the sheet names is
-        never deleted, nor one of other files (a part of a split sheet); how many."""
+        """Once every current set of a sheet (tiles: those of its owner's answer) is cached, delete the sheet's
+        other cached files (an older upload, a set whose newest file is gone, a file of before a split); never
+        before the current ones are in place, never a file of another sheet; how many."""
         current: Dict[Tuple[str, int, int], List[SheetSet]] = {}
         for s in tiles:
-            if os.path.exists(self.path(cache_dir, s)):
-                current.setdefault((s.level, s.i, s.j), []).append(s)
+            current.setdefault((s.level, s.i, s.j), []).append(s)
         older = []
         for place, sheets in current.items():
+            if not all(os.path.exists(self.path(cache_dir, s)) for s in sheets):
+                continue
             keys = {s.key for s in sheets}
             folder = os.path.dirname(self.path(cache_dir, sheets[0]))
             for name in os.listdir(folder):
-                path = os.path.join(folder, name)
-                other = self._sheet_of(path)
-                if other is None or (other.level, other.i, other.j) != place or other.key in keys:
-                    continue
-                stems = {_stem(n) for n in set_files(path)}
-                if stems and any(stems <= {_stem(f[0]) for f in s.files} for s in sheets):
-                    older.append(path)
+                other = self._sheet_of(os.path.join(folder, name))
+                if other is not None and (other.level, other.i, other.j) == place and other.key not in keys:
+                    older.append(os.path.join(folder, name))
         cache.forget(cache_dir, older)
         return len(older)
 
     def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
-        """The cached sheets (centred in the 0.25° tile) whose sets of files changed: read again, their older
-        files deleted then."""
-        items = index.answers(cache_dir, lat, lon, "all")
+        """For the cached sheets the tile owns, asked again: the current sets not cached yet (to read), and every
+        current set of those sheets (prune keeps them and deletes the rest once they are all cached). The same
+        sets and keys as a search's, which reads the same answer."""
         now: Dict[Tuple[str, int, int], List[SheetSet]] = {}
-        for s in self.sets(items):
+        for s in self.sets(self._answer(index, cache_dir, lat, lon, "all")):
             now.setdefault((s.level, s.i, s.j), []).append(s)
+        cached = {(c.level, c.i, c.j) for c in (self._sheet_of(p) for p in self._cached_paths(cache_dir))
+                  if c is not None}
         todo, keep = [], []
-        for path in self._cached_paths(cache_dir):
-            cached = self._sheet_of(path)
-            if cached is None:
-                continue
-            box = self._box(cached.level, cached.i, cached.j)
-            west, south, east, north = transform_bounds(self.crs, "EPSG:4326", *box)
-            if not (lat <= (south + north) / 2 < lat + osm.TILE_DEG and lon <= (west + east) / 2 < lon + osm.TILE_DEG):
-                continue
-            current = now.get((cached.level, cached.i, cached.j), [])
-            for s in current:
-                if s not in keep:
-                    keep.append(s)
-                if s.key != cached.key and s not in todo and not os.path.exists(self.path(cache_dir, s)):
+        for place in sorted(cached & set(now)):
+            for s in now[place]:
+                keep.append(s)
+                if not os.path.exists(self.path(cache_dir, s)):
                     todo.append(s)
         return todo, keep
 
     def has_data_near(self, index: CachedIndex, lat: float, lon: float, cache_dir: str,
                       metres: float = 2000) -> Optional[bool]:
-        try:
-            items = [item for tile in osm.tiles(lon, lat, lon, lat) for item in index.answers(cache_dir, *tile)]
-        except requests.RequestException:
-            return None
-        import rasterio.warp
+        """Whether a listed sheet lies within `metres` of the point (the answers of the tiles within that reach,
+        each read for the sheets it owns)."""
         xs, ys = rasterio.warp.transform("EPSG:4326", self.crs, [lon], [lat])
         x, y = xs[0], ys[0]
+        west, south, east, north = transform_bounds(self.crs, "EPSG:4326", x - metres, y - metres, x + metres,
+                                                    y + metres)
+        try:
+            items = [item for tile in osm.tiles(west, south, east, north)
+                     for item in self._answer(index, cache_dir, *tile)]
+        except requests.RequestException:
+            return None
         for item in items:
             left, bottom, right, top = self._box(item["level"], *item["cell"])
             if left - metres <= x <= right + metres and bottom - metres <= y <= top + metres:

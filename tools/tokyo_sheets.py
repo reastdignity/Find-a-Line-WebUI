@@ -116,14 +116,13 @@ def fetch(url: str, cache_dir: str) -> bytes:
     as the app's downloads), so the tool never adds a third connection to a search's two."""
     import cache
     from sources import net
-    with net.host_slot(cache_dir, url):
-        response = net.session().get(url, headers=cache.http_headers(), timeout=60, stream=True)
-    with response:
-        if response.status_code in (403, 404):
-            return b""
-        if response.status_code != 200:
-            raise RuntimeError(f"{url}: HTTP {response.status_code}")
-        data = response.raw.read(MAX_TILE_BYTES + 1, decode_content=True)
+    with net.host_slot(cache_dir, url):  # held until the body is read
+        with net.session().get(url, headers=cache.http_headers(), timeout=60, stream=True) as response:
+            if response.status_code in (403, 404):
+                return b""
+            if response.status_code != 200:
+                raise RuntimeError(f"{url}: HTTP {response.status_code}")
+            data = response.raw.read(MAX_TILE_BYTES + 1, decode_content=True)
     if len(data) > MAX_TILE_BYTES:
         raise RuntimeError(f"{url}: more than {MAX_TILE_BYTES} bytes")
     return data
