@@ -554,13 +554,15 @@ https://www.skgeodesy.sk/geoportal-en/zbgis/als/ under **CC BY 4.0**
 
 Changes made: the national rasters (S-JTSK [JTSK03] EPSG:8353, Baltic 1957 heights EPSG:8357)
 were cut into 2 km × 2 km Cloud Optimized GeoTIFFs on the same pixel grid and stored with
-LERC compression with a maximum error of 5 mm. Values are not otherwise changed.
+LERC compression with a maximum error of 5 mm (the 1 m tiles). The 2 m and 5 m tiles are
+averaged from the 1 m tiles: each pixel the mean of the valid 1 m pixels of its 2 × 2 or
+5 × 5 block, stored as float32 GeoTIFF (ZSTD with the floating-point predictor) without
+further loss. Values are not otherwise changed.
 
 Layout: `<product>/1m/<E//10>_<N//10>/<E>_<N>.tif`, where E = floor(x / 2000) and
 N = floor(y / 2000) of the tile's lower left corner; `<product>/1m/index.json` lists every tile
-with its sha256. `<product>/2m` and `<product>/5m` hold the same tiles at 2 m and 5 m: each
-pixel the mean of the valid 1 m pixels of its 2 × 2 or 5 × 5 block, stored as float32 GeoTIFF
-(ZSTD with the floating-point predictor) without further loss, with their own `index.json`.
+with its sha256. `<product>/2m` and `<product>/5m` hold the averaged tiles in the same layout,
+with their own `index.json`.
 Made for Find-a-Line (a highline finder); not endorsed by ÚGKK SR.
 """
 

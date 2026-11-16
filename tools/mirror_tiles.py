@@ -71,7 +71,8 @@ MADEIRA_CARD = """# Madeira: DTM 2 m (DROTe, 2018-2019) as 2 km tiles
 
 Tiles of the digital terrain model **MDT 2 m** of Madeira island by the **Direção Regional do Ordenamento do
 Território (DROTe), Região Autónoma da Madeira**, photogrammetric (UltraCam flights 2018-2019, RMSEz 0.145 m),
-from https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip (SNIG record abba9a83: "No conditions apply").
+from https://irig-storage.madeira.gov.pt/irig-catalogo/MDT_2m.zip (SNIG record abba9a83: "No conditions apply",
+https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/abba9a83-cb1c-4d2c-ad1d-ccb592247754).
 It covers Madeira island only (not Porto Santo, the Desertas or the Selvagens).
 
 Changes made: the BigTIFF (PTRA08 / UTM zone 28N, EPSG:5016) was cut into 2 km x 2 km Cloud Optimized GeoTIFFs on
@@ -86,7 +87,7 @@ Layout: `dtm/2m/<i//10>_<j//10>/<i>_<j>.tif`; `dtm/2m/index.json` lists every ti
 AOSTA_CARD = """# Valle d'Aosta: DTM 2005/2008 2 m as 2 km tiles
 
 Dati estratti dal Modello Digitale del Terreno (DTM) della Regione Autonoma Valle d'Aosta.
-Licence: CC BY 4.0 (http://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf). Source: the region's
+Licence: CC BY 4.0 (https://metadati.partout.it/metadata_documents/CC_BY_DTM_v2.pdf). Source: the region's
 DTM0508_002_UNICO (https://geoprodotti.regione.vda.it/download/DTM0508_002/DTM0508_002_UNICO.zip), lidar 2005 and
 2008, 2 m, ED50 / UTM zone 32N (EPSG:23032), heights "quota ortometrica (geoidica)".
 
