@@ -3423,3 +3423,16 @@ def test_view3d_trees_text_contrast():
     for theme, colour in shown.items():
         assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
     assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
+
+
+def test_result_intro_names_the_default_line_of_a_spot():
+    """"How to read the result" says which line a spot shows as the page does: by default the highest on average
+    (model.ts: the state's `by` starts at BY_MEAN), the others as "Show per spot" offers them (report defect 9: it
+    said "the most clearance")."""
+    import messages
+    model = open(os.path.join(VIEWER, "src", "result", "model.ts"), encoding="utf-8").read()
+    assert re.search(r"this\.state = \{group: true, distance: this\.data\.distance, by: BY_MEAN,", model)
+    spots = messages.text("intro.result.spots")
+    assert "the line that is highest above the ground on average" in spots and "most clearance" in spots, spots
+    choices = [messages.text("ui.filter.by_mean"), messages.text("ui.filter.by_height")]
+    assert choices == ["Highest on average", "Highest point"] and "<b>Show per spot</b>" in spots, spots

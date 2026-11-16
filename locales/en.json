@@ -535,7 +535,7 @@
 
   "intro.result.title": "How to read the result",
   "intro.result.link": "How to read the result",
-  "intro.result.spots": "<b>Spots and lines.</b> Many found lines are almost the same: their anchors are only a few metres apart. The result puts them together into a <i>spot</i>. The map shows one line for each spot: the line with the most clearance (or the longest or highest, as you select). Select a spot to see all its lines.",
+  "intro.result.spots": "<b>Spots and lines.</b> Many found lines are almost the same: their anchors are only a few metres apart. The result puts them together into a <i>spot</i>. The map shows one line for each spot: the line that is highest above the ground on average (or the line with the most clearance, the longest line or the line with the highest point, as you select in <b>Show per spot</b>: More filters → Grouping). Select a spot to see all its lines.",
   "intro.result.colours": "<b>Colours.</b>",
   "intro.result.colour_clean": "Pink: the line is clear of the ground.",
   "intro.result.colour_over": "Orange: it is clear of the ground but not of trees or buildings.",
