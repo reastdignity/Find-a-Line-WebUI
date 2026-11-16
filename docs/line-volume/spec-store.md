@@ -59,6 +59,12 @@ file:// opening", "If binary table is used also on client side, than it is no lo
   kind `export`) and show "Preparing the file…". The worker writes it into `work/exports/` under a random name; the
   browser downloads it once from the route of 1.4, which deletes it after sending. **An export is made for each
   download and none is kept** (U4, the user, 2026-11-14: "5. c)"): a second download makes it again.
+  **As the accepted mock-up shows it** (version 1; the user, 2026-11-16): "Preparing the file…" stands in the pressed
+  row, the menu stays open and a turning ring replaces the row's icon; with the menu closed the ring sits on the
+  Download button; the other row is off meanwhile; when the file is ready the download starts and nothing else is
+  said. A failure is a small red line in the menu under the two rows, and the rows work again at once. A share
+  link's page has no Download for a run with a store, and neither has a demo run's page for a visitor who is not
+  signed in (U9). A run without a store keeps today's links to its kept files until wave 4 removes such runs.
 - **Limits.** Unchanged (public 1.5 M lines). No string limit in the page: none found on a desktop up to 10 M lines
   (part P5); a phone's is unknown until the real-device test. No "off". Old runs open as today until wave 4, which
   removes them (section 2).
@@ -153,6 +159,17 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
 - **Texts** (`locales/en.json`, plain words): `ui.result.export_preparing` "Preparing the file…";
   `error.export_failed` "The file could not be made. Try again in a moment."; `map.html`'s paragraph "This map opens
   through Find-a-Line. Run: findaline.py view {run}" (in the HTML, so it shows without the bundle).
+  With the mock-up (the user, 2026-11-16: "looks good do as recomended"), for the cases where the file is refused:
+  no worker on the public site "The file cannot be made now: the search service does not run. Try again later.";
+  in the local app "The file cannot be made now: the search service does not run. Start it with: findaline.py
+  worker"; another request of the same user still waits "Your last estimate, profile, place search or file is not
+  finished. Try again when it is done." (today's text with "or file"); the disk is short "The server is short of
+  disk space. The file cannot be made now. Try again later."; the site is busy: today's text. The screen reader's
+  label of the button while it waits: "Download: preparing the file". Over the exports' limit (U9; the setting
+  `export_rate`, on the public site 4 a minute and 30 an hour): "Too many downloads in a short time. Wait a minute
+  and try again." The privacy page (the user, 2026-11-16: "Yes, both as written"): its audit list gains "exports of
+  a run's lines made (CSV or GeoJSON: the format, not the content)," and it says "A file made for a download is
+  kept on the server until it is fetched, for one hour at most."
 
 ### 1.5 Files and pairs
 - **New `linestore.py`** (numpy and pyarrow only): `write(run_path, lines, head)` (a `LineTable`, its profiles and,
@@ -188,8 +205,9 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
   (part P5): U6.
 
 ### 1.6 Screens
-No accepted mock-up covers this part. The Download buttons, `map.html`'s disk notice, the size on Home's cards and
-the warning before a heavy run (section 4) get a small mock-up first.
+The Download buttons: the mock-up of round 4, version 1, accepted (the user, 2026-11-16: "The Download buttons'
+mock-up, version 1 - looks good do as recomended"). `map.html`'s disk notice, the size on Home's cards and the
+warning before a heavy run (section 4) get a small mock-up first.
 ### 1.7 Tests
 - `test_store_round_trip` (unit): the Żabi Koń clip and 50 000 synthetic lines with the hard floats of
   `test_saved_text_as_before` (halfway cases, NaN, nulls, -0.0 in every integer column, both end columns,
@@ -292,7 +310,7 @@ has a store without them and counts as an old run (section 2). Nothing converts 
   store and reads `data.js`), and a run that is not in the viewer's `runs.js`.
 
 ### 1.11 Needs the user's word
-U4 and U12 are decided (section 8); U6, U9, U10, U11 are taken as recommended. The brotli codec is settled too
+U4, U9 and U12 are decided (section 8); U6, U10, U11 are taken as recommended. The brotli codec is settled too
 (2026-11-15: pyarrow's own, section 4).
 ## 2. Old runs: removed, not converted
 
@@ -553,7 +571,11 @@ most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is u
   nested results by rigging': (a) parked with F-20 (columns hold 10 M lines on a desktop, part P5).
 - **U8** the phone warning's threshold: (a) none until the real-device test; the size always shown (F-30).
 - **U9** who may export: (a) the owner, an administrator, a demo run's visitors, not share links, within the quick
-  lane's rates.
+  lane's rates. **Decided by the user, 2026-11-16** ("No Download there (Recommended)"): a share link's page has no
+  Download for a run with a store. A demo run's visitor who is not signed in gets no Download button ("No Download
+  button (Recommended)"): the server makes a file only for a signed-in user. Exports have a rate of their own, as
+  every other kind of the quick lane: 4 a minute and 30 an hour on the public site ("Yes, 4 a minute, 30 an hour
+  (Recommended)"; both reviewers of wave 3 showed that without it one user can fill the disk and hold the lane).
 - **U10** `--html` after `file://` ends: (a) accepted for one release, prints the `view` command.
 - **U11** filtered exports, GeoPackage, KML (F-32 'Exports people can open'): (b) parked until wave 3 shows how
   exports are used.
