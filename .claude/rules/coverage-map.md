@@ -18,7 +18,8 @@ What each part holds: docs/code-map/viewer.md (`coverage/`) and docs/code-map/to
   and a row in `tools/area_rows.py` (a new country's title in `COUNTRIES`, a territory's parent in `PARENTS`, a region
   on another continent in `REGION_CONTINENTS`, a new continent in `CONTINENTS`: `tests/test_area_rows.py::test_every_area_of_the_map_is_a_row`; the counts per continent
   and country in `tests/test_area_download_tui.py`, which runs only with the TUI group; a row's name and title never
-  change) (`tools/coverage_shapes.py`; `shapes.json`
+  change) (`tools/coverage_shapes.py`; an area without an admin-1 unit of its own is cut from its country's or unit's
+  outline by a box, `CUT`, and gets a code of ours where ISO 3166-2 has none: `de-hb-bhv`, `pt-30-ps`; `shapes.json`
   is LF everywhere (`.gitattributes`) and copied byte for byte to `dist/coverage-shapes.json`), a new region area
   `region.<id>`, a new note or survey code `note.<code>`/`survey.<code>`, in both `locales/coverage/en.json` and
   `pl.json` (the same keys; Polish plurals `_one`/`_few`/`_many`/`_other`). Code under `viewer/src/coverage/` uses

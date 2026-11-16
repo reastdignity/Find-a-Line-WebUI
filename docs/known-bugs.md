@@ -120,3 +120,61 @@ origin 0.6, 12 804 pixel centres differ and 3 408 fall into another square, so a
 than the same search on one grid. Not reachable today: such a tiled search crashes first (the entry above). A fix,
 before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
 indices.
+
+## Réunion's LiDAR HD holds wrong heights at the offshore edge of its data
+
+Seen 2026-11-15 (batch 6): where IGN's LiDAR HD of La Réunion ends offshore, about 1 km out at Cap Méchant, its edge
+holds heights of -40 to 975 m in the 0.5 m pixels (-235 to 644 m in the service's 1 m answers), 353 pixels above
+100 m in tile 367_7635; a 1200 m search there finds 288 anchors on them, and no line used them. Left as they are by
+the user's decision of 2026-11-15 (`france_reunion`'s note says so). A fix would mask the data's offshore edge.
+
+## The sea floor rule: what it leaves behind
+
+`Layer.nodata_below` (-1 m on IGN's overseas RGE ALTI 1 m layers, 2026-11-15) is applied where tiles are read onto
+the grid, so:
+- a run saved before the rule shows the floored terrain in its 3D view: the heights there are no longer those its
+  search used;
+- `tools/check_source.py` and `tools/obstacle_study.py` read the raw tiles, without the floor;
+- floored pixels outside the search's sea zone (OSM's sea plus 20 m) become gaps on land, filled from the fallback
+  model, not 0 m: measured only at Fort-de-France (4 851 px, 1.8 % of the area, filled at about 1.5 m, steps of up to
+  2.8 m);
+- reef flats between -1 and -1.7 m off Mayotte are cut and filled at 0 m.
+
+## Tokyo's island sheets hold seabed (open)
+
+Seen 2026-11-15 (batch 6): near the Izu islands' coasts the Tokyo Digital Twin's grids hold seabed heights below 0 m.
+At Mikurajima 49 of 341 lines are false, both anchors on the sea filled at 0 m across the seabed; a floor of -1, -0.5
+or 0 m leaves 292 lines each, none false. The eastern wards hold real land down to -4.42 m, so a floor could only be
+for the island sheets (rows N-Z of zone IX), which needs `nodata_below` per sheet. Open: the user's decision; not
+built (docs/new-sources-6/spec.md).
+
+## Hong Kong's heights are above HKPD, not mean sea level (open)
+
+`hong_kong`'s heights are above the Hong Kong Principal Datum; LandsD's explanatory notes (read 2026-11-16): "the mean
+sea level is about 1.30m above HKPD". The app fills the sea at 0 m, so the data's water fringe (+1.1 to +1.3 m)
+counts as land and clearances over the sea are measured 1.3 m too low. At Cape D'Aguilar all heights lowered by
+1.30 m left the same 8 lines and removed 1 988 anchors. No shift is applied (open: the user's decision). Real land
+below -1 m exists in Kowloon (down to about -6 m among heights of 5-6 m), so no floor either.
+
+## Bremerhaven's surface model: half a pixel off, and constant planes (open)
+
+Read 2026-11-16 (batch 6): Bremerhaven's DOM1 lies on whole metres, half a pixel off its own terrain (x.5); the
+mosaic interpolates it onto the terrain's grid (bilinear). Its 41 partial tiles hold 402 ha of exactly constant planes
+of 1 ha or more, 245 ha of them beyond the Land; inside it 23.85 m over 13 ha (468_5937) and 88.14 m over 2.5 ha
+(469_5935) in the port and on the Weser. Both left as they are; open: shift the surface half a pixel, keep it, or no
+surface model, and leave or mask the planes (the user's decisions).
+
+## Coastal regression entries on the Copernicus fallback
+
+A coastal entry whose search cannot reach Overpass for the coastline takes the Copernicus water body mask (its log
+says "Coastline: Copernicus water body mask (fallback)") and gives another checksum. In batch 6 the first baselines of
+R85 (158 lines against 1 002 on OSM) and R86 (7 052 against 7 184) were written on the fallback and re-baselined on
+2026-11-16; R87 failed once the same way and passed on the rerun. `tests/regression.py --update` stores such a run
+without a word. A guard (refuse or warn when the log names the fallback) was proposed to the user as a separate
+small change; not built.
+
+## Searches in Shizuoka and Hong Kong download a lot
+
+Measured in batch 6 (2026-11-15/16): a 400 m search in Shizuoka's west reads 25 whole sheets, 453 MB, and an index
+tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 sheets, 137 MB, in over 6 minutes
+(0.36 MB/s). The providers publish whole sheet ZIPs only; nothing is changed.

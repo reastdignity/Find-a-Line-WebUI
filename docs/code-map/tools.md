@@ -17,6 +17,11 @@ it), a `ranged` layer's files through our own ranges (`_read_ranged`), a `warp` 
 cartoteca sheet's grid inside its ZIP (`_gdal_path`: `<zip>/<member>` by `/vsizip/`), and LercTiles and
 ZipSheetTiles as services (no source files to compare).
 
+Batch 6: a ZIP member (`ZipMemberTiles`, `PackageTiles`) is read again by Range under its own rule, never through the
+layer's `TransformFix` (`_zone_free`: an easting with the zone in front without it), so a wrong fix shows; an XYZ
+member in columns with points missing read in rows (`zipmember.xyz_rows`); a `PackageTiles` tile's member taken in the
+tile's own CRS (its zone's), as the layer writes it.
+
 ## `tools/au_coverage.py`
 
 The static cells mask of Geoscience Australia's 5 m lidar DEM (`sources/catalogue/australia_dem5m_cells.npz`):
@@ -42,6 +47,29 @@ The static mask of the cells of INEGI's lattice that hold a 5 m sheet, per model
 (`sources/catalogue/mexico_sheets.npz`, read by `InegiIndex`): the download viewer's two lists (`getFormato10k.do`,
 mod T and S) read once; it stops if a centroid's cell does not carry its sheet's name. The models are frozen
 (2006-2012): run it again only if INEGI publishes new sheets (`tests/test_mexico.py`).
+
+## `tools/tokyo_sheets.py`
+
+The static table of the Tokyo Digital Twin's 0.5 m grid sheets (`sources/catalogue/tokyo_sheets.npz`, read by the
+`tokyo` layer: a sheet outside it is never asked, since the bucket answers 403, never 404, for a key it does not
+have): every sheet with the folder it lies in (2023: Tama and the islands; 2024: the 23 wards; a sheet may be in
+both), from the publisher's index vector tiles (Mapbox vector tiles at zoom 12, fields MESH_NO and URL) read with
+GDAL's MVT driver through pyogrio. Every code must be a 1/500 sheet of zone IX (`japan.jp_cell`) and its URL the
+folder's address of that code, or it stops. One request at a time, at least `PAUSE_S` apart; `--count` says how many
+tiles a run asks without asking any. The surveys are frozen: run it again only when Tokyo publishes more sheets,
+check the tests' places and commit the table (`tests/test_japan.py`).
+
+## `tools/hong_kong_sheets.py`
+
+The static table of CEDD's 2020 lidar sheets of Hong Kong (`sources/catalogue/hong_kong_sheets.npz`, read by the
+`hong_kong` layers: a sheet outside it is never asked, a 404 for one in it is that tile's error), from the CSDI
+Portal's FeatureServer (layers 0 DTM_2020 and 1 DSM_2020: TILE_NAME, Filename, URL and the footprint, paged by
+3 000: four requests). Every row is checked (the code a sheet of the scheme, `hong_kong.hk_cell`, whose box is the
+footprint; the URL the layer's folder and its file name; the name starting with the code), else it stops; the file
+names are kept as published (map 17's kilometre pairs are not those of the sheet's box). One request at a time, at
+least `PAUSE_S` apart, each under one of the host's slots of the data folder (`net.host_slot`); the answers kept in the
+work folder; `--count`. The survey is frozen (2020): run it again only when CEDD publishes more sheets
+(`tests/test_hong_kong.py`).
 
 ## `tools/mirror_tiles.py`
 
@@ -72,10 +100,15 @@ Caches only: `State` (footprints, checked files) and `WorkFiles` (unpacked membe
 wide strips, made again when their source changed; `clean` removes only these, through `_remove`). `check_folders`
 keeps `--work`, `--inputs` and `--out` apart. `verify` (final products): every sha256, unlisted files, the tiles the
 inputs' own bounds touch against the index, the inputs against the journal's feeders, sampled tiles (1 %, 8 to 500,
-`--seed`) re-assembled and `POINTS` pixels read straight from the inputs (`_point_problems`); tiles whose inputs are
-gone are not checkable. `status` (final / cutting / ready / waiting), `all` (cuts every complete product, a waiting
-one is no failure; a final verified one skipped). One run at a time per `--work` and per product (`_locked`:
-`Busy`). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its source's default
+`--seed`) re-assembled and `POINTS` pixels read straight from the inputs (`_point_problems`), judged against the
+inputs the cut read (`inputs.jsonl` in the final folder, `INPUTS_FILE`: an input that came later is no part of the
+edition); tiles whose inputs are gone or changed are not checkable, and a verify that compares no tile with data is
+"not checkable" (keeping an earlier passing `verify.json` of the same index); the result in `verify.json` beside the
+index. A journal line's rule carries `CUT_VERSION` (raised by hand when a change could change a cut's output).
+`status` (final / cutting / ready / waiting; every staging folder listed), `all` (cuts every complete product, a
+waiting one is no failure; a final verified one skipped), `clean` (a final product's staging folder, or with
+`--staging` one no run cuts now). One run at a time per `--work` and per product (`_locked`, the product's lock in
+`<out>/.locks`, never inside a dataset's folder: `Busy`). A product's `crs`, `res` and `origin` equal the catalogue layer's (`GridTiles(origin=)`), its source's default
 resolution a whole multiple of its pixel and at least 1 m (`tests/test_mirror_tiles.py`).
 
 ## `tools/cdd_fetch.py`
@@ -430,7 +463,8 @@ when it gains a second row (`SINGLE_ROW_COUNTRY_LEVEL`, False by the user's word
 Saint-Pierre-et-Miquelon under France, Puerto Rico and the US Virgin Islands under the United States, Åland under
 Finland; an empty table gives each code its own country). A row's continent is where it lies (the user's word of
 2026-11-15): its own outline's, else `REGION_CONTINENTS` (Guadeloupe, Martinique and the Caribbean Netherlands in North
-America, French Guiana in South America), else its country's; so a country may have a group under two continents
+America, French Guiana in South America, Réunion and Mayotte in Africa, Tokyo and Shizuoka in Asia), else its
+country's; so a country may have a group under two continents
 (`group-europe-france`, `group-north-america-france`). `Row.label` is what a row in a
 country's group shows (the region's or territory's name, a country-wide row "Whole country · <source>"); the title and
 name stay the full ones. An extra row's country is its `"country"`, else its title's part before ": " when that is a
