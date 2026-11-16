@@ -110,12 +110,26 @@ Rules for every step:
    - *What is seen*: the user: "tools/ui_shots.py seems to be slow". Every review of a UI change runs it
      (.claude/rules/viewer.md), and the design task runs it more often (rendered checks, contact sheets, the
      screenshots the image comps start from).
-   - *Known from the code, not measured*: one process shows one page at a time (device, then theme, then page).
-     Each of the 93 states opens a fresh page and waits a fixed 2.5 s (the event stream keeps the network busy,
-     so there is no "network idle" to wait for), 0.4 to 0.6 s after every step, up to 10 s for map tiles and up
-     to 60 s for the 3D view. Three devices and both themes are up to 558 page loads: about 23 minutes of fixed
-     waiting alone (an estimate from these numbers). The site, its users and the clip's run are set up anew at
-     every start.
+   - *Known from the code*: one process shows one page at a time (device, then theme, then page). Each of the
+     90 states opens a fresh page and waits a fixed 2.5 s (the event stream keeps the network busy, so there is
+     no "network idle" to wait for), 0.4 to 0.6 s after every step, up to 10 s for map tiles and up to 60 s for
+     the 3D view. Three devices and both themes are up to 540 page loads: about 22 minutes of fixed waiting
+     alone (an estimate from these numbers). The site, its users and the clip's run are set up anew at every
+     start.
+   - *Measured* (2026-11-16, two runs of the design task under the shared test lock with other sessions at
+     work, so indicative):
+     - Screenshots of the main flows, three devices, both themes: 262 pictures in 38.8 min; 33 s until the
+       first picture; a median of 5.5 s per picture.
+     - Every state through the same loop, measured instead of photographed (the design task's
+       `tools/ui_metrics.py`, about 0.2 s of measuring per state): 502 states in 62.5 min. Of the 3011 s spent
+       inside the states, loading the page took 1672 s (56 %) and the steps 1235 s (41 %); a median of 4.5 s
+       per state, 7.7 s at the 90th percentile.
+     - **Waits for things the sample run cannot show** are the largest single loss: `c-result-rigging` waits
+       its full 60 s in each of the six passes (about 390 s), the three `c-result-shore*` states wait 20 s each
+       before they are left out (about 360 s), `c-basic-sea` on the desktop waited 48 and 68 s for the
+       estimate. In the screenshot run this was about a third of the whole time.
+     - 38 of the 540 states are never shown: 24 need another run (the shore states, `c-result-why`), 14 exist
+       on one kind of device only.
    - *To look into*: first measure where the time goes (set-up, load, fixed waits, steps, screenshot). Then the
      candidates: a ready signal of the page instead of fixed waits; several browser contexts at once (per device
      or per slice of the pages); a kept data folder (`--data-dir` exists); only the pages a branch's changed
