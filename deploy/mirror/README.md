@@ -265,9 +265,12 @@ MB); with a small tile it fails without saying anything about SWAG.
 ## The log and privacy
 
 One JSON line per request, with exactly the keys `t` (time), `s` (status), `b` (bytes sent), `rt` (request time,
-seconds), `ds` (the dataset: the first path part after `/v1/tiles/`, else `-`), `a` (the visitor's address),
-`lim` (the limit that refused: `rate`, `conn` for a visitor's concurrent requests, `trusted`; `-` when served),
-`v` (the version of a `Find-a-Line/<version>` User-Agent, else `other`). Never the tile's path, the query or the
+seconds), `ds` (the dataset, the first path part after `/v1/tiles/`, only for a request for one of the served
+names and at most 40 characters, else `-`), `a` (the visitor's address), `lim` (the limit that refused: `rate`,
+`conn` for a visitor's concurrent requests, `trusted`; `-` when served), `v` (the version of a
+`Find-a-Line/<version>` User-Agent: two or three numbers of at most three digits, optionally the word `a`, `b`,
+`rc`, `.dev` or `.post` without its number, a local label dropped; `unknown` as it is; else `other`, so no
+written form of an address is logged there). Never the tile's path, the query or the
 rest of the User-Agent; `tools/mirror_publish.py stats` reads it. Docker's own log of the container holds nothing
 of the requests (the error log runs at "critical"). The healthcheck's own requests are not logged.
 

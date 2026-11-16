@@ -386,8 +386,8 @@ def _first(regexes: list, text: str, group: str, default: str) -> str:
 
 def test_log_dataset_and_version_forms():
     """Code review F2, the planner's ruling: ds only of a request for a served name, at most 40
-    characters; v only of a version-shaped token (two or three numbers, a pre-release, .post, .dev
-    and a local label starting with a letter, at most 24 characters), anything else "other"."""
+    characters; v two or three numbers of at most three digits, optionally the word a, b, rc,
+    .dev or .post (its number and a local label dropped), or "unknown"; anything else "other"."""
     ds = _map_regexes("mirror_dataset")
     for path, want in [("/v1/tiles/madeira/dtm/2m/0_0/1_2.tif", "madeira"), ("/v1/tiles/madeira/README.md", "madeira"),
                        ("/v1/tiles/slovakia/dmr5/1m/index.json", "slovakia"), ("/v1/tiles/aosta/dtm/0.5m/-1_0/-3_4.tif", "aosta"),
@@ -396,13 +396,16 @@ def test_log_dataset_and_version_forms():
                        ("/v1/tiles/" + "a" * 41 + "/README.md", "-"), ("/v1/datasets.json", "-"), ("/", "-")]:
         assert _first(ds, path, "ds", "-") == want, path
     v = _map_regexes("mirror_version")
-    for agent, want in [("Find-a-Line/0.2.0 (highline finder; self-hosted)", "0.2.0"), ("Find-a-Line/0.2.0rc1 (x)", "0.2.0rc1"),
-                        ("Find-a-Line/1.0.0.dev3", "1.0.0.dev3"), ("Find-a-Line/0.1.0+local (x)", "0.1.0+local"),
-                        ("Find-a-Line/2.1 (x)", "2.1"), ("Find-a-Line/203.0.113.77 (x)", "other"),
+    # The planner's rule (2026-11-16): the word after the numbers kept, its number and a local label
+    # dropped; "unknown" kept; no written form of an address fits
+    for agent, want in [("Find-a-Line/0.1.0 (highline finder; self-hosted)", "0.1.0"), ("Find-a-Line/0.2.0rc1 (x)", "0.2.0rc"),
+                        ("Find-a-Line/1.0.0.dev3", "1.0.0.dev"), ("Find-a-Line/0.1.0+local (x)", "0.1.0"),
+                        ("Find-a-Line/1.2.post4", "1.2.post"), ("Find-a-Line/2.1 (x)", "2.1"),
+                        ("Find-a-Line/unknown (highline finder)", "unknown"), ("Find-a-Line/0.1.0+ip203x0x113x7", "0.1.0"),
+                        ("Find-a-Line/203.0.113.77 (x)", "other"), ("Find-a-Line/203.0.113.dev7x", "other"),
                         ("Find-a-Line/madeira.dtm.2m.0.0.1.2", "other"), ("Find-a-Line/1.2.3.4.5", "other"),
-                        ("Find-a-Line/1.0+203.0.113.7", "other"), ("Find-a-Line/12345.1.0", "other"),
-                        ("Find-a-Line/1.0.0+abcdefghijklmnopqrst", "other"), ("Mozilla/5.0 Find-a-Line/1.0.0", "other"),
-                        ("Find-a-Line/1.0.0-x", "other")]:
+                        ("Find-a-Line/1234.1.0", "other"), ("Find-a-Line/unknownx", "other"),
+                        ("Mozilla/5.0 Find-a-Line/1.0.0", "other"), ("Find-a-Line/1.0.0-x", "other")]:
         assert _first(v, agent, "v", "other") == want, agent
 
 

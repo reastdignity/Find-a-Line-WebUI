@@ -531,7 +531,7 @@ g_log() {
         cx d -o /dev/null -A "$(ua dsprobe)" "$P$p"
     done
     cx d -o /dev/null -A "$(ua dsserved)" "$P$T/0_0/9_9.tif"
-    for v in 203.0.113.77 madeira.dtm.2m.0.0.1.2 1.2.3.4.5 1.0+203.0.113.7 12345.1.0 0.2.0rc1 1.0.0.dev3 0.1.0+local; do
+    for v in 203.0.113.77 203.0.113.dev7x madeira.dtm.2m.0.0.1.2 1.2.3.4.5 1234.1.0 0.2.0rc1 1.0.0.dev3 0.1.0+ip203x0x113x7 unknown; do
         cx d -o /dev/null -A "Find-a-Line/$v (x)" "$P/robots.txt"
     done
     sleep 1
@@ -565,10 +565,10 @@ g_log() {
     out=$(printf '%s\n' "$all" | grep "\"v\":\"$MARK.$(tag dsprobe)\"")
     check L11 "ds: \"-\" for paths outside the served names (a 300-letter name with an address, a tile's path folded into one name); the dataset for a served one" \
         eval '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 4 ] && ! printf "%s\n" "$out" | grep -qv "\"ds\":\"-\"" && printf "%s\n" "$all" | grep "\"v\":\"$MARK.$(tag dsserved)\"" | grep -q "\"s\":404,.*\"ds\":\"madeira\""'
-    out=$(printf '%s\n' "$all" | grep "\"a\":\"$D\"" | sed -n 's/.*"v":"\([^"]*\)".*/\1/p' | sort | uniq -c | tr -s ' \n' ' ')
+    out=$(printf '%s\n' "$all" | grep "\"a\":\"$D\"" | grep -v "\"v\":\"$MARK\." | sed -n 's/.*"v":"\([^"]*\)".*/\1/p' | sort | uniq -c | tr -s ' \n' ' ')
     info "versions logged for client d: $out"
-    check L12 "v: version forms kept (0.2.0rc1, 1.0.0.dev3, 0.1.0+local), anything else (an address, a tile in dots) \"other\"" \
-        eval 'for v in 0.2.0rc1 1.0.0.dev3 0.1.0+local; do case "$out" in *" $v "*) ;; *) exit 1 ;; esac; done; case "$out" in *203.0.113*|*madeira*|*1.2.3.4.5*|*12345.1*) false ;; *) printf "%s" "$out" | grep -qE " 5 other "; esac'
+    check L12 "v: 0.2.0rc1 -> 0.2.0rc, 1.0.0.dev3 -> 1.0.0.dev, 0.1.0+ip... -> 0.1.0, unknown kept; an address, 203.0.113.dev7x, a tile in dots -> \"other\"" \
+        eval '(for v in 0.2.0rc 1.0.0.dev 0.1.0 unknown; do case "$out" in *" $v "*) ;; *) exit 1 ;; esac; done) && case "$out" in *203*|*madeira*|*1.2.3.4*|*1234.*|*rc1*|*dev3*|*ip*) false ;; *) printf "%s" "$out" | grep -qE " 5 other " ;; esac'
     out=$(docker logs --since "$RUN_START" "$FILES" 2>&1 | grep -E "/v1/|$MARK|$A[^0-9]|client: |limiting")
     [ -z "$out" ] || info "on the container's stdout or stderr: $(printf '%s\n' "$out" | head -3)"
     check L10 "nothing of a request on the container's stdout or stderr" eval '[ -z "$out" ]'
@@ -699,7 +699,7 @@ g_cleanup() {
 
 run_checks() {  # the groups named, against the running stack
     local g
-    MARK="8.$((RANDOM % 9000 + 1000))"
+    MARK="8.$((RANDOM % 900 + 100))"
     UA=$(ua)
     LOG_FROM=$(log_counts)
     RUN_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
