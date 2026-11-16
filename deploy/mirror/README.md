@@ -52,7 +52,10 @@ The limits are constants of `nginx.conf`, not settings. `tests/mirror_check.sh` 
    ```
    The files under `public/` must be readable by uid 101 (world-readable, as the publishing door writes them).
    `staging/`, `public/` and `trash/` are then given to the publishing account (uid 1000), which reads `logs/`
-   through group 101: "The publishing account" below.
+   through group 101: "The publishing account" below. Use binds of these host folders, as `compose.yaml` does:
+   a named volume (or a volume's subpath) given to the file server instead gets the image's folder at the first
+   start, with its owner and mode (`/srv/public` root, 0755), and the first publish then stops at its move with
+   a refused folder; such a volume needs its owners set again after that first start.
 3. Settings: `cp .env.example .env`, then set `MIRROR_ROOT`, `MIRROR_CONTACT` (the contact for abuse and
    takedown requests, shown on the landing page), `MIRROR_TRUSTED_ADDRESSES` (the site server's IPv4 address;
    at most four single addresses, or empty), and `MIRROR_SUBNET` only if `172.29.42.0/24` collides with another
@@ -274,10 +277,20 @@ dataset, the index comparison `--master <folder>` the master copy):
 ```sh
 bash tests/mirror_check.sh --live https://mirror.findaline.lukawski.org
 ```
-From inside the home network the address SWAG sees may be a local one; the checks hold either way. The cap
-check (LV15) holds slow downloads of the largest listed tile open: it shows that SWAG honours
-`X-Accel-Buffering` only when that tile is larger than what the sockets and buffers on the way hold (several
-MB); with a small tile it fails without saying anything about SWAG.
+From inside the home network the address SWAG sees may be a local one; the checks hold either way.
+
+The cap check (LV15) holds slow downloads of the largest tile it finds (up to 15 tiles of every published
+product, at most 60 looked at) and asks once more: it shows that SWAG honours `X-Accel-Buffering` only when that
+tile is larger than what the proxy's buffers and the sockets on the way hold, for a small tile is sent into them
+at once and the mirror's connection ends whatever the proxy does. With the test stack's stand-in the cap showed
+every time from 16 MB tiles on (from this PC through Docker's published port and from a container beside the
+stand-in; 12 MB only now and then, 8 MB and less never: `LV15_MIN_BYTES` in the check script). Below that size
+LV15 is a SKIP that names the size found and the size needed, and the summary says the cap is still unproven.
+So at the rollout LV15 skips after Madeira and after Valle d'Aosta (tiles of about 2 MB), and Slovakia's 1 m
+tiles (about 7 MB, the largest 8.2) are below it too: as measured here, none of today's datasets can show the
+cap through the proxy. The real SWAG's buffers and the internet's sockets may hold more or less than the
+stand-in's (an estimate, not measured); the cap through the real proxy is the open item M2 of the
+specification.
 
 ## The log and privacy
 
