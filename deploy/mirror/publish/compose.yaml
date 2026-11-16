@@ -1,0 +1,69 @@
+# The mirror's publishing door: a second compose project beside the mirror's (../compose.yaml),
+# one service `sftp` (OpenSSH, built by Dockerfile next to this file). The publishing key, held on
+# the PC that publishes (never on the VPS, never in the repository), logs in here over SFTP;
+# tools/mirror_publish.py drives it through rclone. Its gate lets the key run only the SFTP server
+# and sha256sum of a file under /mirror (gate.sh). README.md of deploy/mirror, "The publishing
+# account": the install, the keys, the rclone remote.
+#
+#   docker compose up -d --build --wait          (from this folder; .env next to this file)
+#
+# - The port is published on the server's LAN address only (PUBLISH_ADDRESS, required: without it
+#   compose refuses to start), never on every interface.
+# - <root> (MIRROR_ROOT, the mirror's) is one read-write mount at /mirror: staging, public and
+#   trash must be one mount, as the publish tool's swap is two renames and a rename across two
+#   mounts fails. authorized_keys and the host key are mounted read-only; nothing else of the host.
+# - Its network is its own, never the mirror's internal one (it must not become a neighbour of the
+#   file server and SWAG).
+
+name: findaline-mirror-publish
+
+services:
+  sftp:
+    build:
+      context: .
+    read_only: true
+    user: "1000:1000"
+    group_add: ["101"]            # the file server's group: reads <root>/logs
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 128
+    volumes:
+      - type: bind
+        source: "${MIRROR_ROOT:?MIRROR_ROOT missing - copy .env.example to .env}"
+        target: /mirror
+        bind: {create_host_path: false}
+      - type: bind
+        source: "${PUBLISH_KEYS:?PUBLISH_KEYS missing - copy .env.example to .env}/authorized_keys"
+        target: /keys/authorized_keys
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: "${PUBLISH_KEYS:?PUBLISH_KEYS missing - copy .env.example to .env}/ssh_host_ed25519_key"
+        target: /keys/host/ssh_host_ed25519_key
+        read_only: true
+        bind: {create_host_path: false}
+      - type: tmpfs
+        target: /tmp
+        tmpfs: {size: 1048576}
+    ports:
+      - "${PUBLISH_ADDRESS:?PUBLISH_ADDRESS missing - the server's LAN address, in .env}:${PUBLISH_PORT:-2222}:2222"
+    networks: [publish]
+    healthcheck:
+      # sshd's banner on the loopback
+      test: ["CMD", "sh", "-c", "sleep 1 | nc -w 3 127.0.0.1 2222 | head -c 8 | grep -q SSH-2.0"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "1m", max-file: "3"}
+
+networks:
+  # An ordinary network of its own (a published port needs one): not the mirror's
+  publish:
+    enable_ipv6: false

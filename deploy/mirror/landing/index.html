@@ -1,0 +1,97 @@
+<!doctype html>
+<!-- The mirror's landing page (docs/mirror-hosting/spec.md, A.9). start.sh puts the contact
+     (MIRROR_CONTACT) in place of the marker below and writes the page into the tmpfs. The privacy
+     paragraph is the text the user approved (the specification's section 7), word for word;
+     tests/test_mirror_deploy.py pins it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Find-a-Line data server</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d2125; --muted: #5b636b; --bg: #fbfbfa; --line: #d9dcdf; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6e8ea; --muted: #a3abb3; --bg: #16191c; --line: #2f353a; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 2rem 16px 3rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); }
+  ul { padding-left: 1.2rem; }
+  li { margin: .4rem 0; }
+  code { font-size: .95em; }
+  a { color: inherit; }
+  footer { border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: 1rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>Find-a-Line data server</h1>
+<p>This server holds copies of elevation data for <a href="https://findaline.lukawski.org/">Find-a-Line</a>,
+a program that finds possible highlines in elevation data. Find-a-Line installations download the tiles of
+regions whose data cannot be read from their owner on demand. It serves files only; there is nothing to sign in
+to, and the limits per address keep it usable for everyone.</p>
+
+<h2>Datasets</h2>
+<p id="datasets-state" class="muted">Loading the list of datasets…</p>
+<ul id="datasets"></ul>
+
+<h2>Privacy</h2>
+<p id="privacy">An installation that downloads from the project's data server shows it its address and which
+tiles it asks for. The server writes down the time, the address, the dataset (not the tile), the size, whether
+the request was served or refused, how long it took, and the Find-a-Line version of each request. It keeps this
+for 14 days, to hold the service within its limits, and uses it for nothing else. To never contact the data
+server, set <code>FINDALINE_MIRROR_URL</code> to empty; the regions it serves then use coarser data.</p>
+
+<footer>
+<p>Contact for abuse and takedown requests: <span id="contact">@MIRROR_CONTACT@</span></p>
+</footer>
+</main>
+<script>
+(function () {
+  var state = document.getElementById("datasets-state");
+  var list = document.getElementById("datasets");
+  function text(value) { return value === undefined || value === null || value === "" ? "none" : String(value); }
+  function line(label, value) {
+    var span = document.createElement("span");
+    span.textContent = label + ": " + text(value);
+    return span;
+  }
+  fetch("/v1/datasets.json", { cache: "no-cache" })
+    .then(function (answer) {
+      if (!answer.ok) { throw new Error(answer.status === 404 ? "none" : "status " + answer.status); }
+      return answer.json();
+    })
+    .then(function (data) {
+      var sets = (data && data.datasets) || [];
+      if (!sets.length) { state.textContent = "No dataset is published yet."; return; }
+      state.textContent = "Published datasets, with their licences and credits:";
+      sets.forEach(function (set) {
+        var item = document.createElement("li");
+        var title = document.createElement("strong");
+        title.textContent = text(set.title || set.id);
+        item.appendChild(title);
+        [["Licence", set.licence], ["Credit", set.attribution]].forEach(function (pair) {
+          item.appendChild(document.createElement("br"));
+          item.appendChild(line(pair[0], pair[1]));
+        });
+        if (typeof set.source === "string" && /^https:\/\//.test(set.source)) {
+          item.appendChild(document.createElement("br"));
+          var link = document.createElement("a");
+          link.href = set.source;
+          link.rel = "noopener noreferrer";
+          link.textContent = "Source and terms";
+          item.appendChild(link);
+        }
+        list.appendChild(item);
+      });
+    })
+    .catch(function (error) {
+      state.textContent = error.message === "none" ? "No dataset is published yet."
+        : "The list of datasets could not be read (" + error.message + ").";
+    });
+})();
+</script>
+</body>
+</html>
