@@ -3,7 +3,8 @@
 and the site's side (Telegraf's checks, the docs). Static: no Docker, no network, no rclone; each test fails when one
 side of its pair changes alone. Where wave 1's own tests already pin a pair, a comment names them instead of a second
 copy: tests/test_mirror_deploy.py (the stack), tests/test_mirror_client.py (the client), tests/test_mirror_publish.py
-(the tool; skipped without rclone, so the few pairs of the tool that matter here are asserted again, thinly).
+(the tool; skipped without rclone, so the tool's sides of the pairs here, its version rule, stats' keys, layout,
+BLOCK and PUBLISHABLE, are asserted again without rclone).
 
 tests/conftest.py keeps sources.net.HOST_RATES_OF for this module (its fixture empties it for the others): the client's
 request rate is one side of the limits' pair. Nothing here calls net._get or net.rate_turn."""
@@ -123,15 +124,39 @@ def test_conftest_keeps_the_rates_for_this_module():
 
 # 2. One host everywhere
 
+# Names a file may hold where a host is expected beside the data server's: the site's, examples, third parties
+SITE = "findaline.lukawski.org"
+OTHER_HOSTS = {SITE, "findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com"}
+# Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
+FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",
+                "rules", "js", "geojson", "csv", "example", "env", "toml", "tif", "arrow", "pem", "sample", "lock", "in",
+                "pub", "key"}
+
+
+def _host_names(text: str) -> set:
+    """Every name a text holds where a host is expected: the host of an http(s) URL, a dotted name in backticks, a
+    server_name; IP addresses and file names left out."""
+    found = (set(re.findall(r"https?://([A-Za-z0-9.-]+)", text)) | set(re.findall(r"`([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)`", text))
+             | set(re.findall(r"server_name\s+([^;\s]+);", text)))
+    return {n.lower().rstrip(".") for n in found if not re.fullmatch(r"[0-9.]+", n)
+            and re.search(r"\.[a-z]{2,}$", n.lower()) and n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS}
+
+
 def _hosts(text: str) -> set:
-    """Every name of the mirror's kind (mirror.<...>.lukawski.org) a text holds."""
-    return set(re.findall(r"\bmirror\.[a-z0-9.-]*lukawski\.org\b", text))
+    """The names of a text under the project's domain (any name with "lukawski" in it) or starting with "mirror.",
+    wherever they stand: the data server's or the site's."""
+    return {n.lower() for n in re.findall(r"\b[a-z0-9-]*(?:\.[a-z0-9-]+)+\b", text, re.I)
+            if re.search(r"\.[a-z]{2,}$", n, re.I) and ("lukawski" in n.lower() or n.lower().startswith("mirror."))
+            and n.rsplit(".", 1)[-1].lower() not in FILE_ENDINGS}
 
 
 def test_one_host_everywhere():
     """The client's MIRROR_URL, Telegraf's two checks of the data server (their addresses are the client's origin), the
-    SWAG conf's server_name, the server's README and the client's manners in sources/net.py name one host (the landing
-    page names none: it is served under it)."""
+    SWAG conf's server_name and every place a host is expected in the mirror's docs and configs (deploy/mirror,
+    telegraf.conf, findaline.env.example, the check script) name one host, beside the site's, examples and third
+    parties: one of the README's six names changed to another domain fails here. In the larger docs and the client's
+    modules every name of the data server's or the site's kind is one of the two."""
+    import glob
     import tomllib
     assert tilebases.MIRROR_URL == f"https://{HOST}"
     telegraf = tomllib.loads(_read("deploy", "monitoring", "telegraf.conf"))["inputs"]
@@ -141,11 +166,18 @@ def test_one_host_everywhere():
     assert cert["sources"] == [tilebases.MIRROR_URL]
     swag = _read("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf")
     assert re.findall(r"^\s*server_name (\S+);", swag, re.M) == [HOST]
+    mirror_files = sorted(os.path.relpath(f, ROOT) for f in glob.glob(os.path.join(MIRROR, "**", "*"), recursive=True)
+                          if os.path.isfile(f))
+    for rel in mirror_files + [os.path.join("deploy", "monitoring", "telegraf.conf"), "findaline.env.example",
+                               os.path.join("tests", "mirror_check.sh")]:
+        names = _host_names(_read(rel))
+        assert names <= {HOST} | OTHER_HOSTS, (rel, names - {HOST} - OTHER_HOSTS)
     for parts in [("deploy", "mirror", "swag", "findaline-mirror.subdomain.conf"), ("deploy", "mirror", "README.md"),
                   ("sources", "net.py"), ("sources", "readers", "tilebases.py"), ("deploy", "monitoring", "telegraf.conf"),
                   ("README.md",), ("findaline.env.example",), ("docs", "deployment.md"), ("docs", "monitoring.md")]:
-        assert _hosts(_read(*parts)) == {HOST}, parts
-    assert _hosts(_read("deploy", "mirror", "landing", "index.html")) == set()
+        names = _hosts(_read(*parts))
+        assert HOST in names and names <= {HOST, SITE}, (parts, names)
+    assert HOST not in _hosts(_read("deploy", "mirror", "landing", "index.html"))
 
 
 def test_the_readmes_privacy_note():
@@ -208,16 +240,26 @@ def test_an_unknown_version_is_unknown_on_both_sides(monkeypatch):
     assert _versions_logged(fresh.http_headers()["User-Agent"]) == ("unknown", "unknown")
 
 
-@pytest.mark.parametrize("version, logged", [("0.1.0", "0.1.0"), ("1.2", "1.2"), ("999.999.999", "999.999.999"),
-                                             ("0.2.0rc1", "0.2.0rc"), ("1.0.0.dev3", "1.0.0.dev"),
-                                             ("1.2.3.post4", "1.2.3.post"), ("0.1.0+local", "0.1.0"),
-                                             ("1000.0.0", "other"), ("1.2.3.4", "other"), ("1", "other")])
+# Version tokens and what the rule makes of them: the forms of tests/test_mirror_deploy.py
+# test_log_dataset_and_version_forms (the server's map) and tests/test_mirror_publish.py
+# test_stats_counts_the_clients_versions (the tool's function), with the same expected values
+VERSION_FORMS = [("0.1.0", "0.1.0"), ("1.2", "1.2"), ("2.1", "2.1"), ("999.999.999", "999.999.999"),
+                 ("0.2.0rc1", "0.2.0rc"), ("1.0.0.dev3", "1.0.0.dev"), ("1.2.post4", "1.2.post"),
+                 ("1.2.3.post4", "1.2.3.post"), ("0.1.0+local", "0.1.0"), ("0.1.0+ip203x0x113x7", "0.1.0"),
+                 ("unknown", "unknown"), ("1000.0.0", "other"), ("1234.1.0", "other"), ("1.2.3.4", "other"),
+                 ("1.2.3.4.5", "other"), ("203.0.113.77", "other"), ("madeira.dtm.2m.0.0.1.2", "other"),
+                 ("unknownx", "other"), ("1.0.0-x", "other"), ("1", "other")]
+
+
+@pytest.mark.parametrize("version, logged", VERSION_FORMS)
 def test_the_version_rule_on_both_sides(version, logged):
-    """The forms the rule keeps and those it does not, through the server's map and the tool's function alike: a
-    release with a four-digit part or a fourth number would be logged as "other". The rule's own tests:
-    tests/test_mirror_deploy.py test_log_dataset_and_version_forms, tests/test_mirror_publish.py
-    test_stats_counts_the_clients_versions."""
-    assert _versions_logged(f"Find-a-Line/{version} (highline finder; self-hosted)") == (logged, logged), VERSION_RULE
+    """The forms the rule keeps and those it does not, on each side alone: the server's map applied to a User-Agent
+    with the token, and the publish tool's client_version applied to the token itself (not only to what the map
+    already made of it): a release with a four-digit part or a fourth number would be logged as "other"."""
+    assert _mapped("mirror_version", f"Find-a-Line/{version} (highline finder; self-hosted)", "other") == logged, \
+        VERSION_RULE
+    assert mp.client_version(version) == logged, VERSION_RULE
+    assert mp.client_version(logged) == logged, VERSION_RULE   # what the server wrote is read back unchanged
 
 
 # 4. The log's keys, the publish tool's stats and the privacy sentence
@@ -376,26 +418,58 @@ def test_the_privacy_pages_entry_is_the_approved_text():
         assert f"<dt>{web.html.escape(title)}</dt><dd>{web.html.escape(text)}</dd>" in page
 
 
+def _commands(run: str) -> list:
+    """The command lines of a CI step's `run` text: stripped, without empty and comment lines."""
+    return [line.strip() for line in run.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
 def test_test_stacks_never_ask_the_data_server():
     """The site's settings leave FINDALINE_MIRROR_URL absent (the VPS downloads from the data server, U4): compose.yaml
-    sets none and findaline.env.example only names it in a comment, with `off`; CI's docker job, which builds its
-    findaline.env from that example (tests/nginx_check.sh checks the same running stack), appends `off` and checks
-    that the worker sees it. The tests' own processes: tests/conftest.py (tests/test_mirror_client.py
-    test_the_processes_of_the_tests_ask_no_data_server); tests/regression.py sets `off` unless --mirror-url."""
+    sets none and findaline.env.example only names it in a comment, with `off`. CI's docker job builds its
+    findaline.env from that example (tests/nginx_check.sh checks the same running stack), appends `off` after the
+    copy, and checks after `up` that the worker sees it: commands of the job's steps, not comments. The worker reads
+    findaline.env (compose's env_file), which is how the line reaches it. The tests' own processes:
+    tests/conftest.py (tests/test_mirror_client.py test_the_processes_of_the_tests_ask_no_data_server);
+    tests/regression.py sets `off` unless --mirror-url."""
     import yaml
-    assert "FINDALINE_MIRROR_URL" not in _read("compose.yaml").replace("# tiles from the project's data server "
-                                                                       "(FINDALINE_MIRROR_URL in findaline.env", "")
+    compose = yaml.safe_load(_read("compose.yaml"))
+    worker = compose["services"]["worker"]
+    assert worker["env_file"] == ["findaline.env"]
+    for service in compose["services"].values():
+        assert "FINDALINE_MIRROR_URL" not in str(service.get("environment", {}))
     example = _read("findaline.env.example")
     assert re.findall(r"^#?FINDALINE_MIRROR_URL=.*$", example, re.M) == ["#FINDALINE_MIRROR_URL=off"]
-    assert _hosts(example) <= {HOST}
+    assert _hosts(example) == {HOST}
     jobs = yaml.safe_load(_read(".github", "workflows", "ci.yml"))["jobs"]
-    steps = {step.get("name"): step.get("run", "") for step in jobs["docker"]["steps"]}
-    settings = steps["Example settings and secrets"]
-    assert "cp findaline.env.example findaline.env" in settings
-    assert r"printf 'FINDALINE_MIRROR_URL=off\n' >> findaline.env" in settings
-    assert 'test "$(docker compose exec -T worker printenv FINDALINE_MIRROR_URL)" = off' in steps["Services"]
+    commands = [line for step in jobs["docker"]["steps"] for line in _commands(step.get("run", ""))]
+    copy, append = "cp findaline.env.example findaline.env", r"printf 'FINDALINE_MIRROR_URL=off\n' >> findaline.env"
+    check = 'test "$(docker compose exec -T worker printenv FINDALINE_MIRROR_URL)" = off'
+    up = next(n for n, line in enumerate(commands) if line.startswith("docker compose up"))
+    assert copy in commands and append in commands and check in commands
+    assert commands.index(copy) < commands.index(append), "off is appended after the example is copied"
+    assert commands.index(append) < up < commands.index(check), "the worker is checked once the services are up"
     assert 'os.environ["FINDALINE_MIRROR_URL"] = "off"' in _read("tests", "conftest.py")
     assert 'os.environ["FINDALINE_MIRROR_URL"] = args.mirror_url or "off"' in _read("tests", "regression.py")
+
+
+def test_no_test_sets_the_data_server_empty():
+    """No test sets FINDALINE_MIRROR_URL to an empty string by monkeypatch.setenv, os.environ or an environment
+    mapping: on Windows that deletes the variable from the process's environment block, and a process started then
+    asks the default address, the real host (.claude/rules/providers.md: `off`). tests/test_mirror_client.py's
+    set_url("") cases test the empty value in the test's own process on purpose, and its fixture puts `off` back."""
+    name = r"""(?:["']FINDALINE_MIRROR_URL["']|MIRROR_URL_ENV)"""
+    empty = r"""(?:""|'')"""
+    patterns = [rf"setenv\(\s*{name}\s*,\s*{empty}\s*\)", rf"environ\[\s*{name}\s*\]\s*=\s*{empty}",
+                rf"{name}\s*:\s*{empty}", rf"FINDALINE_MIRROR_URL={empty}?\s*$"]
+    found = []
+    for folder, _, files in os.walk(os.path.join(ROOT, "tests")):
+        for file in files:
+            if file.endswith((".py", ".sh")) and file != "test_mirror_pairs.py":
+                text = _read(os.path.relpath(os.path.join(folder, file), ROOT))
+                for number, line in enumerate(text.splitlines(), 1):
+                    if any(re.search(pattern, line) for pattern in patterns):
+                        found.append(f"{file}:{number}: {line.strip()}")
+    assert not found, "set it to off, never empty: " + "; ".join(found)
 
 
 def test_ci_installs_the_rclone_the_tool_needs():
