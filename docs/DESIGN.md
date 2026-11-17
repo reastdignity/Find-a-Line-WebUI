@@ -329,7 +329,7 @@ mock-up.
 
 **Sources of the numbers** (the baseline of 2026-11-16), marked in brackets:
 - **[S]** the source counts of `tools/ui_metrics.py static` over `viewer/src` and `locales/en.json` (21 CSS files,
-  164 `.ts`/`.tsx` files; two runs on one tree gave the same output). The tool is on its branch, not yet in `main`.
+  164 `.ts`/`.tsx` files; two runs on one tree gave the same output). The tool is in `main`.
 - **[P]** the rendered pass of `tools/ui_metrics.py pages` (pass 2: the light theme, 251 states of
   `tools/ui_shots.py` on the desktop, iPhone 13 and Pixel 7 profiles; axe-core 4.14.1). Counts of what a browser
   draws, per state.
@@ -588,10 +588,17 @@ improvement rounds, not at once** (the pilot screen first).
 code (`tools/ui_metrics.py pages`) over every state of `tools/ui_shots.py`, both themes, on the desktop, iPhone 13
 and Pixel 7 profiles (84 states a phone and 79 on the desktop in the light theme: states a device or the sample run
 cannot show are left out, one state timed out). It marks the map's credits and scale as a zone of their own and
-keeps every control's size. [S], [W] and [O] as above. **How a rule is checked**: the command named under it (both
-tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` of its own; `--summarise --controls
-44,40,24 --text 12,11,10` cuts a kept log at other bounds without a new pass), or the design reviewer
-([design-review.md](design-review.md)) where no number exists.
+keeps every control's size. [S], [W] and [O] as above. **How a rule is checked**: the command named under it, or
+the design reviewer ([design-review.md](design-review.md)) where no number exists. Both tools run by hand, through
+the test lock (docs/workflow.md), each with an output folder of its own:
+- `uv run tools/ui_metrics.py static --out <folder>`
+- `uv run tools/ui_metrics.py pages --out <folder> --data-dir <folder> [--only <pages>] [--dark]`; on a kept log,
+  `uv run tools/ui_metrics.py pages --out <folder> --summarise --controls 44,40,24 --text 12,11,10` cuts at other
+  bounds without a new pass.
+- `uv run tools/ui_walks.py --out <folder> --data-dir <fresh folder> [--only F1,F2]`
+
+Under each rule, `ui_metrics.py static`, `ui_metrics.py pages` and `ui_walks.py` stand for these commands, with
+their `--out` and data folders.
 
 ### R1 The smallest text
 
@@ -609,14 +616,20 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   bottom bar 336, the profile chart's labels about 600, the "?" 140, the eyebrow lines 125, the size word 125. Inside
   the zone under 10 px: the scale (9.8 px; 561 characters on the iPhone); on the desktop also the credits (9.8 px;
   10 378 characters with the scale).
-- **Checked by**: `tools/ui_metrics.py pages`: text under 12 px outside the zone, and the zone's text under 10 px.
+- **Checked by**: `ui_metrics.py pages`: text under 12 px outside the zone; the zone's text under 10 px is "all
+  minus outside the zone" of its under-10 px column.
 - Not picked: b. 11 px with the same exception; c. 12 px with no exception; d. no rule.
 
 ### R2 The smallest control
 
 - **In force**: on touch screens no control is smaller than 44 px in either direction; on the desktop none is
-  smaller than 24 px. Links and buttons inside a sentence are exempt (as WCAG 2.5.8 exempts them). The user's picks:
-  "R2 a", "R2-desktop a".
+  smaller than 24 px. Links and buttons inside a sentence are exempt. The user's picks: "R2 a", "R2-desktop a".
+  This is wider than the option's words ("Links inside a sentence"), for three reasons: WCAG 2.5.8 exempts any
+  target inside a sentence; the measuring tool exempts a link or a button in a sentence; and the numbers the user
+  picked from already left those buttons out (30 on the iPhone and 18 on the desktop, beside 436 and 452 links).
+- **Open, the user's to say**: the coverage page's map areas and the highline layer's chart bars are drawn marks
+  that count as controls (2 106 of the iPhone's 3 508 controls under 44 px); whether R2 binds them is the user's to
+  say.
 - **Today** [B; light theme; links and buttons in a sentence left out; "the rest" leaves out the coverage page and
   the highline layer, where every map area and chart bar is a small control]:
 
@@ -630,19 +643,20 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
 | Result, a line selected | 79 | 50 | 33 | 19 |
 
   Desktop [B]: of 4 239 controls over 79 states, 1 349 under 24 px; the rest (60 states): 446 of 2 127.
-- **Checked by**: `tools/ui_metrics.py pages`: controls under 44 px on the two phone profiles, under 24 px on the
+- **Checked by**: `ui_metrics.py pages`: controls under 44 px on the two phone profiles, under 24 px on the
   desktop, links and buttons in a sentence apart.
 - Not picked: phones b. 40 px, c. 24 px; desktop b. no floor.
 
 ### R3 The contrast of text
 
-- **In force**: text and its background reach 4.5:1, large text (24 px, or 18.7 px bold) 3:1 (WCAG 2.2 AA), in both
-  themes, including secondary text, chart labels, placeholders and text over a picture. The user's pick: "R3 a".
+- **In force**: text and its background reach 4.5:1, large text 3:1 (WCAG 2.2 AA), in both themes, including
+  secondary text, chart labels and placeholders. The user's pick: "R3 a". Proposed details, not on the page the user
+  picked from: "large" read as 24 px, or 18.7 px bold (WCAG's definition), and text over a picture included.
 - **Today** [B, O]: axe-core's `color-contrast` fails on 99 states (964 elements; the light theme); it leaves text
   over the map or a picture undecided on 333 states (both themes). `--muted` is under 4.5:1 on all three light
   surfaces (4.1024, 4.4977, 3.8276); the profile chart's labels 2.2623 to 4.3692 (Colors, above); placeholders not
   measured.
-- **Checked by**: `tools/ui_metrics.py pages` (axe-core's `color-contrast` violations); text axe leaves undecided,
+- **Checked by**: `ui_metrics.py pages` (axe-core's `color-contrast` violations); text axe leaves undecided,
   in a drawing or on the map: the design reviewer, with the ratio computed from the colours.
 - Not picked: b. 7:1 for body text; c. AA plus a stricter bar outdoors later.
 
@@ -652,21 +666,23 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   length, measured per base map, and gets a casing (a dark or light edge) only on the base maps where it falls
   short. The user's pick: "R4-map c". It waits for its measurement, which waits for the choice of the 2D map's look
   (that choice changes what lies under the lines). Today: not measured; the map's line colours differ from the
-  legend's tokens (Components, above). Not picked: a. 3:1 without casings; b. a casing on every line.
+  legend's tokens (Components, above). Not picked: a. 3:1 without casings; b. a casing on every line; decide after
+  the measurement.
 - **R4.2, in force**: lines over trees are told apart from clear lines by colour only; the list is the alternative
   that does not rest on colour. The user's pick: "R4-trees b". This leaves WCAG 1.4.1 (use of colour) to the list:
-  the list and a line's details must say "over trees" in words. Today: by colour on the map. Checked by the design
+  the list must say "over trees" in words (a line's details too: a proposed detail). Today: by colour on the map.
+  Checked by the design
   reviewer. Not picked: a. a second cue on the map (a dash or a casing pattern).
 
 ### R5 A type scale
 
-- **In force**: font sizes come from a scale of seven steps, 12, 13, 14, 16, 20, 24 and 30 px; a value off the
-  scale needs a reason in a comment. The number of steps and the smallest step (R1) are the rule; the steps from
+- **In force**: font sizes come from a scale of seven steps, 12, 13, 14, 16, 20, 24 and 30 px (a proposed detail:
+  a value off the scale needs a reason in a comment). The number of steps and the smallest step (R1) are the rule; the steps from
   13 px up (text, headings) depend on the body font and may move on the pilot's mock-up. The user's pick: "R5 a".
 - **Today** [S]: 25 distinct px values over 183 declarations. Mapped to the nearest step (a tie goes up) [O], 109
   of 183 declarations change (103 up, 6 down): 8–11.5 → 12; 12.5 → 13; 13.5, 14.5 → 14; 15, 15.5, 17 → 16; 18,
   19 → 20; 22, 26 → 24; 32 → 30. Counts of CSS declarations, not of text drawn.
-- **Checked by**: `tools/ui_metrics.py static` (the font sizes in use).
+- **Checked by**: `ui_metrics.py static` (the font sizes in use).
 - Not picked: b. eight steps from 11 px; c. six steps (12, 13, 14, 16, 20, 30); d. five steps (12, 14, 16, 20, 30).
 
 ### R6 A radius scale
@@ -675,7 +691,7 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   of steps is the rule; the values belong to the look and may move on the pilot's mock-up. The user's pick: "R6 a".
 - **Today** [S]: 17 distinct lengths. Mapped to the nearest step [O], 60 of the 127 px declarations change: 1–5 →
   3; 6, 10 → 8; 11, 12, 15 → 14; 20 stays (the sheet); 999 px and 50 % stay as full and round, 0 as none.
-- **Checked by**: `tools/ui_metrics.py static` (the radii in use).
+- **Checked by**: `ui_metrics.py static` (the radii in use).
 - Not picked: b. 4, 8, 14 px; c. 6, 12 px.
 
 ### R7 A spacing scale
@@ -696,7 +712,8 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
 | 24 | 20 (16), 22 (3), 24 (17) |
 | 32 | 28 (1), 32 (1) |
 
-  The three uses above 32 px (34, 40, 64) are layout lengths, outside the scale.
+  The four uses above 32 px (34 twice, 40, 64): proposed, for the user to confirm, that they are layout lengths
+  outside the scale.
 - **Checked by**: the design reviewer reads the change's CSS; the measuring tool does not count spacing yet (the
   count above is this file's own).
 - Not picked: a. eleven steps (0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32; 125 uses change); b. nine steps (0, 2, 4, 6,
@@ -726,7 +743,7 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   21 arrow and mark characters shown in the code and 5 drawn by the CSS; `×` 20 times in the catalogue
   (multipliers). In the image sketches of 2026-11-16 all five directions turned the line's dense facts into
   labelled values, the shortest as a table with one column per anchor.
-- **Checked by**: `tools/ui_metrics.py static` (characters and dense strings); whether a `·` stands in a meta line:
+- **Checked by**: `ui_metrics.py static` (characters and dense strings); whether a `·` stands in a meta line:
   the design reviewer.
 - Not picked: a. no `·` at all; c. only the values follow the rule.
 
@@ -749,15 +766,17 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   notice 140, Home 37, the search's intro 183 (of its 425: the rest is scrolled out), the form 75, the form with the
   place set 75 (the same screen counted again). Without the beta notice and the intro: 245; within 400, the notice
   and the intro together keep at most about 155 visible words.
-- **Checked by**: `tools/ui_metrics.py static` (words per catalogue text); `tools/ui_walks.py --only F1` (the
-  flow's words).
+- **Checked by**: per text, `ui_metrics.py static` gives each group's median and longest and the 25 longest
+  texts, not the count over each limit: today the count is made from `locales/en.json` (each text's words split on
+  spaces, as [S] does, against its group's limit), a gap of the tool. For the flow, `ui_walks.py --only F1` (the
+  words over its screens).
 - Not picked: per text b. 30, 25, 20, 25 and c. help 60 only; for the flow b. 250 and c. no limit.
 
 ### R11 Controls on a first-timer's screens
 
 - **Picked, to be confirmed after the explanation, not yet in force**: a screen of the first-timer's way (sign-in,
-  the beta notice, Home on a first visit, the Basic form, the first result and a line's details on a phone) shows at
-  most 25 controls at once. The user's pick: "R11 b", with the note "R11 explain it more to me".
+  Home on a first visit, the Basic form, the first result and a line's details on a phone; the beta notice too, a
+  proposed detail) shows at most 25 controls at once. The user's pick: "R11 b", with the note "R11 explain it more to me".
 - **The measure**: [W]'s count, the visible, enabled controls of the surface in view (not [B]'s, which counts the
   whole page: 35 for the Basic form where [W] sees 20 to 22).
 - **Today** [W]: F1 (sign-in to Start): 8, 4, 6, 3, 20, 22. F2 (the first result): Home 13, the intro 2, the result
@@ -765,7 +784,7 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   its list is three controls today).
 - **Where the rigger's depth goes instead**: the Advanced tab and "More settings", the desktop's side panels and
   their columns, sorting and filters one step away, the keyboard.
-- **Checked by**: `tools/ui_walks.py --only F1,F2` (the most controls on a screen).
+- **Checked by**: `ui_walks.py --only F1,F2` (the most controls on a screen).
 - Not picked: a. 20; c. no number, decision points per walk instead.
 
 ### R12 What a UI change shows before `main`
@@ -775,6 +794,8 @@ tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` o
   walks it touches (`tools/ui_walks.py`), and the screenshots (desktop and both phones, light and dark). A design
   reviewer reads them with PRODUCT.md and this file and gives a verdict: [design-review.md](design-review.md). The
   user's pick: "R12 a".
+- **Checked by**: the reviewers' steps of docs/agent-workflow.md, section 4 (the scope, code and design reviewers
+  before the session's review and the user's word).
 - Not picked: b. screenshots and the design reviewer only; c. a, plus a check that fails on a number that got worse.
 
 ### Waiting for the pilot's mock-up
