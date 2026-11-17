@@ -372,6 +372,9 @@ def english_in_code(code: str) -> list:
     return [f for f in found if re.search(r"[A-Za-z]{2,}", f)]
 
 
+# A literal of a line of code: a quoted string, a template on one line, or a run of JSX text (after ">" or "}",
+# before "<" or "{")
+LITERAL = re.compile(r""""[^"\n]*"|'[^'\n]*'|`[^`\n]*`|(?<=[>}])[^<>{}"'`\n]*[^<>{}"'`\s][^<>{}"'`\n]*(?=[<{])""")
 NOT_SHOWN = re.compile(r"""(?:\baria-label|\btitle)\s*[=:]\s*(?:"[^"\n]*"|'[^'\n]*'|`[^`\n]*`|\{(?:[^{}\n]|\{[^{}\n]*\})*\})"""
                        r"""|setAttribute\(\s*["'](?:aria-label|title)["']\s*,[^)\n]*\)""")
 
@@ -452,14 +455,15 @@ def static(root: str = REPO, chars: str = ICON_CHARS, radius_min: float = 8, wit
             hidden = set()  # the positions inside an aria-label or a title: never shown
             for m in NOT_SHOWN.finditer(line):
                 hidden.update(range(m.start(), m.end()))
-            found = []
             for at, c in enumerate(line):
                 if c in chars:
                     (not_shown if at in hidden else in_code).append({"file": name, "line": number, "char": c})
-                    if at not in hidden:
-                        found.append(c)
-            if len(found) >= 2 or JOINT in found:
-                dense.append({"where": f"{name}:{number}", "text": line.strip()[:160]})
+            # dense strings: per literal (a quoted string, a template on one line, a run of JSX text), never two
+            # literals of a line taken together; characters not shown left out
+            for m in LITERAL.finditer(line):
+                found = [c for at, c in enumerate(m.group(), m.start()) if c in chars and at not in hidden]
+                if len(found) >= 2 or JOINT in found:
+                    dense.append({"where": f"{name}:{number}", "text": m.group().strip()[:160]})
     catalogue = json.loads(_read(os.path.join(root, CATALOGUE)))
     in_catalogue = []
     for key, value in catalogue.items():

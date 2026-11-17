@@ -153,6 +153,22 @@ def test_set_attribute_is_not_shown(tmp_path):
     assert [(x["line"], x["char"]) for x in r["chars_in_code"]] == [(3, "×")]
 
 
+def test_dense_strings_per_literal(tmp_path):
+    """A dense string is one literal (a quoted string, a template, a run of JSX text) with two characters or more or a
+    joint: two literals of one line with one character each are not one dense string."""
+    (tmp_path / "viewer" / "src" / "ui").mkdir(parents=True)
+    (tmp_path / "locales").mkdir()
+    (tmp_path / "viewer" / "src" / "ui" / "tokens.css").write_text("", encoding="utf-8")
+    (tmp_path / "locales" / "en.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "viewer" / "src" / "d.tsx").write_text(
+        'const a = up ? "↓" : "↑";\nconst b = "↑ ↓";\nexport const C = () => <p>{n} · {m}</p>;\n'
+        'const s = `${x} · ${y}`;\n', encoding="utf-8")
+    r = ui_metrics.static(str(tmp_path))
+    assert [(d["where"], d["text"]) for d in r["dense_strings"]] == [
+        ("viewer/src/d.tsx:2", '"↑ ↓"'), ("viewer/src/d.tsx:3", "·"), ("viewer/src/d.tsx:4", "`${x} · ${y}`")]
+    assert len(r["chars_in_code"]) == 6
+
+
 def test_static_is_deterministic(tree, tmp_path_factory):
     """The same tree gives the same JSON and Markdown."""
     first, second = tmp_path_factory.mktemp("a"), tmp_path_factory.mktemp("b")
