@@ -132,7 +132,9 @@ export function keepFocus(...selectors: (string | null | undefined)[]) {
     if (at && at !== document.body && at.isConnected) return;
     for (const selector of selectors) {
       const to = selector ? document.querySelector<HTMLElement>(selector) : null;
-      if (to && !(to as HTMLButtonElement).disabled) { to.focus({preventScroll: true}); return; }
+      if (!to || (to as HTMLButtonElement).disabled) continue;
+      to.focus({preventScroll: true});
+      if (document.activeElement === to) return;  // not one that cannot take it (inert: a phone's low sheet's body)
     }
     if (tries > 0) requestAnimationFrame(() => go(tries - 1));
   };
