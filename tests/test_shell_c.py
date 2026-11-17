@@ -1270,12 +1270,10 @@ def test_shell_c_layout(data, tmp_path):
     under, gap = closed.pop("under")
     assert closed == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
                       "corners": {"attribution": "", "scale": closed["corners"]["scale"]}}, r
-    # the card gone, the corners in Leaflet's places; where the credits wrap under the scale's corner, the scale
-    # right above them (report defect 7), else in its place
-    if under:
-        assert closed["corners"]["scale"].endswith("px") and 0 <= gap <= 10, r
-    else:
-        assert closed["corners"]["scale"] == "", r
+    # the card gone, the corners in Leaflet's places; the credits wrap under the scale's corner: the scale right
+    # above them (report defect 7)
+    assert under, r  # in this layout the unfolded credits run under the scale's corner
+    assert closed["corners"]["scale"].endswith("px") and 0 <= gap <= 10, r
     assert r["reopened"] == {"card": True, "credits": {"toggle": True, "credits": False}}, r
     # Found again after the reload
     kept = r["beforeReload"]
@@ -1614,21 +1612,24 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
 # The result's "Length" editor open with a long value typed: the boxes of its × and of the first row's number and unit
 EDITOR_JS = """() => {
   const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
-  const x = document.querySelector('.r-editor .r-editor-x');
-  const parts = [...document.querySelectorAll('.r-editor > .r-limit:first-child .r-limit-val > *')];
-  return {x: box(x), parts: parts.map((e) => [e.className || e.tagName, box(e)])};
+  return {x: box(document.querySelector('.r-editor .r-editor-x')),
+          rows: [...document.querySelectorAll('.r-editor > .r-limit')].map((row) =>
+            [box(row.querySelector('.r-num')), box(row.querySelector('.r-limit-val > .u-small'))])};
 }"""
-# The result map's scale and credits: their boxes, and whether the scale is clear of the credits
+# The result map's scale and credits: their boxes, and whether the credits run under the scale's corner
 CORNERS_JS = """() => { const m = document.querySelector('.leaflet-container'), box = (s) => {
   const r = m.querySelector(s).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
-  return {scale: box('.leaflet-control-scale'), attribution: box('.leaflet-control-attribution')}; }"""
-CORNERS_CLEAR = """() => { const m = document.querySelector('.leaflet-container');
-  const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
-    a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect();
-  return /FABDEM/.test(m.querySelector('.leaflet-control-attribution').textContent)
-    && (s.bottom <= a.top || s.right <= a.left || s.top >= a.bottom); }"""
+  const scale = box('.leaflet-control-scale'), attribution = box('.leaflet-control-attribution');
+  return {scale, attribution, under: attribution[0] < scale[2] && scale[0] < attribution[2]}; }"""
+# Settled: the source's credits shown, and the scale right above them where they run under it, else clear of them
+CORNERS_SETTLED = """() => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution'), s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    c = a.getBoundingClientRect(), under = c.left < s.right && s.left < c.right;
+  return /FABDEM/.test(a.textContent) && (under ? c.top - s.bottom >= 0 && c.top - s.bottom <= 10
+                                                : s.bottom <= c.top || s.top >= c.bottom); }"""
 SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
   document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
+ZOOM_JS = "(by) => window.FINDALINE_MAP.setZoom(window.FINDALINE_MAP.getZoom() + by, {animate: false})"
 
 
 def _playwright() -> bool:
@@ -1636,47 +1637,79 @@ def _playwright() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
+def _corners(page, wait: int = 30000) -> dict:
+    """The corners once settled (the observers' frame after a change)."""
+    page.wait_for_function(CORNERS_SETTLED, timeout=wait)
+    return page.evaluate(CORNERS_JS)
+
+
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
-    """The result in Playwright's Edge on a desktop and on a phone (touch: the editor's larger ×) (report defects 5,
-    7 and 13): the map's scale clear of its credits, which wrap under its corner on both (the desktop's map column
-    is narrow); the "Length" editor's × never lies on the first row's number or unit, also with a long value typed;
-    the list's sorted column says its order in its name (", sorted largest first"), with no aria-sort, which a
-    button may not carry."""
+    """The result in Playwright's Edge with a source's credits, which wrap under the scale's corner (report defects 5,
+    7 and 13): the scale right above the credits on a desktop (the map column is narrow), after a zoom out and in
+    (the scale's width changes), on a phone with the sheet at full height (the corners in Leaflet's places), and on a
+    narrow window widened to a desktop (the sheet's corners undone, the card's taken over); the "Length" editor's ×
+    on neither row's number or unit, the two rows' fields in one column (desktop, and a touch phone with its larger
+    ×); the sorted column says its order in its name, largest first and after a click smallest first, with no
+    aria-sort, which a button may not carry."""
     from playwright.sync_api import sync_playwright
     add_credits(data, SMALL)  # a source's credits: the credits wrap
     page_path = stub_page(data, "cplay")
     from test_web import DESKTOP, PHONE
     r = {}
     with _server(data) as port, sync_playwright() as p:
+        url = f"http://127.0.0.1:{port}/{page_path}#run={SMALL}"
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
                 page = browser.new_page(**context)
-                page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}")
+                page.goto(url)
                 page.wait_for_selector(".r-filters", timeout=30000)
-                page.wait_for_function(CORNERS_CLEAR, timeout=30000)  # the observers' frame after the credits came
-                r[f"{kind}_corners"] = page.evaluate(CORNERS_JS)
+                if kind == "phone":  # the sheet at full height: the corners back in Leaflet's places
+                    page.focus(".u-sheet-handle")
+                    page.keyboard.press("ArrowUp")  # half (its start) to full
+                    page.wait_for_selector(".u-sheet.u-full", timeout=30000)
+                r[f"{kind}_corners"] = _corners(page)
+                if kind == "desktop":
+                    for name, by in (("out", -3), ("in", 3)):
+                        page.evaluate(ZOOM_JS, by)
+                        r[f"zoom_{name}"] = _corners(page)
                 page.locator(".r-filters button", has_text="Length").first.click()
                 page.wait_for_selector(".r-editor .r-editor-x", timeout=30000)
-                r[f"{kind}_short"] = page.evaluate(EDITOR_JS)
-                page.locator(".r-editor > .r-limit:first-child .r-num").fill("1234.5")
-                r[f"{kind}_long"] = page.evaluate(EDITOR_JS)
+                r[f"{kind}_editor"] = page.evaluate(EDITOR_JS)
                 r[f"{kind}_sorted"] = page.evaluate(SORTED_JS)
+                if kind == "desktop":
+                    page.click(".r-dir")
+                    page.wait_for_function("() => document.querySelector('.r-col.r-on')?.textContent.includes('smallest')",
+                                           timeout=30000)
+                    r["ascending"] = page.evaluate(SORTED_JS)
                 page.close()
+            # a narrow window (the phone layout with its sheet) widened to a desktop's
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(url)
+            page.wait_for_selector(".u-sheet", timeout=30000)
+            r["narrow"] = _corners(page)
+            page.set_viewport_size({"width": 1280, "height": 900})
+            page.wait_for_selector(".u-sheet", state="detached", timeout=30000)
+            r["widened"] = _corners(page)
+            page.close()
         finally:
             browser.close()
 
     def meet(a, b):
         return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
     for kind in ("desktop", "phone"):
-        for value in ("short", "long"):
-            found = r[f"{kind}_{value}"]
-            assert len(found["parts"]) == 2, found  # the number and the unit
-            assert not any(meet(found["x"], b) for _, b in found["parts"]), (kind, value, found)
-        scale, attribution = r[f"{kind}_corners"]["scale"], r[f"{kind}_corners"]["attribution"]
-        assert attribution[0] < scale[2] and 0 <= attribution[1] - scale[3] <= 10, (kind, r[f"{kind}_corners"])
+        editor = r[f"{kind}_editor"]
+        assert len(editor["rows"]) == 2, editor  # Length from, Length to
+        assert not any(meet(editor["x"], b) for row in editor["rows"] for b in row), (kind, editor)
+        (num1, unit1), (num2, unit2) = editor["rows"]
+        assert (num1[0], num1[2], unit1[2]) == (num2[0], num2[2], unit2[2]), (kind, editor)  # one column
         count, name, sort = r[f"{kind}_sorted"]
         assert count == 0 and sort == "hmean", r
         assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
-    assert r["phone_short"]["x"][2] - r["phone_short"]["x"][0] == 40, r  # a touch screen's ×
+    assert r["phone_editor"]["x"][2] - r["phone_editor"]["x"][0] == 40, r  # a touch screen's ×
+    assert r["ascending"][0] == 0 and r["ascending"][1].endswith(", sorted smallest first"), r
+    # the credits run under the scale's corner in every one of these layouts: the scale right above them
+    for name in ("desktop_corners", "zoom_out", "zoom_in", "phone_corners", "narrow", "widened"):
+        found = r[name]
+        assert found["under"] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, (name, found)
