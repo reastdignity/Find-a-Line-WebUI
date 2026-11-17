@@ -1272,6 +1272,7 @@ def test_removing_searches(run_people, tmp_path):
     cancelled, failed, saved = (jobs.add(request, name, ids["a"]) for name in ("Cancelled", "Failed", "Saved"))
     assert a.delete(f"/api/jobs/{cancelled}").status_code == 200
     jobs.set(failed, "failed", error="x")
+    jobs.set_area(saved, 2.5, "pl")
     jobs.set(saved, "done", run_id=RUN_A)
     limits = Limits(jobs_day_max=3)
     used = jobs.usage(ids["a"], limits)["usage"]["jobs_day"]
@@ -1306,6 +1307,10 @@ def test_removing_searches(run_people, tmp_path):
     assert ids_of(admin)[saved]["run_gone"] and ids_of(admin)[saved]["removed_at"]  # marked with the time
     assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"]
     assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
+    # and toward the area searched (the privacy page's words): the user's totals and everyone's
+    area = a.get("/api/usage").json()["area"]
+    assert (area["total_km2"], area["searches"], [km2 for _, km2 in area["recent"]]) == (2.5, 1, [2.5]), area
+    assert jobs.area_of_everyone() == (2.5, 1)
 
 
 def test_listed_jobs_say_whose(public, people, tmp_path):
