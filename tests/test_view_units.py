@@ -788,7 +788,8 @@ const fav = build({favourites: true, api: {...api, loadFavourites: async () => [
 out.before = {shown: fav.view.shownOf(spot), version: fav.view.version};
 let told = 0;
 fav.view.subscribe(() => told++);
-await new Promise((resolve) => setTimeout(resolve, 20));
+// the favourites are read: the model says so, and the view was told (asked after every turn, 1 000 at most)
+for (let k = 0; k < 1000 && !(fav.model.favouritesOn && told); k++) await new Promise((resolve) => setImmediate(resolve));
 out.after = {shown: fav.view.shownOf(spot), on: fav.model.favouritesOn, told, version: fav.view.version, order: list(fav.view.order)};
 fav.model.setFilters({...m.NO_FILTERS, favOnly: true});
 out.only = {counts: fav.view.counts, order: list(fav.view.order)};
@@ -811,6 +812,222 @@ done();
     assert found["after"]["order"] == sorted(range(run.spots), key=key)
     assert found["only"] == {"counts": {"spots": 1, "lines": 1, "hidden": run.n - 1, "topHidden": 1, "total": run.n},
                              "order": [spot]}
+
+
+def _made_of(lines: list, sectors: int = 1) -> dict:
+    """A made-up run of a few given lines (dicts: x1, y1, x2, y2 in metres from the run's corner, clr, hmean, hmax,
+    spot: its group; optional top): rows of data.js and the view's columns by mapping.view_columns' rule (the spots
+    numbered by their first line's mean height, one sector), without the access mark."""
+    from pyproj import Transformer
+    to_wgs = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    n = len(lines)
+    x1, y1 = np.array([X0 + l["x1"] for l in lines]), np.array([Y0 + l["y1"] for l in lines])
+    x2, y2 = np.array([X0 + l["x2"] for l in lines]), np.array([Y0 + l["y2"] for l in lines])
+    lon1, lat1 = (np.round(v, 7) for v in to_wgs.transform(x1, y1))
+    lon2, lat2 = (np.round(v, 7) for v in to_wgs.transform(x2, y2))
+    length = np.hypot(x2 - x1, y2 - y1)
+    inside = sorted(range(n), key=lambda i: (lines[i]["spot"], -lines[i]["hmean"], -lines[i]["clr"], -length[i], i))
+    first = {}
+    for i in inside:
+        first.setdefault(lines[i]["spot"], i)
+    numbered = sorted(first, key=lambda g: (-lines[first[g]]["hmean"], g))
+    spot_of = {g: s for s, g in enumerate(numbered)}
+    spot = [spot_of[l["spot"]] for l in lines]
+    rows = [[float(lat1[i]), float(lon1[i]), float(lat2[i]), float(lon2[i]), float(x1[i]), float(y1[i]), float(x2[i]), float(y2[i]),
+             float(length[i]), float(lines[i]["clr"]), None, 1000.0, 1000.0, False, 0, 0, float(lines[i]["hmax"]), float(lines[i]["hmean"]),
+             50.0, 10.0, 10.0, None, None, None, None] for i in range(n)]
+    head = {"run": {"id": "few", "name": "Few", "created": "2026-11-17T10:00:00+00:00", "description": ""},
+            "center": [float(lat1.mean()), float(lon1.mean())], "area": {"type": "Polygon", "coordinates": []}, "crs": CRS,
+            "ortho": None, "distance": 20, "by": "clearance", "model": "sag",
+            "rigging": {"pretension": 2.0, "stretch": 5.0, "webbing_weight": 60.0, "athlete_mass": 75.0, "fall_zone": 6.0},
+            "slope": 0.15, "leash_fall": 6, "high_above": 20, "max_zoom": 21,
+            "sectors": [{"word": "centre", "spots": len(numbered)}],
+            "box": [float(min(x1.min(), x2.min())), float(min(y1.min(), y2.min())), float(max(x1.max(), x2.max())), float(max(y1.max(), y2.max()))],
+            "lengths": [float(length.min()), float(length.max())]}
+    return {"rows": rows, "head": head, "view": {"spot": spot, "top": [l.get("top", 1) for l in lines],
+                                                 "by_spot": sorted(inside, key=lambda i: spot[i])}}
+
+
+def test_picks_apart_and_the_limits_boundary(tmp_path, bundle, made_path):
+    """"Start here": a pick in the spot of an earlier pick is left out (also 150 m from it), and one whose middle
+    lies 99 m from an earlier pick's; at exactly 100 m it stays. The Lines level draws 5 000 thin lines and refuses
+    5 001."""
+    def few(apart: float) -> dict:
+        lines = [
+            {"spot": 0, "x1": 480, "y1": 500, "x2": 520, "y2": 500, "clr": 2, "hmean": 60, "hmax": 70},    # highest on average
+            {"spot": 0, "x1": 350, "y1": 650, "x2": 650, "y2": 650, "clr": 5, "hmean": 20, "hmax": 30},    # longest with 3 m clear
+            {"spot": 1, "x1": 500 + apart, "y1": 475, "x2": 500 + apart, "y2": 525, "clr": 1, "hmean": 30, "hmax": 90},  # highest point
+            *({"spot": 2, "x1": 1500 + 3 * k, "y1": 1500, "x2": 1500 + 3 * k, "y2": 1560, "clr": 4, "hmean": 10 + k, "hmax": 15}
+              for k in range(3))]                                                                              # most lines
+        return _made_of(lines)
+    # 5 001 lines side by side, the first of them not top level: 5 000 pass with "Top level only", 5 001 without
+    many = _made_of([{"spot": k // 100, "x1": 100 + 0.2 * k, "y1": 100 + (k % 7), "x2": 100 + 0.2 * k, "y2": 160, "clr": 3 + (k % 5),
+                      "hmean": 20 + (k % 11), "hmax": 40, "top": 0 if k == 0 else 1} for k in range(LIMIT + 1)])
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"near": few(99), "at": few(100), "many": many}), encoding="utf-8")
+    found = node(tmp_path, bundle, made_path, r"""
+const cases = JSON.parse(fs.readFileSync(%s, "utf-8"));
+const picks = (name) => build({}, cases[name]).view.picks().map((p) => [p.kind, p.row, p.n]);
+out.near = picks("near"); out.at = picks("at");
+const {view} = build({}, cases.many), b = cases.many.head.box;
+view.setLevel("lines"); view.setBest("all");
+view.setView(box([b[0] - 50, b[1] - 50, b[2] + 50, b[3] + 50]), 0.3);
+const seen = () => ({strokes: view.inView.strokes, refused: view.inView.refused, thin: view.inView.thin && view.inView.thin.length, lines: view.counts.lines});
+out.five = seen();
+view.setTopOnly(false);
+out.more = seen();
+done();
+""" % json.dumps(str(cases)))
+    # rows: 0 the highest on average, 1 the longest with 3 m clear (its spot), 2 the highest point, 3-5 the spot of most lines
+    assert found["near"] == [["mean", 0, 1], ["most", 5, 2]]
+    assert found["at"] == [["mean", 0, 1], ["high", 2, 2], ["most", 5, 3]]
+    assert found["five"] == {"strokes": LIMIT, "refused": 0, "thin": LIMIT, "lines": LIMIT}
+    assert found["more"] == {"strokes": LIMIT + 1, "refused": LIMIT + 1, "thin": None, "lines": LIMIT + 1}
+
+
+def test_a_view_off_the_run_and_a_malformed_head(tmp_path, bundle, made_path, run):
+    """A view without an area (the map panned off the run: every corner clamped to one place) holds nothing: no
+    segment crosses it, no spot is in view, nothing carries a number, no line is asked. A store whose head disagrees
+    with its columns (the box, a sector's entry, the lengths) is refused by the gate with its reason, never thrown.
+    The squares count a line whose first anchor lies outside the head's box."""
+    ok, _ = run.passing()
+    half = [run.box[0] + (run.box[2] - run.box[0]) / 2, run.box[1], run.box[2], run.box[3]]  # the box's east half
+    found = node(tmp_path, bundle, made_path, r"""
+const point = [[9, 9], [9, 9], [9, 9], [9, 9]], line = [[0, 0], [10, 0], [10, 0], [0, 0]];
+out.crosses = [m.crosses(0, 0, 1, 1, point), m.crosses(9, 9, 9, 9, point), m.crosses(0, 0, 10, 0, line), m.crosses(-5, -5, 20, 20, line),
+               m.quadArea(point), m.quadArea(line), m.quadArea([[0, 10], [10, 10], [10, 0], [0, 0]]), m.QUAD_MIN];
+const {view, model} = build(), b = made.head.box, corner = [b[2] + 262, b[3] + 262];
+let told = 0;
+view.subscribe(() => told++);
+const seen = () => { const v = view.inView; return {m: v.m, spots: v.spots.length, best: v.best.length, numbered: v.numbered, strokes: v.strokes,
+  refused: v.refused, thin: v.thin, numbers: all(view).filter((s) => view.numberOf(s)).length, level: view.level}; };
+view.setView(box(b), 1);
+out.on = seen().m;
+view.setView([corner, corner, corner, corner], 1);
+out.off = seen();
+view.setLevel("lines"); view.setBest("all");
+out.offAll = seen();
+view.setView([[b[2] + 262, b[1]], [b[2] + 262, b[1]], [b[2] + 262, b[3]], [b[2] + 262, b[3]]], 0.3);  // off to the east: a line of a view
+out.offEast = seen();
+view.setView(box(b), 1);
+out.back = seen().m;
+const said = (change) => { const d = dataOf(); change(d); try { const r = m.viewOf(d); return typeof r === "string" ? r : "ok"; } catch (e) { return "THROWN " + e.message; } };
+out.gate = {
+  ok: said(() => {}),
+  boxShort: said((d) => { d.box = [1, 2, 3]; }), boxText: said((d) => { d.box = [0, 0, "9", 9]; }), boxNaN: said((d) => { d.box = [NaN, 0, 1e7, 1e7]; }),
+  boxNull: said((d) => { d.box = null; }), boxNarrow: said((d) => { d.box = [d.box[0] + 50, d.box[1], d.box[2], d.box[3]]; }),
+  boxLow: said((d) => { d.box = [d.box[0], d.box[1] + 50, d.box[2], d.box[3]]; }), boxRight: said((d) => { d.box = [d.box[0], d.box[1], d.box[2] - 50, d.box[3]]; }),
+  boxTop: said((d) => { d.box = [d.box[0], d.box[1], d.box[2], d.box[3] - 50]; }),
+  sectorNull: said((d) => { d.sectors = [null]; }), sectorWord: said((d) => { d.sectors = [{word: 5, spots: 151}]; }),
+  sectorCount: said((d) => { d.sectors = [{word: "north", spots: "151"}]; }), sectorZero: said((d) => { d.sectors = [{word: "north", spots: 151}, {word: "south", spots: 0}]; }),
+  lengthsShort: said((d) => { d.lengths = [5]; }), lengthsText: said((d) => { d.lengths = ["a", 2]; }), lengthsTurned: said((d) => { d.lengths = [9, 2]; }),
+  lengthsNull: said((d) => { d.lengths = null; }),
+};
+// the squares with a box narrower than the anchors (the model is built, then its head's box replaced): a line whose
+// first anchor lies outside still counts in its second anchor's square
+const narrow = build();
+narrow.model.data.box = %s;
+const g = m.squareValues(narrow.view, 50, "lines");
+out.narrow = {x0: g.x0, y0: g.y0, nx: g.nx, cells: list(g.cells), values: list(g.values)};
+done();
+""" % json.dumps(half))
+    assert found["crosses"] == [False, False, False, False, 0, 0, 100, 1]
+    assert found["on"] == len(run.order(ok))
+    nothing = {"m": 0, "spots": 0, "best": 0, "numbered": False, "strokes": 0, "refused": 0, "thin": None, "numbers": 0}
+    assert found["off"] == {**nothing, "level": "spots"} and found["offAll"] == {**nothing, "level": "lines"}
+    assert found["offEast"] == {**nothing, "level": "lines"} and found["back"] == found["on"]
+    gate = found["gate"]
+    assert gate["ok"] == "ok" and not any(text.startswith("THROWN") for text in gate.values()), gate
+    for name in ("boxShort", "boxText", "boxNaN", "boxNull"):
+        assert "box is not four numbers" in gate[name], name
+    for name in ("boxNarrow", "boxLow", "boxRight", "boxTop"):
+        assert "box does not hold every anchor" in gate[name], name
+    for name in ("sectorNull", "sectorWord", "sectorCount", "sectorZero"):
+        assert "sectors" in gate[name], name
+    for name in ("lengthsShort", "lengthsText", "lengthsTurned", "lengthsNull"):
+        assert "lengths" in gate[name], name
+    # every anchor inside the narrow box counts its line in its square, once per square
+    side, ix0, iy0 = 50, math.floor(half[0] / 50), math.floor(half[1] / 50)
+    want = {}
+    for i in np.flatnonzero(ok):
+        cells = {(math.floor(x / side), math.floor(y / side)) for x, y in ((run.x1[i], run.y1[i]), (run.x2[i], run.y2[i]))
+                 if 0 <= math.floor(x / side) - ix0 < found["narrow"]["nx"]}
+        for cell in cells:
+            want[cell] = want.get(cell, 0) + 1
+    keys = sorted(want, key=lambda c: (c[1] - iy0) * found["narrow"]["nx"] + (c[0] - ix0))
+    assert found["narrow"]["cells"] == [(c[1] - iy0) * found["narrow"]["nx"] + (c[0] - ix0) for c in keys]
+    assert found["narrow"]["values"] == [want[c] for c in keys]
+    assert (found["narrow"]["x0"], found["narrow"]["y0"]) == (ix0 * side, iy0 * side)
+    # some line's first anchor lies outside the narrow box and its second inside
+    assert any(math.floor(run.x1[i] / side) < ix0 <= math.floor(run.x2[i] / side) for i in np.flatnonzero(ok))
+
+
+def test_the_fan_follows_the_maps_numbers(tmp_path, bundle, made_path, run):
+    """An open fan is derived again when the numbers on the map change: a line that loses its B number becomes an L
+    row in its place by the sort (no L row above a numbered one), one that gains it comes first; the person's sort
+    of the fan is kept; the Fan stays one object. With "Favourites only" on, a favourite taken away closes the fan."""
+    ok, _ = run.passing()
+    shown, order = run.shown(ok), run.order(ok)
+    star = int(run.spot[0])
+    row = shown[star]
+    near_box = [X0 + SIDE / 2 - 40, Y0 + SIDE / 2 - 40, X0 + SIDE / 2 + 40, Y0 + SIDE / 2 + 40]
+    found = node(tmp_path, bundle, made_path, r"""
+(async () => {
+const [star, row, nearBox] = %s;
+const {view} = build();
+const at = {lat: made.rows[row][0], lng: made.rows[row][1]};
+const fan = () => ({sort: view.fan.sort, rows: view.fan.rows.map((r) => [r.row, r.label, r.numbered])});
+view.setLevel("spots");
+view.setView(box(nearBox), 1);
+view.openFan(at, {row, end: 1});
+const first = view.fan;
+out.numbered = fan();
+view.setBest("all");                       // no number on the map any more
+out.plain = {...fan(), same: view.fan === first};
+view.sortFan("len");
+view.setBest(10);                          // the numbers are back: the person's sort stays
+out.sorted = {...fan(), same: view.fan === first};
+view.setBest("all");
+out.sortedPlain = fan();
+// "Favourites only": the favourites are the passing lines; one taken away closes the fan
+const key = (r) => [r[0], r[1], r[2], r[3]].join(",");
+const lines = list(build().view.passingOf(star)).slice(0, 3);
+const fav = build({favourites: true, api: {...api, loadFavourites: async () => lines.map((r) => key(made.rows[r]))}});
+for (let k = 0; k < 1000 && !fav.model.favouritesOn; k++) await new Promise((resolve) => setImmediate(resolve));
+fav.model.setFilters({...m.NO_FILTERS, favOnly: true});
+fav.view.openFan(at, {row: lines[0], end: 1});
+out.fav = {open: !!fav.view.fan, lines: fav.view.fan && fav.view.fan.lines, passing: fav.view.counts.lines};
+await fav.model.toggleFavourite(fav.model.lineAt(lines[1]));
+out.favGone = {open: !!fav.view.fan, passing: fav.view.counts.lines};
+// without the filter a favourite's change keeps the fan
+const kept = build({favourites: true, api: {...api, loadFavourites: async () => lines.map((r) => key(made.rows[r]))}});
+for (let k = 0; k < 1000 && !kept.model.favouritesOn; k++) await new Promise((resolve) => setImmediate(resolve));
+kept.view.openFan(at, {row: lines[0], end: 1});
+await kept.model.toggleFavourite(kept.model.lineAt(lines[1]));
+out.kept = !!kept.view.fan;
+done();
+})();
+""" % json.dumps([star, row, near_box]))
+    numbered = found["numbered"]["rows"]
+    assert numbered[0][0] == row and numbered[0][1].startswith("B") and numbered[0][2] is True
+    assert [r[1] for r in numbered[1:]] == [f"L{k + 1}" for k in range(len(numbered) - 1)]
+    # without numbers: every row an L row, by mean height; the line that was B stands where its mean height puts it
+    plain = found["plain"]
+    assert plain["same"] is True and all(not r[2] for r in plain["rows"])
+    assert [r[1] for r in plain["rows"]] == [f"L{k + 1}" for k in range(len(plain["rows"]))]
+    means = [Run._down(run.hmean[r[0]]) for r in plain["rows"]]
+    assert means == sorted(means)
+    want = run.fan(ok, float(run.x1[row]), float(run.y1[row]), {})
+    assert [r[0] for r in plain["rows"]] == [g["row"] for g in want["rows"]]
+    # numbered again, the person's sort (by length) kept: the numbered row first, the others by length
+    by_length = found["sorted"]
+    assert by_length["same"] is True and by_length["sort"] == "len" and by_length["rows"][0][0] == row and by_length["rows"][0][2] is True
+    rest = [run.len[r[0]] for r in by_length["rows"] if not r[2]]
+    assert rest == sorted(rest, reverse=True) and [r[1] for r in by_length["rows"] if not r[2]] == [f"L{k + 1}" for k in range(len(rest))]
+    every = [run.len[r[0]] for r in found["sortedPlain"]["rows"]]
+    assert every == sorted(every, reverse=True) and found["sortedPlain"]["sort"] == "len"
+    assert found["fav"] == {"open": True, "lines": 3, "passing": 3}
+    assert found["favGone"] == {"open": False, "passing": 2} and found["kept"] is True
 
 
 FIT_MAX = 0.5
@@ -973,7 +1190,9 @@ def test_gate(tmp_path, bundle, made_path, run):
     rng = np.random.default_rng(22)
     rows, lon, lat, x, y = _anchored("EPSG:32634", 20.0, 49.2, _area(20.0, 49.2, 15, rng, lines=6))
     few = {"rows": rows, "view": {"spot": [0] * 6, "top": [1] * 6, "by_spot": list(range(6))},
-           "head": {**run.made()["head"], "sectors": [{"word": "centre", "spots": 1}], "ends": []}}
+           "head": {**run.made()["head"], "sectors": [{"word": "centre", "spots": 1}], "ends": [],
+                    "box": [min(min(r[4], r[6]) for r in rows), min(min(r[5], r[7]) for r in rows),
+                            max(max(r[4], r[6]) for r in rows), max(max(r[5], r[7]) for r in rows)]}}
     few_path = tmp_path / "few.json"
     few_path.write_text(json.dumps(few), encoding="utf-8")
     found = node(tmp_path, bundle, made_path, r"""
@@ -1160,7 +1379,8 @@ def test_frame_in_edge(tmp_path, run):
     # Lines held far out, Best 10: the ten bold lines, their lines not beaten thin, every other spot pale
     drawn = held["drawn"]
     legend(drawn)
-    assert drawn["strokes"] == held["m"] + drawn["thin"] and drawn["thin"] > 10 and held["m"] == spots
+    # (each line counted once: a best spot's shown line is one of its lines not beaten, drawn thin and bold)
+    assert drawn["strokes"] == held["m"] - 10 + drawn["thin"] and drawn["thin"] > 10 and held["m"] == spots
     assert {"B", "pale"} <= set(drawn["shapes"]) and set(drawn["numbers"]) <= {f"B{k}" for k in range(1, 11)}
     zoomed = out["spots"]
     assert zoomed["level"] == "spots" and 0 < zoomed["m"] < spots and zoomed["best"] == min(10, zoomed["m"])
@@ -1170,6 +1390,16 @@ def test_frame_in_edge(tmp_path, run):
     assert {k: v for k, v in zoomed["all"].items() if k != "drawn"} == {"best": "all", "disabled": False,
                              "status": words["ui.view.map.status_spots_all"].replace("{{m}}", str(zoomed["m"]))}
     assert out["escape"] == [True, True] and out["zoomTo"] is True and out["gone"] is True
+    # the map moved off the run beyond its north-east corner: no spot in view, the status line says so (B.2 item
+    # 16), nothing drawn
+    off = out["off"]
+    assert off["corner"] == [True, True] and off["level"] != "area"
+    assert (off["m"], off["status"]) == (0, words["ui.view.map.status_empty"]), off
+    assert (off["drawn"]["strokes"], off["drawn"]["numbers"], off["drawn"]["thin"], off["drawn"]["ink"]) == (0, [], 0, False), off
+    # the bar's row beside the status line, with a hint that leaves the row wider than its boxes: the point is the
+    # map's, a press there ended the selection; the status line and the hint themselves take their presses
+    assert out["row"] == {"wider": True, "wrapped": True, "under": True, "inFoot": False, "inMap": True, "wasSelected": True,
+                          "selected": False, "status": True, "hint": True}, out["row"]
     # Spots: the best bold and numbered, the others pale; with All every spot bold, no number, nothing pale
     drawn = zoomed["drawn"]
     legend(drawn)
@@ -1181,13 +1411,17 @@ def test_frame_in_edge(tmp_path, run):
     # a spot selected: its passing lines on top, A1 and A2 with the access mark on their corners
     drawn = out["selected"]["drawn"]
     legend(drawn)
-    assert drawn["strokes"] == zoomed["m"] + out["selected"]["passing"] and drawn["numbers"] == ["A1", "A2"]
+    # (its shown line is one of the spots' lines in view and one of its own passing lines: counted once)
+    assert out["selected"]["inView"] is True and out["selected"]["passing"] > 1
+    assert drawn["strokes"] == zoomed["m"] + out["selected"]["passing"] - 1 and drawn["numbers"] == ["A1", "A2"]
     assert out["selected"]["marks"] == 2
     # "Lines from here" at its first anchor: the fan's lines with their numbers, the ring; the spot's lines step back
     drawn = out["fan"]["drawn"]
     legend(drawn)
     # (opened through the model: the canvas moved the map until every far end was in view, and not again)
-    assert drawn["strokes"] == out["fan"]["m"] + len(out["fan"]["rows"]) and "here" in drawn["shapes"] and out["fan"]["marks"] == 0
+    # (the fan's row of the spot's shown line is also that spot's line in view: counted once)
+    assert out["fan"]["also"] == 1
+    assert drawn["strokes"] == out["fan"]["m"] + len(out["fan"]["rows"]) - 1 and "here" in drawn["shapes"] and out["fan"]["marks"] == 0
     assert out["fan"]["moved"] is True and out["fan"]["outside"] == 0
     assert out["fanAgain"] == {"moved": False, "open": True, "outside": 0}
     assert drawn["numbers"] and set(drawn["numbers"]) <= set(out["fan"]["rows"]) and "A" not in drawn["shapes"], out["fan"]
@@ -1195,8 +1429,16 @@ def test_frame_in_edge(tmp_path, run):
     assert out["phoneDrawn"] is True and phone["same"] is True and phone["best"] == "all"
     assert phone["slots"] == first["slots"] and phone["pill"] == "Made up" and phone["footAbove"] is True
     # a phone: the sheet's head, the hint as the sheet's first line, and its "?" beside the map's status line
-    assert sorted(phone["places"]) == [["head", "sheet"], ["hint-map", "map"], ["hint-sheet", "sheet"]]
-    assert 300 < phone["sheet"] < phone["height"] and phone["covered"] == f"{phone['sheet']}px"
+    # (B.2 item 12: the sheet from its top is the handle, the hint, the head's row, then the body)
+    assert phone["places"] == [["hint-map", "map"], ["hint-sheet", "sheet"], ["head", "sheet"]]
+    assert phone["sheetOrder"] == ["handle", "hint-sheet", "head", "details", "list"] and out["sheetDrawn"] is True
+    # the view opens with the sheet low (132 px), the bar's foot above it
+    assert phone["sheet"] == 132 < phone["height"] and phone["covered"] == f"{phone['sheet']}px"
+    # the legend: unfolded by itself while the sheet is low, folded at half; a person's unfold at half and fold at
+    # low hold until the sheet next changes its stop; at full the bar's foot is not shown
+    assert out["folds"] == [["peek", "true", True], ["half", "false", False], ["half", "true", True], ["peek", "true", True],
+                            ["peek", "false", False], ["half", "false", False], ["peek", "true", True]], out["folds"]
+    assert out["footOff"] is True
     # in view, counted in grid metres through the fit, against a count in the map's own pixels: the whole map in
     # the columns, on a phone the part above the sheet (the sheet's part holds more spots)
     assert abs(zoomed["m"] - zoomed["pixels"]) <= 1
