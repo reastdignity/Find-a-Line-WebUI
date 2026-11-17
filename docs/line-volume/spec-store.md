@@ -7,8 +7,9 @@ Sections: 1 the store (its waves cover the whole part), 2 old runs, 3 the ranges
 5 renaming a run, 6 the goal case, 7 contradictions, 8 the user's word (U1-U12, elsewhere cited as "store U1" …).
 The user's closing answers of 2026-11-14 settle U1 (six ranges), U4 (exports per download), U5 (old runs removed)
 and U12 (brotli); the choices of class "planner" are taken as recommended (section 8).
-**State on 2026-11-16:** waves 1 and 2 are built (`main` 31f16de, 47c5fa7, ef93df5); "as built" notes stand in 1.3,
-1.8, 1.9 and 1.10. Open: waves 3, 4, 6, 7, 8.
+**State on 2026-11-17:** waves 1 to 3 are built (`main` 31f16de, 47c5fa7, ef93df5; wave 3 f2f8015), and share links
+and runs outside the page's list read the store (b757bee); "as built" notes stand in 1.2, 1.3, 1.4, 1.8, 1.9 and
+1.10. Open: waves 4, 6, 7, 8.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -65,6 +66,11 @@ file:// opening", "If binary table is used also on client side, than it is no lo
   said. A failure is a small red line in the menu under the two rows, and the rows work again at once. A share
   link's page has no Download for a run with a store, and neither has a demo run's page for a visitor who is not
   signed in (U9). A run without a store keeps today's links to its kept files until wave 4 removes such runs.
+  **As built** (f2f8015): Download shows where the page can send changes and the run was read from its store
+  (`mayExport` in `RunActions.tsx`, `RunData.fromStore`): the app's result page. A run's own `map.html` holds no
+  token, so it has no Download for a run with a store either (the user, 2026-11-17: "1.a"). The wait is kept per run
+  outside the menu: it survives the layout's switch at 768 px and a change of run. A failure that comes while another
+  menu is open shows at the menu's next opening.
 - **Limits.** Unchanged (public 1.5 M lines). No string limit in the page: none found on a desktop up to 10 M lines
   (part P5); a phone's is unknown until the real-device test. No "off". Old runs open as today until wave 4, which
   removes them (section 2).
@@ -155,6 +161,15 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
   files of `work/exports/` older than one hour at its start and before each export (a download never fetched).
   `web.RUN_FILES` gains `lines.arrow`, `profiles.arrow`; `web.SIZED_FILES` gains both (the decoded size in
   `X-Findaline-Bytes`). Media type `application/vnd.apache.arrow.file` for both (also `mimetypes` locally).
+- **As built** (wave 3, f2f8015): the worker's kind is `jobs.quick_export`. The file is sent once and deleted, also
+  when the client breaks off (`web.SentOnce`); a Range request gets the whole file and HEAD answers 405; the file's
+  name is the run's name, else its id; a run without a store answers 409 `export_failed`. Before it writes, the
+  worker estimates the file's size from the store's lines (`jobs.EXPORT_LINE_BYTES`: 250 B a line of CSV, 1 000 of
+  GeoJSON; measured 193-198 and 881-890) and refuses with `export_disk_full` when the disk would fall under
+  `free_disk_gb_min`. The worker sweeps `work/exports/` at its start, before each export, every 60 s in its loop and
+  first in its housekeeping, so a file is gone 3 540.5 s after it was made at the latest (`jobs.export_sweep_age`),
+  and a file older than the hour is never sent: "for one hour at most" holds. The rate is the setting `export_rate`
+  (429 `rate_export`). The audit event `run_export` (the format only) is recorded only for an export that was made.
 - **Files of a run:** the table of 1.2. An export never counts in the `runs` row's `bytes` (none is kept).
 - **Texts** (`locales/en.json`, plain words): `ui.result.export_preparing` "Preparing the file…";
   `error.export_failed` "The file could not be made. Try again in a moment."; `map.html`'s paragraph "This map opens
@@ -276,6 +291,11 @@ profile on Windows (the 2.5 M cut showed after 10.6 s there), never on a device.
 "`lines.arrow` or `lines.js`"; and `application/vnd.apache.arrow.file` joined nginx's `gzip_types` (section 4 has
 it in wave 6), so the public site sends the store gzipped until wave 6 sends brotli.
 
+**Built (round 4):** wave 3 (`main` f2f8015: the command `export`, the quick kind, the two routes, the rate, the
+Download buttons) and, before it, the store read by share links and by runs outside the page's list (b757bee: 1.10),
+which wave 4 waited for. View B1 is built too (39785f8), so wave 4 can be built now; only its removal of old runs
+needs the user's word on each host (section 2).
+
 The view's columns (`spot`, `top`, `by_spot`, the head's `sectors`, `box`, `lengths`) come with view B1, after wave 2.
 Wave 4 waits for view B1, so that from wave 4 on every new run carries them; a run saved between wave 2 and view B1
 has a store without them and counts as an old run (section 2). Nothing converts a run.
@@ -297,7 +317,10 @@ has a store without them and counts as an old run (section 2). Nothing converts 
   GeoJSON about 1.3 times the CSV's seconds (BAH 5.47 against 4.29 s, part P5). Every download costs these seconds
   again (none kept): two downloads of one file cost the worker twice. A GeoJSON of a 1.5 M-line run is about
   1.3 GB in `work/exports/` while it is sent (estimate at 880 B a line, part E5): the export refuses below
-  `free_disk_gb_min` as a search does.
+  `free_disk_gb_min` as a search does. **Measured** (wave 3, indicative, the shared lane): BAH (2 010 351 lines)
+  CSV 12.3 s (388 MB), GeoJSON 16.8 s (1.77 GB); MGp (3 525 979 lines) 26.5 s (700 MB) and 30.3 s (3.14 GB); another
+  quick task waited 11-28 s meanwhile. So an export of 2 M lines takes 12-17 s and one of 3.5 M about twice that
+  (the public limit is 1.5 M lines), and while it runs everyone's estimates and profiles wait.
 - **Disk and quotas.** `runs_gb_max` (5 GB) counts the folder; about 107 B a line instead of 1.5 KB (parts E1,
   P5): a quota holds about 14 times the lines (estimate); exports never count (none kept). No limit changes.
 - **Rollout on the VPS:** wave by wave with `deploy/vps.sh update`; wave 6's nginx files by `docs/deployment.md`
@@ -307,7 +330,12 @@ has a store without them and counts as an old run (section 2). Nothing converts 
 
 - **What still reads `data.js` although the run has a store** (found in round 3; to solve before wave 4, which
   ends `data.js`; no wave above owns it yet): a share link's page (`/s/runs.js` lists no runs, so the page finds no
-  store and reads `data.js`), and a run that is not in the viewer's `runs.js`.
+  store and reads `data.js`), and a run that is not in the viewer's `runs.js`. **Closed** (round 4, b757bee; no
+  server change): a run the page's list does not name (a share link, another user's run opened by an administrator,
+  a run saved after the list was read) asks for `lines.arrow` and `profiles.arrow` directly (`STORE_PROBE` in
+  `result/load.ts`); a 404 or a fetch that fails reads `data.js`; a store fetched but of a newer format is still
+  refused. An old run without a store opened that way makes two small 404 requests first, until wave 4 removes such
+  runs. The list of runs is loaded once.
 
 ### 1.11 Needs the user's word
 U4, U9 and U12 are decided (section 8); U6, U10, U11 are taken as recommended. The brotli codec is settled too
@@ -576,6 +604,8 @@ most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is u
   button (Recommended)"): the server makes a file only for a signed-in user. Exports have a rate of their own, as
   every other kind of the quick lane: 4 a minute and 30 an hour on the public site ("Yes, 4 a minute, 30 an hour
   (Recommended)"; both reviewers of wave 3 showed that without it one user can fill the disk and hold the lane).
+  **Final, 2026-11-17:** a run's own `map.html` has no Download for a run with a store either ("1.a"): the page holds
+  no token, so only the app's result page exports. Built in f2f8015.
 - **U10** `--html` after `file://` ends: (a) accepted for one release, prints the `view` command.
 - **U11** filtered exports, GeoPackage, KML (F-32 'Exports people can open'): (b) parked until wave 3 shows how
   exports are used.

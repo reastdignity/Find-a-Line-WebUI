@@ -201,6 +201,41 @@ how a result is organised), built the low-effort part and specified the rest.
   31.9 %; with the square rule 41.8 % and 30.5 %. Lines kept with the square rule, lips against today's anchors:
   31.9-37.6 % on four cases. The prototype (`--lip-anchors off|only|add`) is kept under the tag
   `history/lip-anchors-p3`, never merged. Not measured: lips added to today's anchors (`add`).
+- **State on 2026-11-17** (round 4; the specification's section 5): built and in `main`: the view's columns at
+  saving (spots, sectors, the top-level flag), exports made for each download with the Download buttons, share links
+  and runs outside the page's list reading the store, the sectors' term in the memory estimate (done: the user's
+  decision of 2026-11-17), and the result view's map, list, details and "Lines from here" behind the flag `?view=b`
+  (tried by the user: "ok, looks good"). Open: the end of the text files with old runs removed (store wave 4: what
+  it waited for is built, share links read the store, so it can be built now; the removal itself needs the user's
+  word on each host after the `--dry-run` list), brotli and caching, the ranges, renaming a run, and the result
+  view's steps 3c (today's features joined, the list below) and 3d (the ported checks, then the view as the
+  default).
+
+### Step 3c of the result view: the design review's list (2026-11-17)
+The design reviewer read the whole view (docs/design-review.md) on its tree before the last fix rounds: nothing
+blocks it behind the flag; these come before the view becomes the default. Two small ones were fixed before the merge (focus rings, unused
+texts), and one was not a defect. With step 3c, beside today's features and the search area's outline (the user:
+"4. a"):
+- The phone's first look puts the hint before the result (spec-view B.2 item 12): the headline and the top block
+  first, the hint after; needs the user's word.
+- Numbers pile up on the map at Best 30 and in the fan: measure how many overlap by a quarter, a third, a half of a
+  box at Best 10 / 30 / 100 on the reference runs; the user picks when a number is left out.
+- Values under marks and controls at Area (a square's value under a pick's diamond or the shore chip; on a phone on
+  its side the scale over the shore chip).
+- The selected line under the phone's sheet after the sheet rises (to verify: the picture's selection was made by a
+  script).
+- Help only in tooltips (the level switch, Best, "Top level only", the column heads): a "?" each on touch.
+- One "?" shape for three meanings (cannot tell, help, the hint's reopen).
+- Words: "Held by you.", "choose 100", "Clear.", "Height diff.", "anchor squares", "pick"; the status texts are the
+  specification's and need the user's word.
+- Counts that compete on the desktop's first screen, and "hidden by filters" when only "Top level only" hides.
+- Over trees by colour alone in the lists, the fan and the table of spots (docs/DESIGN.md R4.2).
+- "No line passes the filters." without a next step.
+- Best greyed at Area without a reason on touch.
+- docs/DESIGN.md R5 to R7 (the type, radius and spacing scales) against the accepted mock-up: the user settles which
+  holds.
+- The 44 px rule on touch (R2) and the smallest text (R1): the view's controls and text listed in docs/known-bugs.md
+  (the user: "2. a").
 
 ### An access grid that needs less memory (the user, 2026-11-16)
 The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and

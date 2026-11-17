@@ -85,7 +85,7 @@ nothing before saving: the search's seconds and memory stay those of row 2.
 | 5. + store wave 6: brotli once at saving, immutable caching | the same | the same | about 75-80 MB | 17-23 MB br (2.7-3.7 s at 50 Mbit/s, 14-18 s at 10); a reopen sends nothing | as step 3 | E |
 | 6. + view wave B1: spots, sectors, top level, the view's order in the store | the same | the same | about 80-85 MB | about 19-27 MB | as step 3 | E |
 | 7. + store wave 7: the ranges of six values of a kept line (store U1 b) | the same | the same | about 115-120 MB | about 27-37 MB (4.3-5.9 s at 50 Mbit/s) | as step 3 | E |
-| 8. + view waves B2-B5: the result view | the same | the same | as step 6 or 7 | as step 6 or 7 | at most 5 000 strokes drawn; no grouping at load; a filter change on 503 651 lines not measured | E (mock-up 2) |
+| 8. + view waves B2-B5: the result view | the same | the same | as step 6 or 7 | as step 6 or 7 | at most 5 000 strokes drawn; no grouping at load; a filter change on 503 651 lines 55-62 ms (measured 2026-11-17, section 5) | E (mock-up 2) |
 
 So T10 (the goal case opens on a desktop) is met by step 3 (estimate); T3 (a folder within the public limits at most
 300 MB) by step 4; T4 (10-20 MB sent) only without ranges and only at the low end of the estimates: with the six
@@ -128,7 +128,7 @@ gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB 
 | 1e | search 5.1 (exclusive, the PC free), 5.2, 5.4 (after 0a); phase 4's findings (section 7) | as named | any | low-medium |
 | 2a | store wave 1: columns in the page | – | store wave 2's Python half | high |
 | 2b | store wave 2: Python store (B) at once; the page's reader (C) after 2a | 2a for C | 2a (B) | medium ×2 |
-| 2c | store wave 3 (exports per download), then wave 4 (text files and the reader of `data.js` end; old runs removed in two deploys, `spec-store.md` section 2) | 2b; wave 4 also 3a, share links and runs outside `runs.js` reading the store (`spec-store.md` 1.10), and the user's word on each host after the `--dry-run` list | 2d, 2e; wave 3 with 3a | medium, high |
+| 2c | store wave 3 (exports per download), then wave 4 (text files and the reader of `data.js` end; old runs removed in two deploys, `spec-store.md` section 2) | 2b; wave 4 also 3a, share links and runs outside `runs.js` reading the store (`spec-store.md` 1.10; both built in round 4), and the user's word on each host after the `--dry-run` list | 2d, 2e; wave 3 with 3a | medium, high |
 | 2d | store wave 6: what is sent, brotli at saving | 2b; its mock-up (the codec is settled: pyarrow's own brotli, no new package) | 2c, 2e | medium |
 | 2e | store wave 7: ranges of six values | 2b; store U2's mock-up for the page | 2c, 2d | medium |
 | 2f | – (was store wave 5, old runs converted: the user chose removal, a step of 2c's wave 4) | – | – | – |
@@ -160,6 +160,23 @@ View B1's `by_spot` in the store (step 3a) is the planned answer to the grouping
 3a-3d. The result view (3b-3d) also takes the access mark's later parts (`spec-search.md` 3.9). Round 4 (from
 2026-11-16; the user's "1. a", "2. a") takes 3a and 2c's wave 3 side by side, then 3b; "Lines from here" comes with
 3b as specified, not onto today's page first.
+
+**State on 2026-11-17.** Done (round 4, in `main`): 3a (39785f8: the view's columns `spot`, `top`, `by_spot` and the
+head's `sectors`, `box`, `lengths` computed at saving; Ward's clustering exact up to 10 000 spots, on an even sample
+above); share links and runs outside `runs.js` read the store (b757bee: the gap 2c's wave 4 waited for,
+`spec-store.md` 1.10); 2c's wave 3 (f2f8015: exports made per download, their rate, the Download menu); 3b's two
+halves behind the flag `?view=b` (70bef24: B2, the map core; d0553d7: B3, the list, the details, "Lines from here"
+and the table of spots); and, beside the plan, the sectors' term in `search.memory_needed` (dfb3fc3). Measured:
+saving takes 1.1 s more on BAH with the square rule (2.24 → 3.32 s) and 0.8 s more on the goal case (5.04 → 5.88 s),
+the process tree's peak unchanged (`docs/performance.md` "The result view's columns"); an export takes 12-30 s at
+2.0-3.5 M lines (indicative, `spec-store.md` 1.10). T5/T6 of the view against today's page (one exclusive pass,
+desktop Edge; `spec-view.md` B.8): the first picture 0.41 / 0.40 s on BAH with the square rule (43 127 lines),
+0.98 / 1.48 s on the goal case (503 651), 2.22 / 3.41 s on BAH (2 010 351); the heap 20 / 26, 111 / 169 and
+273 / 468 MB; a clearance filter turned on 33 / 45, 55 / 487 and 217 / 2 038 ms. So at BAH the view meets T5
+(2.22 s, 273 MB) and T6 for a filter (217-263 ms), not for "Top level only" (335-404 ms). Open: 2c's wave 4 (what it
+waited for is built, so it can be built now; only its removal of old runs needs the user's word on each host after
+the `--dry-run` list), 2d, 2e, 2g, 3c (today's features joined, with the design review's list in `docs/roadmap.md`),
+3d.
 
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
@@ -252,8 +269,10 @@ The user's words, verbatim, each on the question named.
 | – | A store of a newer format: the text keeps both sentences ("This result was made by a newer Find-a-Line. Update Find-a-Line to open it.") | `main` ef93df5 |
 | search U-12 | Applied: lip anchors keep about 70 % of the matched known lines, below the bar of 98 %, so they are not built | `spec-search.md` 4; `docs/roadmap.md` |
 
-### 6.6 Decided in round 4 (2026-11-16)
-The user's words, verbatim, each on the question named.
+### 6.6 Decided in round 4 (2026-11-16 and 2026-11-17)
+The user's words, verbatim, each on the question named. On 2026-11-17 the user answered the planner's open questions
+by number and letter in several messages; a number names a different question in each message, so every row below
+says which question it answers.
 
 | Id | Decided | Where it is applied |
 |---|---|---|
@@ -271,6 +290,19 @@ The user's words, verbatim, each on the question named.
 | – | The real map's controls take the mock-up's places, judged on the first build's screenshots ("8. a") | `spec-view.md` B.2 |
 | – | The crowded tap's table opens at 0.25 m per pixel ("9.b") | `spec-view.md` B.2 item 9 |
 | – | The sectors of a run with more spots than a cap: Ward on an even sample, every other spot to the nearest sector ("Sample (Recommended)") | `spec-view.md` B.3 |
+| store U9 | 2026-11-17, on a run's own `map.html`: no Download for a run with a store, since the page holds no token and the server would refuse every export from it; Download stays on the app's result page ("1.a") | `spec-store.md` 1.2, 8 |
+| – | On the view's phone layout: it opens with the sheet low, and the legend folds itself while the sheet stands at half or higher ("2.a") | `spec-view.md` B.2 |
+| – | On the thin lines between map tiles at the view's quarter zoom steps: accepted for now ("3. a - and remind me to give opinion about it"); after trying the view, "ok, looks good" (below) answered the reminder | `spec-view.md` B.10 |
+| – | On the search area's dashed outline: drawn in the view with today's other features, step 3c ("4. a") | `spec-view.md` B.2, B.9 |
+| – | The singular forms of the two "Top level only" sentences, as proposed ("6. ok") | `spec-view.md` B.2 item 14 |
+| – | On the regression entries the services could not confirm (R56, R70, R80, R85, R87): the merges of 3a and the exports do not wait for them; they run again when Overpass and basisdata.nl answer ("7. a"). R80 and R85 were confirmed on `main` later that day; R56, R87 and R70 stay open | `docs/known-bugs.md` |
+| – | On the fit between a run's grid and the map: the polynomial fit stays, no projection library ("8. fit") | `spec-view.md` B.5, B.10 |
+| – | The exclusive pass for the view's T5/T6 at the end of B3's work ("9. exclusive ok") | `spec-view.md` B.8 |
+| – | On the sectors' clustering in a search's memory estimate: first "10. c" (decide before the next deploy, after one read-only look at the server's memory settings), then "10: term + …" (the rest names the server's setting, not written here): `search.memory_needed` counts 8 B × min(lines, 10 000)² (dfb3fc3, 2026-11-17). The worker's memory for the next deploy is the user's decision too ("3. b"); it changes only at a deploy | `docs/performance.md` "The sectors' term" |
+| – | On the view's texts without a source in this specification: approved as listed ("1. ok") | `spec-view.md` B.4 |
+| – | On the view's controls under 44 px on a phone (docs/DESIGN.md R2): the view goes into `main` as it is, and they are brought to the rule in step 3c ("2. a") | `docs/roadmap.md`; `docs/known-bugs.md` |
+| – | On how the view goes into `main`: B2 and B3 together, as two squash commits, after B3's reviews ("3. a") | section 5 |
+| – | After trying the view in a test app: into `main` behind the flag ("ok, looks good. Stop app and merge") | section 5; `spec-view.md` B.10 |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
@@ -305,3 +337,5 @@ Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless
 - Done at the task's close: CLAUDE.md's table names `samelines.py`; `helpers.LineTable`'s docstring names the
   column `stands_for`; `tools/prune_study.py` reads a `lines.csv` with `stands_for` (it reads only the columns it
   names, so the extra column is skipped; it audits the kept lines and does not weigh them by `stands_for`).
+- **Findings of round 4** (2026-11-17): in `docs/known-bugs.md` "Line volume, round 4: known and left"; the design
+  review's findings on the result view are step 3c's list in `docs/roadmap.md`.

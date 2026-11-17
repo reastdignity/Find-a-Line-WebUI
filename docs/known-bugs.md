@@ -258,6 +258,43 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
 - **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
   will not be marked reads in the receipt.
 
+## Line volume, round 4: known and left (2026-11-17)
+
+Found in the reviews and test runs of round 4 (the view's columns, the exports with the Download buttons, the store
+read by share links, the result view behind `?view=b`), none fixed:
+- **R48 differs on `main`** since before round 4: 1 252 lines and 39 spots against the baseline's 1 541 and 44
+  (sha256 985a5cb3…), with every tile from the cache and no fallback. Its source keeps the newest survey per 1 km
+  tile (survey years 2022-2025), so a newer survey of some tiles since the baseline is the likely cause (a guess, not
+  checked). Needs a look at the tiles' survey years, then a re-baseline.
+- **R56, R87 and R70 not confirmed** after the view's columns and the exports (the user: "7. a", the merges did not
+  wait): Overpass answered 502, so R56 and R87 ran on the Copernicus fallback ("Coastal regression entries on the
+  Copernicus fallback", above: R56's `water_lines` 3 427 → 3 423, R87 784 → 772 lines); basisdata.nl did not answer,
+  so R70 did not run. R80 and R85 were right on `main` with the OSM coastline. Run the three again when the services
+  answer.
+- **A refused request counts against every rate of its list** (`web.within_rate`, every kind, older than round 4):
+  the limiter takes a permit from each rate before it decides, so after many refusals inside one minute the hour's
+  rate is used up too, while the refusal's text asks to wait a minute.
+- **Three tests fail now and then under a loaded full pytest, each passing alone:**
+  `tests/test_cdd_fetch.py::test_when_the_failing_step_comes_through_its_waits_restart` (waits [30, 60, 120, 240]
+  instead of [30, 60, 30, 30]: the fake server's reset came as a ConnectionResetError before the headers) and
+  `tests/test_cdd_fetch.py::test_a_login_page_broken_after_its_headers_is_a_failed_attempt` (the same fake server's
+  reset racing under load); `tests/test_web.py::test_quick_lane` (`sqlite3.OperationalError: disk I/O error` at
+  `PRAGMA journal_mode=WAL` while the app shut down, right after the test killed the quick lane's process; also seen
+  on `main` alone: "`test_quick_lane` fails at some times" above). Run them alone before calling a failure of one a
+  regression.
+- **Exports:** a real iPhone was not tried (only Playwright's WebKit profile); a worker that stops keeps a file made
+  just before on disk until it starts again (the file is never sent after the hour); a failure that comes while
+  another menu is open shows only at the menu's next opening; a signed-in user whose session ended while the page
+  was open gets the general failure text on a press.
+- **The store read by share links:** an old run without a store, opened by a share link or outside the page's list,
+  makes two small 404 requests before `data.js` (in the logs' 4xx counts; until store wave 4 removes such runs). On
+  a run's own `map.html` Compare's list of other runs stays as first loaded until a reload.
+- **The result view** (behind `?view=b`): its controls under 44 px on a phone and its text under 12 px against
+  docs/DESIGN.md R1 and R2 (the level buttons 42 px high, Best's select 29, "Legend" 30, "Back to Auto" 18.8, the
+  chips 36, the column heads' 10.5 px, the shapes' text 8.7 px), left to step 3c by the user ("2. a"); the design
+  review's other findings are step 3c's list in docs/roadmap.md. Not run: a real phone, presses in WebKit or
+  Firefox; the focus rules are tested in Chromium only.
+
 ## The UI measuring tools: known and left (2026-11-17)
 
 Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's
