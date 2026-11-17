@@ -406,7 +406,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
-      <MapBar view={view} map={canvas} wide={false} sheet={snap}
+      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap}
               hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
       {toast && <div class="v-toast" role="status">{toast}</div>}
     </div>

@@ -58,7 +58,6 @@
 .ui .v-lg-line { display: flex; flex-wrap: wrap; gap: 3px 10px; align-items: center; }
 .ui .v-fold { display: inline-flex; align-items: center; gap: 2px; min-height: 30px; padding: 0 6px 0 9px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; box-shadow: var(--shadow); cursor: pointer; }
-.ui .v-fold:disabled { opacity: .55; cursor: default; }  /* no room to unfold the legend here */
 .ui .v-fold svg { width: 16px; height: 16px; transform: rotate(180deg); }
 .ui .v-fold.v-folded svg { transform: none; }
 .ui .v-help-button { display: inline-flex; }

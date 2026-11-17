@@ -119,12 +119,14 @@ export interface MapBarProps {
   hint?: ComponentChildren;
   /** A phone: the stop of its sheet (the legend folds itself while the sheet is at half or higher). */
   sheet?: Snap;
+  /** A phone: move the sheet to a stop (a press on "Legend" where the legend has no room lowers the sheet). */
+  onSheet?(snap: Snap): void;
 }
 
 const LEGEND_LINE = 24;  // px: the least room an unfolded legend is shown in (one line of it)
 
 /** The bar's two parts over the map. */
-export function MapBar({view, map, wide, hint, sheet}: MapBarProps) {
+export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
   const pressed = view.auto ? "auto" : view.level, status = statusOf(view), area = view.level === "area";
   const [, setTick] = useState(0);
   useEffect(() => map?.subscribe(() => setTick((n) => n + 1)), [map]);
@@ -132,13 +134,21 @@ export function MapBar({view, map, wide, hint, sheet}: MapBarProps) {
   // while the sheet is at half or higher, and folded too while, unfolded, it would reach the map's own controls at
   // the top (the zoom buttons, the shore's chip, the switch). A person's fold or unfold (`choice`) holds until the
   // sheet next changes its stop; an unfold of theirs with too little room shows the legend in the room there is
-  // (it scrolls inside); with less than a line of room it cannot be unfolded (its button is disabled): no control
-  // covers another.
+  // (it scrolls inside); with less than a line of room at a stop above the low one, their press on "Legend" lowers
+  // the sheet to its low stop and unfolds the legend there (the planner's decision of 2026-11-17: the person asked
+  // to see the legend, and the map's room is what it needs): no control covers another, the button is never off.
   const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean} | null>(null);
   const [room, setRoom] = useState(Infinity);  // px the legend may take between the top controls and the status line
   const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
   const asked = choice && choice.at === sheet ? choice.folded : null, high = sheet === "half" || sheet === "full";
-  useEffect(() => setChoice(null), [sheet]);  // the sheet changed its stop: the person's choice was for the one before
+  // the sheet changed its stop: the person's choice was for the one before (one made for this stop stays)
+  useEffect(() => setChoice((made) => made && made.at === sheet ? made : null), [sheet]);
+  const pressLegend = () => {
+    if (folded && room < LEGEND_LINE && sheet !== undefined && sheet !== "peek" && onSheet) {
+      setChoice({at: "peek", folded: false});
+      onSheet("peek");
+    } else setChoice({at: sheet, folded: !folded});
+  };
   const folded = !wide && (asked === null ? high || room < natural.current : asked || room < LEGEND_LINE);
   // A phone's foot where the status line's row would still reach one of those controls (a low phone with the sheet
   // at half: 39 px are left under the shore's chip on a screen of 390 x 664): the foot then stands beside the scale
@@ -204,8 +214,7 @@ export function MapBar({view, map, wide, hint, sheet}: MapBarProps) {
         </div>
         {!wide && <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
                           title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
-                          disabled={folded && room < LEGEND_LINE}
-                          onClick={() => setChoice({at: sheet, folded: !folded})}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>}
+                          onClick={pressLegend}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>}
         {!wide && access && <span class="v-help-button" data-map-control>{help.button}</span>}
         {hint}
       </div>
