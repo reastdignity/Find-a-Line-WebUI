@@ -386,6 +386,8 @@ def test_families_and_limits():
     assert state.limit(estimate, "c-basic-sea") == 240000 and state.limit(estimate, "c-basic-long") == 30000
     assert state.limit(ui_shots.EDGES_DRAWN[5:], "view3d-edges") == 10000
     assert state.limit("settled (home) after the load") == 30000 and state.limit("settled (home) after a step") == 10000
+    assert state.limit("settled (search) after a step", "c-basic-sea") == 240000  # its click waits for the estimate
+    assert state.limit("settled (search) after the load", "c-basic-sea") == 30000
     state.timed_out |= {estimate, "settled (home) after a step"}
     assert state.limit(estimate, "c-basic-sea") == 60000 and state.limit(estimate) == 7500
     assert state.limit("settled (home) after a step") == 2500 and state.limit("settled (search) after a step") == 10000

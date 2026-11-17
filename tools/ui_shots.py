@@ -193,8 +193,9 @@ EDGES_DRAWN = "wait:document.getElementById('view3d')?.dataset.edges === 'on'"
 VIEW3D = "#run={run}&line={line}"
 # The first-draw marks: a page's first draw waited for (FIRST_DRAW_MS; a page of SLOW_MARKS its own limit)
 FIRST_DRAW = (VIEW3D_READY[5:], READY[5:], NEED_READY)
-# A page whose first-draw marks may take longer: page -> its limit. "c-basic-sea": the first "Sea cliffs" estimate in a
-# fresh data folder fetches the view's coastline from Overpass (about 160 s, then cached in the folder)
+# A page whose first-draw marks (and settled waits after its steps) may take longer: page -> its limit. "c-basic-sea":
+# the first "Sea cliffs" estimate in a fresh data folder fetches the view's coastline from Overpass (160 s in stage 2's
+# run, 33 s on 2026-11-17; then cached in the folder)
 SLOW_MARKS = {"c-basic-sea": 240000}
 # The phone's motion (view3d/views.ts; its button only on touch screens): held upright facing north, then turned
 # 40 degrees right and tilted 10 degrees up: two events with DeviceOrientationEvent's angles (WebKit on Windows
@@ -373,7 +374,10 @@ INTROS = ("search", "result")  # the intros of ui/Intro.tsx (localStorage "finda
 # Settled (settled): a page is shot once, for QUIET_MS in a row, no request is in flight (Requests), no map tile loads,
 # no map moves, no finite CSS animation or transition runs, no busy spinner shows, no animation frame or short timer
 # of the page is pending or was asked for (WATCH), and the page's family (page_family) says it is drawn (PAGE_STATE).
-QUIET_MS = 250  # (trial value)
+# QUIET_MS by trial (2026-11-17, the whole set, 3 devices, both themes, stage 2's data folder, the shared lane): 150,
+# 250 and 400 ms gave the same 496 pictures (each the same as stage 2's but its unstable pages, which come out settled,
+# and noise) in 1267, 1363 and 1459 s: the shortest. The page's own short waits are watched (WATCH), not outlasted
+QUIET_MS = 150
 POLL_MS = 50  # between two looks at the page
 SHORT_TIMER_MS = 1000  # a page's timer up to this long is waited for (the coverage page's 150 ms remount, debounces)
 EVENTS = "/api/events"  # the event stream: never ends, not a request in flight
@@ -924,8 +928,8 @@ class Watch:
 
     def settle(self, after: str, load: bool = False, frames: bool = True, quiet_ms: int | None = None):
         key = f"settled ({self.family}) after " + ("the load" if load else "a step")
-        busy = settled(self.page, self.family, self.state.limit(key), QUIET_MS if quiet_ms is None else quiet_ms,
-                       self.requests, self.line, frames)
+        quiet = QUIET_MS if quiet_ms is None else quiet_ms
+        busy = settled(self.page, self.family, self.state.limit(key, self.name), quiet, self.requests, self.line, frames)
         if busy:
             self.state.timed_out.add(key)
             self.row["unsettled"].append({"after": after, "busy": busy})
@@ -949,10 +953,11 @@ class Pass:
 
     def limit(self, expression: str, page: str | None = None) -> int:
         """The limit of a wait for `expression` on `page` (ms): WAIT_MS, FIRST_DRAW_MS for the first-draw marks
-        (SLOW_MARKS' for its pages), the settled waits' (Watch's keys) SETTLE_LOAD_MS or SETTLE_STEP_MS; a quarter
+        (SLOW_MARKS' for its pages), the settled waits' (Watch's keys) SETTLE_LOAD_MS or SETTLE_STEP_MS (after a
+        step of a page of SLOW_MARKS its limit: the settled wait after its click waits for the same estimate); a quarter
         after the expression's first timeout in the pass."""
-        if expression.startswith("settled ("):
-            base = SETTLE_LOAD_MS if expression.endswith("the load") else SETTLE_STEP_MS
+        if expression.startswith("settled ("):  # a page of SLOW_MARKS: its steps' too (its family's mark is slow)
+            base = SETTLE_LOAD_MS if expression.endswith("the load") else SLOW_MARKS.get(page, SETTLE_STEP_MS)
         elif expression in FIRST_DRAW:
             base = SLOW_MARKS.get(page, FIRST_DRAW_MS)
         else:
