@@ -6,7 +6,7 @@ process (tools/perf_profile.py in it, with hooks) and samples the tree from outs
 - each process's working set (rss), private bytes (Windows' commit) and, with --uss, unique set (USS: the pages no
   other process maps; slower to read), and the machine's used memory;
 - in the search's process (hooks): the stages (progress bars), `saving.save` and `saving.hand_over` (the size of its
-  folder), `linestore.write`, the plan (the grid's and the largest tile's pixels, Plan.memory, whether the early
+  folder), `mapping.view_columns`, `linestore.write`, the plan (the grid's and the largest tile's pixels, Plan.memory, whether the early
   check is on) and the square rule's reducers (`BestPerSquarePair.counts()`: peak_rows, kept, found).
 Saving's children memory-map the same hand-over files, so the working sets summed count those pages once per child,
 while a container on Linux should count them once (inferred, not measured): the measure of `LINE_BYTES` is the unique
@@ -50,8 +50,8 @@ INTERVAL = 0.2
 CHILD = "--child"
 # The names the child patches, each called through its module's attribute by the search (a rename must fail
 # tests/test_perf_slot_memory.py, or the record would silently miss it)
-HOOKED = (("saving", "save"), ("saving", "hand_over"), ("linestore", "write"), ("search", "plan_search"),
-          ("samelines.BestPerSquarePair", "counts"))
+HOOKED = (("saving", "save"), ("saving", "hand_over"), ("mapping", "view_columns"), ("linestore", "write"),
+          ("search", "plan_search"), ("samelines.BestPerSquarePair", "counts"))
 HOOKED_SEARCH = ("plan_search", "estimate_search", "search_lines", "save_run")  # their SearchError: the refusal
 GIB = 2 ** 30
 SLOTS_FREE_GIB, COMPUTE_SLOTS, DOWNLOAD_SLOTS = 17, 3, 2  # --worker: an 18 GiB worker, 1 GiB for its own processes
@@ -303,6 +303,7 @@ def child(argv: List[str]):
     from progress import progress
     progress.subscribe(listener)
     import linestore
+    import mapping
     import samelines
     import saving
     import search
@@ -372,6 +373,7 @@ def child(argv: List[str]):
         refusals(name)
     hooked(saving, "save")
     hooked(saving, "hand_over", hand_over_size)
+    hooked(mapping, "view_columns")  # the store's view columns, just before linestore.write
     hooked(linestore, "write")
     event("search start")
     sys.argv = [os.path.join(HERE, "tools", "perf_profile.py"), *rest]

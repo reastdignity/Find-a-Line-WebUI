@@ -1406,7 +1406,8 @@ for (const [name, folder] of Object.entries(cases)) {
   const linesBytes = bytes(folder + "/lines.arrow");
   const store = m.readStore(linesBytes, bytes(folder + "/profiles.arrow"));
   const data = script(folder + "/data.js"), cols = store.columns, bad = [], cursor = new m.LineCursor(cols);
-  const {columns, ...head} = store, {lines, ...want} = data;
+  // The view's keys (view B1: sectors, box, lengths) are in a new run's store only, not in its data.js
+  const {columns, sectors, box, lengths, ...head} = store, {lines, ...want} = data;
   data.lines.forEach((row, i) => {
     const expected = m.toLine(row, undefined, data.terrain, data.ends), got = m.lineAt(cols, i);
     if (JSON.stringify(Object.keys(got)) !== JSON.stringify(Object.keys(expected))) bad.push([i, "keys"]);
