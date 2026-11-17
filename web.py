@@ -1219,7 +1219,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """A job its user may edit or queue again: their own (an administrator's: also those from
         before the accounts)."""
         job = jobs.get(job_id)
-        if not job or not (job["user_id"] == user.id or (user.admin and job["user_id"] is None)):
+        if not job or not owns(user, job):
             raise HTTPException(404, "no such job")
         return job
 
@@ -1461,9 +1461,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The user whose jobs a user sees (None: everyone's, for an administrator)."""
         return None if user.admin else user.id
 
+    def owns(user: ac.User, job: Dict) -> bool:
+        """own_job's rule: the user's own job (an administrator's: also those from before the accounts)."""
+        return job["user_id"] == user.id or (user.admin and job["user_id"] is None)
+
     @app.get("/api/jobs")
     def list_jobs(user: ac.User = Depends(current_user)):
-        return {"jobs": jobs.all(seen_by(user)), "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
+        """The jobs a user sees, each with `own` (edit, run again, remove: own_job's rule, as /api/runs's `own`)."""
+        return {"jobs": [{**job, "own": owns(user, job)} for job in jobs.all(seen_by(user))],
+                "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job: Dict = Depends(own_job)):
@@ -1494,6 +1500,19 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if not jobs.request_cancel(job["id"]):
             raise HTTPException(409, "the job is not waiting or running")
         record("job_cancel", user, job["id"], {"owner": job["user_id"]} if job["user_id"] != user.id else None)
+        return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/remove")
+    def remove_job(job: Dict = Depends(own_job), user: ac.User = Depends(current_user)):
+        """Remove a cancelled job from its owner's list (the card goes; nothing else exists to delete). Not
+        DELETE /api/jobs/<id>, which cancels. A job removed before answers ok again; the audit log gets the
+        removal once (of two at once, the one whose write removed it)."""
+        if not job["removed_at"]:
+            if job["status"] != "cancelled":
+                raise HTTPException(409, messages.UserError("only a cancelled search can be removed",
+                                                            "job_not_cancelled").detail())
+            if jobs.remove(job["id"]):
+                record("job_remove", user, job["id"])
         return {"ok": True}
 
     @app.get("/api/events")
@@ -2411,7 +2430,10 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"outline and the country it lies in, its title and status (with the reason when it failed), and its "
          f"messages and progress. "
          f"Why: to run the search and show it to you. The messages are deleted {events} after the search ended; the "
-         f"search itself stays in your queue. Your totals of searched area are counted from these."),
+         f"search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+         f"marked removed with the time. A removed search still counts toward your searches of the day, the area "
+         f"searched and the site's statistics, and administrators can still see it. Your totals of searched area are "
+         f"counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
          "renewed or revoked. A file made for a download is kept on the server until it is fetched, for one hour "
@@ -2431,9 +2453,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          "an administrator deletes it (ask the contact below to have yours deleted)."),
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
-        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
-         f"made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the format, not "
-         f"the content), the demo flag, favourite lines marked, unmarked and moved, "
+        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, "
+         f"share links made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the "
+         f"format, not the content), the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "
          f"text), other "

@@ -146,7 +146,7 @@
 .ui .u-st .u-ic { width: 13px; height: 13px; }
 .ui .u-st.u-done { background: var(--ok-soft); color: var(--ok); }
 .ui .u-st.u-running { background: var(--accent-soft); color: var(--accent); }
-.ui .u-st.u-waiting { background: var(--surface-2); color: var(--ink-2); }
+.ui .u-st.u-waiting, .ui .u-st.u-cancelled { background: var(--surface-2); color: var(--ink-2); }
 .ui .u-st.u-failed { background: var(--bad-soft); color: var(--bad); }
 .ui .u-st.u-shared { background: var(--warn-soft); color: var(--warn); }
 .ui .u-progress { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }

@@ -1256,6 +1256,94 @@ def test_profiles_and_deleting_runs(run_people, tmp_path):
     assert (tmp_path / "runs" / RUN_B).exists()
 
 
+def test_removing_searches(run_people, tmp_path):
+    """A cancelled search is removed by its owner only (POST /api/jobs/<id>/remove: another user, an
+    administrator, a visitor not signed in, one with only a share link, a pending or blocked account cannot); it
+    leaves the owner's list, an administrator's keeps it marked; the audit log records job_remove; the row
+    stays, so it counts toward the daily quota and the usage as before. Deleting a run marks the job that saved
+    it removed with the time (the privacy page's words), and it leaves the owner's list (its card was a "done"
+    with no run before)."""
+    import audit
+    from jobs import QuotaExceeded
+    from settings import Limits
+    a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
+    ids, jobs = run_people["ids"], run_people["jobs"]
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    cancelled, failed, saved = (jobs.add(request, name, ids["a"]) for name in ("Cancelled", "Failed", "Saved"))
+    assert a.delete(f"/api/jobs/{cancelled}").status_code == 200
+    jobs.set(failed, "failed", error="x")
+    jobs.set_area(saved, 2.5, "pl")
+    jobs.set(saved, "done", run_id=RUN_A)
+    limits = Limits(jobs_day_max=3)
+    used = jobs.usage(ids["a"], limits)["usage"]["jobs_day"]
+    assert used == {"used": 3, "limit": 3}
+
+    link = a.post(f"/api/runs/{RUN_A}/share").json()["url"]
+    path = urlsplit(link).path
+    assert anonymous.get(path).status_code == 200  # the share link opens the map, and nothing else
+    for who, code in [("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404), ("admin", 404)]:
+        assert run_people[who].post(f"/api/jobs/{cancelled}/remove").status_code == code, who
+    refused = a.post(f"/api/jobs/{failed}/remove")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "job_not_cancelled"
+    assert a.post(f"/api/jobs/{saved}/remove").status_code == 409
+
+    ids_of = lambda client: {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}  # noqa: E731
+    assert cancelled in ids_of(a) and not ids_of(a)[cancelled]["removed_at"]
+    assert a.post(f"/api/jobs/{cancelled}/remove").json() == {"ok": True}
+    assert a.post(f"/api/jobs/{cancelled}/remove").json() == {"ok": True}  # a second removal: harmless
+    assert set(ids_of(a)) == {failed, saved}
+    assert ids_of(admin)[cancelled]["removed_at"] and not ids_of(admin)[failed]["removed_at"]
+    log = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "job_remove"]
+    assert [(e["user_id"], e["target"], e["detail"]) for e in log] == [(ids["a"], cancelled, None)]
+
+    # it still counts: the day's searches, and the quota refuses the next one as before
+    assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
+    assert a.get("/api/usage").json()["usage"]["jobs_day"]["used"] == 3
+    with pytest.raises(QuotaExceeded):
+        jobs.precheck(jobs.admission(ids["a"], limits, limited=True))
+
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 200
+    assert set(ids_of(a)) == {failed}
+    assert ids_of(admin)[saved]["run_gone"] and ids_of(admin)[saved]["removed_at"]  # marked with the time
+    assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"]
+    assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
+    # and toward the area searched (the privacy page's words): the user's totals and everyone's
+    area = a.get("/api/usage").json()["area"]
+    assert (area["total_km2"], area["searches"], [km2 for _, km2 in area["recent"]]) == (2.5, 1, [2.5]), area
+    assert jobs.area_of_everyone() == (2.5, 1)
+
+
+def test_listed_jobs_say_whose(public, people, tmp_path):
+    """/api/jobs gives each job `own` by own_job's rule (edit, run again, remove): a user's list all own; an
+    administrator's list (every job) own only for their own and those from before the accounts, so the page offers
+    Remove… on those only."""
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = people["ids"]
+    mine, theirs, old = jobs.add(request, "Admin's", ids["admin"]), jobs.add(request, "A's", ids["a"]), \
+        jobs.add(request, "from before the accounts")
+    own = lambda who: {j["id"]: j["own"] for j in people[who].get("/api/jobs").json()["jobs"]}  # noqa: E731
+    assert own("admin") == {mine: True, theirs: False, old: True}
+    assert own("a") == {theirs: True}
+
+
+def test_two_removals_at_once(public, people, tmp_path, monkeypatch):
+    """Two removals of one cancelled job at the same moment (both read it not removed yet): one writes the mark and
+    the audit row, the other answers ok and records nothing."""
+    import audit
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}, "A's", people["ids"]["a"])
+    assert jobs.request_cancel(job)
+    read = Jobs.get
+    monkeypatch.setattr(Jobs, "get", lambda self, job_id: {**read(self, job_id), "removed_at": None})  # read before
+    for _ in range(2):
+        assert people["a"].post(f"/api/jobs/{job}/remove").json() == {"ok": True}
+    assert read(jobs, job)["removed_at"]
+    assert [e["target"] for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "job_remove"] == [job]
+
+
 FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "over": False, "water": 0.0,
              "filled": 0.0, "hmax": 15.0, "hmean": 9.5, "highPct": 0.0, "angle1": 12.0, "angle2": None,
              "prom1": 3.0, "prom2": None, "drop1": 30.0, "drop2": None}
@@ -1711,6 +1799,13 @@ def test_privacy_and_about_pages(run_people):
         "leash fall space, pretension, webbing stretch and weight, athlete mass); at most 10. Why: to fill your "
         "searches with them. Kept until you delete them.") + "</dd>" in text
     assert "rigs saved, changed and deleted (not their names or values)" in text
+    # a removed search (the user's approved wording, 2026-11-17)
+    assert web.html.escape(
+        "the search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+        "marked removed with the time. A removed search still counts toward your searches of the day, the area "
+        "searched and the site's statistics, and administrators can still see it.") in text
+    assert "searches started, cancelled and removed" in text
+    assert "stays in your queue" not in text and "searches started and cancelled" not in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
@@ -2019,6 +2114,46 @@ RIG = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass"
        "end_zone": 5.0, "anchor_lift": 0.0}  # the Basic form's starting rig
 
 
+def test_jobs_database_gets_removed_column(tmp_path):
+    """jobs.sqlite of version 18 gets migration 19: the column removed_at, NULL for every job (nothing else is
+    written). A finished job whose run is gone (no run.json in runs/) is told at listing: the owner's list leaves
+    it out, everyone's marks it run_gone; its run folder away and back brings it back; a job whose run is there,
+    a cancelled, a failed one (its run_id as it may be) and one without a run are listed as they are."""
+    import shutil
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:18])
+    rows = [("kept", "done", "here"), ("gone", "done", "deleted"), ("cancelled", "cancelled", None),
+            ("failed", "failed", "deleted"), ("norun", "done", None)]
+    for job_id, status, run_id in rows:
+        db.execute("INSERT INTO jobs (id, created, status, request, title, run_id, user_id) "
+                   "VALUES (?, '', ?, '{}', ?, ?, 3)", (job_id, status, job_id, run_id))
+    db.commit()
+    db.close()
+    (tmp_path / "runs" / "here").mkdir(parents=True)
+    (tmp_path / "runs" / "here" / "run.json").write_text("{}")
+    (tmp_path / "runs" / "deleted").mkdir()  # a folder without run.json is no run
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 19
+    assert db.execute("SELECT COUNT(*) FROM jobs WHERE removed_at IS NOT NULL").fetchone()[0] == 0
+    db.close()
+    marks = lambda: {j["id"]: (bool(j["removed_at"]), j["run_gone"]) for j in jobs.all()}  # noqa: E731
+    assert marks() == {"kept": (False, False), "gone": (False, True), "cancelled": (False, False),
+                       "failed": (False, False), "norun": (False, False)}
+    assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"}
+
+    # the run's folder away (moved, half copied) and back: its job leaves the owner's list and comes back
+    shutil.move(tmp_path / "runs" / "here", tmp_path / "aside")
+    assert {j["id"] for j in jobs.all(3)} == {"cancelled", "failed", "norun"} and marks()["kept"] == (False, True)
+    shutil.move(tmp_path / "aside", tmp_path / "runs" / "here")
+    assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"} and marks()["kept"] == (False,
+                                                                                                         False)
+
+
 def test_jobs_database_gets_rigs(tmp_path):
     """jobs.sqlite of version 17 gets the table of saved rigs (migration 18, an empty table); its jobs,
     runs, favourites and folders stay. A rig's name is once per user compared casefolded (the local
@@ -2039,7 +2174,7 @@ def test_jobs_database_gets_rigs(tmp_path):
     db.close()
     jobs = jb.Jobs(str(tmp_path))
     db = sqlite3.connect(tmp_path / "jobs.sqlite")
-    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 18
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 18
     assert db.execute("SELECT COUNT(*) FROM rigs").fetchone()[0] == 0
     db.close()
     assert [(j["id"], j["title"], j["user_id"]) for j in jobs.all()] == [("old", "Old", 3)]
@@ -2901,8 +3036,10 @@ def test_web_process_keeps_off_the_workers_files(tmp_path, settings, account_set
             "h = {'x-findaline-token': 't'}\n"
             "c.get('/api/schema'); c.get('/api/runs'); c.post('/api/estimate', json={'params': {'lat': 50, 'lon': 19}}, "
             "headers=h)\n"
-            "c.post('/api/jobs', json={'params': {}, 'geometry': {'type': 'Polygon', 'coordinates': "
-            "[[[19, 50], [19.01, 50], [19.01, 50.01], [19, 50]]]}}, headers=h)\n"
+            "j = c.post('/api/jobs', json={'params': {}, 'geometry': {'type': 'Polygon', 'coordinates': "
+            "[[[19, 50], [19.01, 50], [19.01, 50.01], [19, 50]]]}}, headers=h).json()['id']\n"
+            "assert c.delete(f'/api/jobs/{j}', headers=h).status_code == 200\n"  # cancelled, then removed
+            "assert c.post(f'/api/jobs/{j}/remove', headers=h).status_code == 200\n"
             "print(json.dumps(sorted(m for m in sys.modules if m.split('.')[0] in ('numba', 'linesearch', 'search'))))")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr

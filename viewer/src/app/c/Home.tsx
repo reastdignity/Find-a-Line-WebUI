@@ -9,8 +9,8 @@ import { LinkField, Popover } from "../../result/view";
 import { forgetRun } from "../../result/load";
 import { canReport, openReport } from "../../report";
 import { UsageMeters, type UsageState } from "../../search";
-import { api, jobError, user, type RunListed } from "../api";
-import { errorText } from "../../i18n";
+import { api, jobError, user, type Job, type RunListed, type Usage } from "../api";
+import { errorText, t } from "../../i18n";
 import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJobs";
 import { editHash, runHash } from "./route";
 import { Thumb, ThumbCredit, type ThumbSource } from "./Thumb";
@@ -34,12 +34,13 @@ export interface Card {
   created: string;
 }
 
-/** The jobs and the user's own runs as cards, newest first. */
+/** The jobs and the user's own runs as cards, newest first; no card for a job its owner removed or whose run is
+ *  gone (an administrator's list, and the local app's, still has those). */
 export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean): Card[] {
   const own = runs.filter((r) => r.own || !publicSite);
   const byId = new Map(own.map((r) => [r.id, r]));
   const used = new Set<string>();
-  const cards: Card[] = jobs.map((job) => {
+  const cards: Card[] = jobs.filter((job) => !job.removed_at && !job.run_gone).map((job) => {
     const run = job.run_id ? byId.get(job.run_id) : undefined;
     if (run) used.add(run.id);
     return {key: "job:" + job.id, job, run, created: run?.created || job.created};
@@ -55,16 +56,19 @@ export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean)
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-type CardState = {status: "running" | "waiting" | "done" | "failed" | "shared"; chip: string; meta: string;
-                  fraction: number | null; step: string; unfinished: boolean};
+type CardState = {status: "running" | "waiting" | "done" | "failed" | "cancelled" | "shared"; chip: string;
+                  meta: string; fraction: number | null; step: string; unfinished: boolean};
 
 function stateOf(card: Card): CardState {
   const {job, run} = card;
   if (job && job.status !== "done") {
     const p = jobProgress(job);
+    if (p.state === "cancelled") {  // the user's own act: a quiet state, not a failure; the chip says it (no meta)
+      return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: "", fraction: null, step: ""};
+    }
     if (p.state === "failed") {
-      return {status: "failed", chip: job.status === "cancelled" ? "cancelled" : "failed", unfinished: false,
-              meta: jobError(job) || (job.status === "cancelled" ? "Cancelled" : "Failed"), fraction: null, step: ""};
+      return {status: "failed", chip: "failed", unfinished: false, meta: jobError(job) || "Failed", fraction: null,
+              step: ""};
     }
     const pct = p.fraction === null ? "" : ` · ${Math.round(p.fraction * 100)}%`;
     return {status: p.state === "running" ? "running" : "waiting", unfinished: true,
@@ -79,6 +83,15 @@ function stateOf(card: Card): CardState {
   }
   return {status: "done", chip: "done", meta: job?.run_id ? "Saved" : "Finished", fraction: null, step: "",
           unfinished: false};
+}
+
+/** Whether a removed search still counts toward the user's daily limit of searches, so Remove…'s question may say
+ *  so: only when it is known true. The user has such a limit (the usage loaded and its jobs_day limit set: not on the
+ *  local app, whose limits never count its searches, nor for administrators and accounts without limits), and the
+ *  search started within the day's window (the usage's hours, jobs.DAY) by the page's clock now. */
+export function countsToday(job: Job, usage: Usage | null, now = Date.now()): boolean {
+  if (user.local || !usage || usage.usage.jobs_day.limit === null) return false;
+  return now - timeOf(job.created) < usage.hours * 3600e3;
 }
 
 function thumbOf(card: Card): ThumbSource {
@@ -99,24 +112,30 @@ export function menuKeys(e: KeyboardEvent) {
   items[to].focus();
 }
 
-function SearchCard({card, runs, jobs, publicSite, highlight}:
-                    {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean}) {
+function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
+                    {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean;
+                     usage: Usage | null; onGone(listed: Promise<boolean>): void}) {
   const {job, run} = card;
   const st = stateOf(card);
-  const [panel, setPanel] = useState<"" | "share" | "delete">("");
+  const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
+  const [counts, setCounts] = useState(false);  // Remove…'s question says the search still counts (countsToday)
   const [menu, setMenu] = useState(false);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const ref = useRef<HTMLElement>(null);
   useEffect(() => { if (highlight) ref.current?.scrollIntoView?.({block: "nearest"}); }, [highlight]);
-  // A panel opened from the menu takes the focus (the safe choice of a confirmation); closed, the focus
-  // goes back to the menu's button
+  // A panel opened from the menu takes the focus (the safe choice of a confirmation) and is scrolled into view
+  // whole (its scroll-margin keeps it above the phones' bottom bar, which lies over the scrolling page); closed,
+  // the focus goes back to the menu's button
   const hadPanel = useRef(false);
   useEffect(() => {
     const card = ref.current;
     if (!card) return;
-    if (panel) card.querySelector<HTMLElement>(".c-card-panel .c-panel-first")?.focus();
-    else if (hadPanel.current) card.querySelector<HTMLElement>(".c-card-menu")?.focus();
+    if (panel) {
+      const box = card.querySelector<HTMLElement>(".c-card-panel");
+      box?.querySelector<HTMLElement>(".c-panel-first")?.focus({preventScroll: true});
+      box?.scrollIntoView?.({block: "nearest"});
+    } else if (hadPanel.current) card.querySelector<HTMLElement>(".c-card-menu")?.focus();
     hadPanel.current = !!panel;
   }, [panel]);
   const panelKeys = (e: KeyboardEvent) => {
@@ -131,9 +150,14 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
                                               (e) => setError(e.message));
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
-  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null); },
+  // The job that saved the run is then listed as one whose run is gone: listed again, its card goes with the run
+  // (onGone with the listing: Home moves the focus on once the card is gone, and forgets it if the listing fails)
+  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
+                                                           onGone(jobs.refresh()); },
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
+  const removeJob = () => api.removeJob(job!.id).then(() => onGone(jobs.refresh()), (e) => setError(e.message));
+  const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
     open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />Open the result</a>,
     job && <a key="edit" role="menuitem" class="c-menu-item" href={editHash(job.id)}><Icon name="edit" />Edit &amp; run again</a>,
@@ -146,11 +170,14 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
       <Icon name="warn" />Report a problem…</button>,
     canDelete && <button key="delete" type="button" role="menuitem" class="c-menu-item c-danger" onClick={act(() => setPanel("delete"))}>
       <Icon name="close" />Delete…</button>,
+    canRemove && <button key="remove" type="button" role="menuitem" class="c-menu-item"
+                         onClick={act(() => { setCounts(countsToday(job!, usage)); setPanel("remove"); })}>
+      <Icon name="close" />{t("ui.card.remove")}</button>,
   ].filter(Boolean);
 
   const body = <>
     <span class="c-card-name">{name}</span>
-    <span class="u-small c-card-meta">{st.meta}{!st.unfinished && ` · ${when(card.created)}`}</span>
+    <span class="u-small c-card-meta">{[st.meta, !st.unfinished && when(card.created)].filter(Boolean).join(" · ")}</span>
   </>;
   return <article ref={ref} class={`c-card${highlight ? " c-card-new" : ""}`} data-job={job?.id} data-run={run?.id}
                   data-status={st.status}>
@@ -169,26 +196,37 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
       </div>
       {open ? <a class="c-card-open" href={open}>{body}</a> : <div class="c-card-open">{body}</div>}
       {st.unfinished && <Progress value={st.status === "running" ? st.fraction : null} label={st.step || undefined} />}
-      {panel === "share" && run && <div class="c-card-panel" role="dialog" aria-label="Share the run" onKeyDown={panelKeys}>
-        <span class="u-small">A link opens this run's map for anyone who has it. It is shown once: copy it now.</span>
-        {url && <LinkField text={url} />}
-        <div class="u-row">
-          <Button kind={run.shared ? "default" : "primary"} icon="link" class="c-panel-first" onClick={share}>
-            {run.shared ? "New link" : "Make a link"}</Button>
-          {run.shared && <Button kind="danger" onClick={unshare}>Stop sharing</Button>}
-          <Button kind="ghost" onClick={() => { setPanel(""); setUrl(""); }}>Close</Button>
-        </div>
-      </div>}
-      {panel === "delete" && run && <div class="c-card-panel c-confirm" role="alertdialog" aria-label="Delete the run"
-                                         onKeyDown={panelKeys}>
-        <span>Delete “{run.name}” and its files? This cannot be undone.</span>
-        <div class="u-row">
-          <Button kind="danger" class="c-confirm-delete" onClick={remove}>Delete</Button>
-          <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
-        </div>
-      </div>}
       {error && <p class="c-error u-small" role="alert">{error}</p>}
     </div>
+    {/* The panels under the thumbnail and the body, not in the body: on phones (a row) the card grows below
+        its mini map, which keeps its size and zoom */}
+    {panel === "share" && run && <div class="c-card-panel" role="dialog" aria-label="Share the run" onKeyDown={panelKeys}>
+      <span class="u-small">A link opens this run's map for anyone who has it. It is shown once: copy it now.</span>
+      {url && <LinkField text={url} />}
+      <div class="u-row">
+        <Button kind={run.shared ? "default" : "primary"} icon="link" class="c-panel-first" onClick={share}>
+          {run.shared ? "New link" : "Make a link"}</Button>
+        {run.shared && <Button kind="danger" onClick={unshare}>Stop sharing</Button>}
+        <Button kind="ghost" onClick={() => { setPanel(""); setUrl(""); }}>Close</Button>
+      </div>
+    </div>}
+    {panel === "delete" && run && <div class="c-card-panel c-confirm" role="alertdialog" aria-label="Delete the run"
+                                       onKeyDown={panelKeys}>
+      <span>Delete “{run.name}” and its files? This cannot be undone.</span>
+      <div class="u-row">
+        <Button kind="danger" class="c-confirm-delete" onClick={remove}>Delete</Button>
+        <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
+      </div>
+    </div>}
+    {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
+    {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
+                                       aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
+      <span>{t("ui.card.remove_ask", {name})}{counts && ` ${t("ui.card.remove_counts")}`}</span>
+      <div class="u-row">
+        <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
+        <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
+      </div>
+    </div>}
   </article>;
 }
 
@@ -210,6 +248,26 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
   const running = cards.filter((c) => stateOf(c).unfinished);
   const shared = cards.filter((c) => c.run?.shared);
   const shown = show === "running" ? running : show === "shared" ? shared : cards;
+  // A card removed or deleted takes the focus with it: once it is gone, the focus goes to the card that took its
+  // place (the last one if it was last), or to "Your searches" when none is left
+  const list = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const going = useRef<{key: string; at: number} | null>(null);
+  const gone = (key: string, at: number, listed: Promise<boolean>) => {
+    const mark = {key, at};
+    going.current = mark;
+    listed.then((ok) => { if (!ok && going.current === mark) going.current = null; });  // never a late jump
+  };
+  useEffect(() => { going.current = null; }, [show]);  // another filter: the card left the view, not the list
+  useEffect(() => {
+    const pending = going.current;
+    if (!pending || shown.some((c) => c.key === pending.key)) return;
+    going.current = null;
+    const left = Array.from(list.current?.querySelectorAll<HTMLElement>(":scope > .c-card") ?? []);
+    const next = left[Math.min(pending.at, left.length - 1)];
+    (next ? next.querySelector<HTMLElement>("a.c-card-open") ?? next.querySelector<HTMLElement>(".c-card-menu")
+      : heading.current)?.focus();
+  });
   const example = runs.public ? listed.find((r) => r.demo && r.has_map)
     : listed.filter((r) => r.has_map).sort((a, b) => timeOf(b.created) - timeOf(a.created))[0];
 
@@ -232,7 +290,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         </a>}
       </div>
       <div class="c-section-head">
-        <h1 class="u-h">Your searches</h1>
+        <h1 class="u-h" ref={heading} tabIndex={-1}>Your searches</h1>
         <span class="u-small">{cards.length}</span>
         <span class="u-grow" />
         {wide ? <Chips>
@@ -247,9 +305,10 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
       {runs.runs === null ? <p class="u-small">Loading…</p> : shown.length === 0
         ? <p class="u-small c-empty">{show === "all" ? "No searches yet: start one with New search." :
             show === "running" ? "Nothing is running." : "No shared runs."}</p>
-        : <div class="c-cards">{shown.map((c) =>
-            <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
-                        highlight={!!highlight && c.job?.id === highlight} />)}</div>}
+        : <div class="c-cards" ref={list}>{shown.map((c, at) =>
+            <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public} usage={usage.usage}
+                        highlight={!!highlight && c.job?.id === highlight}
+                        onGone={(listed) => gone(c.key, at, listed)} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
       {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>

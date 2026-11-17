@@ -3,7 +3,7 @@
 // state as one step, one bar and one label, for the cards of the searches.
 // (Named useJobs.ts, not jobs.ts: on Windows "./Jobs" would resolve to jobs.ts.)
 
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { api, subscribe, type Job, type JobEvent } from "./api";
 import { beingSaved, FINISHED } from "./jobStatus";
 
@@ -74,8 +74,8 @@ export interface JobsState {
   worker: boolean;     // whether a worker runs the searches
   error: string;
   active: number;      // jobs waiting or running
-  /** Lists the jobs again (e.g. after starting one, when the event stream may lag). */
-  refresh(): Promise<void>;
+  /** Lists the jobs again (e.g. after starting one, when the event stream may lag); whether it could. */
+  refresh(): Promise<boolean>;
 }
 
 /** The user's jobs, kept up to date by the event stream. */
@@ -84,6 +84,18 @@ export function useJobs(): JobsState {
   const [worker, setWorker] = useState(true);
   const [error, setError] = useState("");
 
+  const refresh = useCallback(() => api.jobs().then(({jobs: listed, worker: alive}) => {
+    setJobs((current) => merge(current, listed));
+    setWorker(alive);
+    return true;
+  }, (e) => { setError(e.message); return false; }), []);
+
+  // A status event of a job the list does not hold (started in another tab) brings it without what only the
+  // listing says (`own`): the list is asked for once more, at most one such listing at a time
+  const known = useRef(new Set<string>());
+  const asking = useRef(false);
+  useEffect(() => { known.current = new Set(jobs.map((j) => j.id)); }, [jobs]);
+
   useEffect(() => {
     let stop = () => {};
     let closed = false;
@@ -91,22 +103,26 @@ export function useJobs(): JobsState {
       if (closed) return;
       setJobs(listed.map(fresh));
       setWorker(alive);
-      stop = subscribe(seq, (event) => setJobs((current) => applyEvent(current, event)), setWorker);
+      stop = subscribe(seq, (event) => {
+        setJobs((current) => applyEvent(current, event));
+        if (event.kind === "status" && !known.current.has(event.job)) {
+          known.current.add(event.job);
+          if (!asking.current) {
+            asking.current = true;
+            refresh().finally(() => { asking.current = false; });
+          }
+        }
+      }, setWorker);
     }, (e) => setError(e.message));
     return () => { closed = true; stop(); };
   }, []);
-
-  const refresh = useCallback(() => api.jobs().then(({jobs: listed, worker: alive}) => {
-    setJobs((current) => merge(current, listed));
-    setWorker(alive);
-  }, (e) => setError(e.message)), []);
 
   const active = jobs.filter((j) => !FINISHED.includes(j.status)).length;
   return {jobs, worker, error, active, refresh};
 }
 
 export interface JobProgress {
-  state: "running" | "waiting" | "done" | "failed";  // the kit's StatusChip
+  state: "running" | "waiting" | "done" | "failed" | "cancelled";  // the kit's StatusChip
   label: string;           // the status in words
   step: string;            // the current step ("Step 3/5: evaluating anchor pairs", "Tile 2/4 · ..."), or ""
   fraction: number | null; // 0..1 of the whole job; null while unknown
@@ -122,7 +138,7 @@ const share = (bar: Bar | undefined) => !bar ? 0 : bar.total ? Math.min(1, bar.c
  *  tiles, then the search's own steps start theirs. */
 export function jobProgress(job: JobView): JobProgress {
   const finished = FINISHED.includes(job.status);
-  const state = job.status === "done" ? "done" : job.status === "failed" || job.status === "cancelled" ? "failed"
+  const state = job.status === "done" || job.status === "failed" || job.status === "cancelled" ? job.status
     : job.status === "downloading" || job.status === "computing" ? "running" : "waiting";
   let fraction: number | null = null;
   if (job.status === "done") fraction = 1;

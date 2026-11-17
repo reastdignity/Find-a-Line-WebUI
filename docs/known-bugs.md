@@ -319,3 +319,19 @@ pages (checked by the last reviewer against the baseline pass):
   added. The containing-block rule does not look at `will-change`, `perspective`, `backdrop-filter`, `container-type`.
 - **`c-basic-sea` on the desktop** can time out waiting for the search bar's estimate (once in the baseline pass of
   2026-11-17): the state is then "not measured" and the pass exits 1.
+
+## The Cancelled state on Home: known and left (2026-11-17)
+
+Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); none fixed:
+- **An administrator's Home shows other users' searches without their mini maps** (a clock instead): a card's mini
+  map reads `GET /api/jobs/<id>`, which is `own_job` (the owner only), so another user's job answers 404. Older than
+  this change; only administrators see it.
+- **A run gone by hand** (deleted on the server, moved away) takes its search off its owner's list with no "removed"
+  mark and no time (`Jobs.all` tells it at listing: `run_gone`; the admin page says "run deleted"). The privacy page
+  names Remove and Delete…, which mark it; the app removes runs no other way (no retention).
+- **Delete… that fails part way** after `run.json` is gone leaves the job unmarked and the run's row, but no card to
+  try again from (neither `/api/jobs` nor `/api/runs` lists it). Rare (a file held open, on Windows); older.
+- **The Playwright tests of Home** (`test_shell_c_public_remove_and_delete`, `test_shell_c_remove_question_on_phones`)
+  skip in CI, which installs only `--group tui`.
+- `tests/test_web.py::test_basic_form_on_a_phone` failed once in a parallel run of the affected files and passed
+  alone on the same tree; run it alone before calling a failure of it a regression.

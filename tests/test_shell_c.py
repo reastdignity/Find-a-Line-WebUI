@@ -1718,6 +1718,428 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
         assert found["under"] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, (name, found)
 
 
+CANCELLED_SCRIPT = """
+const J = %(jobs)s;
+const chip = (id) => card("job", id).querySelector(".u-st");
+const menuItems = (id) => $$(`.c-card[data-job="${id}"] .c-menu-item`).map((m) => m.textContent.trim());
+const item = (id, label) => $$(`.c-card[data-job="${id}"] .c-menu-item`).find((m) => m.textContent.trim() === label);
+const openMenu = (id, then) => { card("job", id).querySelector(".c-card-menu").click(); wait(() => menuItems(id).length, then); };
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+run({
+  home(next) { wait(() => card("job", J.waiting) && card("job", J.running) && card("job", J.failed), () => {
+    const of = (id) => ({status: card("job", id).dataset.status, chip: text(`.c-card[data-job="${id}"] .u-st`),
+                         chipClass: chip(id).className, meta: text(`.c-card[data-job="${id}"] .c-card-meta`),
+                         colour: getComputedStyle(chip(id)).color, background: getComputedStyle(chip(id)).backgroundColor});
+    result.cards = {waiting: of(J.waiting), running: of(J.running), failed: of(J.failed)};
+    result.gone = [!!card("job", J.removed), !!card("job", J.deleted)];
+    next();
+  }); },
+  failedMenu(next) { openMenu(J.failed, () => {
+    result.failedMenu = menuItems(J.failed);
+    card("job", J.failed).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.failed).length, next);
+  }); },
+  oldAsk(next) { openMenu(J.old, () => {
+    item(J.old, "Remove…").click();
+    wait(() => $(`.c-card[data-job="${J.old}"] .c-remove-ask`), () => {
+      result.oldAsk = text(`.c-card[data-job="${J.old}"] .c-remove-ask span`);
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !$(".c-remove-ask"), next);
+    });
+  }); },
+  othersMenu(next) { openMenu(J.others, () => {  // another user's cancelled search: not this user's to remove
+    result.othersMenu = [card("job", J.others).dataset.status, menuItems(J.others)];
+    card("job", J.others).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.others).length, next);
+  }); },
+  keepIt(next) { openMenu(J.waiting, () => {
+    result.waitingMenu = menuItems(J.waiting);
+    const remove = item(J.waiting, "Remove…");
+    result.itemTag = [remove.tagName, remove.getAttribute("role")];
+    remove.focus();
+    remove.click();
+    const ask = () => $(".c-remove-ask");
+    wait(() => ask() && document.activeElement && document.activeElement.closest(".c-remove-ask"), () => {
+      result.ask = [text(".c-remove-ask span"), ask().getAttribute("role"), ask().getAttribute("aria-label"),
+                    document.activeElement.textContent.trim(), $$(".c-remove-ask button").map((b) => b.textContent.trim())];
+      // the panel's own grey, not Delete…'s (the failure's) red
+      result.askBackground = [getComputedStyle(ask()).backgroundColor, getComputedStyle(chip(J.failed)).backgroundColor];
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !ask(), () => { result.kept = !!card("job", J.waiting); next(); });
+    });
+  }); },
+  remove(next) { openMenu(J.waiting, () => {
+    result.order = $$(".c-cards > .c-card").map((c) => c.dataset.job || c.dataset.run);
+    item(J.waiting, "Remove…").click();
+    wait(() => $(".c-confirm-remove"), () => {
+      $(".c-confirm-remove").click();
+      // the card goes, and the focus to the card that took its place (not the page's start)
+      wait(() => !card("job", J.waiting) && document.activeElement.closest(".c-card"), () => {
+        result.focusAfter = document.activeElement.closest(".c-card").dataset.job;
+        fetch("/api/jobs").then((r) => r.json()).then((body) => {
+          result.removed = body.jobs.filter((j) => j.removed_at).map((j) => j.id).sort();
+          result.runGone = body.jobs.filter((j) => j.run_gone).map((j) => j.id);
+          result.left = [!!card("job", J.running), !!card("job", J.failed)];
+          next();
+        });
+      });
+    });
+  }); },
+  // a search started and cancelled in another tab: the page learns of it by its status event alone (no `own`),
+  // lists the jobs once more and offers Remove… on it
+  fromEvent(next) {
+    const headers = {"content-type": "application/json",
+                     "x-findaline-token": $("meta[name=findaline-token]").content};
+    let listed = 0;  // the page's listings of the jobs from now on
+    const pageFetch = window.fetch;
+    window.fetch = (url, init) => pageFetch(url, init).then((answer) => {
+      if (/\\/api\\/jobs$/.test(String(url)) && !(init && init.method && init.method !== "GET")) listed++;
+      return answer;
+    });
+    fetch("/api/jobs", {method: "POST", headers, body: JSON.stringify(
+      {params: {name: "Another tab", radius: 300}, geometry: {type: "Point", coordinates: [14.2, 36.0]}})})
+      .then((r) => r.json()).then(({id}) => fetch("/api/jobs/" + id, {method: "DELETE", headers}).then(() => {
+        pushEvent({seq: 9000001, job: id, kind: "status", data: {status: "cancelled", title: "Another tab",
+                                                                   created: new Date().toISOString()}});
+        wait(() => card("job", id) && listed > 0, () => openMenu(id, () => {
+          result.fromEvent = menuItems(id);
+          next();
+        }));
+      }));
+  },
+});
+"""
+
+# The admin page is the public site's: the page told its user is an administrator (the server's admin endpoints
+# answer the local app with errors, which the page shows; its list of searches is the jobs' list)
+ADMIN_STUBS = C_STUBS + """
+const meta = document.querySelector("meta[name=findaline-user]") || document.head.appendChild(document.createElement("meta"));
+meta.name = "findaline-user";
+meta.content = JSON.stringify({name: "Admin", provider: "github", status: "approved", admin: true});
+"""
+
+ADMIN_SCRIPT = """
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+// a removed search's mark: the status chip's component (.u-st) at the status chip's own size, or null without a mark
+const sameChip = (row) => { const mark = row.querySelector(".c-admin-removed .u-st"), status = row.querySelector(".u-st");
+  return mark ? getComputedStyle(mark).fontSize === getComputedStyle(status).fontSize : null; };
+run({
+  admin(next) {
+    location.hash = "#admin";
+    wait(() => $$(".c-admin-job").length >= 5, () => {
+      result.admin = $$(".c-admin-job").map((row) => [inside(row, "b"), inside(row, ".u-st"),
+                                                      row.querySelector(".u-st").className, inside(row, ".c-admin-removed"),
+                                                      sameChip(row)]);
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_cancelled_search(tmp_path):
+    """Home: a search cancelled while waiting and one cancelled while running show the quiet state "cancelled" (the
+    grey of a waiting search, not the failure's colour or warn mark; the word as text), a failed one stays a failure;
+    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too; not on another user's
+    card), which asks first in the panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and
+    removes the card; a removed search and one whose run was deleted (or is gone by hand) show no card;
+    the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
+    import re
+
+    import cache
+    from jobs import Jobs
+    DATE = r"\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}"  # time.ts when(): "17 Nov 2026, 09:12"
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = {name: jobs.add(request, title) for name, title in (
+        ("failed", "Failed search"), ("deleted", "Saved search"), ("removed", "Removed search"),
+        ("running", "Cancelled while running"), ("waiting", "Cancelled while waiting"))}
+    ids["others"] = jobs.add(request, "Another user's search", 7)  # listed to the local app's administrator, not own
+    assert jobs.request_cancel(ids["others"])
+    ids["old"] = jobs.add(request, "Cancelled two days ago")
+    assert jobs.request_cancel(ids["old"])
+    with jobs._db() as db:  # started two days ago: the question's words the same
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), ids["old"]))
+    gone = "2026-11-01_100000_Gone_0000000000000001"
+    jobs.set(ids["failed"], "failed", error="the server stopped")
+    jobs.set(ids["deleted"], "done", run_id=gone)  # its run deleted by hand (no folder): gone, not marked
+    assert jobs.request_cancel(ids["removed"]) and jobs.remove(ids["removed"])
+    jobs.set(ids["running"], "computing")
+    jobs.set(ids["running"], "cancelled", when=("computing",))  # as the worker does after cancel_requested
+    assert jobs.request_cancel(ids["waiting"])
+    page = stub_page(data, "ccancelled", CANCELLED_SCRIPT % {"jobs": json.dumps(ids)})
+    admin_page = stub_page(data, "ccancelled-admin", ADMIN_SCRIPT, ADMIN_STUBS)
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c", tmp_path / "edge-cancelled")
+        r_admin = _edge(port, admin_page + "?ui=c", tmp_path / "edge-cancelled-admin")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert "timeout" not in r_admin and "error" not in r_admin, json.dumps(r_admin)
+    r["admin"] = r_admin["admin"]
+    for name in ("waiting", "running"):
+        found = r["cards"][name]
+        assert found["status"] == "cancelled" and found["chip"] == "cancelled", r
+        assert re.fullmatch(DATE, found["meta"]), r  # the chip says "cancelled" once: under the name the date only
+        assert "u-cancelled" in found["chipClass"] and "u-failed" not in found["chipClass"], r
+        assert (found["colour"], found["background"]) != (r["cards"]["failed"]["colour"],
+                                                         r["cards"]["failed"]["background"]), r
+    failed = r["cards"]["failed"]
+    assert failed["status"] == "failed" and failed["chip"] == "failed" and "u-failed" in failed["chipClass"], r
+    assert re.fullmatch("the server stopped · " + DATE, failed["meta"]), r
+    assert r["gone"] == [False, False], r
+    assert r["failedMenu"] == ["Edit & run again"], r
+    assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
+    assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
+    # the user's words (2026-11-17); the local app has no daily limit of searches: never "It still counts ..."
+    asked = "Remove “{}” from your searches? It was cancelled, so it has no result."
+    assert r["ask"] == [asked.format("Cancelled while waiting"), "alertdialog", "Remove the search", "Keep it",
+                        ["Remove", "Keep it"]], r
+    assert r["oldAsk"] == asked.format("Cancelled two days ago"), r
+    assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
+    assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
+    order = r["order"]  # the cards before the removal (created in one second: their order is the server's)
+    at = order.index(ids["waiting"])
+    took = order[at + 1] if at + 1 < len(order) else order[at - 1]
+    assert r["left"] == [True, True] and r["focusAfter"] == took, r  # the card that took its place
+    assert r["fromEvent"] == ["Edit & run again", "Remove…"], r  # listed again once: own known
+    admin = {row[0]: row for row in r["admin"]}
+    assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
+    assert [row[4] for row in r["admin"] if row[3]] == [True, True, True], r  # the marks: status chips, same size
+    assert "u-cancelled" in admin["Removed search"][2] and admin["Cancelled while waiting"][3] == "removed", r
+    assert admin["Saved search"][3] == "run deleted" and admin["Failed search"][3] == "", r
+    assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
+    assert "u-failed" in admin["Failed search"][2], r
+    assert r["csp"] == [] and r_admin["csp"] == []
+
+
+# The open question of a card: its box (buttons included), the visible band of the page between the top bar and the
+# bottom bar, and whether the focus is in the question
+QUESTION_JS = """(job) => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const ask = document.querySelector(`.c-card[data-job="${job}"] .c-remove-ask`);
+  return {ask: box(ask), buttons: [...ask.querySelectorAll("button")].map(box),
+          top: document.querySelector(".c-top").getBoundingClientRect().bottom,
+          bottom: document.querySelector(".u-bnav").getBoundingClientRect().top,
+          focused: ask.contains(document.activeElement) ? document.activeElement.textContent.trim() : null};
+}"""
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
+@pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
+def test_shell_c_remove_question_on_phones(tmp_path, device, engine):
+    """On both phones (Playwright's profiles: WebKit's iPhone, Chromium's Pixel) Remove…'s question of a cancelled
+    card at the end of a long list opens wholly in view, its buttons (the focused "Keep it" among them) between the
+    top bar and the bottom bar, and the card's mini map keeps its size (the question takes a row of its own)."""
+    from playwright.sync_api import sync_playwright
+
+    from jobs import Jobs
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    for k in range(3):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    target = jobs.add(request, "Cancelled")  # a card in the middle of the list
+    assert jobs.request_cancel(target)
+    for k in range(3, 6):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    page_path = stub_page(data, "cphones")
+    with _server(data) as port, sync_playwright() as p:
+        kind = getattr(p, engine)
+        if not os.path.exists(kind.executable_path):
+            pytest.skip(f"Playwright's {engine} is not installed")
+        browser = kind.launch()
+        try:
+            page = browser.new_context(**p.devices[device]).new_page()
+            page.goto(f"http://127.0.0.1:{port}/{page_path}?ui=c")
+            card = page.locator(f'.c-card[data-job="{target}"]')
+            card.wait_for(timeout=30000)
+            # the card's foot just above the bottom bar (as a card low on the screen is), its menu and its item
+            # pressed where they are (no scrolling by the test)
+            page.evaluate("""(job) => { const card = document.querySelector(`.c-card[data-job="${job}"]`);
+              const bar = document.querySelector(".u-bnav").getBoundingClientRect().top;
+              document.querySelector(".c-main").scrollTop += card.getBoundingClientRect().bottom - (bar - 8);
+              card.querySelector(".c-card-menu").click(); }""", target)
+            page.wait_for_selector(f'.c-card[data-job="{target}"] .c-menu-item', timeout=30000)
+            thumb = card.locator(".c-card-thumb").bounding_box()
+            page.evaluate("""(job) => [...document.querySelectorAll(`.c-card[data-job="${job}"] .c-menu-item`)]
+              .find((m) => m.textContent.trim() === "Remove…").click()""", target)
+            page.wait_for_function("(job) => document.querySelector(`.c-card[data-job=\"${job}\"] .c-remove-ask`)"
+                                   "?.contains(document.activeElement)", arg=target, timeout=30000)
+            found = page.evaluate(QUESTION_JS, target)
+            after = card.locator(".c-card-thumb").bounding_box()
+        finally:
+            browser.close()
+    assert found["focused"] == "Keep it", found
+    for left, top, right, bottom in [found["ask"], *found["buttons"]]:
+        assert found["top"] <= top and bottom <= found["bottom"], found  # under the top bar, above the bottom bar
+    assert (round(after["width"]), round(after["height"])) == (round(thumb["width"]), round(thumb["height"])), \
+        (thumb, after)
+
+
+# What has the focus: the card it is in (its job or run) or the heading's text
+FOCUS_JS = """() => { const e = document.activeElement, card = e && e.closest(".c-card");
+  return card ? {card: card.dataset.job || card.dataset.run} : {heading: e && e.matches("h1") ? e.textContent : null}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
+    """The public site in Playwright's Edge, signed in through a fake GitHub. An administrator's Home lists every
+    user's searches: Remove… on their own cancelled card, not on another user's. A user's "Delete…" of a run their
+    search made takes the search's card away without a reload, and the focus goes to the card that took its place;
+    removing the last card puts the focus on "Your searches". Remove…'s question says "It still counts toward your
+    daily limit of searches." only when true: to a user with the site's limits for a search of today, not for one
+    two days old, nor to an administrator (no daily limit)."""
+    import socket
+    import threading
+
+    import uvicorn
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    from playwright.sync_api import sync_playwright
+
+    import accounts as ac
+    import cache
+    from jobs import Jobs
+    from settings import AccountSettings, PublicSettings
+    for key, value in ACCOUNTS.items():
+        monkeypatch.setenv(key, value)
+    account_settings = AccountSettings.load()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    providers = FakeProviders(site)
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(clip_run, data, RUN_A, "A's run")
+    a_id, _, _ = session_of(data, account_settings, "a")
+    admin_id, _, _ = session_of(data, account_settings, "admin")
+    jobs = Jobs(str(data))
+    jobs.add_run(RUN_A, a_id, 1)
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    saved = jobs.add(request, "A's saved search", a_id)
+    jobs.set(saved, "done", run_id=RUN_A)
+    a_cancelled = jobs.add(request, "A's cancelled search", a_id)
+    admin_cancelled = jobs.add(request, "Admin's cancelled search", admin_id)
+    a_old = jobs.add(request, "A's old cancelled search", a_id)
+    assert jobs.request_cancel(a_cancelled) and jobs.request_cancel(admin_cancelled) and jobs.request_cancel(a_old)
+    with jobs._db() as db:  # started two days ago: out of the day's window
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), a_old))
+
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
+    signing_in = [{"id": 11, "login": "a"}]
+
+    @app.get("/test-provider/authorize")
+    def authorize(request: Request):  # the provider's page: the user agrees at once
+        return RedirectResponse(providers.authorize(str(request.url), signing_in[0]), 302)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    r = {}
+
+    def menu(page, job: str) -> list:
+        """A card's menu opened, its items. Returned once the focus is in it: the Popover registers its Escape
+        listener in the effect that moves the focus there (after the paint), so an Escape before that is lost and
+        the next press of the button closes the menu again (18 of 20 tries, C:\\fal\\ux3-cancelled\\menu_race.py)."""
+        page.locator(f'.c-card[data-job="{job}"] .c-card-menu').click()
+        items = page.locator(f'.c-card[data-job="{job}"] .c-menu-item')
+        items.first.wait_for(timeout=30000)
+        page.wait_for_function("(job) => !!document.activeElement?.closest(`.c-card[data-job=\"${job}\"] .r-pop`)",
+                               arg=job, timeout=30000)
+        return [t.strip() for t in items.all_text_contents()]
+
+    def close_menu(page, job: str):
+        page.keyboard.press("Escape")
+        page.locator(f'.c-card[data-job="{job}"] .c-menu-item').first.wait_for(state="detached", timeout=30000)
+
+    def asked(page, job: str, remove: bool = False) -> str:
+        """Remove…'s question of a card (its text), then kept ("Keep it") or confirmed."""
+        menu(page, job)
+        page.get_by_role("menuitem", name="Remove…").click()
+        ask = page.locator(f'.c-card[data-job="{job}"] .c-remove-ask')
+        text = ask.locator("span").first.text_content()
+        if remove:
+            page.locator(f'.c-card[data-job="{job}"] .c-confirm-remove').click()
+            page.locator(f'.c-card[data-job="{job}"]').wait_for(state="detached", timeout=30000)
+        else:
+            ask.get_by_role("button", name="Keep it").click()
+            ask.wait_for(state="detached", timeout=30000)
+        return text
+
+    try:
+        deadline = time.monotonic() + 30  # a port taken between the bind's close and uvicorn's: fail, not hang
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "the public site did not start"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                def signed_in(who: dict):
+                    signing_in[0] = who
+                    context = browser.new_context(viewport={"width": 1280, "height": 800})
+                    context.add_init_script(C_STUBS)
+                    page = context.new_page()
+                    page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
+                    page.wait_for_selector(".c-cards", timeout=30000)
+                    page.wait_for_selector(".c-usage", timeout=30000)  # the usage loaded: who has a daily limit
+                    if page.locator("dialog.n-beta[open]").count():  # the beta notice after a sign-in: closed
+                        page.keyboard.press("Escape")
+                        page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
+                    return context, page
+
+                context, page = signed_in({"id": 1, "login": "admin"})
+                page.wait_for_selector(f'.c-card[data-job="{a_cancelled}"]', timeout=30000)
+                r["admin_theirs"] = menu(page, a_cancelled)
+                close_menu(page, a_cancelled)
+                r["admin_own"] = menu(page, admin_cancelled)
+                close_menu(page, admin_cancelled)
+                r["admin_ask"] = asked(page, admin_cancelled)  # an administrator has no daily limit
+                context.close()
+
+                context, page = signed_in({"id": 11, "login": "a"})
+                saved_card = page.locator(f'.c-card[data-job="{saved}"]')
+                saved_card.wait_for(timeout=30000)
+                r["a_ask"] = asked(page, a_cancelled)  # a user with the site's limits, a search of today
+                r["a_old_ask"] = asked(page, a_old, remove=True)  # two days old: it no longer counts
+                r["cards"] = page.eval_on_selector_all(".c-cards > .c-card", "(cs) => cs.map((c) => c.dataset.job)")
+                menu(page, saved)
+                page.get_by_role("menuitem", name="Delete…").click()
+                page.locator(".c-confirm-delete").click()
+                saved_card.wait_for(state="detached", timeout=30000)  # no reload: the job's card goes with its run
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_delete"] = [page.evaluate(FOCUS_JS), page.url]
+                menu(page, a_cancelled)
+                page.get_by_role("menuitem", name="Remove…").click()
+                page.locator(".c-confirm-remove").click()
+                page.locator(".c-card").first.wait_for(state="detached", timeout=30000)
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_remove"] = page.evaluate(FOCUS_JS)
+                context.close()
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(10)
+    assert "Remove…" not in r["admin_theirs"] and "Edit & run again" in r["admin_theirs"], r
+    assert "Remove…" in r["admin_own"], r
+    # "It still counts ..." only when true: a daily limit and a search of the day's window (the user's words)
+    short = "Remove “{}” from your searches? It was cancelled, so it has no result."
+    assert r["a_ask"] == short.format("A's cancelled search") + " It still counts toward your daily limit of searches.", r
+    assert r["a_old_ask"] == short.format("A's old cancelled search"), r
+    assert r["admin_ask"] == short.format("Admin's cancelled search"), r
+    assert sorted(r["cards"]) == sorted([saved, a_cancelled]), r
+    assert r["after_delete"][0] == {"card": a_cancelled} and r["after_delete"][1].endswith("/?ui=c"), r
+    assert r["after_remove"] == {"heading": "Your searches"}, r
+    assert not (data / "runs" / RUN_A).exists() and jobs.get(saved)["status"] == "done"
+
+
 # The phone's sheet: the head's shadow and the boxes of the head and the body
 SHEET_JS = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const head = document.querySelector('.u-sheet .u-sheet-head'), body = document.querySelector('.u-sheet .u-sheet-body');
@@ -1780,7 +2202,9 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
         try:
             page = browser.new_page(**PHONE)
             page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}&line={line}")
-            page.wait_for_selector(".u-sheet .u-sheet-head", timeout=30000)
+            # the head of the address's line (its title), not the run's summary, which the head shows for a render
+            # or two before the line is selected (32 px against the line's 52: a read then failed under load)
+            page.wait_for_selector(".u-sheet .u-sheet-head .r-dtitle", timeout=30000)
             r["top"] = page.evaluate(SHEET_JS)
             page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 120; }")
             page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow !== 'none'",
@@ -1843,4 +2267,3 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
         found = r[name]
         assert found["cut"] == [] and found["chart"] >= 120, (name, found)
         assert not meet(found["card"], found["scale"]) and not meet(found["card"], found["credits"]), (name, found)
-

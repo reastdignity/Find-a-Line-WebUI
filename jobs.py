@@ -13,7 +13,10 @@ The job queue of the web application and its worker.
   of a worker whose lease expired are failed by the next worker that looks (so a
   restart of the web server does not touch the jobs of a separate worker).
 - Cancelling sets jobs.cancel_requested; the worker running the job kills its whole
-  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once.
+  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once. Its
+  owner may then remove it from their list (removed_at, as deleting a run marks the job that
+  saved it); a finished job whose run is gone otherwise (by hand, or away) leaves it too, told
+  at listing (Jobs.all). A removed job's row stays and counts as before.
 - run_phase: a phase in its own process; its stdout becomes "info" events
   (_EventWriter), the progress goes as "progress" events.
 - The public site (`worker --public`, Jobs(public=True)): events, errors and answers pass
@@ -194,6 +197,11 @@ MIGRATIONS = [
     """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
                           name_key TEXT NOT NULL, rig TEXT NOT NULL);
        CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
+    # 19: when a job left its owner's searches (NULL: not removed): Jobs.remove for a cancelled one, Jobs.delete_run
+    # for the jobs of a deleted run; the owner's list leaves it out, an administrator's marks it; the row stays, so it
+    # counts as before (the daily quota, the usage, the statistics). Nothing else is written: a finished job whose run
+    # is gone otherwise is told at listing (Jobs.all)
+    """ALTER TABLE jobs ADD COLUMN removed_at TEXT;""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -686,13 +694,26 @@ class Jobs:
         return {r[0]: r[1] for r in rows}
 
     def all(self, user_id: Optional[int] = None) -> List[Dict]:
-        """The newest jobs, of one user (None: of everyone)."""
-        mine = "" if user_id is None else "WHERE user_id = ? "
+        """The newest jobs, of one user without those they removed and without the finished ones whose run is
+        gone (None: of everyone, an administrator's list, those too: `removed_at`, `run_gone`). A run is gone
+        while its run.json is not in the data folder's runs/ (deleted, by delete_run or by hand, or away): told
+        here at every listing, never stored, so a run that comes back brings its job back (one stat per finished
+        job with a run)."""
+        mine = "" if user_id is None else "WHERE user_id = ? AND removed_at IS NULL "
         with self._db() as db:
-            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id "
+            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id, "
+                              f"removed_at "
                               f"FROM jobs {mine}ORDER BY created DESC LIMIT 200",
                               () if user_id is None else (user_id,)).fetchall()
-        return [_with_info(dict(r)) for r in rows]
+        runs = os.path.join(self.data_dir, "runs")
+        found = []
+        for row in rows:
+            job = _with_info(dict(row))
+            job["run_gone"] = bool(job["status"] == "done" and job["run_id"]
+                                   and not os.path.isfile(os.path.join(runs, job["run_id"], "run.json")))
+            if not (user_id is not None and job["run_gone"]):
+                found.append(job)
+        return found
 
     def waiting_or_running(self) -> List[Dict]:
         """The jobs not finished yet, with their requests."""
@@ -905,14 +926,26 @@ class Jobs:
 
     def delete_run(self, run_id: str, runs_dir: str):
         """Delete a run: its folder, then its row (its share link and demo flag go with it) and the
-        favourite lines of everyone in it. A folder that cannot be deleted raises OSError and keeps its
-        row (or adopt_runs would give it away)."""
+        favourite lines of everyone in it; the jobs that saved it are marked removed with the time (the privacy
+        page says so: their rows stay and count as before; Jobs.all would leave them out of their owner's list
+        anyway, a run gone). A folder that cannot be deleted raises OSError and keeps its row (or adopt_runs would
+        give it away)."""
         folder = os.path.join(runs_dir, run_id)
         if os.path.isdir(folder):
             shutil.rmtree(folder)
         with self._db() as db:
             db.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             db.execute("DELETE FROM favourites WHERE run_id = ?", (run_id,))
+            db.execute("UPDATE jobs SET removed_at = ? WHERE run_id = ? AND removed_at IS NULL",
+                       (cache.now_iso(), run_id))
+
+    def remove(self, job_id: str) -> bool:
+        """Remove a cancelled job from its owner's list (removed_at; the row stays, so it counts toward the
+        daily quota and the statistics as before). Whether this call removed it: False for a job that is not
+        cancelled and for one removed before (a second removal changes nothing; of two at once, one is True)."""
+        with self._db() as db:
+            return bool(db.execute("UPDATE jobs SET removed_at = ? WHERE id = ? AND status = 'cancelled' AND "
+                                   "removed_at IS NULL", (cache.now_iso(), job_id)).rowcount)
 
     # --- Favourite lines (the maps mark them, the app lists them) ---
 

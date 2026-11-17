@@ -10,6 +10,7 @@ import { Button, Panel, Stat, Stats, StatusChip, type Status } from "../../ui/co
 import { api, type AdminReport, type AdminRun, type AdminStatus, type AdminUser, type Job } from "../api";
 import { runHash } from "./route";
 import { day, when } from "../../time";
+import { t } from "../../i18n";
 
 const JOBS_SHOWN = 50;
 const at = (iso: string | null | undefined, empty = "?") => when(iso, empty);
@@ -17,7 +18,7 @@ const at = (iso: string | null | undefined, empty = "?") => when(iso, empty);
 /** A job's status as a chip. */
 function jobStatus(job: Job): [Status, string] {
   if (job.status === "done") return ["done", "done"];
-  if (job.status === "failed" || job.status === "cancelled") return ["failed", job.status];
+  if (job.status === "failed" || job.status === "cancelled") return [job.status, job.status];
   if (job.status === "queued" || job.status === "ready") return ["waiting", job.status];
   return ["running", job.status];
 }
@@ -146,7 +147,10 @@ export function AdminC({jobs}: {jobs: Job[]}) {
         const [st, text] = jobStatus(j);
         const finished = ["done", "failed", "cancelled"].includes(j.status);
         return <li key={j.id} class="c-admin-row c-admin-job">
-          <div class="c-admin-head"><b>{j.title}</b><StatusChip status={st}>{text}</StatusChip></div>
+          <div class="c-admin-head"><b>{j.title}</b><StatusChip status={st}>{text}</StatusChip>
+            {/* the same chip as the status beside it, in its quiet grey (not a smaller badge) */}
+            {(j.removed_at || j.run_gone) && <span class="c-admin-removed"><StatusChip status="cancelled">
+              {t(j.removed_at ? "ui.card.removed" : "ui.card.run_deleted")}</StatusChip></span>}</div>
           <div class="u-small">{j.user_id === undefined ? "?" : names.get(j.user_id ?? -1) || "nobody"} · {at(j.created)}</div>
           {!finished && <div class="c-admin-tools">
             <Button kind="danger" onClick={() => api.cancel(j.id).catch(onError)}>Cancel</Button></div>}
