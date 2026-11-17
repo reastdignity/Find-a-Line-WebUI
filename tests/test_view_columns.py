@@ -302,6 +302,24 @@ def test_nan_after_infinities():
     three = mp.Groups(np.array([0, 1, 2]), np.arange(3), np.array([0, 1, 2, 3]))
     view, head = _assert_as_expected(table([np.nan, -np.inf, 5.0], [1.0] * 3), three, (0.0, 0.0))
     assert view["spot"].tolist() == [2, 1, 0] and len(head["sectors"]) == 3
+    # The leader of a sector and the spots' order inside one (the second code review's F2, its table): 44 lines,
+    # each a spot, in 11 places 1 000 m apart (place 10 beside place 9, so Ward's ten sectors are the places, 9 and
+    # 10 together); place 0's spots all NaN, place 1's NaN, NaN, NaN, -inf. Place 1's sector (its leader -inf)
+    # comes before place 0's (NaN), and inside it the -inf spot (row 7) before the three NaN ones (rows 4-6)
+    n = 44
+    place = np.repeat(np.arange(11), 4)
+    base = np.column_stack([np.where(place == 10, 9_005.0, place * 1_000.0), np.zeros(n)]) + np.tile(
+        [[0, 0], [1, 0], [0, 1], [1, 1]], (11, 1))
+    mean = np.tile([5.0, 4.0, 3.0, 2.0], 11)
+    mean[0:4] = np.nan
+    mean[4:8] = [np.nan, np.nan, np.nan, -np.inf]
+    places = sh.LineTable({"a1_xy": base, "a2_xy": base + [60.0, 0.0], "elev_a1": np.full(n, 300.0),
+                           "elev_a2": np.full(n, 310.0), "height_mean": mean, "clearance": np.ones(n),
+                           "length": np.full(n, 60.0), "over_obstacles": np.zeros(n, dtype=bool)})
+    view, head = _assert_as_expected(places, mp.Groups.each_alone(n), (5_000.0, 0.0))
+    spot = view["spot"].tolist()
+    assert len(head["sectors"]) == 10 and spot[7] < min(spot[4:7]) and max(spot[4:8]) < min(spot[0:4])
+    assert spot[4:8] == [37, 38, 39, 36] and sorted(spot[0:4]) == [40, 41, 42, 43]  # place 1's 9th, place 0's last
 
 
 # ---------------------------------------------------------------------------------------------
@@ -313,7 +331,8 @@ def test_store_with_the_view_columns(tmp_path, ends, square, access):
     """linestore.write with the view's columns: three non-null fields after the lines' columns (spot uint32, top
     uint8, by_spot uint32), the head's keys, format 1; read gives them back; the export is the run's lines.csv and
     lines.geojson byte for byte, as without them. The hard floats of test_linestore (NaN, -inf and +inf of
-    clearance and length, NaN mean heights) go through view_columns as the reference gives them."""
+    clearance and length, NaN mean heights) go through view_columns as the reference gives them; they never put a
+    -inf and a NaN where they tie, which test_nan_after_infinities covers."""
     rng = np.random.default_rng(8)
     n = 5_000
     lines = _hard_lines(n, ends, square, rng, access)
@@ -452,9 +471,19 @@ def test_the_same_columns_on_1_and_8_threads(tmp_path, cap):
     for threads in (1, 8):
         folder, _ = _folder_search(tmp_path, f"t{threads}", *CLIP, *SURFACE, "--radius", "290", "--threads",
                                    str(threads), *more, cap=cap)
-        stored, head, *_, meta = _stored_view(folder)
+        stored, head, again, again_head, meta = _stored_view(folder)
         out[threads] = (stored, head, (folder / "lines.csv").read_bytes())
         assert meta["summary"]["spots"] > (cap or 10)
+        if cap:  # the sample path was taken in the search's process: its head is the capped one, not exact Ward's
+            assert head != again_head
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(mp, "SECTOR_WARD_SPOTS", cap)
+                lines, _ = linestore.read(str(folder), profiles=False)
+                capped = mp.view_columns(lines, mp.group_lines(lines, 5, "clearance"),
+                                         (meta["center"]["x"], meta["center"]["y"]))
+            assert capped[1] == head and all(np.array_equal(capped[0][k], stored[k]) for k in stored)
+        else:
+            assert head == again_head
     assert out[1][2] == out[8][2] and out[1][1] == out[8][1]
     assert all(np.array_equal(out[1][0][k], out[8][0][k]) for k in mp.VIEW_COLUMNS)
 
