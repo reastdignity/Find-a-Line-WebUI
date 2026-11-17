@@ -1742,11 +1742,14 @@ run({
     result.itemTag = [remove.tagName, remove.getAttribute("role")];
     remove.focus();
     remove.click();
-    wait(() => $(".c-confirm") && document.activeElement && document.activeElement.closest(".c-confirm"), () => {
-      result.ask = [text(".c-confirm span"), $(".c-confirm").getAttribute("role"), $(".c-confirm").getAttribute("aria-label"),
-                    document.activeElement.textContent.trim(), $$(".c-confirm button").map((b) => b.textContent.trim())];
+    const ask = () => $(".c-remove-ask");
+    wait(() => ask() && document.activeElement && document.activeElement.closest(".c-remove-ask"), () => {
+      result.ask = [text(".c-remove-ask span"), ask().getAttribute("role"), ask().getAttribute("aria-label"),
+                    document.activeElement.textContent.trim(), $$(".c-remove-ask button").map((b) => b.textContent.trim())];
+      // the panel's own grey, not Delete…'s (the failure's) red
+      result.askBackground = [getComputedStyle(ask()).backgroundColor, getComputedStyle(chip(J.failed)).backgroundColor];
       document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
-      wait(() => !$(".c-confirm"), () => { result.kept = !!card("job", J.waiting); next(); });
+      wait(() => !ask(), () => { result.kept = !!card("job", J.waiting); next(); });
     });
   }); },
   remove(next) { openMenu(J.waiting, () => {
@@ -1792,8 +1795,8 @@ run({
 def test_shell_c_cancelled_search(tmp_path):
     """Home: a search cancelled while waiting and one cancelled while running show the quiet state "cancelled" (the
     grey of a waiting search, not the failure's colour or warn mark; the word as text), a failed one stays a failure;
-    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too), which asks first (the focus
-    on "Keep it", Escape keeps it) and removes the card; a removed search and one whose run was deleted show no card;
+    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too), which asks first in the
+    panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and removes the card; a removed search and one whose run was deleted show no card;
     the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
     from jobs import Jobs
     data = tmp_path / "data"
@@ -1833,7 +1836,7 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
     assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result "
                         "and no files.", "alertdialog", "Remove the search", "Keep it", ["Remove", "Keep it"]], r
-    assert r["kept"] is True, r
+    assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
     assert r["removed"] == sorted([ids["waiting"], ids["removed"], ids["deleted"]]), r
     assert r["left"] == [True, True], r
     admin = {row[0]: row for row in r["admin"]}

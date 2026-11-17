@@ -198,8 +198,9 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
           <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
         </div>
       </div>}
-      {panel === "remove" && job && <div class="c-card-panel c-confirm" role="alertdialog" aria-label={t("ui.card.remove_title")}
-                                         onKeyDown={panelKeys}>
+      {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
+      {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
+                                         aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
         <span>{t("ui.card.remove_ask", {name})}</span>
         <div class="u-row">
           <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
