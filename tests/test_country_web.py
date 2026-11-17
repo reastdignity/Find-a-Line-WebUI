@@ -1134,3 +1134,42 @@ def test_study_area_in_edge(tmp_path):
     assert "study area" in study["note"].lower() and study["total"] != country["total"], study
     assert back["asked"] == ["slovakia"] and not back["note"], back
     assert r["csp"] == [], r
+
+
+LAYER_TEXTS = """() => { const t = document.body.textContent;
+  return [matchMedia('(pointer: coarse)').matches, t.includes('Click a cell'), t.includes('Tap a cell'),
+          t.includes('Click a bar'), t.includes('Tap a bar'), t.includes('shift-click')]; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+                    reason="needs Microsoft Edge")
+def test_layer_hints_by_pointer(tmp_path):
+    """The layer page's hints in Playwright's Edge (the fault of report defect 10): with a mouse "Click a cell" and the
+    histograms' "Click a bar" and "shift-click"; on a wide touch screen "Tap a cell", "Tap a bar" and no shift-click.
+    (The 3D view's "Tap a point on the terrain." has no browser test: on a coarse pointer the view opens at the phone
+    level, and the point tool exists only at ?level=full.)"""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+    from test_shell_c import stub_page
+    from test_web import _server
+    sample_cube(str(tmp_path))
+    page_path = stub_page(str(tmp_path), "layer")
+    contexts = {"mouse": {"viewport": {"width": 1280, "height": 900}},
+                "touch": {"viewport": {"width": 1280, "height": 900}, "is_mobile": True, "has_touch": True}}
+    found = {}
+    with _server(str(tmp_path)) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, options in contexts.items():
+                context = browser.new_context(**options)
+                page = context.new_page()
+                page.goto(f"http://127.0.0.1:{port}/{page_path}?ui=c#layer")
+                page.wait_for_function("() => /a cell to see its counts/.test(document.body.textContent) "
+                                       "&& /a bar to /.test(document.body.textContent)", timeout=60000)
+                found[name] = page.evaluate(LAYER_TEXTS)
+                context.close()
+        finally:
+            browser.close()
+    # [coarse, Click a cell, Tap a cell, Click a bar, Tap a bar, shift-click]
+    assert found["mouse"] == [False, True, False, True, False, True], found
+    assert found["touch"] == [True, False, True, False, True, False], found

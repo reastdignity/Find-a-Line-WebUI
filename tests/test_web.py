@@ -2823,6 +2823,19 @@ CORNERS_CLEAR = ("() => { const m = document.querySelector('.leaflet-container')
                  "const under = a.left < s.right && s.left < a.right; "
                  "return a.height > 0 && (under ? a.top - s.bottom >= 0 && a.top - s.bottom <= 10 "
                  ": true); }")  # side by side: apart by themselves
+# The search map's scale line set to a width (px) or, with null, wide enough to reach under the credits by 40 px:
+# as a zoom changes it, with nothing else resizing; then [the scale's corner's style.bottom, the credits under the
+# scale, the gap between them]
+SCALE_WIDTH = """(px) => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(), r = m.getBoundingClientRect();
+  m.querySelector('.leaflet-control-scale-line').style.width = (px === null ? Math.round(a.left - r.left + 40) : px) + 'px'; }"""
+SCALE_STATE = """() => { const m = document.querySelector('.leaflet-container');
+  const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect();
+  return [m.querySelector('.leaflet-bottom.leaflet-left').style.bottom, a.left < s.right && s.left < a.right,
+          Math.round(a.top - s.bottom)]; }"""
+CLEAR_BY_SCRIPT = ("() => [...document.querySelectorAll('.s-where button')]"
+                   ".find((b) => b.textContent.trim() === 'Clear the place').click()")  # a click of detail 0
 PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.map.getZoom() + by, {animate: false})"
 # Where the focus is after "Clear the place": [the place box's text field, a text field at all, the chosen mode, the
 # page's body, the button still shown]
@@ -2838,9 +2851,10 @@ WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), doc
 def test_search_form_words_and_corners_by_device(tmp_path):
     """The search form on a desktop and on a phone (touch) in Playwright's Edge (report defects 2, 7 and 10): the
     texts name a click and the Enter key on the desktop, a tap and no key on the phone; "Clear the place" shows only
-    with a place set (a centre, an OSM area's name), and after it is clicked the focus stays in the block: by
-    keyboard and with a mouse on the place box, after a tap on a touch screen on the chosen mode (no text field, no
-    on-screen keyboard); the place map's scale right above its credits on the phone, where the two lines of credits
+    with a place set (a centre, an OSM area's name), and after it is clicked the focus stays in the block: with a
+    mouse or the keyboard on the place box, on a touch screen on the chosen mode however it was pressed (a tap, a key,
+    a click of detail 0 as a screen reader's: no text field, no on-screen keyboard); on the desktop the scale is
+    raised once its line (as a zoom widens it) reaches under the credits and back once clear; the place map's scale right above its credits on the phone, where the two lines of credits
     run under the scale's corner, also after a zoom out and in (the scale's width changes); the "Data coverage" button
     at its own 13 px, and no control whose own font rule loses to the base rule."""
     from playwright.sync_api import sync_playwright
@@ -2861,6 +2875,16 @@ def test_search_form_words_and_corners_by_device(tmp_path):
                     page.evaluate(PLACE_ZOOM, by)
                     page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)
                     r[f"{kind}_zoom_{name}"] = page.evaluate(CORNERS_JS)
+                if kind == "desktop":  # one line of credits at the right, clear of the scale
+                    r["scale_clear"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, None)  # the scale reaches under the credits: raised above them
+                    page.wait_for_function("() => document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_wide"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, 60)  # clear again: back in its place
+                    page.wait_for_function("() => !document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_back"] = page.evaluate(SCALE_STATE)
                 r[f"{kind}_shrunk"] = page.evaluate(SHRUNK_JS)
                 page.evaluate(POINT_JS)
                 page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
@@ -2876,6 +2900,12 @@ def test_search_form_words_and_corners_by_device(tmp_path):
                 page.keyboard.press("Enter")
                 page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
                 r[f"{kind}_keyboard"] = page.evaluate(FOCUS_JS)
+                # a click of detail 0 from a script (as a screen reader's activation comes in Chromium)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                page.evaluate(CLEAR_BY_SCRIPT)
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_script"] = page.evaluate(FOCUS_JS)
                 # an OSM area's name is a place too
                 page.click(".s-where [role=radio]:text-is('Area')")
                 page.click(".s-where [role=radio]:text-is('Named OSM area')")
@@ -2901,9 +2931,16 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     # [place box, a text field, the chosen mode, body, button shown]
     assert r["desktop_cleared"] == [True, True, False, False, False], r  # a mouse: the place box
     assert r["phone_cleared"] == [False, False, True, False, False], r  # a tap: the mode, no text field
-    assert r["desktop_keyboard"] == r["phone_keyboard"] == [True, True, False, False, False], r
-    for kind in ("desktop", "phone"):
-        assert r[f"{kind}_area_empty"] is False and r[f"{kind}_area"] == ["", [True, True, False, False, False]], r
+    # where the pointer is fine the place box; on a touch screen the mode whatever the click's detail
+    assert r["desktop_keyboard"] == r["desktop_script"] == [True, True, False, False, False], r
+    assert r["phone_keyboard"] == r["phone_script"] == [False, False, True, False, False], r
+    assert r["desktop_area_empty"] is False and r["desktop_area"] == ["", [True, True, False, False, False]], r
+    assert r["phone_area_empty"] is False and r["phone_area"] == ["", [False, False, True, False, False]], r
+    # the scale's corner observed (its width follows the zoom): raised right above the credits once it reaches under
+    # them, back in its place once clear of them again
+    assert r["scale_clear"][:2] == ["", False] and r["scale_back"][:2] == ["", False], r
+    bottom, under, gap = r["scale_wide"]
+    assert bottom.endswith("px") and under and 0 <= gap <= 10, r
     # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
     scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
     assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
