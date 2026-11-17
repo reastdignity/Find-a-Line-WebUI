@@ -869,3 +869,16 @@ def test_child_reports_its_error(tmp_path):
     assert "truth_study: findaline.py ended with exit code 2" in log.split(ts.STDERR_MARK)[0]
     assert log.rstrip().endswith(option["message"])
     assert not os.listdir(out / "data" / "work")
+
+
+def test_slim_run_of_a_run_of_store_wave_4(tmp_path):
+    """A run saved since store wave 4 (its store, map.html, ATTRIBUTION.txt; no text file) slims to its run.json
+    as a run of before does: the files it has are deleted, those it has not are skipped."""
+    out = tmp_path / "out"
+    run = out / "data" / "runs" / "r1"
+    run.mkdir(parents=True)
+    for name in ("lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt", "run.json"):
+        (run / name).write_text("x", encoding="utf-8")
+    deleted = ts.slim_run(str(out), "data/runs/r1")
+    assert sorted(deleted) == ["ATTRIBUTION.txt", "lines.arrow", "map.html", "profiles.arrow"]
+    assert os.listdir(run) == ["run.json"]

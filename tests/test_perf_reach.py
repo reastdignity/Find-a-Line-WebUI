@@ -221,3 +221,24 @@ def test_patch_is_patch_of_lines_square(clip):
         assert len(pr.steep_points(patch)) == pr.OTHER_POINTS
     finally:
         patch.close()
+
+
+def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path):
+    """The clip's run read as a run of store wave 4 (its store alone) and as a run of before the store (its text
+    files alone): the same longest line and busiest anchor, each saying which file it read, and nothing written into
+    either run's folder (the store's CSV is exported outside it)."""
+    import tool_runs
+    _, data, meta, a1, a2 = clip
+    run = os.path.join(data, "runs", meta["id"])
+    store = tool_runs.store_only(run, str(tmp_path / "store"))
+    text = tool_runs.text_only(run, str(tmp_path / "text"))
+    before = {folder: tool_runs.snapshot(folder) for folder in (store, text)}
+    assert pr.lines_read(store) == "store" and pr.lines_read(text) == "lines.csv"
+    with pr.run_rows(store) as (rows, source):
+        assert source == "store" and len(list(rows)) == meta["summary"]["lines"]
+    with pr.run_rows(text) as (rows, source):
+        assert source == "lines.csv"
+    assert pr.longest_row(store) == pr.longest_row(text)  # the row's every text, so a tie is broken alike
+    assert pr.longest_line(store) == pr.longest_line(text) and pr.longest_line(store)[:2] == (a1, a2)
+    assert pr.busiest_anchor(store) == pr.busiest_anchor(text)
+    assert {folder: tool_runs.snapshot(folder) for folder in (store, text)} == before

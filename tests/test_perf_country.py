@@ -59,8 +59,13 @@ def test_constant_tension_table_is_the_original():
 
 
 def _digest(data_dir) -> str:
-    [path] = glob.glob(os.path.join(str(data_dir), "runs", "*", "lines.csv"))
-    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    """sha256 of the run's lines as lines.csv holds them: the CSV export of its store (byte for byte the run's own
+    lines.csv, which a run saves no more since store wave 4)."""
+    import linestore
+    [path] = glob.glob(os.path.join(str(data_dir), "runs", "*", "lines.arrow"))
+    out = os.path.join(str(data_dir), "export.csv")
+    linestore.export(os.path.dirname(path), "csv", out)
+    return hashlib.sha256(open(out, "rb").read()).hexdigest()
 
 
 def test_profile_with_constant_tension_equals_the_search(tmp_path):
@@ -84,18 +89,39 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     assert sample["grid"]["area_km2"] == pytest.approx(np.pi * 0.12 ** 2, rel=1e-3)
     assert sample["funnel"] and sample["stages"] and sample["total"]["wall_s"] > 0
     assert os.path.dirname(sample["run"]) == os.path.abspath(tmp_path / "patched" / "runs")
-    # --lean: lines.npz instead of lines.csv and lines.geojson, the same lines read back
+    # --lean is no longer used: the run keeps its store (and no lines.npz)
     lean = subprocess.run([sys.executable, os.path.join("tools", "perf_country.py"), "profile", "--lean",
                            "--out", str(tmp_path / "out"), "--name", "lean", "--", *common,
                            "--data-dir", str(tmp_path / "lean")],
                           cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
     assert lean.returncode == 0, lean.stdout + lean.stderr
     run = json.load(open(tmp_path / "out" / "samples.json"))["lean"]["run"]
-    assert sorted(os.listdir(run)) == ["lines.arrow", "lines.npz", "profiles.arrow", "run.json"]  # and the store
-    a, b = pc.read_lines(sample["run"]), pc.read_lines(run)
-    assert a["group"].tolist() == b["group"].tolist() and a["representative"].tolist() == b["representative"].tolist()
-    assert np.allclose(a["length_m"], b["length_m"], atol=0.05) and np.allclose(a["anchor1_easting"],
-                                                                                 b["anchor1_easting"], atol=0.01)
+    assert "lines.npz" not in os.listdir(run) and "lines.arrow" in os.listdir(run)
+    assert pc.lines_from(run) == "store"
+
+    # The run as a run of store wave 4 (its store alone) and as saved before the store (lines.csv alone): the same
+    # columns, so the same counts of compare and cube; nothing written into either run
+    import tool_runs
+    samples = json.load(open(tmp_path / "out" / "samples.json"))
+    store = tool_runs.store_only(sample["run"], str(tmp_path / "kinds" / "store"))
+    text = tool_runs.text_only(sample["run"], str(tmp_path / "kinds" / "text"))
+    before = tool_runs.snapshot(str(tmp_path / "kinds"))
+    assert (pc.lines_from(store), pc.lines_from(text)) == ("store", "lines.csv")
+    a, b = pc.read_lines(store), pc.read_lines(text)
+    assert set(a) == set(b) and len(a["length_m"]) == sample["summary"]["lines"]
+    for name in a:
+        assert a[name].dtype == b[name].dtype and np.array_equal(a[name], b[name], equal_nan=a[name].dtype == float), name
+    samples["store"], samples["text"] = {**sample, "run": store}, {**sample, "run": text}
+    cubes = [pc.cube(samples, [name], 1000, list(pc.DIMS))["rows"] for name in ("store", "text")]
+    assert [{**r, "name": None, "lines_from": None} for r in cubes[0]] == \
+        [{**r, "name": None, "lines_from": None} for r in cubes[1]]
+    assert cubes[0][0]["lines_from"] == "store" and cubes[1][0]["lines_from"] == "lines.csv"
+    compared = pc.compare(samples, "text", ["store"], [500, 1000], pc.parse_bands(None))
+    assert compared["lines_from"] == {"text": "lines.csv", "store": "store"}
+    for r in compared["rows"]:
+        assert r["ref_lines"] == r["other_lines"] and r["ref_spots"] == r["other_spots"], r
+        assert r["lost"] in (0, None) and r["new"] in (0, None), r
+    assert tool_runs.snapshot(str(tmp_path / "kinds")) == before
 
 
 def test_profile_of_a_search_without_lines(tmp_path):

@@ -30,6 +30,7 @@ first (a junction: os.rmdir("<out>/<case>/data/cache"), never rmtree through it)
 """
 
 import argparse
+import contextlib
 import dataclasses
 import gc
 import json
@@ -38,6 +39,7 @@ import os
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zlib
@@ -62,7 +64,8 @@ BORDER_M = 1.0
 OTHER_POINTS = 3              # steep points beside the line's two anchors
 CASES = {
     "clip": {"kind": "clip"},
-    # the real runs of the data folder, each its longest line (lines.csv): 1 m, 2 m (the Gozo coast: sea and cliffs;
+    # the real runs of the data folder, each its longest line (their lines.csv: saved before the store, which a run
+    # holds since 2026-11-15, they never get one; a run with a store is read from it, see run_rows): 1 m, 2 m (the Gozo coast: sea and cliffs;
     # the 2 m Polish run of 2026-10-23 is older than the grid alignment and is not reproduced by today's code), 1 m with sag
     "poland-1m": {"run": "2026-10-25_085353_Kobylanka-Borynia"},
     "malta-2m": {"run": "2026-10-25_205659_coast-100-m-within-osm-Gozo"},
@@ -626,8 +629,8 @@ def check_search(z: np.ndarray, s: Optional[np.ndarray], res: float, fixed: Tupl
 
 
 def line_reproduced(patch: Patch, row: Dict) -> Dict:
-    """Whether today's code gives a run's line (its lines.csv row) the clearances the run saved: a run made
-    by older code (another grid alignment, a changed model) does not reproduce, and a reach computed on its
+    """Whether today's code gives a run's line (its row as lines.csv holds it: run_rows) the clearances the run
+    saved: a run made by older code (another grid alignment, a changed model) does not reproduce, and a reach computed on its
     patch says nothing about its lines."""
     import helpers as sh
     a, b = sorted(patch.anchors)
@@ -663,28 +666,51 @@ def case_data_folder(out: str, name: str, real_data: Optional[str]) -> str:
     return data
 
 
-def longest_row(run_dir: str) -> Dict:
-    """The row of the longest line of a run's lines.csv."""
+@contextlib.contextmanager
+def run_rows(run_dir: str):
+    """The rows of a run's lines as lines.csv holds them (csv.DictReader's dicts, in the file's order) and which
+    file they come from: (rows, "store") for a run with a store (lines.arrow: linestore.export's CSV, written into
+    a temporary folder outside the run: the text and the order of the run's own lines.csv, so a tie on the longest
+    line is broken as before), else (rows, "lines.csv") for a run saved before the store (2026-11-15), as the
+    named cases are. Nothing is written into the run's folder."""
     import csv
+    if os.path.isfile(os.path.join(run_dir, "lines.arrow")):
+        import linestore
+        with tempfile.TemporaryDirectory(prefix="perf-reach-") as tmp:
+            path = os.path.join(tmp, "lines.csv")
+            linestore.export(run_dir, "csv", path)
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                yield csv.DictReader(f), "store"
+        return
     with open(os.path.join(run_dir, "lines.csv"), encoding="utf-8-sig", newline="") as f:
-        return max(csv.DictReader(f), key=lambda r: float(r["length_m"]))
+        yield csv.DictReader(f), "lines.csv"
+
+
+def lines_read(run_dir: str) -> str:
+    """Which file run_rows reads of a run: "store" or "lines.csv"."""
+    return "store" if os.path.isfile(os.path.join(run_dir, "lines.arrow")) else "lines.csv"
+
+
+def longest_row(run_dir: str) -> Dict:
+    """The row of the longest line of a run (run_rows: its store, or lines.csv)."""
+    with run_rows(run_dir) as (rows, _):
+        return max(rows, key=lambda r: float(r["length_m"]))
 
 
 def longest_line(run_dir: str) -> Tuple[Tuple[float, float], Tuple[float, float], float]:
-    """The anchors (lat, lon) x 2 and the length of the longest line of a run's lines.csv."""
+    """The anchors (lat, lon) x 2 and the length of the longest line of a run (run_rows)."""
     best = longest_row(run_dir)
     return ((float(best["anchor1_lat"]), float(best["anchor1_lon"])),
             (float(best["anchor2_lat"]), float(best["anchor2_lon"])), float(best["length_m"]))
 
 
 def busiest_anchor(run_dir: str, inside=None) -> Tuple[float, float, int]:
-    """The anchor (lat, lon) that most lines of a run's lines.csv start or end at, and how many; with
+    """The anchor (lat, lon) that most lines of a run (run_rows) start or end at, and how many; with
     inside(lat, lon), the busiest one for which it is true (an anchor within a patch)."""
     import collections
-    import csv
     count = collections.Counter()
-    with open(os.path.join(run_dir, "lines.csv"), encoding="utf-8-sig", newline="") as f:
-        for row in csv.DictReader(f):
+    with run_rows(run_dir) as (rows, _):
+        for row in rows:
             count[(row["anchor1_lat"], row["anchor1_lon"])] += 1
             count[(row["anchor2_lat"], row["anchor2_lon"])] += 1
     for (lat, lon), n in count.most_common():
@@ -734,7 +760,8 @@ def measure_case(name: str, out: str, real_data: Optional[str], reps: int = 3, o
     """Everything the report needs of one case (see the module's docstring)."""
     import numba
     meta, data, a1, a2, side_m, line_m, run_dir = load_case(name, out, real_data)
-    result = {"case": name, "run": meta["id"], "model": meta["params"]["model"], "nmpt": meta["params"]["nmpt"],
+    result = {"case": name, "run": meta["id"], "lines_read": lines_read(run_dir), "model": meta["params"]["model"],
+              "nmpt": meta["params"]["nmpt"],
               "resolution": meta["params"]["resolution"], "line_m": line_m, "obstacles": obstacles,
               "recorded_obstacles": meta["params"].get("obstacles") is not None,
               "limits": limits_of(meta["params"]), "cpu_count": os.cpu_count(), "numba_threads": numba.config.NUMBA_NUM_THREADS}
@@ -928,7 +955,8 @@ def tables(results: List[Dict], cost: Optional[Dict] = None) -> str:
             lines.append(f"| {kind} | {c['import_numba_s']:.2f} | {c['import_linesearch_s']:.2f} | "
                          f"{f['formula_with_surface']:.2f} | {f['formula_no_surface']:.2f} | {f['sag_with_surface']:.2f} | "
                          f"{c['repeat_call_s']:.3f} | {(c['rss_after_import'] - c['rss_base']) / 2**20:.0f} |")
-    lines += ["", "The run's longest line (the patch is centred on it) evaluated by today's code against the run's lines.csv", "",
+    lines += ["", "The run's longest line (the patch is centred on it) evaluated by today's code against the run's saved values "
+              "(its lines.csv, or the CSV export of its store: results' lines_read)", "",
               "| case | run | clearance csv / now | over the surface csv / now | valid now |", "| --- | --- | --- | --- | --- |"]
     for r in results:
         c = r.get("line_reproduced")

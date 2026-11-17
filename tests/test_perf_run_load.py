@@ -1,14 +1,22 @@
-"""tools/perf_run_load.py: its pure parts (the first line of a data.js, the gzipped size, the summaries and the
-report). The browser's part runs by hand (docs/performance.md, "Loading a run in the browser")."""
+"""tools/perf_run_load.py: its pure parts (the first line of a run's store or data.js, the gzipped size, the
+scratch data folder, the summaries and the report). The browser's part runs by hand (docs/performance.md, "Loading
+a run in the browser")."""
 
 import gzip
 import os
 import sys
 
+import pytest
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import perf_run_load as prl  # noqa: E402
+
+# the clip's search of tests/test_device_page.py (clip_runs: one search per session for both)
+CLIP_ARGS = ["--elevation-file", os.path.join(REPO, "tests", "data", "zabi_kon_nmt.tif"), "--northing", "254608",
+             "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+             "--ortho", "never", "--nmpt", "off", "--model", "sag"]
 
 
 def _data_js(path, rows):
@@ -20,7 +28,7 @@ def _data_js(path, rows):
 def test_first_line_is_the_rows_anchors_as_written(tmp_path):
     path = tmp_path / "data.js"
     _data_js(path, ["[49.1234567,19.7654321,49.1240001,19.7660002,1.5,2,NaN,null]", "[1,2,3,4]"])
-    assert prl.first_line(str(path)) == "49.1234567,19.7654321,49.1240001,19.7660002"
+    assert prl.first_line(str(tmp_path)) == "49.1234567,19.7654321,49.1240001,19.7660002"
 
 
 def test_gzip_size_as_gzip(tmp_path):
@@ -76,9 +84,11 @@ def test_scratch_data_lists_a_runs_store(tmp_path):
     import json
     runs, cache = tmp_path / "runs", tmp_path / "cache"
     cache.mkdir()
-    for run_id, store in (("with", {"format": 1, "lines": 1, "bytes": 2, "sha256": "0" * 16}), ("without", None)):
+    block = {"format": 1, "lines": 1, "bytes": 2, "sha256": "0" * 16}
+    for run_id, store in (("with", block), ("without", None), ("store-only", block)):
         (runs / run_id).mkdir(parents=True)
-        _data_js(runs / run_id / "data.js", ["[1,2,3,4]"])
+        if run_id != "store-only":  # a run of store wave 4 has no data.js
+            _data_js(runs / run_id / "data.js", ["[1,2,3,4]"])
         meta = {"id": run_id, "name": run_id, "created": "2026-11-15T10:00:00+00:00", "params": {}}
         if store:
             meta["store"] = store
@@ -86,15 +96,20 @@ def test_scratch_data_lists_a_runs_store(tmp_path):
                 (runs / run_id / name).write_bytes(b"x")
         (runs / run_id / "run.json").write_text(json.dumps(meta), encoding="utf-8")
     scratch = tmp_path / "scratch"
-    links = prl.scratch_data(str(scratch), str(runs), str(cache), ["with", "without"])
+    links = prl.scratch_data(str(scratch), str(runs), str(cache), ["with", "without", "store-only"])
     try:
         assert sorted(os.listdir(scratch / "runs" / "with")) == ["data.js", "lines.arrow", "profiles.arrow", "run.json"]
+        assert sorted(os.listdir(scratch / "runs" / "store-only")) == ["lines.arrow", "profiles.arrow", "run.json"]
         listed = (scratch / "runs" / "runs.js").read_text(encoding="utf-8")
         entries = {r["id"]: r.get("store") for r in json.loads(listed.split(" = ", 1)[1].split(";\n")[0])}
-        assert entries == {"with": {"format": 1, "lines": 1, "bytes": 2, "sha256": "0" * 16}, "without": None}
+        assert entries == {"with": block, "without": None, "store-only": block}
     finally:
         for path in links:
             prl._unlink(path)
+    (runs / "empty").mkdir()  # neither a store nor data.js: refused
+    (runs / "empty" / "run.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit, match="no run.json with a store or data.js"):
+        prl.scratch_data(str(tmp_path / "scratch2"), str(runs), str(cache), ["empty"])
 
 
 def test_summarize_compare_and_3d():
@@ -122,6 +137,10 @@ def test_markdown_has_every_table():
          "view3d": {"full": view}}]})
     assert "| run-a | 1000 | store | 1.0 | 0.2 |" in text  # the file the page read
     assert "no: SyntaxError" in text and "| run-a | full |" in text and "no patch" in text
+    # a run of store wave 4: no data.js to compare, said in its row
+    text = prl.markdown({"browser": "1.0", "rounds": 1, "runs": [
+        {"id": "run-b", "size": {"bytes": 2 ** 20, "gzip": 2 ** 18}, "result": result, "compare": None}]})
+    assert "| run-b | | | | | no data.js (a run saved since store wave 4) |" in text
 
 
 def test_markdown_tables_have_as_many_delimiters_as_headers():
@@ -131,8 +150,26 @@ def test_markdown_tables_have_as_many_delimiters_as_headers():
     view = prl.summarize_3d({"measures": [], "file": None, "ready_at": None, "error": None})
     lines = prl.markdown({"browser": "1.0", "rounds": 1, "runs": [
         {"id": "r", "size": {"bytes": 1, "gzip": 1}, "result": result, "compare": compare,
-         "view3d": {"full": view}}]}).splitlines()
+         "view3d": {"full": view}},
+        {"id": "s", "size": {"bytes": 1, "gzip": 1}, "result": result, "compare": None}]}).splitlines()
     for k, line in enumerate(lines):
         if line.startswith("|---"):  # a table's delimiter row: its header above, its rows below
             columns = lines[k - 1].count("|")
             assert line.count("|") == columns and lines[k + 1].count("|") == columns, lines[k - 1]
+
+
+def test_first_line_of_the_store_and_of_data_js(tmp_path_factory, tmp_path):
+    """The clip's run as a run of store wave 4 (its store alone) and as saved before the store (data.js alone): the
+    same first line, named as data.js's row names it; nothing written into either run."""
+    import clip_runs
+    import tool_runs
+    data = clip_runs.data_copy(tmp_path_factory, "run-load", CLIP_ARGS)
+    run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
+    store = tool_runs.store_only(str(data / "runs" / run), str(tmp_path / "store"))
+    text = tool_runs.text_only(str(data / "runs" / run), str(tmp_path / "text"))
+    before = tool_runs.snapshot(str(tmp_path))
+    line = prl.first_line(store)
+    assert line == prl.first_line(text) and line.count(",") == 3
+    with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
+        assert f'"lines":[[{line},' in f.read()
+    assert tool_runs.snapshot(str(tmp_path)) == before

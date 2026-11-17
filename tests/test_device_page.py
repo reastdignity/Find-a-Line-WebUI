@@ -178,3 +178,29 @@ def test_composed_estimate_classifies_the_jpegs():
     assert sample["base"] == 1000 and sample["png"] == 5000
     assert device_page.composed_bytes(sample) == pytest.approx(
         sample["jpeg"] + 4 / 9 * 1000 + 1 / 9 * 5000)
+
+
+def test_lines_of_the_store_and_of_data_js(clip_data, tmp_path):
+    """A run of store wave 4 (its store alone) and the same run as saved before the store (data.js alone): the same
+    lines, each named as data.js's row names it (keys.lineCoords), each saying the file read; nothing written into
+    either run."""
+    import tool_runs
+    runs = os.path.join(clip_data, "runs")
+    run = device_page.run_ids(clip_data)[0]
+    data = tmp_path / "data"
+    store = tool_runs.store_only(os.path.join(runs, run), str(data / "runs" / "store"))
+    text = tool_runs.text_only(os.path.join(runs, run), str(data / "runs" / "text"))
+    before = tool_runs.snapshot(str(data))
+    anchors, source = device_page.run_anchors(store)
+    old, old_source = device_page.run_anchors(text)
+    assert (source, old_source) == ("store", "data.js") and anchors == old and len(anchors) > 100
+    with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
+        rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
+        assert f",".join(str(v) for v in anchors[0]) in f.read()  # the row's text as written
+    assert [",".join(str(v) for v in a) for a in anchors] == [",".join(str(v) for v in r[:4]) for r in rows]
+    for spacing in (0, 50):
+        picked, picked_old = (device_page.run_lines(str(data), name, 5, spacing) for name in ("store", "text"))
+        assert picked and {p["read"] for p in picked} == {"store"} and {p["read"] for p in picked_old} == {"data.js"}
+        assert [{**p, "read": None} for p in picked] == [{**p, "read": None} for p in picked_old]
+    assert tool_runs.snapshot(str(data)) == before
