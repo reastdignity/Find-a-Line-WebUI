@@ -30,7 +30,7 @@ import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
 import { ViewFilters, ViewMoreFilters } from "./ViewFilters";
-import { changePanels, follow, isOpen, limitOf, MORE, panelState, sortBy, SORTS, watchPanels } from "./viewstate";
+import { changePanels, follow, isOpen, limitOf, panelState, showMore, sortBy, SORTS, watchPanels } from "./viewstate";
 import "./view.css";
 
 /** The door "›" of a row ("Open spot"): off until a spot's cards exist (spec-view.md B-5: hidden). */
@@ -124,14 +124,49 @@ export function useHover(map: SpotMap | null, row: number) {
   return {onPointerEnter: (e: PointerEvent) => hover.enter(e.pointerType), onPointerLeave: (e: PointerEvent) => hover.leave(e.pointerType)};
 }
 
-// the element that last took the focus (it may have left the page since)
-let focused: Element | null = null;
-if (typeof document !== "undefined") document.addEventListener("focusin", (e) => { focused = e.target as Element; }, true);
+// The record of the element that last took the focus, kept only while a loss of it may still be repaired (the
+// planner's rule of 2026-11-17: the focus is repaired once, at the moment the focused element leaves the page, never
+// by a later selection). It is cleared when keepFocus used it, when the person presses anywhere else (the focus then
+// goes where the press puts it, or nowhere), and when the focus went nowhere and no repair came within LOSS_FRAMES frames
+// (Chromium tells of a focused element's removal by a `focusout` with no element to go to). A row of a list also
+// records its place (the list and its index), for the row that takes its place when it goes (lostRowPlaces).
+let focused: Element | null = null, focusedPlace: {list: string; index: number; head: string | null} | null = null;
+/** Frames after a loss within which a repair may come: keepFocus starts at the next frame (or after the panel's
+ *  effect, a frame later) and tries for 6. */
+const LOSS_FRAMES = 12;
+
+/** A row's list and index, when the element is a row's button of the top block or of a sector. */
+function placeOf(e: Element): typeof focusedPlace {
+  const li = e.classList.contains("vl-main") ? e.parentElement : null, ul = li?.parentElement;
+  if (!li || !ul?.classList.contains("vl-rows")) return null;
+  const sec = ul.closest<HTMLElement>(".vl-sec"), index = Array.prototype.indexOf.call(ul.children, li);
+  if (sec) return {list: `.vl-sec[data-sector="${sec.dataset.sector}"] .vl-rows`, index, head: `#vl-sec-${Number(sec.dataset.sector) + 1}`};
+  return ul.closest(".vl-topblock") ? {list: ".vl-topblock .vl-rows", index, head: null} : null;
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (e) => { focused = e.target as Element; focusedPlace = placeOf(focused); }, true);
+  // a press elsewhere than on the focused element (a press on it keeps it: no focusin follows)
+  document.addEventListener("pointerdown", (e) => {
+    if (!focused || !focused.contains(e.target as Node)) focused = focusedPlace = null;
+  }, true);
+  document.addEventListener("focusout", (e) => {
+    if ((e as FocusEvent).relatedTarget) return;  // to another element: its focusin records it
+    const was = e.target as Element;
+    let frames = LOSS_FRAMES;
+    const wait = () => {
+      if (focused !== was || document.activeElement === was) return;  // repaired, moved on, or only the window lost it
+      if (--frames > 0) requestAnimationFrame(wait);
+      else focused = focusedPlace = null;
+    };
+    requestAnimationFrame(wait);
+  }, true);
+}
 
 /** The focus must not fall to the page's body when the control that held it went away: once the page has drawn,
  *  if the element that had the focus is gone and nothing has it, it goes to the first of `selectors` that is there
- *  and can take it. A focus that was nowhere, or is still where it was (a press on the map or on a row selected
- *  something), is left alone. */
+ *  and can take it (then, or after its tries, the record is used up). A focus that was nowhere, or is still where it
+ *  was (a press on the map or on a row selected something), is left alone. */
 export function keepFocus(...selectors: (string | null | undefined)[]) {
   const go = (tries: number) => {
     const at = document.activeElement;
@@ -144,8 +179,21 @@ export function keepFocus(...selectors: (string | null | undefined)[]) {
       if (document.activeElement === to) return;  // not one that cannot take it (inert: a phone's low sheet's body)
     }
     if (tries > 0) requestAnimationFrame(() => go(tries - 1));
+    else focused = focusedPlace = null;
   };
   requestAnimationFrame(() => go(5));
+}
+
+/** Is the recorded element a row of a list that left the page (its place known); `since`: it was on the page then. */
+function lostRow(since: Element | null): boolean {
+  return !!focused && focused === since && !focused.isConnected && !!focusedPlace;
+}
+
+/** Where the focus goes after a row it was on went (a filter, the map's move under the top block): the row that took
+ *  its place in the same list, else that list's last row, else its sector's head. */
+function lostRowPlaces(): string[] {
+  const p = focusedPlace;
+  return p ? [`${p.list} > li:nth-child(${p.index + 1}) > .vl-main`, `${p.list} > li:last-child > .vl-main`, p.head ?? ""] : [];
 }
 
 /** Where the focus goes when nothing better is there: the list's tab stop, then the map. */
@@ -256,7 +304,11 @@ function TopBlock(p: PanelProps) {
   }
   return <section class="vl-block vl-topblock" aria-labelledby="vl-top-title">
     <div class="vl-block-head"><h3 id="vl-top-title">{title}</h3><span class="u-grow" />
-      {more && <button type="button" class="u-btn vl-more-best" onClick={() => view.setBest(more!.best)}>{t(more.text)}</button>}</div>
+      {more && <button type="button" class="u-btn vl-more-best" onClick={() => {
+        view.setBest(more!.best);
+        // "Show all" goes with Best at All: the focus to the block's rows ("Show 30", "Show 100": the same button)
+        keepFocus(".vl-topblock .vl-more-best", ".vl-topblock .vl-main[tabindex='0']", ...FOCUS_REST);
+      }}>{t(more.text)}</button>}</div>
     {note && <p class="u-small vl-note">{note}</p>}
     {rows.length > 0 && <>
       <Heads view={view} ranked={!area} />
@@ -296,7 +348,12 @@ function SectorRows({p, sector, k}: SectorProps) {
                                      tab={r === stop} height={height} />)}
       </Rows>
       {rest > 0 && <button type="button" class="u-btn u-ghost vl-more" data-sector={n}
-                           onClick={() => changePanels(view, (s) => { s.limit.set(n, limit + MORE); })}>
+                           onClick={() => {
+                             changePanels(view, (s) => showMore(s, n));
+                             // the last "Show more" goes: the focus to the first row it showed, else the sector's head
+                             keepFocus(`.vl-sec[data-sector="${n}"] .vl-more`,
+                                       `.vl-sec[data-sector="${n}"] .vl-rows > li:nth-child(${limit + 1}) > .vl-main`, `#vl-sec-${n + 1}`, ...FOCUS_REST);
+                           }}>
         {t("ui.view.show_more", {n: count(rest)})}</button>}
     </>}
   </div>;
@@ -372,6 +429,14 @@ export function SpotList(p: PanelProps) {
     }
     const row = root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
+  });
+  // a focused row this drawing took away (a filter, the map's move under the top block): the focus to the row that
+  // took its place; only a row that was on the page when this drawing began (the moment of its loss)
+  const live = useRef<Element | null>(null);
+  if (focused?.isConnected) live.current = focused;
+  useEffect(() => {
+    if (lostRow(live.current)) keepFocus(...lostRowPlaces(), ...FOCUS_REST);
+    live.current = null;
   });
   const blocks = <><ViewMoreFilters view={view} /><TopBlock {...p} /><Tree {...p} /></>;
   if (wide) {

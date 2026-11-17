@@ -165,7 +165,8 @@ done();
 def test_the_list_follows_a_selection(tmp_path, bundle, made_path, run):
     """A selected spot's sector opens and shows pages until its row, in steps of 20, and the list has to scroll, once
     per selected spot (the user may close the sector again; stepping through the spot's lines changes nothing); the
-    pages a selection needed go back when it leaves the sector or ends, the user's own ("Show more") stay; after a
+    pages a selection needed go back when it leaves the sector or ends, the user's own ("Show more") stay, and a
+    "Show more" pressed while a selection has paged the sector grows the user's own pages, not the selection's; after a
     change of the sort the selection is followed again (paged to its new place, scrolled once, a phone's sheet not
     sent to its top); the first sector shown is open until the user says otherwise."""
     ok, _ = run.passing()
@@ -207,7 +208,18 @@ view.select(last);
 m.follow(s, view);
 view.select(null);                               // the selection ends: its pages go back
 out.none = [m.follow(s, view), state()];
-s.limit.set(big, m.PAGE + m.MORE);               // "Show more" once, then a selection beyond it and its end
+// "Show more" while a selection has paged the sector: 40 more rows now; at the selection's end the user's own pages
+// stay (PAGE + MORE), the selection's go back
+view.select(last);
+m.follow(s, view);
+const pagedBy = state().limit;
+m.showMore(s, big);
+out.pagedMore = [pagedBy, state().limit, state().own];
+view.select(null);
+m.follow(s, view);
+out.pagedEnd = [state().limit, state().own];
+s.limit.delete(big);
+m.showMore(s, big);                              // "Show more" once (the button's own call), then a selection and its end
 view.select(early);
 m.follow(s, view);
 out.more = [state().limit, state().own];
@@ -215,6 +227,19 @@ view.select(null);
 m.follow(s, view);
 out.kept = [state().limit, state().own];
 s.limit.delete(big);
+// the reviewer's example: a sector of 1 211 spots, the spot at rank 1 000 selected (paged to 1 020), "Show more",
+// the selection ends: 60 rows, not 1 060
+const sector = {n: 0, spots: Array.from({length: 1211}, (_, k) => k)};
+const fake = {selected: null, sort: "hmean", version: 1, sectors: [sector], sectorOf: () => 0};
+const f = {open: new Map(), limit: new Map(), paged: new Map(), followed: null, followedOrder: "", scroll: false, scrollNew: false};
+fake.selected = {spot: 1000};
+m.follow(f, fake);
+const at1000 = m.limitOf(f, 0);
+m.showMore(f, 0);
+const more1000 = m.limitOf(f, 0);
+fake.selected = null;
+m.follow(f, fake);
+out.example = [at1000, more1000, m.limitOf(f, 0), f.limit.get(0)];
 // another sort under a selection: followed again, paged to the row's new place, scrolled once
 view.select(moved);
 m.follow(s, view);
@@ -243,6 +268,9 @@ done();
     assert found["left"] == PAGE
     assert found["none"] == [False, {"open": True, "limit": PAGE, "own": None, "followed": None, "scroll": False}]
     assert found["more"] == [PAGE + MORE, PAGE + MORE] and found["kept"] == [PAGE + MORE, PAGE + MORE]
+    assert paged > PAGE and found["pagedMore"] == [paged, paged + MORE, PAGE + MORE]
+    assert found["pagedEnd"] == [PAGE + MORE, PAGE + MORE]
+    assert found["example"] == [1020, 1060, PAGE + MORE, PAGE + MORE]
     place = by_lines.index(moved)
     assert found["before"] == [PAGE, by_sector[big].index(moved)] and place >= PAGE
     assert found["sorted"] == [True, {"open": True, "limit": -(-(place + 1) // PAGE) * PAGE, "own": None, "followed": moved, "scroll": True},
@@ -342,6 +370,8 @@ for (const few of %s) {
   (out.ones ||= []).push([...on, m.topSentence(view)]);
   view.setTopOnly(true);
 }
+// the singular with M of a thousand or more (the made run is smaller): its counts with the no-break space
+out.big = [true, false].map((topOnly) => m.topSentence({topOnly, counts: {topHidden: 1, lines: 1233}}));
 done();
 """ % (star, json.dumps([one, two])))
     lines, ends, rows, capped, text = found["fan"]
@@ -369,5 +399,7 @@ done();
     assert off1 == "Top level only is off: the 1 line that hangs lower on the same face is shown too."
     assert on2 == words["ui.view.top_on"].replace("{{n}}", "2").replace("{{m}}", count(m2))
     assert off2 == "Top level only is off: the 2 lines that hang lower on the same face are shown too."
+    assert found["big"] == [f"Top level only is on: 1 of 1{NB}234 lines hangs lower on the same face and is hidden. Press the chip to see it.",
+                            off1]
     assert found["onFiltered"] == [words["ui.view.top_on"].replace("{{n}}", count(hidden10))
                                    .replace("{{m}}", count(int(ok10.sum()) + hidden10)), int(ok10.sum()), hidden10]

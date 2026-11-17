@@ -140,6 +140,15 @@ export function limitOf(s: PanelState, sector: number): number {
   return Math.max(s.limit.get(sector) ?? PAGE, s.paged.get(sector) ?? 0);
 }
 
+/** "Show more" of a sector: the user's own pages grow by MORE from the user's own (never from the pages a selection
+ *  opened, which still go back when it ends); while a selection has paged the sector further, those pages grow by
+ *  MORE too, so that the press shows 40 more rows now. */
+export function showMore(s: PanelState, sector: number) {
+  const own = s.limit.get(sector) ?? PAGE, paged = s.paged.get(sector);
+  s.limit.set(sector, own + MORE);
+  if (paged !== undefined && paged > own) s.paged.set(sector, paged + MORE);
+}
+
 /** Is a sector open: as the user or a selection left it, else the first one shown (`k` 0). */
 export function isOpen(s: PanelState, sector: number, k: number): boolean {
   return s.open.get(sector) ?? k === 0;

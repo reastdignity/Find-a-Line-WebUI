@@ -26,6 +26,8 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 PIXEL = {"viewport": {"width": 412, "height": 915}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True}
 NB = " "
 PAGE, MORE, BEST_ROWS, CHOICES = 20, 40, 100, 6
+# 16 of the browser's frames: longer than keepFocus's tries (6) and the frames a lost focus may be repaired in (12)
+FRAMES = "() => new Promise((ok) => { let n = 16; const f = () => (--n > 0 ? requestAnimationFrame(f) : ok()); requestAnimationFrame(f); })"
 
 # What the panels show, read from the DOM, and what the model says they must (window.P)
 PANELS = r"""
@@ -166,16 +168,22 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             # the tree's labels are the spots' fixed labels
             labels = page.evaluate("() => P.rows('.vl-tree').map((r) => [r.label, P.view().label(r.spot)])")
             assert labels and all(a == b for a, b in labels)
-            # "Show 30", "Show 100", "Show all": Best rises, the rows follow; with All no numbers, at most 100 rows
-            page.click(".vl-more-best")
+            # "Show 30", "Show 100", "Show all" (by the keyboard): Best rises, the rows follow; with All no numbers, at
+            # most 100 rows. The focus stays on the button while it stays, and goes to the block's tab stop when "Show
+            # all" goes (a later selection: test_selection_details_fan_and_table)
+            page.focus(".vl-more-best")
+            page.keyboard.press("Enter")
             page.wait_for_function("() => P.view().best === 30 && P.rows('.vl-topblock').length === P.view().inView.best.length", timeout=WAIT)
             thirty = _list(page)
             assert [r["mark"] for r in thirty["top"]] == [f"B{k}" for k in range(1, len(thirty["top"]) + 1)] and len(thirty["top"]) == 30
             assert thirty["more"] == WORDS["ui.view.show_100"]
-            page.click(".vl-more-best")
+            assert page.evaluate("() => document.activeElement === document.querySelector('.vl-more-best')")
+            page.keyboard.press("Enter")
             page.wait_for_function("() => P.view().best === 100", timeout=WAIT)
-            page.click(".vl-more-best")
+            page.keyboard.press("Enter")
             page.wait_for_function("() => P.view().best === 'all' && !document.querySelector('.vl-more-best')", timeout=WAIT)
+            stop = ".vl-topblock .vl-main[tabindex=\"0\"]"
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{stop}')", timeout=WAIT)
             every = _list(page)
             m = every["inView"]["m"]
             assert m > BEST_ROWS and every["title"] == WORDS["ui.view.in_view_other"].replace("{{n}}", _count(m))
@@ -217,10 +225,28 @@ def test_list_ranking_sorts_sectors_and_chips(site):
                 page.click(toggle)
             page.wait_for_function(f"() => document.querySelector('{toggle}').getAttribute('aria-expanded') === 'true'", timeout=WAIT)
             _tree_holds(_list(page))
-            page.click(f'.vl-sec[data-sector="{big["n"]}"] .vl-more')
-            page.wait_for_function(f"() => document.querySelectorAll('.vl-sec[data-sector=\"{big['n']}\"] .vl-main').length === {min(len(big['spots']), PAGE + MORE)}",
+            # "Show more" by the keyboard; on the clip it is the sector's last (34 spots): the button goes and the focus
+            # goes to the first row it showed
+            sec = f'.vl-sec[data-sector="{big["n"]}"]'
+            assert PAGE < len(big["spots"]) <= PAGE + MORE, len(big["spots"])
+            page.focus(f"{sec} .vl-more")
+            page.keyboard.press("Enter")
+            page.wait_for_function(f"() => document.querySelectorAll('{sec} .vl-main').length === {len(big['spots'])}", timeout=WAIT)
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{sec} .vl-rows > li:nth-child({PAGE + 1}) > .vl-main')",
                                    timeout=WAIT)
             _tree_holds(_list(page), {big["n"]: PAGE + MORE})
+            # a focused row that a filter removes: the focus goes to the row that took its place in the same list
+            gone = page.evaluate(f"""() => {{ const v = P.view(), c = v.values.clr, rows = [...document.querySelectorAll('{sec} .vl-main')];
+                const most = (b) => Math.max(...Array.from(v.passingOf(+b.dataset.spot)).map((r) => c[r]));
+                const b = rows.slice(0, 30).reduce((a, x) => most(x) < most(a) ? x : a);
+                return {{spot: +b.dataset.spot, index: rows.indexOf(b), clr: most(b)}}; }}""")
+            page.focus(f"#vl-row-{gone['spot']} .vl-main")
+            page.evaluate(f"() => {{ const m = P.view().model; m.setFilters({{...m.filters, clrMin: {gone['clr']} + 0.001}}); }}")
+            page.wait_for_function(f"() => !document.querySelector('#vl-row-{gone['spot']}')", timeout=WAIT)
+            page.wait_for_function(f"() => document.activeElement === (document.querySelector('{sec} .vl-rows > li:nth-child({gone['index'] + 1}) > .vl-main') "
+                                   f"|| document.querySelector('{sec} .vl-rows > li:last-child > .vl-main'))", timeout=WAIT)
+            page.evaluate("() => P.view().model.clearFilters()")
+            page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
             # the tight mark's key line stands under the list, and only while a row shown is tight
             tight = page.evaluate("() => { const v = P.view(); return Array.from(v.order).find((s) => v.values.clr[v.shownOf(s)] < 1); }")
             assert tight is not None, "the clip has no spot whose shown line is tight"
@@ -256,10 +282,36 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             assert filtered["counts"]["lines"] < first["counts"]["lines"] and filtered["sentence"] == _sentence(filtered)
             assert filtered["count"] == _headline(filtered)
             assert page.evaluate("() => P.rows('.vl-tree').every((r) => P.view().values.clr[r.row] >= 5)")
-            page.click(".vl-clear")
+            # the chip's × by the keyboard: the filter ends, the focus goes to the chip itself (a button now)
+            x = f'.vl-filters .u-chip-x[aria-label="{WORDS["ui.view.chip.clearance_remove"]}"]'
+            at = page.evaluate(f"() => {{ const c = document.querySelector('{x}').parentElement; return [...c.parentElement.children].indexOf(c); }}")
+            page.focus(x)
+            page.keyboard.press("Enter")
             page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
+            chip = f".vl-filters .u-chips > :nth-child({at + 1})"
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{chip}')", timeout=WAIT)
+            assert page.evaluate(f"() => [document.activeElement.tagName, document.activeElement.className]") == ["BUTTON", "u-chip"]
+            # "Clear all" by the keyboard: one change of the model for filters alone, the focus to "More filters"
+            page.evaluate("""() => { const m = P.view().model; window.CHANGES = [];
+                for (const k of ['setState', 'clearFilters']) { const f = m[k].bind(m); m[k] = (...a) => { window.CHANGES.push(k); return f(...a); }; }
+                m.setFilters({...m.filters, clrMin: 5}); }""")
+            page.wait_for_selector(".vl-clear", timeout=WAIT)
+            page.evaluate("() => { window.CHANGES = []; }")
+            page.focus(".vl-clear")
+            page.keyboard.press("Enter")
+            page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-filters .u-chip.u-add')", timeout=WAIT)
+            assert page.evaluate("() => window.CHANGES") == ["clearFilters"]
             cleared = _list(page)
             assert cleared["chip"] == "true" and cleared["counts"] == first["counts"]
+            # the "show" boxes alone: one change too
+            page.evaluate("() => { const m = P.view().model; m.setState({...m.state, showOver: false}); }")
+            page.wait_for_selector(".vl-clear", timeout=WAIT)
+            page.evaluate("() => { window.CHANGES = []; }")
+            page.click(".vl-clear")
+            page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
+            assert page.evaluate("() => [window.CHANGES, P.view().model.state.showOver]") == [["setState"], True]
+            assert _list(page)["counts"] == first["counts"]
             # "Why so many?" opens today's box; More filters has no grouping part; the intro's link is not in the view
             page.click(".r-why-link")
             page.wait_for_selector("#r-why", timeout=WAIT)
@@ -293,6 +345,32 @@ def test_selection_details_fan_and_table(site):
             page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
             empty = page.evaluate("() => P.details()")
             assert empty["selected"] is None and empty["empty"] == WORDS["ui.view.empty"] and empty["shown"] is False
+            # a focused element that went while nothing repaired the focus (the code review's finding 1): a selection
+            # the page makes later (a link) does not take the focus to a row
+            page.evaluate("() => { const b = document.createElement('button'); document.body.appendChild(b); b.focus(); b.remove(); }")
+            page.evaluate(FRAMES)
+            page.evaluate("() => P.view().select(P.view().order[0])")
+            page.wait_for_selector(".vl-details", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => P.focus()") == ""
+            page.evaluate("() => P.view().select(null)")
+            page.wait_for_function("() => !document.querySelector('.vl-details')", timeout=WAIT)
+            # the code review's sequence: "Show 30", "Show 100", "Show all" by the keyboard; the button goes and the
+            # focus is on the top block's tab stop; a selection the page makes later does not move it
+            page.focus(".vl-more-best")
+            for best in ("30", "100", "'all'"):
+                page.keyboard.press("Enter")
+                page.wait_for_function(f"() => P.view().best === {best}", timeout=WAIT)
+            stop = ".vl-topblock .vl-main[tabindex=\"0\"]"
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('{stop}')", timeout=WAIT)
+            held = page.evaluate("() => P.focus()")
+            page.evaluate("() => P.view().select(P.view().order[0])")
+            page.wait_for_selector(".vl-details", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert held.endswith("vl-main") and page.evaluate("() => P.focus()") == held
+            page.evaluate("() => { P.view().select(null); P.view().setBest(10); }")
+            page.wait_for_function("() => !document.querySelector('.vl-details') && P.view().best === 10", timeout=WAIT)
+            page.evaluate("() => document.activeElement.blur()")
             # a spot far down its sector, selected from the map's side (the model): its sector opens and pages to it
             target = page.evaluate("""() => { const v = P.view(), s = v.sectors.find((x, k) => k > 0 && x.spots.length > 25);
                 return {spot: s.spots[s.spots.length - 1], n: s.n, rank: s.spots.length - 1, size: s.spots.length}; }""")
@@ -393,10 +471,11 @@ def test_selection_details_fan_and_table(site):
             # one tab stop for the fan's rows; the focus went from the button that is gone to the first row; arrows move
             page.wait_for_function("() => document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
             assert page.evaluate("() => document.querySelectorAll('.vl-fan .vl-main[tabindex=\"0\"]').length") == 1
-            if len(f["rows"]) > 1:
-                page.keyboard.press("End")
-                assert page.evaluate("() => document.activeElement === [...document.querySelectorAll('.vl-fan .vl-main')].at(-1)")
-                page.keyboard.press("Home")
+            assert len(f["rows"]) > 2, f["rows"]
+            fan_at = "() => [...document.querySelectorAll('.vl-fan .vl-main')].indexOf(document.activeElement)"
+            for key, want in (("ArrowDown", 1), ("ArrowDown", 2), ("ArrowUp", 1), ("End", len(f["rows"]) - 1), ("Home", 0)):
+                page.keyboard.press(key)
+                assert page.evaluate(fan_at) == want, key
             lines = WORDS["ui.view.fan.lines_one" if f["lines"] == 1 else "ui.view.fan.lines_other"].replace("{{n}}", _count(f["lines"]))
             ends = WORDS["ui.view.fan.ends_one" if f["farEnds"] == 1 else "ui.view.fan.ends_other"].replace("{{n}}", _count(f["farEnds"]))
             text = WORDS["ui.view.fan.text"].replace("{{lines}}", lines).replace("{{m}}", "10").replace("{{ends}}", ends)
@@ -472,8 +551,9 @@ def test_selection_details_fan_and_table(site):
             page.wait_for_selector(".vl-choose:not(.vl-choose-new)", timeout=WAIT)
             page.click(".vl-choose .vl-row:last-child .vl-main")
             page.wait_for_function("() => !document.querySelector('.vl-choose') && P.view().selected !== null", timeout=WAIT)
-            page.wait_for_function("() => P.focus() !== ''", timeout=WAIT)  # the selected spot's row, else the map
             assert page.evaluate("() => P.view().selected.spot") == rows[-1]["spot"]
+            # the focus to the selected spot's row in the tree (its sector opened and paged to it)
+            page.wait_for_function(f"() => document.activeElement === document.querySelector('#vl-row-{rows[-1]['spot']} .vl-main')", timeout=WAIT)
             assert page.evaluate("() => { const m = window.FINDALINE_MAP; return [m.getCenter().lat, m.getCenter().lng, m.getZoom()]; }") == centre
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
         finally:
@@ -546,6 +626,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
             number = first["numbers"][0]
             before = page.evaluate("() => P.focus()")
+            scrolled = page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollTop = 300; return b.scrollTop; }")
+            assert scrolled > 0  # the body was not at its top before the selection
             _tap(page, box[0] + number["x"], box[1] + number["y"])
             page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
             assert page.evaluate("() => P.view().selected.spot") == first["bestSpots"][int(number["label"][1:]) - 1]
@@ -556,7 +638,7 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert before == "" and "leaflet-container" in after and "vl-" not in after
             spot_head = page.evaluate(fits)
             assert spot_head["whole"] and spot_head["order"] == ["vl-hint", "vl-sheet-row"], spot_head
-            assert page.evaluate("() => document.querySelector('.u-sheet-body').scrollTop") == 0
+            page.wait_for_function("() => document.querySelector('.u-sheet-body').scrollTop === 0", timeout=WAIT)
             # the longest heads still fit: a long spot's title with its two marks and ×, and "Lines from here" with "Close"
             page.evaluate("() => { const t = document.querySelector('.vl-spot-title'); t.firstChild.textContent = 'Spot 12.34 · 1 234 lines'; }")
             long_head = page.evaluate(fits)
@@ -590,6 +672,17 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert page.evaluate("() => [!!document.querySelector('.u-sheet-head .vl-spot-title'), !!document.querySelector('.u-sheet-body .vl-spot-title'), "
                                  "document.querySelectorAll('.u-sheet-body .vl-count').length, document.querySelector('.u-sheet-body').firstElementChild.className.split(' ')[0]]") == \
                 [True, False, 1, "vl-details"]
+            # another sort under the selection (the list's own select): the list follows it again, but the sheet's
+            # body is not sent to its top (that is for another spot only)
+            down = page.evaluate("() => { const b = document.querySelector('.u-sheet-body'); b.scrollTop = 400; return b.scrollTop; }")
+            assert down > 0
+            sort = "() => { const s = document.querySelector('.vl-tree select'); s.value = '%s'; s.dispatchEvent(new Event('change', {bubbles: true})); }"
+            page.evaluate(sort % "len")
+            page.wait_for_function("() => P.view().sort === 'len'", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => [P.view().selected.spot, document.querySelector('.u-sheet-body').scrollTop > 0]") == [spot, True]
+            page.evaluate(sort % "hmean")
+            page.wait_for_function("() => P.view().sort === 'hmean'", timeout=WAIT)
             # the head's row adds no edge of its own above the scrolled body (the sheet's own look is the kit's)
             edge = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.vl-sheet-row')); return [s.borderBottomWidth, s.boxShadow]; }")
             assert edge == ["0px", "none"]
@@ -613,7 +706,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert page.evaluate(fits)["whole"]
             page.tap(".vl-dclose")
             page.wait_for_function("() => P.view().selected === null && !!document.querySelector('.u-sheet-head .vl-count')", timeout=WAIT)
-            page.wait_for_function("() => P.focus() !== ''", timeout=WAIT)  # never the page's body
+            # never the page's body: the rows of the low sheet's body cannot take it, so the map does
+            page.wait_for_function("() => P.focus().includes('leaflet-container')", timeout=WAIT)
             # a fan row selects its line (the sheet at full height again)
             page.evaluate("() => P.view().select(P.view().order[0])")
             page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
@@ -655,6 +749,20 @@ def test_storage_blocked_and_today_untouched(site):
             assert page.evaluate("() => P.text('.vl-hint-text')") == WORDS["ui.view.hint.mouse"]
             page.click(".vl-hint-x")
             page.wait_for_selector(".vl-hint-open", timeout=WAIT)
+            # the keyboard's focus shows on the "?": the kit's ring (--focus) beside its own shadow (the design review's
+            # finding 16)
+            shadow = "() => getComputedStyle(document.querySelector('.vl-hint-open')).boxShadow"
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-hint-open')", timeout=WAIT)  # the hint's ×
+            page.keyboard.press("Tab")  # the keyboard is in use: a focused control shows its ring
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            assert page.evaluate("() => document.activeElement === document.body")
+            own = page.evaluate(shadow)
+            focused = page.evaluate("() => { const e = document.querySelector('.vl-hint-open'); e.focus(); "
+                                    "return [document.activeElement === e, e.matches(':focus-visible')]; }")
+            ring = page.evaluate(shadow)
+            assert focused == [True, True]
+            assert own != "none" and "0px 0px 0px 3px" not in own and "0px 0px 0px 3px" in ring, (own, ring)
+            assert ring.startswith(own) and len(ring) > len(own), (own, ring)
             page.click(".vl-tree .vl-main")
             page.wait_for_selector(".vl-details", timeout=WAIT)
             assert page.evaluate("() => P.list().kept") == "blocked" and errors == []

@@ -117,6 +117,8 @@
 .ui .vl-hint-open { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
   color: var(--ink-2); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); padding: 0; flex: none; }
 .ui .vl-hint-open:hover { background: var(--surface-2); }
+/* the keyboard's ring beside its own shadow (the kit's ring is a shadow too: theirs would replace it) */
+.ui .vl-hint-open:focus-visible { box-shadow: var(--shadow), var(--focus); }
 /* on a phone: the sheet's first line (the frame puts it into the sheet's head, above the head's row) */
 .ui .vl-hint.vl-hint-sheet { display: flex; justify-content: space-between; padding-left: 10px; box-shadow: none; background: var(--bg);
   margin-bottom: 6px; }

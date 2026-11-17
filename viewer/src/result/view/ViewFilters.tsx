@@ -14,6 +14,7 @@ import { t } from "../../i18n";
 import type { SpotView } from "../spots";
 import { count, cx, num } from "./common";
 import { MainEditor, MoreFilters } from "./FilterBar";
+import { FOCUS_REST, keepFocus } from "./SpotList";  // used at a press only (SpotList imports this file)
 import { changePanels, panelState, type PanelState } from "./viewstate";
 
 type Main = "len" | "clr" | "height";
@@ -46,8 +47,12 @@ export function ViewFilters({view}: {view: SpotView}) {
   const change = (part: Partial<Filters>) => model.setFilters({...model.filters, ...part});
   const toggle = (which: PanelState["editing"]) => edit(ui.editing === which ? null : which);
   const removed = (which: Main, part: Partial<Filters>) => {
+    // its × goes with the filter: the focus to the chip itself (a button of its own now), at the same place
+    const chip = document.activeElement?.closest(".vl-filters .u-chips > *");
+    const at = chip?.parentElement ? Array.prototype.indexOf.call(chip.parentElement.children, chip) : -1;
     change(part);
     if (ui.editing === which) edit(null);
+    keepFocus(at >= 0 ? `.vl-filters .u-chips > :nth-child(${at + 1})` : null, ".vl-filters .vl-top", ...FOCUS_REST);
   };
   /** Close the editor; the focus back to its chip when it was in the editor (Esc, ×). */
   const closeEditor = (e: Event) => {
@@ -84,6 +89,8 @@ export function ViewFilters({view}: {view: SpotView}) {
         if (!s.showClean || !s.showOver) model.setState({...s, showClean: true, showOver: true});
         if (active(f) > 0) model.clearFilters();
         edit(null);
+        // the link goes: the focus to the chip before it, More filters
+        keepFocus(".vl-filters .u-chip.u-add", ".vl-filters .vl-top", ...FOCUS_REST);
       }}>{t("ui.view.chip.clear")}</button>}
     </Chips>
     {editing && <div class="r-editor" role="group" aria-label={t("ui.view.chip.editor")}
