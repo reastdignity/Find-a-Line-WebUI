@@ -470,6 +470,13 @@ def test_selection_details_fan_and_table(site):
             browser.close()
 
 
+def _sheet(page, key: str, stop: str):
+    """One stop of a phone's sheet by its handle's arrow key, awaited (peek, half, full)."""
+    page.focus(".u-sheet-handle")
+    page.keyboard.press(key)
+    page.wait_for_function(f"() => document.querySelector('.u-sheet').classList.contains('u-{stop}')", timeout=WAIT)
+
+
 @pytest.mark.parametrize("device", [PHONE, PIXEL], ids=["390", "412"])
 def test_phone_sheet_hint_and_fan(site, device):
     """A phone (390 and 412 px wide), whose sheet opens low. The sheet's order: the handle, the hint ("Press and
@@ -527,12 +534,10 @@ def test_phone_sheet_hint_and_fan(site, device):
                 [False, '{"sort":"hmean","hint":false}']
             page.tap(".vl-hint-open")
             page.wait_for_selector(".u-sheet-head > .vl-hint", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement.classList.contains('vl-hint-x')", timeout=WAIT)  # the focus on its ×
             # the sheet at full height: the list's rows hold; a row far down selects, the sheet's body goes to its top
-            page.focus(".u-sheet-handle")
-            page.keyboard.press("ArrowUp")
-            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
-            page.keyboard.press("ArrowUp")
-            page.wait_for_selector(".u-sheet.u-full", timeout=WAIT)
+            _sheet(page, "ArrowUp", "half")
+            _sheet(page, "ArrowUp", "full")
             assert page.evaluate("() => P.holds(P.rows('.vl-topblock'), 'hmean').concat(P.holds(P.rows('.vl-tree'), 'hmean'))") == []
             row = page.locator(".vl-tree .vl-main").nth(6)
             row.scroll_into_view_if_needed()
@@ -559,11 +564,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             page.wait_for_function("() => document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
             assert page.evaluate("() => document.querySelectorAll('.vl-fan .vl-main[tabindex=\"0\"]').length") == 1
             # with the sheet low the head's buttons still work and are whole: "Close", then the spot's ×
-            page.focus(".u-sheet-handle")
-            page.keyboard.press("ArrowDown")
-            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
-            page.keyboard.press("ArrowDown")
-            page.wait_for_selector(".u-sheet.u-peek", timeout=WAIT)
+            _sheet(page, "ArrowDown", "half")
+            _sheet(page, "ArrowDown", "peek")
             page.wait_for_function("() => Math.round(document.querySelector('.u-sheet').getBoundingClientRect().height) === 132", timeout=WAIT)
             fan_head = page.evaluate(fits)
             assert fan_head["whole"], fan_head
@@ -576,11 +578,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             # a fan row selects its line (the sheet at full height again)
             page.evaluate("() => P.view().select(P.view().order[0])")
             page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
-            page.focus(".u-sheet-handle")
-            page.keyboard.press("ArrowUp")
-            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
-            page.keyboard.press("ArrowUp")
-            page.wait_for_selector(".u-sheet.u-full", timeout=WAIT)
+            _sheet(page, "ArrowUp", "half")
+            _sheet(page, "ArrowUp", "full")
             page.tap(".vl-from-1")
             page.wait_for_selector(".vl-fan .vl-main", timeout=WAIT)
             want = page.evaluate("() => P.view().fan.rows[0].row")
