@@ -19,7 +19,10 @@ Run `python findaline.py --help` for all options. The cache commands
 the web application (`python findaline.py web`) is web.py, its worker as a process of
 its own (`python findaline.py worker`, with `web --no-worker`) jobs.py, the country layer
 (`python findaline.py country run|status|build|compare <id>`) country.py. `python findaline.py
-export RUN --format csv|geojson` (export_main) writes a run's lines as text from its store.
+export RUN --format csv|geojson` (export_main) writes a run's lines as text from its store, `python
+findaline.py view [RUN]` (view_main) opens a run in the local app, and `python findaline.py runs
+remove-old --dry-run|--yes` (runs_main) lists or deletes the runs saved before the store of today
+(docs/line-volume/spec-store.md 1.2 and section 2). A search ends with the `view` command of its run.
 """
 
 import gc
