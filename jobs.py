@@ -13,7 +13,9 @@ The job queue of the web application and its worker.
   of a worker whose lease expired are failed by the next worker that looks (so a
   restart of the web server does not touch the jobs of a separate worker).
 - Cancelling sets jobs.cancel_requested; the worker running the job kills its whole
-  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once.
+  process tree (psutil) and marks it cancelled. A waiting job is cancelled at once. Its
+  owner may then remove it from their list (removed_at, as deleting a run does to the job
+  that saved it); a removed job's row stays and counts as before.
 - run_phase: a phase in its own process; its stdout becomes "info" events
   (_EventWriter), the progress goes as "progress" events.
 - The public site (`worker --public`, Jobs(public=True)): events, errors and answers pass
@@ -177,6 +179,11 @@ MIGRATIONS = [
     """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
                           name_key TEXT NOT NULL, rig TEXT NOT NULL);
        CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
+    # 19: when its owner removed a job from their searches (NULL: not removed; Jobs.remove, Jobs.delete_run): the
+    # owner's list leaves it out, an administrator's marks it; the row stays, so it counts as before (the daily
+    # quota, the usage, the statistics). A finished search whose run was deleted before (no run.json in the data
+    # folder's runs/) is marked now
+    lambda db: _removed_column(db),
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -304,6 +311,21 @@ def _sag_fall_zone(db: sqlite3.Connection):
             params["fall_zone"] = FALL_ZONE_BEFORE
             changed.append((json.dumps(request), rowid))
     db.executemany("UPDATE jobs SET request = ? WHERE rowid = ?", changed)
+
+
+def _removed_column(db: sqlite3.Connection):
+    """Migration 19: the column `removed_at`, and the finished searches whose run is gone (deleted before the
+    column existed: their card on the page showed a run that no longer was) marked removed now. The runs are
+    the folder `runs` beside the database (the web app's data folder)."""
+    db.execute("ALTER TABLE jobs ADD COLUMN removed_at TEXT")
+    path = db.execute("PRAGMA database_list").fetchone()[2]
+    if not path:  # a database in memory: no data folder
+        return
+    runs_dir = os.path.join(os.path.dirname(path), "runs")
+    gone = [(job_id,) for job_id, run_id in db.execute("SELECT id, run_id FROM jobs WHERE status = 'done' AND "
+                                                       "run_id IS NOT NULL").fetchall()
+            if not os.path.isfile(os.path.join(runs_dir, run_id, "run.json"))]
+    db.executemany("UPDATE jobs SET removed_at = ? WHERE id = ?", [(cache.now_iso(), *g) for g in gone])
 
 
 FAVOURITES_MAX = 10000  # favourite lines of a user (a safeguard of the database, the same for everyone)
@@ -669,10 +691,12 @@ class Jobs:
         return {r[0]: r[1] for r in rows}
 
     def all(self, user_id: Optional[int] = None) -> List[Dict]:
-        """The newest jobs, of one user (None: of everyone)."""
-        mine = "" if user_id is None else "WHERE user_id = ? "
+        """The newest jobs, of one user without those they removed (None: of everyone, an administrator's
+        list, the removed ones too: `removed_at`)."""
+        mine = "" if user_id is None else "WHERE user_id = ? AND removed_at IS NULL "
         with self._db() as db:
-            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id "
+            rows = db.execute(f"SELECT id, created, status, title, run_id, error, error_info, finished, user_id, "
+                              f"removed_at "
                               f"FROM jobs {mine}ORDER BY created DESC LIMIT 200",
                               () if user_id is None else (user_id,)).fetchall()
         return [_with_info(dict(r)) for r in rows]
@@ -888,14 +912,27 @@ class Jobs:
 
     def delete_run(self, run_id: str, runs_dir: str):
         """Delete a run: its folder, then its row (its share link and demo flag go with it) and the
-        favourite lines of everyone in it. A folder that cannot be deleted raises OSError and keeps its
-        row (or adopt_runs would give it away)."""
+        favourite lines of everyone in it; the jobs that saved it are marked removed (their searches
+        leave their owner's list as the run does; the rows stay and count as before). A folder that
+        cannot be deleted raises OSError and keeps its row (or adopt_runs would give it away)."""
         folder = os.path.join(runs_dir, run_id)
         if os.path.isdir(folder):
             shutil.rmtree(folder)
         with self._db() as db:
             db.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             db.execute("DELETE FROM favourites WHERE run_id = ?", (run_id,))
+            db.execute("UPDATE jobs SET removed_at = ? WHERE run_id = ? AND removed_at IS NULL",
+                       (cache.now_iso(), run_id))
+
+    def remove(self, job_id: str) -> bool:
+        """Remove a cancelled job from its owner's list (removed_at; the row stays, so it counts toward the
+        daily quota and the statistics as before). Whether it is removed now: False for a job that is not
+        cancelled; True again for one removed before (a second removal changes nothing)."""
+        with self._db() as db:
+            db.execute("UPDATE jobs SET removed_at = ? WHERE id = ? AND status = 'cancelled' AND removed_at IS NULL",
+                       (cache.now_iso(), job_id))
+            row = db.execute("SELECT removed_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return row is not None and row[0] is not None
 
     # --- Favourite lines (the maps mark them, the app lists them) ---
 

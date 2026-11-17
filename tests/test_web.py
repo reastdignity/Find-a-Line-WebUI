@@ -1116,6 +1116,34 @@ def test_run_again_and_edit(client, tmp_path):
     assert json.loads(jobs.get(copy)["request"]) == {"osm": {"action": "download", "region": "malta"}}
 
 
+def test_remove_a_cancelled_search_locally(client, tmp_path):
+    """The local app: a cancelled search (cancelled while waiting, and while running through its worker) is
+    removed from the list with POST /api/jobs/<id>/remove (with the page's token); the local user's list, an
+    administrator's, keeps it marked (removed_at), so the page leaves its card out. A failed or waiting search is
+    refused with a code of the catalogue; a second removal answers ok; the job's row stays."""
+    import messages
+    jobs = Jobs(str(tmp_path))
+    request = {"params": {"name": "Cliff", "radius": 300}, "geometry": {"type": "Point", "coordinates": [14.2, 36.0]}}
+    headers = {"x-findaline-token": TOKEN}
+    waiting, running, failed = (jobs.add(request, name) for name in ("Waiting", "Running", "Failed"))
+    assert client.post(f"/api/jobs/{waiting}/remove", headers=headers).status_code == 409  # still waiting
+    assert client.delete(f"/api/jobs/{waiting}", headers=headers).status_code == 200      # cancelled at once
+    jobs.set(running, "computing")
+    jobs.set(running, "cancelled", when=("computing",))  # as the worker does after cancel_requested
+    jobs.set(failed, "failed", error="interrupted")
+    refused = client.post(f"/api/jobs/{failed}/remove", headers=headers)
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "job_not_cancelled"
+    assert refused.json()["detail"]["message"] == messages.text("error.job_not_cancelled")
+    assert client.post(f"/api/jobs/{waiting}/remove").status_code == 403  # no token
+    for job in (waiting, running):
+        assert client.post(f"/api/jobs/{job}/remove", headers=headers).json() == {"ok": True}
+        assert client.post(f"/api/jobs/{job}/remove", headers=headers).json() == {"ok": True}  # again: harmless
+    listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+    assert listed[waiting]["removed_at"] and listed[running]["removed_at"] and not listed[failed]["removed_at"]
+    assert {jobs.get(j)["status"] for j in (waiting, running)} == {"cancelled"}  # the rows stay as they were
+    assert client.post("/api/jobs/nothing/remove", headers=headers).status_code == 404
+
+
 def test_sag_requests_keep_their_fall_zone(tmp_path):
     """jobs.sqlite of version 16 gets migration 17: a sag request without a fall zone (the form leaves out a
     value equal to the default) gets the 3 m it was made with, before the default became 6 m (2026-11-14), so
