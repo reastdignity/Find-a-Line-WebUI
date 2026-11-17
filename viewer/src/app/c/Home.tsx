@@ -103,9 +103,9 @@ export function menuKeys(e: KeyboardEvent) {
   items[to].focus();
 }
 
-function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
+function SearchCard({card, runs, jobs, publicSite, highlight, dayHours, onGone}:
                     {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean;
-                     dayHours: number}) {
+                     dayHours: number; onGone(): void}) {
   const {job, run} = card;
   // a search started within the day's window (the quotas' DAY) still counts in "Searches today" after its removal
   const counted = !!job && Date.now() - timeOf(job.created) < dayHours * 3600e3;
@@ -143,11 +143,13 @@ function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
   // The job that saved the run is then listed as one whose run is gone: listed again, its card goes with the run
-  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
+  // (onGone: Home moves the focus on once the card is gone)
+  const remove = () => api.deleteRun(run!.id).then(() => { onGone(); forgetRun(run!.id); runs.change(run!.id, null);
                                                            return jobs.refresh(); },
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
-  const removeJob = () => api.removeJob(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
+  const removeJob = () => api.removeJob(job!.id).then(() => { onGone(); return jobs.refresh(); },
+                                                      (e) => setError(e.message));
   const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
     open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />Open the result</a>,
@@ -238,6 +240,20 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
   const running = cards.filter((c) => stateOf(c).unfinished);
   const shared = cards.filter((c) => c.run?.shared);
   const shown = show === "running" ? running : show === "shared" ? shared : cards;
+  // A card removed or deleted takes the focus with it: once it is gone, the focus goes to the card that took its
+  // place (the last one if it was last), or to "Your searches" when none is left
+  const list = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const going = useRef<{key: string; at: number} | null>(null);
+  useEffect(() => {
+    const pending = going.current;
+    if (!pending || shown.some((c) => c.key === pending.key)) return;
+    going.current = null;
+    const left = Array.from(list.current?.querySelectorAll<HTMLElement>(":scope > .c-card") ?? []);
+    const next = left[Math.min(pending.at, left.length - 1)];
+    (next ? next.querySelector<HTMLElement>("a.c-card-open") ?? next.querySelector<HTMLElement>(".c-card-menu")
+      : heading.current)?.focus();
+  });
   const example = runs.public ? listed.find((r) => r.demo && r.has_map)
     : listed.filter((r) => r.has_map).sort((a, b) => timeOf(b.created) - timeOf(a.created))[0];
 
@@ -260,7 +276,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         </a>}
       </div>
       <div class="c-section-head">
-        <h1 class="u-h">Your searches</h1>
+        <h1 class="u-h" ref={heading} tabIndex={-1}>Your searches</h1>
         <span class="u-small">{cards.length}</span>
         <span class="u-grow" />
         {wide ? <Chips>
@@ -275,9 +291,10 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
       {runs.runs === null ? <p class="u-small">Loading…</p> : shown.length === 0
         ? <p class="u-small c-empty">{show === "all" ? "No searches yet: start one with New search." :
             show === "running" ? "Nothing is running." : "No shared runs."}</p>
-        : <div class="c-cards">{shown.map((c) =>
+        : <div class="c-cards" ref={list}>{shown.map((c, at) =>
             <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
-                        highlight={!!highlight && c.job?.id === highlight} dayHours={usage.usage?.hours ?? 24} />)}</div>}
+                        highlight={!!highlight && c.job?.id === highlight} dayHours={usage.usage?.hours ?? 24}
+                        onGone={() => { going.current = {key: c.key, at}; }} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
       {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>

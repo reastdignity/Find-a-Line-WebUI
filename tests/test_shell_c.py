@@ -1766,10 +1766,13 @@ run({
     });
   }); },
   remove(next) { openMenu(J.waiting, () => {
+    result.order = $$(".c-cards > .c-card").map((c) => c.dataset.job || c.dataset.run);
     item(J.waiting, "Remove…").click();
     wait(() => $(".c-confirm-remove"), () => {
       $(".c-confirm-remove").click();
-      wait(() => !card("job", J.waiting), () => {
+      // the card goes, and the focus to the card that took its place (not the page's start)
+      wait(() => !card("job", J.waiting) && document.activeElement.closest(".c-card"), () => {
+        result.focusAfter = document.activeElement.closest(".c-card").dataset.job;
         fetch("/api/jobs").then((r) => r.json()).then((body) => {
           result.removed = body.jobs.filter((j) => j.removed_at).map((j) => j.id).sort();
           result.runGone = body.jobs.filter((j) => j.run_gone).map((j) => j.id);
@@ -1872,7 +1875,10 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["oldAsk"] == "Remove “Cancelled two days ago” from your searches? It was cancelled, so it has no result.", r
     assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
     assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
-    assert r["left"] == [True, True], r
+    order = r["order"]  # the cards before the removal (created in one second: their order is the server's)
+    at = order.index(ids["waiting"])
+    took = order[at + 1] if at + 1 < len(order) else order[at - 1]
+    assert r["left"] == [True, True] and r["focusAfter"] == took, r  # the card that took its place
     admin = {row[0]: row for row in r["admin"]}
     assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
     assert [row[4] for row in r["admin"] if row[3]] == [True, True, True], r  # the marks: status chips, same size
