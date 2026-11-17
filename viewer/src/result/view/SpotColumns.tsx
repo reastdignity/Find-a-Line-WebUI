@@ -128,6 +128,7 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
       onToast: (text) => latest.current.onToast(text),
       obstacles: () => latest.current.obstacles(),
       free: () => latest.current.free(),
+      padding: () => latest.current.padding(),
       phone: frame.phone,
       onDrawn: () => {
         if (drawn || !made) return;
@@ -298,7 +299,8 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
       </FramePanel>
       <div class="c-col-map v-map">
         <div class="c-leaflet" ref={ref} />
-        <MapBar view={view} map={canvas} wide hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint(p)}</span>} />
+        <MapBar view={view} map={canvas} wide
+                hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
         {toast && <div class="v-toast" role="status">{toast}</div>}
       </div>
       <FramePanel side="details" class="c-col-details" label={t("ui.view.map.panel_details")} column={fit.details}
@@ -316,7 +318,7 @@ const PHONE_TOP = 104;  // px of a phone's map under its top bar and the switch
 function Phone({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
   useSpotView(view);
   const [snap, setSnap] = useState<Snap>("half");
-  const phoneRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null);
+  const phoneRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
   /** The px of the map's bottom under the sheet (before the sheet has a height: half the map, its first state). */
   const covered = (): number => {
     const box = colRef.current?.getBoundingClientRect();
@@ -332,7 +334,8 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
     padding, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
     // the top bar lies over the map: no number under it
-    obstacles: () => Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
+    obstacles: () => [...Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
+                      ...slotBoxes(hintRef.current)],
     onChoose: setChoice, onToast: say});
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
@@ -365,7 +368,8 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef}>
       <div class="c-leaflet" ref={ref} />
-      <MapBar view={view} map={canvas} wide={false} />
+      <MapBar view={view} map={canvas} wide={false}
+              hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
       {toast && <div class="v-toast" role="status">{toast}</div>}
     </div>
     <div class="c-phone-top">
@@ -376,7 +380,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
       </div>
     </div>
     <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={132} top={64} header={panels.sheetHead(p)}>
-      {panels.hint(p)}
+      {panels.hint({...p, place: "sheet"})}
       {panels.details(p)}
       {panels.list(p)}
     </Sheet>

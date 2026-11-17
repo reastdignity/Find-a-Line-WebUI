@@ -12,6 +12,7 @@ import type { SpotMap } from "../src/result/SpotMap";
 import type { SpotView } from "../src/result/spots";
 import { clipper } from "../src/result/viewgeom";
 import { opensView, SpotColumns, viewWanted } from "../src/result/view/SpotColumns";
+import type { SpotPanels } from "../src/result/view/SpotPanels";
 import { lineColumns, type LineRow, type RunData, type RunHead } from "../src/types";
 
 interface Made { rows: LineRow[]; head: RunHead; view: {spot: number[]; top: number[]; by_spot: number[]} }
@@ -76,13 +77,20 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   root.style.cssText = "width:1400px;height:900px;display:flex;position:relative";
   document.body.appendChild(root);
   const model = new ResultModel(data, {ungrouped: true, favourites: false, profiles: false});
-  const props = {runId: data.run.id, line: null, nav: 0, hashOf: () => "", model, data};
+  // the slots filled by the page's own panels (the frame's default ones are the view's real panels)
+  const panels: SpotPanels = {
+    list: () => h("p", {"data-slot": "list"}, "the list's slot"), details: () => h("p", {"data-slot": "details"}, "the details' slot"),
+    sheetHead: () => h("b", {"data-slot": "head"}, "the sheet's head"),
+    hint: (p) => h("button", {type: "button", "data-slot": "hint-" + p.place}, "?")};
+  const props = {runId: data.run.id, line: null, nav: 0, hashOf: () => "", model, data, panels};
+  const places = () => Array.from(document.querySelectorAll<HTMLElement>("[data-slot^=hint], [data-slot=head]"),
+                                  (e) => [e.dataset.slot, e.closest(".v-row") ? "map" : e.closest(".u-sheet") ? "sheet" : "?"]);
   render(h(SpotColumns, {...props, wide: true}), root);
   out.drawn = await until(() => !!shown());
   const {view, map} = shown()!;
   const status = () => text(".v-status-text");
   out.first = {level: view.level, auto: view.auto, best: view.best, m: view.inView.m, spots: view.counts.spots, status: status(),
-               pressed: pressed(), mpp: view.mpp, slots: [text("[data-slot=list]"), text("[data-slot=details]")],
+               pressed: pressed(), mpp: view.mpp, slots: [text("[data-slot=list]"), text("[data-slot=details]")], places: places(),
                result: (window as any).FINDALINE_RESULT === undefined, leaflet: (window as any).FINDALINE_MAP === (map as any).map,
                controls: [".leaflet-control-zoom", ".leaflet-control-layers", ".leaflet-control-scale", ".leaflet-control-attribution"]
                  .map((s) => !!document.querySelector(s)),
@@ -118,9 +126,23 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   await sleep(50);
   const chosen = view.selected!;
   out.selected = {drawn: picture(view, map), passing: view.passingOf(chosen.spot).length, marks: document.querySelectorAll(".v-anchor-mark").length};
-  view.openFan(leaflet.getCenter(), {row: chosen.row, end: 1});
+  // opened through the model (as the details' buttons do): the canvas moves the map, because far ends lie outside
+  const centre = leaflet.getCenter(), zoomBefore = leaflet.getZoom(), columns = view.model.data.columns;
+  const outside = () => view.fan!.rows.filter((r) => {
+    const far = leaflet.latLngToContainerPoint(r.near === 1 ? [columns.lat2.at(r.row), columns.lon2.at(r.row)] : [columns.lat1.at(r.row), columns.lon1.at(r.row)]);
+    const size = leaflet.getSize();
+    return far.x < 0 || far.y < 0 || far.x > size.x || far.y > size.y;
+  }).length;
+  view.openFan(centre, {row: chosen.row, end: 1});
   await sleep(50);
-  out.fan = {drawn: picture(view, map), rows: view.fan!.rows.map((r) => r.label), marks: document.querySelectorAll(".v-anchor-mark").length};
+  const movedTo = leaflet.getCenter();
+  out.fan = {drawn: picture(view, map), rows: view.fan!.rows.map((r) => r.label), marks: document.querySelectorAll(".v-anchor-mark").length,
+             m: view.inView.m, moved: !movedTo.equals(centre) || leaflet.getZoom() !== zoomBefore, outside: outside()};
+  // opened again with every far end in view: the map stays
+  view.closeFan();
+  view.openFan(movedTo, {row: chosen.row, end: 1});
+  await sleep(50);
+  out.fanAgain = {moved: !leaflet.getCenter().equals(movedTo), open: !!view.fan, outside: outside()};
   view.select(null);
   await sleep(50);
   // Esc ends the selection (the frame's key handler; nothing else is open)
@@ -146,7 +168,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   const sheet = document.querySelector(".u-sheet")!.getBoundingClientRect(), box = document.querySelector(".c-leaflet")!.getBoundingClientRect();
   const foot = document.querySelector(".v-foot")!.getBoundingClientRect();
   out.phone = {same: phone.view === view, best: phone.view.best, sheet: Math.round(box.bottom - sheet.top), height: Math.round(box.height),
-               footAbove: foot.bottom <= sheet.top + 1, slots: [text("[data-slot=list]"), text("[data-slot=details]")],
+               footAbove: foot.bottom <= sheet.top + 1, slots: [text("[data-slot=list]"), text("[data-slot=details]")], places: places(),
                covered: (document.querySelector(".v-map") as HTMLElement).style.getPropertyValue("--v-covered"),
                pill: text(".c-pill-name"), level: phone.view.level};
   // the spots in view against a count in the map's own pixels: above the sheet, and with the sheet's part too

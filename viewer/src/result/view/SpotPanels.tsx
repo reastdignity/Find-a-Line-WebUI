@@ -17,7 +17,11 @@ import type { Area } from "./LineChooser";
  *  columns; else a phone's map with the sheet), the map's free part for moves (SpotMap.reveal, zoomTo) and, on a
  *  phone, the sheet's state (peek, half, full) and how to change it. */
 export interface PanelProps { view: SpotView; map: SpotMap | null; wide: boolean; padding(): Padding;
-                              sheet?: {snap: Snap; setSnap(snap: Snap): void} }
+                              sheet?: {snap: Snap; setSnap(snap: Snap): void};
+                              /** Where the frame draws this call of `hint`: beside the map's status line ("map": in
+                               *  the columns the hint and its "?", on a phone only the "?") or as the sheet's first
+                               *  line ("sheet": a phone's hint). */
+                              place?: "map" | "sheet" }
 
 /** The table of spots' own: the spots a press reached, its point in the viewport, the part of the viewport the map
  *  shows free (LineChooser's placing), and how it closes (the frame also closes it when the map moves, the view
@@ -27,7 +31,9 @@ export interface ChooserProps extends PanelProps { choices: SpotChoice[]; at: {x
 
 /** The frame's slots. `list`: the left column (a phone: the sheet's body, under the details); `details`: the right
  *  column (a phone: the sheet's body, first); `sheetHead`: a phone's sheet head; `hint`: on a desktop beside the
- *  map's status line, on a phone the sheet's first line; `chooser`: the table of spots under a press. */
+ *  map's status line; on a phone it is called twice: as the sheet's first line (`place` "sheet") and beside the
+ *  map's status line (`place` "map": the round "?" that shows a hidden hint again); `chooser`: the table of spots
+ *  under a press. */
 export interface SpotPanels {
   list(p: PanelProps): ComponentChildren;
   details(p: PanelProps): ComponentChildren;

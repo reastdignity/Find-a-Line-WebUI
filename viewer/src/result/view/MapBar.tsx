@@ -13,10 +13,11 @@ import { AccessMark, ACCESS_STATES, accessWord, useAccessHelp } from "../../acce
 import { t } from "../../i18n";
 import { COLORS } from "../../style";
 import { Icon } from "../../ui/icons";
-import type { Legend, MarkKind, SpotMap } from "../SpotMap";
+import type { Legend, SpotMap } from "../SpotMap";
 import type { Best, SpotView } from "../spots";
 import { FAN_HERE, type Level, type SquareBy } from "../viewgeom";
 import { count, cx, Swatch } from "./common";
+import { Shape } from "./Shape";
 import "./mapbar.css";
 
 const LEVELS: (Level | "auto")[] = ["auto", "area", "spots", "lines"];
@@ -39,16 +40,6 @@ export function statusOf(view: SpotView): {text: string; refused: boolean} {
   }
   return {text: all ? t("ui.view.map.status_lines_all", {n: count(v.strokes)})
     : t("ui.view.map.status_lines", {n: v.best.length, m: count(v.m)}), refused: false};
-}
-
-const SHAPES: Record<MarkKind, string> = {
-  B: "M6 2h28a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4z", P: "M20 1.2 38.8 12 20 22.8 1.2 12z",
-  L: "M8 2h24l6.8 10L32 22H8L1.2 12z", A: "M9.4 12a10.6 10.6 0 1 0 21.2 0a10.6 10.6 0 1 0-21.2 0z"};
-
-/** A number's shape as it is on the map, for a row or the legend: its outline with its text inside. */
-export function Shape({kind, text}: {kind: MarkKind; text: string}) {
-  return <svg class="v-sh" viewBox="0 0 40 24" role="img" aria-label={text} data-shape={kind}>
-    <path d={SHAPES[kind]} /><text x="20" y="12.5">{text}</text></svg>;
 }
 
 /** The five classes of the squares as texts: whole numbers "1–4", "5–19", "80+"; metres "under 5", "5–12", "40+";
