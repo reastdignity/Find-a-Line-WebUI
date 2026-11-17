@@ -18,9 +18,9 @@ is in `.claude/rules/deploy.md`, the VPS's checks of it (C7, C8) in `metrics.md`
 - `tools/mirror_publish.py` `PUBLISHABLE`: every row names a dataset the tools cut (`mirror_tiles.DATASETS` or
   Slovakia) with its product folders among `GridTiles(averaged=)`'s required ones, and a catalogue `source_id` (its
   credit is the row's attribution); each card states the changes. A cut dataset gets a row only with the user's
-  approval and date, and until then is not published (the islets of batch 6 today; the pair test names them). A recut with other
-  values is a new edition (a new folder name, U24). `BLOCK` 10 in `sk_tiles`, `mirror_tiles`, `mirror_publish` and
-  `tilebases` (`tests/test_mirror_pairs.py`).
+  approval and date; until then it is not published and is named in the pair test's `CUT_WITHOUT_A_ROW` (empty:
+  every cut dataset has a row). A recut with other values is a new edition (a new folder name, U24). `BLOCK` 10 in
+  `sk_tiles`, `mirror_tiles`, `mirror_publish` and `tilebases` (`tests/test_mirror_pairs.py`).
 - The client (`tilebases.py`): `MIRROR_URL`'s host is the key of `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (another address
   takes its manners through `net.LIMITS_AS`) and Telegraf's address; `off` (or empty) turns it off, also in conftest,
   `tests/regression.py` and the privacy sentence; a test never sets it empty (Windows deletes the variable: the real

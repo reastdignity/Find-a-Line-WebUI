@@ -1544,12 +1544,14 @@ The data server of the sources kept as own copies: the stack on the home server 
 (`tools/mirror_publish.py`), the client (`sources/readers/tilebases.py`), the VPS's checks C7 and C8
 ([mirror-hosting/spec.md](mirror-hosting/spec.md); the operator's steps: docs/deployment.md, section 17). The
 rollout (the specification's section 11, each step on the user's word): 1 the stack on the home server, SWAG and its
-certificate, `mirror_check.sh --live`; 2 the first publications (Madeira, Valle d'Aosta, Slovakia); 3 the measurement M2
-on the real path; 4 the squash into `main` and the VPS updated; 5 the VPS's `FINDALINE_MIRROR_DIR` taken out of `.env`.
+certificate, `mirror_check.sh --live`; 2 the first publications (Madeira, its islets Porto Santo, the Desertas
+and the Selvagens, Valle d'Aosta, Slovakia); 3 the measurement M2 on the real path; 4 the squash into `main` and the
+VPS updated; 5 the VPS's `FINDALINE_MIRROR_DIR` taken out of `.env`.
 
 Follow-ups, not part of the build:
 - **The VPS's own copy removed** (rollout step 6): `/srv/findaline-mirror` after a number of good days the user names.
-- **Batch 6's datasets** (rollout step 7, planned in its own task): published with the same tool when cut, each with
+- **Batch 6's other datasets** (rollout step 7, planned in its own task; its Madeira islets are published with
+  the build, step 2): published with the same tool when cut, each with
   its `PUBLISHABLE` row and the user's approval: datasets at a native 0.5 m ("0.5m" folders, already served), several
   products under one dataset with one card, folder names with a hyphen. A dataset that cannot be published and is
   kept as an own copy reaches the site only through a local copy on the VPS, an exception to U4 the user decides then.

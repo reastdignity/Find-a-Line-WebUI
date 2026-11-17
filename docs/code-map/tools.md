@@ -137,8 +137,8 @@ token read back: the server's sha256 proven on the lock file (U35), "published a
 space; the listed files copied into `staging/`, the card, the staged copy verified, two checked moves through
 `trash/`, `datasets.json` through a hidden name), `unpublish` (a takedown), `clean` (trash older than `KEEP_DAYS`),
 `stats` (the server's log: requests and bytes per day and dataset, refusals per limit, client versions by
-`client_version`; never an address). `PUBLISHABLE`: one approved row per dataset (Slovakia, Madeira, Valle d'Aosta;
-the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
+`client_version`; never an address). `PUBLISHABLE`: one approved row per dataset (Slovakia,
+Madeira, Valle d'Aosta, Porto Santo, the Desertas, the Selvagens; the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
 Prints its own lines only, never rclone's or the remote's name. `tests/test_mirror_publish.py` (rclone's local backend
 as the server; skipped without rclone), `tests/test_mirror_pairs.py`.
 

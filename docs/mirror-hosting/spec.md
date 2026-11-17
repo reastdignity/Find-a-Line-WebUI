@@ -3,7 +3,7 @@
 2026-11-15, second version (after a scope review and a builder's read of the first). The specification of a data
 server ("the mirror") from which every Find-a-Line installation downloads the tiles of the sources that cannot be
 read from their provider on demand. Built on 2026-11-16 (the task `mirror-hosting-build`); the text describes what
-exists, the sentences the build changed name the decision (U27-U50) or the planner's ruling behind them. What is
+exists, the sentences the build changed name the decision (U27-U56) or the planner's ruling behind them. What is
 still open is listed in section 9, never hidden.
 
 ## 1. How to read it
@@ -14,7 +14,7 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U50 are the user's decisions (U27-U50 taken during the build),
+**Names.** "A.5" is behaviour 5 of solution A. U1-U56 are the user's decisions (U27-U56 taken during the build),
 P1-P28 the planner's, S1-S17 the
 security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U50 during the build, 2026-11-15 and 16)
+### 2.1 By the user (2026-11-15; U27-U56 during the build, 2026-11-15 to 17)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -87,6 +87,10 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U48 | The log's size bound (hourly; the oldest days first; today's file emptied whole and started again when it alone passes it) | 2 GB |
 | U49 | CI's job `mirror` (about 75 minutes with its self-test) | it runs only when the mirror's files or its check script change, plus by hand |
 | U50 | A dataset that reads the mirror but is not on the data server (Porto Santo, the Desertas, the Selvagens) | "a": the client reads the server's dataset list first and treats an unlisted dataset as unavailable, as it was before the mirror; a dataset starts working by itself when it is published |
+| U53 | Madeira's islets: limit Madeira's source to its island (an islet then falls to the coarse source), publish the islets, both, or leave them | "b": publish Porto Santo, the Desertas and the Selvagens; their three `PUBLISHABLE` rows are brought to the user for approval before they are written; Madeira's source is not limited |
+| U54 | The data server's host name in the public site's failure texts: keep it or hide it | "a": keep it |
+| U55 | The islets' three `PUBLISHABLE` rows (the basis of Madeira's row, U11; against it the regional order's price of Porto Santo's 5 m model) | "a": all three approved as drafted (porto-santo, desertas, selvagens), 2026-11-17 |
+| U56 | The islets' served cards (two left out a change under "Changes made": the Desertas' replaced reference-system label, Porto Santo's float64 to float32) | "a": both fixed first; the new card texts shown to the user before anything is published |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -412,15 +416,18 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   `basis_kind` (licence, metadata statement, written permission), `licence`, `licence_url`, `basis_url`,
   `basis_quote` (the original sentence), `basis_checked` (date), `changes` (per product, the averaging too),
   `not_endorsed` (the sentence), `notes`, `approved` (the user's word and its date). A field without a fact holds
-  the word "none" (P23). The rows of today (wave 0: publish, quotes dated 2026-11-15):
+  the word "none" (P23). The rows of today, six (wave 0: publish, quotes dated 2026-11-15; the islets' 2026-11-17), each with the user's approval it rests on:
 
   | Dataset | Basis | Notes for the row |
   | --- | --- | --- |
-  | Slovakia (DMR 5.0, DMP 1.0) | CC BY 4.0 (the owner's terms: "Autor ÚGKK SR / Licencia CC-BY 4.0") | the card's "Changes made" must name the 2 m and 5 m averaging (today only under "Layout") |
+  | Slovakia (DMR 5.0, DMP 1.0) | CC BY 4.0 (the owner's terms: "Autor ÚGKK SR / Licencia CC-BY 4.0"); approved by U31 | the card's "Changes made" must name the 2 m and 5 m averaging (today only under "Layout") |
   | Valle d'Aosta (DTM 2005/2008) | CC BY 4.0 by the region's licence PDF the catalogue already records ("distribuire ... Modificare ... anche commerciale"); approved by U12 | a second PDF on the same server says CC BY 2.5 Italia, and its own sentence does not name distributing |
   | Madeira (DTM 2 m) | a metadata statement, **weak**: the national catalogue's record says "No conditions apply"; `licence` and `licence_url` "none"; approved by U11 | against, all in the regional order 36/2022: obtaining the owner's products "is subject to payment", its price table lists "MDT 2 m (folha)" at 42 €, use licences are to be published by the owner (not found), commercial use is named only for the region's own services; whether today's free file is that priced product is not established. `unpublish` answers an objection |
-  | Wallonia (batch 6) | CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications" | row written with batch 6 |
-  | Hong Kong (batch 6) | **none found**: no sentence allows a changed copy on the internet | no row: not publishable (section 11, step 7) |
+  | Porto Santo (DTM 5 m) | a metadata statement, **weak**: the same national catalogue record and sentences as Madeira's (the record of the 5 m model of every island, "No conditions apply"); `licence` and `licence_url` "none"; approved by U55 (2026-11-17) | against, sharper than for Madeira: the regional order 36/2022's price table lists "MDT 5 m (Porto Santo)" at 500 €; whether the record's free file is that priced product is not established. The card names the float64 values stored as float32 (U56). `unpublish` answers an objection |
+  | The Desertas (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet. The file's reference-system label (EPSG:3061) is replaced by the system its coast fits (PTRA08, EPSG:5016), nothing reprojected; the card names it (U56) |
+  | The Selvagens (DTM 5 m) | as Porto Santo's; approved by U55 (2026-11-17) | against: the same order's "MDT 5 m (folha)" at 37 € a sheet |
+
+  Not rows of the tool: Wallonia (batch 6; CC BY 4.0, "Il peut publier les données et l'œuvre dérivée à condition de citer les sources"; the terrain model's record also asks for "mention explicite des modifications"), its row written with batch 6; Hong Kong (batch 6; **none found**: no sentence allows a changed copy on the internet), no row: not publishable (section 11, step 7).
 
 Compared and not chosen for the transport: the tool's own tar over SSH with `sha256sum -c` (no new program; the
 planner's recommendation), a share with read-back, robocopy and rsync (no sha256).
@@ -610,7 +617,7 @@ index of another shape or another `"block"` than `BLOCK`, treated as a mismatch)
 `sources/choose.py`, `country.py` (the main process's one reach), `search.py` (`plan_search`'s two new arguments
 and the call of `choose_source`), `findaline.py` (the command line's search passes `reach=True`), `jobs.py` (only
 what passes `reach=True` in the first phase and the quick lane's estimate, and the stored source to the later
-phase), `sources/probe.py`, `sources/net.py`, the texts of the three sources in the catalogue ("from the local
+phase), `sources/probe.py`, `sources/net.py`, the texts of the sources that read the mirror in the catalogue ("from the local
 mirror" becomes "from the project's data server or a local copy") and with them the generated table of
 `README.md` (by `tools/source_docs.py`, which C changes only if the texts need it; the rest of README is wave
 2's); tests: `conftest.py`, `http_server.py` (a list of the requests it served, if it has none), `regression.py`,
@@ -671,8 +678,8 @@ process's pages make no request.
 - Index traffic: about 1.2 MB per Slovak product and process before compression, a few percent of a small
   search; A.3's gzip cuts it. The start check adds one small request per process (the list, kept 300 s); an
   estimate that has tiles to download takes the product's index, which the download then reuses.
-- A dataset cut but not published (U50: the islets today) is unavailable without a local copy until it is
-  published; the next source of the place takes over (for the islets Madeira's, by the catalogue's order).
+- A dataset cut but not yet published (U50) is unavailable without a local copy until it is published; the next
+  source of the place takes over (for an islet Madeira's when Madeira's is available, by the catalogue's order).
 
 ### Needs the user's word
 Nothing before the build; the numbers of 3 and 6 are confirmed or corrected after M2.
@@ -826,7 +833,9 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
    1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
    today (M2).
-2. Publish Madeira (0.33 GB), check; then Valle d'Aosta, then Slovakia; `verify` on the remote after each.
+2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; a few
+   MB in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
+   check (LV15) keeps Madeira's tiles: no islet has a tile of 1 MB.
 3. M2 on the real path; the user confirms or corrects the numbers; a rework round if they change.
 4. The squash into `main` (the client and the address in one commit), push; the VPS updated (its Telegraf then
    checks a mirror that already answers).
@@ -840,7 +849,7 @@ Follow-ups, not part of the build's definition of done:
    still within the in-memory download), several products under one dataset folder with one card, folders with
    a hyphen in their name. By that task's reading of the terms (2026-11-15): Wallonia, Valle d'Aosta's surface
    model, Saint Vincent, South Australia and the Australian Capital Territory can be published on a licence;
-   Madeira's other islands rest on the same catalogue statement as Madeira; New South Wales cannot be published
+   New South Wales cannot be published
    until its owner answers; Hong Kong cannot, and is planned as an ordinary on-demand source, so it needs no
    mirror dataset. A dataset that cannot be published and is kept as an own copy would reach the site only by a
    local copy on the VPS, an exception to U4 that the user decides then. Each new dataset needs its
@@ -878,8 +887,8 @@ The build is done when every line below holds; each names its test or command.
       tests/test_probe.py tests/test_regression_needs.py` green; no test asks the real mirror.
 - [ ] `tests/regression.py --mirror-url ...` for R13, R21, R34, R80, R81 from an empty cache: the baseline's
       counts and `lines.csv` sha256; the 5 m Slovak search equal to the folder's.
-- [ ] `findaline.py sources check slovakia madeira aosta_valley` and `tools/check_source.py` for the three pass
-      over HTTP.
+- [ ] `findaline.py sources check slovakia madeira aosta_valley porto_santo desertas selvagens` and
+      `tools/check_source.py` for the six pass over HTTP.
 - [ ] `git log`: the client and `MIRROR_URL` enter `main` in the same commit.
 
 **The site and the docs (D)**
