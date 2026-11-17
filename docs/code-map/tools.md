@@ -214,7 +214,7 @@ each start ends the tool's users' sessions before making theirs (one run at a ti
 form's riggers get only the rigs they do not have yet, the problem report is added once. The runs open from their
 store over http (no `file://`): the clip run's credits go into run.json and the store's head (`with_credits`; a
 run's data.js only when it has one: a `--run` of a run saved before store wave 4), and the lines naming the 3D
-view's pages come from the store (`first_line`; data.js for such an old run)
+view's pages come from the store (`first_line`; data.js for such an old run; printed: `lines_read`)
 
 The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
 spots under one press, the map's controls open, a phone's sheet raised to half) open with the page's flag: `VIEWS` names the
@@ -278,7 +278,7 @@ opened in headless Chromium on the local app over a scratch data folder, the run
 page's User Timing measures, `viewer/src/perf.ts` "fal:run:*"/"fal:3d:*", the long tasks and heap, data.js as a script
 against fetch + JSON.parse (a run saved since store wave 4 has no data.js: left out, said in the report), gzipped
 sizes and their times at 10/50/200 Mbit/s; a run needs run.json and its store or data.js, its first line from the
-store (`first_line`, data.js for a run saved before it); `tests/test_perf_run_load.py`),
+store (`first_line`, data.js for a run saved before it; `line_read` says which); `tests/test_perf_run_load.py`),
 `perf_profile.py` (cores and memory of a search per stage, a timeline chart; `--cores N` like a worker container;
 `--memory BYTES` the budget of a compute slot (`search.available_memory` answers it), so an area's tiles are sized as
 the web worker sizes them; a bar of parts (`progress.compute.update(n, part=...)`) is listed per part),
@@ -304,8 +304,8 @@ as the prediction, per block and each once; `tests/test_perf_window_reads.py`), 
 anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_lines`, both checked against
 `helpers.evaluate_line`: seconds, memory, numba's one-time costs, the representatives of three rules, an answer's
 size; what `search.reach_of_anchor`'s engine was chosen on; a run's lines through `run_rows`: the CSV export of its
-store into a temporary folder, or the lines.csv of a run saved before the store (its three named cases), the
-results' `lines_read`; `tests/test_perf_reach.py`)
+store into a temporary folder by a child process (the measuring process stays as before step 1), or the lines.csv
+of a run saved before the store (its three named cases), the results' `lines_read`; `tests/test_perf_reach.py`)
 
 `perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
 drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
@@ -326,9 +326,11 @@ steep share × relief, and the samples' 1 km cells with their edge fraction; `vi
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
 machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
-`--lean` is accepted and does nothing since), its store (the CSV export in a temporary folder, read as lines.csv:
-the same numbers) or the lines.csv of a run saved before the store, `lines_from` in compare's and cube's results; a
-lines.csv over 200 MB packed once into `perf_country_cache` in the system's temporary folder, never beside the run;
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
+cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
+`lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into
+`perf_country_cache` in the system's temporary folder, never beside the run;
 `tests/test_perf_country.py`
 
 ## `tools/perf_line_funnel.py`, `tools/line_funnel_kernels.py`
