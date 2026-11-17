@@ -24,6 +24,16 @@ import search  # noqa: E402
 from test_access_search import _plan, offline, scene  # noqa: E402,F401 - offline is a fixture
 
 NEW_FILES = {"lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt", "run.json"}
+# The catalogue's texts as the user approved them (2026-11-17, Q1a) and as main had them (jobs of before), read from
+# locales/en.json itself: messages.text gives the key back for an entry that is missing
+RUN_NOT_SAVED = "The run could not be saved: its lines could not be written. Try again; if it happens again, report it."
+STORE_FAILED = ("The run is saved, but without the file that loads its lines fastest (lines.arrow). The map opens it "
+                "from its other files.")
+
+
+def catalogue_text(key: str) -> str:
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        return json.load(f)[key]
 
 
 def test_a_search_keeps_its_lines_in_the_store(tmp_path_factory):
@@ -97,7 +107,8 @@ def test_a_store_that_fails_keeps_no_run(scene_lines, tmp_path, monkeypatch):
     with pytest.raises(search.SearchError) as error:
         _save(plan, lines, tmp_path, "failed")
     assert error.value.code == "run_not_saved" and "OSError" in str(error.value)
-    assert error.value.web_text() == messages.text("error.run_not_saved") and "secret" not in error.value.web_text()
+    assert error.value.web_text() == catalogue_text("error.run_not_saved") == RUN_NOT_SAVED
+    assert "secret" not in error.value.web_text()
     assert not (tmp_path / "runs" / "failed").exists()
 
 
@@ -255,3 +266,37 @@ def test_the_last_lines(monkeypatch, capsys, tmp_path):
     assert not (tmp_path / "latest.html").exists()
     out = _main_output(monkeypatch, capsys, tmp_path, no_html=True)
     assert out.count("View it: findaline.py view 2026-11-17_run") == 1, out
+
+
+def test_the_two_codes_and_their_texts():
+    """error.run_not_saved holds the user's approved words; error.store_failed keeps main's text (the warnings of jobs
+    of before still read right), both in locales/en.json itself."""
+    assert catalogue_text("error.run_not_saved") == RUN_NOT_SAVED
+    assert catalogue_text("error.store_failed") == STORE_FAILED
+    assert messages.Note("cli", "store_failed").web_text() == STORE_FAILED
+
+
+def test_run_json_is_written_whole(tmp_path, monkeypatch):
+    """runs.save_results writes run.json whole or not at all (it marks a finished run): a write stopped half way
+    leaves the run.json of before (or none) and no temporary file, never a part of the new one."""
+    import helpers as sh
+    import mapping as mp
+    import runs as rn
+    lines, groups = sh.LineTable.empty(), mp.Groups.each_alone(0)
+    meta = {"id": "r", "name": "r", "attribution": [], "params": {}}
+    real = json.dump
+
+    def half(value, f, **kwargs):
+        f.write('{"id": "r", "na')
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(rn.json, "dump", half)
+    with pytest.raises(OSError):
+        rn.save_results(str(tmp_path), lines, groups, meta, files=("run.json",))
+    assert os.listdir(tmp_path) == []
+    monkeypatch.setattr(rn.json, "dump", real)
+    rn.save_results(str(tmp_path), lines, groups, {**meta, "name": "before"}, files=("run.json",))
+    monkeypatch.setattr(rn.json, "dump", half)
+    with pytest.raises(OSError):
+        rn.save_results(str(tmp_path), lines, groups, meta, files=("run.json",))
+    assert os.listdir(tmp_path) == ["run.json"]
+    assert json.loads((tmp_path / "run.json").read_text("utf-8"))["name"] == "before"

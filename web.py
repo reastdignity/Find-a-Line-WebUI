@@ -1636,9 +1636,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if not public:
             raise HTTPException(404, "runs are deleted in the runs folder")
         try:
-            jobs.delete_run(run, runs_dir)
+            left = jobs.delete_run(run, runs_dir)
         except OSError:
             raise HTTPException(409, "the run is in use: try again in a moment")
+        if left:  # the run is deleted; its renamed folder waits for the worker's housekeeping (the run id only)
+            print(f"run_delete: the folder of run {run} could not be deleted yet; the worker's housekeeping "
+                  f"deletes it", file=sys.stderr)
         record("run_delete", user, run)
         return {"ok": True}
 

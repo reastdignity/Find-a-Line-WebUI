@@ -375,8 +375,12 @@ def store_state(run_path: str) -> str:
     or network error, no memory; never taken for a broken store, since remove-old deletes what is old). Only the
     schema is read, so a store of any size costs nothing; the file is closed afterwards."""
     path = os.path.join(run_path, LINES_FILE)
-    if not os.path.isfile(path):
+    try:
+        os.stat(path)
+    except FileNotFoundError:
         return "missing"
+    except OSError:  # a stat that fails is no proof that the file is gone
+        return "cannot_read"
     try:
         with pa.OSFile(path, "rb") as source:
             schema = pa.ipc.open_file(source).schema

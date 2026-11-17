@@ -1012,6 +1012,33 @@ class Jobs:
             return parked
         return None
 
+    def finish_removals(self, runs_dir: str, names: Optional[Iterable[str]] = None,
+                        min_age: float = 0.0) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Finish the removals that stopped after their rename (runs/_removing-<id>, runs.park_run: a kill, a restart
+        of the web in the middle of a Delete, a file held open): for each such folder (of `names` only, when given;
+        parked at least `min_age` seconds ago) its rows go too (forget_run, under cache.runs_lock, only while no
+        runs/<id> exists: a run of the same id that came back keeps its rows), then the folder. `findaline.py runs
+        remove-old --yes` and the worker's housekeeping call it. Returns (the names finished, [(name, error)])."""
+        import runs as rn
+        finished, left = [], []
+        if not os.path.isdir(runs_dir):
+            return finished, left
+        for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+            if not entry.name.startswith(rn.REMOVING) or (names is not None and entry.name not in names):
+                continue
+            try:
+                if min_age and time.time() - entry.stat(follow_symlinks=False).st_mtime < min_age:
+                    continue
+                run_id = entry.name[len(rn.REMOVING):]
+                with cache.runs_lock(runs_dir):
+                    if not os.path.lexists(os.path.join(runs_dir, run_id)):
+                        self.forget_run(run_id)
+                rn.finish_removal(entry.path)
+                finished.append(entry.name)
+            except Exception as error:  # noqa: BLE001 - reported, the others go on
+                left.append((entry.name, f"{type(error).__name__}: {error}"))
+        return finished, left
+
     def forget_run(self, run_id: str):
         """The database's part of deleting a run (delete_run): its row, everyone's favourite lines in it, the jobs
         that saved it marked removed (the privacy page says so: their rows stay and count as before; Jobs.all would
@@ -2202,6 +2229,12 @@ class Scheduler:
         data = self.jobs.data_dir
         removed = dict.fromkeys(("parts", "events", "quick", "usage", "audit", "work"), 0)
         removed["work"] = remove_old_exports(data)  # first: the cache's walk below may take minutes
+        # Run folders whose removal stopped after their rename (a restart of the web in the middle of a Delete): their
+        # rows and bytes go after an hour (the web's own Delete finishes a fresh one itself)
+        import runs as rn
+        _, left = self.jobs.finish_removals(os.path.join(data, "runs"), min_age=rn.REMOVING_AGE)
+        for name, error in left:
+            print(f"housekeeping: {name} not removed yet: {error}", file=sys.stderr)
         removed["parts"] = cache.remove_stale_parts(os.path.join(data, "cache"))
         write_cache_sizes(data)
         import audit

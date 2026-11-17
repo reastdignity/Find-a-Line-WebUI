@@ -115,7 +115,8 @@ def _run(data, *flags) -> tuple:
 
 
 def _in_process(data, *flags, capsys) -> tuple:
-    """runs_main in this process (so a test can inject a failure): (exit status, output)."""
+    """runs_main in this process (so a test can inject a failure): (exit status, its output alone)."""
+    capsys.readouterr()  # what the fixture printed before
     status = findaline.runs_main(["remove-old", *flags, "--data-dir", str(data)])
     return status, capsys.readouterr().out
 
@@ -454,3 +455,131 @@ def test_usage(tmp_path):
         assert stop.value.code == 2
     assert findaline.runs_main(["remove-old", "--dry-run", "--data-dir", str(tmp_path)]) == 0
     assert os.listdir(tmp_path) == []
+
+
+def test_a_stopped_removal_loses_its_rows_too(tmp_path_factory, capsys):
+    """A removal stopped between the rename and the rows (a kill: the folder parked, its row and favourites still
+    there): the next --yes finishes the folder and deletes the rows, since no runs/<id> came back; a parked folder
+    whose run id exists again (a restored backup) keeps that run's rows."""
+    data, current = _data(tmp_path_factory, "stopped")
+    runs_dir = str(data / "runs")
+    rn.park_run(runs_dir, OLD["data_js"])  # the kill: no forget_run
+    jobs = jb.Jobs(str(data))
+    assert jobs.run(OLD["data_js"]) and len(jobs.favourites(7)) == 3
+    shutil.copytree(data / "runs" / current, data / "runs" / f"{rn.REMOVING}{current}")  # a parked copy of a run
+    status, output = _in_process(data, "--yes", capsys=capsys)
+    assert status == 0, output
+    assert not jobs.run(OLD["data_js"]) and [f["run_id"] for f in jobs.favourites(7)] == [current]
+    assert jobs.run(current) and (data / "runs" / current / "run.json").is_file()
+    assert not [n for n in os.listdir(runs_dir) if n.startswith(rn.REMOVING)]
+
+
+def test_ctrl_c_still_says_what_went(tmp_path_factory, monkeypatch, capsys):
+    """Ctrl+C during --yes (here while the third run's folder is deleted): the runs deleted so far are printed in
+    the table, the leftovers and runs.js are still done, and the exit status is not 0."""
+    data, current = _data(tmp_path_factory, "ctrlc")
+    real = rn.finish_removal
+    calls = []
+
+    def finish(parked):
+        calls.append(parked)
+        if len(calls) == 3:
+            raise KeyboardInterrupt
+        return real(parked)
+    monkeypatch.setattr(rn, "finish_removal", finish)
+    status, output = _in_process(data, "--yes", capsys=capsys)
+    assert status == 130 and output.splitlines()[0].startswith(f"Deleted from {data / 'runs'}: 3 runs"), output
+    assert "Stopped (Ctrl+C)" in output.splitlines()[-1] and not (data / "findaline_map.html").exists()
+    gone = [run_id for run_id in OLD.values() if not (data / "runs" / run_id).exists()]
+    assert len(gone) == 3 and all(any(line.startswith(run_id) for line in output.splitlines()) for run_id in gone)
+    assert not set(gone) & set(_listed(data))
+
+
+def test_yes_rechecks_each_run(tmp_path_factory, monkeypatch, capsys):
+    """--yes checks each run again under the lock before its removal: a run in the list that is not old any more
+    (here a current run listed by a scan that went wrong) is kept and named."""
+    data, current = _data(tmp_path_factory, "recheck")
+    real = rn.old_runs
+
+    def scan(runs_dir):
+        found = real(runs_dir)
+        found["old"].append({"id": current, "created": "", "lines": 1, "bytes": 1, "unreadable": False})
+        return found
+    monkeypatch.setattr(rn, "old_runs", scan)
+    status, output = _in_process(data, "--yes", capsys=capsys)
+    assert status == 0 and f"Kept, changed since the list: 1 ({current}: current)." in output, output
+    assert (data / "runs" / current / "run.json").is_file() and jb.Jobs(str(data)).run(current)
+
+
+def test_park_and_finish(tmp_path):
+    """runs.park_run over a parked folder of the same id finishes that first; finish_removal removes a link or a
+    junction inside a run, and a parked folder that is itself one, without touching what it points to."""
+    runs_dir = tmp_path / "runs"
+    (runs_dir / "a").mkdir(parents=True)
+    (runs_dir / "a" / "run.json").write_text("{}")
+    (runs_dir / f"{rn.REMOVING}a").mkdir()
+    (runs_dir / f"{rn.REMOVING}a" / "left.txt").write_text("x")
+    parked = rn.park_run(str(runs_dir), "a")
+    assert sorted(os.listdir(parked)) == ["run.json"] and not (runs_dir / "a").exists()
+    assert rn.park_run(str(runs_dir), "none") is None
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("kept")
+
+    def link(target, at):
+        if os.name == "nt":  # a junction needs no privilege
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(at), str(target)], check=True, capture_output=True)
+        else:
+            os.symlink(target, at, target_is_directory=True)
+    link(outside, os.path.join(parked, "tiles"))
+    rn.finish_removal(parked)
+    assert not os.path.lexists(parked) and (outside / "keep.txt").read_text() == "kept"
+    linked = runs_dir / f"{rn.REMOVING}b"
+    link(outside, linked)
+    rn.finish_removal(str(linked))
+    assert not os.path.lexists(linked) and (outside / "keep.txt").read_text() == "kept"
+
+
+def test_the_apps_delete_renames_back(tmp_path_factory, monkeypatch):
+    """Jobs.delete_run: the database failing after the rename puts the folder back under its name and raises, the
+    run whole with its row."""
+    data, current = _data(tmp_path_factory, "renameback")
+    jobs = jb.Jobs(str(data))
+
+    def locked(self, run_id):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(jb.Jobs, "forget_run", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        jobs.delete_run(current, str(data / "runs"))
+    assert (data / "runs" / current / "run.json").is_file() and not (data / "runs" / f"{rn.REMOVING}{current}").exists()
+    assert jobs.run(current)
+
+
+def test_housekeeping_finishes_stopped_removals(tmp_path_factory, capsys):
+    """The worker's housekeeping finishes a parked folder older than runs.REMOVING_AGE (a restart of the web in the
+    middle of a Delete): its rows and its folder go; a fresh one (a Delete still at work) is left alone."""
+    from settings import Limits
+    data, current = _data(tmp_path_factory, "housekeeping")
+    runs_dir = str(data / "runs")
+    stale = rn.park_run(runs_dir, OLD["data_js"])
+    old = __import__("time").time() - rn.REMOVING_AGE - 60
+    os.utime(stale, (old, old))
+    fresh = rn.park_run(runs_dir, current)
+    scheduler = jb.Scheduler(jb.Jobs(str(data)), worker_id="w-house", limits=Limits())
+    scheduler.housekeeping()
+    jobs = jb.Jobs(str(data))
+    assert not os.path.exists(stale) and not jobs.run(OLD["data_js"])
+    assert os.path.isdir(fresh) and jobs.run(current)
+
+
+def test_cache_status_skips_parked_folders(tmp_path_factory):
+    """`findaline.py cache status` (update.changed_runs) reads no folder starting with "_" or ".", as list_runs."""
+    import update
+    data, current = _data(tmp_path_factory, "cachestatus", database=False)
+    rn.park_run(str(data / "runs"), OLD["data_js"])
+    meta = json.loads((data / "runs" / current / "run.json").read_text("utf-8"))
+    meta["data"] = [{"paths": ["missing/file.tif"]}]
+    (data / "runs" / current / "run.json").write_text(json.dumps(meta), "utf-8")
+    parked = data / "runs" / f"{rn.REMOVING}{OLD['data_js']}" / "run.json"
+    parked.write_text(json.dumps(meta), "utf-8")
+    assert [name for name, _, _ in update.changed_runs(str(data / "cache"), str(data / "runs"))] == [current]
