@@ -197,6 +197,13 @@ def test_strip_comments():
     lines = ui_metrics.strip_comments(jsx, blank_regex=True).split("\n")
     assert lines[:2] == ["<p>{a} / {b} ×</p>", "<p>/ day ×</p>"]
     assert lines[2].rstrip() == "x = default:" and "×" not in lines[3] and lines[3].endswith(".test(s)")
+    # a "/" after ":" or "(" in JSX text: the closing tag's "/" ends no regular expression ("p" is no flag)
+    text = "<p>Folder: /data ×</p>
+<p>Speed (/h) ×</p>
+r = (/a×/gi)"
+    lines = ui_metrics.strip_comments(text, blank_regex=True).split("
+")
+    assert lines[:2] == ["<p>Folder: /data ×</p>", "<p>Speed (/h) ×</p>"] and "×" not in lines[2]
 
 
 def test_font_size_and_colour_edges():

@@ -302,7 +302,12 @@ def strip_comments(text: str, blank_regex: bool = False) -> str:
                 elif text[j] == "/" and not cls:
                     break
                 j += 1
-            if j >= n or text[j] != "/":  # not closed on its line: no regular expression, a "/" of the code
+            k = j + 1
+            while k < n and text[k].isalpha():
+                k += 1
+            # not closed on its line, or "flags" no regular expression has (JSX text: "Folder: /data</p>" closes
+            # on the tag's "/", followed by "p"): no regular expression, a "/" of the code or the text
+            if j >= n or text[j] != "/" or set(text[j + 1:k]) - set("dgimsuyv"):
                 i, prev = i + 1, "/"
                 continue
             if blank_regex:
