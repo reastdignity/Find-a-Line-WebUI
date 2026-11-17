@@ -41,8 +41,11 @@ size is kept in the log, so `--summarise` with other `--controls`/`--text` bound
   element covers at the moment of measuring (one hit test: elementFromPoint at the centre of its own box, or its
   label's; a sticky bar over a scrolling form, an open bubble) is marked covered, with the cover, and still counted
   (a scroll may uncover it); one out of the viewport is not tested, and a cover of only a part is not seen. Signatures are tag, role, input type and class names without the state
-  classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
-  two states is one signature;
+  classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept: a hand list, to be
+  extended when a new class names what an element is with such an ending), so one control in two states is one
+  signature. A link or button "in a sentence" (WCAG 2.5.8 exempts it; counted apart): laid out inline (display
+  inline or inline-block) with its nearest block ancestor, through inline ancestors, holding text with a word (a
+  letter or a digit; separators alone are none) outside every control and SVG drawing;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
   scaled to the screen), also without what lies in a map's credits or scale (a text's or control's zone, "credits" or
   "scale", is kept with its size and makes a signature of its own; its nearest named ancestor is kept too);
@@ -717,6 +720,31 @@ MEASURE_JS = r"""(opts) => {
     if (!a) return null;
     return a.tagName.toLowerCase() + (a.id ? "#" + a.id : classes(a).split(".").slice(0, 3).join("."));
   };
+  // In a sentence (WCAG 2.5.8's inline exception): a link or a button laid out inline (display inline or
+  // inline-block: a flex or grid parent blockifies its children) whose nearest block ancestor, walking up through
+  // inline ancestors, holds text with a word (a letter or a digit; separators such as " · " or "|" alone are no
+  // sentence) outside every control and every SVG drawing. A block's answer is kept for the state.
+  const blockOf = (x) => {
+    while (x && /^(inline|contents)$/.test(getComputedStyle(x).display)) x = x.parentElement;
+    return x;
+  };
+  const wordy = new Map();
+  const hasWords = (block) => {
+    if (!block) return false;
+    if (wordy.has(block)) return wordy.get(block);
+    let found = false;
+    const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    for (let t = walk.nextNode(); t && !found; t = walk.nextNode()) {
+      const p = t.parentElement, inControl = p && p.closest(CONTROLS);
+      if (!p || p instanceof SVGElement || !/[\p{L}\p{N}]/u.test(t.textContent) ||
+          (inControl && block.contains(inControl))) continue;  // a drawing's labels are no sentence
+      found = blockOf(p) === block;
+    }
+    wordy.set(block, found);
+    return found;
+  };
+  const inSentence = (e) => /^(A|BUTTON)$/.test(e.tagName) && /^inline(-block)?$/.test(getComputedStyle(e).display) &&
+    !!e.parentElement && hasWords(blockOf(e.parentElement));
   const controls = [], unreachable = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
   try { modal = document.querySelector("dialog:modal"); } catch (e) { modal = null; }
@@ -744,8 +772,7 @@ MEASURE_JS = r"""(opts) => {
       }
     }
     if (!target || target.right - target.left === 0 || target.bottom - target.top === 0) continue;
-    const inline = e.tagName === "A" && getComputedStyle(e).display === "inline" &&
-      /\S/.test([...e.parentElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""));
+    const inline = inSentence(e);
     const part = reachable(owner, target);  // the target as far as no ancestor clips it; null: none of it
     const cut = part || target;
     const item = {sig: sig(e) + (how === "by its label" ? " (by its label)" : ""), how, inline, zone: zone(e),

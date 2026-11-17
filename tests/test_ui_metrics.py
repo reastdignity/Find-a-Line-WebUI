@@ -330,6 +330,24 @@ def test_a_pseudo_element_grows_only_what_it_can():
 
 
 @BROWSER
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_links_and_buttons_in_a_sentence(engine):
+    """In a sentence: a link inside <strong> of a paragraph, a button inside a sentence (inline-block). Not: links
+    joined only by separators (" · ", "|"), a link alone in its paragraph (the text half of the rule), a link in a
+    flex row with words beside it (blockified: the display half), a button whose only neighbour is a drawing's label."""
+    r = _measured('<nav><a href="#1" class="na">About</a> · <a href="#2" class="nb">Privacy</a> | </nav>'
+                  '<p>Read <strong><a href="#3" class="st">this note</a></strong> first.</p>'
+                  '<p>Go <button class="lk">back</button> to the list.</p>'
+                  '<p><a href="#4" class="alone">Alone</a></p>'
+                  '<div class="flex"><a href="#5" class="fl">One</a> two words</div>'
+                  '<div><button class="bt">x</button><svg width="40" height="20"><text x="0" y="15">label</text></svg></div>',
+                  "a, button { font-size: 10px; } .flex { display: flex; gap: 4px; }", engine=engine)
+    inline = {c[0]: c[4] for c in r["control_sizes"]}
+    assert inline == {"a.na": False, "a.nb": False, "a.st": True, "button.lk": True, "a.alone": False,
+                      "a.fl": False, "button.bt": False}
+
+
+@BROWSER
 def test_covered_controls_apart():
     """A control whose centre another element covers is marked covered, with its cover, and still counted (a scroll
     or a closed bubble may uncover it); a cover that takes no clicks (pointer-events none) covers nothing; a
