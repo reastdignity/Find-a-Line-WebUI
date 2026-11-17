@@ -28,6 +28,7 @@ WAIT = 30000  # ms: the deadline of every wait for the page
 DESKTOP = {"viewport": {"width": 1400, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 SMALL_PHONE = {**PHONE, "viewport": {"width": 390, "height": 664}}  # tools/ui_shots.py's iPhone: the least room
+SIDE_PHONE = {**PHONE, "viewport": {"width": 667, "height": 375}}  # a phone on its side: no room for the legend at all
 OLD = "2026-10-26_090000_Old_00000000000000a1"  # the same run as one saved before the view's columns
 FLAG = "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}"
 LIMIT = 5000
@@ -110,7 +111,7 @@ window.T = {
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
       zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
-      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *"}, out = {};
+      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
       if (r && r.width && r.height && getComputedStyle(e).visibility !== "hidden") out[name] = [r.left, r.top, r.right, r.bottom].map((v) => Math.round(v * 10) / 10); }
     return out; },
@@ -688,6 +689,34 @@ CHIP = """() => { const holder = document.createElement("div");
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
 
+# A stand-in for the panels' hint on the map (the frame's slot beside the status line: on a phone its "?"), which the
+# frame's own placeholder panels leave empty
+HINT = """() => { const hint = document.querySelector(".v-hint-slot").appendChild(document.createElement("button"));
+  hint.type = "button"; hint.className = "u-hint"; hint.textContent = "?"; }"""
+
+
+def _over_holds(page, selector: str, state: str) -> dict:
+    """A panel the person opened over the map (the access mark's key; the legend where the foot has no room): it lies
+    above every other control it crosses (a press there reaches the panel), within the part of the map a person
+    sees (under the top bar, above the sheet), and leaves the bar's own buttons free."""
+    r = page.evaluate("""([selector]) => { const panel = document.querySelector(selector), whole = panel.getBoundingClientRect(), crossed = [];
+        // the part of the panel that shows: it scrolls inside the box of the panels (.v-over)
+        const clip = panel.closest(".v-over").getBoundingClientRect();
+        const box = {left: Math.max(whole.left, clip.left), top: Math.max(whole.top, clip.top), right: Math.min(whole.right, clip.right), bottom: Math.min(whole.bottom, clip.bottom)};
+        const under = (x, y) => document.elementFromPoint(x, y);
+        for (const e of document.querySelectorAll(T.CONTROLS)) {
+          if (e === panel || panel.contains(e) || e.contains(panel) || e.closest(".c-phone-top")) continue;
+          const r = e.getBoundingClientRect(), x0 = Math.max(r.left, box.left), x1 = Math.min(r.right, box.right), y0 = Math.max(r.top, box.top), y1 = Math.min(r.bottom, box.bottom);
+          if (x1 - x0 > 2 && y1 - y0 > 2) crossed.push([e.className, !!under((x0 + x1) / 2, (y0 + y1) / 2)?.closest(selector)]); }
+        const free = [...document.querySelectorAll(".v-fold, .v-help-button button")].map((e) => { const r = e.getBoundingClientRect();
+          return e.contains(under(r.left + r.width / 2, r.top + r.height / 2)); });
+        return {box: [box.left, box.top, box.right, box.bottom], crossed, free, top: document.querySelector(".c-phone-top > *").getBoundingClientRect().bottom,
+                sheet: document.querySelector(".u-sheet").getBoundingClientRect().top, width: innerWidth}; }""", [selector])
+    assert r["box"][1] >= r["top"] and r["box"][3] <= r["sheet"] + 0.5 and r["box"][0] >= 0 and r["box"][2] <= r["width"], (state, r)
+    assert all(above for _, above in r["crossed"]) and r["free"] and all(r["free"]), (state, r)
+    return r
+
+
 def _apart(page, state: str) -> dict:
     """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet."""
     boxes, sheet = page.evaluate("() => [T.boxes(), document.querySelector('.u-sheet')?.getBoundingClientRect().top ?? 1e9]")
@@ -704,9 +733,10 @@ def _apart(page, state: str) -> dict:
 
 
 def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip on the map. At the sheet's low stop and at half, no control
-    of the map covers another (the status line, the legend, its fold, the "?", the switch, Best, the zoom buttons,
-    the layers button, the shore's chip, the scale, the credits, the message, the top bar) and each stands above
+    """A small phone (390 x 664) with the shore's chip on the map and a hint in the bar's row. At the sheet's low
+    stop and at half, no control of the map covers another (the status line, the legend, its fold, the "?", the
+    hint, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits, the
+    message, the top bar; the access mark's key, opened, lies above them as a panel) and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -723,6 +753,7 @@ def test_phone_controls_apart(site):
             page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
             page.evaluate(CHIP)
+            page.evaluate(HINT)
             seen = {}
             for stop in ("low", "half"):
                 if stop == "half":
@@ -732,7 +763,7 @@ def test_phone_controls_apart(site):
                 for name, script in states:
                     s = _state(page, fit + script)
                     boxes = seen[stop, name] = _apart(page, f"{stop} {name}")
-                    assert {"status", "fold", "levels", "best", "zoom", "layers", "chip", "scale"} <= set(boxes), (stop, name, sorted(boxes))
+                    assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "scale"} <= set(boxes), (stop, name, sorted(boxes))
                     # the legend by itself: unfolded while the sheet is low, folded at half
                     assert page.evaluate(legend) == (["true", True] if stop == "low" else ["false", False]), (stop, name)
                     assert ("legend" in boxes) == (stop == "low")
@@ -752,6 +783,16 @@ def test_phone_controls_apart(site):
                                         height: document.querySelector(".v-legend").getBoundingClientRect().height}; }""")
                             assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 70, ramp
                             assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
+                # the access mark's key, opened by its "?": a panel above the controls, the others still apart
+                _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
+                _tap_on(page, ".v-help-button button")
+                page.wait_for_selector(".v-over > .v-help", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                _apart(page, f"{stop}, the access mark's key open")
+                key = _over_holds(page, ".v-over > .v-help", f"{stop}, the access mark's key")
+                assert key["box"][3] - key["box"][1] > 40, key
+                _tap_on(page, ".v-help-button button")
+                page.wait_for_selector(".v-help", state="detached", timeout=WAIT)
                 # a tap on several spots: the map says so; the message covers no control
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
                 crowded = _crowded(page, True, 4)  # (at half this phone's map has no point 24 px from every control)
@@ -825,6 +866,63 @@ def test_phone_controls_apart(site):
             assert placed["top"] >= placed["bar"] and placed["bottom"] <= placed["foot"] + 30, placed
             print("phone 390 x 664, the controls' boxes: " + json.dumps({f"{stop} {name}": boxes for (stop, name), boxes in seen.items()
                                                                           if name in ("spots", "refused", "tap")}))
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_phone_on_its_side(site):
+    """A phone on its side (667 x 375, the phone's layout): the map has no room for a line of the legend even with
+    the sheet low. The legend is folded by itself; a press on "Legend" opens it as a panel above the map's other
+    controls, within the map's height, and says so (aria-expanded); the same button, Esc (which ends nothing else)
+    and a press on the map close it; at half the press lowers the sheet and opens the panel."""
+    from playwright.sync_api import sync_playwright
+    legend = "() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend'), !!document.querySelector('.v-over > .v-legend')]"
+    is_ = "() => JSON.stringify((%s)()) === '%s'"
+    opened, closed = is_ % (legend, '["true",true,true]'), is_ % (legend, '["false",false,false]')
+    low = "() => { const s = T.state(); return s.free[3] > s.size[1] * 0.62 && s.free[3] < s.size[1]; }"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", SIDE_PHONE)
+            page.wait_for_function(low, timeout=WAIT)
+            first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
+            assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
+            page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(opened, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            panel = _over_holds(page, ".v-over > .v-legend", "the legend as a panel")
+            assert panel["crossed"], panel  # it does lie over other controls here: there is no room beside them
+            assert page.evaluate("() => { const e = document.querySelector('.v-over'); return e.scrollHeight <= e.clientHeight + 1 || getComputedStyle(e).overflowY === 'auto'; }")
+            _tap_on(page, ".v-fold")  # the same button closes it
+            page.wait_for_function(closed, timeout=WAIT)
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(opened, timeout=WAIT)
+            page.keyboard.press("Escape")  # Esc closes the panel, and nothing else: the selection stays
+            page.wait_for_function(closed, timeout=WAIT)
+            assert _state(page)["selected"] == first["selected"]
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(opened, timeout=WAIT)
+            # a press on the map closes it (a point of the map under no control and not under the panel)
+            at = page.evaluate("""() => { const b = T.box(), f = T.free(), boxes = T.controls().concat([document.querySelector(".v-over").getBoundingClientRect()]);
+              for (let y = f[3] - 12; y > f[1] + 12; y -= 7) for (let x = f[2] - 12; x > f[0] + 12; x -= 11) { const vx = x + b.left, vy = y + b.top;
+                if (!boxes.some((c) => vx > c.left - 6 && vx < c.right + 6 && vy > c.top - 6 && vy < c.bottom + 6) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
+              return null; }""")
+            assert at, "no point of the map is free of the controls"
+            _tap(page, at["x"], at["y"])
+            page.wait_for_function(closed, timeout=WAIT)
+            # at half the press lowers the sheet and opens the panel there
+            _state(page, "view.select(null);")
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
+            page.wait_for_function(closed, timeout=WAIT)
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(low, timeout=WAIT)
+            page.wait_for_function(opened, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            _over_holds(page, ".v-over > .v-legend", "the legend as a panel after the sheet was lowered")
             assert page.errors == []
         finally:
             browser.close()

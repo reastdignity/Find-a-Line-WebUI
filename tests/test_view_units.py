@@ -999,6 +999,12 @@ view.setView([away, away, away, away], 1);
 out.away = {m: view.inView.m, refans: refans() - count, rows: JSON.stringify(fan()) === JSON.stringify(out.numbered)};
 view.setView(box(nearBox), 1);
 out.back = {sameBest: best() === bestBefore, refans: refans() - count};
+// the list sorted another way: the best spots in view carry other numbers, the fan is derived again once
+count = refans();
+view.setSort("clr");
+out.resorted = {changed: best() !== bestBefore, refans: refans() - count, n: view.numberOf(star),
+                label: (view.fan.rows.find((r) => r.row === view.shownOf(star)) || {}).label};
+view.setSort("hmean");
 count = refans();
 view.setBest("all");                       // no number on the map any more
 out.plain = {...fan(), same: view.fan === first, refans: refans() - count};
@@ -1037,6 +1043,17 @@ for (let k = 0; k < 1000 && !kept.model.favouritesOn; k++) await new Promise((re
 kept.view.openFan(at, {row: lines[0], end: 1});
 await kept.model.toggleFavourite(kept.model.lineAt(lines[1]));
 out.kept = !!kept.view.fan;
+// a favourite becomes its spot's shown line: the spot's number goes with it, in the open fan too (the same best spots)
+const moved = build({favourites: true, api: {...api, loadFavourites: async () => []}});
+for (let k = 0; k < 1000 && !moved.model.favouritesOn; k++) await new Promise((resolve) => setImmediate(resolve));
+moved.view.setLevel("spots");
+moved.view.setView(box(nearBox), 1);
+moved.view.openFan(at, {row: lines[0], end: 1});
+const carrying = () => ({shown: moved.view.shownOf(star), rows: moved.view.fan.rows.filter((r) => r.numbered).map((r) => [r.row, r.label]),
+                         best: JSON.stringify(list(moved.view.inView.best))});
+out.shownBefore = carrying();
+await moved.model.toggleFavourite(moved.model.lineAt(lines[2]));
+out.shownAfter = carrying();
 done();
 })();
 """ % json.dumps([star, row, near_box, not_top]))
@@ -1046,6 +1063,8 @@ done();
     # nothing derived by a move that keeps the numbers, off the run, and back; once when the numbers go
     assert found["moved"] == {"sameBest": True, "refans": 0, "rows": True}
     assert found["away"] == {"m": 0, "refans": 0, "rows": True} and found["back"] == {"sameBest": True, "refans": 0}
+    resorted = found["resorted"]
+    assert resorted["changed"] is True and resorted["refans"] == 1 and resorted["n"] > 0 and resorted["label"] == f"B{resorted['n']}"
     assert found["plain"]["refans"] == 1
     # opened at a point: its place stays the point's (3 m east, 2 m north of the anchor, through the fit)
     point = found["point"]
@@ -1071,6 +1090,10 @@ done();
     assert found["fav"] == {"open": True, "lines": 3, "passing": 3}
     assert found["favSame"] == {"open": True, "passing": 3, "favourites": 4}
     assert found["favGone"] == {"open": False, "passing": 2} and found["kept"] is True
+    mine = [i for i in run.lines_of(star) if ok[i]]
+    before, after = found["shownBefore"], found["shownAfter"]
+    assert before["shown"] == row == mine[0] and len(before["rows"]) == 1 and before["rows"][0][0] == row and before["rows"][0][1].startswith("B")
+    assert after == {"shown": mine[2], "rows": [[mine[2], before["rows"][0][1]]], "best": before["best"]}
 
 
 FIT_MAX = 0.5

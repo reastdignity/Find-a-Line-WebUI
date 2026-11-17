@@ -185,7 +185,8 @@ from latitudes and longitudes by a polynomial of the lowest degree, 1 to 3, with
 point clamped to the anchors' box and a margin). `result/spots.ts` `SpotView`: which lines pass (the model's filters,
 "Top level only" as its own state), each spot's shown line, the order, the sectors, the picks, the lines not beaten,
 the spots in view with the best N and their numbers (a view without an area, the map moved off the run, holds
-none), the 5 000 limit, the selection, "Lines from here" (derived again whenever the map's numbers change), one Esc.
+none), the 5 000 limit, the selection, "Lines from here" (derived again only when the numbers its rows could carry
+changed: `marksKey`, timed as "fal:view:refan"), one Esc.
 `result/SpotMap.ts` the canvas (a Leaflet renderer without paths in a pane of its own: the lines are drawn from the
 columns, projected by hand; squares, strokes, numbers placed clear of every control, the presses with a press held and
 a right click, the hover; `legend()` what it drew; `drawn()` its own count, each line once). `view/SpotColumns.tsx` the
@@ -194,7 +195,8 @@ body; the Leaflet map with quarter zoom steps, the toast, Esc; `data-choosing` o
 spots is asked for; `window.FINDALINE_VIEW = {view, map}` once drawn, no `FINDALINE_RESULT`), `view/SpotPanels.tsx` its slots (`PANELS`: the list, the details, the sheet's head, the
 hint, the table of spots), `view/MapBar.tsx` the switch, Best, the status line and the legend (a phone: two lines with
 a fold, unfolded by itself while the sheet is low and there is room, folded at half or higher; a person's fold or
-unfold holds until the sheet's next stop), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
+unfold holds until the sheet's next stop; "Legend" pressed without room lowers the sheet, and where even the low
+stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
 `tests/test_view_units.py` (Node on a made-up run, the frame in headless Edge through `viewer/test/spotmap_page.ts`),
 `tests/test_shell_c_view_map.py` (Playwright on `clip_runs.view_clip`: the mock-up's checks ported).
 

@@ -80,6 +80,11 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   return n;
 }
 
+/** The page came to rest (rested), else the page's run ends here with the reason: no silent five seconds. */
+async function rest(after: string) {
+  if (!(await rested())) throw new Error(`the page did not come to rest after ${after}`);
+}
+
 (async () => { try {
   const made = (window as any).MADE as Made;
   const data: RunData = {...made.head, columns: lineColumns(made.rows, null, made.head.ends),
@@ -119,7 +124,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // a level held, and back to Auto
   document.querySelector<HTMLElement>('.v-levels button[data-level="lines"]')!.click();
   await until(() => !!document.querySelector(".v-back-auto"));
-  await rested();
+  await rest("a change");
   out.held = {level: view.level, auto: view.auto, status: text(".v-status"), pressed: pressed(), refused: !!document.querySelector(".v-refused"),
               drawn: picture(view, map), m: view.inView.m};
   document.querySelector<HTMLElement>(".v-back-auto")!.click();
@@ -129,7 +134,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   const leaflet = (window as any).FINDALINE_MAP;
   leaflet.setZoom(leaflet.getZoom() + 2.5, {animate: false});
   await until(() => view.level !== "area");
-  await rested();
+  await rest("a change");
   const zoomedPicture = picture(view, map);
   const mapSize = leaflet.getSize();
   const spots = {level: view.level, m: view.inView.m, best: view.inView.best.length, numbered: view.inView.numbered, status: status(),
@@ -138,11 +143,11 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   select.value = "all";
   select.dispatchEvent(new Event("change", {bubbles: true}));
   await until(() => view.best === "all" && (status() || "").includes("all"));
-  await rested();
+  await rest("a change");
   out.spots = {...spots, drawn: zoomedPicture, all: {best: view.best, status: status(), disabled: select.disabled, drawn: picture(view, map)}};
   // a spot selected: its lines, A1 and A2 (the access mark on their corners), the rest dimmed; then "Lines from here"
   view.select(view.spotOf(0));  // the made-up run's star: its lines leave the map's middle
-  await rested();
+  await rest("a change");
   const chosen = view.selected!;
   out.selected = {drawn: picture(view, map), passing: view.passingOf(chosen.spot).length, marks: document.querySelectorAll(".v-anchor-mark").length,
                   inView: view.inView.spots.includes(chosen.spot)};
@@ -154,7 +159,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
     return far.x < 0 || far.y < 0 || far.x > size.x || far.y > size.y;
   }).length;
   view.openFan(centre, {row: chosen.row, end: 1});
-  await rested();
+  await rest("a change");
   const movedTo = leaflet.getCenter();
   // (`also`: the fan's rows that are also the shown line of a spot in view: such a line is stroked twice)
   const inViewShown = new Set(Array.from(view.inView.spots, (s) => view.shownOf(s)));
@@ -164,10 +169,10 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // opened again with every far end in view: the map stays
   view.closeFan();
   view.openFan(movedTo, {row: chosen.row, end: 1});
-  await rested();
+  await rest("a change");
   out.fanAgain = {moved: !leaflet.getCenter().equals(movedTo), open: !!view.fan, outside: outside()};
   view.select(null);
-  await rested();
+  await rest("a change");
   // Esc ends the selection (the frame's key handler; nothing else is open)
   view.select(view.order[0]);
   const selected = view.selected?.spot;
@@ -176,14 +181,14 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // the panels' move through the canvas: a line far from the view is brought in
   const far = view.shownOf(view.order[view.order.length - 1]);
   map.zoomTo(far, {top: 0, right: 0, bottom: 0, left: 0});
-  await rested();
+  await rest("a change");
   out.zoomTo = view.inView.spots.includes(view.spotOf(far));
   // the map moved off the run, beyond its north-east corner (every corner of the view is then the same place of
   // the run's grid): no spot is in view, the status line says so, nothing is drawn
   const runBox = data.box!, corner = leaflet.latLngToContainerPoint(view.fit.toLatLng(runBox[2], runBox[3]));
   const away = Math.ceil(700 / view.mpp), mapBox = leaflet.getSize();
   leaflet.panBy([corner.x + away, corner.y - mapBox.y - away], {animate: false});
-  await rested();
+  await rest("a change");
   const cornerNow = leaflet.latLngToContainerPoint(view.fit.toLatLng(runBox[2], runBox[3]));
   out.off = {m: view.inView.m, status: status(), level: view.level, drawn: picture(view, map), corner: [cornerNow.x < 0, cornerNow.y > mapBox.y]};
   // the bar's row beside the status line is no box: with a hint that leaves the row wider than its boxes, a press
@@ -192,7 +197,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
     "A hint so long that it stands in a line of its own under the status line. ".repeat(4))};
   render(h(SpotColumns, {...props, panels: wideHint, wide: true}), root);
   view.select(view.order[0]);
-  await rested();
+  await rest("a change");
   const rowBox = document.querySelector(".v-row")!.getBoundingClientRect(), statusBox = document.querySelector(".v-status")!.getBoundingClientRect();
   const hintBox = document.querySelector("[data-slot=hint-map]")!.getBoundingClientRect();
   const beside = [Math.round(rowBox.right - 24), Math.round(statusBox.top + statusBox.height / 2)];
@@ -217,7 +222,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   const sheetHeight = () => Math.round(document.querySelector(".c-leaflet")!.getBoundingClientRect().bottom - document.querySelector(".u-sheet")!.getBoundingClientRect().top);
   out.sheetDrawn = await until(() => sheetHeight() > 100 &&
     (document.querySelector(".v-map") as HTMLElement).style.getPropertyValue("--v-covered") === `${sheetHeight()}px`);
-  await rested();
+  await rest("a change");
   const phone = shown()!;
   const sheet = document.querySelector(".u-sheet")!.getBoundingClientRect(), box = document.querySelector(".c-leaflet")!.getBoundingClientRect();
   const foot = document.querySelector(".v-foot")!.getBoundingClientRect();
@@ -229,7 +234,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // the first view fits the run above the sheet; moved down by 150 px, a part of it lies under the sheet
   const fitted = {above: phone.view.inView.m, spots: phone.view.counts.spots};
   (window as any).FINDALINE_MAP.panBy([0, -150], {animate: false});
-  await rested();
+  await rest("a change");
   // the spots in view against a count in the map's own pixels: above the sheet, and with the sheet's part too
   const size = (window as any).FINDALINE_MAP.getSize();
   out.phoneView = {above: phone.view.inView.m, pixels: inPixels(phone.view, [0, 0, size.x, size.y - (box.bottom - sheet.top)]),
@@ -238,14 +243,14 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // until every far end is there, clear of the sheet
   const phoneMap = (window as any).FINDALINE_MAP, star = phone.view.spotOf(0), starRow = phone.view.shownOf(star), cols = phone.view.model.data.columns;
   phoneMap.setView([cols.lat1.at(starRow), cols.lon1.at(starRow)], phone.map.zoomOf(0.7), {animate: false});
-  await rested();
+  await rest("a change");
   const farOutside = () => { const s = phoneMap.getSize(), floor = s.y - Math.round(document.querySelector(".c-leaflet")!.getBoundingClientRect().bottom - document.querySelector(".u-sheet")!.getBoundingClientRect().top);
     return phone.view.fan!.rows.filter((r) => { const q = phoneMap.latLngToContainerPoint(r.near === 1 ? [cols.lat2.at(r.row), cols.lon2.at(r.row)] : [cols.lat1.at(r.row), cols.lon1.at(r.row)]);
       return q.x < 0 || q.y < 0 || q.x > s.x || q.y > floor; }).length; };
   const centreBefore = phoneMap.getCenter();
   phone.view.select(star);
   phone.view.openFan(centreBefore, {row: starRow, end: 1});
-  await rested();
+  await rest("a change");
   out.phoneFan = {moved: !phoneMap.getCenter().equals(centreBefore), outside: farOutside(), rows: phone.view.fan!.rows.length};
   phone.view.select(null);
   // what covers the map may exceed its height (the sheet at full: the bar's foot stands above the map's top; this
