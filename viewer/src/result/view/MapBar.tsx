@@ -3,15 +3,16 @@
 // what is drawn (with "Held by you." and "Back to Auto" while a level is held; marked when the lines are too many
 // to draw), beside it the frame's hint, and the legend: exactly the shapes and colours on the map now (SpotMap's
 // legend()), at Area the squares' value (a select) and its five classes, and in a run with the access mark the
-// three marks with their "?". On a phone the legend is two lines of short labels with a fold (not kept: it starts
-// unfolded). The bar's boxes carry `data-map-control`: the canvas places no number under them. Styles in
+// three marks with their "?". On a phone the legend is two lines of short labels with a fold (not kept: unfolded
+// while the sheet is low, folded while it is at half or higher, see MapBar). The bar's boxes carry `data-map-control`: the canvas places no number under them. Styles in
 // mapbar.css (classes v-*).
 
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AccessMark, ACCESS_STATES, accessWord, useAccessHelp } from "../../access";
 import { t } from "../../i18n";
 import { COLORS } from "../../style";
+import type { Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import type { Legend, SpotMap } from "../SpotMap";
 import type { Best, SpotView } from "../spots";
@@ -66,10 +67,15 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
             onChange={(e) => map.setSquareBy(e.currentTarget.value as SquareBy)}>
       {BYS.map((by) => <option key={by} value={by}>{t(`ui.view.map.by_${by}`)}</option>)}
     </select>
-    <span class="v-classes" data-kind="sq">
-      {classTexts(legend.breaks, whole).map((text, k) => text !== null &&
-        <span class="v-lg v-class" key={k}><i class={`v-lay v-lay-${k + 1}`} />{text}</span>)}
-    </span>
+    {short
+      // a phone: the five classes as one ramp between its lowest and its highest value (the classes' texts are its name)
+      ? <span class="v-ramp" data-kind="sq" role="img" aria-label={classTexts(legend.breaks, whole).filter((text) => text !== null).join(", ")}>
+        {whole ? 1 : 0}<span class="v-ramp-bar">{[1, 2, 3, 4, 5].map((k) => <i key={k} class={`v-lay v-lay-${k}`} />)}</span>
+        {classTexts(legend.breaks, whole)[4]}</span>
+      : <span class="v-classes" data-kind="sq">
+        {classTexts(legend.breaks, whole).map((text, k) => text !== null &&
+          <span class="v-lg v-class" key={k}><i class={`v-lay v-lay-${k + 1}`} />{text}</span>)}
+      </span>}
   </>;
   const lines = !area && <>
     {on.clear && <Item kind="clear" mark={<Swatch color={COLORS.clean} />}>{t("ui.result.legend_clear")}</Item>}
@@ -111,14 +117,61 @@ export interface MapBarProps {
   wide: boolean;
   /** The frame's hint (a desktop: beside the status line). */
   hint?: ComponentChildren;
+  /** A phone: the stop of its sheet (the legend folds itself while the sheet is at half or higher). */
+  sheet?: Snap;
 }
 
+const LEGEND_LINE = 24;  // px: the least room an unfolded legend is shown in (one line of it)
+
 /** The bar's two parts over the map. */
-export function MapBar({view, map, wide, hint}: MapBarProps) {
+export function MapBar({view, map, wide, hint, sheet}: MapBarProps) {
   const pressed = view.auto ? "auto" : view.level, status = statusOf(view), area = view.level === "area";
   const [, setTick] = useState(0);
   useEffect(() => map?.subscribe(() => setTick((n) => n + 1)), [map]);
-  const [folded, setFolded] = useState(false);
+  // A phone's legend (the user's decision of 2026-11-17): by itself it is unfolded while the sheet is low and folded
+  // while the sheet is at half or higher, and folded too while, unfolded, it would reach the map's own controls at
+  // the top (the zoom buttons, the shore's chip, the switch). A person's fold or unfold (`choice`) holds until the
+  // sheet next changes its stop; an unfold of theirs with too little room shows the legend in the room there is
+  // (it scrolls inside); with less than a line of room it cannot be unfolded (its button is disabled): no control
+  // covers another.
+  const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean} | null>(null);
+  const [room, setRoom] = useState(Infinity);  // px the legend may take between the top controls and the status line
+  const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
+  const asked = choice && choice.at === sheet ? choice.folded : null, high = sheet === "half" || sheet === "full";
+  useEffect(() => setChoice(null), [sheet]);  // the sheet changed its stop: the person's choice was for the one before
+  const folded = !wide && (asked === null ? high || room < natural.current : asked || room < LEGEND_LINE);
+  // A phone's foot where the status line's row would still reach one of those controls (a low phone with the sheet
+  // at half: 39 px are left under the shore's chip on a screen of 390 x 664): the foot then stands beside the scale
+  // instead of above it, its row's lines from the bottom with the buttons at the right (`aside`: its place, for
+  // the state `key` it was measured in; any other state is measured again in the foot's own place first)
+  const [aside, setAside] = useState<{key: string; left: number; bottom: number} | null>(null);
+  const [frame, setFrame] = useState("");  // the measures of the map's column the foot's place depends on
+  const key = `${sheet}|${status.text}|${view.auto}|${asked}|${frame}`;
+  const beside = !wide && aside !== null && aside.key === key ? aside : null;
+  useLayoutEffect(() => {
+    const el = foot.current, column = el?.parentElement;
+    if (wide || !el || !column) return;
+    const visible = (r: DOMRect) => r.width > 0 && r.height > 0;
+    const rects = (of: Element, selector: string) => Array.from(of.querySelectorAll(selector), (e) => e.getBoundingClientRect()).filter(visible);
+    const drawn = el.querySelector<HTMLElement>(".v-legend"), box = el.getBoundingClientRect(), col = column.getBoundingClientRect();
+    if (drawn) natural.current = drawn.scrollHeight + 2;
+    const tops = rects(column, ".leaflet-top .leaflet-control, .v-switch > *");
+    const floor = Math.max(col.top, ...tops.map((r) => r.bottom));
+    const mine = rects(el, ".v-row > :not(.v-hint-slot), .v-hint-slot > *, .v-help");
+    const measured = [Math.round(floor - col.top), Math.round(col.width), Math.round(col.height), column.style.getPropertyValue("--v-covered"),
+                      column.style.getPropertyValue("--v-corner"), mine.length].join();
+    if (measured !== frame) { setFrame(measured); return; }  // drawn again for this frame, then measured
+    // from those controls (4 px clear) down to the foot's other boxes (the status line's row, 6 px above the legend)
+    const others = box.height - (drawn ? drawn.offsetHeight + 6 : 0);
+    const next = Math.floor(box.bottom - others - 6 - floor - 4);
+    if (next !== room) setRoom(next);
+    if (beside || !mine.some((b) => tops.some((c) => b.left < c.right + 4 && b.right > c.left - 4 && b.top < c.bottom + 4 && b.bottom > c.top - 4))) return;
+    // right of what stands in the map's bottom left corner (the scale), above what reaches further right (the credits)
+    const left = Math.max(col.left, ...rects(column, ".leaflet-bottom.leaflet-left > *").map((r) => r.right)) + 6;
+    const covered = parseFloat(column.style.getPropertyValue("--v-covered")) || 0;
+    const top = Math.min(col.bottom - covered, ...rects(column, ".leaflet-bottom > *").filter((r) => r.right > left).map((r) => r.top));
+    setAside({key, left: Math.round(left - col.left), bottom: Math.round(col.bottom - top) + 6});
+  });
   const help = useAccessHelp();
   const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && (wide || !folded);
@@ -138,7 +191,8 @@ export function MapBar({view, map, wide, hint}: MapBarProps) {
         </select>
       </label>
     </div>
-    <div class={cx("v-foot", !wide && "v-foot-phone")}>
+    <div class={cx("v-foot", !wide && "v-foot-phone", sheet === "full" && "v-foot-off", beside && "v-foot-beside")} ref={foot}
+         style={beside ? {left: `${beside.left}px`, bottom: `${beside.bottom}px`} : undefined}>
       {access && help.panel && <div class="v-help" data-map-control>{help.panel}</div>}
       <div class="v-row">
         <div class={cx("v-status", status.refused && "v-refused")} role="status" data-map-control>
@@ -150,11 +204,13 @@ export function MapBar({view, map, wide, hint}: MapBarProps) {
         </div>
         {!wide && <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
                           title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
-                          onClick={() => setFolded(!folded)}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>}
+                          disabled={folded && room < LEGEND_LINE}
+                          onClick={() => setChoice({at: sheet, folded: !folded})}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>}
         {!wide && access && <span class="v-help-button" data-map-control>{help.button}</span>}
         {hint}
       </div>
-      {shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" aria-label={t("ui.view.map.legend")} data-map-control>
+      {shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" aria-label={t("ui.view.map.legend")} data-map-control
+                     style={!wide && room < natural.current ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`} : undefined}>
         <LegendItems view={view} map={map} legend={legend} short={!wide} />
         {wide && access && help.button}
         {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}

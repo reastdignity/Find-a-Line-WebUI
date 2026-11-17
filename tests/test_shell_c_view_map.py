@@ -3,9 +3,10 @@ docs/line-volume/spec-view.md part B) in Playwright's Edge over the app's server
 clip in the target rig with the square rule and the access mark (clip_runs.view_clip: 7 934 lines in 164 spots).
 The mock-up's own checks, ported (B.7): the spots in view and the best of them against a count in the map's own
 pixels, the numbers (whole on the map, under no control, on their line, apart from each other), the presses (a
-number's shape, a line, an empty point, a right click and a press held for "Lines from here", an anchor's circle,
-several spots under a finger), the 5 000 limit, the legend against the shapes drawn, the squares, the flag, a run
-without the view's columns, storage blocked. Every wait is an event with a deadline. Run from PowerShell
+number's shape of each kind pressed and held, a line, an empty point, a right click and a press held for "Lines from
+here", an anchor's circle, several spots under a finger and the table of spots), the 5 000 limit, the legend against
+the shapes drawn, the squares, a phone's sheet and legend (no control covers another), the flag, a run without the
+view's columns, storage blocked. Every wait is an event with a deadline (one exception: _tap). Run from PowerShell
 (.claude/rules/browser-tests.md)."""
 
 import json
@@ -26,6 +27,7 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 WAIT = 30000  # ms: the deadline of every wait for the page
 DESKTOP = {"viewport": {"width": 1400, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+SMALL_PHONE = {**PHONE, "viewport": {"width": 390, "height": 664}}  # tools/ui_shots.py's iPhone: the least room
 OLD = "2026-10-26_090000_Old_00000000000000a1"  # the same run as one saved before the view's columns
 FLAG = "try { localStorage.setItem('findaline.view', 'b'); } catch (e) {}"
 LIMIT = 5000
@@ -68,17 +70,50 @@ window.T = {
   // the part of the map's box a person sees: above a phone's sheet
   free() { const b = this.box(), sheet = document.querySelector(".u-sheet");
     return [0, 0, b.width, sheet ? Math.min(b.height, sheet.getBoundingClientRect().top - b.top) : b.height]; },
-  ends(row) { const c = this.v().view.model.data.columns, m = this.m();
-    const a = m.latLngToContainerPoint([c.lat1.at(row), c.lon1.at(row)]), b = m.latLngToContainerPoint([c.lat2.at(row), c.lon2.at(row)]);
-    return [a.x, a.y, b.x, b.y]; },
+  // a line's ends in the map's box, px (not rounded to whole pixels as Leaflet's own points are: a line that ends
+  // within half a pixel of the view's edge would be counted on the wrong side of it)
+  ends(row) { const c = this.v().view.model.data.columns, m = this.m(), origin = m.getPixelOrigin(), pane = m._getMapPanePos();
+    const at = (lat, lon) => { const p = m.project([lat, lon]); return [p.x - origin.x + pane.x, p.y - origin.y + pane.y]; };
+    return [...at(c.lat1.at(row), c.lon1.at(row)), ...at(c.lat2.at(row), c.lon2.at(row))]; },
   crosses([ax, ay, bx, by], [x0, y0, x1, y1]) { let t0 = 0, t1 = 1; const dx = bx - ax, dy = by - ay, p = [-dx, dx, -dy, dy], q = [ax - x0, x1 - ax, ay - y0, y1 - ay];
     for (let k = 0; k < 4; k++) { if (p[k] === 0) { if (q[k] < 0) return false; continue; } const r = q[k] / p[k];
       if (p[k] < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } }
     return t1 > t0; },
   away(px, py, [ax, ay, bx, by]) { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     const f = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0; return Math.hypot(px - ax - f * dx, py - ay - f * dy); },
-  controls() { return [...document.querySelectorAll(".v-map [data-map-control], .v-map .leaflet-control, .c-phone-top > *")]
-    .map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height); },
+  // every control over the map, by its own class (not by the page's own list of them, `data-map-control`): Leaflet's
+  // control containers, the bar's boxes, the frame's hint, the message, a phone's top bar
+  CONTROLS: ".v-map .leaflet-control, .v-levels, .v-best, .v-status, .v-fold, .v-help-button, .v-help, .v-legend, .v-hint-slot > *, .v-toast, .c-phone-top > *",
+  controls() { return [...document.querySelectorAll(this.CONTROLS)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height); },
+  // the numbers of one kind on the map now: the middle of each in the viewport, its line and that line's spot
+  numbersOf(kind) { const {view, map} = this.v();
+    return map.drawn().numbers.filter((n) => n.label[0] === kind).map((n) => { const row = this.rowOf(n.label);
+      return {label: n.label, x: (n.box.left + n.box.right) / 2, y: (n.box.top + n.box.bottom) / 2, row, spot: view.spotOf(row)}; }); },
+  // "Lines from here" opened through the model at the first anchor of a spot's shown line, such that the map then
+  // draws a number of the fan's own (L): that spot, else null
+  fanWithL() { const {view, map} = this.v(), c = view.model.data.columns;
+    for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot);
+      view.openFan({lat: c.lat1.at(row), lng: c.lon1.at(row)}, {row, end: 1});
+      if (map.drawn().numbers.some((n) => n.label[0] === "L")) return spot;
+      view.closeFan(); }
+    return null; },
+  // a spot in view selected whose shown line has both anchors on the part of the map a person sees, r px clear of
+  // every control: the spot, its line, and each anchor's point in the viewport with its place in the grid
+  anchors(r) { const {view} = this.v(), box = this.box(), f = this.free(), controls = this.controls(), v = view.values;
+    const free = (x, y) => x > f[0] + r && y > f[1] + r && x < f[2] - r && y < f[3] - r &&
+      !controls.some((c) => x + box.left > c.left - r && x + box.left < c.right + r && y + box.top > c.top - r && y + box.top < c.bottom + r);
+    for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = this.ends(row);
+      if (Math.hypot(e[2] - e[0], e[3] - e[1]) < 3 * r || !free(e[0], e[1]) || !free(e[2], e[3])) continue;
+      view.select(spot);
+      return {spot, row, ends: [{x: e[0] + box.left, y: e[1] + box.top, xy: [v.x1[row], v.y1[row]]}, {x: e[2] + box.left, y: e[3] + box.top, xy: [v.x2[row], v.y2[row]]}]}; }
+    return null; },
+  // the boxes of the map's controls by name (those on the page now), for "no control covers another"
+  boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
+      zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
+      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *"}, out = {};
+    for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
+      if (r && r.width && r.height && getComputedStyle(e).visibility !== "hidden") out[name] = [r.left, r.top, r.right, r.bottom].map((v) => Math.round(v * 10) / 10); }
+    return out; },
   // the line of a number on the map: B of a best spot, P of a pick, L of the fan, A of the selected line
   rowOf(label) { const {view} = this.v(), k = Number(label.slice(1));
     return label[0] === "B" ? view.shownOf(view.inView.best[k - 1]) : label[0] === "P" ? view.picks()[k - 1].row
@@ -113,13 +148,15 @@ window.T = {
       const near = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => map.pickAt(x + dx, y + dy, !!finger).slice().sort().join());
       if (near.every((got) => got === want.slice().sort().join())) return {x: vx, y: vy, mx: x, my: y}; }
     return null; },
-  // a point where a press reaches several spots (no number's shape, no control there), along the lines in view
-  crowded(finger) { const {view, map} = this.v(), f = this.free(), controls = this.controls(), box = this.box(), marks = map.drawn().numbers.map((n) => n.box);
+  // a point where a press reaches several spots (no number's shape within 24 px, no control within `gap` px), along
+  // the lines in view
+  crowded(finger, gap = 24) { const {view, map} = this.v(), f = this.free(), controls = this.controls(), box = this.box(), marks = map.drawn().numbers.map((n) => n.box);
     for (const spot of view.inView.spots) { const e = this.ends(view.shownOf(spot));
       for (let t = 0.1; t < 0.95; t += 0.05) { const x = Math.round(e[0] + (e[2] - e[0]) * t), y = Math.round(e[1] + (e[3] - e[1]) * t);
         if (x < f[0] + 30 || y < f[1] + 30 || x > f[2] - 30 || y > f[3] - 30) continue;
         const vx = x + box.left, vy = y + box.top;
-        if (controls.concat(marks).some((c) => vx > c.left - 24 && vx < c.right + 24 && vy > c.top - 24 && vy < c.bottom + 24)) continue;
+        if (marks.some((c) => vx > c.left - 24 && vx < c.right + 24 && vy > c.top - 24 && vy < c.bottom + 24)) continue;
+        if (controls.some((c) => vx > c.left - gap && vx < c.right + gap && vy > c.top - gap && vy < c.bottom + gap)) continue;
         const found = map.pickAt(x, y, !!finger);
         if (found.length > 1 && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => map.pickAt(x + dx, y + dy, !!finger).join() === found.join()))
           return {x: vx, y: vy, spots: found, at: this.m().containerPointToLatLng([x, y])}; } }
@@ -168,9 +205,17 @@ def _open(browser, url: str, context: dict, flag: bool = True, script: str = "")
 def _tap(page, x: float, y: float):
     """A finger's tap that is a tap of its own: the browser counts a touch within its double-click time of the one before
     as a double click (measured in Edge: a click of detail 2 and a dblclick, which zooms the map by half a level), so
-    the tap waits until that time has passed since the touch before it."""
+    the tap waits until that time has passed since the touch before it. This is the file's one wait for a time and
+    it stays: the time is the browser's own, no event of the page ends it, and it can only slow a test down."""
     page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
     page.touchscreen.tap(x, y)
+    page.evaluate("() => { window.TOUCHED = performance.now(); }")
+
+
+def _tap_on(page, selector: str):
+    """A finger's tap on an element, counted as the touch before the next _tap (see there)."""
+    page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
+    page.tap(selector)
     page.evaluate("() => { window.TOUCHED = performance.now(); }")
 
 
@@ -180,6 +225,63 @@ def _state(page, change: str = "") -> dict:
         page.evaluate("() => { const {view, map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP; %s }" % change)
     page.evaluate("() => T.frames()")
     return page.evaluate("() => T.state()")
+
+
+def _crowded(page, finger: bool, gap: int = 24):
+    """A point of the map where a press reaches several spots, `gap` px clear of every control: in the view as it
+    is, else with the map moved to one spot's shown line after another (the page's state settled each time)."""
+    found = page.evaluate("([finger, gap]) => T.crowded(finger, gap)", [finger, gap])
+    for spot in page.evaluate("() => Array.from(window.FINDALINE_VIEW.view.order)"):
+        if found:
+            break
+        _state(page, f"const row = view.shownOf({spot}), c = view.model.data.columns; "
+                     "leaflet.panTo([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2], {animate: false});")
+        found = page.evaluate("([finger, gap]) => T.crowded(finger, gap)", [finger, gap])
+    return found
+
+
+def _shape_presses(page, press, hold, reach: int):
+    """A press and a hold on a number's shape of each kind (`press(x, y)`: a click, a tap; `hold(x, y, until)`: a
+    right click, a finger held until the page's function holds): B, P and L select their line (a hold too: a
+    number's shape is a press on it, never a point to ask "Lines from here" at); A1 and A2 open the lines from that
+    anchor, the spot stays selected. `reach`: px an anchor keeps clear of the controls."""
+    chosen = "() => window.FINDALINE_VIEW.view.selected !== null && window.FINDALINE_VIEW.view.fan === null"
+    opened = "() => window.FINDALINE_VIEW.view.fan !== null && !window.FINDALINE_MAP._animatingZoom"
+    misses = page.evaluate("() => window.FINDALINE_VIEW.view.fanMisses")  # no press here asks at an empty point
+
+    def act(how, n, until):
+        if how is press:
+            press(n["x"], n["y"])
+            page.wait_for_function(until, timeout=WAIT)
+        else:
+            hold(n["x"], n["y"], until)
+        return _state(page)
+    for level, kind in (("spots", "B"), ("area", "P")):
+        for how in (press, hold):
+            _state(page, f"view.closeFan(); view.select(null); view.setLevel('{level}');")
+            numbers = page.evaluate("([kind]) => T.numbersOf(kind)", [kind])
+            assert numbers, f"no {kind} number on the map"
+            n = numbers[-1]
+            now = act(how, n, chosen)
+            assert now["selected"] == [n["spot"], n["row"]] and now["misses"] == misses, (kind, n, now["selected"])
+    for how in (press, hold):
+        _state(page, "view.closeFan(); view.select(null); view.setLevel('spots');")
+        assert page.evaluate("() => T.fanWithL()") is not None, "no fan with a number of its own"
+        fan = _state(page)
+        numbers = page.evaluate("() => T.numbersOf('L')")
+        assert numbers and fan["fan"], fan["fan"]
+        n = numbers[0]
+        now = act(how, n, chosen)  # the line of the fan is selected, the fan closes
+        assert now["selected"] == [n["spot"], n["row"]] and now["fan"] is None, (n, now["selected"])
+    for end, how in ((1, press), (2, hold), (2, press), (1, hold)):
+        _state(page, "view.closeFan(); view.select(null); view.setLevel('spots');")
+        line = page.evaluate("([r]) => T.anchors(r)", [reach])
+        assert line, "no line in view has both anchors free on the map"
+        _state(page)
+        now = act(how, line["ends"][end - 1], opened)
+        assert now["selected"] == [line["spot"], line["row"]] and now["fan"]["xy"] == line["ends"][end - 1]["xy"], (end, now["fan"])
+        assert now["fan"]["lines"] >= 1 and now["misses"] == misses
+    _state(page, "view.closeFan(); view.select(null);")
 
 
 def _numbers_hold(s: dict, labels: set):
@@ -226,7 +328,8 @@ def test_levels_in_view_numbers(site):
             assert first["bar"] == WORDS["ui.view.map.status_lines"].replace("{{n}}", "10").replace("{{m}}", str(first["m"]))
             _in_view_holds(first)
             _legend_holds(first)
-            assert first["strokes"] == first["m"] + first["thin"] and 10 < first["thin"] <= LIMIT and first["refused"] == 0
+            # (each line counted once: a best spot's shown line is one of its lines not beaten, drawn thin and bold)
+            assert first["strokes"] == first["m"] - 10 + first["thin"] and 10 < first["thin"] <= LIMIT and first["refused"] == 0
             _numbers_hold(first, {f"B{k}" for k in range(1, 11)})
             assert len(first["numbers"]) >= 5  # most of the ten best have a free piece of their line
             spots = _state(page, "view.setLevel('spots');")
@@ -299,7 +402,7 @@ def test_limit_legend_squares(site):
             assert refused["shapes"] == ["pale"] or set(refused["shapes"]) <= {"pale", "clear", "over"}
             fewer = _state(page, "view.setBest(100);")
             assert fewer["refused"] == 0 and 100 < fewer["thin"] <= LIMIT and fewer["marked"] is False
-            assert fewer["strokes"] == fewer["m"] + fewer["thin"] and fewer["numbered"] and len(fewer["numbers"]) > 10
+            assert fewer["m"] > 100 and fewer["strokes"] == fewer["m"] - 100 + fewer["thin"] and fewer["numbered"] and len(fewer["numbers"]) > 10
             _numbers_hold(fewer, {f"B{k}" for k in range(1, 101)})
             # Area under Auto: the legend's select and classes, the note; another value gives other breaks
             area = _state(page, "view.setBest(10); view.setTopOnly(true); leaflet.setZoom(map.zoomOf(2.6), {animate: false});")
@@ -422,45 +525,77 @@ def test_presses_with_a_mouse(site):
             assert after["fan"] is None and after["selected"] is not None
             page.keyboard.press("Escape")
             assert _state(page)["selected"] is None
-            # several spots about as near under the mouse: none is selected (the table of spots asks which)
-            crowded = page.evaluate("() => T.crowded(false)")
+            # several spots about as near under the mouse: none is selected, the table of spots is asked for (the frame
+            # says for how many: `data-choosing`); Esc closes it
+            crowded = _crowded(page, False)
             assert crowded and len(crowded["spots"]) > 1
             page.mouse.click(crowded["x"], crowded["y"])
-            assert _state(page)["selected"] is None and page.errors == []
+            page.wait_for_function("() => !!document.querySelector('.v-map').dataset.choosing", timeout=WAIT)
+            asked = int(page.evaluate("() => document.querySelector('.v-map').dataset.choosing"))
+            assert len(crowded["spots"]) <= asked <= 6 and _state(page)["selected"] is None
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => !document.querySelector('.v-map').dataset.choosing", timeout=WAIT)
+            # a press and a right click on a number's shape of each kind
+            _state(page, "map.fitArea({top: 50, right: 10, bottom: 80, left: 10});")
+            page.evaluate("() => { window.MENUS = []; }")
+
+            def right(x, y, until):
+                page.mouse.click(x, y, button="right")
+                page.wait_for_function(until, timeout=WAIT)
+            _shape_presses(page, lambda x, y: page.mouse.click(x, y), right, 8)
+            menus = page.evaluate("() => window.MENUS")
+            assert len(menus) == 5 and all(menus)  # every right click: no menu of the browser
+            assert page.errors == []
         finally:
             browser.close()
 
 
 def test_phone_touch(site):
-    """A phone: the spots in view are those above the sheet; with the sheet lowered a tap on a number selects; a
-    press held 600 ms opens "Lines from here" and the finger's lift changes nothing more; a tap on several spots
-    zooms in one level around the point, says so and flashes; once the map shows 0.25 m per pixel a tap zooms no
-    further."""
+    """A phone: the view opens with the sheet low; the spots in view are those above the sheet, at each stop; a
+    tap on a number selects; a press held 600 ms opens "Lines from here" and the finger's lift changes nothing more;
+    a tap on several spots zooms in one level around the point, says so and flashes; once the map shows 0.25 m per
+    pixel a tap zooms no further and the table of spots is asked for; a tap and a hold on a number's shape of each
+    kind."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, f"{site}#run={BIG}", PHONE)
-            # the sheet takes its height after the first draw: the view's rectangle is then taken again
-            page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] * 0.6 && s.spots.length === s.inPixels.length; }",
-                                   timeout=WAIT)
-            half = _state(page)
-            assert half["free"][3] < half["size"][1] * 0.6  # the sheet covers the map's lower half
-            _in_view_holds(half)
-            _legend_holds(half)
-            _numbers_hold(half, {f"B{k}" for k in range(1, 11)})
+            # the view opens with the sheet low (it takes its height after the first draw: the view's rectangle is
+            # then taken again)
+            settled = "() => { const s = T.state(); return %s && s.spots.length === s.inPixels.length; }"
+            page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
+            start = _state(page)
+            assert abs(start["size"][1] - start["free"][3] - 132) <= 1  # the sheet's lowest stop
+            _in_view_holds(start)
+            _legend_holds(start)
+            _numbers_hold(start, {f"B{k}" for k in range(1, 11)})
             fold = page.evaluate("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), document.querySelectorAll('.v-lg-line').length]")
-            assert fold == ["true", 2]  # the legend: two lines, unfolded at the start
-            page.tap(".v-fold")
-            page.wait_for_function("() => !document.querySelector('.v-legend')", timeout=WAIT)
-            page.tap(".v-fold")
-            page.wait_for_selector(".v-legend", timeout=WAIT)
-            # the sheet lowered: the view's rectangle is taken again, more spots are in view
+            assert fold == ["true", 2]  # the legend: two lines, unfolded while the sheet is low
+            # the sheet raised to half: the view's rectangle is taken again, fewer spots are in view
             page.focus(".u-sheet-handle")
-            page.keyboard.press("ArrowDown")
-            page.wait_for_function(f"() => T.free()[3] > {half['free'][3]} + 100 && T.state().spots.length === T.state().inPixels.length",
-                                   timeout=WAIT)
-            low = _state(page, "view.setLevel('spots');")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
+            half = _state(page, "view.setLevel('spots');")
+            assert half["free"][3] < half["size"][1] * 0.6 and 0 < half["m"] < start["m"]
+            _in_view_holds(half)
+            _numbers_hold(half, {f"B{k}" for k in range(1, 11)})
+            # the legend: folded by itself at half; the person's unfold holds there; lowered, the legend is unfolded by
+            # itself; the person's fold holds there, and ends when the sheet next changes its stop
+            legend = "() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend')]"
+            assert page.evaluate(legend) == ["false", False]
+            for key, want in ((None, ["true", True]), ("ArrowDown", ["true", True]), (None, ["false", False]), ("ArrowUp", ["false", False]),
+                              ("ArrowDown", ["true", True])):
+                if key:
+                    page.focus(".u-sheet-handle")
+                    page.keyboard.press(key)
+                    page.wait_for_function(settled % ("s.free[3] > s.size[1] * 0.75" if key == "ArrowDown" else "s.free[3] < s.size[1] * 0.6"), timeout=WAIT)
+                else:
+                    _tap_on(page, ".v-fold")
+                page.wait_for_function(f"() => JSON.stringify(({legend})()) === '{json.dumps(want, separators=(',', ':'))}'", timeout=WAIT)
+                if want[1]:
+                    _legend_holds(_state(page))
+            low = _state(page)
             assert low["free"][3] > half["free"][3] + 100
             _in_view_holds(low)
             _numbers_hold(low, {f"B{k}" for k in range(1, 11)})
@@ -505,14 +640,179 @@ def test_phone_touch(site):
                                   [crowded["at"]["lat"], crowded["at"]["lng"]])
             assert abs(moved[0] - crowded["x"]) <= 2 and abs(moved[1] - crowded["y"]) <= 2
             _in_view_holds(closer)
-            # one quarter step closer than the last zoom above 0.25 m per pixel
+            # one quarter step closer than the last zoom above 0.25 m per pixel: a tap on several spots zooms no
+            # further, the table of spots is asked for (the frame says for how many); a move of the map closes it
             _state(page, "leaflet.setZoom(map.zoomOf(0.25) + 0.25, {animate: false});")
-            last = page.evaluate("() => T.crowded(true)")
-            if last:  # still several spots there: no further zoom (the table of spots is asked for)
-                zoom = page.evaluate("() => window.FINDALINE_MAP.getZoom()")
-                _tap(page, last["x"], last["y"])
-                end = _state(page)
-                assert end["zoom"] == zoom and not end["animating"] and end["mpp"] <= 0.25 * 1.001 and end["selected"] is None
+            last = _crowded(page, True)
+            assert last and len(last["spots"]) > 1, "no point with several spots under a finger at 0.25 m per pixel"
+            zoom = page.evaluate("() => window.FINDALINE_MAP.getZoom()")
+            _tap(page, last["x"], last["y"])
+            page.wait_for_function("() => !!document.querySelector('.v-map').dataset.choosing", timeout=WAIT)
+            end = _state(page)
+            asked = int(page.evaluate("() => document.querySelector('.v-map').dataset.choosing"))
+            assert end["zoom"] == zoom and not end["animating"] and end["mpp"] <= 0.25 * 1.001 and end["selected"] is None
+            assert len(last["spots"]) <= asked <= 6
+            _state(page, "leaflet.panBy([12, 0], {animate: false});")
+            assert page.evaluate("() => document.querySelector('.v-map').dataset.choosing") is None
+            # a tap and a hold on a number's shape of each kind
+            _state(page, "view.setLevel('auto'); map.fitArea({top: 120, right: 10, bottom: 220, left: 10});")
+
+            def held(x, y, until):
+                page.wait_for_function("() => performance.now() - (window.TOUCHED || -1000) > 700", timeout=WAIT)
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y, "id": 1}]})
+                page.wait_for_function(until, timeout=WAIT)
+                before = page.evaluate("() => { const {view} = window.FINDALINE_VIEW; return [view.selected && view.selected.row, view.fan && view.fan.lines]; }")
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                page.evaluate("() => { window.TOUCHED = performance.now(); }")
+                page.evaluate("() => T.frames()")
+                # the finger's lift changes nothing more
+                assert page.evaluate("() => { const {view} = window.FINDALINE_VIEW; return [view.selected && view.selected.row, view.fan && view.fan.lines]; }") == before
+            _shape_presses(page, lambda x, y: _tap(page, x, y), held, 24)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+# A stand-in for the shore's chip (shoreLayer.ts: a Leaflet control at the map's top left, folded on a phone), which the
+# clip's run in the mountains does not have: the same classes, so the page's own styles size it
+CHIP = """() => { const holder = document.createElement("div");
+  holder.className = "leaflet-control u-shore-ctl u-shore-folded";
+  const chip = holder.appendChild(document.createElement("button"));
+  chip.type = "button"; chip.className = "u-shore-chip";
+  const swatches = chip.appendChild(document.createElement("span"));
+  swatches.className = "u-shore-chip-sw";
+  for (const kind of ["surface", "sea"]) swatches.appendChild(document.createElement("span")).className = "u-shore-swatch u-shore-" + kind;
+  chip.appendChild(document.createElement("b")).textContent = "Uncertain shore";
+  const metres = chip.appendChild(document.createElement("span"));
+  metres.className = "u-shore-chip-m"; metres.textContent = "1.6 km";
+  document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
+
+
+def _apart(page, state: str) -> dict:
+    """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet."""
+    boxes, sheet = page.evaluate("() => [T.boxes(), document.querySelector('.u-sheet')?.getBoundingClientRect().top ?? 1e9]")
+    names, wrong = sorted(boxes), []
+    for k, a in enumerate(names):
+        if boxes[a][3] > sheet + 0.5:
+            wrong.append((a, boxes[a], "under the sheet", sheet))
+        for b in names[k + 1:]:
+            p, q = boxes[a], boxes[b]
+            if min(p[2], q[2]) - max(p[0], q[0]) > 0.5 and min(p[3], q[3]) - max(p[1], q[1]) > 0.5:
+                wrong.append((a, p, b, q))
+    assert not wrong, (state, wrong)
+    return boxes
+
+
+def test_phone_controls_apart(site):
+    """A small phone (390 x 664) with the shore's chip on the map. At the sheet's low stop and at half, no control
+    of the map covers another (the status line, the legend, its fold, the "?", the switch, Best, the zoom buttons,
+    the layers button, the shore's chip, the scale, the credits, the message, the top bar) and each stands above
+    the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
+    legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it (its
+    button is disabled). An opened layers list lies above the bar. A tap on a square fits it into the part of the
+    map free of the bar and the sheet."""
+    from playwright.sync_api import sync_playwright
+    settled = "() => { const s = T.state(); return %s && s.spots.length === s.inPixels.length; }"
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    states = (("area", "view.setTopOnly(true); view.setBest(10); view.setLevel('area');"), ("spots", "view.setLevel('spots');"),
+              ("lines", "view.setLevel('lines');"), ("refused", "view.setTopOnly(false); view.setBest('all');"))
+    legend = "() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend')]"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
+            page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
+            page.evaluate(CHIP)
+            seen = {}
+            for stop in ("low", "half"):
+                if stop == "half":
+                    page.focus(".u-sheet-handle")
+                    page.keyboard.press("ArrowUp")
+                    page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
+                for name, script in states:
+                    s = _state(page, fit + script)
+                    boxes = seen[stop, name] = _apart(page, f"{stop} {name}")
+                    assert {"status", "fold", "levels", "best", "zoom", "layers", "chip", "scale"} <= set(boxes), (stop, name, sorted(boxes))
+                    # the legend by itself: unfolded while the sheet is low, folded at half
+                    assert page.evaluate(legend) == (["true", True] if stop == "low" else ["false", False]), (stop, name)
+                    assert ("legend" in boxes) == (stop == "low")
+                    if name == "refused":
+                        assert s["marked"] is True and s["refused"] > LIMIT, (stop, s["refused"])
+                    elif name == "area":
+                        # the squares' legend on a phone: the select with its text whole, the five classes as one ramp
+                        if stop == "low":
+                            ramp = page.evaluate("""() => { const by = document.querySelector(".v-by"), r = document.querySelector(".v-ramp");
+                                const probe = document.body.appendChild(document.createElement("span"));
+                                probe.textContent = by.selectedOptions[0].textContent;
+                                probe.style.font = getComputedStyle(by).font; probe.style.whiteSpace = "nowrap"; probe.style.position = "absolute";
+                                const text = probe.getBoundingClientRect().width;
+                                probe.remove();
+                                return {lines: document.querySelectorAll(".v-lg-line").length, whole: text > 100 && by.clientWidth >= text,
+                                        swatches: r.querySelectorAll(".v-lay").length, name: r.getAttribute("aria-label"), text: r.textContent,
+                                        height: document.querySelector(".v-legend").getBoundingClientRect().height}; }""")
+                            assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 70, ramp
+                            assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
+                # a tap on several spots: the map says so; the message covers no control
+                _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
+                crowded = _crowded(page, True, 4)  # (at half this phone's map has no point 24 px from every control)
+                assert crowded and len(crowded["spots"]) > 1, stop
+                _tap(page, crowded["x"], crowded["y"])
+                page.wait_for_selector(".v-toast", timeout=WAIT)
+                page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
+                assert "toast" in boxes and page.evaluate("() => document.querySelector('.v-toast').textContent") == WORDS["ui.view.map.crowded"]
+                page.wait_for_selector(".v-toast", state="detached", timeout=WAIT)
+            # at half this phone's map has no room for the legend (39 px under the chip): its button says so
+            _state(page, fit + "view.setLevel('spots');")
+            assert page.evaluate("() => document.querySelector('.v-fold').disabled") is True and page.evaluate(legend) == ["false", False]
+            # an opened layers list lies above the bar: where it crosses the bar's boxes, a press reaches the list (the
+            # clip's list is short: made as long as a run's with an orthophoto and overlays, it crosses the bar's foot)
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            over = page.evaluate("""() => { const control = document.querySelector(".leaflet-control-layers");
+                control.style.minHeight = "190px";
+                const list = control.getBoundingClientRect(), found = [];
+                for (const e of document.querySelectorAll(".v-status, .v-legend, .v-fold, .v-toast")) { const r = e.getBoundingClientRect();
+                  const x0 = Math.max(r.left, list.left), x1 = Math.min(r.right, list.right), y0 = Math.max(r.top, list.top), y1 = Math.min(r.bottom, list.bottom);
+                  if (x1 - x0 > 2 && y1 - y0 > 2) found.push([e.className, !!document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2)?.closest(".leaflet-control-layers")]); }
+                return found; }""")
+            assert over and all(above for _, above in over), over
+            page.evaluate("() => { const control = document.querySelector('.leaflet-control-layers'); control.style.minHeight = ''; "
+                          "control.classList.remove('leaflet-control-layers-expanded'); }")
+            # at half, Area under Auto: a tap on a square fits it into the map's part free of the bar and the sheet
+            area = _state(page, fit + "view.setLevel('auto'); leaflet.setZoom(map.zoomOf(2.6), {animate: false});")
+            assert (area["level"], area["auto"]) == ("area", True)
+            _apart(page, "half, Area under Auto")
+            square = page.evaluate("""() => { const {view, map} = window.FINDALINE_VIEW, g = map.grid, leaflet = window.FINDALINE_MAP, box = T.box();
+              for (let k = 0; k < g.cells.length; k++) { const i = g.cells[k] % g.nx, j = (g.cells[k] - i) / g.nx;
+                const at = leaflet.latLngToContainerPoint(view.fit.toLatLng(g.x0 + (i + 0.5) * g.side, g.y0 + (j + 0.5) * g.side));
+                if (map.pickAt(at.x, at.y, true).length === 0 && T.clear(at.x + box.left, at.y + box.top, 12))
+                  return {x: at.x + box.left, y: at.y + box.top, side: g.side, x0: g.x0 + i * g.side, y0: g.y0 + j * g.side}; }
+              return null; }""")
+            assert square, "no square of the map is free for a tap"
+            _tap(page, square["x"], square["y"])
+            try:
+                page.wait_for_function("() => window.FINDALINE_VIEW.view.level !== 'area' && !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            except Exception:
+                now = _state(page)
+                raise AssertionError(("the tap on a square did not leave Area", square, area["zoom"], area["mpp"],
+                                      {k: now[k] for k in ("level", "auto", "zoom", "mpp", "selected", "toast", "animating")}))
+            zoomed = _state(page)
+            placed = page.evaluate("""([x0, y0, side]) => { const {view} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, box = T.box();
+              const corners = [[x0, y0], [x0 + side, y0], [x0 + side, y0 + side], [x0, y0 + side]].map(([x, y]) => leaflet.latLngToContainerPoint(view.fit.toLatLng(x, y)));
+              const xs = corners.map((c) => c.x), ys = corners.map((c) => c.y);
+              return {left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys), free: T.free(),
+                      bar: document.querySelector(".v-levels").getBoundingClientRect().bottom - box.top,
+                      foot: document.querySelector(".v-status").getBoundingClientRect().top - box.top}; }""",
+                                   [square["x0"], square["y0"], square["side"]])
+            assert zoomed["level"] == "spots" and zoomed["mpp"] >= 0.96 * 0.999
+            # the whole square between the switch and the status line, above the sheet (a fit to the map's whole box
+            # would put its middle on the sheet's edge)
+            assert placed["left"] >= 0 and placed["right"] <= placed["free"][2] and placed["bottom"] <= placed["free"][3], placed
+            assert placed["top"] >= placed["bar"] and placed["bottom"] <= placed["foot"] + 30, placed
+            print("phone 390 x 664, the controls' boxes: " + json.dumps({f"{stop} {name}": boxes for (stop, name), boxes in seen.items()
+                                                                          if name in ("spots", "refused", "tap")}))
             assert page.errors == []
         finally:
             browser.close()

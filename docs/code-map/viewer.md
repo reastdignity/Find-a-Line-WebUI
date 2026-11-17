@@ -176,21 +176,25 @@ weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer
 **The result view of mock-up 2** (docs/line-volume/spec-view.md part B, step 3b: built beside today's result page and
 opened by `ResultColumns.tsx` only behind a flag, `view/SpotColumns.tsx` `viewWanted`: `?view=b` kept in localStorage
 "findaline.view", `?view=today` ends it; a run that cannot be shown, `spots.ts` `viewOf`, opens today's page and the
-console says why). `types.ts` `ViewColumns`/`hasView` and `load.ts` `readStore` give the store's `spot`, `top`,
+console says why: also one whose head disagrees with its columns, the sectors' entries, the box of every anchor, the
+lengths). `types.ts` `ViewColumns`/`hasView` and `load.ts` `readStore` give the store's `spot`, `top`,
 `by_spot` (and the head's `sectors`, `box`, `lengths`) as they are; `ResultModel` built with `ungrouped` groups nothing
 (only the filters' ranges). `result/viewgeom.ts` the pure parts (Auto's level with its band, in view as a segment
 crossing a four-sided view, the squares on a typed grid and their breaks, a direction, and `gridFit`: the run's grid
 from latitudes and longitudes by a polynomial of the lowest degree, 1 to 3, within `FIT_MAX` at the anchors, every
 point clamped to the anchors' box and a margin). `result/spots.ts` `SpotView`: which lines pass (the model's filters,
 "Top level only" as its own state), each spot's shown line, the order, the sectors, the picks, the lines not beaten,
-the spots in view with the best N and their numbers, the 5 000 limit, the selection, "Lines from here", one Esc.
+the spots in view with the best N and their numbers (a view without an area, the map moved off the run, holds
+none), the 5 000 limit, the selection, "Lines from here" (derived again whenever the map's numbers change), one Esc.
 `result/SpotMap.ts` the canvas (a Leaflet renderer without paths in a pane of its own: the lines are drawn from the
 columns, projected by hand; squares, strokes, numbers placed clear of every control, the presses with a press held and
-a right click, the hover; `legend()` what it drew; `drawn()` its own count). `view/SpotColumns.tsx` the frame (today's
-columns and sheet, the Leaflet map with quarter zoom steps, the toast, Esc; `window.FINDALINE_VIEW = {view, map}` once
-drawn, no `FINDALINE_RESULT`), `view/SpotPanels.tsx` its slots (`PANELS`: the list, the details, the sheet's head, the
+a right click, the hover; `legend()` what it drew; `drawn()` its own count, each line once). `view/SpotColumns.tsx` the
+frame (today's columns and sheet, which opens low and holds from its top the handle, the hint, the head's row and the
+body; the Leaflet map with quarter zoom steps, the toast, Esc; `data-choosing` on the map's column while the table of
+spots is asked for; `window.FINDALINE_VIEW = {view, map}` once drawn, no `FINDALINE_RESULT`), `view/SpotPanels.tsx` its slots (`PANELS`: the list, the details, the sheet's head, the
 hint, the table of spots), `view/MapBar.tsx` the switch, Best, the status line and the legend (a phone: two lines with
-a fold), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
+a fold, unfolded by itself while the sheet is low and there is room, folded at half or higher; a person's fold or
+unfold holds until the sheet's next stop), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
 `tests/test_view_units.py` (Node on a made-up run, the frame in headless Edge through `viewer/test/spotmap_page.ts`),
 `tests/test_shell_c_view_map.py` (Playwright on `clip_runs.view_clip`: the mock-up's checks ported).
 Its panels (`view.css`, classes `vl-*`; what stands in the slots is `view/SpotDetails.tsx` `SLOTS`):

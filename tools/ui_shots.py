@@ -133,16 +133,16 @@ VIEW_CROWDED = """(() => { const {view, map} = window.FINDALINE_VIEW, m = window
       const at = m.layerPointToContainerPoint(m.containerPointToLayerPoint([x, y]));
       m.fire('click', {latlng: m.containerPointToLatLng(at), containerPoint: at, layerPoint: m.containerPointToLayerPoint(at)});
       return; } } })()"""
-# A phone's sheet one state lower (its handle's arrow key: half to peek)
+# A phone's sheet one stop lower (its handle's arrow key), and one stop higher (from its low start to half)
 VIEW_LOW = ("document.querySelector('.u-sheet-handle')?.dispatchEvent(new KeyboardEvent('keydown', "
             "{key: 'ArrowDown', bubbles: true}))")
+VIEW_HALF = VIEW_LOW.replace("ArrowDown", "ArrowUp")
 # The map's own controls open: the layers' list and, where they fold (a phone), the data credits
 VIEW_CONTROLS = ("(() => { document.querySelector('.leaflet-control-layers')?.classList.add('leaflet-control-layers-expanded'); "
                  "const credits = document.querySelector('.u-credits-toggle'); if (credits && credits.offsetParent) credits.click(); })()")
-# The view's panels (view/SpotList.tsx, SpotDetails.tsx, FanPanel.tsx): a phone's sheet one state higher (half to
-# full: the list in it); a press on the first element of a selector, where there is one; the best spot in view
-# (else the list's first) selected
-VIEW_UP = VIEW_LOW.replace("ArrowDown", "ArrowUp")
+# The view's panels (view/SpotList.tsx, SpotDetails.tsx, FanPanel.tsx): a press on the first element of a selector,
+# where there is one; the best spot in view (else the list's first) selected. A phone's sheet at full height (the
+# list in it) is two steps of VIEW_HALF: the sheet takes one stop per key, drawn in between
 VIEW_PRESS = "document.querySelector(%r)?.click()"
 VIEW_SELECT = VIEW_DO % "view.select(view.inView.best[0] ?? view.order[0])"
 VIEW_SELECTED = "wait:document.querySelector('.vl-spot-title')"
@@ -248,7 +248,7 @@ PAGES = {
     # The result view of mock-up 2 (VIEWS: the page's flag; NEEDS "view": a run whose store has the view's columns),
     # its map's states: the first view; the Area level (zoomed out to it); Spots; Lines; Best 30; All refused above
     # 5 000 thin lines; Lines held far out; several spots under one press (a phone zooms in and says so); the map's own
-    # controls open (the layers, the data credits)
+    # controls open (the layers, the data credits). On a phone the view opens with the sheet low
     "c-view": ("c", "#run={run}", [VIEW_READY]),
     "c-view-area": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6]),
     "c-view-spots": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1]),
@@ -258,23 +258,23 @@ PAGES = {
     "c-view-held": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6, "js:" + VIEW_DO % "view.setLevel('lines')"]),
     "c-view-crowded": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_DO % "view.setLevel('spots')", "js:" + VIEW_CROWDED]),
     "c-view-controls": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_CONTROLS]),
-    # a phone's sheet lowered to its peek (the map's states with room for the map; a desktop has no sheet)
-    "c-view-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_LOW]),
-    "c-view-spots-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_LOW, "js:" + VIEW_AT % 1]),
-    # its panels' states: a spot selected (its details; a phone: at the sheet's top, and with the sheet lowered its
-    # head alone); "Lines from here" opened from the selected line's first anchor; a second sector of the tree open
-    # (a phone: the sheet at full height); "Top level only" off ("All levels"); "Why so many?" open; the Area
-    # level's "Start here" above the tree (a phone: the sheet at full height)
+    # a phone's sheet raised to half (the view opens with it low): the legend folds itself, no control covers another
+    # (a desktop has no sheet)
+    "c-view-half": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1]),
+    # its panels' states: a spot selected (a phone: the sheet low, its head alone; and at half, its details at the
+    # sheet's top); "Lines from here" opened from the selected line's first anchor (a phone: the sheet at half); a
+    # second sector of the tree open; "Top level only" off ("All levels"); "Why so many?" open; the Area level's
+    # "Start here" above the tree (these four on a phone with the sheet at full height: VIEW_HALF twice)
     "c-view-selected": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED]),
-    "c-view-selected-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED, "js:" + VIEW_LOW]),
-    "c-view-fan": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED,
+    "c-view-selected-half": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED]),
+    "c-view-fan": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED,
                                        "js:" + VIEW_PRESS % ".vl-from-1", "wait:document.querySelector('.vl-fan')"]),
-    "c-view-sector": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_UP, "js:" + VIEW_PRESS % ".vl-sec + .vl-sec .vl-toggle",
+    "c-view-sector": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % ".vl-sec + .vl-sec .vl-toggle",
                                           "js:document.querySelector('.vl-sec + .vl-sec')?.scrollIntoView({block: 'start'})"]),
-    "c-view-all-levels": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_UP, "js:" + VIEW_PRESS % ".vl-top",
+    "c-view-all-levels": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % ".vl-top",
                                               "wait:window.FINDALINE_VIEW.view.topOnly === false"]),
-    "c-view-why": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_UP, "js:" + VIEW_PRESS % ".r-why-link"]),
-    "c-view-start": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_UP, "js:" + VIEW_AT % 2.6]),
+    "c-view-why": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % ".r-why-link"]),
+    "c-view-start": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_AT % 2.6]),
     # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
     # opened (scrolling inside the box); a desktop shows the box, always open
     "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
@@ -377,8 +377,8 @@ LAYOUTS = {
 # The pages of the result view: the page's flag kept in localStorage ("findaline.view", SpotColumns.tsx viewWanted) is
 # set to the page's value; every other page starts without it (today's result page)
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
-                                "c-view-held", "c-view-crowded", "c-view-controls", "c-view-low", "c-view-spots-low",
-                                "c-view-selected", "c-view-selected-low", "c-view-fan", "c-view-sector", "c-view-all-levels",
+                                "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half",
+                                "c-view-selected", "c-view-selected-half", "c-view-fan", "c-view-sector", "c-view-all-levels",
                                 "c-view-why", "c-view-start")}
 
 # The pages that show something only some runs have (run_features, read from the run's run.json before any browser

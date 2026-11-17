@@ -39,6 +39,16 @@ export function autoLevel(mpp: number, now: Level | null): Level {
   return mpp > lo * leave ? (mpp > hi * leave ? "area" : "spots") : "lines";
 }
 
+/** A view of less than this many square metres holds nothing (quadArea, clipper). */
+export const QUAD_MIN = 1;
+
+/** The area of a four-sided view, m² (0 when its corners are one point or lie on one line). */
+export function quadArea(r: Quad): number {
+  let twice = 0;
+  for (let k = 0; k < 4; k++) twice += r[k][0] * r[(k + 1) % 4][1] - r[(k + 1) % 4][0] * r[k][1];
+  return Math.abs(twice) / 2;
+}
+
 /** A test "does the segment (x1, y1)-(x2, y2) cross `r`" for many segments: more than a point of it lies in `r`
  *  (a segment that only touches a corner or an edge at one point does not cross; one along an edge does). */
 export function clipper(r: Quad): (x1: number, y1: number, x2: number, y2: number) => boolean {
@@ -47,6 +57,9 @@ export function clipper(r: Quad): (x1: number, y1: number, x2: number, y2: numbe
     const a = r[k], b = r[(k + 1) % 4];
     area += a[0] * b[1] - b[0] * a[1];
   }
+  // a view without an area (its corners on one point or one line: the map's view lies off the run and every corner
+  // was clamped to the same place) holds nothing: no segment crosses it
+  if (!(Math.abs(area) > 2 * QUAD_MIN)) return () => false;
   const sign = area >= 0 ? 1 : -1;
   // each edge as (ax, ay, ex, ey), the inside on its left once `sign` is applied
   const e = new Float64Array(16);
@@ -143,7 +156,7 @@ function countSquares(v: SpotView, side: number): Counted {
       const row = rows[k];
       if (!v.passes(row)) continue;
       const first = add(x1[row], y1[row], row, spot, -2);
-      add(x2[row], y2[row], row, spot, first);
+      add(x2[row], y2[row], row, spot, first >= 0 ? first : -2);  // a first anchor outside the box skips nothing
     }
   }
   const order = Array.from({length: size}, (_, k) => k).sort((a, b) => cell[a] - cell[b]);

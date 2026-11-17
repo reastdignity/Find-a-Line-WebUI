@@ -472,33 +472,65 @@ def test_selection_details_fan_and_table(site):
 
 @pytest.mark.parametrize("device", [PHONE, PIXEL], ids=["390", "412"])
 def test_phone_sheet_hint_and_fan(site, device):
-    """A phone (390 and 412 px wide). The hint is the sheet's first line and reads "Press and hold"; its × hides it
-    and leaves the "?" on the map beside the status line; kept. The sheet's head holds the headline, then the
-    selected spot's title with its ×, then "Lines from here" with "Close", each pressed with the sheet at its
-    lowest; a selection scrolls the sheet to its top; a fan row selects; the list's rows hold as on a desktop."""
+    """A phone (390 and 412 px wide), whose sheet opens low. The sheet's order: the handle, the hint ("Press and
+    hold"), the head's row, the body; at the low start the handle, the hint and the head's row are whole in the
+    sheet, also with the longest heads. The hint's × hides it and leaves the "?" on the map beside the status line;
+    kept. The head's row holds the headline, then the selected spot's title with its ×, then "Lines from here" with
+    "Close", each pressed with the sheet low; a selection sends the sheet's body to its top; a fan row selects; the
+    list's rows hold as on a desktop; one tab stop in the fan, the focus never on the page's body."""
     from playwright.sync_api import sync_playwright
+    # is the sheet's head (hint and head's row) whole inside the sheet, and what its parts measure
+    fits = """() => { const sheet = document.querySelector('.u-sheet').getBoundingClientRect(), head = document.querySelector('.u-sheet-head'),
+        h = head.getBoundingClientRect(), row = document.querySelector('.vl-sheet-row').getBoundingClientRect(), hint = document.querySelector('.u-sheet-head .vl-hint');
+        return {sheet: Math.round(sheet.height), handle: Math.round(h.top - sheet.top), hint: hint ? Math.round(hint.getBoundingClientRect().height) : 0,
+                row: Math.round(row.height), whole: row.bottom <= sheet.bottom + 0.5 && h.top >= sheet.top,
+                order: [...head.children].map((e) => e.className.split(' ')[0])}; }"""
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, f"{site}#run={BIG}", device, script=PANELS)
-            page.wait_for_selector(".u-sheet .vl-tree .vl-main", timeout=WAIT)
-            # the hint: the first line of the sheet's body, the finger's words; no "?" while it is shown
-            hint = page.evaluate("""() => { const body = document.querySelector('.u-sheet-body');
-                return [body.firstElementChild.classList.contains('vl-hint'), P.text('.vl-hint-text'), !!document.querySelector('.vl-hint-open')]; }""")
-            assert hint == [True, WORDS["ui.view.hint.finger"], False]
-            head = page.evaluate("() => P.text('.u-sheet-head .vl-count')")
+            page.wait_for_selector(".u-sheet.u-peek .vl-count", timeout=WAIT)  # the view opens with the sheet low
+            page.wait_for_function("() => document.querySelector('.u-sheet').getBoundingClientRect().height > 0", timeout=WAIT)
+            # the sheet's order: handle, hint, head's row (the headline), body; all of the head inside the low sheet
+            low = page.evaluate(fits)
+            assert low["order"] == ["vl-hint", "vl-sheet-row"] and low["whole"] and low["sheet"] == 132, low
+            assert page.evaluate("() => [P.text('.vl-hint-text'), !!document.querySelector('.vl-hint-open'), !!document.querySelector('.u-sheet-body .vl-hint')]") == \
+                [WORDS["ui.view.hint.finger"], False, False]
             s = _list(page)
-            assert head == _headline(s) and page.evaluate("() => document.querySelectorAll('.vl-count').length") == 1
+            assert page.evaluate("() => P.text('.u-sheet-head .vl-count')") == _headline(s)
+            assert page.evaluate("() => document.querySelectorAll('.vl-count').length") == 1
             assert s["sentence"] == _sentence(s) and s["chip"] == "true"
+            # a number of the map tapped at the low start: the spot's head in the low sheet, whole; the body at its top
+            first = _state(page, "view.setLevel('spots');")
+            assert first["numbers"], first["free"]
+            box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
+            number = first["numbers"][0]
+            _tap(page, box[0] + number["x"], box[1] + number["y"])
+            page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
+            assert page.evaluate("() => P.view().selected.spot") == first["bestSpots"][int(number["label"][1:]) - 1]
+            spot_head = page.evaluate(fits)
+            assert spot_head["whole"] and spot_head["order"] == ["vl-hint", "vl-sheet-row"], spot_head
+            assert page.evaluate("() => document.querySelector('.u-sheet-body').scrollTop") == 0
+            # the longest heads still fit: a long spot's title with its two marks and ×, and "Lines from here" with "Close"
+            page.evaluate("() => { const t = document.querySelector('.vl-spot-title'); t.firstChild.textContent = 'Spot 12.34 · 1 234 lines'; }")
+            long_head = page.evaluate(fits)
+            assert long_head["whole"], long_head
+            print("peek", device["viewport"]["width"], low, spot_head, long_head)
+            # the × of the head works with the sheet low
+            page.tap(".u-sheet-head .vl-dclose")
+            page.wait_for_function("() => P.view().selected === null && !!document.querySelector('.u-sheet-head .vl-count')", timeout=WAIT)
+            # the hint's ×: the "?" on the map beside the status line takes the focus; kept; and back
             page.tap(".vl-hint-x")
             page.wait_for_selector(".v-map .vl-hint-open", timeout=WAIT)
             page.wait_for_function("() => document.activeElement.className === 'vl-hint-open'", timeout=WAIT)
-            assert page.evaluate("() => [!!document.querySelector('.vl-hint'), document.activeElement.className, localStorage.getItem('findaline.view.v1')]") == \
-                [False, "vl-hint-open", '{"sort":"hmean","hint":false}']
+            assert page.evaluate("() => [!!document.querySelector('.vl-hint'), localStorage.getItem('findaline.view.v1')]") == \
+                [False, '{"sort":"hmean","hint":false}']
             page.tap(".vl-hint-open")
-            page.wait_for_selector(".u-sheet-body > .vl-hint", timeout=WAIT)
-            # the sheet at full height: the list's rows hold; a row selects, the sheet scrolls to its top
+            page.wait_for_selector(".u-sheet-head > .vl-hint", timeout=WAIT)
+            # the sheet at full height: the list's rows hold; a row far down selects, the sheet's body goes to its top
             page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
             page.keyboard.press("ArrowUp")
             page.wait_for_selector(".u-sheet.u-full", timeout=WAIT)
             assert page.evaluate("() => P.holds(P.rows('.vl-topblock'), 'hmean').concat(P.holds(P.rows('.vl-tree'), 'hmean'))") == []
@@ -512,38 +544,41 @@ def test_phone_sheet_hint_and_fan(site, device):
             d = page.evaluate("() => P.details()")
             assert d["shown"] and d["title"] is not None and d["step"].startswith("Line 1 of")
             assert page.evaluate("() => [!!document.querySelector('.u-sheet-head .vl-spot-title'), !!document.querySelector('.u-sheet-body .vl-spot-title'), "
-                                 "document.querySelectorAll('.u-sheet-body .vl-count').length]") == [True, False, 1]
-            # the head adds no edge of its own above the scrolled body (the sheet's own look is the kit's)
+                                 "document.querySelectorAll('.u-sheet-body .vl-count').length, document.querySelector('.u-sheet-body').firstElementChild.className.split(' ')[0]]") == \
+                [True, False, 1, "vl-details"]
+            # the head's row adds no edge of its own above the scrolled body (the sheet's own look is the kit's)
             edge = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.vl-sheet-row')); return [s.borderBottomWidth, s.boxShadow]; }")
             assert edge == ["0px", "none"]
-            # "Lines from anchor A2": the panel in the sheet, its head with "Close"
+            # "Lines from anchor A2": the panel in the sheet, its head with "Close"; one tab stop, the focus in the fan
             page.tap(".vl-from-2")
             page.wait_for_selector(".u-sheet-head .vl-fan-close", timeout=WAIT)
             page.evaluate("() => T.frames()")
             f = page.evaluate("() => P.fan()")
             assert f["panel"] and [[r["row"], r["mark"]] for r in f["rows"]] == [[r["row"], r["label"]] for r in f["model"]]
             assert page.evaluate("() => document.querySelector('.u-sheet-body').scrollTop") == 0
-            # with the sheet at its lowest the head's buttons still work: "Close", then the spot's ×
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
+            assert page.evaluate("() => document.querySelectorAll('.vl-fan .vl-main[tabindex=\"0\"]').length") == 1
+            # with the sheet low the head's buttons still work and are whole: "Close", then the spot's ×
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowDown")
+            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
             page.keyboard.press("ArrowDown")
             page.wait_for_selector(".u-sheet.u-peek", timeout=WAIT)
-            assert page.evaluate("() => P.inBox(document.querySelector('.vl-fan-close'), document.querySelector('.u-sheet'))")
+            page.wait_for_function("() => Math.round(document.querySelector('.u-sheet').getBoundingClientRect().height) === 132", timeout=WAIT)
+            fan_head = page.evaluate(fits)
+            assert fan_head["whole"], fan_head
             page.tap(".vl-fan-close")
             page.wait_for_function("() => P.view().fan === null && !!document.querySelector('.u-sheet-head .vl-dclose')", timeout=WAIT)
-            assert page.evaluate("() => P.inBox(document.querySelector('.vl-dclose'), document.querySelector('.u-sheet'))")
+            assert page.evaluate(fits)["whole"]
             page.tap(".vl-dclose")
             page.wait_for_function("() => P.view().selected === null && !!document.querySelector('.u-sheet-head .vl-count')", timeout=WAIT)
-            # a tap on a number of the map (the sheet is low): the spot's head; a fan row selects its line
-            low = _state(page, "view.setLevel('spots');")
-            assert low["numbers"], low["free"]
-            box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
-            number = low["numbers"][0]
-            _tap(page, box[0] + number["x"], box[1] + number["y"])
+            page.wait_for_function("() => P.focus() !== ''", timeout=WAIT)  # never the page's body
+            # a fan row selects its line (the sheet at full height again)
+            page.evaluate("() => P.view().select(P.view().order[0])")
             page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
-            assert page.evaluate("() => P.view().selected.spot") == low["bestSpots"][int(number["label"][1:]) - 1]
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
+            page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
             page.keyboard.press("ArrowUp")
             page.wait_for_selector(".u-sheet.u-full", timeout=WAIT)
             page.tap(".vl-from-1")
@@ -551,9 +586,10 @@ def test_phone_sheet_hint_and_fan(site, device):
             want = page.evaluate("() => P.view().fan.rows[0].row")
             page.tap(".vl-fan .vl-row:first-child .vl-main")
             page.wait_for_function(f"() => P.view().fan === null && P.view().selected && P.view().selected.row === {want}", timeout=WAIT)
+            page.wait_for_function("() => P.focus().includes('vl-from-1')", timeout=WAIT)
             # the sizes of the panels' controls on this phone (CSS px), for the report
             sizes = page.evaluate("""() => Object.fromEntries([".vl-main", ".vl-toggle", ".vl-sec-map", ".vl-top", ".vl-dclose", ".vl-prev", ".vl-from-1",
-                ".vl-hint-x", ".r-sort", ".u-chip"].map((s) => [s, P.size(s)]))""")
+                ".vl-hint-x", ".r-sort", ".u-chip", ".vl-more"].map((s) => [s, P.size(s)]))""")
             print("sizes", device["viewport"]["width"], sizes)
             assert sizes[".vl-main"][1] >= 40 and sizes[".vl-dclose"][1] >= 40
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []

@@ -57,3 +57,5 @@ def test_the_views_states():
     # the steps' scripts name the page's own objects
     assert "window.FINDALINE_VIEW" in ui_shots.VIEW_AT and "map.zoomOf(1)" in ui_shots.VIEW_AT % 1
     assert "map.pickAt(" in ui_shots.VIEW_CROWDED and "view.setBest(30)" in ui_shots.VIEW_DO % "view.setBest(30)"
+    # one state raises a phone's sheet to half (the view opens with it low)
+    assert "js:" + ui_shots.VIEW_HALF in ui_shots.PAGES["c-view-half"][2] and "ArrowUp" in ui_shots.VIEW_HALF

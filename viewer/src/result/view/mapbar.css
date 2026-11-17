@@ -18,7 +18,9 @@
 .ui .v-foot { position: absolute; z-index: 800; left: 10px; right: 10px; bottom: calc(var(--v-covered, 0px) + var(--v-corner, 34px)); display: flex;
   flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; }
 .ui .v-foot > * { pointer-events: auto; max-width: 100%; }
-.ui .v-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* the status line's row is wider than its boxes: a press beside them goes to the map */
+.ui .v-foot > .v-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; }
+.ui .v-row > *, .ui .v-hint-slot > * { pointer-events: auto; }
 .ui .v-status { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; font-size: 13px;
   font-weight: 500; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
 .ui .v-status.v-refused { background: var(--warn-soft); }
@@ -44,11 +46,19 @@
 .ui .v-sh text { fill: #1b2530; font: 600 11px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
 .ui .v-help { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; box-shadow: var(--shadow);
   max-width: min(420px, 100%); max-height: 40vh; overflow-y: auto; font-size: 12.5px; }
-.ui .v-legend-phone { flex-direction: column; align-items: flex-start; gap: 3px; padding: 4px 8px; max-width: 100%; }
+.ui .v-legend-phone { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 3px; padding: 4px 8px; max-width: 100%;
+  overflow-y: auto; overscroll-behavior: contain; }
+.ui .v-legend-phone > * { flex: none; }
+/* a phone's foot beside the scale (MapBar: where its row would reach the map's top controls): from the bottom the
+   status line, above it the buttons, at the right */
+.ui .v-foot-beside { align-items: flex-end; }
+.ui .v-foot-beside > .v-row { flex-wrap: wrap-reverse; justify-content: flex-end; }
+/* a phone's sheet at full: the map is not seen, and the bar's foot would stand over the top bar */
+.ui .v-foot-off { visibility: hidden; }
 .ui .v-lg-line { display: flex; flex-wrap: wrap; gap: 3px 10px; align-items: center; }
-.ui .v-legend-phone .v-by { max-width: 150px; }
 .ui .v-fold { display: inline-flex; align-items: center; gap: 2px; min-height: 30px; padding: 0 6px 0 9px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; box-shadow: var(--shadow); cursor: pointer; }
+.ui .v-fold:disabled { opacity: .55; cursor: default; }  /* no room to unfold the legend here */
 .ui .v-fold svg { width: 16px; height: 16px; transform: rotate(180deg); }
 .ui .v-fold.v-folded svg { transform: none; }
 .ui .v-help-button { display: inline-flex; }
@@ -57,11 +67,20 @@
   background: var(--ink); color: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 13px; box-shadow: var(--shadow);
   pointer-events: none; }  /* a press on the message goes to the map under it ("Tap again.") */
 
+/* The bar stands between the map's panes and Leaflet's own controls (an opened layers list lies above the legend):
+   the map's box makes no stacking context of its own here (the column does) */
+.ui .v-map > .c-leaflet { isolation: auto; }
+/* a phone's squares at Area: the five classes as one ramp between its lowest and its highest value */
+.ui .v-ramp { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ui .v-ramp-bar { display: inline-flex; }
+.ui .v-ramp-bar .v-lay { border-radius: 0; }
+
 /* Leaflet's own controls below the switch */
 .ui .v-map .leaflet-top { top: 46px; }
 .ui .c-result-phone .v-switch { top: 62px; }
 .ui .c-result-phone .v-map .leaflet-top { top: 108px; }
-.ui .c-result-phone .v-toast { top: 112px; }
+/* a phone's message stands between the zoom buttons and the layers button, clear of both */
+.ui .c-result-phone .v-toast { top: 112px; left: 54px; right: 54px; transform: none; width: fit-content; max-width: none; margin: 0 auto; }
 
 .ui .v-placeholder { margin: 0; color: var(--muted); }
 
