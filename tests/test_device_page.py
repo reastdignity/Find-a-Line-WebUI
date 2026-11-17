@@ -67,6 +67,7 @@ def test_record_and_serve(clip_data, tmp_path, monkeypatch):
     index = device_page.record(clip_data, lines=1, say=lambda *a: None)
     (entry,) = index["entries"]
     assert set(entry["answers"]) == {"patch-1", "patch-2", "profile"}
+    assert entry["lines_read"] == "store"  # the clip's run has its store
     assert all(a["status"] == 200 for a in entry["answers"].values())
     with open(os.path.join(clip_data, "device", "index.json"), encoding="utf-8") as f:
         assert json.load(f) == index
