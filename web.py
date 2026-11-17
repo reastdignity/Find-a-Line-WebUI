@@ -1177,7 +1177,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """A job its user may edit or queue again: their own (an administrator's: also those from
         before the accounts)."""
         job = jobs.get(job_id)
-        if not job or not (job["user_id"] == user.id or (user.admin and job["user_id"] is None)):
+        if not job or not owns(user, job):
             raise HTTPException(404, "no such job")
         return job
 
@@ -1419,9 +1419,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The user whose jobs a user sees (None: everyone's, for an administrator)."""
         return None if user.admin else user.id
 
+    def owns(user: ac.User, job: Dict) -> bool:
+        """own_job's rule: the user's own job (an administrator's: also those from before the accounts)."""
+        return job["user_id"] == user.id or (user.admin and job["user_id"] is None)
+
     @app.get("/api/jobs")
     def list_jobs(user: ac.User = Depends(current_user)):
-        return {"jobs": jobs.all(seen_by(user)), "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
+        """The jobs a user sees, each with `own` (edit, run again, remove: own_job's rule, as /api/runs's `own`)."""
+        return {"jobs": [{**job, "own": owns(user, job)} for job in jobs.all(seen_by(user))],
+                "seq": jobs.last_seq(seen_by(user)), "worker": jobs.worker_alive()}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job: Dict = Depends(own_job)):

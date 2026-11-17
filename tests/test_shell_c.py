@@ -1736,6 +1736,11 @@ run({
     card("job", J.failed).querySelector(".c-card-menu").click();
     wait(() => !menuItems(J.failed).length, next);
   }); },
+  othersMenu(next) { openMenu(J.others, () => {  // another user's cancelled search: not this user's to remove
+    result.othersMenu = [card("job", J.others).dataset.status, menuItems(J.others)];
+    card("job", J.others).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.others).length, next);
+  }); },
   keepIt(next) { openMenu(J.waiting, () => {
     result.waitingMenu = menuItems(J.waiting);
     const remove = item(J.waiting, "Remove…");
@@ -1796,8 +1801,9 @@ run({
 def test_shell_c_cancelled_search(tmp_path):
     """Home: a search cancelled while waiting and one cancelled while running show the quiet state "cancelled" (the
     grey of a waiting search, not the failure's colour or warn mark; the word as text), a failed one stays a failure;
-    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too), which asks first in the
-    panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and removes the card; a removed search and one whose run was deleted show no card;
+    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too; not on another user's
+    card), which asks first in the panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and
+    removes the card; a removed search and one whose run was deleted (or is gone by hand) show no card;
     the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
     from jobs import Jobs
     data = tmp_path / "data"
@@ -1807,6 +1813,8 @@ def test_shell_c_cancelled_search(tmp_path):
     ids = {name: jobs.add(request, title) for name, title in (
         ("failed", "Failed search"), ("deleted", "Saved search"), ("removed", "Removed search"),
         ("running", "Cancelled while running"), ("waiting", "Cancelled while waiting"))}
+    ids["others"] = jobs.add(request, "Another user's search", 7)  # listed to the local app's administrator, not own
+    assert jobs.request_cancel(ids["others"])
     gone = "2026-11-01_100000_Gone_0000000000000001"
     jobs.set(ids["failed"], "failed", error="the server stopped")
     jobs.set(ids["deleted"], "done", run_id=gone)
@@ -1834,6 +1842,7 @@ def test_shell_c_cancelled_search(tmp_path):
     assert failed["meta"] == "the server stopped", r
     assert r["gone"] == [False, False], r
     assert r["failedMenu"] == ["Edit & run again"], r
+    assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
     assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
     assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result "
                         "and no files.", "alertdialog", "Remove the search", "Keep it", ["Remove", "Keep it"]], r

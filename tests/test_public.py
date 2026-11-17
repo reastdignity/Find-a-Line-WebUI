@@ -1307,6 +1307,21 @@ def test_removing_searches(run_people, tmp_path):
     assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
 
 
+def test_listed_jobs_say_whose(public, people, tmp_path):
+    """/api/jobs gives each job `own` by own_job's rule (edit, run again, remove): a user's list all own; an
+    administrator's list (every job) own only for their own and those from before the accounts, so the page offers
+    Remove… on those only."""
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = people["ids"]
+    mine, theirs, old = jobs.add(request, "Admin's", ids["admin"]), jobs.add(request, "A's", ids["a"]), \
+        jobs.add(request, "from before the accounts")
+    own = lambda who: {j["id"]: j["own"] for j in people[who].get("/api/jobs").json()["jobs"]}  # noqa: E731
+    assert own("admin") == {mine: True, theirs: False, old: True}
+    assert own("a") == {theirs: True}
+
+
 FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "over": False, "water": 0.0,
              "filled": 0.0, "hmax": 15.0, "hmean": 9.5, "highPct": 0.0, "angle1": 12.0, "angle2": None,
              "prom1": 3.0, "prom2": None, "drop1": 30.0, "drop2": None}

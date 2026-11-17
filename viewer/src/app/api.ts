@@ -89,6 +89,7 @@ export interface Job {
   user_id?: number | null;  // the owner (an administrator sees every job)
   removed_at?: string | null;  // removed by its owner (jobs.sqlite removed_at): only an administrator's list has it
   run_gone?: boolean;  // finished, but its run is gone (deleted): only an administrator's list has it (Jobs.all)
+  own?: boolean;       // the user may edit, run again and remove it (web.py owns); unknown for a job of an event
 }
 
 export interface JobEvent {

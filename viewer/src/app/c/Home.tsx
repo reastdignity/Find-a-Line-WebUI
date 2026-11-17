@@ -142,7 +142,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
   const removeJob = () => api.removeJob(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
-  const canRemove = !!job && job.status === "cancelled";
+  const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
     open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />Open the result</a>,
     job && <a key="edit" role="menuitem" class="c-menu-item" href={editHash(job.id)}><Icon name="edit" />Edit &amp; run again</a>,
