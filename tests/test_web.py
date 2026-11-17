@@ -1807,6 +1807,8 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     meta.pop("store", None)
     (folder / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    for name in ("lines.arrow", "profiles.arrow"):  # and its files: the copies below are not in runs.js, and a run
+        (folder / name).unlink()                   # outside the list asks for its store's files (load.ts storeOf)
     rn.write_index(str(tmp_path / "runs"))
     nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
     shutil.copytree(folder, nan)

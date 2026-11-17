@@ -1706,8 +1706,8 @@ const run = (id, store) => ({id, name: id, created: "", description: "", ...(sto
   await ask("withStore", "/runs/a/data.js");          // the list loaded once: its block
   await ask("without", "/runs/b/data.js");            // the list the page has: no store (a store without the block)
   listed = [run("a", block), run("b"), run("new id", block)];
-  await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: read afresh, then found
-  await ask("unlisted", "../x/data.js");             // a share link's runs.js lists no runs: read afresh, none there
+  await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: its store asked for, no list again
+  await ask("unlisted", "../x/data.js");             // another user's run (an administrator): the same
   await ask("notDataJs", "/runs/a/other.js");
   await ask("shareLink", "/s/AbCdEf0123456789/data.js");  // a share link: its runs.js lists no runs, none asked for
   window.FINDALINE_RUNS = [run("own", block)];           // map.html's own ../runs.js, loaded before the bundle
@@ -1718,19 +1718,22 @@ const run = (id, store) => ({id, name: id, created: "", description: "", ...(sto
 
 
 def test_which_file_a_run_is_read_from(tmp_path):
-    """load.ts storeOf: a run is read from its store when its entry in runs.js (beside its folder) holds run.json's
-    block "store"; a run listed without it (saved before the store, its store failed, or a store left by a stopped
-    save) from data.js; a run missing from the page's list (saved since the page loaded it) is looked for in runs.js
-    read afresh; a run not listed at all reads data.js. The list the page has (map.html's own runs.js) is used as it
-    is, with no request; a share link (/s/<token>/: its runs.js lists no runs) asks for none."""
+    """load.ts storeOf: a run is read from its store when its entry in the page's list of runs (beside its folder)
+    holds run.json's block "store"; a run listed without it (saved before the store, its store failed, or a store left
+    by a stopped save) from data.js; a run the list does not name (saved since the page loaded it, another user's run
+    an administrator opens) and a share link (/s/<token>/: its runs.js lists no runs) get the probe (store SL,
+    2026-11-17): the store's files asked for directly, a 404 then data.js (tests/test_store_share.py). The list is
+    loaded once at most: the list the page has (map.html's own runs.js) is used as it is, and no list is read again
+    for a run it lacks; a share link asks for none."""
     out = _run_node(tmp_path, _store_bundle(tmp_path), WHICH_FILE_SCRIPT)
     block = {"format": 1, "lines": 5, "bytes": 100, "sha256": "0123456789abcdef"}
+    probe = {"format": 1, "lines": 0, "bytes": 0, "sha256": ""}
     assert out["withStore"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
     assert out["without"] == {"store": None, "loads": []}
-    assert out["savedSince"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
-    assert out["unlisted"] == {"store": None, "loads": ["http://test/runs.js"]}
+    assert out["savedSince"] == {"store": probe, "loads": []}
+    assert out["unlisted"] == {"store": probe, "loads": []}
     assert out["notDataJs"] == {"store": None, "loads": []}
-    assert out["shareLink"] == {"store": None, "loads": []}
+    assert out["shareLink"] == {"store": probe, "loads": []}
     assert out["fromTag"] == {"store": block, "loads": []}
 
 

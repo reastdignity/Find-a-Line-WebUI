@@ -66,7 +66,7 @@ empty although its bytes came (Chromium's longest string, about 537 M characters
 `ui.result.too_large` the page shows, and is never tried as a script (that crashed the tab); `LoadProgress` to
 `RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`),
 over http(s) a run whose entry in runs.js holds run.json's block `store` (`storeOf`: the page's list, else
-`../runs.js` beside the run's folder, read afresh when the run is not in it; none on a share link) is read from its
+`../runs.js` beside the run's folder, loaded once; a run it does not name and a share link get `STORE_PROBE`: the store's files asked for directly, a 404 or a file not fetched reads data.js) is read from its
 store instead (store wave 2,
 docs/line-volume/spec-store.md 1.2): `lines.arrow` and `profiles.arrow` downloaded together as bytes, `readStore`
 (apache-arrow `RecordBatchReader`: one record batch; the head from the schema's metadata `findaline`, `parseLoose` for

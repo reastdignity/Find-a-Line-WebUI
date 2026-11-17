@@ -233,16 +233,9 @@ tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 s
 ## Line volume, the store and the access mark: known and left (2026-11-16)
 
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
-- **A share link's page and a run outside the viewer's `runs.js` read `data.js`, not the store.** `/s/runs.js` lists
-  no runs, so the page finds no store block there; an administrator who opens another user's run meets the same. No
-  value differs; the download is the larger text. It must be solved before the text files end (store wave 4:
-  docs/line-volume/spec-store.md 1.10).
 - **Compare says "· no lines" for a store it refuses or cannot read** (a store of a newer format, a body too large,
   a server error): the run has lines. The result page and `map.html` show the right text; Compare does not. Needs a
   store format that does not exist yet, or a server error.
-- **A run missing from the page's list costs `runs.js` twice**: `map.html` of an unlisted run loads `/runs/runs.js`
-  two times before its `data.js`; in the app one fresh `runs.js` per open of such a run. Latency and server work
-  only.
 - **Nothing cleans an orphan "running" tiled folder**: a tiled run interrupted and never resumed keeps its work
   folder, for example a run interrupted under one choice of the access mark (marked or left out) whose search then
   runs under the other. As for any interrupted tiled run whose hash never returns.
