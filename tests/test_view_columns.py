@@ -527,15 +527,21 @@ const state = (run) => { const model = new m.ResultModel(run, {favourites: false
   return JSON.stringify({shown: model.shown, count: model.count,
                          groups: model.groups.map((g) => [m.lineCoords(g.rep)].concat(g.members.map(m.lineCoords)))}); };
 const {columns: _a, ...headA} = a, {columns: _b, ...headB} = b;
+// what the reader hands the result view (step 3b): the store's three columns as typed arrays, one value per line
+const v = a.view;
 console.log(JSON.stringify({n, length: a.columns.length, bad: bad.slice(0, 20), model: state(a) === state(b),
-                            keys: Object.keys(headA).filter((k) => !(k in headB)).sort()}));
+                            keys: Object.keys(headA).filter((k) => !(k in headB)).sort(),
+                            types: v && [v.spot.constructor.name, v.top.constructor.name, v.bySpot.constructor.name],
+                            view: v && {spot: Array.from(v.spot), top: Array.from(v.top), by_spot: Array.from(v.bySpot)},
+                            without: b.view === undefined}));
 """
 
 
 def test_todays_page_reads_a_store_with_the_view_columns(tmp_path):
     """result/load.ts readStore on the clip's store with the view's columns and on the same store without them:
     every Line value, its profile and keys.lineCoords are the same, and the page's model gives the same spots and
-    counts; the head only gains the view's keys."""
+    counts; the result only gains the head's view keys and `view`: the store's three columns as typed arrays of
+    the run's length with the file's values (the store without the columns has no `view`)."""
     from test_viewer import VIEWER, _run_node, _store_bundle
     if shutil.which("node") is None or not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")):
         pytest.skip("needs Node and `npm install` in viewer/")
@@ -543,6 +549,7 @@ def test_todays_page_reads_a_store_with_the_view_columns(tmp_path):
     assert {name for name, _ in linestore.VIEW} <= set(pa.ipc.open_file(
         pa.OSFile(str(folder / linestore.LINES_FILE), "rb")).schema.names)
     lines, head = linestore.read(str(folder))
+    stored = {name: np.asarray(lines.columns[name]).tolist() for name in mp.VIEW_COLUMNS}
     for name in mp.VIEW_COLUMNS:
         lines.columns.pop(name)
     without = tmp_path / "without"
@@ -551,4 +558,6 @@ def test_todays_page_reads_a_store_with_the_view_columns(tmp_path):
     out = _run_node(tmp_path, _store_bundle(tmp_path), PAGE_SCRIPT, str(folder).replace("\\", "/"),
                     str(without).replace("\\", "/"))
     assert out["bad"] == [] and out["model"] and out["n"] == out["length"] == len(lines) > 100
-    assert out["keys"] == sorted(linestore.VIEW_HEAD)
+    assert out["keys"] == sorted([*linestore.VIEW_HEAD, "view"])
+    assert out["types"] == ["Uint32Array", "Uint8Array", "Uint32Array"] and out["without"] is True
+    assert out["view"] == stored and set(stored) == {"spot", "top", "by_spot"} and len(stored["spot"]) == len(lines)
