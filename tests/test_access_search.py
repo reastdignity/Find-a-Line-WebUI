@@ -897,7 +897,8 @@ def test_the_public_reading_of_a_coded_note():
     assert "4.2 GiB" in local and "2.5 GiB" in local and "GiB" not in public
     assert public == messages.text("error.access_skipped_public") and public.startswith(local.split(" (about")[0])
     other = messages.Note("cli", "store_failed")
-    assert other.web_text(public=True) == other.web_text() == messages.text("error.store_failed")
+    from test_store_only import STORE_FAILED
+    assert other.web_text(public=True) == other.web_text() == STORE_FAILED
     assert note.info() == {"code": "access_skipped", "params": {"need": 4.2, "have": 2.5}}
     assert note.info(public=True) == {"code": "access_skipped", "key": "error.access_skipped_public", "params": {}}
     assert other.info(public=True) == other.info() == {"code": "store_failed", "params": {}}
@@ -1095,7 +1096,9 @@ def test_the_store_error_is_coded(tmp_path, offline, monkeypatch):
                                       "name": "n"})
     assert error.value.code == "run_not_saved"
     assert str(error.value) == r"The run could not be saved (MemoryError: no memory at C:\secret\path)"
-    assert error.value.web_text() == messages.text("error.run_not_saved") and "secret" not in error.value.web_text()
+    from test_store_only import RUN_NOT_SAVED, catalogue_text
+    assert error.value.web_text() == catalogue_text("error.run_not_saved") == RUN_NOT_SAVED
+    assert "secret" not in error.value.web_text()
     assert not folder.exists()
 
 
