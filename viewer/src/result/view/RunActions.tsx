@@ -246,18 +246,26 @@ function startExport(id: string, format: Format) {
 function Export({model, compact}: RunActionsProps) {
   const id = model.runId;
   const [, setDrawn] = useState(0);
-  const self = useRef({});
+  const self = useRef({id, open: false}).current;  // this Export's menu as its button last drew it
   useEffect(() => {
     const draw = () => setDrawn((n) => n + 1);
     drawn.add(draw);
-    return () => { drawn.delete(draw); if (menu?.of === self.current) menu = null; };
+    return () => {
+      drawn.delete(draw);
+      if (menu?.of === self) menu = null;
+      // Gone with its menu open (the layout switched, another run opened): a line the person has seen is done,
+      // as after a close; one not seen yet stays for the run's next menu
+      if (self.open && waitOf(self.id).error) setWait(self.id, {error: ""});
+    };
   }, []);
   const {busy, error} = waitOf(id);
   const ring = <span class="r-spin r-spin-ic" />;
   // One button in both states (the focus stays on it when the wait ends): the ring in the icon's place, and
   // its name says it waits. The phone's as IconButton draws its own, which takes an icon only.
   const button = (open: boolean, toggle: () => void) => {
-    menu = {id, open, toggle, of: self.current};
+    self.id = id;
+    self.open = open;
+    menu = {id, open, toggle, of: self};
     const mark = busy ? ring : <Icon name="download" />;
     const name = busy ? t("ui.result.export_preparing_label") : "Download";
     return compact

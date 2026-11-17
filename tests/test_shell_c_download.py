@@ -583,14 +583,32 @@ def _go(page, run_id: str, name: str):
               && !!document.querySelector('.r-rows .r-row'); }""", arg=[run_id, name, DOWNLOAD], timeout=WAIT)
 
 
+# Counts the export answers the page has dealt with (window.__exports), for an answer whose arrival shows nothing
+# on the page: the page's fetch gives the answer with a `json` that, once the body is read, sets a timer; the page's
+# own steps behind that reading (the error made, the export's handler) are microtasks, all run before a timer does
+MARK_EXPORTS = """(() => { const real = window.fetch.bind(window); window.__exports = 0;
+  window.fetch = (...args) => real(...args).then((answer) => {
+    if (new URL(answer.url, location.href).pathname.endsWith('/export')) {
+      const read = answer.json.bind(answer);
+      answer.json = () => read().finally(() => setTimeout(() => { window.__exports += 1; }, 0));
+    }
+    return answer;
+  }); })()"""
+
+
+def _marked(page):
+    """A page's routes for a test that waits for a silent answer (_answered): the file routes and the count."""
+    _file_routes(page)
+    page.add_init_script(MARK_EXPORTS)
+
+
 def _answered(page, export, answer):
-    """Release an answer whose arrival shows nothing on the page: wait for the response to end, then for the page's
-    tasks behind it (the answer's JSON read and the export's own handler: two turns of the page's timers)."""
-    with page.expect_response(lambda response: urlsplit(response.url).path.endswith("/export"), timeout=WAIT) as got:
-        export.release(answer)
-    got.value.finished()
-    for _ in range(2):
-        page.evaluate("() => new Promise((done) => setTimeout(() => setTimeout(() => done(true))))")
+    """Release an answer whose arrival shows nothing on the page, and wait until the page has dealt with it: the
+    count of MARK_EXPORTS goes up (the page was opened with `_marked`), which happens after the export's handler."""
+    before = page.evaluate("() => window.__exports")
+    assert isinstance(before, int), before  # the page counts: opened with _marked
+    export.release(answer)
+    page.wait_for_function("(before) => window.__exports > before", arg=before, timeout=WAIT)
 
 
 def test_wait_goes_on_across_the_layout_switch(tmp_path, clip):
@@ -675,12 +693,12 @@ def test_wait_goes_on_across_a_run_change(tmp_path, clip):
             r["requests a"] = export.requests
             page.close()
             # (b) the answer is a failure while run B is on the page
-            page, asked = _open(browser, url, **DESKTOP)
+            page, asked = _open(browser, url, _marked, **DESKTOP)
             export = Export(page)
             _menu(page)
             _press(page, 1)
             _go(page, OTHER, "Other run")
-            _answered(page, export, NO_WORKER)
+            _answered(page, export, NO_WORKER)  # the page has dealt with the failure: what follows is after it
             r["other failed"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
             _go(page, SMALL, "Small run")
             page.wait_for_function(NO_RING, timeout=WAIT)
@@ -804,12 +822,14 @@ def test_phone_button_keeps_the_focus_when_the_file_is_ready(tmp_path, clip):
 
 def test_only_the_runs_own_export_address_is_saved(tmp_path, clip):
     """A 200 answer whose address is not this run's export (no `url` at all, an address of another site, another
-    run's export) is a failure: the line "The file could not be made. Try again in a moment.", the rows idle, and
+    run's export, the export of a run whose id only starts with this run's) is a failure: the line "The file could not be made. Try again in a moment.", the rows idle, and
     no download starts."""
     from playwright.sync_api import sync_playwright
     folder, page_path = _data(tmp_path, clip)
+    # the last: a run whose id starts with this run's id (the address is this run's only up to "/export/")
     answers = [("no url", {}), ("another site", {"url": "https://example.org/x.csv"}),
-               ("another run", {"url": f"/api/runs/{BIG}/export/{'a' * 22}.csv"})]
+               ("another run", {"url": f"/api/runs/{BIG}/export/{'a' * 22}.csv"}),
+               ("a longer id", {"url": f"/api/runs/{SMALL}x/export/{'a' * 22}.csv"})]
     r, downloads = {}, []
     with _server(folder) as port, sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -835,3 +855,36 @@ def test_only_the_runs_own_export_address_is_saved(tmp_path, clip):
         assert found["open"] and not found["button"]["ring"] and saved == [], (name, found, saved)
     assert downloads == [] and r["sent"] == len(answers), (downloads, r["sent"])
     assert r["where"] == f"/{page_path}#run={SMALL}", r["where"]  # the page stayed
+
+
+def test_seen_line_goes_with_a_layout_switch(tmp_path, clip):
+    """A failure's line shown in the open Download menu on a desktop of 1400 px, then the window narrowed to
+    390 px (the page draws the phone's layout; the open menu goes with the old one and sends no close): the line
+    was seen, so it is done. The phone's Download opened: both rows idle, no red line, no ring."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip)
+    r = {}
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page, asked = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}", **DESKTOP)
+            export = Export(page)
+            _menu(page)
+            _press(page, 0)
+            export.release(NO_WORKER)
+            page.wait_for_selector(".r-pop " + ERROR, timeout=WAIT)
+            page.wait_for_function(SETTLED, timeout=WAIT)
+            r["shown"] = page.evaluate(STATE)
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.wait_for_selector(".c-result-phone .c-phone-top " + DOWNLOAD, state="attached", timeout=WAIT)
+            r["narrow"] = page.evaluate(STATE)
+            _menu(page)
+            r["menu"] = page.evaluate(STATE)
+            r["sent"] = len(export.requests)
+        finally:
+            browser.close()
+    assert r["shown"]["open"] and r["shown"]["errors"] == [NO_WORKER_TEXT], r["shown"]
+    assert not r["narrow"]["open"] and not r["narrow"]["button"]["ring"], r["narrow"]
+    found = r["menu"]
+    assert found["open"] and found["errors"] == [] and found["allErrors"] == 0, found
+    assert _rows(found) == IDLE_ROWS and not found["button"]["ring"] and r["sent"] == 1, (found, r["sent"])
