@@ -1836,7 +1836,7 @@ def test_shell_c_cancelled_search(tmp_path):
     assert jobs.request_cancel(ids["others"])
     ids["old"] = jobs.add(request, "Cancelled two days ago")
     assert jobs.request_cancel(ids["old"])
-    with jobs._db() as db:  # started two days ago: out of the day's window
+    with jobs._db() as db:  # started two days ago: the question's words the same
         db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), ids["old"]))
     gone = "2026-11-01_100000_Gone_0000000000000001"
     jobs.set(ids["failed"], "failed", error="the server stopped")
@@ -1867,11 +1867,11 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["failedMenu"] == ["Edit & run again"], r
     assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
     assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
-    assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result. "
-                        "It still counts toward your searches of today.", "alertdialog", "Remove the search", "Keep it",
+    asked = ("Remove “{}” from your searches? It was cancelled, so it has no result. It still counts toward your "
+             "daily limit of searches.")  # the user's words (2026-11-17), whatever the search's age
+    assert r["ask"] == [asked.format("Cancelled while waiting"), "alertdialog", "Remove the search", "Keep it",
                         ["Remove", "Keep it"]], r
-    # a search older than the day's window no longer counts: the question does not say it does
-    assert r["oldAsk"] == "Remove “Cancelled two days ago” from your searches? It was cancelled, so it has no result.", r
+    assert r["oldAsk"] == asked.format("Cancelled two days ago"), r
     assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
     assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
     order = r["order"]  # the cards before the removal (created in one second: their order is the server's)
