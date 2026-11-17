@@ -8,12 +8,13 @@
 // selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
 //
 // The disk notice (store wave 4: docs/line-volume/spec-store.md 1.2): a map.html written since then carries it
-// (mapping.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served at once,
-// before the notice is parsed, and notice.css hides it under that mark (viewer.css is loaded in the head), so no frame
-// shows it; it is removed once the page is parsed. From disk (file://) the bundle waits for the parse: a page with
-// the notice loads nothing and leaves it shown, in the stored theme; a page without it (written before) loads its
-// data.js as before.
+// (mapping.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served by the
+// bundle's first module (./served, before any other import runs), before the notice is parsed, and notice.css hides
+// it under that mark (viewer.css is loaded in the head), so no frame shows it; it is removed once the page is parsed.
+// From disk (file://) the bundle waits for the parse: a page with the notice loads nothing and leaves it shown, in
+// the stored theme; a page without it (written before) loads its data.js as before.
 
+import { served } from "./served";  // first: marks a served page before any other module runs
 import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -86,7 +87,6 @@ function LoadedMap() {
 
 /** mapping.DISK_NOTICE: the id of the disk notice in a run's map.html. */
 export const NOTICE = "disk-notice";
-const served = location.protocol === "http:" || location.protocol === "https:";
 
 /** The map over http(s); from disk once the page is parsed: the notice when the page has one, else the map. */
 function start() {
@@ -103,9 +103,6 @@ function start() {
   render(<LoadedMap />, document.getElementById("map")!);
 }
 
-if (served) {
-  document.documentElement.classList.add("fal-served");  // before the notice is parsed: notice.css hides it
-  render(<LoadedMap />, document.getElementById("map")!);
-}
+if (served) render(<LoadedMap />, document.getElementById("map")!);
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once: true});
 else start();

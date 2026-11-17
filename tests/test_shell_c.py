@@ -710,7 +710,9 @@ def test_shell_c_store_or_data_js(data, tmp_path):
     """Which file a run is read from over http (result/load.ts storeOf): a run with a store (run.json's block
     "store" in runs.js) from lines.arrow and profiles.arrow, its data.js never asked for, in the app and in its own
     map.html; a run without one from data.js, no store file asked for; both show the same lines, spots and first
-    line, and the store's head (the credits); no CSP violations."""
+    line, and the store's head (the credits); no CSP violations. OLD's data.js is made from the store
+    (tests/old_runs.py); the store's fidelity to the search is held by test_linestore's
+    test_store_round_trip_of_the_clip, test_store_round_trip and test_units.py::test_saved_text_as_before."""
     small_copy(data, BIG, small=OLD)
     drop_store(data, OLD)
     add_credits(data, SMALL)
