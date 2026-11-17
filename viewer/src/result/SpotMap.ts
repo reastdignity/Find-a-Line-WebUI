@@ -48,6 +48,9 @@ export interface SpotMapOptions {
   onDrawn?(): void;
   /** The phone layout: every press counts as a finger's. */
   phone?: boolean;
+  /** The pixels of the map's box the frame's bars cover on each side (with what a person does not see): a move
+   *  of the map by the canvas itself keeps them free (a fan shown, a sector, a square). None: `free`. */
+  padding?(): Padding;
 }
 
 /** What the map shows now, for its legend: the shapes and colours drawn, and at Area the squares' value and breaks. */
@@ -63,6 +66,8 @@ export const CLOSE_MPP = 0.25;
 /** A square pressed under Auto zooms to at most this many metres per pixel, so that Auto lands on Spots. */
 export const SQUARE_MPP = 0.96;
 const SNAP = 0.25;
+const PANE = "spots";  // the canvas's pane on the map
+const FIT_ROOM = 96;  // px a fit of the map keeps for what it fits, whatever covers the map
 const REACH_MOUSE = 8, REACH_TOUCH = 20, TIE_MOUSE = 3, TIE_TOUCH = 8, CHOICES_MAX = 6;
 /** A press held this long within this many px opens "Lines from here" (Leaflet's own numbers of a tap held); a
  *  browser's own contextmenu within MENU_QUIET ms after it is the same press. */
@@ -177,6 +182,7 @@ export class SpotMap {
   private hold: {timer: number; x: number; y: number; id: number} | null = null;
   private heldAt = -Infinity;
   private swallowClick = false;
+  private fanShown: SpotView["fan"] = null;
 
   constructor(map: L.Map, view: SpotView, options: SpotMapOptions) {
     this.map = map;
@@ -186,7 +192,12 @@ export class SpotMap {
     this.lat = [reader(c.lat1), reader(c.lat2)];
     this.lon = [reader(c.lon1), reader(c.lon2)];
     this.over = c.over;
-    this.renderer = new Draw({padding: 0.3, onUpdate: () => this.full()});
+    // a pane of its own above Leaflet's overlays (the shore's and the coarser terrain's outlines stay under the lines)
+    // and below the markers
+    const pane = map.getPane(PANE) ?? map.createPane(PANE);
+    pane.style.zIndex = "450";
+    pane.style.pointerEvents = "none";
+    this.renderer = new Draw({pane: PANE, padding: 0.3, onUpdate: () => this.full()});
     this.anchorMarks.addTo(map);
     map.on("resize", this.refresh).on("click", this.onClick).on("contextmenu", this.onMenu);
     map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut).on("zoomend", this.afterZoom);
@@ -196,7 +207,15 @@ export class SpotMap {
     el.addEventListener("pointermove", this.onPointerMove, true);
     el.addEventListener("pointerup", this.endHold, true);
     el.addEventListener("pointercancel", this.endHold, true);
-    this.unsubscribe = view.subscribe(() => { if (!this.busy) this.paint(true); });
+    this.unsubscribe = view.subscribe(() => {
+      if (this.busy) return;
+      this.paint(true);
+      // "Lines from here" opened now (by a press here, or by the page through the model): the map moves for it, but
+      // only when a far end lies outside the view; a sort of its rows is the same fan
+      const fan = view.fan, opened = fan !== null && fan !== this.fanShown;
+      this.fanShown = fan;
+      if (opened) this.showFan();
+    });
     map.addLayer(this.renderer);  // draws at once when the map has a view
   }
 
@@ -648,7 +667,6 @@ export class SpotMap {
     if (m.kind !== "A") { this.view.select(m.spot, m.row); return; }
     const l = this.view.selected!.line, end = m.end ?? 1;
     this.view.openFan(L.latLng(end === 1 ? [l.lat1, l.lon1] : [l.lat2, l.lon2]), {row: m.row, end});
-    this.showFan();
   }
 
   /** The table of the spots under a press: a numbered spot reads as on the map and stands for its bold line; the
@@ -726,7 +744,6 @@ export class SpotMap {
     const misses = this.view.fanMisses;
     this.view.openFan(at);
     if (this.view.fanMisses !== misses) this.options.onToast(t("ui.view.map.fan_none", {m: FAN_HERE}));
-    else this.showFan();
   }
 
   /** The map moves for an open fan only when a far end lies outside the view. */
@@ -742,7 +759,7 @@ export class SpotMap {
       const q = this.map.latLngToContainerPoint(at);
       return q.x < box.left || q.x > box.right || q.y < box.top || q.y > box.bottom;
     });
-    if (outside) this.map.fitBounds(L.latLngBounds(points), this.fitOptions(this.options.free?.() ?? NONE, 40));
+    if (outside) this.map.fitBounds(L.latLngBounds(points), this.fitOptions(this.own(), 30));
   }
 
   private onMenu = (e: L.LeafletMouseEvent) => {
@@ -804,7 +821,17 @@ export class SpotMap {
   // --- moves ---
 
   private fitOptions(p: Padding, margin: number, maxMpp?: number): L.FitBoundsOptions {
-    return {paddingTopLeft: [p.left + margin, p.top + margin], paddingBottomRight: [p.right + margin, p.bottom + margin],
+    // What covers the map may leave no room (a phone's sheet at full: the bar's foot stands above the map's top):
+    // FIT_ROOM px stay for the fitted thing each way, the paddings give way in their proportion (with none left,
+    // Leaflet's fit would ask for the zoom of a negative size)
+    const size = this.map.getSize();
+    const squeeze = (a: number, b: number, total: number): [number, number] => {
+      const over = a + b - Math.max(0, total - FIT_ROOM);
+      return over > 0 && a + b > 0 ? [a - over * a / (a + b), b - over * b / (a + b)] : [a, b];
+    };
+    const [top, bottom] = squeeze(p.top + margin, p.bottom + margin, size.y);
+    const [left, right] = squeeze(p.left + margin, p.right + margin, size.x);
+    return {paddingTopLeft: [left, top], paddingBottomRight: [right, bottom],
             maxZoom: maxMpp ? this.zoomOf(maxMpp) : this.view.model.data.max_zoom, animate: false};
   }
 
@@ -814,6 +841,11 @@ export class SpotMap {
     const now = this.view.mpp, zoom = this.map.getZoom();
     const want = now === now ? zoom + Math.log2(now / mpp) : zoom;
     return Math.min(this.map.getMaxZoom(), Math.floor(want / SNAP + 1e-6) * SNAP);
+  }
+
+  /** The frame's padding for the canvas's own moves. */
+  private own(): Padding {
+    return this.options.padding?.() ?? this.options.free?.() ?? NONE;
   }
 
   private bounds(xy: [number, number][]): L.LatLngBounds {
@@ -854,7 +886,7 @@ export class SpotMap {
     const sector = this.view.sectors.find((s) => s.n === n);
     if (!sector || !sector.spots.length) return;
     const rows = sector.spots.map((spot) => this.view.shownOf(spot));
-    this.map.fitBounds(this.lineBounds(rows), this.fitOptions(this.options.free?.() ?? NONE, 30, CLOSE_MPP));
+    this.map.fitBounds(this.lineBounds(rows), this.fitOptions(this.own(), 14, CLOSE_MPP));
     this.flashRows(rows, FLASH_SECTOR);
   }
 

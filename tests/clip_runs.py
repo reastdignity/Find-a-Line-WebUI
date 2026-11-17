@@ -91,6 +91,21 @@ def _search(root: Path, key: str, args: List[str]) -> dict:
     return outcome
 
 
+def view_clip(tmp_path_factory, name: str) -> Path:
+    """The folder of a run of the clip for the result view (docs/line-volume/spec-view.md part B), in a copy of its
+    data folder named `name`: the target rig (the sag model, the no-fall zone of 5 m, A-frames of 2 m) with the square
+    rule (5 m) and the access mark, so its store holds the view's columns and the mark's: 7 934 lines in 164 spots
+    (more than 5 000 thin lines with All, more than 100 spots in view, several spots under one finger)."""
+    data = os.path.join(REPO, "tests", "data")
+    folder = data_copy(tmp_path_factory, name, [
+        "--elevation-file", os.path.join(data, "zabi_kon_nmt.tif"),
+        "--surface-file", os.path.join(data, "zabi_kon_nmpt.tif"), "--northing", "254608", "--easting", "553966",
+        "--radius", "150", "--model", "sag", "--end-zone", "5", "--anchor-lift", "2", "--same-line-square", "5", "--access",
+        "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never"])
+    runs = folder / "runs"
+    return next(runs / d for d in os.listdir(runs) if (runs / d / "run.json").is_file())
+
+
 def data_copy(tmp_path_factory, name: str, args: Sequence[str]) -> Path:
     """A new folder `tmp_path_factory.mktemp(name)` holding a copy of the data folder of
     `findaline.py <args> --data-dir <folder>` (the clip's search, run once per session)."""

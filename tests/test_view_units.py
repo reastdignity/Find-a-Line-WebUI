@@ -1129,7 +1129,8 @@ def test_frame_in_edge(tmp_path, run):
     assert first["m"] == first["spots"] == spots and first["status"] == words["ui.view.map.status_area"]
     assert first["pressed"] == [["auto", "true", False], ["area", "false", True], ["spots", "false", False],
                                 ["lines", "false", False]]
-    assert first["slots"] == [words["ui.view.map.placeholder_list"], words["ui.view.map.placeholder_details"]]
+    # the slots hold the page's own panels; in the columns the hint stands beside the status line
+    assert first["slots"] == ["the list's slot", "the details' slot"] and first["places"] == [["hint-map", "map"]]
     assert first["result"] is True and first["leaflet"] is True and first["controls"] == [True] * 4
     assert "Made up" in first["header"] and f"{run.n}lines" in re.sub(r"\s", "", first["header"])
     assert first["actions"] is False  # the run's actions are not in the view yet
@@ -1185,15 +1186,27 @@ def test_frame_in_edge(tmp_path, run):
     # "Lines from here" at its first anchor: the fan's lines with their numbers, the ring; the spot's lines step back
     drawn = out["fan"]["drawn"]
     legend(drawn)
-    assert drawn["strokes"] == zoomed["m"] + len(out["fan"]["rows"]) and "here" in drawn["shapes"] and out["fan"]["marks"] == 0
+    # (opened through the model: the canvas moved the map until every far end was in view, and not again)
+    assert drawn["strokes"] == out["fan"]["m"] + len(out["fan"]["rows"]) and "here" in drawn["shapes"] and out["fan"]["marks"] == 0
+    assert out["fan"]["moved"] is True and out["fan"]["outside"] == 0
+    assert out["fanAgain"] == {"moved": False, "open": True, "outside": 0}
     assert drawn["numbers"] and set(drawn["numbers"]) <= set(out["fan"]["rows"]) and "A" not in drawn["shapes"], out["fan"]
     phone = out["phone"]
     assert out["phoneDrawn"] is True and phone["same"] is True and phone["best"] == "all"
     assert phone["slots"] == first["slots"] and phone["pill"] == "Made up" and phone["footAbove"] is True
+    # a phone: the sheet's head, the hint as the sheet's first line, and its "?" beside the map's status line
+    assert sorted(phone["places"]) == [["head", "sheet"], ["hint-map", "map"], ["hint-sheet", "sheet"]]
     assert 300 < phone["sheet"] < phone["height"] and phone["covered"] == f"{phone['sheet']}px"
     # in view, counted in grid metres through the fit, against a count in the map's own pixels: the whole map in
     # the columns, on a phone the part above the sheet (the sheet's part holds more spots)
     assert abs(zoomed["m"] - zoomed["pixels"]) <= 1
     above = out["phoneView"]
     assert abs(above["above"] - above["pixels"]) <= 1 and above["whole"] > above["pixels"] > 0
+    assert above["fitted"]["above"] == above["fitted"]["spots"] == spots  # the first fit left no spot under the sheet
+    # a fan opened through the model on the phone: the map moved until every far end is above the sheet
+    assert out["phoneFan"]["moved"] is True and out["phoneFan"]["outside"] == 0 and out["phoneFan"]["rows"] == 40
+    # the sheet at full: what covers the map exceeds its height, and a panel's move still gives a finite view
+    full = out["full"]
+    assert full["padding"][0] + full["padding"][1] > full["height"] and full["sane"] == [True] * 3, full
+    assert full["sheet"] == "function"  # a phone's panels get the sheet's state and its setter
     assert test_web._violations(dom) == []
