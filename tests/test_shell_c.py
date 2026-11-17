@@ -1881,3 +1881,68 @@ def test_shell_c_cancelled_search(tmp_path):
     assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
     assert "u-failed" in admin["Failed search"][2], r
     assert r["csp"] == [] and r_admin["csp"] == []
+
+
+# The open question of a card: its box (buttons included), the visible band of the page between the top bar and the
+# bottom bar, and whether the focus is in the question
+QUESTION_JS = """(job) => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const ask = document.querySelector(`.c-card[data-job="${job}"] .c-remove-ask`);
+  return {ask: box(ask), buttons: [...ask.querySelectorAll("button")].map(box),
+          top: document.querySelector(".c-top").getBoundingClientRect().bottom,
+          bottom: document.querySelector(".u-bnav").getBoundingClientRect().top,
+          focused: ask.contains(document.activeElement) ? document.activeElement.textContent.trim() : null};
+}"""
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
+@pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
+def test_shell_c_remove_question_on_phones(tmp_path, device, engine):
+    """On both phones (Playwright's profiles: WebKit's iPhone, Chromium's Pixel) Remove…'s question of a cancelled
+    card at the end of a long list opens wholly in view, its buttons (the focused "Keep it" among them) between the
+    top bar and the bottom bar, and the card's mini map keeps its size (the question takes a row of its own)."""
+    from playwright.sync_api import sync_playwright
+
+    from jobs import Jobs
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    for k in range(3):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    target = jobs.add(request, "Cancelled")  # a card in the middle of the list
+    assert jobs.request_cancel(target)
+    for k in range(3, 6):
+        jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
+    page_path = stub_page(data, "cphones")
+    with _server(data) as port, sync_playwright() as p:
+        kind = getattr(p, engine)
+        if not os.path.exists(kind.executable_path):
+            pytest.skip(f"Playwright's {engine} is not installed")
+        browser = kind.launch()
+        try:
+            page = browser.new_context(**p.devices[device]).new_page()
+            page.goto(f"http://127.0.0.1:{port}/{page_path}?ui=c")
+            card = page.locator(f'.c-card[data-job="{target}"]')
+            card.wait_for(timeout=30000)
+            # the card's foot just above the bottom bar (as a card low on the screen is), its menu and its item
+            # pressed where they are (no scrolling by the test)
+            page.evaluate("""(job) => { const card = document.querySelector(`.c-card[data-job="${job}"]`);
+              const bar = document.querySelector(".u-bnav").getBoundingClientRect().top;
+              document.querySelector(".c-main").scrollTop += card.getBoundingClientRect().bottom - (bar - 8);
+              card.querySelector(".c-card-menu").click(); }""", target)
+            page.wait_for_selector(f'.c-card[data-job="{target}"] .c-menu-item', timeout=30000)
+            thumb = card.locator(".c-card-thumb").bounding_box()
+            page.evaluate("""(job) => [...document.querySelectorAll(`.c-card[data-job="${job}"] .c-menu-item`)]
+              .find((m) => m.textContent.trim() === "Remove…").click()""", target)
+            page.wait_for_function("(job) => document.querySelector(`.c-card[data-job=\"${job}\"] .c-remove-ask`)"
+                                   "?.contains(document.activeElement)", arg=target, timeout=30000)
+            found = page.evaluate(QUESTION_JS, target)
+            after = card.locator(".c-card-thumb").bounding_box()
+        finally:
+            browser.close()
+    assert found["focused"] == "Keep it", found
+    for left, top, right, bottom in [found["ask"], *found["buttons"]]:
+        assert found["top"] <= top and bottom <= found["bottom"], found  # under the top bar, above the bottom bar
+    assert (round(after["width"]), round(after["height"])) == (round(thumb["width"]), round(thumb["height"])), \
+        (thumb, after)

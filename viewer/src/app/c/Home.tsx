@@ -116,14 +116,18 @@ function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
   const [error, setError] = useState("");
   const ref = useRef<HTMLElement>(null);
   useEffect(() => { if (highlight) ref.current?.scrollIntoView?.({block: "nearest"}); }, [highlight]);
-  // A panel opened from the menu takes the focus (the safe choice of a confirmation); closed, the focus
-  // goes back to the menu's button
+  // A panel opened from the menu takes the focus (the safe choice of a confirmation) and is scrolled into view
+  // whole (its scroll-margin keeps it above the phones' bottom bar, which lies over the scrolling page); closed,
+  // the focus goes back to the menu's button
   const hadPanel = useRef(false);
   useEffect(() => {
     const card = ref.current;
     if (!card) return;
-    if (panel) card.querySelector<HTMLElement>(".c-card-panel .c-panel-first")?.focus();
-    else if (hadPanel.current) card.querySelector<HTMLElement>(".c-card-menu")?.focus();
+    if (panel) {
+      const box = card.querySelector<HTMLElement>(".c-card-panel");
+      box?.querySelector<HTMLElement>(".c-panel-first")?.focus({preventScroll: true});
+      box?.scrollIntoView?.({block: "nearest"});
+    } else if (hadPanel.current) card.querySelector<HTMLElement>(".c-card-menu")?.focus();
     hadPanel.current = !!panel;
   }, [panel]);
   const panelKeys = (e: KeyboardEvent) => {
@@ -138,7 +142,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
                                               (e) => setError(e.message));
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
-  // The server marks the job that saved the run removed too: listed again, its card goes with the run
+  // The job that saved the run is then listed as one whose run is gone: listed again, its card goes with the run
   const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
                                                            return jobs.refresh(); },
                                                    (e) => setError(e.message));
@@ -182,35 +186,37 @@ function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
       </div>
       {open ? <a class="c-card-open" href={open}>{body}</a> : <div class="c-card-open">{body}</div>}
       {st.unfinished && <Progress value={st.status === "running" ? st.fraction : null} label={st.step || undefined} />}
-      {panel === "share" && run && <div class="c-card-panel" role="dialog" aria-label="Share the run" onKeyDown={panelKeys}>
-        <span class="u-small">A link opens this run's map for anyone who has it. It is shown once: copy it now.</span>
-        {url && <LinkField text={url} />}
-        <div class="u-row">
-          <Button kind={run.shared ? "default" : "primary"} icon="link" class="c-panel-first" onClick={share}>
-            {run.shared ? "New link" : "Make a link"}</Button>
-          {run.shared && <Button kind="danger" onClick={unshare}>Stop sharing</Button>}
-          <Button kind="ghost" onClick={() => { setPanel(""); setUrl(""); }}>Close</Button>
-        </div>
-      </div>}
-      {panel === "delete" && run && <div class="c-card-panel c-confirm" role="alertdialog" aria-label="Delete the run"
-                                         onKeyDown={panelKeys}>
-        <span>Delete “{run.name}” and its files? This cannot be undone.</span>
-        <div class="u-row">
-          <Button kind="danger" class="c-confirm-delete" onClick={remove}>Delete</Button>
-          <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
-        </div>
-      </div>}
-      {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
-      {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
-                                         aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
-        <span>{t("ui.card.remove_ask", {name})}{counted && <> {t("ui.card.remove_counts")}</>}</span>
-        <div class="u-row">
-          <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
-          <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
-        </div>
-      </div>}
       {error && <p class="c-error u-small" role="alert">{error}</p>}
     </div>
+    {/* The panels under the thumbnail and the body, not in the body: on phones (a row) the card grows below
+        its mini map, which keeps its size and zoom */}
+    {panel === "share" && run && <div class="c-card-panel" role="dialog" aria-label="Share the run" onKeyDown={panelKeys}>
+      <span class="u-small">A link opens this run's map for anyone who has it. It is shown once: copy it now.</span>
+      {url && <LinkField text={url} />}
+      <div class="u-row">
+        <Button kind={run.shared ? "default" : "primary"} icon="link" class="c-panel-first" onClick={share}>
+          {run.shared ? "New link" : "Make a link"}</Button>
+        {run.shared && <Button kind="danger" onClick={unshare}>Stop sharing</Button>}
+        <Button kind="ghost" onClick={() => { setPanel(""); setUrl(""); }}>Close</Button>
+      </div>
+    </div>}
+    {panel === "delete" && run && <div class="c-card-panel c-confirm" role="alertdialog" aria-label="Delete the run"
+                                       onKeyDown={panelKeys}>
+      <span>Delete “{run.name}” and its files? This cannot be undone.</span>
+      <div class="u-row">
+        <Button kind="danger" class="c-confirm-delete" onClick={remove}>Delete</Button>
+        <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
+      </div>
+    </div>}
+    {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
+    {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
+                                       aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
+      <span>{t("ui.card.remove_ask", {name})}{counted && <> {t("ui.card.remove_counts")}</>}</span>
+      <div class="u-row">
+        <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
+        <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
+      </div>
+    </div>}
   </article>;
 }
 

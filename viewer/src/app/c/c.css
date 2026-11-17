@@ -86,6 +86,10 @@
 .ui .c-card-name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-card-meta { overflow-wrap: anywhere; }
 .ui .c-card-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: var(--surface-2); }
+/* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare, and above the
+   phones' bottom bar, which lies over the scrolling page */
+.ui .c-card > .c-card-panel { margin: 0 14px 14px; scroll-margin: 12px; }
+.ui.c-has-nav .c-card > .c-card-panel { scroll-margin-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px); }
 .ui .c-confirm { background: var(--bad-soft); }
 
 /* Mini maps */
@@ -305,6 +309,10 @@
 .ui.c-narrow .c-card-thumb { width: 116px; flex: none; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--line);
   border-radius: 14px 0 0 14px; }
 .ui.c-narrow .c-card-body { flex: 1; padding: 8px 10px 10px 12px; }
+/* a panel takes a row of its own under the mini map and the body: the mini map keeps its size */
+.ui.c-narrow .c-card { flex-wrap: wrap; }
+.ui.c-narrow .c-card > .c-card-panel { flex: 0 0 calc(100% - 24px); margin: 0 12px 12px; }
+.ui.c-narrow .c-card:has(> .c-card-panel) .c-card-thumb { border-bottom-left-radius: 0; }
 .ui.c-narrow .c-thumb-label { right: 4px; bottom: 4px; font-size: 10.5px; }
 .ui.c-narrow .c-newsearch { grid-template: "top" auto "map" 34vh "form" minmax(0, 1fr) "bar" auto / minmax(0, 1fr); }
 .ui.c-narrow .c-newsearch .c-form { border-right: 0; padding: 14px 16px; }
