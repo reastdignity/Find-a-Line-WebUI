@@ -15,7 +15,9 @@ log).
     python tools/mirror_publish.py stats --from <remote>:<root>/logs
 
 Every command takes --config FILE (the rclone config to use; rclone's own default otherwise) and --log FILE
-(rclone's own messages appended there; they are never printed: they may name the remote's host and user). --to and
+(rclone's own messages appended there; they are never printed: they may name the remote's host and user; a first
+publish of a dataset leaves "directory not found" lines there, from the tool's checks of folders it has not made
+yet: they are no fault). --to and
 --from name an rclone remote (name:path, the name two characters or more); a dataset's name is [a-z0-9_-]+ (the
 served pattern's), anything else is refused before any request.
 
@@ -26,7 +28,9 @@ hashes them (rclone checksum sha256 against a SUM file made from the index), and
 index.json must be a listed tile. A product folder holding tiles without an index.json, and an index that is not
 what the cutting tools write (its tiles' keys, their sha256 as 64 hex digits, "block" present and 10), are faults.
 --read-back hashes by reading the files back (rclone checksum --download) where the
-remote has no sha256. Exit code 1 and the list of faults otherwise.
+remote has no sha256. Exit code 1 and the list of faults otherwise. verify of a master folder (and publish, before it
+copies) prints a note, never a fault, when a dataset's own README.md is missing or differs from the card the tool
+serves (it serves its own card either way), naming what rewrites the file.
 
 publish: refuses (before anything is written) a dataset without a complete, approved row in PUBLISHABLE, one whose
 master fails verify (the master is hashed on every run, a resumed one too: U36), one lacking a folder of a resolution
@@ -153,6 +157,9 @@ BASIS_KINDS = ("licence", "metadata statement", "written permission")
 # "none" (P23); a row with an empty field, or without `approved` (the user's word and its date), is refused. The
 # attribution is not a field: it is the catalogue's Credit of source_id (P22). `changes`: per product folder.
 # Facts from local/mirror-hosting-2026-11-15/w0-publish/quotes.md (read 2026-11-15; L1-L8 there).
+# The SNIG record abba9a83 (Madeira's 2 m and the islands' 5 m models) as read for the rows
+SNIG_5M_XML = ("https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/"
+               "formatters/xml")
 PUBLISHABLE: Dict[str, Dict] = {
     "slovakia": dict(
         dataset="slovakia", source_id="slovakia",
@@ -216,6 +223,83 @@ PUBLISHABLE: Dict[str, Dict] = {
               "answered 404 on 2026-11-15 and the sentence was not seen there; as quoted it is about the download "
               "service, not about redistribution.",
         approved="publish, the user's word of 2026-11-15 (U12)"),
+    # Madeira's islets: the 5 m model of the same SNIG record (checked 2026-11-17, publish/islets-rows.txt of the
+    # build's notes); approved as drafted by the user's U55
+    "porto-santo": dict(
+        dataset="porto-santo",
+        source_id="porto_santo",
+        title="Porto Santo: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "PortoSanto_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in its own reference system, Porto Santo 1995 / UTM zone 28N (EPSG:3061, not "
+            "reprojected; tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data value 0, which is "
+            "the sea, made no data; its float64 values stored as float32 with LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 "
+              "(https://joram.madeira.gov.pt/joram/1serie/Ano%20de%202022/ISerie-022-2022-02-09.pdf): obtaining "
+              "DROTe's products \"está sujeita ao pagamento do respetivo preço\" (Art. 3.º 1), and its price table "
+              "lists \"MDT 5 m (Porto Santo)\" at 500 EUR; the use licences of Art. 4 are not found. The record "
+              "(2026-06-12) offers the 5 m ZIP as a free download; whether that file is the priced product is not "
+              "established. Art. 3.º 4: end users are told of every change (the card). An objection is answered with "
+              "unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
+    "desertas": dict(
+        dataset="desertas",
+        source_id="desertas",
+        title="Desertas: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "Desertas_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in PTRA08 / UTM zone 28N (EPSG:5016), the system its coordinates are in, while "
+            "the file is labelled Porto Santo 1995 / UTM 28N (EPSG:3061): the label replaced, nothing reprojected "
+            "(tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data values -32768 and -999 and every "
+            "value below -1 m (coast pixels averaged with -999) made no data; LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 (as Madeira's row): obtaining DROTe's products is subject to "
+              "payment (Art. 3.º 1), its price table lists \"MDT 5 m (folha)\" at 37 EUR a sheet; the use licences of "
+              "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. The file's "
+              "EPSG:3061 label is wrong: its coast fits PTRA08 (against OSM and the 2023 orthophoto, 2026-11-15, the "
+              "new-sources task). Art. 3.º 4: end users are told of every change (the card). An objection is answered "
+              "with unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
+    "selvagens": dict(
+        dataset="selvagens",
+        source_id="selvagens",
+        title="Selvagens: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "Selvagens_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in its own reference system, PTRA08 / UTM zone 28N (EPSG:5016, not reprojected; "
+            "tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data values -32768 and -999 and every "
+            "value below -1 m (coast pixels averaged with -999) made no data; LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 (as Madeira's row): obtaining DROTe's products is subject to "
+              "payment (Art. 3.º 1), its price table lists \"MDT 5 m (folha)\" at 37 EUR a sheet; the use licences of "
+              "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. Art. 3.º "
+              "4: end users are told of every change (the card). An objection is answered with unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
 }
 
 
@@ -505,7 +589,8 @@ class Remote:
             source, target = rel.split("/")[0] + "/", to.split("/")[0] + "/"
             raise Failed(f"the server refused the move of {rel} to {to} ({_meaning(done.returncode)})"
                          + (f": {said}" if said else "") + f". Likely causes: the publishing account may not write "
-                         f"{target} (its owner), or {source} and {target} are on different disks", keep_lock)
+                         f"{target} or a folder below it (their owner; rclone's line above names the folder), or "
+                         f"{source} and {target} (or a folder below either) are on different disks", keep_lock)
 
     def free(self) -> Optional[int]:
         """Free bytes of <root>'s disk (rclone about), None when the server does not tell."""
@@ -708,9 +793,53 @@ def verify_remote(remote: Remote, read_back: bool) -> Tuple[List[str], int]:
     return faults, checked
 
 
+def readme_note(mirror: str, dataset: str) -> Optional[str]:
+    """A note when the master's own <mirror>/<dataset>/README.md is not the card the tool serves for that dataset
+    (cards: the tool writes its own card to the server either way, so this is never a fault): None when they are
+    equal or the tool has no card for the dataset; else one line naming the dataset and what rewrites the file."""
+    card = cards(mirror, only=dataset).get(dataset)
+    if card is None:
+        return None
+    try:
+        with open(os.path.join(mirror, dataset, CARD), encoding="utf-8") as f:  # read as the cutters write it
+            own = f.read()
+    except FileNotFoundError:
+        own = None
+    except (OSError, UnicodeError):
+        own = ""
+    if own == card:
+        return None
+    what = "is missing: the master lacks" if own is None else "differs from (is older than)"
+    if dataset == "slovakia":
+        how = ("no command of tools/sk_tiles.py writes the card alone (its cut, average and recompress write it "
+               "beside their own work)")
+    else:
+        import mirror_tiles
+        key = next(k for k in mirror_tiles.DATASETS if mirror_tiles.dataset(k).name == dataset)
+        how = (f"to rewrite it: python tools/mirror_tiles.py cut {key} --work <a work folder> --out <mirror> "
+               "(a finished dataset is not cut again, only its card written)")
+    return (f"note: <mirror>/{dataset}/README.md {what} the card this tool serves for {dataset} (the server gets "
+            f"the tool's card either way); {how}")
+
+
+def readme_notes(folder: str) -> List[str]:
+    """readme_note for a master folder given to verify: a dataset's folder (its name one the tool has a card for),
+    else every dataset folder in it (the whole mirror)."""
+    folder = os.path.normpath(os.path.abspath(folder))
+    known = set(cards())
+    if os.path.basename(folder) in known:
+        names, mirror = [os.path.basename(folder)], os.path.dirname(folder)
+    else:
+        names = sorted(n for n in os.listdir(folder) if n in known and os.path.isdir(os.path.join(folder, n)))
+        mirror = folder
+    return [note for note in (readme_note(mirror, name) for name in names) if note]
+
+
 def verify(place: str, rc: Optional[Rclone], read_back: bool = False) -> int:
     if os.path.isdir(place):
         print("verify: <folder>", flush=True)
+        for note in readme_notes(place):
+            print(note, flush=True)
         faults, files = read_master(place, "<folder>")
         checked = sum(1 for p in files if not p.endswith("index.json"))
     else:
@@ -969,6 +1098,9 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         for fault in faults:
             print(f"  fault: {fault}")
         raise Refused(f"{label} fails verify ({len(faults)} faults)")
+    note = readme_note(mirror, dataset)
+    if note:
+        print(note, flush=True)
     if not read_back and "sha256" not in remote.hashes():
         raise Refused(NO_SHA256)
     if not remote.exists(""):
@@ -985,6 +1117,9 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         if published and not same_values:
             raise Refused(f"{dataset} is published already: a recut with other values is a new edition (a new "
                           "folder name); --same-values replaces it, a promise that the values are the same")
+        if not published and rc.log:
+            print(f"  first publish of {dataset}: rclone's log (--log) gets \"directory not found\" lines for the "
+                  "folders the tool checks before it makes them; they are no fault", flush=True)
         staged = remote.listing(staging) or {}
         need = sum(size for path, (_, size) in files.items() if staged.get(path) != size) + len(card_bytes)
         free = remote.free()
@@ -1170,9 +1305,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", help="the rclone config file (rclone's own default when not given)")
-    common.add_argument("--log", help="a file rclone's own messages are appended to (never printed)")
+    common.add_argument("--log", help="a file rclone's own messages are appended to (never printed; a first publish "
+                        "leaves \"directory not found\" lines there: checks of folders not made yet, no fault)")
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("verify", parents=[common], help="check a folder or a remote path against its indexes")
+    p = sub.add_parser("verify", parents=[common], help="check a folder or a remote path against its indexes (on a "
+                       "master folder also a note when a dataset's README.md is not the card the tool serves)")
     p.add_argument("place", help="a folder, or remote:path")
     p.add_argument("--read-back", action="store_true", help="hash by reading the files back (no sha256 on the remote)")
     p = sub.add_parser("publish", parents=[common], help="copy a dataset to the server and swap it in")
