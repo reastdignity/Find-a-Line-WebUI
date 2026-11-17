@@ -3358,10 +3358,13 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
         assert error.value.code == code and error.value.params["max"] == 4, error.value
     import gc
     gc.collect()
-    # A circle keeps the profile of every line: 10 lines fit without their profiles, 4 with them
+    # A circle keeps the profile of every line: 10 lines fit without their profiles, 5 with them (each profile as
+    # large as its line: 5 lines and their profiles take 2 x 5 x LINE_BYTES and the sectors' 8 B x 5², less than
+    # 10 lines and 8 B x 10²; 6 lines more)
     plan = SimpleNamespace(limits=None, memory=int(search.memory_needed(0, 10)), params=pm.SearchParams(lat=50, lon=19))
     search._check_lines(plan, 10)
     points = 10 * (search.LINE_BYTES // search.PROFILE_POINT_BYTES)  # each profile as large as its line
+    assert plan.memory == 10 * search.LINE_BYTES + search.WARD_SPOT_BYTES * 10 ** 2
     with pytest.raises(search.SearchError) as error:
         search._check_lines(plan, 10, 0, points)
     assert error.value.params["max"] == 5, error.value.params
@@ -3390,14 +3393,18 @@ def test_large_circle_keeps_the_spots_profiles(tmp_path, monkeypatch):
 
 def test_memory_warning(monkeypatch):
     """The worker warns at its start when the largest search the limits allow does not fit."""
+    import mapping
     import search
     from settings import Limits
     limits = Limits(grid_mpx_max=36, lines_max=20_000_000)
     monkeypatch.setattr(search, "available_memory", lambda: 8 * 2 ** 30)
     warning = search.memory_warning(limits)
-    fits = int((8 * 2 ** 30 - 36e6 * search.PIXEL_BYTES) // search.LINE_BYTES)
+    sectors = search.WARD_SPOT_BYTES * mapping.SECTOR_WARD_SPOTS ** 2  # Ward's clustering at its cap: 800 MB
+    fits = int((8 * 2 ** 30 - 36e6 * search.PIXEL_BYTES - sectors) // search.LINE_BYTES)
+    assert fits > mapping.SECTOR_WARD_SPOTS
     assert warning and f"FINDALINE_LIMIT_LINES_MAX={fits}" in warning, warning
     assert search.memory_warning(Limits(grid_mpx_max=36, lines_max=fits)) is None
+    assert search.memory_warning(Limits(grid_mpx_max=36, lines_max=fits + 1))
     assert search.memory_warning(Limits()) is None and search.memory_warning(None) is None
 
 

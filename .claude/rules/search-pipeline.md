@@ -77,6 +77,9 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `saving.hand_over`, the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
   `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the profile points:
   a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
+- `memory_needed`'s sectors' term (`WARD_SPOT_BYTES` x min(lines, `mapping.SECTOR_WARD_SPOTS`)²) follows
+  `mapping._ward_sectors` and its cap (`tools/perf_country.py` copies both); `lines_fitting` is the only inversion of
+  `memory_needed`: a new term goes into both (`tests/test_memory_sectors.py`).
 - The access mark (`--access`): one grid per search, at once or in blocks (`access.block_grid`: the same
   answers), each tile its window; `_check_access` counts `ACCESS_AREA_BYTES`/`ACCESS_WINDOW_BYTES` before step 1
   and leaves the mark out of a search they cannot fit (`Plan.access_skipped`; never a refusal; on the command

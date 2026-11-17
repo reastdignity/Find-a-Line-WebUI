@@ -4006,6 +4006,19 @@ refusals and the warning name are half of those at 450. `tools/perf_country.py`'
 - `tools/perf_lines_memory.py` was not used: it traces the heap of one process, without saving's children, the store
   or the square rule.
 
+### The sectors' term (2026-11-17)
+Since step 3a saving clusters a run's spots into sectors (`mapping.view_columns`: Ward's clustering of at most
+`mapping.SECTOR_WARD_SPOTS` = 10 000 spots). `LINE_BYTES` does not cover it: about 800 MB at 10 000 spots, measured
+on 2026-11-16 (below, "The result view's columns"). `memory_needed` now adds `search.WARD_SPOT_BYTES` (8 B) x
+min(lines, `SECTOR_WARD_SPOTS`)², the spots being at most the lines (the user's choice of 2026-11-17). It costs a
+search of 10 000 lines or more about 0.75 GiB of its slot. A worker with 18 GiB free at its start, 3 compute and 2
+download slots, has slots of 4.94 GiB: the largest public search (64 Mpx, 1.5 M lines) needs 4.98 GiB instead of 4.24,
+so the worker now warns at its start, and the lines that fit a slot with grids of 64 Mpx fall from 2 339 533 to
+1 450 644 (the number the warning names; more lines on such grids are refused for memory). Without lines nothing changes
+(the quick lane's reserve, the tiles' side). `search.lines_fitting` is the one inversion of `memory_needed` (the
+refusals' and the warning's "fits"); `tools/perf_country.py`'s `lines_gb_today` counts the term too. No new
+measurement; no result changes.
+
 ## The result view's columns (2026-11-16, tag `history/view-columns`, step 3a)
 
 `mapping.view_columns` computes a new run's `spot`, `top`, `by_spot` and the head's `sectors`, `box`, `lengths` at
@@ -4077,8 +4090,8 @@ On the Gozo coast `view_columns` is now the highest point of the unique sets: wh
 holds 1 157 MB (working set) and the tree 1 070 MB of USS, against 663 and 583 MB during `linestore.write` (+494 and
 +487 MB); Ward's clustering of its 8 269 spots alone needs about
 8 B × 8 269² = 547 MB. The tree's peak (step 1's grids) does not move. `memory_needed` counts 900 B a line and no
-term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed, not
-changed).
+term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed here; added
+on 2026-11-17: "The memory constant", "The sectors' term").
 
 Many spots on small grids (heavy lane, indicative): BAH with the rule and `--group-distance 3` (43 127 lines, 19 209
 spots, 6.77 Mpx), main against the branch: the tree's peak 1 158 → 1 618 MiB RSS and 1 107 → 1 526 MiB USS, moved from

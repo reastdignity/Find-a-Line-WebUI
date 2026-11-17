@@ -137,7 +137,11 @@ def test_hooks_reach_what_the_search_calls():
 
 
 def test_perf_country_copies_the_constant():
-    """tools/perf_country.py's copy of the line constant follows search.LINE_BYTES."""
+    """tools/perf_country.py's copy of the line constant follows search.LINE_BYTES, and of the sectors' term
+    search.WARD_SPOT_BYTES and mapping.SECTOR_WARD_SPOTS."""
+    import mapping
     import perf_country
     import search
     assert perf_country.LINE_BYTES == search.LINE_BYTES
+    assert perf_country.WARD_SPOT_BYTES == search.WARD_SPOT_BYTES
+    assert perf_country.SECTOR_WARD_SPOTS == mapping.SECTOR_WARD_SPOTS

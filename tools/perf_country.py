@@ -875,6 +875,10 @@ GROUPS = re.compile(r"^Step 4: Compute grouping lines")  # today's spots: apart,
 DOWNLOAD = re.compile(r"Download")
 STEP1_BETWEEN = "Step 1: (between bars)"  # also holds the index answers when the sample downloaded
 LINE_BYTES = 900  # search.LINE_BYTES since 2026-11-15 (450 at 221dd10): the lines of a tile while it is counted
+# search.memory_needed's term of the sectors since 2026-11-17 (search.WARD_SPOT_BYTES x min(lines,
+# mapping.SECTOR_WARD_SPOTS)²): what today's search of a tile's lines holds at saving (lines_gb_today)
+WARD_SPOT_BYTES = 8
+SECTOR_WARD_SPOTS = 10_000
 SERIAL_EFFICIENCY = 0.85  # processes at once on as many cores: the share of a core each keeps
 OVERLAP_SHARE = 0.25  # the part of the shorter of serial and parallel time that the longer does not hide
 VARIANTS = ("-45", "-50", "-nodsm", "-axiom", "-tiger", "-floors")  # samples of other parameters
@@ -1146,6 +1150,7 @@ def band_time(inputs: Dict, model: Dict, lines: float, spots: float, km2: float,
         core = core_km * 1000.0
         side = core + 2 * overlap
         tile_bytes = (side / res) ** 2 * inputs["pixel_bytes"]
+        tile_lines = lines / km2 * core_km ** 2
         k = min(int(memory_gb * 1e9 // tile_bytes), factors["physical_cores"])
         if k < 1:
             continue
@@ -1158,7 +1163,8 @@ def band_time(inputs: Dict, model: Dict, lines: float, spots: float, km2: float,
                     "wall_groups_s": round(combine((serial + groups * factors["serial"]) / (k * SERIAL_EFFICIENCY),
                                                    parallel)),
                     "lines": round(lines), "spots": round(spots),
-                    "lines_gb_today": round(lines / km2 * core_km ** 2 * LINE_BYTES / 1e9, 1)}
+                    "lines_gb_today": round((tile_lines * LINE_BYTES
+                                             + WARD_SPOT_BYTES * min(tile_lines, SECTOR_WARD_SPOTS) ** 2) / 1e9, 1)}
     return best
 
 
