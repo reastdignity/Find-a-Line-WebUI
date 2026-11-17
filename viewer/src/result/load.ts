@@ -4,8 +4,8 @@
 // JSON.parse (measured 2026-11-04: about 30 % faster than the script; tools/perf_run_load.py). A file JSON.parse refuses (NaN,
 // Infinity: runs.column_texts writes them) is loaded as a script instead, from the HTTP cache, so every value
 // stays as the script gives it. From disk (file://: no fetch) it is a script, which the CSP (script-src
-// 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs come from their
-// store or their lines.js (loadOtherRun, others.loadLines).
+// 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs (Compare) and of
+// Home's mini maps come from their store or their lines.js (loadOtherRun, loadRunLines, others.loadLines).
 //
 // The rows are then read into columns (types.ts runData: docs/line-volume/spec-store.md 1.2, store wave 1) and
 // dropped: the page keeps the run's lines as typed arrays (RunData.columns). A body that arrives empty although its
@@ -407,6 +407,25 @@ export async function loadOtherRun<T>(run: RunInfo, base: string, lines: (id: st
     return await downloadStore(folder, run.id, () => undefined, run.store, false);
   } catch (e) {
     if (e instanceof StoreMissing) return lines(run.id, base);
+    throw e;
+  }
+}
+
+/** A run's lines for Home's mini map (app/c/Thumb.tsx): lines.arrow only (no profiles.arrow), as Compare's. `listed`
+ *  is the run's entry in the list of runs (loadRunList), undefined when the list does not name it: a listed run is
+ *  read as loadOtherRun reads it (its store, a 404 reading its lines.js while runs keep it; without a store its
+ *  lines.js). A run the list does not name (saved since the list was read: it is loaded once) asks for its
+ *  lines.arrow directly, as storeOf's STORE_PROBE: a 404 or a file not fetched reads its lines.js (`lines`:
+ *  others.loadLines), and a store of a newer format is refused by the file's own metadata, never read as an old run. */
+export async function loadRunLines<T>(id: string, listed: RunInfo | undefined, base: string,
+                                      lines: (id: string, base: string) => Promise<T>): Promise<RunData | T> {
+  if (listed) return loadOtherRun(listed, base, lines);
+  if (!overHttp()) return lines(id, base);
+  const folder = new URL(base + encodeURIComponent(id) + "/", location.href).href;
+  try {
+    return await downloadStore(folder, id, () => undefined, STORE_PROBE, false);
+  } catch (e) {
+    if (e instanceof StoreMissing || e instanceof StoreNotFetched) return lines(id, base);
     throw e;
   }
 }

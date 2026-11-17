@@ -74,7 +74,9 @@ its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied int
 `STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a store's file answering 404 falls back to data.js;
 another failure is `StoreFailed`, `ui.result.store_failed` on map.html; a null body `TooLarge`), `storedProfiles` a
 profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its `lines.arrow` (or its
-lines.js: no store, or the file missing); a run read from its store carries `RunData.fromStore` (not one whose
+lines.js: no store, or the file missing), `loadRunLines` a mini map's (`app/c/Thumb.tsx`) the same way, and a run the
+list does not name by its `lines.arrow` asked for directly (`STORE_PROBE`'s rule: a 404 or a file not fetched reads
+lines.js, a newer format is refused); a run read from its store carries `RunData.fromStore` (not one whose
 store answered 404), by which `view/RunActions.tsx` `mayExport` (with `api.canChange`: the page has the token,
 the app's page, never a map.html) gives Download's two rows that ask the worker for the file (`Export`:
 `api.exportRun`, "Preparing the file…" in the pressed row, the ring on the button while the menu is closed, the
@@ -168,7 +170,10 @@ countries' outlines below `OUTLINE_MPP`; the view and every filter in the hash (
 `parseState`/`stateParams`: each dimension by its name, `border`; written in place, `ShellC` ignores changes within
 `#layer`); "Search here" opens `#new&cell=<id>:<band>:<level>:<i>:<j>`, `NewSearch` with `api.countryRequest` as its
 `initial`; demo `?ui=kit-layer`: `ui/Gallery.tsx` `KitLayer`, two canned v2 cubes, `?pick=border` a cut cell);
-`FavouritesPage.tsx` the favourites in folders, drag and drop with Pragmatic drag and drop),
+`FavouritesPage.tsx` the favourites in folders, drag and drop with Pragmatic drag and drop; `Thumb.tsx` Home's mini
+maps: an SVG of the run's area and lines over OpenTopoMap's tiles, a few loaded at a time when the card comes into
+view, the lines from the run's `lines.arrow` (`load.ts` `loadRunLines`; lines.js for a run listed without a store), a
+run of more than `MAX_LINES` lines its box and count only, a failure the card's placeholder),
 `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
 (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,
 `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
