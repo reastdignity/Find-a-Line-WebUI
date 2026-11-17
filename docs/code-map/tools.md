@@ -207,7 +207,7 @@ each start ends the tool's users' sessions before making theirs (one run at a ti
 form's riggers get only the rigs they do not have yet, the problem report is added once
 
 The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
-spots under one press, the map's controls open, a phone's sheet lowered) open with the page's flag: `VIEWS` names the
+spots under one press, the map's controls open, a phone's sheet raised to half) open with the page's flag: `VIEWS` names the
 pages whose `findaline.view` `page_storage` sets (removed for every other page of the pass), each waits for
 `window.FINDALINE_VIEW` (`VIEW_READY`), and a run whose store has no column `spot` leaves them out (`NEEDS` "view":
 `store_has_view`); `tests/test_ui_shots_view.py`.

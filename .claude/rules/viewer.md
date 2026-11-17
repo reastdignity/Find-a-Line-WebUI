@@ -42,7 +42,10 @@ catalogue), `browser-tests.md`.
   interface (`SpotView`, `SpotMap`, the slots of `view/SpotPanels.tsx`) is shared with the panels: add to it, never
   rename. `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
-  over the map carries `data-map-control`, and one that takes no press (the toast) has `pointer-events: none`. The
+  over the map carries `data-map-control`, and one that takes no press (the toast, the bar's row beside the status
+  line) has `pointer-events: none`. No control may cover another at any stop of a phone's sheet
+  (`tests/test_shell_c_view_map.py::test_phone_controls_apart` names them by their own classes: add a new one there);
+  Leaflet's own controls lie above the bar (`.v-map > .c-leaflet` makes no stacking context). The
   phone's sheet has no height at the first draw (`covered` counts its state's height until then), and Preact 11 runs
   an unmounted frame's effect cleanups after the paint, before the next frame's effects.
 

@@ -133,9 +133,9 @@ VIEW_CROWDED = """(() => { const {view, map} = window.FINDALINE_VIEW, m = window
       const at = m.layerPointToContainerPoint(m.containerPointToLayerPoint([x, y]));
       m.fire('click', {latlng: m.containerPointToLatLng(at), containerPoint: at, layerPoint: m.containerPointToLayerPoint(at)});
       return; } } })()"""
-# A phone's sheet one state lower (its handle's arrow key: half to peek)
-VIEW_LOW = ("document.querySelector('.u-sheet-handle')?.dispatchEvent(new KeyboardEvent('keydown', "
-            "{key: 'ArrowDown', bubbles: true}))")
+# A phone's sheet one stop higher (its handle's arrow key: from its low start to half)
+VIEW_HALF = ("document.querySelector('.u-sheet-handle')?.dispatchEvent(new KeyboardEvent('keydown', "
+             "{key: 'ArrowUp', bubbles: true}))")
 # The map's own controls open: the layers' list and, where they fold (a phone), the data credits
 VIEW_CONTROLS = ("(() => { document.querySelector('.leaflet-control-layers')?.classList.add('leaflet-control-layers-expanded'); "
                  "const credits = document.querySelector('.u-credits-toggle'); if (credits && credits.offsetParent) credits.click(); })()")
@@ -241,7 +241,7 @@ PAGES = {
     # The result view of mock-up 2 (VIEWS: the page's flag; NEEDS "view": a run whose store has the view's columns),
     # its map's states: the first view; the Area level (zoomed out to it); Spots; Lines; Best 30; All refused above
     # 5 000 thin lines; Lines held far out; several spots under one press (a phone zooms in and says so); the map's own
-    # controls open (the layers, the data credits)
+    # controls open (the layers, the data credits). On a phone the view opens with the sheet low
     "c-view": ("c", "#run={run}", [VIEW_READY]),
     "c-view-area": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6]),
     "c-view-spots": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1]),
@@ -251,9 +251,9 @@ PAGES = {
     "c-view-held": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6, "js:" + VIEW_DO % "view.setLevel('lines')"]),
     "c-view-crowded": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_DO % "view.setLevel('spots')", "js:" + VIEW_CROWDED]),
     "c-view-controls": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_CONTROLS]),
-    # a phone's sheet lowered to its peek (the map's states with room for the map; a desktop has no sheet)
-    "c-view-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_LOW]),
-    "c-view-spots-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_LOW, "js:" + VIEW_AT % 1]),
+    # a phone's sheet raised to half (the view opens with it low): the legend folds itself, no control covers another
+    # (a desktop has no sheet)
+    "c-view-half": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1]),
     # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
     # opened (scrolling inside the box); a desktop shows the box, always open
     "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
@@ -356,7 +356,7 @@ LAYOUTS = {
 # The pages of the result view: the page's flag kept in localStorage ("findaline.view", SpotColumns.tsx viewWanted) is
 # set to the page's value; every other page starts without it (today's result page)
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
-                                "c-view-held", "c-view-crowded", "c-view-controls", "c-view-low", "c-view-spots-low")}
+                                "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half")}
 
 # The pages that show something only some runs have (run_features, read from the run's run.json before any browser
 # starts): a page whose feature the run lacks is left out without a load
