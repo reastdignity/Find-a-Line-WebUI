@@ -71,6 +71,8 @@ tests that start Edge).
   endpoint of the public site records an `audit` event (`web.record`), refusals by a quota or rate too (`queue`,
   `within_rate`, `Jobs.use`). The about page is built from `sources.SOURCES` credits (and their layers'), so a new
   source needs no change there.
+- A removed job (`jobs.removed_at`) stays counted: the daily quota, the usage, the area searched and the metrics never
+  filter on it, and the privacy page says so (`test_removing_searches`, `test_removed_searches_still_counted`).
 
 ## Pitfalls
 

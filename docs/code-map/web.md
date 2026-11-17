@@ -130,7 +130,11 @@ owners, visibility, share-link hash and size (table `runs`: `add_run`, `adopt_ru
 their run, the local user's (NULL) given to the first administrator by `adopt_runs`), the saved rigs (table `rigs`,
 migration 18: `rigs`, `add_rig`, `change_rig`, `delete_rig`; `RIGS_MAX`, `RIG_NAME_MAX`, `rig_name` stores a name
 composed (NFC), `rig_key` compares it once per user casefolded; the local user's given by `adopt_runs` while the administrator holds fewer than `RIGS_MAX` and none of
-the name), the users' problem reports (table
+the name), the removed searches (migration 19: `jobs.removed_at`, written by `remove` for a cancelled job, its owner's
+`POST /api/jobs/<id>/remove`, audit `job_remove`, and by `delete_run` for the jobs of a deleted run; `all(user_id)`
+leaves them out and those whose run.json is gone, told at every listing as `run_gone`; everyone's list keeps both, and
+`/api/jobs` gives each job `own` by `own_job`'s rule; the rows stay, so quotas, usage, area and metrics count them),
+the users' problem reports (table
 `reports`: `add_report`, `reports`, `set_report_status`, `delete_report`; `REPORT_CATEGORIES`, `REPORT_TEXT_MAX`) and
 the folders of favourites (table `favourite_folders`, nested: `folders`, `add_folder`, `change_folder`,
 `delete_folder` with what is in it; `FOLDERS_MAX`, `FOLDER_DEPTH_MAX`, `FOLDER_NAME_MAX`; `folders.ts` repeats the
