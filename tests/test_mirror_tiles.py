@@ -1662,3 +1662,39 @@ def test_links_in_the_work_folder(tmp_path, monkeypatch):
     before = _snapshot(inputs)
     assert mt.cut("lnk", str(work), str(out), inputs=str(inputs)) == {"dtm": "cut"}
     assert _snapshot(inputs) == before and not (work / "m.tif").is_symlink()
+
+
+def test_the_card_of_a_finished_product_rewritten(tmp_path, monkeypatch, capsys):
+    """`cut` of a final product through the tool's command line rewrites a README.md that differs from card_text
+    (or is missing) and touches nothing else: no README.md.part left, every other file of the dataset the same bytes
+    and modification time; a second run changes nothing. Until 2026-11-17 the old card was still open when
+    write_card replaced it: Windows refused (WinError 5) and README.md.part stayed beside it."""
+    monkeypatch.setattr(mt, "REPLACE_SECONDS", 2)  # a refused replace fails fast, not after a minute
+    inputs, work, out = tmp_path / "in", tmp_path / "work", tmp_path / "mirror"
+    _tif(inputs / "t.tif", _heights((300, 300), 1), 402.5, 1902.5)
+    ds = _dataset(monkeypatch, "isle", _product([mt.Placed("t.tif")], "dtm"))
+    mt.cut("isle", str(work), str(out), inputs=str(inputs))
+    readme = out / "isle" / "README.md"
+    card = mt.card_text(ds, str(out))
+
+    def others():
+        return {p.relative_to(out).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
+                for p in out.rglob("*") if p.is_file() and p.name != "README.md"}
+
+    def cut_command():
+        monkeypatch.setattr(sys, "argv", ["mirror_tiles.py", "cut", "isle", "--work", str(work), "--out", str(out)])
+        mt.main()  # returns on success: exit 0
+        assert "isle/dtm/5m: final; nothing is cut again" in capsys.readouterr().out
+
+    before = others()
+    for case in ("differs", "missing"):
+        if case == "differs":
+            readme.write_text("# an older card\n", encoding="utf-8")
+        else:
+            readme.unlink()
+        cut_command()
+        assert readme.read_text(encoding="utf-8") == card, case
+        assert not (out / "isle" / "README.md.part").exists() and others() == before, case
+        stamp = readme.stat().st_mtime_ns
+        cut_command()  # again: nothing changes
+        assert readme.stat().st_mtime_ns == stamp and others() == before, case

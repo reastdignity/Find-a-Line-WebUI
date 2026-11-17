@@ -1969,8 +1969,9 @@ def _card_if_needed(ds: Dataset, out: str):
         write_card(ds, out)
         return
     with open(path, encoding="utf-8") as f:
-        if f.read() != text:
-            write_card(ds, out)
+        same = f.read() == text
+    if not same:  # closed first: Windows refuses to replace a file that is still open
+        write_card(ds, out)
 
 
 # Verify
