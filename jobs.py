@@ -42,6 +42,7 @@ import signal
 import socket
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -433,6 +434,47 @@ USAGE = {"km2": "km² of search areas", "mpx": "Mpx of search areas (km² / reso
 def _in(values: Iterable) -> str:
     """Placeholders for an SQL IN (...) of these values."""
     return "(" + ", ".join("?" * len(tuple(values))) + ")"
+
+
+def run_facts(path: str) -> Dict[str, Dict]:
+    """What a database `path` (a data folder's jobs.sqlite) knows of each run, for `findaline.py runs remove-old
+    --dry-run`, which writes nothing in the data folder: never through Jobs (its open sets the journal mode and
+    migrates), and not even a read-only connection to the file itself (SQLite leaves its -wal and -shm files beside a
+    database in WAL mode: tests/test_remove_old.py), but a copy of the database and its -wal in a temporary folder
+    elsewhere, read there and deleted. {run id: {"user_id", "shared", "demo", "favourites": favourite lines in it
+    (anyone's), "searches": finished searches that saved it not yet removed}}; a table or column an older database
+    lacks reads as nothing; {} without a database."""
+    facts: Dict[str, Dict] = {}
+    if not os.path.isfile(path):
+        return facts
+
+    def fact(run_id: str) -> Dict:
+        return facts.setdefault(run_id, {"user_id": None, "shared": False, "demo": False, "favourites": 0,
+                                         "searches": 0})
+
+    folder = tempfile.mkdtemp(prefix="findaline-facts-")
+    copy = os.path.join(folder, "jobs.sqlite")
+    shutil.copyfile(path, copy)
+    if os.path.isfile(path + "-wal"):  # what the app wrote and SQLite has not checkpointed yet
+        shutil.copyfile(path + "-wal", copy + "-wal")
+    db = sqlite3.connect(copy, timeout=60)
+    try:
+        def rows(query: str) -> list:
+            try:
+                return db.execute(query).fetchall()
+            except sqlite3.OperationalError:  # no such table or column (an older schema)
+                return []
+        for run_id, user_id, visibility, share_hash in rows("SELECT run_id, user_id, visibility, share_hash FROM runs"):
+            fact(run_id).update(user_id=user_id, shared=share_hash is not None, demo=visibility == "demo")
+        for run_id, count in rows("SELECT run_id, COUNT(*) FROM favourites GROUP BY run_id"):
+            fact(run_id)["favourites"] = count
+        for run_id, count in rows("SELECT run_id, COUNT(*) FROM jobs WHERE status = 'done' AND run_id IS NOT NULL "
+                                  "AND removed_at IS NULL GROUP BY run_id"):
+            fact(run_id)["searches"] = count
+    finally:
+        db.close()
+        shutil.rmtree(folder, ignore_errors=True)
+    return facts
 
 
 class Jobs:

@@ -503,6 +503,58 @@ def _listed(run: Dict) -> Dict:
     return listed
 
 
+RUNNING = "a tiled search still running"
+BEING_SAVED = "being saved: no run.json"
+NEWER = "made by a newer Find-a-Line"
+UNREADABLE_META = "its run.json cannot be read"
+
+
+def old_runs(runs_dir: str) -> Dict[str, list]:
+    """The runs of a runs folder sorted for `findaline.py runs remove-old` (docs/line-volume/spec-store.md 2.2): "old"
+    (a dict per run: id, created, lines, bytes, unreadable) are the folders with run.json and no store of today
+    (linestore.store_state: missing, old or unreadable, the last marked "unreadable"); "current" the ids of the runs
+    with today's store; "skipped" (id, reason): a folder without run.json (being saved: save_run writes it last), a
+    tiled search whose progress.json says "running", a store of a newer Find-a-Line, a run.json that cannot be read.
+    Folders starting with "." or "_" (the viewer, the lock) are no runs. Reads only: the caller holds
+    cache.runs_lock. linestore (pyarrow) is imported here, never by importing runs (the web process imports runs)."""
+    import linestore
+    found = {"old": [], "current": [], "skipped": []}
+    if not os.path.isdir(runs_dir):
+        return found
+    for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+        if not entry.is_dir() or entry.name.startswith((".", "_")):
+            continue
+        meta_path = os.path.join(entry.path, "run.json")
+        if not os.path.isfile(meta_path):
+            found["skipped"].append((entry.name, BEING_SAVED))
+            continue
+        try:
+            with open(os.path.join(entry.path, "progress.json"), encoding="utf-8") as f:
+                running = json.load(f).get("status") == "running"
+        except (OSError, ValueError, AttributeError):
+            running = False
+        if running:
+            found["skipped"].append((entry.name, RUNNING))
+            continue
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            lines = int((meta.get("summary") or {}).get("lines") or 0)
+        except (OSError, ValueError, TypeError, AttributeError):
+            found["skipped"].append((entry.name, UNREADABLE_META))
+            continue
+        state = linestore.store_state(entry.path)
+        if state == "current":
+            found["current"].append(entry.name)
+        elif state == "newer":
+            found["skipped"].append((entry.name, NEWER))
+        else:
+            found["old"].append({"id": entry.name, "created": cache.utc_iso(meta.get("created")) or "",
+                                 "lines": lines, "bytes": folder_bytes(entry.path),
+                                 "unreadable": state == "unreadable"})
+    return found
+
+
 def write_index(runs_dir: str):
     """Rewrite runs.js (used by the maps and the local app) from the saved runs. One process at a
     time (cache.runs_lock), so of two runs saved at once the later lists both."""

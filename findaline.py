@@ -270,6 +270,114 @@ def view_main(argv: List[str]) -> int:
     return 0
 
 
+def _size(n: int) -> str:
+    """A size on disk in plain words: 45 MB, 1.2 GB."""
+    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
+
+
+def _number(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+def runs_main(argv: List[str]) -> int:
+    """`findaline.py runs remove-old (--dry-run | --yes) [--data-dir DIR]` (docs/line-volume/spec-store.md section 2):
+    the old runs of the data folder (runs.old_runs: no store of today) listed (--dry-run: nothing written at all,
+    the database read read-only, jobs.run_facts) or deleted (--yes: Jobs.delete_run with a jobs.sqlite, the folder
+    alone without one; then runs/index.html and findaline_map.html, which list or open old runs only, and runs.js
+    rewritten where it exists). The listing names runs by id and owners by user id only (never a name or an e-mail).
+    Old runs are removed, never converted, and only on the user's word after the list (store U5)."""
+    import argparse
+    import shutil
+
+    import jobs as jb
+    parser = argparse.ArgumentParser(prog="findaline.py runs", description="Commands on the saved runs.")
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    remove = verbs.add_parser("remove-old", description="List (--dry-run) or delete (--yes) the runs saved before the "
+                                                        "current store: they no longer open.")
+    how = remove.add_mutually_exclusive_group(required=True)
+    how.add_argument("--dry-run", action="store_true", help="list the old runs, delete nothing")
+    how.add_argument("--yes", action="store_true", help="delete the old runs listed by --dry-run")
+    remove.add_argument("--data-dir", help="the data folder (default: FINDALINE_DATA, else the folder of the script)")
+    args = parser.parse_args(argv)
+    data = cache.data_dir(args.data_dir)
+    runs_dir = os.path.join(data, "runs")
+    database = os.path.join(data, "jobs.sqlite")
+    if not os.path.isdir(runs_dir):  # nothing to list; no runs folder made by the lock
+        print(f"Old runs in {runs_dir}: 0")
+        return 0
+    failed = []
+    with cache.runs_lock(runs_dir):
+        found = rn.old_runs(runs_dir)
+        facts = jb.run_facts(database)
+        old = found["old"]
+        leftovers = [(name, path) for name, path in (("runs/index.html", os.path.join(runs_dir, "index.html")),
+                                                     ("findaline_map.html", os.path.join(data, "findaline_map.html")))
+                     if os.path.isfile(path)]
+        print(f"Old runs in {runs_dir}: {len(old)}"
+              + (" (saved before the current store; they will no longer open)" if old else ""))
+        if old:
+            with_db = os.path.isfile(database)
+            width = max(len(r["id"]) + (19 if r["unreadable"] else 0) for r in old)
+            head = f"{'Run id':<{width}}  {'Created':<16}  {'Lines':>11}  {'Size':>8}"
+            if with_db:
+                head += f"  {'Owner':>6}  Shared  Demo  Favourites"
+            print(head)
+            for r in old:
+                name = r["id"] + (" (store unreadable)" if r["unreadable"] else "")
+                row = (f"{name:<{width}}  {rn._local_time(r['created']):<16}  {_number(r['lines']):>11}  "
+                       f"{_size(r['bytes']):>8}")
+                if with_db:
+                    f = facts.get(r["id"], {})
+                    owner = "–" if f.get("user_id") is None else str(f["user_id"])
+                    row += (f"  {owner:>6}  {'yes' if f.get('shared') else 'no':<6}  {'yes' if f.get('demo') else 'no':<4}"
+                            f"  {f.get('favourites', 0):>10}")
+                print(row)
+            total = (f"Total: {len(old)} run{'s' if len(old) != 1 else ''}, "
+                     f"{_number(sum(r['lines'] for r in old))} lines, {_size(sum(r['bytes'] for r in old))}")
+            if with_db:
+                favourites = sum(facts.get(r["id"], {}).get("favourites", 0) for r in old)
+                searches = sum(facts.get(r["id"], {}).get("searches", 0) for r in old)
+                total += (f", {favourites} favourite line{'s' if favourites != 1 else ''}, {searches} "
+                          f"{'search leaves' if searches == 1 else 'searches leave'} the list on Home")
+            print(total + ".")
+        if leftovers:
+            print(f"Also deleted: {', '.join(name for name, _ in leftovers)} (they list or open old runs only).")
+        if found["skipped"]:
+            print(f"Skipped: {len(found['skipped'])}")
+            for run_id, reason in found["skipped"]:
+                print(f"  {run_id}: {reason}")
+        print(f"Kept: {len(found['current'])} run{'s' if len(found['current']) != 1 else ''} with the current store.")
+        if old and os.path.isfile(database):
+            print('Favourite lines in these runs are deleted with them. To keep them, export them first: Favourites '
+                  'in the app, "Export for the trip" (CSV or GeoJSON).')
+        if args.dry_run:
+            if old or leftovers:
+                print("Nothing was deleted (--dry-run). To delete these runs: findaline.py runs remove-old --yes"
+                      + (f' --data-dir "{data}"' if args.data_dir else ""))
+            return 0
+        jobs = jb.Jobs(data) if os.path.isfile(database) else None
+        for r in old:
+            try:
+                if jobs is not None:
+                    jobs.delete_run(r["id"], runs_dir)
+                else:
+                    shutil.rmtree(os.path.join(runs_dir, r["id"]))
+            except OSError as error:
+                failed.append(f"{r['id']}: {error}")
+        for name, path in leftovers:
+            try:
+                os.remove(path)
+            except OSError as error:
+                failed.append(f"{name}: {error}")
+    if os.path.isfile(os.path.join(runs_dir, "runs.js")):
+        rn.write_index(runs_dir)
+    gone = len(old) - sum(1 for text in failed if not text.startswith(("runs/index.html", "findaline_map.html")))
+    print(f"Deleted {gone} run{'s' if gone != 1 else ''}" + (f"; not deleted: {len(failed)}" if failed else "") + ".")
+    for text in failed:
+        print(f"  {text}")
+    return 1 if failed else 0
+
+
 if __name__ == "__main__":
     utf8_output()  # output redirected to a file gets the Windows code page, which has no "²" and the like
     if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
@@ -288,6 +396,8 @@ if __name__ == "__main__":
         sys.exit(export_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "view":
         sys.exit(view_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "runs":
+        sys.exit(runs_main(sys.argv[2:]))
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []
