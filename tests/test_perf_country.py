@@ -130,8 +130,23 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     samples["store"], samples["text"] = {**sample, "run": store}, {**sample, "run": text}
     cubes = [pc.cube(samples, [name], 1000, list(pc.DIMS))["rows"] for name in ("store", "text")]
     assert cubes[0][0]["line_keys"] > 0 and cubes[0][0]["spot_keys"] > 0
-    assert [{**r, "name": None, "lines_from": None} for r in cubes[0]] == \
-        [{**r, "name": None, "lines_from": None} for r in cubes[1]]
+    # the keys may differ only by lines one of whose values lines.csv rounds across a bin's or a cell's edge: within
+    # half its rounding step of an edge (length 0.1 m; clearance, height and the coordinates 0.01 m; the others are
+    # the same values on both sides); each such line changes a count of keys by at most one
+    def within(values, edges, half):
+        edges = np.asarray([e for e in edges if np.isfinite(e)], dtype=float)
+        return (np.abs(values[:, None] - edges[None, :]) < half).any(axis=1)
+    near_any = np.zeros(len(a["length_m"]), dtype=bool)
+    for column, dim, half in (("length_m", "length", 0.05), ("clearance_m", "clearance", 0.005),
+                              ("height_max_m", "height", 0.005)):
+        near_any |= within(a[column], pc.EDGES[dim], half)
+    for column in ("anchor1_easting", "anchor1_northing"):  # the 1000 m cells' edges
+        near_any |= np.abs(a[column] / 1000 - np.round(a[column] / 1000)) * 1000 < 0.005
+    same = ("lines", "spots", "area_km2", "cell", "dims")
+    for mine, theirs in zip(*cubes):
+        assert {k: mine[k] for k in same} == {k: theirs[k] for k in same}
+        for key in ("line_keys", "spot_keys"):
+            assert abs(mine[key] - theirs[key]) <= int(near_any.sum()), (key, mine[key], theirs[key])
     assert cubes[0][0]["lines_from"] == "store" and cubes[1][0]["lines_from"] == "lines.csv"
     compared = pc.compare(samples, "text", ["store"], [500, 1000], pc.parse_bands(None))
     assert compared["lines_from"] == {"text": "lines.csv", "store": "store"}
