@@ -316,13 +316,15 @@ def _sag_fall_zone(db: sqlite3.Connection):
 def _removed_column(db: sqlite3.Connection):
     """Migration 19: the column `removed_at`, and the finished searches whose run is gone (deleted before the
     column existed: their card on the page showed a run that no longer was) marked removed now. The runs are
-    the folder `runs` beside the database (the web app's data folder)."""
+    the folder `runs` beside the database (the web app's data folder); without that folder nothing is marked."""
     db.execute("ALTER TABLE jobs ADD COLUMN removed_at TEXT")
     path = db.execute("PRAGMA database_list").fetchone()[2]
     if not path:  # a database in memory: no data folder
         return
     runs_dir = os.path.join(os.path.dirname(path), "runs")
-    gone = [(job_id,) for job_id, run_id in db.execute("SELECT id, run_id FROM jobs WHERE status = 'done' AND "
+    if not os.path.isdir(runs_dir):  # no runs folder (not made yet, or not mounted): no run can be told gone
+        return
+    gone =[(job_id,) for job_id, run_id in db.execute("SELECT id, run_id FROM jobs WHERE status = 'done' AND "
                                                        "run_id IS NOT NULL").fetchall()
             if not os.path.isfile(os.path.join(runs_dir, run_id, "run.json"))]
     db.executemany("UPDATE jobs SET removed_at = ? WHERE id = ?", [(cache.now_iso(), *g) for g in gone])

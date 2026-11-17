@@ -2095,6 +2095,17 @@ def test_jobs_database_gets_removed_marks(tmp_path):
         "kept": False, "gone": True, "cancelled": False, "failed": False, "norun": False}
     assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"}
 
+    # a data folder without runs/ (not made yet, or not mounted): nothing can be told gone, nothing is marked
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    db = sqlite3.connect(bare / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:18])
+    db.execute("INSERT INTO jobs (id, created, status, request, title, run_id, user_id) "
+               "VALUES ('done', '', 'done', '{}', 'Done', 'somewhere', 3)")
+    db.commit()
+    db.close()
+    assert [bool(j["removed_at"]) for j in jb.Jobs(str(bare)).all()] == [False]
+
 
 def test_jobs_database_gets_rigs(tmp_path):
     """jobs.sqlite of version 17 gets the table of saved rigs (migration 18, an empty table); its jobs,
