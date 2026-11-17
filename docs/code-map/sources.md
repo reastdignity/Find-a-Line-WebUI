@@ -75,9 +75,13 @@ the server's origin, `FINDALINE_MIRROR_URL` overriding it, `off` or empty for no
 over HTTP index-driven as a folder: the index fetched once for all threads, kept `INDEX_SECONDS` in memory
 (`_remote_index`, never stored), `IndexMissing` on its 404, `IndexUnreadable` for another shape or `block`, a tile's
 sha256 compared before the file is written, one refetch of index and tile after `net._sleep`, a failure named by the
-host and a kind in fixed words (`_server_failed`); `reach` the start check (`REACH_TIMEOUT`, `REACH_ATTEMPTS`, a 429
-answers at once through `net._get(stop_on=)`, a failure remembered `UNANSWERED_SECONDS` for later start checks only,
-a local folder first answers without a request); docs/mirror-hosting/spec.md, solution C), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
+host and a kind in fixed words (`_server_failed`; every text names the host alone); `reach` the start check: the
+data server's list `DATASETS_PATH` (`_published`: one request per origin and process, kept `INDEX_SECONDS`, shared by
+the waiting threads; `_checked_list`), never a product's index (`REACH_TIMEOUT`, `REACH_ATTEMPTS`, a 429 answers at
+once through `net._get(stop_on=)` and counts as listed, a failure remembered `UNANSWERED_SECONDS` for later start
+checks only, a product the list does not name `NotPublished`: unavailable, not a failure, nothing remembered (U50); a
+local folder first answers without a request); `index_for_estimate` the product's index for `GridTiles.estimate`
+(kept or fetched; on a failure the estimate is the upper bound); docs/mirror-hosting/spec.md, solution C), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
 a UTF-8 BOM left out, an XYZ split into its regular grids by their offset from the listed resolution's lattice
 (`_lattices`: GUGiK's survey 70159 holds 5 m grids and 1 + 5 m patchworks in sheets listed at 1 m), each grid's
 spacing (`_step`) the smallest step between points one after another that `STEP_SUPPORT` (1 %) of them share, moves

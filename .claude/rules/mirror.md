@@ -24,8 +24,12 @@ is in `.claude/rules/deploy.md`, the VPS's checks of it (C7, C8) in `metrics.md`
 - The client (`tilebases.py`): `MIRROR_URL`'s host is the key of `net.HOST_SLOTS_OF`/`HOST_RATES_OF` (another address
   takes its manners through `net.LIMITS_AS`) and Telegraf's address; `off` (or empty) turns it off, also in conftest,
   `tests/regression.py` and the privacy sentence; a test never sets it empty (Windows deletes the variable: the real
-  host): `off`. `reach` only where the specification's C.3 passes `reach=True`; a later phase takes the job's stored
-  source (`plan_search(source_id=)`). `net._get(stop_on=)` is the start check's 429 rule; `_server_failed`'s text
+  host): `off`. `reach` only where the specification's C.3 passes `reach=True`; it reads the data server's
+  `datasets.json`, never a product's index (an estimate fetches the index: `index_for_estimate`); a later phase takes
+  the job's stored source (`plan_search(source_id=)`).
+- The client's reading of `datasets.json` (`tilebases._checked_list`: `datasets[].products[].path` against a
+  product's mirror folder; an unlisted product is `NotPublished`, U50) and `mirror_publish.write_datasets`' format
+  go together (`test_the_clients_reading_of_the_list_the_tool_writes`). `net._get(stop_on=)` is the start check's 429 rule; `_server_failed`'s text
   reaches the page through `error.download_failed`.
 - An index's rules (null: no data; beyond a complete index's extent: no data; `partial`; `"block"` 10) are what
   `sk_tiles`/`mirror_tiles` write, what `mirror_publish verify` checks and what `tilebases` reads

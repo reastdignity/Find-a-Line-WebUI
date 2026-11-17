@@ -3,7 +3,7 @@
 2026-11-15, second version (after a scope review and a builder's read of the first). The specification of a data
 server ("the mirror") from which every Find-a-Line installation downloads the tiles of the sources that cannot be
 read from their provider on demand. Built on 2026-11-16 (the task `mirror-hosting-build`); the text describes what
-exists, the sentences the build changed name the decision (U27-U49) or the planner's ruling behind them. What is
+exists, the sentences the build changed name the decision (U27-U50) or the planner's ruling behind them. What is
 still open is listed in section 9, never hidden.
 
 ## 1. How to read it
@@ -14,7 +14,7 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U49 are the user's decisions (U27-U49 taken during the build),
+**Names.** "A.5" is behaviour 5 of solution A. U1-U50 are the user's decisions (U27-U50 taken during the build),
 P1-P28 the planner's, S1-S17 the
 security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U49 during the build, 2026-11-15 and 16)
+### 2.1 By the user (2026-11-15; U27-U50 during the build, 2026-11-15 and 16)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -86,6 +86,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U47 | "It keeps this for 14 days" (a flood can make the log hold less) | "It keeps this for at most 14 days", and the same two words in the `CLAUDE.md` line of U30 |
 | U48 | The log's size bound (hourly; the oldest days first; today's file emptied whole and started again when it alone passes it) | 2 GB |
 | U49 | CI's job `mirror` (about 75 minutes with its self-test) | it runs only when the mirror's files or its check script change, plus by hand |
+| U50 | A dataset that reads the mirror but is not on the data server (Porto Santo, the Desertas, the Selvagens) | "a": the client reads the server's dataset list first and treats an unlisted dataset as unavailable, as it was before the mirror; a dataset starts working by itself when it is published |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -353,7 +354,9 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   mirror folder; `title`, `licence` and `source` (the page that states the basis) come from the dataset's
   `PUBLISHABLE` row, `attribution` from the catalogue (P22); `products` are all folders with an `index.json`
   (the averaged ones too), `tiles` the tiles with data, `bytes` those tiles plus the index, both taken from the
-  server's copy.
+  server's copy. The client's start check reads it (C.3, U50): a product is published when its mirror folder is a
+  `datasets[].products[].path` (the pair: `tests/test_mirror_pairs.py`
+  `test_the_clients_reading_of_the_list_the_tool_writes`).
 - `/v1/cubes/` and `/v1/cache/` are reserved and answer 404.
 - A later change of the layout gets `/v2/`; `/v1/` keeps answering as long as releases that know only it are in
   use, then 410.
@@ -485,27 +488,43 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    ("Could not download <layer> tile <name>: the data server at <host> does not answer (<kind>)", or "is busy
    (HTTP 429)" after a 429; U40). The kinds (`tilebases._failure_kind`): "HTTP <status>", "its answer was not the
    data" (a 200 that was not), "its certificate was refused", "no answer in time", "the connection broke",
-   "waited too long for its turn" (the host's rate turn) and "no answer". An index is fetched when a download first needs it (under a lock
-   per base: eight threads download) or by the start check (3), is kept in memory for 300 s (P11) and then taken
-   again. Index requests take the host's rate turn; tile requests take the host's slot as today.
+   "waited too long for its turn" (the host's rate turn) and "no answer". Every text of a failure names the data
+   server by its host alone, never its address, a path or a query (U40): "index.json is not on the server at
+   <host> (HTTP 404) ...", "the tile is not on the server at <host> ...", "the data server at <host> does not
+   answer (<kind>)". An index is fetched when a download or an estimate (7) first needs it (under a lock per base:
+   eight threads download), is kept in memory for 300 s (P11) and then taken again; the start check never asks it
+   (3). Index requests take the host's rate turn; tile requests take the host's slot as today.
 3. **The start check** (U6, U7, P10). `unavailable()` stays as it is today: no request, and it knows only "no
    base at all" (a wrong setting raises `MirrorUrlError` there, C.1). The question "does the mirror answer" is a second one, `reach`, asked only where a caller
    passes `reach=True`; everywhere else the default is off, so nothing new can ask by accident.
    When the local folder comes first (it holds the dataset), `reach` answers without a request and nothing falls
    back (U38); a folder without the averaged tiles then reads them from the server with no start check, and a
    server that does not answer fails the phase (the mixed case).
-   `reach` fetches the native resolution's `index.json` of each layer of the source that has a remote base:
-   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts. An index it gets is kept as in 2; a
-   failure is remembered for 60 s, and only for later `reach` calls (so a quick lane that lives long neither
-   repeats the wait at every estimate nor keeps an outage). "Does not answer" is: no HTTP answer, any 5xx (a 503
-   too: the mirror itself refuses only with 429, so a 503 comes from the proxy in front and means the mirror
-   behind it is not reachable), or a 404 of the index (the dataset is not published). A 429 is an answer: the
-   mirror is there and busy, the source is used, and the download's own retries deal with it; the start check
-   stops at the first 429 with no further attempt or pause (`net._get(stop_on=)`; U39), so its two attempts hold
-   for the other failures only. A source that does
-   not answer counts as unavailable
-   with "the data copy at <host> does not answer" (or its status), also when the cache holds every tile (U7):
-   `--source auto` takes the next source as today, a source named by `--source` is an error as today.
+   `reach` asks the data server for its list of datasets, `/v1/datasets.json` (written by `mirror_publish.py`
+   after every publish and unpublish, B), never a product's index: one request for all products of a process,
+   `timeout=(10, 20)` (10 s to connect, 20 s for each read), two attempts, kept in memory for 300 s as an index
+   is, and fetched once for the threads that wait for it (they take its answer, a failure too).
+   - **Listed**: a product whose mirror folder is a `path` of the list answers.
+   - **Not listed** (U50): the product is not published there, and the source is unavailable as it was before
+     the mirror, with "<layer>: not published on the data server at <host>, and no local copy is set up":
+     `--source auto` takes the next source of the place, a named source is an error. Nothing is remembered as the
+     server's failure, and a dataset starts working by itself once it is published (at the latest 300 s later,
+     when the kept list is taken again).
+   - **No list** ("does not answer"): no HTTP answer, any 5xx (a 503 too: the mirror itself refuses only with 429,
+     so a 503 comes from the proxy in front and means the mirror behind it is not reachable), a 404 of the list (a
+     server that publishes nothing has none) or a list that cannot be read. A failure is remembered for 60 s,
+     and only for later `reach` calls (so a quick lane that lives long neither repeats the wait at every estimate
+     nor keeps an outage). The source counts as unavailable with "<layer>: the data copy at <host> does not
+     answer (<detail>)", also when the cache holds every tile (U7): `--source auto` takes the next source as
+     today, a source named by `--source` is an error as today.
+   - **A 429**: an answer at once (the start check stops at the first 429 with no further attempt or pause,
+     `net._get(stop_on=)`; U39), and the product counts as listed; the download's own retries deal with the busy
+     server.
+   A listed product whose index is missing or cannot be read fails its phase at the index (U6's "fail in the
+   middle", as an index that disappears during a search; after a 429 an unlisted product the same). Another
+   remote base (a catalogue URL, none today) is asked for its index as before. Where the catalogue gives a
+   region's next source (Madeira's for its islets), `auto` takes it, as `main` does with a local copy holding
+   Madeira but no islet: the run names Madeira's source and the gap filling fills the islet.
    Who passes `reach=True`, and nobody else:
    - **the first planning of a search**: the command line's search, and a web job's first phase. The reason of a
      fall-back is in that phase's messages, which the page shows.
@@ -514,8 +533,9 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
      the band plans (never inside `band_plan`, which the workers share). Down is an error and the run does not
      start, as an unavailable own source already stops it today; that holds for a resume whose tiles are all
      cached too (a country counted on the fall-back's data would be useless, and the rule stays one rule).
-   - **The probe** (`findaline.py sources check`): its row for these layers shows the index's state, and it reads
-     the first tile the index lists with data.
+   - **The probe** (`findaline.py sources check`): its row for these layers shows the start check's state and
+     reads the first tile the product's index lists with data; a product the list does not name is a row with
+     that note, not a failure.
    Who never does:
    - **Later phases of the same job never choose again**: `plan_search` gets the first phase's source as an
      argument of its own (the job's stored `source`, which the first phase already writes and which holds
@@ -555,9 +575,10 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    then fails its phase, which is run again (rare: an index is fetched once per process and 300 s). Requests to the
    mirror pass `timeout=(10, 300)` (today one 300 s value serves as both: a dead home server would cost 3 x
    300 s a tile).
-7. **Estimates.** For a remote base `GridTiles.estimate` uses a kept index when there is one (null tiles are not
-   counted); without one it counts every tile of the grid that is not cached, an upper bound. A local folder's
-   estimate stays as it is today.
+7. **Estimates.** For a remote base `GridTiles.estimate` uses the product's index: the kept one, or fetched when
+   tiles are to be downloaded (`TileBases.index_for_estimate`; the start check keeps none), so null tiles are not
+   counted; when that fetch fails it counts every tile of the grid that is not cached, an upper bound, and never
+   fails. A local folder's estimate stays as it is today.
 8. **Tests and tools.** `tests/conftest.py` sets `FINDALINE_MIRROR_URL` to `off` for every test (U37).
    `tests/regression.py` sets it to `off` too unless `--mirror-url <address>` is given; an entry with
    `needs_path` runs when the folder exists (as today) or when `--mirror-url` is given. Tools that are online by
@@ -575,7 +596,10 @@ three lines ask that (`choose.py:84, 97, 100`); `search.plan_search(..., reach=F
 `stop_on=` tuple of statuses that end the attempts at once (the start check's 429, U39), and the timeout as a tuple
 (no change for other callers). Also new: `tilebases.MirrorUrlError`, `OFF`, `IndexMissing`, `IndexUnreadable` (an
 index of another shape or another `"block"` than `BLOCK`, treated as a mismatch), `net.LIMITS_AS` and
-`net.limits_host` (C.6), `net.TurnTimeout` (a rate turn not had in time). `source_unavailable` and its other callers
+`net.limits_host` (C.6), `net.TurnTimeout` (a rate turn not had in time); for U50 `tilebases.DATASETS_PATH`
+(`v1/datasets.json`), `tilebases.NotPublished` (reach's answer for an unlisted product: a text, not a failure),
+`tilebases._published(origin)` (the kept list of an origin's product paths) and `_checked_list` (the paths of a
+`datasets.json`, else `IndexUnreadable`), `TileBases.index_for_estimate()` (C.7). `source_unavailable` and its other callers
 (`filling.py:1325`, `country.py:1454`, `probe.py:600`) do not change, except that the probe also asks `reach`.
 
 ### Files and pairs
@@ -592,7 +616,8 @@ mirror" becomes "from the project's data server or a local copy") and with them 
 `tilebases.py` too), `test_probe.py`, a new `tests/test_mirror_client.py`.
 Pairs of `.claude/rules/sources.md` and `providers.md` to keep: the patched names (`net._get`, `net._sleep`
 called and patched through their module); every request path to a rated host takes its turn; a new numeric limit
-goes into the dicts with its source; the mirror's `origin` ↔ `GridTiles(origin=)`.
+goes into the dicts with its source; the mirror's `origin` ↔ `GridTiles(origin=)`; the client's reading of
+`datasets.json` ↔ `mirror_publish.write_datasets`' format (U50; `.claude/rules/mirror.md`).
 
 ### Tests
 With `tests/http_server.py` serving a fixture mirror: the same cache files as from the folder, byte for byte;
@@ -601,8 +626,15 @@ error and leaves no row and no file; a tile, then an index, with a wrong hash; a
 (old index, new tiles) heals by one refetch; the index 404 for a moment heals after the pause; `partial` goes to
 the next base; the server down at the first planning: unreachable with the reason within the timeouts (the
 test's clock is the timeout's value, never a wait), `auto` falls back, a named source raises; a 429 at the
-start check is "answers" and a 503 is "does not answer"; a remembered failure expires after 60 s and an index after 300 s of the patched
-clock; a later phase with the mirror down and the tiles cached completes on the first phase's source, with the
+list is "answers" (the product counts as listed; an unlisted product then fails its phase with no file and no
+row) and a 503 is "does not answer"; the list asked once for two products and by eight threads, and its failure
+taken by the threads that wait; an unlisted product under `auto` (passed over, the next source, nothing
+remembered, no index request) and named (refused with the text), also the catalogue's islet on a server
+publishing only Madeira; the list's 404, 503, no answer, and a list that is not `datasets.json`; the list kept
+300 s and a dataset published meanwhile starting by itself; a later phase asking no list; the estimate after a
+start check with the index's numbers (the upper bound when its index fails); the probe's row of an unlisted
+product (not a failure); each failure text as the public site stores it holding the host alone; a remembered
+failure expires after 60 s and an index after 300 s of the patched clock; a later phase with the mirror down and the tiles cached completes on the first phase's source, with the
 search's hash and `run.json`'s `source` as the user gave it; a job that fell back in its first phase computes on
 the fall-back's source although the mirror is back; down in the middle: the phase's error, and a second run
 completes from the cache; a finished run's profile and 3D patch with the mirror down and the tiles cached, also
@@ -634,7 +666,10 @@ process's pages make no request.
 - When the mirror's visitor total is full (four installations downloading at once), a further installation's
   phase fails after about a minute of retries (an estimate from `net._get`'s pauses; P8) and is run again.
 - Index traffic: about 1.2 MB per Slovak product and process before compression, a few percent of a small
-  search; A.3's gzip cuts it.
+  search; A.3's gzip cuts it. The start check adds one small request per process (the list, kept 300 s); an
+  estimate that has tiles to download takes the product's index, which the download then reuses.
+- A dataset cut but not published (U50: the islets today) is unavailable without a local copy until it is
+  published; the next source of the place takes over (for the islets Madeira's, by the catalogue's order).
 
 ### Needs the user's word
 Nothing before the build; the numbers of 3 and 6 are confirmed or corrected after M2.
