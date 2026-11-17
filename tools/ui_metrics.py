@@ -27,7 +27,8 @@ left_out_by_run and shoot_all with `act`: the same site, users, waits and steps;
 a time per folder) and measures each one just where the screenshot would be taken (pages-states.jsonl, one line a
 state as it ends; then pages.json, pages.md). A state whose wait timed out or whose load, steps or measuring failed
 is recorded as not measured, with its reason, and counts in no total; a state the device does not show (a click
-finds nothing) or the run lacks the feature of is recorded as left out, with its reason. Every control's and text's
+finds nothing) or the run lacks the feature of is recorded as left out, with its reason; a state measured while
+the page was still busy at the settle's limit is measured, with that note ("unsettled"). Every control's and text's
 size is kept in the log, so `--summarise` with other `--controls`/`--text` bounds answers them without a new pass
 (pages-c<..>-t<..>.json/.md); the summary also gives the page families by the prefix of their names (FAMILIES).
 The exit code is 1 when a state was not measured or a pass did not finish (as tools/ui_shots.py's after a
@@ -973,7 +974,9 @@ def record_of(row: dict) -> dict | None:
     failed, or any row with a wait that timed out (whatever followed: a later click that then finds nothing on a page
     that never drew is no property of the device), is recorded as not measured ("error": the outcome and its reason)
     and counts in no total; a page left out on a device (a click finds nothing, a "need:" is false) without a timeout
-    as "left_out" with its reason."""
+    as "left_out" with its reason. A state measured while the page was still busy at the settle's limit (ui_shots'
+    row "unsettled": after what, what was busy) is measured and keeps that note ("unsettled"): the summary counts and
+    lists it apart, never as a failure."""
     seconds = {"load": round(sum(row[k] or 0 for k in ("load", "settle", "tiles")), 2),
                "steps": round(sum(s["seconds"] for s in row["steps"]), 2), "measure": round(row["shot"] or 0, 2)}
     record = {"page": row["page"], "device": row["device"], "theme": row["theme"]}
@@ -982,10 +985,17 @@ def record_of(row: dict) -> dict | None:
     if row["timeouts"]:
         return {**record, "error": "timed out: " + "; ".join(row["timeouts"]), "seconds": seconds}
     if row["outcome"] == "done":
-        return {**record, **row["result"], "seconds": seconds}
+        busy = {"unsettled": row["unsettled"]} if row.get("unsettled") else {}
+        return {**record, **row["result"], **busy, "seconds": seconds}
     if row["outcome"] == "left out":
         return {**record, "left_out": row["reason"] or "left out"}
     return {**record, "error": f"{row['outcome']}: {row['error'] or row['reason']}", "seconds": seconds}
+
+
+def _unsettled_text(unsettled: list) -> str:
+    """ui_shots' notes of a page still busy at the settle's limit, in one line: after what, what was busy."""
+    return "; ".join(f"still busy after {u.get('after', '?')}: {', '.join(u.get('busy') or []) or '?'}"
+                     for u in unsettled)
 
 
 class _Logged(list):
@@ -1006,6 +1016,8 @@ class _Logged(list):
         self.log.write(json.dumps(record, ensure_ascii=False) + "\n")
         self.log.flush()
         what = record.get("error") or ("left out, " + record["left_out"] if "left_out" in record else "measured")
+        if record.get("unsettled"):
+            what += " (" + _unsettled_text(record["unsettled"]) + ")"
         print(f"{record['page']}-{record['device']}-{record['theme']}: {what}", flush=True)
 
 
@@ -1247,6 +1259,10 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS, passes: 
             "states_failed": sum(1 for r in records if "error" in r),
             "states_left_out": sum(1 for r in records if "left_out" in r),
             "left_out": _left_out(records),
+            # measured while the page was still busy at the settle's limit (a note: counted in "states" too)
+            "states_unsettled": sum(1 for r in ok if r.get("unsettled")),
+            "unsettled": [f"{r['page']}-{r['device']}-{r['theme']}: {_unsettled_text(r['unsettled'])}"
+                          for r in ok if r.get("unsettled")],
             "passes_not_finished": [f"{p['device']} {p['theme']}" for p in passes or [] if not p.get("complete", True)],
             "older_definitions": _older(records),
             "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
@@ -1262,6 +1278,8 @@ def pages_markdown(s: dict) -> str:
                   "No axe result", "Errors"])
     out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed, "
            f"{s.get('states_left_out', 0)} left out"
+           + (f"; {s['states_unsettled']} of the measured still busy at the settle's limit (a note)"
+              if s.get("states_unsettled") else "")
            + (f"; passes that did not finish: {', '.join(s['passes_not_finished'])}"
               if s.get("passes_not_finished") else "")
            + (f"; {s['older_definitions']}" if s.get("older_definitions") else "")
@@ -1327,6 +1345,9 @@ def pages_markdown(s: dict) -> str:
         out += ["", f"## Left out ({s['states_left_out']} states: the run or the device does not show them)", ""]
         out += [f"- {page}: {reason} ({', '.join(where)})" for (page, reason), where in
                 ((tuple(k.split(" | ", 1)), v) for k, v in s["left_out"].items())]
+    if s.get("unsettled"):
+        out += ["", f"## Measured while still busy ({s['states_unsettled']} states: a note, not a failure)", ""]
+        out += [f"- {u}" for u in s["unsettled"]]
     errors = [e for r in s["per_device_theme"].values() for e in r["errors"] + [f"axe: {p}" for p in r["axe_errors"]]]
     if errors:
         out += ["", "## Errors", ""] + [f"- {e}" for e in errors]

@@ -852,6 +852,24 @@ def test_headline_counts_with_failures():
     assert "1 states measured, 1 failed, 1 left out" in ui_metrics.pages_markdown(s)
 
 
+def test_a_state_still_busy_is_measured_with_a_note():
+    """ui_shots shoots a page still busy at the settle's limit and notes it ("unsettled"): its record is measured and
+    keeps the note; the summary counts it as measured, and apart as a note, never as failed."""
+    row = {"page": "a", "device": "iphone", "theme": "light", "outcome": "done", "timeouts": [], "error": None,
+           "reason": None, "load": 1.0, "settle": 10.0, "tiles": 0.0, "shot": 0.3, "steps": [],
+           "result": {"controls": []}, "unsettled": [{"after": "the load", "busy": ["2 timers"]}]}
+    record = ui_metrics.record_of(row)
+    assert "error" not in record and record["unsettled"] == row["unsettled"]
+    assert "unsettled" not in ui_metrics.record_of({**row, "unsettled": []})
+    busy = {**_state("a", "iphone", 1, 0), "unsettled": row["unsettled"]}
+    s = ui_metrics.summarise([busy, _state("b", "iphone", 1, 0)])
+    assert (s["states"], s["states_failed"], s["states_unsettled"]) == (2, 0, 1)
+    assert s["unsettled"] == ["a-iphone-light: still busy after the load: 2 timers"]
+    markdown = ui_metrics.pages_markdown(s)
+    assert "2 states measured, 0 failed, 0 left out; 1 of the measured still busy" in markdown
+    assert "## Measured while still busy (1 states" in markdown
+
+
 class _NoWebKit(_Fake):
     """Playwright as far as shoot_all uses it, its WebKit not launching."""
     def __init__(self):
