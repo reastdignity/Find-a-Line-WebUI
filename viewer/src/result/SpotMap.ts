@@ -381,7 +381,8 @@ export class SpotMap {
     ctx.lineCap = "round";
     const shapes: Legend["shapes"] = {}, fan = view.fan, sel = view.selected, dim = sel || fan ? 0.3 : 1;
     const p = new Float64Array(4), over = this.over;
-    let strokes = 0, found: number[] = [];
+    const counted = new Set<number>();  // the lines stroked, each once (a line may be drawn twice: thin and bold)
+    let found: number[] = [];
     const inFan = new Set<number>();
     if (fan) for (const row of fan.rows) if (row.label[0] !== "L") inFan.add(row.row);  // its number is drawn by the fan, once
 
@@ -409,7 +410,7 @@ export class SpotMap {
         if (trace(rows, 1)) { ctx.stroke(); shapes.over = true; }
       }
       ctx.globalAlpha = 1;
-      if (count) strokes += rows.length;
+      if (count) for (let k = 0; k < rows.length; k++) counted.add(rows[k]);
     };
     const target = (rows: ArrayLike<number>, rank: number) => {
       if (!full) return;
@@ -564,7 +565,7 @@ export class SpotMap {
     }
     ctx.globalAlpha = 1;
     if (!full) return;
-    this.strokes = strokes;
+    this.strokes = counted.size;
     const legend: Legend = {level, shapes, by: this.by, breaks: found};
     const key = JSON.stringify(legend);
     this.legendNow = legend;
@@ -608,7 +609,8 @@ export class SpotMap {
     });
   }
 
-  /** What the map shows now, by the page's own count: the strokes of lines (each line once, its halo not counted)
+  /** What the map shows now, by the page's own count: the lines stroked (each line once, however often it is drawn:
+   *  thin and bold, pale and selected; its halo not counted)
    *  and the numbers with their boxes in the viewport. */
   drawn(): {strokes: number; numbers: {label: string; box: DOMRect}[]} {
     const box = this.map.getContainer().getBoundingClientRect();
@@ -710,7 +712,7 @@ export class SpotMap {
         const i = Math.floor((x - grid.x0) / grid.side), j = Math.floor((y - grid.y0) / grid.side);
         const x0 = grid.x0 + i * grid.side, y0 = grid.y0 + j * grid.side;
         this.map.fitBounds(this.bounds([[x0, y0], [x0 + grid.side, y0], [x0 + grid.side, y0 + grid.side], [x0, y0 + grid.side]]),
-                           {maxZoom: this.zoomOf(view.auto ? SQUARE_MPP : CLOSE_MPP), padding: [30, 30]});
+                           {...this.fitOptions(this.own(), 30, view.auto ? SQUARE_MPP : CLOSE_MPP), animate: true});
         return;
       }
     }
