@@ -1713,3 +1713,133 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
     for name in ("desktop_corners", "zoom_out", "zoom_in", "phone_corners", "narrow", "widened"):
         found = r[name]
         assert found["under"] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, (name, found)
+
+
+CANCELLED_SCRIPT = """
+const J = %(jobs)s;
+const chip = (id) => card("job", id).querySelector(".u-st");
+const menuItems = (id) => $$(`.c-card[data-job="${id}"] .c-menu-item`).map((m) => m.textContent.trim());
+const item = (id, label) => $$(`.c-card[data-job="${id}"] .c-menu-item`).find((m) => m.textContent.trim() === label);
+const openMenu = (id, then) => { card("job", id).querySelector(".c-card-menu").click(); wait(() => menuItems(id).length, then); };
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+run({
+  home(next) { wait(() => card("job", J.waiting) && card("job", J.running) && card("job", J.failed), () => {
+    const of = (id) => ({status: card("job", id).dataset.status, chip: text(`.c-card[data-job="${id}"] .u-st`),
+                         chipClass: chip(id).className, meta: text(`.c-card[data-job="${id}"] .c-card-meta`).split(" · ")[0],
+                         colour: getComputedStyle(chip(id)).color, background: getComputedStyle(chip(id)).backgroundColor});
+    result.cards = {waiting: of(J.waiting), running: of(J.running), failed: of(J.failed)};
+    result.gone = [!!card("job", J.removed), !!card("job", J.deleted)];
+    next();
+  }); },
+  failedMenu(next) { openMenu(J.failed, () => {
+    result.failedMenu = menuItems(J.failed);
+    card("job", J.failed).querySelector(".c-card-menu").click();
+    wait(() => !menuItems(J.failed).length, next);
+  }); },
+  keepIt(next) { openMenu(J.waiting, () => {
+    result.waitingMenu = menuItems(J.waiting);
+    const remove = item(J.waiting, "Remove…");
+    result.itemTag = [remove.tagName, remove.getAttribute("role")];
+    remove.focus();
+    remove.click();
+    wait(() => $(".c-confirm") && document.activeElement && document.activeElement.closest(".c-confirm"), () => {
+      result.ask = [text(".c-confirm span"), $(".c-confirm").getAttribute("role"), $(".c-confirm").getAttribute("aria-label"),
+                    document.activeElement.textContent.trim(), $$(".c-confirm button").map((b) => b.textContent.trim())];
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !$(".c-confirm"), () => { result.kept = !!card("job", J.waiting); next(); });
+    });
+  }); },
+  remove(next) { openMenu(J.waiting, () => {
+    item(J.waiting, "Remove…").click();
+    wait(() => $(".c-confirm-remove"), () => {
+      $(".c-confirm-remove").click();
+      wait(() => !card("job", J.waiting), () => {
+        fetch("/api/jobs").then((r) => r.json()).then((body) => {
+          result.removed = body.jobs.filter((j) => j.removed_at).map((j) => j.id).sort();
+          result.left = [!!card("job", J.running), !!card("job", J.failed)];
+          next();
+        });
+      });
+    });
+  }); },
+});
+"""
+
+# The admin page is the public site's: the page told its user is an administrator (the server's admin endpoints
+# answer the local app with errors, which the page shows; its list of searches is the jobs' list)
+ADMIN_STUBS = C_STUBS + """
+const meta = document.querySelector("meta[name=findaline-user]") || document.head.appendChild(document.createElement("meta"));
+meta.name = "findaline-user";
+meta.content = JSON.stringify({name: "Admin", provider: "github", status: "approved", admin: true});
+"""
+
+ADMIN_SCRIPT = """
+const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+run({
+  admin(next) {
+    location.hash = "#admin";
+    wait(() => $$(".c-admin-job").length >= 5, () => {
+      result.admin = $$(".c-admin-job").map((row) => [inside(row, "b"), inside(row, ".u-st"),
+                                                      row.querySelector(".u-st").className, inside(row, ".c-admin-removed")]);
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_cancelled_search(tmp_path):
+    """Home: a search cancelled while waiting and one cancelled while running show the quiet state "cancelled" (the
+    grey of a waiting search, not the failure's colour or warn mark; the word as text), a failed one stays a failure;
+    a cancelled card's menu has Edit & run again and Remove… (a button, by keyboard too), which asks first (the focus
+    on "Keep it", Escape keeps it) and removes the card; a removed search and one whose run was deleted show no card;
+    the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
+    from jobs import Jobs
+    data = tmp_path / "data"
+    (data / "runs").mkdir(parents=True)
+    jobs = Jobs(str(data))
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    ids = {name: jobs.add(request, title) for name, title in (
+        ("failed", "Failed search"), ("deleted", "Saved search"), ("removed", "Removed search"),
+        ("running", "Cancelled while running"), ("waiting", "Cancelled while waiting"))}
+    gone = "2026-11-01_100000_Gone_0000000000000001"
+    jobs.set(ids["failed"], "failed", error="the server stopped")
+    jobs.set(ids["deleted"], "done", run_id=gone)
+    jobs.delete_run(gone, str(data / "runs"))
+    assert jobs.request_cancel(ids["removed"]) and jobs.remove(ids["removed"])
+    jobs.set(ids["running"], "computing")
+    jobs.set(ids["running"], "cancelled", when=("computing",))  # as the worker does after cancel_requested
+    assert jobs.request_cancel(ids["waiting"])
+    page = stub_page(data, "ccancelled", CANCELLED_SCRIPT % {"jobs": json.dumps(ids)})
+    admin_page = stub_page(data, "ccancelled-admin", ADMIN_SCRIPT, ADMIN_STUBS)
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c", tmp_path / "edge-cancelled")
+        r_admin = _edge(port, admin_page + "?ui=c", tmp_path / "edge-cancelled-admin")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert "timeout" not in r_admin and "error" not in r_admin, json.dumps(r_admin)
+    r["admin"] = r_admin["admin"]
+    for name in ("waiting", "running"):
+        found = r["cards"][name]
+        assert found["status"] == "cancelled" and found["chip"] == "cancelled" and found["meta"] == "Cancelled", r
+        assert "u-cancelled" in found["chipClass"] and "u-failed" not in found["chipClass"], r
+        assert (found["colour"], found["background"]) != (r["cards"]["failed"]["colour"],
+                                                         r["cards"]["failed"]["background"]), r
+    failed = r["cards"]["failed"]
+    assert failed["status"] == "failed" and failed["chip"] == "failed" and "u-failed" in failed["chipClass"], r
+    assert failed["meta"] == "the server stopped", r
+    assert r["gone"] == [False, False], r
+    assert r["failedMenu"] == ["Edit & run again"], r
+    assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
+    assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result "
+                        "and no files.", "alertdialog", "Remove the search", "Keep it", ["Remove", "Keep it"]], r
+    assert r["kept"] is True, r
+    assert r["removed"] == sorted([ids["waiting"], ids["removed"], ids["deleted"]]), r
+    assert r["left"] == [True, True], r
+    admin = {row[0]: row for row in r["admin"]}
+    assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
+    assert "u-cancelled" in admin["Removed search"][2] and admin["Cancelled while waiting"][3] == "removed", r
+    assert admin["Saved search"][3] == "removed" and admin["Failed search"][3] == "", r
+    assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
+    assert "u-failed" in admin["Failed search"][2], r
+    assert r["csp"] == [] and r_admin["csp"] == []

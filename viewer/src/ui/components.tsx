@@ -168,10 +168,11 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
 
 // ---- status ----------------------------------------------------------------------------------
 
-export type Status = "running" | "done" | "waiting" | "failed" | "shared";
+export type Status = "running" | "done" | "waiting" | "failed" | "cancelled" | "shared";
+// cancelled: the user's own act, not a failure: quiet (the grey of waiting), the cancel action's icon
 const STATUS: Record<Status, [string, IconName]> = {
   running: ["running", "refresh"], done: ["done", "check"], waiting: ["waiting", "clock"], failed: ["failed", "warn"],
-  shared: ["shared", "link"],
+  cancelled: ["cancelled", "close"], shared: ["shared", "link"],
 };
 
 /** The state of a search or run as a small coloured label. */

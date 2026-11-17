@@ -106,7 +106,7 @@ export function useJobs(): JobsState {
 }
 
 export interface JobProgress {
-  state: "running" | "waiting" | "done" | "failed";  // the kit's StatusChip
+  state: "running" | "waiting" | "done" | "failed" | "cancelled";  // the kit's StatusChip
   label: string;           // the status in words
   step: string;            // the current step ("Step 3/5: evaluating anchor pairs", "Tile 2/4 · ..."), or ""
   fraction: number | null; // 0..1 of the whole job; null while unknown
@@ -122,7 +122,7 @@ const share = (bar: Bar | undefined) => !bar ? 0 : bar.total ? Math.min(1, bar.c
  *  tiles, then the search's own steps start theirs. */
 export function jobProgress(job: JobView): JobProgress {
   const finished = FINISHED.includes(job.status);
-  const state = job.status === "done" ? "done" : job.status === "failed" || job.status === "cancelled" ? "failed"
+  const state = job.status === "done" || job.status === "failed" || job.status === "cancelled" ? job.status
     : job.status === "downloading" || job.status === "computing" ? "running" : "waiting";
   let fraction: number | null = null;
   if (job.status === "done") fraction = 1;

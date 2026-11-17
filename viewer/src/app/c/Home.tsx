@@ -10,7 +10,7 @@ import { forgetRun } from "../../result/load";
 import { canReport, openReport } from "../../report";
 import { UsageMeters, type UsageState } from "../../search";
 import { api, jobError, user, type RunListed } from "../api";
-import { errorText } from "../../i18n";
+import { errorText, t } from "../../i18n";
 import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJobs";
 import { editHash, runHash } from "./route";
 import { Thumb, ThumbCredit, type ThumbSource } from "./Thumb";
@@ -34,12 +34,13 @@ export interface Card {
   created: string;
 }
 
-/** The jobs and the user's own runs as cards, newest first. */
+/** The jobs and the user's own runs as cards, newest first; no card for a job its owner removed (an
+ *  administrator's list, and the local app's, still has those). */
 export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean): Card[] {
   const own = runs.filter((r) => r.own || !publicSite);
   const byId = new Map(own.map((r) => [r.id, r]));
   const used = new Set<string>();
-  const cards: Card[] = jobs.map((job) => {
+  const cards: Card[] = jobs.filter((job) => !job.removed_at).map((job) => {
     const run = job.run_id ? byId.get(job.run_id) : undefined;
     if (run) used.add(run.id);
     return {key: "job:" + job.id, job, run, created: run?.created || job.created};
@@ -55,16 +56,20 @@ export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean)
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-type CardState = {status: "running" | "waiting" | "done" | "failed" | "shared"; chip: string; meta: string;
-                  fraction: number | null; step: string; unfinished: boolean};
+type CardState = {status: "running" | "waiting" | "done" | "failed" | "cancelled" | "shared"; chip: string;
+                  meta: string; fraction: number | null; step: string; unfinished: boolean};
 
 function stateOf(card: Card): CardState {
   const {job, run} = card;
   if (job && job.status !== "done") {
     const p = jobProgress(job);
+    if (p.state === "cancelled") {  // the user's own act: a quiet state, not a failure
+      return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: t("ui.card.cancelled_meta"),
+              fraction: null, step: ""};
+    }
     if (p.state === "failed") {
-      return {status: "failed", chip: job.status === "cancelled" ? "cancelled" : "failed", unfinished: false,
-              meta: jobError(job) || (job.status === "cancelled" ? "Cancelled" : "Failed"), fraction: null, step: ""};
+      return {status: "failed", chip: "failed", unfinished: false, meta: jobError(job) || "Failed", fraction: null,
+              step: ""};
     }
     const pct = p.fraction === null ? "" : ` · ${Math.round(p.fraction * 100)}%`;
     return {status: p.state === "running" ? "running" : "waiting", unfinished: true,
@@ -103,7 +108,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
                     {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean}) {
   const {job, run} = card;
   const st = stateOf(card);
-  const [panel, setPanel] = useState<"" | "share" | "delete">("");
+  const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
   const [menu, setMenu] = useState(false);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -131,9 +136,13 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
                                               (e) => setError(e.message));
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
-  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null); },
+  // The server marks the job that saved the run removed too: listed again, its card goes with the run
+  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
+                                                           return jobs.refresh(); },
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
+  const removeJob = () => api.removeJob(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
+  const canRemove = !!job && job.status === "cancelled";
   const items = [
     open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />Open the result</a>,
     job && <a key="edit" role="menuitem" class="c-menu-item" href={editHash(job.id)}><Icon name="edit" />Edit &amp; run again</a>,
@@ -146,6 +155,8 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
       <Icon name="warn" />Report a problem…</button>,
     canDelete && <button key="delete" type="button" role="menuitem" class="c-menu-item c-danger" onClick={act(() => setPanel("delete"))}>
       <Icon name="close" />Delete…</button>,
+    canRemove && <button key="remove" type="button" role="menuitem" class="c-menu-item" onClick={act(() => setPanel("remove"))}>
+      <Icon name="close" />{t("ui.card.remove")}</button>,
   ].filter(Boolean);
 
   const body = <>
@@ -185,6 +196,14 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
         <div class="u-row">
           <Button kind="danger" class="c-confirm-delete" onClick={remove}>Delete</Button>
           <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>Keep it</Button>
+        </div>
+      </div>}
+      {panel === "remove" && job && <div class="c-card-panel c-confirm" role="alertdialog" aria-label={t("ui.card.remove_title")}
+                                         onKeyDown={panelKeys}>
+        <span>{t("ui.card.remove_ask", {name})}</span>
+        <div class="u-row">
+          <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
+          <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
         </div>
       </div>}
       {error && <p class="c-error u-small" role="alert">{error}</p>}
