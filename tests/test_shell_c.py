@@ -2043,10 +2043,19 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
     r = {}
 
     def menu(page, job: str) -> list:
+        """A card's menu opened, its items. Returned once the focus is in it: the Popover registers its Escape
+        listener in the effect that moves the focus there (after the paint), so an Escape before that is lost and
+        the next press of the button closes the menu again (18 of 20 tries, C:\\fal\\ux3-cancelled\\menu_race.py)."""
         page.locator(f'.c-card[data-job="{job}"] .c-card-menu').click()
         items = page.locator(f'.c-card[data-job="{job}"] .c-menu-item')
         items.first.wait_for(timeout=30000)
+        page.wait_for_function("(job) => !!document.activeElement?.closest(`.c-card[data-job=\"${job}\"] .r-pop`)",
+                               arg=job, timeout=30000)
         return [t.strip() for t in items.all_text_contents()]
+
+    def close_menu(page, job: str):
+        page.keyboard.press("Escape")
+        page.locator(f'.c-card[data-job="{job}"] .c-menu-item').first.wait_for(state="detached", timeout=30000)
 
     def asked(page, job: str, remove: bool = False) -> str:
         """Remove…'s question of a card (its text), then kept ("Keep it") or confirmed."""
@@ -2086,9 +2095,9 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
                 context, page = signed_in({"id": 1, "login": "admin"})
                 page.wait_for_selector(f'.c-card[data-job="{a_cancelled}"]', timeout=30000)
                 r["admin_theirs"] = menu(page, a_cancelled)
-                page.keyboard.press("Escape")
+                close_menu(page, a_cancelled)
                 r["admin_own"] = menu(page, admin_cancelled)
-                page.keyboard.press("Escape")
+                close_menu(page, admin_cancelled)
                 r["admin_ask"] = asked(page, admin_cancelled)  # an administrator has no daily limit
                 context.close()
 
