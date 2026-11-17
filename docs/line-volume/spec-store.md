@@ -7,6 +7,8 @@ Sections: 1 the store (its waves cover the whole part), 2 old runs, 3 the ranges
 5 renaming a run, 6 the goal case, 7 contradictions, 8 the user's word (U1-U12, elsewhere cited as "store U1" …).
 The user's closing answers of 2026-11-14 settle U1 (six ranges), U4 (exports per download), U5 (old runs removed)
 and U12 (brotli); the choices of class "planner" are taken as recommended (section 8).
+**State on 2026-11-16:** waves 1 and 2 are built (`main` 31f16de, 47c5fa7, ef93df5); "as built" notes stand in 1.3,
+1.8, 1.9 and 1.10. Open: waves 3, 4, 6, 7, 8.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -85,7 +87,7 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
 | `prom1`, `prom2`, `drop1`, `drop2` | int | m (1) | null: not known | the same | 2 |
 | `lift_needed`, `lift_no_zone` | int | m (2) | column absent without zone and A-frames | `END_VALUES` | 2 |
 | `stands_for` | uint32 | found lines | column absent with the square rule off | `samelines.COLUMN` (int64 in `LineTable`) | 2 |
-| `access1`, `access2` | uint8 | 0 / 1 / 2 | column absent without `--access` | `spec-search.md` 3.3 | with the access mark |
+| `access1`, `access2` | uint8 ("mark": read with scale 1) | 0 hard access / 1 cannot tell / 2 easy access | column absent without `--access`, and when the mark was left out (the head's `access_skipped`) | `spec-search.md` 3.3 | built with the access mark (53fe802) |
 | `spot` | uint32 | spot number from 0 | never (every line has a spot) | `mapping.group_lines` at the run's distance, renumbered | view B1 |
 | `top` | uint8 | 0 / 1: the top-level flag | never | the rule of `spec-view.md` B.3 | view B1 |
 | `by_spot` | uint32 | a row index | never | the view's order (below) | view B1 |
@@ -112,7 +114,20 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
 - **`run.json`** gains `"store": {"format": 1, "lines": <rows>, "bytes": <lines.arrow + profiles.arrow>, "sha256":
   <of lines.arrow, first 16 hex>}`; the sha256 versions the URL (section 4).
 - **Bytes** (part P5): 105-107 B a line on BAH and MG5, 158 on MG0 (more profiles per line); MG5 327.2 MB against
-  713.6 MB of `data.js`. `stands_for` adds 4 B (estimate), the view's columns about 9 B.
+  713.6 MB of `data.js`. `stands_for` adds 4 B (estimate), the view's columns about 9 B. As built (round 3,
+  `docs/performance.md` "From the store"): BAH in the target rig 207.8 MB (`lines.arrow` + `profiles.arrow`)
+  against 448.8 MB of `data.js`; gzipped at nginx's level 5, 89.5 MB against 143.9 MB.
+- **As built, beyond the table (wave 2, round 3):**
+  - A scaled column whose values no integer type holds exactly (beyond int64 after scaling, an infinity, a NaN in a
+    column that "never" misses) is written as float64 without the `decimals` metadata, holding the values rounded
+    as `data.js` shows them; a count beyond uint32 as uint64. The reader takes either form and the export stays
+    byte-equal to `lines.csv`. The store so never costs a run.
+  - The store is written after today's text files, under temporary names (`lines.arrow.part`,
+    `profiles.arrow.part`) renamed only when both are whole; `run.json` is rewritten whole too. If the store still
+    fails, the run is kept without one: no `store` block, a warning logged and printed (not a coded message yet),
+    and the page reads its `data.js` as for an old run.
+  - `web.RUN_FILES` is one list for `/runs` and `/s`: a share link, an administrator and a demo run's visitors are
+    sent the store as they are sent `data.js` (1.7's "to the owner only" means "not to other users").
 - **Stored data:** waves 1-3 and view B1 "none" (new files and columns; old runs open as they are; jobs.sqlite,
   favourites, share links unchanged). Wave 4 "none" for the format, and old runs are **removed, not migrated** (U5,
   section 2): the removal is a command run on the user's word, and that wave's commit message says so. Favourites of
@@ -208,6 +223,23 @@ exclusive mode only when the user says the PC is free)
 
 T5 and T6 depend on grouping and drawing from columns (not measured in part P5): wave 1 measures them, then reports.
 
+**T5's heap, defined** (the user, 2026-11-15: "a"): the peak after loading, read two frames after the first picture
+(`usedJSHeapSize`, which counts the typed arrays' backing stores); the page's own `gc()` reading and the reading
+after a full collection are reported beside it.
+**Measured after wave 2** (round 3; one exclusive pass, desktop Chromium over loopback, three rounds;
+`docs/performance.md` "From the store"; BAH in the target rig):
+
+| Target | From `data.js` (wave 1) | From the store (wave 2) | Verdict |
+|---|---|---|---|
+| T5 heap < 500 MB at BAH | 1 732-1 733 MB | 447-474 MB (236 MB after a full collection) | met |
+| T5 first picture ≤ 3 s at BAH | 5.91-6.49 s | 3.06-3.37 s (download 0.64 s, the grouping 1.78 s) | not met, by a little |
+| T5 never a crash | a 2.5 M cut: "This result is too large for this browser." | the 2.5 M cut opens (4.25-4.55 s) | met on the desktop |
+| T6 filter / grouping change ≤ 0.3 s at BAH | 1.13-1.22 s / 1.52-1.60 s | 1.16-1.19 s / 1.54 s | not met, unchanged |
+
+What is left of T5's seconds and all of T6 is the greedy grouping: view B1's stored spots and `by_spot`
+(`spec-view.md` B.3, B.9) take it out of the load and of a filter change. The iPhone was measured only as a WebKit
+profile on Windows (the 2.5 M cut showed after 10.6 s there), never on a device.
+
 ### 1.9 Waves (of the whole part; each wave ships alone and leaves every regression checksum as it is)
 | Wave | What | Agents and the files each owns | After | Effort |
 |---|---|---|---|---|
@@ -216,9 +248,15 @@ T5 and T6 depend on grouping and drawing from columns (not measured in part P5):
 | 3 | Exports per download, none kept; regression's checksum from the export | D: `jobs.py` (kind `export`, the clean-up), `web.py` (the two routes), `RunActions.tsx`, `findaline.py export`, `locales/en.json`, `regression.py`, tests | 2 | medium |
 | 4 | Text files and `file://` end; `view`; Compare and thumbnails from the store; the reader of `data.js` goes; old runs removed on the user's word (section 2) | E: `search.save_run`, `saving.py`, `mapping.save_map`, `runs.write_index`, `findaline.py` (`view`, `runs remove-old`), `docs/deployment.md`, tools, README, setup guide, CLAUDE.md, rules, `docs/`; F: `result/load.ts`, `others.ts`, `Thumb.tsx`, the disk notice, `test_web.py` | 3 and view B1 | high |
 | 5 | – (was: old runs converted; the user chose removal, which is a step of wave 4) | – | – | – |
-| 6 | What is sent (section 4), brotli at saving | H: `web.RunFiles`, `web.cache_control`, `linestore.write_br`, `pyproject.toml`, `uv.lock` (the brotli package, after the comparison and the user's yes), `deploy/nginx/findaline.conf`, `tests/nginx_check.sh`, `docs/deployment.md`, Home's size and the warning (after their mock-up) | 2 | medium |
+| 6 | What is sent (section 4), brotli at saving | H: `web.RunFiles`, `web.cache_control`, `linestore.write_br`, `pyproject.toml`, `uv.lock` (no entry for brotli: pyarrow's own codec, section 4), `deploy/nginx/findaline.conf`, `tests/nginx_check.sh`, `docs/deployment.md`, Home's size and the warning (after their mock-up) | 2 | medium |
 | 7 | The ranges of six values of a kept line (section 3) | I: `samelines.py`, `linestore.py`, `filters.ts`, `LineDetails.tsx`, tests | 2 | medium |
 | 8 | Renaming a run (section 5) | J: `web.py`, `runs.py`, `RunActions.tsx` or Home, tests | – (simplest after 4) | low |
+
+**Built (round 3):** wave 1 (`main` 31f16de) and wave 2 (47c5fa7 the Python half, ef93df5 the page's reader). Wave
+2 took three things early: Compare reads a run with a store from its store (`RunActions.tsx`; the wave table puts
+"Compare and thumbnails from the store" in wave 4: thumbnails are still to do); `runs.list_runs`' `has_lines` is
+"`lines.arrow` or `lines.js`"; and `application/vnd.apache.arrow.file` joined nginx's `gzip_types` (section 4 has
+it in wave 6), so the public site sends the store gzipped until wave 6 sends brotli.
 
 The view's columns (`spot`, `top`, `by_spot`, the head's `sectors`, `box`, `lengths`) come with view B1, after wave 2.
 Wave 4 waits for view B1, so that from wave 4 on every new run carries them; a run saved between wave 2 and view B1
@@ -249,9 +287,13 @@ has a store without them and counts as an old run (section 2). Nothing converts 
   removal runs on the user's word after its `--dry-run` listing (section 2). A browser with an old viewer
   revalidates it (`cache_control`: "no-cache").
 
+- **What still reads `data.js` although the run has a store** (found in round 3; to solve before wave 4, which
+  ends `data.js`; no wave above owns it yet): a share link's page (`/s/runs.js` lists no runs, so the page finds no
+  store and reads `data.js`), and a run that is not in the viewer's `runs.js`.
+
 ### 1.11 Needs the user's word
-U4 and U12 are decided (section 8); U6, U9, U10, U11 are taken as recommended. The brotli package itself waits for
-the user's yes after wave 6's comparison.
+U4 and U12 are decided (section 8); U6, U9, U10, U11 are taken as recommended. The brotli codec is settled too
+(2026-11-15: pyarrow's own, section 4).
 ## 2. Old runs: removed, not converted
 
 ### 2.1 Decision
@@ -406,13 +448,15 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 0.31 s Pixel 7 ×4, 0.41 s iPhone 13 (part P5); with grouping about 5 s and 2.5 s (estimate, part E2's ratios).
 
 - **Compression once at saving (F-10):** the public worker writes `lines.arrow.br` and `profiles.arrow.br` after the
-  store, brotli at quality 5 (U12, the user, 2026-11-14: "4. a)"). Brotli is a new package: the building agent first
-  compares the maintained brotli packages for Python (for example `brotli` and `brotlicffi`: licence, wheels for
-  Python 3.15 on Windows and Linux, size, maintenance, speed on BAH's store), as CLAUDE.md's rule on dependencies asks,
-  and the user confirms the package before it enters `pyproject.toml`. `web.RunFiles` answers a request with
+  store, brotli at quality 5 (U12, the user, 2026-11-14: "4. a)"). **The codec is pyarrow's own**
+  (`pa.Codec("brotli", compression_level=5)`): the maintained brotli packages were compared in round 3 and the user
+  chose it (2026-11-15: "a"), so no new package enters `pyproject.toml`. The builder checks
+  `pa.Codec.is_available("brotli")` in the Docker image, always passes the quality, and checks a round trip through
+  a real browser. `web.RunFiles` answers a request with
   `Accept-Encoding: br` from the `.br` file with `Content-Encoding: br`, `Vary: Accept-Encoding` and the decoded size in `X-Findaline-Bytes`; nginx leaves a
   response that has a Content-Encoding alone. `deploy/nginx/findaline.conf`: `application/vnd.apache.arrow.file`
-  joins `gzip_types` for clients without br. The local app sends the files as they are (loopback).
+  joins `gzip_types` for clients without br (done with wave 2, `main` ef93df5). The local app sends the files as
+  they are (loopback).
 - **Caching (F-12):** the page asks for `lines.arrow?v=<run.json store.sha256>`; `web.cache_control` answers such a
   versioned run file with "private, max-age=31536000, immutable" (others as today). A reopen then costs no request.
   Open, not measured: whether Chromium's cache keeps an entry of hundreds of MB.
@@ -428,7 +472,7 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 - **Acceptance:** the goal case's bytes sent measured against T4's 10-20 MB (section 6: about 25-33 MB expected with
   the six ranges), the response's bytes; a reopen of BAH sends no data bytes. Wave 6, medium. **Risks:** a cache
   entry refused for its size (a 200 again, no harm); br's CPU at saving (BAH 1.6 s, part P5).
-- **Needs the user's word:** U12 decided (brotli; the package after the comparison); U7, U8 taken as recommended.
+- **Needs the user's word:** U12 decided (brotli, by pyarrow's own codec); U7, U8 taken as recommended.
 
 ## 5. Renaming a run (short)
 - **Decision:** the user, on mock-up 1's open point 10 (2026-11-13): "ok, add option to rename a run". Not found in
@@ -498,8 +542,8 @@ most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is u
   regression set: 1.7.
 - **U5, old runs: removed, not converted**, "both on server and on this pc": section 2, on the user's word at wave 4.
 - **U12, compression at saving: brotli** ("4. a)"), br-5 (BAH's store 32.4 MB, 1.6 s, part P5; the others measured
-  there: gzip-6 36.0 MB, 3.6 s; zstd-3 35.9 MB, 0.4 s), a new package compared first and confirmed by the user
-  (section 4).
+  there: gzip-6 36.0 MB, 3.6 s; zstd-3 35.9 MB, 0.4 s). The packages were compared in round 3 and the user chose
+  pyarrow's own codec (2026-11-15: "a"): no new package (section 4).
 
 **Taken as recommended** (class "planner": the user was offered the list on 2026-11-14 and did not go through it):
 - **U3** water and filled metres: (a) left out of the ranges; (b) per found line after a measurement on the goal case.
@@ -518,5 +562,4 @@ most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is u
 - **U2, a line that passes only by its ranges.** (a) drawn as any line, its details say "a line it stands for
   passes: clearance up to 6.2 m"; (b) a mark of its own; ranges in the details as "length 180-210 m · mean height
   31-44 m". Not in mock-up 2. Rec.: (a), with the ranges in the details; decided on a mock-up of the details first.
-- **The brotli package** (U12): which one, after wave 6's comparison.
 - **The removal itself** (U5): on each host, after its `--dry-run` list, at wave 4.

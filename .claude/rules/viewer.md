@@ -65,8 +65,9 @@ catalogue), `browser-tests.md`.
 
 - UI changes (viewer/src, the server-rendered pages): a visual review before calling them done: `uv sync --group ui`,
   `uv run playwright install chromium webkit` (once),
-  `uv run tools/ui_shots.py --out <scratch> --only <pages> --dark`, look at every screen the change touches on the
-  desktop and both phones, and show the screenshots with recommendations. Phones need the device profiles: a narrow
+  `uv run tools/ui_shots.py --out <scratch> --only <pages> --dark --data-dir <scratch>/ui-data` (the data folder kept:
+  a later start skips the clip's search and cubes; `--list` shows which pages `--only` picks), look at every screen
+  the change touches on the desktop and both phones, and show the screenshots with recommendations. Phones need the device profiles: a narrow
   headless window is not a phone (no viewport meta, pixel ratio or touch; headless Edge on Windows does not go below
   about 500 px), and WebKit on Windows has Windows' fonts, not San Francisco.
 - Map/JS changes: `tests/test_viewer.py`, then generate a small map (the Żabi Koń clip in `tests/data`, offline),

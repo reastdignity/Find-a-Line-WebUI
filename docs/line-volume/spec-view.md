@@ -183,7 +183,8 @@ and its phone frames). Every count below is of the lines that pass the filters.
 4. **Start here** (list at Area). "Highest on average" (highest mean height), "Longest with at least 3 m clear",
    "Highest above the ground" (highest point), "Most lines in one spot" (that spot's shown line); a pick in the spot of
    an earlier pick, or whose middle lies within 100 m of an earlier pick's, is left out. A pick's row: its name on a
-   line of its own, then the four numbers. "From a top edge" waits for the access mark (`spec-search.md` section 3).
+   line of its own, then the four numbers. The fifth pick, "From a top edge", needs the access mark, built since:
+   its rule is in `spec-search.md` 3.9.
 5. **Spots** ("Zoomed in: spots"). The best N spots' shown lines bold (3 px) and numbered; every other spot in view as
    its shown line, pale (1.5 px, 24 %). Status "Spots: best 10 of 283 in view" / "Spots: all 283 in view".
 6. **Lines** ("Close: lines"; "Best 30"). Each best spot's lines not beaten that cross the screen, thin (1 px, 30 %),
@@ -337,6 +338,13 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
   On the goal case (GZ1 with the square rule, 503 651 lines) a filter change recomputes every line: measure with
   `fal:run:*` marks under the exclusive lock.
 - T5 (first picture within 3 s, heap under 500 MB, never a crash) and T4 (10-20 MB sent): `spec-store.md`.
+  **Measured on today's page after the store** (round 3, BAH in the target rig, desktop Chromium; `spec-store.md`
+  1.8, `docs/performance.md` "From the store"): T5's heap 447-474 MB two frames after the first picture, which is
+  the reading the user chose for T5 (2026-11-15: "a"): met. The first picture after 3.06-3.37 s: not met, the
+  grouping takes 1.8 s of it. T6: a filter change 1.2 s, a grouping change 1.5 s, both the greedy grouping: not met,
+  unchanged. The result view groups nothing in the page (B.3: the spots and `by_spot` are stored), which is the
+  planned answer to both; measured again when wave 2 below reads them. The iPhone was tested only as a WebKit
+  profile on Windows, never on a device.
 - T9 (local density): not set in the sources (gate 1: "to be set once measured"); item B-6.
 
 ### B.9 Waves (after the store of G-06 a, `spec-store.md` wave 2)
@@ -347,6 +355,11 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
 3. The list, tree, details, fan, chooser, hint, summary in `view/` and `locales/en.json`. Medium.
 4. Today's features joined (profile card, 3D link, favourites, Compare, `#line=`, share page, overlays). Medium.
 5. The ported checks, `tools/ui_shots.py` review on the desktop and both phones, `viewer/dist`. Medium.
+
+The access mark (built on today's page in round 3) has parts that wait for this view: A1 and A2 carrying the state,
+the column "Far end" of "Lines from here", the three marks in the map's legend, the fifth "Start here" pick "From a
+top edge", and the phone legend of two lines with its fold (`spec-search.md` 3.9; the access mock-up, version 8,
+shows them in this view's frame). They belong to waves 2 and 3 above.
 
 ### B.10 Risks and rollout
 - The mock-up held at most 79 821 lines; the goal case keeps 503 651: the per-change loops (recompute, squares) are

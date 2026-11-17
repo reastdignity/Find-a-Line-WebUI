@@ -32,10 +32,10 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Sag model's fall zone (2026-11-14) | 6 m by default (3 m before): the user's words at the line-volume task's gate 2, "set the default to 6m for sag and formula" (the formula already keeps 6 m below its limit, built in: unchanged; the no-fall zone at the ends, `--end-zone`, untouched). The task's measurement: with sag alone, 6 m keeps 3-35 % of the lines 3 m finds in its four cases, with a 5 m no-fall zone and 2 m A-frames 39-75 %. Stored sag requests of the web app without the value keep 3 m (migration 17 of jobs.sqlite); runs keep their own; Slovakia's cube was counted at 3 m until its recount. |
 | Basic search form (2026-11-14, line volume) | Specified, built next ([spec-search.md](line-volume/spec-search.md) section 1): a tab "Basic · Advanced", Basic opened at every visit; 'My rig' sets the rigging (several named rigs saved with the account, at most 10, the privacy wording approved by the user), five goals replace today's three presets (Advanced adds "Custom"), Basic's radius 500 m, a size word before Start; Basic always uses the square rule at 5 (G-11 a); 'Sea cliffs' loses its wall-angle limit after a count (a fault). |
 | Size of a search before it runs (2026-11-14, line volume) | The web worker counts a 2 % sample of the anchors before the full pair search and refuses a search well above the line limit at once; the form's size word stays a hint (G-04 a; [spec-search.md](line-volume/spec-search.md) section 2). The command line and the regression set never sample. With the square rule on, an estimator of kept lines is measured first. |
-| Ease of access to the anchors (2026-11-14, line volume) | A mark of three states per anchor (can walk to it, cannot, cannot tell), no limit, nothing left out (G-09 a; [spec-search.md](line-volume/spec-search.md) section 3); where it shows: a mock-up first. |
-| Fewer, better anchors (2026-11-14, line volume) | Today's anchors stay (G-07 a). Lip anchors (K-26 'Rim anchors: the lip, steep pixel or not') are measured first with four truth-check passes; they become a search option only if they keep at least 98 % of the matched known lines (the user's closing answer; [spec-search.md](line-volume/spec-search.md) section 4). |
+| Ease of access to the anchors (2026-11-14, line volume) | A mark of three states per anchor (can walk to it, cannot, cannot tell), no limit, nothing left out (G-09 a; [spec-search.md](line-volume/spec-search.md) section 3); where it shows: a mock-up first. **Built 2026-11-16** (`--access`, on in the web form): the three states read "easy access", "cannot tell", "hard access" (the user's words); the grid of a large area is computed in blocks; a search too wide for the grid runs without the mark and says so (the user: no search is refused for a mark that filters nothing). Its parts in the result view come with that view. |
+| Fewer, better anchors (2026-11-14, line volume) | Today's anchors stay (G-07 a). Lip anchors (K-26 'Rim anchors: the lip, steep pixel or not') are measured first with four truth-check passes; they become a search option only if they keep at least 98 % of the matched known lines (the user's closing answer; [spec-search.md](line-volume/spec-search.md) section 4). **Measured 2026-11-15: not taken.** Lip anchors keep 69.95 % of the known lines today's anchors match in the target rig (561 of 802) and 70.94 % with the square rule at 5 (537 of 757). |
 | No cap and no heavy lane in the search (2026-11-14, line volume) | No cap of lines per spot in the search: the square rule decides what is stored, the page shows the best (G-12 a); if searches are still refused, K-13 'Beaten by a margin, not by a hair' is the cap to take. No heavy lane for large searches (G-05 a): no lane holds the goal case, the square rule does; the refusal advice was re-ranked instead. |
-| A run's files (2026-11-14, line volume) | One Arrow store per run read by the page as columns (G-06 a); `lines.csv` and `lines.geojson` are exports made for each download, none kept; the text files and opening a map from disk (`file://`) end, `findaline.py view` opens a run through the app; brotli at saving (the package compared first, confirmed by the user); old runs are removed, not converted, on the public site and on the PC, when the text files end, only on the user's word at that time after a `--dry-run` list ([spec-store.md](line-volume/spec-store.md) sections 1, 2, 4). The regression set's checksums stay: they are taken of the CSV export, the same bytes as today's `lines.csv`. |
+| A run's files (2026-11-14, line volume) | One Arrow store per run read by the page as columns (G-06 a); `lines.csv` and `lines.geojson` are exports made for each download, none kept; the text files and opening a map from disk (`file://`) end, `findaline.py view` opens a run through the app; brotli at saving (by pyarrow's own codec, no new package: the user's choice of 2026-11-15 after the packages were compared); old runs are removed, not converted, on the public site and on the PC, when the text files end, only on the user's word at that time after a `--dry-run` list ([spec-store.md](line-volume/spec-store.md) sections 1, 2, 4). The regression set's checksums stay: they are taken of the CSV export, the same bytes as today's `lines.csv`. |
 | Ranges of a kept line (2026-11-14, line volume) | With the square rule a kept line carries the least and the most of six values over the lines it stands for: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (G-03 b; the user's closing answer); a filter on them never misses a found line; every other filter tests the kept line ([spec-store.md](line-volume/spec-store.md) section 3). |
 | "Best" and the tight mark (2026-11-14, line volume) | A spot's best line is the one with the highest mean height (the user: "mean", "Use mean"); clearance stays the test and a number in every row; a line under 1 m of clearance gets a mark, nothing is hidden (G-10 a; [spec-view.md](line-volume/spec-view.md) part A). |
 | The result view (2026-11-14, line volume) | Mock-up 2, version 7, accepted: levels Auto, Area, Spots, Lines with "Best 10 / 30 / 100 / All"; numbered best lines; "Lines from here" for a press on an anchor; a list of numbered rows over a tree of sectors; spots fixed at saving (no regrouping in the page); at most 5 000 strokes drawn (D-11 d, D-12 a, G-08 a, G-12 a; [spec-view.md](line-volume/spec-view.md) part B). |
@@ -106,6 +106,48 @@ Rules for every step:
    - *To do*: read the failed requests' settings by class (`tools/job_stats.py` could list failed jobs by code
      and class), then what the form could offer when a search finds nothing (the message names the settings to
      widen today), and whether the slope threshold of priority 2 is part of it.
+4. **`tools/ui_shots.py` is slow** (added by the user, 2026-11-16, during the UX and UI design task; a task of
+   its own).
+   - *What is seen*: the user: "tools/ui_shots.py seems to be slow". Every review of a UI change runs it
+     (.claude/rules/viewer.md), and the design task runs it more often (rendered checks, contact sheets, the
+     screenshots the image comps start from).
+   - *Known from the code*: one process shows one page at a time (device, then theme, then page). Each of the
+     90 states opens a fresh page and waits a fixed 2.5 s (the event stream keeps the network busy, so there is
+     no "network idle" to wait for), 0.4 to 0.6 s after every step, up to 10 s for map tiles and up to 60 s for
+     the 3D view. Three devices and both themes are up to 540 page loads: about 22 minutes of fixed waiting
+     alone (an estimate from these numbers). The site, its users and the clip's run are set up anew at every
+     start.
+   - *Measured* (2026-11-16, two runs of the design task under the shared test lock with other sessions at
+     work, so indicative):
+     - Screenshots of the main flows, three devices, both themes: 262 pictures in 38.8 min; 33 s until the
+       first picture; a median of 5.5 s per picture.
+     - Every state through the same loop, measured instead of photographed (the design task's
+       `tools/ui_metrics.py`, about 0.2 s of measuring per state): 502 states in 62.5 min. Of the 3011 s spent
+       inside the states, loading the page took 1672 s (56 %) and the steps 1235 s (41 %); a median of 4.5 s
+       per state, 7.7 s at the 90th percentile.
+     - **Waits for things the sample run cannot show** are the largest single loss: `c-result-rigging` waits
+       its full 60 s in each of the six passes (about 390 s), the three `c-result-shore*` states wait 20 s each
+       before they are left out (about 360 s), `c-basic-sea` on the desktop waited 48 and 68 s for the
+       estimate. In the screenshot run this was about a third of the whole time.
+     - 38 of the 540 states are never shown: 24 need another run (the shore states, `c-result-why`), 14 exist
+       on one kind of device only.
+   - *Decided* (the user, 2026-11-16, on the task's report: "Go with recomended route"): first no dead waits,
+     times and fail-fast; then a measured run of the whole set; then waits that follow the page instead of fixed
+     ones, in the tool only (no ready mark in the viewer). Not built now: map tiles recorded and replayed, passes
+     in parallel, a site kept between runs, both themes from one load.
+   - *Stage 1, done* (2026-11-16, tag `history/ui-shots-speed`): a page whose feature the run lacks is left out
+     before any load (`run_features`, `NEEDS`); a summary of seconds per part and page, `--timings`, exit code 1
+     after a timeout or a failed step; a wait that timed out shortens its later limits in the pass, `--strict`
+     stops the run; a kept `--data-dir` keeps its clip run and cubes (about 4 s of a 13 s start: the search takes
+     about 3 s on a warm PC); `--list`, `--exclude`, `--themes`; `tools/shots_diff.py` compares two folders of
+     pictures. Measured on the result pages (`--only c-result,c-line,map --dark`, three devices, the same data
+     folder, shared test lock): 1253 s before, 375 to 411 s after in three runs, 95 of the 96 pictures still
+     shot the same (one map without tiles); of 404 s, 256 s are the fixed 2.5 s after each load. Found on the
+     way: the coverage page's whole-page picture on the iPhone is over WebKit's 32 767 pixels; it is taken at
+     one pixel per CSS pixel now, and the tool as it was could not get past that page.
+   - *Open*: stage 2 (two runs of the whole set: the real split, each wait's longest time as the basis for its
+     limit, what differs between two runs' pictures); stage 3 (the fixed waits replaced, the pictures compared
+     with stage 2's); `c-basic-sea` on the desktop takes 43 to 68 s in every run, cause not known.
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
@@ -132,6 +174,40 @@ how a result is organised), built the low-effort part and specified the rest.
 - **A note for the share of known lines found** (the user, 2026-11-14): K-18 'Higher wins unless clearance loses'
   kept 590 of 592 matched known lines against K-17's 589 and "might be useful for increasing % of lines found from
   slack map": measure it when that share is worked on.
+- **State on 2026-11-16** (the specification's section 5 has every step): built and in `main`: "best" by mean height
+  and the tight mark, the Basic form with 'My rig', the size from a 2 % sample, the access mark, `LINE_BYTES` 900 B,
+  the columns in the page and the Arrow store beside today's files, read by the result page. Open: exports per
+  download, the end of the text files (old runs removed on the user's word), brotli and caching, the ranges,
+  renaming a run, and the result view of mock-up 2.
+- **Lip anchors: measured, not taken** (2026-11-15; the bar was 98 %, the user's). Four truth-check passes in the
+  target rig at the 6 m fall zone, 1 912 known lines: lip anchors alone keep 561 of the 802 known lines today's
+  anchors match (69.95 %), with the square rule at 5 m 537 of 757 (70.94 %); highlines 68.90 / 69.64 %, midlines
+  77.23 / 80.00 %. They match 16 and 14 lines today's anchors miss. Recall, all types: today's anchors 44.3 %, lips
+  31.9 %; with the square rule 41.8 % and 30.5 %. Lines kept with the square rule, lips against today's anchors:
+  31.9-37.6 % on four cases. The prototype (`--lip-anchors off|only|add`) is kept under the tag
+  `history/lip-anchors-p3`, never merged. Not measured: lips added to today's anchors (`add`).
+
+### An access grid that needs less memory (the user, 2026-11-16)
+The access mark's grid covers the search's whole grid. In blocks it needs about 12 B per pixel of the whole grid and
+50 B per pixel of a block's window (docs/performance.md, "The access grid's memory"); a search whose memory cannot
+hold even the smallest blocks runs without the mark. On the public site that starts where the box around the area
+is larger than about 19 × 19 km at 1 m data, about 40 km at 2 m (computed from the limits). The user, on that case:
+"add to roadmap for better algorith with lower memory cost". Candidates from the build, none started; each must give
+the same answers at every pixel (the six private cases and the Gozo coast):
+- **Where the 12 B go** (the Gozo coast at 2 m, measured 9.5): about 4 B the int32 labels of each regions pass; about
+  1 B each the water, open-ground and smoothed-open-ground masks and the region mask; 4 B the gathered heights of the
+  largest flat region on float heights; about 170 MB of strip temporaries, fixed.
+- **Labels by strips** (effort high): a union-find over strips in place of `ndimage.label` on the whole grid drops
+  the 4 B of labels. Measure the grid-wide peak.
+- **Exact percentiles without gathered heights** (medium): a radix select over the float32 bit patterns per region,
+  two counting passes, no stored heights; saves the 4 B of the largest region. Measure the peak and the seconds on
+  the Gozo coast at 2 m.
+- **Skip blocks without an anchor** (medium): the grid is read only at anchors, so boxes of mostly sea or flat land
+  need far fewer windows; saves time and the windows' peak. Measure the share of skipped blocks on the Gozo coast
+  and on Bełchatów.
+- **A smaller walk** (high): float32 or quantised distances in the walk cut 8 B of a window's 50.
+- **One-pass gather** (low to medium): each region's first and last strip recorded during the bounds pass, gathered
+  in one pass and freed when the pass leaves it. Cuts time on fragmented lowland, not memory.
 
 ### Parked ideas of the line-volume task
 Written down, not evaluated: 153 ideas parked at gate 2 (2026-11-13) and the items parked at gate 3 (2026-11-14). Each
