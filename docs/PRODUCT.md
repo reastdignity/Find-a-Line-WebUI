@@ -4,7 +4,7 @@
 user's decisions are the quoted sentences (who wins, the aims, the tells, the anchors, the secondary targets); a
 sentence marked *proposed* has no source in those answers: it is a reading and waits for the user's word. Its
 companion, [DESIGN.md](DESIGN.md), describes the look as the code has it and holds the rules the user picked on
-2026-11-17, in force since that day (except R4.1 and R11); the design reviewer's checklist is
+2026-11-17, in force since that day (except R4.1); the design reviewer's checklist is
 [design-review.md](design-review.md). Neither file sets a colour or a font.
 
 ## Who uses it, and where

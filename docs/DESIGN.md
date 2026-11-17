@@ -314,7 +314,7 @@ components:
 
 # Find-a-Line: the design language
 
-**Status: part 1 describes; part 2 holds the rules the user picked on 2026-11-17, in force except R4.1 and R11.**
+**Status: part 1 describes; part 2 holds the rules the user picked on 2026-11-17, in force except R4.1.**
 Two parts:
 
 - **Part 1, "Today"** (the eight sections from Overview to Do's and Don'ts): the design language as the code has it
@@ -577,9 +577,8 @@ The user picked from the proposed options on 2026-11-17 with the answer line "R1
 R4-map c, R4-trees b, R5 a, R6 a, R7 c, R8 a, R8-d yes, R9 b, R10-text a, R10-flow a, R11 b, R12 a." and the note
 "R11 explain it more to me". Each rule below quotes its pick; what was weighed and not picked stays in one line.
 
-**In force since 2026-11-17**: R1, R2 (phones and desktop), R3, R4.2, R5, R6, R7, R8, R9, R10, R12. **Picked, not
-yet in force**: R4.1 (waits for its measurement) and R11 (to be confirmed after the explanation the user asked
-for).
+**In force since 2026-11-17**: R1, R2 (phones and desktop), R3, R4.2, R5, R6, R7, R8, R9, R10, R11, R12. **Picked,
+not yet in force**: R4.1 (waits for its measurement).
 
 **A rule in force binds new and changed screens; today's screens are brought to it screen by screen in the
 improvement rounds, not at once** (the pilot screen first).
@@ -774,9 +773,10 @@ their `--out` and data folders.
 
 ### R11 Controls on a first-timer's screens
 
-- **Picked, to be confirmed after the explanation, not yet in force**: a screen of the first-timer's way (sign-in,
-  Home on a first visit, the Basic form, the first result and a line's details on a phone; the beta notice too, a
-  proposed detail) shows at most 25 controls at once. The user's pick: "R11 b", with the note "R11 explain it more to me".
+- **In force**: a screen of the first-timer's way (sign-in, Home on a first visit, the Basic form, the first result
+  and a line's details on a phone; the beta notice too, a proposed detail) shows at most 25 controls at once. The
+  user's pick: "R11 b", with the note "R11 explain it more to me"; after the explanation, the same day: "it stands".
+  The rule is for the first-timer's way on a phone only; the rigger's desktop is not bound by it.
 - **The measure**: [W]'s count, the visible, enabled controls of the surface in view (not [B]'s, which counts the
   whole page: 35 for the Basic form where [W] sees 20 to 22).
 - **Today** [W]: F1 (sign-in to Start): 8, 4, 6, 3, 20, 22. F2 (the first result): Home 13, the intro 2, the result
