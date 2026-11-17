@@ -17,8 +17,8 @@ import { NO_FILTERS, passes as passesFilters, type Filters } from "../filters";
 import { timed } from "../perf";
 import { ACCESS_EASY, hasView, LineCursor, type Line, type NumberColumn, type RunData, type ViewColumns } from "../types";
 import type { ResultModel } from "./model";
-import { autoLevel, clipper, gridFit, BEST_ROWS, FAN_GROUP, FAN_HERE, FAN_MAX, LIMIT, PICK_APART, type GridFit, type Level,
-         type Quad } from "./viewgeom";
+import { autoLevel, clipper, gridFit, quadArea, reader, BEST_ROWS, FAN_GROUP, FAN_HERE, FAN_MAX, LIMIT, PICK_APART, QUAD_MIN,
+         type GridFit, type Level, type Quad } from "./viewgeom";
 
 /** The keys the list of spots sorts by: mean height, clearance, length, highest point (each of the spot's shown
  *  line, highest first), the spot's passing lines. */
@@ -193,7 +193,24 @@ function check(d: RunData): ViewBase | string {
     }
   }
   starts.push(n);
-  const sectors = d.sectors!, sectorStart = new Uint32Array(sectors.length + 1);
+  // the head against the columns: a store whose head disagrees with them opens today's page, it never throws
+  const sectors = d.sectors!;
+  if (sectors.some((s) => !s || typeof s.word !== "string" || !Number.isInteger(s.spots) || !(s.spots > 0))) {
+    return "the head's sectors are not words with their counts of spots";
+  }
+  const box = d.box as unknown, lengths = d.lengths as unknown, finite = (v: unknown) => typeof v === "number" && isFinite(v);
+  if (!Array.isArray(box) || box.length !== 4 || !box.every(finite)) return "the head's box is not four numbers";
+  if (!Array.isArray(lengths) || lengths.length !== 2 || !lengths.every(finite) || lengths[0] > lengths[1]) {
+    return "the head's lengths are not the shortest and the longest line";
+  }
+  const ends = [reader(d.columns.x1), reader(d.columns.y1), reader(d.columns.x2), reader(d.columns.y2)];
+  for (let i = 0; i < n; i++) {
+    for (let e = 0; e < 4; e += 2) {
+      const x = ends[e](i), y = ends[e + 1](i);
+      if (x < box[0] - 1e-6 || x > box[2] + 1e-6 || y < box[1] - 1e-6 || y > box[3] + 1e-6) return "the head's box does not hold every anchor";
+    }
+  }
+  const sectorStart = new Uint32Array(sectors.length + 1);
   sectors.forEach((s, k) => { sectorStart[k + 1] = sectorStart[k] + s.spots; });
   if (sectorStart[sectors.length] !== now + 1 || sectors.some((s) => !(s.spots > 0))) {
     return "the head's sectors do not hold the view's spots";
@@ -266,6 +283,8 @@ class Spots implements SpotView {
   private front = new Map<number, Uint32Array>();  // notBeatenOf, per version
   private favourites = new Set<number>();     // the rows of this run's favourites, while they are known
   private favouriteKey = "";
+  private fanAnchor: {row: number; end: 1 | 2} | null = null;  // the open fan's anchor (none: its point)
+  private fanSorted = false;                                  // the person sorted the open fan
   private lastFilters: Filters;
   private lastState: unknown;
 
@@ -313,13 +332,15 @@ class Spots implements SpotView {
     const m = this.model, favourites = this.readFavourites();
     if (m.filters !== this.lastFilters || m.state !== this.lastState || favourites) {
       // a change of the favourites alone keeps "Lines from here" (no filter changed)
-      const keep = m.filters === this.lastFilters && m.state === this.lastState ? this.fan : null;
+      // (not with "Favourites only" on: the favourites are then the passing lines, and a change of those closes it)
+      const keep = m.filters === this.lastFilters && m.state === this.lastState && !(m.filters.favOnly && m.favouritesOn)
+        ? this.fan : null;
       this.lastFilters = m.filters;
       this.lastState = m.state;
       this.recompute();
       if (keep) {
         this.fan = keep;
-        this.relabel();
+        this.refan();
       }
     }
     this.notify();
@@ -559,10 +580,29 @@ class Spots implements SpotView {
   private look() {
     if (!this.quad) return;
     this.inView = timed("fal:view:inview", () => this.seen(this.quad!));
+    this.refan();
+  }
+
+  /** The numbers on the map changed (a move, a zoom, Best, the list's sort): the open fan is derived again in full
+   *  for its point or anchor: which of its lines carry a number now, their order, their rows, the L numbers (B.2
+   *  item 11: "a line that is a B or P line now"); the person's sort of it is kept. The Fan stays the same object:
+   *  the canvas moves the map only for a fan newly opened. */
+  private refan() {
+    const fan = this.fan;
+    if (!fan) return;
+    const next = this.fanAt(fan.at, this.fanAnchor ?? undefined);
+    if (next) {
+      Object.assign(fan, next, {sort: fan.sort});
+      if (this.fanSorted) this.sortRows(fan);
+    }
     this.relabel();
   }
 
   private seen(quad: Quad): InView {
+    if (quadArea(quad) < QUAD_MIN) {  // the map's view lies off the run: nothing is in view, and no line is asked
+      this.num.fill(0);
+      return {...NO_VIEW};
+    }
     const cross = clipper(quad), {order, shown, num, ok} = this, {x1, y1, x2, y2} = this.values;
     const inside = (row: number) => cross(x1[row], y1[row], x2[row], y2[row]);
     const spots = new Uint32Array(order.length);
@@ -664,6 +704,8 @@ class Spots implements SpotView {
       return;
     }
     this.fan = fan;
+    this.fanAnchor = anchor ?? null;
+    this.fanSorted = false;
     this.relabel();
     this.notify();
   }
@@ -723,14 +765,20 @@ class Spots implements SpotView {
   sortFan(by: FanSort) {
     const fan = this.fan;
     if (!fan) return;
-    const {hmean, clr, len} = this.values;
     fan.sort = by;
+    this.fanSorted = true;
+    this.sortRows(fan);
+    this.relabel();
+    this.notify();
+  }
+
+  /** A fan's rows by its sort, the numbered rows first. */
+  private sortRows(fan: Fan) {
+    const {hmean, clr, len} = this.values, by = fan.sort;
     fan.rows.sort((a, b) => (+b.numbered - +a.numbered) ||
       (by === "len" ? down(len[a.row], len[b.row]) : by === "clr" ? down(clr[a.row], clr[b.row])
         : by === "dh" ? Math.abs(a.dh) - Math.abs(b.dh) : by === "dir" ? a.bearing - b.bearing
           : down(hmean[a.row], hmean[b.row])));
-    this.relabel();
-    this.notify();
   }
 
   closeFan() {
