@@ -144,9 +144,25 @@ Rules for every step:
      shot the same (one map without tiles); of 404 s, 256 s are the fixed 2.5 s after each load. Found on the
      way: the coverage page's whole-page picture on the iPhone is over WebKit's 32 767 pixels; it is taken at
      one pixel per CSS pixel now, and the tool as it was could not get past that page.
-   - *Open*: stage 2 (two runs of the whole set: the real split, each wait's longest time as the basis for its
-     limit, what differs between two runs' pictures); stage 3 (the fixed waits replaced, the pictures compared
-     with stage 2's); `c-basic-sea` on the desktop takes 43 to 68 s in every run, cause not known.
+   - *Stage 2, measured* (2026-11-17): two runs of the whole set (three devices, both themes, 496 pictures):
+     2515 s under the exclusive test lock, 2398 s shared. Fixed sleeps were 73 % of it (the 2.5 s after each load
+     alone 51 %), the real work about 7.5 min, and every wait but the estimate was already true when the 2.5 s
+     ended. `c-basic-sea` explained: its first "Sea cliffs" estimate in a fresh data folder fetches the view's
+     coastline from Overpass (about 160 s once, then cached in the folder). Two runs of the same code differ in 25
+     of the 496 pictures (tiles, a map caught mid-zoom, the Admin page's per-start values).
+   - *Stage 3, done* (2026-11-17, tag `history/ui-shots-waits`): no fixed sleeps. After a load and after each
+     step the tool waits until the page has been settled for 150 ms (chosen by trial against 250 and 400 ms: the
+     same pictures): no request in flight, no tile loading, no map moving, no CSS animation, no animation frame or
+     short timer of the page, and the mark of the page's family. The limits are the user's choice: 30 s for a
+     page's first-draw mark, 10 s for other waits, 240 s for `c-basic-sea`'s estimate; a failed estimate
+     ("unavailable", "refused") ends its wait at once. The whole set: 1183 s under the exclusive lock, 2.1 times
+     faster than stage 2. The pictures are stage 2's but for pages now shot after their movement ends (the
+     coverage page's Europe zoom, the 3D view's activity pill on the iPhone) and noise; two runs of the new tool
+     differ in 19 of 496.
+   - *Open*: not built, by the decision above: map tiles recorded and replayed, passes in parallel, a site kept
+     between runs, both themes from one load. A few pixels at a card's shadow on `c-home-limited` (desktop) differ
+     from the old tool's pictures, cause not known. `view3d-valid` on the iPhone shows an empty scene (known
+     bugs).
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 

@@ -193,8 +193,14 @@ A page whose feature the run lacks (`NEEDS`: `c-result-rigging` a no-fall zone o
 an uncertain shore, `c-result-why` the square rule; `run_features` reads run.json before any browser) is left out
 without a load, and a page whose step `need:<expression>` is false once the result is drawn as well. Selection:
 `--only`, `--exclude` (substrings), `--themes light|dark|both` (`--dark` = both), `--list` (the pages and which the run
-leaves out, no browser). Each picture is printed with its seconds, then a summary (set-up parts, passes, the ten
-slowest pages, the pages left out, timeouts, failed steps); `--timings <file>` the same as JSON; a timed-out `wait:`
+leaves out, no browser). No fixed sleeps: after a load and after each step `settled` waits for a quiet time with no
+request in flight (Playwright's events, the event stream ignored), no tile loading (a failed one is not waited
+for), map move, CSS animation, busy spinner, animation frame or short timer (`WATCH`, an init script) and the mark of
+the page's family (`page_family`, `PAGE_STATE`), at most 30 s after a load and 10 s after a step, then shot and noted "not settled"; a `wait:` waits at
+most 10 s, a first-draw mark (`FIRST_DRAW`) 30 s, `c-basic-sea`'s estimate 240 s (`SLOW_MARKS`); a mark that can no
+longer come (`GIVE_UP`: the estimate "unavailable" or "refused") ends its wait at once, as a timeout. Each picture is
+printed with its seconds, then a summary (set-up parts, passes, the ten slowest pages, the pages left out, timeouts,
+failed steps, the pages not settled); `--timings <file>` the same as JSON; a timed-out wait
 gets a quarter of its limit for the rest of the pass, a step that raises fails only its page, `--strict` stops at
 the first; exit code 1 after a timeout or a failed step (a page whose click finds nothing after a wait timed out is
 "timed out", not "left out"); a whole page too tall at the device's pixel ratio (WebKit's
