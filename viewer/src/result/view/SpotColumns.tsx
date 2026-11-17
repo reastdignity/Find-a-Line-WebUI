@@ -256,7 +256,7 @@ function barPadding(col: HTMLElement | null, top: number, bottom: number): Paddi
  *  across the map: --v-corner). When one of them changed its size the canvas takes the view's rectangle again
  *  (the spots in view and their numbers follow). `watch`: more elements whose size matters (the sheet). */
 function useFootClear(col: {current: HTMLElement | null}, canvas: SpotMap | null, covered: () => number,
-                      watch: () => (Element | null | undefined)[], deps: unknown[]) {
+                      watch: () => (Element | null | undefined)[], deps: unknown[], onPlace?: (place: string) => void) {
   useEffect(() => {
     const el = col.current;
     if (!el) return;
@@ -270,6 +270,7 @@ function useFootClear(col: {current: HTMLElement | null}, canvas: SpotMap | null
       });
       el.style.setProperty("--v-covered", `${under}px`);
       el.style.setProperty("--v-corner", `${Math.max(8, Math.round(floor - top) + 6)}px`);
+      onPlace?.(`${under},${Math.round(floor - top)}`);
     };
     const update = () => {
       place();
@@ -342,7 +343,7 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
                   rail={{icon: "list", text: t("ui.view.map.rail_list", {n: count(view.counts.lines)})}}>
         {panels.list(p)}
       </FramePanel>
-      <div class="c-col-map v-map" ref={colRef}>
+      <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
         <div class="c-leaflet" ref={ref} />
         <MapBar view={view} map={canvas} wide
                 hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
@@ -363,9 +364,11 @@ const SHEET_PEEK = 132, SHEET_TOP = 64;  // the phone's sheet: its lowest height
 
 function Phone({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
   useSpotView(view);
-  const [snap, setSnap] = useState<Snap>("half");
+  // the view opens with the sheet low (the user's decision of 2026-11-17: the map first)
+  const [snap, setSnap] = useState<Snap>("peek");
+  const [, setPlaced] = useState("");  // the bar measures its room again when its foot was moved
   const phoneRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
-  /** The px of the map's bottom under the sheet (before the sheet has a height: half the map, its first state). */
+  /** The px of the map's bottom under the sheet (before the sheet has a height: its stop's height). */
   const covered = (): number => {
     const box = colRef.current?.getBoundingClientRect(), sheet = phoneRef.current?.querySelector<HTMLElement>(".u-sheet");
     if (!box) return 0;
@@ -392,7 +395,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the
   // spots in view and their numbers follow)
-  useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap]);
+  useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
@@ -401,9 +404,9 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   };
   const p: PanelProps = {view, map: canvas, wide: false, padding, sheet: {snap, setSnap}};
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
-    <div class="c-col-map v-map" ref={colRef}>
+    <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
-      <MapBar view={view} map={canvas} wide={false}
+      <MapBar view={view} map={canvas} wide={false} sheet={snap}
               hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
       {toast && <div class="v-toast" role="status">{toast}</div>}
     </div>
@@ -414,8 +417,9 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
         {actions?.(true)}
       </div>
     </div>
-    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP} header={panels.sheetHead(p)}>
-      {panels.hint({...p, place: "sheet"})}
+    {/* the sheet from its top: the handle, the hint (its first line, B.2 item 12), the head's row, then the body */}
+    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP}
+           header={<>{panels.hint({...p, place: "sheet"})}{panels.sheetHead(p)}</>}>
       {panels.details(p)}
       {panels.list(p)}
     </Sheet>

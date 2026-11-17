@@ -666,7 +666,6 @@
   "ui.view.map.lg_fan": "A line from here",
   "ui.view.map.lg_fan_short": "from here",
   "ui.view.map.lg_here": "Here: {{m}} m around the point",
-  "ui.view.map.lg_squares": "squares",
   "ui.view.map.title_lines_one": "{{n}} line",
   "ui.view.map.title_lines_other": "{{n}} lines",
   "ui.view.map.panel_list": "Lines",
