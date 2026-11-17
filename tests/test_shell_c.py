@@ -1736,6 +1736,14 @@ run({
     card("job", J.failed).querySelector(".c-card-menu").click();
     wait(() => !menuItems(J.failed).length, next);
   }); },
+  oldAsk(next) { openMenu(J.old, () => {
+    item(J.old, "Remove…").click();
+    wait(() => $(`.c-card[data-job="${J.old}"] .c-remove-ask`), () => {
+      result.oldAsk = text(`.c-card[data-job="${J.old}"] .c-remove-ask span`);
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      wait(() => !$(".c-remove-ask"), next);
+    });
+  }); },
   othersMenu(next) { openMenu(J.others, () => {  // another user's cancelled search: not this user's to remove
     result.othersMenu = [card("job", J.others).dataset.status, menuItems(J.others)];
     card("job", J.others).querySelector(".c-card-menu").click();
@@ -1811,6 +1819,7 @@ def test_shell_c_cancelled_search(tmp_path):
     the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
     import re
 
+    import cache
     from jobs import Jobs
     DATE = r"\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}"  # time.ts when(): "17 Nov 2026, 09:12"
     data = tmp_path / "data"
@@ -1822,6 +1831,10 @@ def test_shell_c_cancelled_search(tmp_path):
         ("running", "Cancelled while running"), ("waiting", "Cancelled while waiting"))}
     ids["others"] = jobs.add(request, "Another user's search", 7)  # listed to the local app's administrator, not own
     assert jobs.request_cancel(ids["others"])
+    ids["old"] = jobs.add(request, "Cancelled two days ago")
+    assert jobs.request_cancel(ids["old"])
+    with jobs._db() as db:  # started two days ago: out of the day's window
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), ids["old"]))
     gone = "2026-11-01_100000_Gone_0000000000000001"
     jobs.set(ids["failed"], "failed", error="the server stopped")
     jobs.set(ids["deleted"], "done", run_id=gone)
@@ -1852,8 +1865,11 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["failedMenu"] == ["Edit & run again"], r
     assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
     assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
-    assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result "
-                        "and no files.", "alertdialog", "Remove the search", "Keep it", ["Remove", "Keep it"]], r
+    assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result. "
+                        "It still counts toward your searches of today.", "alertdialog", "Remove the search", "Keep it",
+                        ["Remove", "Keep it"]], r
+    # a search older than the day's window no longer counts: the question does not say it does
+    assert r["oldAsk"] == "Remove “Cancelled two days ago” from your searches? It was cancelled, so it has no result.", r
     assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
     assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
     assert r["left"] == [True, True], r

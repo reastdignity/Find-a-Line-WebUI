@@ -103,9 +103,12 @@ export function menuKeys(e: KeyboardEvent) {
   items[to].focus();
 }
 
-function SearchCard({card, runs, jobs, publicSite, highlight}:
-                    {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean}) {
+function SearchCard({card, runs, jobs, publicSite, highlight, dayHours}:
+                    {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean;
+                     dayHours: number}) {
   const {job, run} = card;
+  // a search started within the day's window (the quotas' DAY) still counts in "Searches today" after its removal
+  const counted = !!job && Date.now() - timeOf(job.created) < dayHours * 3600e3;
   const st = stateOf(card);
   const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
   const [menu, setMenu] = useState(false);
@@ -200,7 +203,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
       {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
       {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
                                          aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
-        <span>{t("ui.card.remove_ask", {name})}</span>
+        <span>{t("ui.card.remove_ask", {name})}{counted && <> {t("ui.card.remove_counts")}</>}</span>
         <div class="u-row">
           <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
           <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
@@ -268,7 +271,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
             show === "running" ? "Nothing is running." : "No shared runs."}</p>
         : <div class="c-cards">{shown.map((c) =>
             <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
-                        highlight={!!highlight && c.job?.id === highlight} />)}</div>}
+                        highlight={!!highlight && c.job?.id === highlight} dayHours={usage.usage?.hours ?? 24} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
       {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>
