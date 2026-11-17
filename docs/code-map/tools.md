@@ -131,14 +131,15 @@ ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked i
 
 Run by hand on the PC that holds the master (docs/mirror-hosting/spec.md, solution B): publishes the mirror's datasets
 to the home server's `<root>` over rclone (1.76 or newer, `PATH` or `FINDALINE_RCLONE`; an SFTP remote of the user's
-own rclone config with `hashes = sha256`, `sha256sum_command = sha256sum`). `verify` (a folder: hashed here; a
+own rclone config with `hashes = sha256`, `sha256sum_command = sha256sum`). `verify` (a folder: hashed here, `readme_notes` noting a dataset's `README.md` that is not the served card,
+U57; a
 remote: `rclone checksum sha256` by the server), `publish` (refusals first, then under the lock `staging/.lock` with a
 token read back: the server's sha256 proven on the lock file (U35), "published already" unless `--same-values`, free
 space; the listed files copied into `staging/`, the card, the staged copy verified, two checked moves through
 `trash/`, `datasets.json` through a hidden name), `unpublish` (a takedown), `clean` (trash older than `KEEP_DAYS`),
 `stats` (the server's log: requests and bytes per day and dataset, refusals per limit, client versions by
-`client_version`; never an address). `PUBLISHABLE`: one approved row per dataset (Slovakia, Madeira, Valle d'Aosta;
-the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
+`client_version`; never an address). `PUBLISHABLE`: one approved row per dataset (Slovakia,
+Madeira, Valle d'Aosta, Porto Santo, the Desertas, the Selvagens; the attribution from the catalogue), `cards()` the cutting tools' texts, `required_folders` from `GridTiles(averaged=)`.
 Prints its own lines only, never rclone's or the remote's name. `tests/test_mirror_publish.py` (rclone's local backend
 as the server; skipped without rclone), `tests/test_mirror_pairs.py`.
 

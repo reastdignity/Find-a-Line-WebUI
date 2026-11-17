@@ -624,7 +624,7 @@ and change or delete the runs, the cache and the queue. The viewer itself (its s
 styles) comes from the image, not from the volume. Keeping the worker from being compromised
 (the image's updates, section 13) and its network isolation (section 2) are the defence here.
 
-Our own tiles of Slovakia, Madeira and Valle d'Aosta (`tools/sk_tiles.py`, `tools/mirror_tiles.py`)
+Our own tiles of Slovakia, Madeira, its islets and Valle d'Aosta (`tools/sk_tiles.py`, `tools/mirror_tiles.py`)
 come from the project's data server (section 17): the worker downloads them like any source's
 tiles, with nothing to set (`FINDALINE_MIRROR_URL` stays unset in `findaline.env`; `off` would
 turn the data server off). A local copy on the server is optional: copy the mirror folder (the
@@ -1083,12 +1083,12 @@ Our own tiles of six sources: Slovakia (`slovakia/`, `tools/sk_tiles.py`), Madei
 Valle d'Aosta (`aosta/dtm/2m`) and, since batch 6, Madeira's other island groups: Porto Santo
 (`porto-santo/dtm/5m`), the Desertas (`desertas/dtm/5m`) and the Selvagens (`selvagens/dtm/5m`).
 All but Slovakia's are cut by `tools/mirror_tiles.py`: Madeira and Valle d'Aosta from one file each
-(about 0.33 and 1.46 GB, 2026-11-15), the three islets from DROTe's 5 m ZIP (3.4 MB of tiles
-together, final and verified, 2026-11-16). The worker takes a dataset from the first place that
+(about 0.33 and 1.46 GB, 2026-11-15), the three islets from DROTe's 5 m ZIP (3.5 MB of tiles
+and indexes in all, final and verified, 2026-11-16). The worker takes a dataset from the first place that
 holds it: the folder of `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the folder that
 `FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10), then the project's data server
 (section 17), which serves a dataset once it is published there (`tools/mirror_publish.py`, only a
-dataset with its approved row in `PUBLISHABLE`: Slovakia, Madeira and Valle d'Aosta today). A local
+dataset with its approved row in `PUBLISHABLE`: all six have one). A local
 copy keeps the mirror's layout; copy the folders you want next to `slovakia/` and make them
 readable as in section 10.
 
@@ -1103,24 +1103,26 @@ of the image; the tool's docstring has the command); the image has no 7-Zip, whi
 ZIP would need.
 
 When no folder holds the dataset, the first planning of a search reads the data server's list of
-published datasets (`/v1/datasets.json`, kept 300 s). A dataset the list does not name (the islets
-today, which have no `PUBLISHABLE` row) is unavailable, as without a data server: "<layer>: <product's folder>
+published datasets (`/v1/datasets.json`, kept 300 s). A dataset the list does not name (one not yet
+published: none once the six are, a dataset cut later until it is) is unavailable, as without
+a data server: "<layer>: <product's folder>
 is not published on the data server at mirror.findaline.lukawski.org, and no local copy is set up"; a
 source named with `--source` is refused with that text, and `sources check` shows it with that note,
 not as a failure. No list (no answer, a 5xx, a 404 of the list, a list that cannot be read) makes
 the source unavailable too ("... does not answer (...)"). Either way `--source auto` takes the next
-source of the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto
-Santo, the Desertas and the Selvagens Madeira's source. That last is the catalogue's order (Madeira's
-source covers their region and follows them), the same without any data server: its tiles do not
-reach the islets, so the gap filling (`europe`) fills the area, and the run names Madeira's source. Later phases of the same
+available source of the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m),
+Porto Santo, the Desertas and the Selvagens Madeira's source when its dataset is available (listed,
+or in the local copy), else `europe`. That is the catalogue's order (Madeira's source covers their
+region and follows them): its tiles do not reach the islets, so the gap filling (`europe`) fills
+the area, and the run names Madeira's source. Later phases of the same
 search keep the source chosen at its start and fail if a tile still missing cannot be downloaded
 (running it again resumes from the cache). On 2026-11-15 the VPS's local copy holds `slovakia/`
 only. The regression entries R80, R81 and R86-R88 are skipped without their folders (`needs_path`)
 unless `tests/regression.py --mirror-url` names a data server.
 
 The public site reads the mirror's datasets through the data server once they are published there
-(the rollout: docs/mirror-hosting/spec.md, section 11). The three islet datasets have no
-`PUBLISHABLE` row yet (a row needs the user's approval), and Portugal's and Wallonia's are to be
+(the rollout: docs/mirror-hosting/spec.md, section 11): all six, the islets after Madeira. A dataset
+cut later needs its `PUBLISHABLE` row with the user's approval first. Portugal's and Wallonia's are to be
 fetched and cut on the user's server (not built yet: docs/new-sources-6/spec.md). Hong Kong
 (`hong_kong`) is read from its provider and never a mirror dataset on today's terms (a copy needs
 CEDD's written yes).
@@ -1132,7 +1134,9 @@ its own behind the home server's SWAG, and a second one, the SFTP door the PC pu
 (docs/mirror-hosting/spec.md). How to install it, attach SWAG to its network, add its name to
 SWAG's certificate in a planned stop, set up the door and check it all: `deploy/mirror/README.md`.
 Publishing a dataset from the PC that holds the master: `tools/mirror_publish.py` (README, "The
-project's data server"). The VPS watches it (section 15: C7 when it gives no good answer for 45
+project's data server"). A first publish of a dataset leaves "directory not found" lines in
+rclone's log (`--log`): the tool checks folders before it makes them; they are no fault. The VPS
+watches it (section 15: C7 when it gives no good answer for 45
 minutes, C8 for its certificate); its request log holds the addresses of the installations that
 download, for at most 14 days (README's privacy note). Set the data server up and see it answer
 before the VPS gets the update whose Telegraf checks it: otherwise "Mirror down" pages after its

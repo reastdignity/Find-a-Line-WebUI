@@ -472,11 +472,21 @@ def _cut_datasets() -> dict:
     return found
 
 
+# The cut datasets without a PUBLISHABLE row: a dataset cut later is named here until the user approves its row (it is
+# not published until then). Empty since the islets' rows (U55, 2026-11-17).
+CUT_WITHOUT_A_ROW: set = set()
+
+# Each row's approval, as docs/mirror-hosting/spec.md section 5 names it: the user's decision behind the row.
+APPROVED_BY = {"slovakia": "U31", "madeira": "U11", "aosta": "U12",
+               "porto-santo": "U55", "desertas": "U55", "selvagens": "U55"}
+
+
 def test_publishable_is_the_catalogues_and_the_tools():
     """Every PUBLISHABLE row names a dataset the cutting tools make (DATASETS or Slovakia) and a catalogue source whose
-    GridTiles mirror folders lie under it, among them every product folder the tools cut for it. A dataset that is cut
-    but has no row is not a failure (a row needs the user's approval): it is named in the output. The tool's own
-    tests (skipped without rclone): tests/test_mirror_publish.py test_publishable_datasets_are_the_mirrors_datasets,
+    GridTiles mirror folders lie under it, among them every product folder the tools cut for it; its `approved` names
+    the user's decision the specification gives it. The cut datasets without a row are exactly CUT_WITHOUT_A_ROW: a
+    dataset cut later is allowed by naming it there (a row needs the user's approval). The tool's own tests (skipped
+    without rclone): tests/test_mirror_publish.py test_publishable_datasets_are_the_mirrors_datasets,
     test_resolutions_required_are_the_catalogues."""
     from sources.catalogue import SOURCES
     cut = _cut_datasets()
@@ -486,8 +496,12 @@ def test_publishable_is_the_catalogues_and_the_tools():
         folders = mp.required_folders(row["source_id"])
         assert folders and {f.split("/")[0] for f in folders} == {name}, name
         assert set(cut[name]) <= set(folders), (name, set(cut[name]) - set(folders))
+        assert f"({APPROVED_BY.get(name)})" in row["approved"], (name, row["approved"], APPROVED_BY.get(name))
+    assert set(mp.PUBLISHABLE) == set(APPROVED_BY), "a row without its decision in APPROVED_BY, or the reverse"
     without = sorted(set(cut) - set(mp.PUBLISHABLE))
     print("cut, without a PUBLISHABLE row (not published until the user approves one):", ", ".join(without) or "none")
+    assert set(without) == CUT_WITHOUT_A_ROW, ("cut without a row, not named in CUT_WITHOUT_A_ROW (or named and given "
+                                               "a row since)", set(without) ^ CUT_WITHOUT_A_ROW)
 
 
 # The site's side: the privacy page, the test stacks, CI's rclone

@@ -122,11 +122,11 @@ services:
       - nls_api_key
     volumes:
       - data:/data
-      # A local copy of the mirror (the folder above slovakia/, madeira/, aosta/), read-only and
-      # optional: without FINDALINE_MIRROR_DIR an empty volume, and the worker downloads those
-      # tiles from the project's data server (FINDALINE_MIRROR_URL in findaline.env; with it
-      # `off`, --source auto takes `europe` for Slovakia and Madeira, `tinitaly` for Valle
-      # d'Aosta). docs/deployment.md sections 10 and 16
+      # A local copy of the mirror (the folder that holds the dataset folders the publish tool's
+      # rows name), read-only and optional: without FINDALINE_MIRROR_DIR an empty volume, and the
+      # worker downloads those tiles from the project's data server (FINDALINE_MIRROR_URL in
+      # findaline.env; with it `off`, --source auto takes each region's next source, coarser
+      # data). docs/deployment.md sections 10 and 16
       - ${FINDALINE_MIRROR_DIR:-no-mirror}:/mirror:ro
       - type: tmpfs
         target: /tmp
