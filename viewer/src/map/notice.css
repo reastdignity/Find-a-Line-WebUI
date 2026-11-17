@@ -4,10 +4,10 @@
    DESIGN.md's scales: type R5, radius R6, spacing R7. */
 .fal-served #disk-notice { display: none; }
 
+/* The text as the app's (.ui of ui/ui.css: 14 px, var(--font), var(--ink) on var(--bg)) */
 .fal-disk {
   position: fixed; inset: 0; overflow: auto; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px 16px; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font);
+  display: flex; align-items: center; justify-content: center; padding: 24px 16px;
 }
 .fal-disk-box { width: 100%; max-width: 576px; }
 .fal-disk-name {

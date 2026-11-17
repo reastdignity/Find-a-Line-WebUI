@@ -37,7 +37,7 @@ def test_map_page_carries_the_notice():
     each escaped; no style attribute or element (the CSP), the literal tags test_web._map_page replaces."""
     page = mapping.map_page({"id": RUN, "name": NAME})
     assert messages.text("ui.map.disk_notice") == SENTENCE
-    assert f'<div id="{mapping.DISK_NOTICE}" class="ui fal-disk" data-run="{RUN}">' in page
+    assert f'<main id="{mapping.DISK_NOTICE}" class="ui fal-disk" data-run="{RUN}">' in page
     assert f'<h1 class="fal-disk-name">{html.escape(NAME)}</h1>' in page
     assert f'<p class="fal-disk-text">{SENTENCE}</p>' in page
     assert f"<code>findaline.py view {RUN}</code>" in page

@@ -475,11 +475,11 @@ MAP_HTML = """<!doctype html>
 </head><body><div id="map"></div>
 <script src="../runs.js"></script>
 <script src="../{viewer}/viewer.js"></script>
-<div id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
+<main id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
 <h1 class="fal-disk-name">{title}</h1>
 <p class="fal-disk-text">{notice}</p>
 <pre class="fal-disk-command"><code>findaline.py view {run}</code></pre>
-</div></div>
+</div></main>
 </body></html>
 """
 
