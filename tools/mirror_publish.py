@@ -15,7 +15,9 @@ log).
     python tools/mirror_publish.py stats --from <remote>:<root>/logs
 
 Every command takes --config FILE (the rclone config to use; rclone's own default otherwise) and --log FILE
-(rclone's own messages appended there; they are never printed: they may name the remote's host and user). --to and
+(rclone's own messages appended there; they are never printed: they may name the remote's host and user; a first
+publish of a dataset leaves "directory not found" lines there, from the tool's checks of folders it has not made
+yet: they are no fault). --to and
 --from name an rclone remote (name:path, the name two characters or more); a dataset's name is [a-z0-9_-]+ (the
 served pattern's), anything else is refused before any request.
 
@@ -505,7 +507,8 @@ class Remote:
             source, target = rel.split("/")[0] + "/", to.split("/")[0] + "/"
             raise Failed(f"the server refused the move of {rel} to {to} ({_meaning(done.returncode)})"
                          + (f": {said}" if said else "") + f". Likely causes: the publishing account may not write "
-                         f"{target} (its owner), or {source} and {target} are on different disks", keep_lock)
+                         f"{target} or a folder below it (their owner; rclone's line above names the folder), or "
+                         f"{source} and {target} (or a folder below either) are on different disks", keep_lock)
 
     def free(self) -> Optional[int]:
         """Free bytes of <root>'s disk (rclone about), None when the server does not tell."""
@@ -985,6 +988,9 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         if published and not same_values:
             raise Refused(f"{dataset} is published already: a recut with other values is a new edition (a new "
                           "folder name); --same-values replaces it, a promise that the values are the same")
+        if not published and rc.log:
+            print(f"  first publish of {dataset}: rclone's log (--log) gets \"directory not found\" lines for the "
+                  "folders the tool checks before it makes them; they are no fault", flush=True)
         staged = remote.listing(staging) or {}
         need = sum(size for path, (_, size) in files.items() if staged.get(path) != size) + len(card_bytes)
         free = remote.free()
@@ -1170,7 +1176,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", help="the rclone config file (rclone's own default when not given)")
-    common.add_argument("--log", help="a file rclone's own messages are appended to (never printed)")
+    common.add_argument("--log", help="a file rclone's own messages are appended to (never printed; a first publish "
+                        "leaves \"directory not found\" lines there: checks of folders not made yet, no fault)")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("verify", parents=[common], help="check a folder or a remote path against its indexes")
     p.add_argument("place", help="a folder, or remote:path")

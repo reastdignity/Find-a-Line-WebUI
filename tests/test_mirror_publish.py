@@ -1215,8 +1215,9 @@ def test_a_refused_move_says_rclones_reason(world, monkeypatch, capsys, cause, l
     out = capsys.readouterr().out
     assert "stopped: the server refused the move of staging/madeira to public/v1/tiles/madeira" in out
     assert reason in out
-    assert "Likely causes: the publishing account may not write public/ (its owner), or staging/ and public/ are on " \
-           "different disks" in out
+    assert ("Likely causes: the publishing account may not write public/ or a folder below it (their owner; "
+            "rclone's line above names the folder), or staging/ and public/ (or a folder below either) are on "
+            "different disks") in out
     for secret in ("127.0.0.1", "pub@", "sftp://", "2292", "/data/", "host key"):
         assert secret not in out, secret
     assert (world.server / "staging" / ".lock").exists() and "the lock staging/.lock is kept" in out
@@ -1283,3 +1284,18 @@ def test_a_cut_dataset_without_a_row_is_refused(world, capsys):
         out = capsys.readouterr().out
         assert f"refused: {name}: no row in PUBLISHABLE" in out
     assert tree(world.server) == {}
+
+
+def test_a_first_publish_says_what_its_log_holds(world, capsys):
+    """A first publish with --log says that rclone's log gets "directory not found" lines (the tool's checks of
+    folders it has not made yet), and the log does hold such lines while the publish succeeds; a publish without
+    --log, or of a dataset already published, says nothing of it."""
+    log = world.tmp / "rclone.log"
+    assert _publish(world, "madeira", "--log", str(log)) == 0
+    out = capsys.readouterr().out
+    assert "first publish of madeira: rclone's log (--log) gets \"directory not found\" lines" in out
+    assert "directory not found" in log.read_text(encoding="utf-8", errors="replace")
+    assert _publish(world, "madeira", "--same-values", "--log", str(log)) == 0
+    assert "first publish" not in capsys.readouterr().out
+    assert _publish(world, "aosta") == 0
+    assert "first publish" not in capsys.readouterr().out
