@@ -48,7 +48,7 @@ What each module holds: docs/code-map/search.md (the tools: docs/code-map/tools.
   copy of `evaluate_line` with the same arithmetic (`_interp` repeats `np.interp` to the last bit, `_interp_forward`
   too with its index walked forward along a line: `test_interp_forward_matches_interp`):
   `tests/test_units.py::test_evaluate_lines_matches_evaluate_line` compares them with `==`. The regression set
-  compares the sha256 of `lines.csv` too (with totals: length, clearances), so such a change must leave every checksum
+  compares the sha256 of the CSV export too (with totals: length, clearances), so such a change must leave every checksum
   as it was. The no-fall zone and the A-frames (`helpers.end_zone_rule`) change the comparison only, never the limit:
   a pixel passes when its strict margin exceeds `−lift − δ·[in the zone]`, the same expression in
   `linesearch._line_ok` (`strict`/`lenient`, `_margin_at`), `_evaluate`, `lineprofiles._profiles`,
@@ -102,7 +102,7 @@ What each module holds: docs/code-map/search.md (the tools: docs/code-map/tools.
   `find_valid_lines`, and the tool reaches production only through `free_directions`, `pair_arguments` and
   `pair_chunk` (`production_directions`, `production_args`): change them together. A faster kernel must keep all of
   that: the order of the found pairs is part of the output (the stable sorts by length and of the groups carry it into
-  `lines.csv`), so a skip rule may only skip pairs that fail before `_line_ok`, while `_line_ok` may test the pixels
+  the store's rows and the CSV export), so a skip rule may only skip pairs that fail before `_line_ok`, while `_line_ok` may test the pixels
   in any order (`funnel_pairs` simulates production's as the order "production": `LINE_ORDER_SPLIT`,
   `LINE_ORDER_MAX`). `pair_chunk` writes the pairs of the anchors that fit its buffer from the buffer and those of the
   others by a second pass with `offsets`: both keep the order of the visits per anchor and the anchors in the order of

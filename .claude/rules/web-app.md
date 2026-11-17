@@ -52,9 +52,10 @@ tests that start Edge).
   `Plan.early_stop`, which `run_phase` sets from the server's `Limits` also when the user's limits are None) never
   depend on it. Locally the one user is `LOCAL` and `FINDALINE_LIMIT_*` apply as before (`web.unlimited` is False
   without `--public`).
-- `web.RUN_FILES` (the files of a run the public site serves) and what `mapping.save_map` and `runs.save_results`
-  write (`map.html`, `data.js`, `lines.js`, `lines.csv`, `lines.geojson`, `ATTRIBUTION.txt`): a new file a map needs
-  goes into both, a file with the owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither.
+- `web.RUN_FILES` (the files of a run the public site serves) and what `search.save_run` writes (`map.html`,
+  `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`; old runs also hold `data.js`, `lines.js`, `lines.csv`,
+  `lines.geojson`, which stay in it until store wave 4's item 5): a new file a map needs goes into both, a file with
+  the owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither.
   `web.SIZED_FILES` carry `web.SIZE_HEADER`, the name `viewer/src/download.ts` `SIZE_HEADER` reads
   (`tests/test_viewer.py::test_run_script_parsed_and_body_sized`). An export (`jobs.quick_export`) lives only in
   `work/exports/` as `<run id>-<token>.<ext>` until its one GET deletes it: never in a run folder, `RUN_FILES` or a
@@ -69,7 +70,8 @@ tests that start Edge).
   (`users.country`), the operator's statistics without personal data and without a time limit (the metrics:
   docs/monitoring.md, "Privacy", holds the accepted wording), no IP addresses; a new stored field, cookie or retention
   changes it too. A credit, orthophoto or note naming `sources.YEAR` is filled with the year of the run wherever a
-  run's credits are written (`search.save_run`: run.json, lines.geojson, ATTRIBUTION.txt, data.js) and reads
+  run's credits are written (`search.save_run`: run.json, ATTRIBUTION.txt, the store's head, so the export's
+  lines.geojson) and reads
   `YEAR_TEXT` where no run exists (the about page); a new place that shows a credit fills it too. Every state-changing
   endpoint of the public site records an `audit` event (`web.record`), refusals by a quota or rate too (`queue`,
   `within_rate`, `Jobs.use`). The about page is built from `sources.SOURCES` credits (and their layers'), so a new
@@ -90,7 +92,7 @@ tests that start Edge).
   only `RUN_FILES` of a run the request's user may open, `_viewer/` for anyone, served from the code's `viewer/dist`,
   never from `runs/_viewer`, which the worker writes; 404 for everything else, an empty path part too; Starlette's
   path checks, ETag and Range); `/runs/runs.js` is generated per user (own runs) and `/runs/index.html` redirects to
-  the app (the public worker writes neither file: `Plan.index_runs`). The owners are the table `runs` of `jobs.sqlite`
+  the app (the public worker writes no runs.js: `Plan.index_runs`; no runs/index.html is written since store wave 4). The owners are the table `runs` of `jobs.sqlite`
   (the worker adds the row when a job saves its run; at the start of `web --public`, `Jobs.adopt_runs` gives runs
   without a row or owner to the first administrator of `FINDALINE_ADMINS`, whose user row is made then if needed).
   Locally `/runs` is the plain folder as before (tests put their test pages there). Share links: `/s/<token>/<file>`
