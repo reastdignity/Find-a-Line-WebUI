@@ -285,6 +285,8 @@ class Spots implements SpotView {
   private favouriteKey = "";
   private fanAnchor: {row: number; end: 1 | 2} | null = null;  // the open fan's anchor (none: its point)
   private fanSorted = false;                                  // the person sorted the open fan
+  private fanMarks = "";                                      // marksKey() at the open fan's last derivation
+  private away = false;                                       // the last view held no part of the run
   private lastFilters: Filters;
   private lastState: unknown;
 
@@ -331,14 +333,15 @@ class Spots implements SpotView {
   private follow() {
     const m = this.model, favourites = this.readFavourites();
     if (m.filters !== this.lastFilters || m.state !== this.lastState || favourites) {
-      // a change of the favourites alone keeps "Lines from here" (no filter changed)
-      // (not with "Favourites only" on: the favourites are then the passing lines, and a change of those closes it)
-      const keep = m.filters === this.lastFilters && m.state === this.lastState && !(m.filters.favOnly && m.favouritesOn)
-        ? this.fan : null;
+      // a change of the favourites alone keeps "Lines from here" (no filter changed); with "Favourites only" on
+      // the favourites are the passing lines: the fan then stays only when the same lines pass as before (a
+      // favourite of a line that another filter hides changes nothing)
+      const keep = m.filters === this.lastFilters && m.state === this.lastState ? this.fan : null;
+      const passed = keep && m.filters.favOnly ? this.ok.slice() : null;
       this.lastFilters = m.filters;
       this.lastState = m.state;
       this.recompute();
-      if (keep) {
+      if (keep && (!passed || passed.every((p, i) => p === this.ok[i]))) {
         this.fan = keep;
         this.refan();
       }
@@ -583,23 +586,40 @@ class Spots implements SpotView {
     this.refan();
   }
 
-  /** The numbers on the map changed (a move, a zoom, Best, the list's sort): the open fan is derived again in full
-   *  for its point or anchor: which of its lines carry a number now, their order, their rows, the L numbers (B.2
-   *  item 11: "a line that is a B or P line now"); the person's sort of it is kept. The Fan stays the same object:
-   *  the canvas moves the map only for a fan newly opened. */
+  /** The numbers a line can carry on the map now, as one text: at Area the picks (they follow what passes), else
+   *  the best spots in view by their numbers. */
+  private marksKey(): string {
+    if (this.level === "area") return `P${this.version}`;
+    const v = this.inView;
+    return v.numbered ? `B${this.version}:${v.best.join()}` : "-";
+  }
+
+  /** The view may have changed the numbers on the map (a move, a zoom, Best, the list's sort): when the numbers a
+   *  row of the open fan could carry are others than at its last derivation (marksKey), the fan is derived again
+   *  in full for its point or anchor: which of its lines carry a number now, their order, their rows, the L
+   *  numbers (B.2 item 11: "a line that is a B or P line now"); the person's sort of it is kept. A move that
+   *  changes no number costs nothing, and nothing is derived while the map shows no part of the run (the fan is
+   *  not seen; it follows when the run is in view again). The Fan stays the same object: the canvas moves the map
+   *  only for a fan newly opened. Timed as "fal:view:refan". */
   private refan() {
     const fan = this.fan;
-    if (!fan) return;
-    const next = this.fanAt(fan.at, this.fanAnchor ?? undefined);
-    if (next) {
-      Object.assign(fan, next, {sort: fan.sort});
-      if (this.fanSorted) this.sortRows(fan);
-    }
-    this.relabel();
+    if (!fan || this.away) return;
+    const key = this.marksKey();
+    if (key === this.fanMarks) return;
+    this.fanMarks = key;
+    timed("fal:view:refan", () => {
+      const next = this.fanAt(fan.at, this.fanAnchor ?? undefined);
+      if (next) {
+        Object.assign(fan, next, {sort: fan.sort});
+        if (this.fanSorted) this.sortRows(fan);
+      }
+      this.relabel();
+    }, {count: this.count});
   }
 
   private seen(quad: Quad): InView {
-    if (quadArea(quad) < QUAD_MIN) {  // the map's view lies off the run: nothing is in view, and no line is asked
+    this.away = quadArea(quad) < QUAD_MIN;
+    if (this.away) {  // the map's view lies off the run: nothing is in view, and no line is asked
       this.num.fill(0);
       return {...NO_VIEW};
     }
@@ -706,6 +726,7 @@ class Spots implements SpotView {
     this.fan = fan;
     this.fanAnchor = anchor ?? null;
     this.fanSorted = false;
+    this.fanMarks = this.marksKey();
     this.relabel();
     this.notify();
   }
