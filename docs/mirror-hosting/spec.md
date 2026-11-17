@@ -416,7 +416,8 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
   `basis_kind` (licence, metadata statement, written permission), `licence`, `licence_url`, `basis_url`,
   `basis_quote` (the original sentence), `basis_checked` (date), `changes` (per product, the averaging too),
   `not_endorsed` (the sentence), `notes`, `approved` (the user's word and its date). A field without a fact holds
-  the word "none" (P23). The rows of today, six (wave 0: publish, quotes dated 2026-11-15; the islets' 2026-11-17), each with the user's approval it rests on:
+  the word "none" (P23). The rows of today, six (wave 0: publish, quotes dated 2026-11-15; the islets'
+  2026-11-17), each with the user's approval it rests on:
 
   | Dataset | Basis | Notes for the row |
   | --- | --- | --- |
