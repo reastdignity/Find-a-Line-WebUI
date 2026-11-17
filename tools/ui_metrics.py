@@ -904,17 +904,22 @@ def _axe_source():
 
 def record_of(row: dict) -> dict | None:
     """A state's record from a row of ui_shots.shoot_page: its measurements when the outcome is "done"; a row that
-    "timed out" or "failed" is recorded as not measured ("error": the outcome and its reason) and counts in no total;
-    a page left out on a device (a click finds nothing, a "need:" is false) as "left_out" with its reason."""
+    failed, or any row with a wait that timed out (whatever followed: a later click that then finds nothing on a page
+    that never drew is no property of the device), is recorded as not measured ("error": the outcome and its reason)
+    and counts in no total; a page left out on a device (a click finds nothing, a "need:" is false) without a timeout
+    as "left_out" with its reason."""
     seconds = {"load": round(sum(row[k] or 0 for k in ("load", "settle", "tiles")), 2),
                "steps": round(sum(s["seconds"] for s in row["steps"]), 2), "measure": round(row["shot"] or 0, 2)}
     record = {"page": row["page"], "device": row["device"], "theme": row["theme"]}
+    if row["outcome"] == "failed":
+        return {**record, "error": f"failed: {row['error']}", "seconds": seconds}
+    if row["timeouts"]:
+        return {**record, "error": "timed out: " + "; ".join(row["timeouts"]), "seconds": seconds}
     if row["outcome"] == "done":
         return {**record, **row["result"], "seconds": seconds}
     if row["outcome"] == "left out":
         return {**record, "left_out": row["reason"] or "left out"}
-    why = row["error"] if row["outcome"] == "failed" else "; ".join(row["timeouts"])
-    return {**record, "error": f"{row['outcome']}: {why}", "seconds": seconds}
+    return {**record, "error": f"{row['outcome']}: {row['error'] or row['reason']}", "seconds": seconds}
 
 
 class _Logged(list):

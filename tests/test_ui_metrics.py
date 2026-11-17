@@ -536,6 +536,7 @@ FAILING = {"one": ("/one", "", None, "visitor"),
            "bad": ("/bad", "", "js:(() => { throw new Error('step broke') })()", "visitor"),
            "slow": ("/slow", "", "wait:false", "visitor"),
            "miss": ("/miss", "", ".nothing-here", "visitor"),
+           "slowmiss": ("/slowmiss", "", ["wait:false", ".nothing-here"], "visitor"),
            "two": ("/two", "", None, "visitor")}
 
 
@@ -588,15 +589,17 @@ def test_measure_all_goes_on_after_failures(site, monkeypatch):
                                          dropped={"why": "the run has no square rule"})
     assert [(r["page"], r.get("error", "").split(":")[0], r.get("left_out")) for r in records] == [
         ("why", "", "the run has no square rule"), ("one", "", None), ("bad", "failed", None),
-        ("slow", "timed out", None), ("miss", "", "the device does not show .nothing-here"), ("two", "", None)]
+        ("slow", "timed out", None), ("miss", "", "the device does not show .nothing-here"),
+        ("slowmiss", "timed out", None), ("two", "", None)]
     assert "step broke" in records[2]["error"] and records[3]["error"] == "timed out: false"
-    assert not any("controls" in records[k] for k in (0, 2, 3, 4))
-    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[1], records[5]))
+    assert records[5]["error"] == "timed out: false"  # its click then found nothing: still not measured, no left-out
+    assert not any("controls" in records[k] for k in (0, 2, 3, 4, 5))
+    assert all(r["controls"] == 1 and "axe broke" in r["axe"]["error"] for r in (records[1], records[6]))
     assert [json.loads(line)["page"] for line in log.getvalue().splitlines()] == [
-        "why", "one", "bad", "slow", "miss", "two"]
+        "why", "one", "bad", "slow", "miss", "slowmiss", "two"]
     s = ui_metrics.summarise(records)
     row = s["per_device_theme"]["desktop light"]
-    assert (row["states"], len(row["errors"]), len(row["left_out"]), row["axe_missing"], row["controls"]) ==         (2, 2, 2, 2, 2)
+    assert (row["states"], len(row["errors"]), len(row["left_out"]), row["axe_missing"], row["controls"]) ==         (2, 3, 2, 2, 2)
     assert s["left_out"] == {"why | the run has no square rule": ["desktop light"],
                              "miss | the device does not show .nothing-here": ["desktop light"]}
     assert "- why: the run has no square rule (desktop light)" in ui_metrics.pages_markdown(s)
