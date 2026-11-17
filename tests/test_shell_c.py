@@ -1782,6 +1782,28 @@ run({
       });
     });
   }); },
+  // a search started and cancelled in another tab: the page learns of it by its status event alone (no `own`),
+  // lists the jobs once more and offers Remove… on it
+  fromEvent(next) {
+    const headers = {"content-type": "application/json",
+                     "x-findaline-token": $("meta[name=findaline-token]").content};
+    let listed = 0;  // the page's listings of the jobs from now on
+    const pageFetch = window.fetch;
+    window.fetch = (url, init) => pageFetch(url, init).then((answer) => {
+      if (/\\/api\\/jobs$/.test(String(url)) && !(init && init.method && init.method !== "GET")) listed++;
+      return answer;
+    });
+    fetch("/api/jobs", {method: "POST", headers, body: JSON.stringify(
+      {params: {name: "Another tab", radius: 300}, geometry: {type: "Point", coordinates: [14.2, 36.0]}})})
+      .then((r) => r.json()).then(({id}) => fetch("/api/jobs/" + id, {method: "DELETE", headers}).then(() => {
+        pushEvent({seq: 9000001, job: id, kind: "status", data: {status: "cancelled", title: "Another tab",
+                                                                   created: new Date().toISOString()}});
+        wait(() => card("job", id) && listed > 0, () => openMenu(id, () => {
+          result.fromEvent = menuItems(id);
+          next();
+        }));
+      }));
+  },
 });
 """
 
@@ -1878,6 +1900,7 @@ def test_shell_c_cancelled_search(tmp_path):
     at = order.index(ids["waiting"])
     took = order[at + 1] if at + 1 < len(order) else order[at - 1]
     assert r["left"] == [True, True] and r["focusAfter"] == took, r  # the card that took its place
+    assert r["fromEvent"] == ["Edit & run again", "Remove…"], r  # listed again once: own known
     admin = {row[0]: row for row in r["admin"]}
     assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
     assert [row[4] for row in r["admin"] if row[3]] == [True, True, True], r  # the marks: status chips, same size
