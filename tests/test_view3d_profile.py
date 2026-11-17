@@ -412,6 +412,15 @@ CARD_CUT = """() => { const card = document.querySelector('.v3-card');
     return !inProfile || top < -1 || bottom > pcard.scrollHeight + 1 || r.left < c.left - 1 || r.right > c.right + 1; })
     .map((e) => e.textContent.trim().slice(0, 40));
   return {cut, outside, chart: Math.round(chart.height), readout: card.querySelector('.fal-profile-readout').textContent}; }"""
+# The chart has measured its box (Profile.tsx `measure`: the svg as wide as the chart's box, as high as it but at least
+# 120 px). The chart comes in at its first size, 800 × 170 px, and measures in an effect, which Preact runs a frame
+# later: read before it, a phone's card had the chart's right-hand labels beyond its edge (a full parallel run,
+# 2026-11-17: "100 m", "150 m", "highest …", "min. clearance …", "A2 …" outside; ready implies the profile, so the
+# click draws the chart at once and its svg is there before that frame)
+CARD_FITTED = """() => { const chart = document.querySelector('.v3-card .fal-profile-chart');
+  const svg = chart && chart.querySelector('svg');
+  return !!svg && Number(svg.getAttribute('width')) === chart.clientWidth
+    && Number(svg.getAttribute('height')) === Math.max(120, chart.clientHeight); }"""
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -445,6 +454,7 @@ def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
                     if not page.query_selector(".v3-card .fal-profile-chart"):
                         page.click(".v3-tool[data-tool=profile]")
                     page.wait_for_selector(".v3-card .fal-profile-chart svg", timeout=30000)
+                    page.wait_for_function(CARD_FITTED, timeout=30000)
                     found[(kind, which, "summary")] = page.evaluate(CARD_CUT)
                     page.evaluate("""() => { const h = document.querySelector('.v3-card .fal-hover'), r = h.getBoundingClientRect();
                         h.dispatchEvent(new MouseEvent('mousemove', {clientX: r.left + r.width * 0.4, clientY: r.top + 5, bubbles: true})); }""")
