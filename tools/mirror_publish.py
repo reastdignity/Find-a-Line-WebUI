@@ -28,7 +28,9 @@ hashes them (rclone checksum sha256 against a SUM file made from the index), and
 index.json must be a listed tile. A product folder holding tiles without an index.json, and an index that is not
 what the cutting tools write (its tiles' keys, their sha256 as 64 hex digits, "block" present and 10), are faults.
 --read-back hashes by reading the files back (rclone checksum --download) where the
-remote has no sha256. Exit code 1 and the list of faults otherwise.
+remote has no sha256. Exit code 1 and the list of faults otherwise. verify of a master folder (and publish, before it
+copies) prints a note, never a fault, when a dataset's own README.md is missing or differs from the card the tool
+serves (it serves its own card either way), naming what rewrites the file.
 
 publish: refuses (before anything is written) a dataset without a complete, approved row in PUBLISHABLE, one whose
 master fails verify (the master is hashed on every run, a resumed one too: U36), one lacking a folder of a resolution
@@ -791,9 +793,53 @@ def verify_remote(remote: Remote, read_back: bool) -> Tuple[List[str], int]:
     return faults, checked
 
 
+def readme_note(mirror: str, dataset: str) -> Optional[str]:
+    """A note when the master's own <mirror>/<dataset>/README.md is not the card the tool serves for that dataset
+    (cards: the tool writes its own card to the server either way, so this is never a fault): None when they are
+    equal or the tool has no card for the dataset; else one line naming the dataset and what rewrites the file."""
+    card = cards(mirror, only=dataset).get(dataset)
+    if card is None:
+        return None
+    try:
+        with open(os.path.join(mirror, dataset, CARD), encoding="utf-8") as f:  # read as the cutters write it
+            own = f.read()
+    except FileNotFoundError:
+        own = None
+    except (OSError, UnicodeError):
+        own = ""
+    if own == card:
+        return None
+    what = "is missing: the master lacks" if own is None else "differs from (is older than)"
+    if dataset == "slovakia":
+        how = ("no command of tools/sk_tiles.py writes the card alone (its cut, average and recompress write it "
+               "beside their own work)")
+    else:
+        import mirror_tiles
+        key = next(k for k in mirror_tiles.DATASETS if mirror_tiles.dataset(k).name == dataset)
+        how = (f"to rewrite it: python tools/mirror_tiles.py cut {key} --work <a work folder> --out <mirror> "
+               "(a finished dataset is not cut again, only its card written)")
+    return (f"note: <mirror>/{dataset}/README.md {what} the card this tool serves for {dataset} (the server gets "
+            f"the tool's card either way); {how}")
+
+
+def readme_notes(folder: str) -> List[str]:
+    """readme_note for a master folder given to verify: a dataset's folder (its name one the tool has a card for),
+    else every dataset folder in it (the whole mirror)."""
+    folder = os.path.normpath(os.path.abspath(folder))
+    known = set(cards())
+    if os.path.basename(folder) in known:
+        names, mirror = [os.path.basename(folder)], os.path.dirname(folder)
+    else:
+        names = sorted(n for n in os.listdir(folder) if n in known and os.path.isdir(os.path.join(folder, n)))
+        mirror = folder
+    return [note for note in (readme_note(mirror, name) for name in names) if note]
+
+
 def verify(place: str, rc: Optional[Rclone], read_back: bool = False) -> int:
     if os.path.isdir(place):
         print("verify: <folder>", flush=True)
+        for note in readme_notes(place):
+            print(note, flush=True)
         faults, files = read_master(place, "<folder>")
         checked = sum(1 for p in files if not p.endswith("index.json"))
     else:
@@ -1052,6 +1098,9 @@ def publish(dataset: str, to: str, rc: Rclone, mirror: Optional[str], same_value
         for fault in faults:
             print(f"  fault: {fault}")
         raise Refused(f"{label} fails verify ({len(faults)} faults)")
+    note = readme_note(mirror, dataset)
+    if note:
+        print(note, flush=True)
     if not read_back and "sha256" not in remote.hashes():
         raise Refused(NO_SHA256)
     if not remote.exists(""):
@@ -1259,7 +1308,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     common.add_argument("--log", help="a file rclone's own messages are appended to (never printed; a first publish "
                         "leaves \"directory not found\" lines there: checks of folders not made yet, no fault)")
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("verify", parents=[common], help="check a folder or a remote path against its indexes")
+    p = sub.add_parser("verify", parents=[common], help="check a folder or a remote path against its indexes (on a "
+                       "master folder also a note when a dataset's README.md is not the card the tool serves)")
     p.add_argument("place", help="a folder, or remote:path")
     p.add_argument("--read-back", action="store_true", help="hash by reading the files back (no sha256 on the remote)")
     p = sub.add_parser("publish", parents=[common], help="copy a dataset to the server and swap it in")

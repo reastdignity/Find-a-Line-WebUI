@@ -1416,3 +1416,50 @@ def test_a_5m_islet_published_end_to_end(world, capsys):
     assert entry["attribution"] == SOURCES["porto_santo"].attribution and entry["licence"] == "none"
     assert [p["path"] for p in entry["products"]] == ["porto-santo/dtm/5m"] and entry["products"][0]["tiles"] == 3
     assert "published porto-santo" in capsys.readouterr().out
+
+
+# The master's own README.md against the card the tool serves (U57)
+
+def _note_lines(out):
+    return [line for line in out.splitlines() if line.startswith("note: <mirror>/")]
+
+
+@pytest.mark.parametrize("state", ["equal", "different", "missing"])
+def test_the_masters_readme_against_the_served_card(world, capsys, state):
+    """verify of a dataset's master folder and of the whole mirror, and publish: silent when the master's README.md
+    is the card the tool serves; one note (never a fault, the exit code and the counts unchanged) when it differs or
+    is missing, naming the dataset and the cutting tool's command; publish notes it once, goes on and serves its
+    own card."""
+    readme = world.mirror / "madeira" / "README.md"
+    if state == "equal":
+        readme.write_text(mirror_tiles.MADEIRA_CARD, encoding="utf-8")  # as the cutter writes it (text mode)
+    elif state == "different":
+        readme.write_text("# an older card\n", encoding="utf-8")
+    for place in (world.mirror / "madeira", world.mirror):
+        assert world.run("verify", str(place)) == 0
+        out = capsys.readouterr().out
+        notes = [n for n in _note_lines(out) if "<mirror>/madeira/" in n]
+        assert "faults" in out and " 0 faults" in out
+        if state == "equal":
+            assert notes == []
+        else:
+            [note] = notes
+            assert ("is missing: the master lacks" if state == "missing" else "differs from (is older than)") in note
+            assert "python tools/mirror_tiles.py cut madeira --work <a work folder> --out <mirror>" in note
+    assert _publish(world, "madeira") == 0
+    out = capsys.readouterr().out
+    assert len([n for n in _note_lines(out) if "<mirror>/madeira/" in n]) == (0 if state == "equal" else 1)
+    published_ok(world, "madeira")  # the served card is the tool's
+    if state == "different":
+        assert readme.read_text(encoding="utf-8") == "# an older card\n"  # the master is never written
+
+
+def test_no_note_for_a_folder_without_a_card(world, capsys):
+    """A master folder of no dataset the tool has a card for gets no note; Slovakia's note names no command (no
+    command of tools/sk_tiles.py writes the card alone)."""
+    make_dataset(world.mirror, "nowhere", {"dtm/2m": [(1, 1)]})
+    assert world.run("verify", str(world.mirror / "nowhere")) == 0
+    assert _note_lines(capsys.readouterr().out) == []
+    assert world.run("verify", str(world.mirror / "slovakia")) == 0
+    [note] = _note_lines(capsys.readouterr().out)
+    assert note.startswith("note: <mirror>/slovakia/README.md is missing") and "no command of tools/sk_tiles.py" in note
