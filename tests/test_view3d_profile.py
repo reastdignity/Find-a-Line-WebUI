@@ -392,3 +392,57 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
         assert r["movedAgain"] == ["Save moved line", "Anchors moved: not saved"] and r["copy"], r
         assert r["copyText"] in ("Copy link", "Link copied") and "copyError" not in r, r
     assert _violations(dom) == []
+
+
+# The 3D card's text cut short: every leaf of its head and readout whose text is wider than its box; the chart's height
+CARD_CUT = """() => { const card = document.querySelector('.v3-card');
+  const cut = [...card.querySelectorAll('.v3-pcard-head *, .fal-profile-readout')]
+    .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                   && e.scrollWidth > e.clientWidth + 1)  // .u-sr: for screen readers only, 1 px by design
+    .map((e) => [e.className, e.textContent.trim()]);
+  const chart = card.querySelector('.fal-profile-chart').getBoundingClientRect();
+  return {cut, chart: Math.round(chart.height), readout: card.querySelector('.fal-profile-readout').textContent}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
+    """The 3D view's profile card in Playwright's Edge, on a desktop and on a touch phone (390 px): the line's facts on
+    a row of their own and the readout wrapping, nothing of the head or the readout cut short, with the summary and
+    with the long readout under the cursor, for the clip's first line and its longest (report defect 8, the user's
+    "b"); the chart keeps a usable height (at least 100 px)."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+    from test_web import DESKTOP, PHONE
+    import math
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    rows = _lines_of(data, meta["id"])
+    span = lambda r: math.hypot((r[2] - r[0]) * 111320, (r[3] - r[1]) * 111320 * math.cos(math.radians(r[0])))  # noqa: E731
+    lines = {"first": rows[0], "longest": max(rows, key=span)}
+    found = {}
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                for which, row in lines.items():
+                    page = browser.new_page(**context)
+                    line = ",".join(str(v) for v in row[:4])
+                    page.goto(f"http://127.0.0.1:{port}/view3d#run={meta['id']}&line={line}")
+                    page.wait_for_function("() => document.getElementById('view3d')?.dataset.ready === '1'", timeout=90000)
+                    if not page.query_selector(".v3-card .fal-profile-chart"):
+                        page.click(".v3-tool[data-tool=profile]")
+                    page.wait_for_selector(".v3-card .fal-profile-chart svg", timeout=30000)
+                    found[(kind, which, "summary")] = page.evaluate(CARD_CUT)
+                    page.evaluate("""() => { const h = document.querySelector('.v3-card .fal-hover'), r = h.getBoundingClientRect();
+                        h.dispatchEvent(new MouseEvent('mousemove', {clientX: r.left + r.width * 0.4, clientY: r.top + 5, bubbles: true})); }""")
+                    page.wait_for_function("() => / from A1 /.test(document.querySelector('.v3-card .fal-profile-readout').textContent)",
+                                           timeout=30000)
+                    found[(kind, which, "cursor")] = page.evaluate(CARD_CUT)
+                    page.close()
+        finally:
+            browser.close()
+    print({"|".join(k): (v["chart"], v["cut"]) for k, v in found.items()})
+    for key, value in found.items():
+        assert value["cut"] == [] and value["chart"] >= 100, (key, value)
+
