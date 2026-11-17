@@ -158,9 +158,14 @@ class GridTiles(ComposedLayer):
 
     def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
         """(tiles, tiles to download, MB), the averaged tiles at their own size (averaged_bytes). Read from a
-        remote base first, the tiles its kept index lists without data are not counted (TileBases.listed_empty);
-        without a kept index every tile not cached is, an upper bound, as for a local folder."""
+        remote base first, the tiles its index lists without data are not counted (TileBases.listed_empty): the
+        kept index, or fetched now when tiles are to be downloaded (TileBases.index_for_estimate: every caller of
+        an estimate is in the worker, the command line or a country run's main process, never the web process);
+        when that fetch fails every tile not cached is counted, an upper bound, as for a local folder."""
         res = self.resolution(grid.res, grid.crs)
         reader = self.readers[res]
-        todo = sum(not reader.listed_empty(tile[1:]) for tile in self.missing(grid, cache_dir, update))
+        missing = self.missing(grid, cache_dir, update)
+        if missing:
+            reader.index_for_estimate()
+        todo = sum(not reader.listed_empty(tile[1:]) for tile in missing)
         return len(self.tiles(grid)), todo, todo * self._sizes.get(res, self._bytes) / 1e6

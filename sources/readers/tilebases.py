@@ -47,9 +47,14 @@ class MirrorUrlError(ValueError):
     """FINDALINE_MIRROR_URL is neither an http:// or https:// address nor off (or empty)."""
 
 
-def _masked(value: str) -> str:
-    """A value of the setting with whatever stands before an "@" of its address (a user, a password) as ***."""
-    return re.sub(r"^((?:[a-zA-Z][\w+.-]*:)?//)?[^/@\s]*@", r"\g<1>***@", value)
+def _host_of(address: str) -> str:
+    """The host alone of an address (no scheme, user, port's credentials, path or query): what a text that may reach
+    the pages names of the data server (the user's U40); "?" when it has none."""
+    try:
+        parts = urlsplit(address if re.match(r"(?i)[a-z][\w+.-]*://", address) else "//" + address)
+        return parts.hostname or "?"
+    except ValueError:
+        return "?"
 
 
 def mirror_url() -> Optional[str]:
@@ -63,10 +68,10 @@ def mirror_url() -> Optional[str]:
         return None
     parts = urlsplit(origin) if re.match(r"(?i)https?://", origin) else None
     if parts is None or not parts.hostname or re.search(r"\s", origin):
-        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_masked(origin)[:60]!r}: it must be an http:// or https:// "
+        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_host_of(origin)[:60]!r}: it must be an http:// or https:// "
                              f"address, or {OFF} (or empty) for no data server")
     if "@" in parts.netloc:  # the data server is anonymous (U1): a user or password would stand in texts and rows
-        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_masked(origin)[:60]!r}: an address with a user or a password "
+        raise MirrorUrlError(f"{MIRROR_URL_ENV} is {_host_of(origin)[:60]!r}: an address with a user or a password "
                              f"is not supported (the data server needs none)")
     origin = parts.scheme.lower() + origin[len(parts.scheme):]  # HTTPS://host as https://host
     address = parts.netloc.lower()
@@ -230,14 +235,14 @@ def _published(origin: str) -> frozenset:
             response = net._get(f"{origin}/{DATASETS_PATH}", timeout=REACH_TIMEOUT, binary_types=("json",),
                                 retries=REACH_ATTEMPTS, stop_on=(429,))
             if response is None:
-                raise IndexMissing(f"{cache.clean_url(origin)}/{DATASETS_PATH} is not on the server (HTTP 404)")
+                raise IndexMissing(f"datasets.json is not on the server at {_host_of(origin)} (HTTP 404)")
             try:
                 paths = _checked_list(json.loads(response.content))
             except ValueError as e:  # not JSON (IndexUnreadable is a RuntimeError: below)
                 raise IndexUnreadable(f"not JSON ({str(e)[:80]})") from None
         except RuntimeError as e:
             if isinstance(e, IndexUnreadable):
-                why, e = str(e), IndexUnreadable(f"{cache.clean_url(origin)}/{DATASETS_PATH} cannot be read: {e}")
+                why, e = str(e), IndexUnreadable(f"datasets.json at {_host_of(origin)} cannot be read: {e}")
                 e.why = why
             kept.index, kept.error = None, e
             kept.generation += 1
@@ -360,7 +365,7 @@ class TileBases(Reader):
                 response = net._get(f"{base}/index.json", timeout=timeout, binary_types=("json",), retries=retries,
                                     stop_on=stop_on)
                 if response is None:
-                    raise IndexMissing(f"{cache.clean_url(base)}/index.json is not on the server (HTTP 404): this "
+                    raise IndexMissing(f"index.json is not on the server at {_host_of(base)} (HTTP 404): this "
                                        f"dataset or resolution is not published there")
                 try:
                     tiles, extent = _checked_index(json.loads(response.content))
@@ -368,7 +373,7 @@ class TileBases(Reader):
                     raise IndexUnreadable(f"not JSON ({str(e)[:80]})") from None
             except RuntimeError as e:
                 if isinstance(e, IndexUnreadable):
-                    why, e = str(e), IndexUnreadable(f"{cache.clean_url(base)}/index.json cannot be read: {e}")
+                    why, e = str(e), IndexUnreadable(f"index.json at {_host_of(base)} cannot be read: {e}")
                     e.why = why
                 kept.index, kept.error = None, e
                 kept.generation += 1  # after the fetch: the threads that waited for it see that it moved
@@ -398,8 +403,9 @@ class TileBases(Reader):
                         f.write(response.content)
                     os.replace(tmp, path)
                     return Fetched.of(response, url)
-                problem = (f"{cache.clean_url(url)} is not on the server (HTTP 404), though its index lists it"
-                           if response is None else f"{cache.clean_url(url)} does not match the sha256 of its index")
+                problem = (f"the tile is not on the server at {_host_of(url)} (HTTP 404), though its index "
+                           "lists it" if response is None else
+                           f"the tile from {_host_of(url)} does not match the sha256 of its index")
             except (IndexMissing, IndexUnreadable) as e:  # as a mismatch: once more after the pause
                 problem, used = str(e), None
             except RuntimeError as e:  # net._get's attempts spent: said by the host alone (no path; U40)
@@ -422,6 +428,20 @@ class TileBases(Reader):
         index = kept.fresh() if kept is not None else None
         return index is not None and _listed(index[0], index[1], tile) is OUTSIDE
 
+    def index_for_estimate(self) -> bool:
+        """The index of the first base, a remote one, for an estimate (GridTiles.estimate): the kept one, or fetched
+        now (the start check keeps none since U50; an estimate used the start check's index before), then kept as
+        a download keeps it. False for a local folder first, or on any failure of the fetch: the estimate is then
+        the upper bound, never an error and never a reason to turn the source down."""
+        bases = self.bases()
+        if not bases or not _is_remote(bases[0]):
+            return False
+        try:
+            self._remote_index(bases[0])
+        except RuntimeError:
+            return False
+        return True
+
     def reach(self) -> Optional[str]:
         """Whether the data server answers and publishes the tiles (the start check of a search's first planning, an
         estimate, a country run's main process and the probe; docs/mirror-hosting/spec.md C.3): None when it does,
@@ -432,9 +452,9 @@ class TileBases(Reader):
         remembered); no HTTP answer, any 5xx, a 404 of the list and a list that cannot be read are "does not
         answer", remembered for UNANSWERED_SECONDS for later start checks only; a 429 (busy) answers at once and
         the product counts as listed (U39: net._get stops at it, no other attempt, no pause). Another remote base
-        (a catalogue URL) is asked for its index, as before. A local folder first answers without a request (U38), also when it lacks an
-        averaged resolution: a grid of that resolution then reads it from the server with no start check, and a
-        server that does not answer fails the phase (U6's "in the middle"), never a fall-back."""
+        (a catalogue URL) is asked for its index, as before. A local folder first answers without a request (U38),
+        also when it lacks an averaged resolution: a grid of that resolution then reads it from the server with no
+        start check, and a server that does not answer fails the phase (U6's "in the middle"), never a fall-back."""
         bases = self.bases()
         if not bases or not _is_remote(bases[0]):
             return None
@@ -501,5 +521,5 @@ class TileBases(Reader):
                 continue
             if fetched is not None:
                 return fetched
-            error = f"not in {cache.clean_url(base)} yet"
+            error = f"not on the server at {_host_of(base)} yet"
         raise RuntimeError(f"Could not download {self.description} tile {name}: {error or self.unavailable()}")
