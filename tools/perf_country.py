@@ -54,12 +54,18 @@ The options after "--" are findaline.py's; --no-plot, --yes and --ortho never ar
 --data-dir there to keep the runs out of the repository's runs/.
 
 compare, cube, relief and estimate read a run's lines (read_lines) from the first of: its lines.npz (a run of
-profile --lean, which wrote it until store wave 4), its store (lines.arrow, a run saved since 2026-11-15: the CSV
-of linestore.export, the run's own lines.csv byte for byte, written into a temporary folder outside the run and
-read as lines.csv is: the same numbers), its lines.csv (a run saved before the store); compare and cube record
-which ("lines_from"). A lines.csv (or export) over 200 MB is packed once into perf_country_cache in the system's
-temporary folder, never beside the run. --lean is no longer used: since store wave 4 a run keeps its store, about
-as small as lines.npz, and no text file. The machine factor (estimate) takes the stage "Step 5: Compute saving
+profile --lean, which wrote it until store wave 4), its store (lines.arrow, a run saved since 2026-11-15), its
+lines.csv (a run saved before the store); compare, cube and relief record which ("lines_from"). From the store the
+columns come from linestore.read in memory (no export, nothing written anywhere), grouped by mapping.group_lines
+with run.json's distance and value and put in lines.csv's order (runs.row_order), as --lean did: the length,
+clearance, height above the terrain and the first anchor's easting and northing unrounded (float64: at least
+--lean's float32, finer than lines.csv's 1-2 decimals), the metres over water at 0.1 m (as the search keeps them),
+the wall angles and prominences at the store's 0.1 (lines.csv's decimals; --lean had them unrounded in float32).
+So a run read from its store may put a line within half a decimal of a band's or a cell's edge in another key than
+its lines.csv would (or a lean run of the same search): the keys of a sample profiled since store wave 4 come from
+those precisions. A lines.csv over 200 MB is packed once into perf_country_cache in the system's temporary folder,
+never beside the run. --lean is no longer used: since store wave 4 a run keeps its store, about as small as
+lines.npz, and no text file. The machine factor (estimate) takes the stage "Step 5: Compute saving
 results" as single-core: since store wave 4 it holds the store's write instead of the text files, so a bench.json
 made before that compares with one made after on other work there.
 """
@@ -415,7 +421,7 @@ def bench(out: str, processes: Optional[List[int]], n: int) -> Dict:
 LINE_NUMBERS = ("group", "length_m", "clearance_m", "water_m", "height_max_m", "anchor1_northing", "anchor1_easting",
                 "anchor1_wall_angle", "anchor2_wall_angle", "anchor1_prominence_m", "anchor2_prominence_m")
 LINE_FLAGS = ("representative", "over_trees_buildings")
-PACK_BYTES = 200e6  # a lines.csv (or export) larger than this is packed once with pandas (PACK_FOLDER)
+PACK_BYTES = 200e6  # a lines.csv larger than this is packed once with pandas (PACK_FOLDER)
 PACK_FOLDER = "perf_country_cache"  # in the system's temporary folder: never beside a run
 
 
@@ -492,14 +498,28 @@ def read_lines(run: Optional[str]) -> Dict[str, np.ndarray]:
     if source == "lines.csv":
         path = os.path.join(run, "lines.csv")
         return _read_csv(path, _stamp(path))
+    return _read_store(run)
+
+
+def _read_store(run: str) -> Dict[str, np.ndarray]:
+    """read_lines of a run's store: linestore.read's columns in lines.csv's order (the module docstring says at
+    which precision), as --lean's lean_save_results took them."""
     import linestore
-    key = "store|" + _stamp(os.path.join(run, linestore.LINES_FILE))
-    if os.path.exists(_pack_path(key)):  # a big run's export packed before
-        return _from_pack(_pack_path(key))
-    with tempfile.TemporaryDirectory(prefix="perf-country-") as tmp:
-        path = os.path.join(tmp, "lines.csv")
-        linestore.export(run, "csv", path)
-        return _read_csv(path, key)
+    import mapping as mp
+    import runs as rn
+    with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
+        params = json.load(f).get("params") or {}
+    lines, _ = linestore.read(run, profiles=False)
+    groups = mp.group_lines(lines, params["group_distance"], params.get("group_by", "clearance"))
+    order, number, is_rep, _ = rn.row_order(groups, 0, len(groups.members), rn.rep_positions(groups))
+    c = lines.columns
+    pick = lambda name, k=None: np.asarray(c[name][order] if k is None else c[name][order, k], dtype=float)  # noqa: E731
+    return {"group": number.astype(np.int64), "length_m": pick("length"), "clearance_m": pick("clearance"),
+            "water_m": pick("water_m"), "height_max_m": pick("height_max"), "anchor1_northing": pick("a1_xy", 1),
+            "anchor1_easting": pick("a1_xy", 0), "anchor1_wall_angle": pick("angle1"),
+            "anchor2_wall_angle": pick("angle2"), "anchor1_prominence_m": pick("prom1"),
+            "anchor2_prominence_m": pick("prom2"), "representative": np.asarray(is_rep, dtype=bool),
+            "over_trees_buildings": np.asarray(c["over_obstacles"][order], dtype=bool)}
 
 
 def run_crs(run: Optional[str]) -> Optional[str]:
@@ -832,8 +852,10 @@ def relief(inputs: Dict, samples: Dict, data_dir: str) -> Dict:
             scale = (sample["summary"]["lines"] / other["lines"], sample["summary"]["spots"] / max(other["spots"], 1))
             lines = read_lines(samples[source]["run"])
         cells = sample_cells(sample, low, high, blocks, lines, scale)
-        result["samples"][name] = {"place": place, "band": band, "res": float(res[:-1]), "cells_from": source, **cells}
-        print(f"{name}: {len(cells['cells'])} cells" + (f" (from {source})" if source else ""))
+        read = lines_from(samples[source or name]["run"])
+        result["samples"][name] = {"place": place, "band": band, "res": float(res[:-1]), "cells_from": source,
+                                   "lines_from": read, **cells}
+        print(f"{name}: {len(cells['cells'])} cells" + (f" (from {source})" if source else "") + f", lines from {read}")
     for name, s in virtual_cells(result["samples"], samples, inputs).items():
         result["samples"][name] = s
         print(f"{name}: {len(s['cells'])} cells, from {s['cells_from']}")

@@ -99,28 +99,54 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     assert "lines.npz" not in os.listdir(run) and "lines.arrow" in os.listdir(run)
     assert pc.lines_from(run) == "store"
 
-    # The run as a run of store wave 4 (its store alone) and as saved before the store (lines.csv alone): the same
-    # columns, so the same counts of compare and cube; nothing written into either run
+    # The run as a run of store wave 4 (its store alone) and as saved before the store (lines.csv alone): the store's
+    # columns in memory (no export: nothing written anywhere), in lines.csv's order and groups, the values lines.csv
+    # rounds unrounded (within its rounding of them), the others equal; the same keys of cube and counts of compare
+    # on the clip; nothing written into either run
+    import linestore
     import tool_runs
     samples = json.load(open(tmp_path / "out" / "samples.json"))
     store = tool_runs.store_only(sample["run"], str(tmp_path / "kinds" / "store"))
     text = tool_runs.text_only(sample["run"], str(tmp_path / "kinds" / "text"))
     before = tool_runs.snapshot(str(tmp_path / "kinds"))
     assert (pc.lines_from(store), pc.lines_from(text)) == ("store", "lines.csv")
-    a, b = pc.read_lines(store), pc.read_lines(text)
+    export = linestore.export
+    linestore.export = lambda *a, **k: pytest.fail("read_lines exported the store")
+    try:
+        a = pc.read_lines(store)
+    finally:
+        linestore.export = export
+    b = pc.read_lines(text)
     assert set(a) == set(b) and len(a["length_m"]) == sample["summary"]["lines"]
+    rounded = {"length_m": 1, "clearance_m": 2, "height_max_m": 2, "anchor1_northing": 2, "anchor1_easting": 2}
     for name in a:
-        assert a[name].dtype == b[name].dtype and np.array_equal(a[name], b[name], equal_nan=a[name].dtype == float), name
+        assert a[name].dtype == b[name].dtype, name
+        if name in rounded:  # unrounded from the store: lines.csv's text is their rounding
+            assert np.array_equal(runs.round_floats(a[name], rounded[name]), b[name]), name
+        else:
+            assert np.array_equal(a[name], b[name], equal_nan=a[name].dtype == float), name
+    lines, _ = linestore.read(store, profiles=False)
+    assert sorted(a["length_m"].tolist()) == sorted(lines.columns["length"].tolist())  # float64 as stored
     samples["store"], samples["text"] = {**sample, "run": store}, {**sample, "run": text}
     cubes = [pc.cube(samples, [name], 1000, list(pc.DIMS))["rows"] for name in ("store", "text")]
+    assert cubes[0][0]["line_keys"] > 0 and cubes[0][0]["spot_keys"] > 0
     assert [{**r, "name": None, "lines_from": None} for r in cubes[0]] == \
         [{**r, "name": None, "lines_from": None} for r in cubes[1]]
     assert cubes[0][0]["lines_from"] == "store" and cubes[1][0]["lines_from"] == "lines.csv"
     compared = pc.compare(samples, "text", ["store"], [500, 1000], pc.parse_bands(None))
     assert compared["lines_from"] == {"text": "lines.csv", "store": "store"}
+    # the same lines and spots in all; per length band they differ only by lines whose length lines.csv rounds onto
+    # the band's edge (the store's unrounded length on the other side of it: the precision the docstring names)
+    near = lambda edge: int((np.abs(a["length_m"] - edge) < 0.05).sum())  # noqa: E731
+    moved = 0
     for r in compared["rows"]:
-        assert r["ref_lines"] == r["other_lines"] and r["ref_spots"] == r["other_spots"], r
-        assert r["lost"] in (0, None) and r["new"] in (0, None), r
+        if r["band"] == "all":
+            assert r["ref_lines"] == r["other_lines"] and r["ref_spots"] == r["other_spots"], r
+            continue
+        low, high = (float(v) for v in r["band"].split("-"))
+        assert abs(r["ref_lines"] - r["other_lines"]) <= near(low) + near(high), r
+        moved += abs(r["ref_lines"] - r["other_lines"])
+    assert moved <= 2 * sum(near(edge) for edge in pc.EDGES["length"])
     assert tool_runs.snapshot(str(tmp_path / "kinds")) == before
 
 
