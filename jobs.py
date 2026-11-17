@@ -197,9 +197,10 @@ MIGRATIONS = [
     """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
                           name_key TEXT NOT NULL, rig TEXT NOT NULL);
        CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
-    # 19: when its owner removed a cancelled job from their searches (NULL: not removed; Jobs.remove): the owner's
-    # list leaves it out, an administrator's marks it; the row stays, so it counts as before (the daily quota, the
-    # usage, the statistics). Nothing else is written: a finished job whose run is gone is told at listing (Jobs.all)
+    # 19: when a job left its owner's searches (NULL: not removed): Jobs.remove for a cancelled one, Jobs.delete_run
+    # for the jobs of a deleted run; the owner's list leaves it out, an administrator's marks it; the row stays, so it
+    # counts as before (the daily quota, the usage, the statistics). Nothing else is written: a finished job whose run
+    # is gone otherwise is told at listing (Jobs.all)
     """ALTER TABLE jobs ADD COLUMN removed_at TEXT;""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
