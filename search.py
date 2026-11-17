@@ -2589,11 +2589,15 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
             map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
     # The store (linestore: lines.arrow, profiles.arrow) after today's files, with or without a map, its head
     # data.js's; its block "store" in run.json (never in lines.geojson, written before it: linestore.export leaves
-    # it out). A store that cannot be written never costs the run: it is kept without one (as a run of before)
+    # it out), with the result view's columns (mapping.view_columns: spots, sectors, the top-level flag, the order
+    # inside a spot) and their head keys, which data.js never has. A store that cannot be written, or view columns
+    # that cannot be computed, never cost the run: it is kept without a store (as a run of before)
     try:
         head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
                            p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-        store = linestore.write(run["path"], results, head)
+        view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
+        store = linestore.write(run["path"], results, {**head, **view_head}, view)
+        del view
     except Exception as error:  # noqa: BLE001 - the run's own files are saved already
         for name in linestore.FILES:
             with contextlib.suppress(OSError):

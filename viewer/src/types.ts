@@ -218,6 +218,7 @@ export interface RunScript extends RunHead {
 /** A run as the page keeps it (result/load.ts): the head and its lines as columns (lineColumns), the rows dropped. */
 export interface RunData extends RunHead {
   columns: LineColumns;
+  fromStore?: boolean;  // read from the run's store (load.ts fromServer), not from data.js: RunActions mayExport
 }
 
 declare global {

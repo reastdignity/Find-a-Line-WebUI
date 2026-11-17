@@ -1134,7 +1134,11 @@ run(first ? {
     result.unfolded = [$(".r-card").classList.contains("r-card-folded"), kept().profile.folded];
     button("Close the profile").click();
     await pause();
-    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners()};
+    // the scale and the credits (the whole data credits on a desktop): [the credits run under the scale's corner, the
+    // gap between them, px]
+    const sb = $(".leaflet-control-scale").getBoundingClientRect(), ab = $(".leaflet-control-attribution").getBoundingClientRect();
+    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners(),
+                     under: [ab.left < sb.right, Math.round(ab.top - sb.bottom)]};
     $(".c-col-details .r-reprofile").click();
     await until(() => $(".r-card"));
     result.reopened = {card: !!$(".r-card"), credits: credits()};
@@ -1246,13 +1250,16 @@ def test_shell_c_layout(data, tmp_path):
     compact = r["compact"]
     assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), r
     assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), r
-    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "nowrap", r
+    # the readout wraps (the user's "8 b", 2026-11-17: no ellipsis; was one cut line)
+    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "normal", r
     rig = r["rigging"]
     assert rig["legend"] and rig["scale"] and rig["inControls"], r
     assert rig["toggled"][0].startswith("1:1 scale") and rig["toggled"][1] == "Auto scale", r
     home = r["cardHome"]
     assert home["height"] == home["kept"] == home["aria"][1] == card["aria"][1] and 119 <= home["chart"] <= 121, r
-    assert home["height"] < 200, r  # the compact card's least height at 1400 × 900
+    # the compact card's least height at 1400 × 900: 235 px since the facts take a row of their own and the readout
+    # wraps (the user's "8 b"; under 200 px before)
+    assert home["height"] < 250, home
     assert r["cardUp"] == {"height": home["height"] + 16, "kept": home["height"] + 16}, r
     assert r["cardDrag"] == {"height": home["height"] + 56, "during": home["height"] + 16, "kept": home["height"] + 56}, r
     assert r["cardKey"] == {"left": 28, "kept": [28, 12]}, r
@@ -1262,8 +1269,14 @@ def test_shell_c_layout(data, tmp_path):
     assert r["cardWide"]["width"] == narrow["mapWidth"] - 24 and "" not in r["cardWide"]["corners"].values(), r
     assert r["folded"]["folded"] and r["folded"]["kept"] is True and r["folded"]["height"] < 80, r
     assert r["unfolded"] == [False, False], r
-    assert r["closed"] == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
-                           "corners": {"attribution": "", "scale": ""}}, r
+    closed = {**r["closed"]}
+    under, gap = closed.pop("under")
+    assert closed == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
+                      "corners": {"attribution": "", "scale": closed["corners"]["scale"]}}, r
+    # the card gone, the corners in Leaflet's places; the credits wrap under the scale's corner: the scale right
+    # above them (report defect 7)
+    assert under, r  # in this layout the unfolded credits run under the scale's corner
+    assert closed["corners"]["scale"].endswith("px") and 0 <= gap <= 10, r
     assert r["reopened"] == {"card": True, "credits": {"toggle": True, "credits": False}}, r
     # Found again after the reload
     kept = r["beforeReload"]
@@ -1597,3 +1610,237 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
     finally:
         server.should_exit = True
         thread.join(10)
+
+
+# The result's "Length" editor open with a long value typed: the boxes of its × and of the first row's number and unit
+EDITOR_JS = """() => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {x: box(document.querySelector('.r-editor .r-editor-x')),
+          rows: [...document.querySelectorAll('.r-editor > .r-limit')].map((row) =>
+            [box(row.querySelector('.r-num')), box(row.querySelector('.r-limit-val > .u-small'))])};
+}"""
+# The result map's scale and credits: their boxes, and whether the credits run under the scale's corner
+CORNERS_JS = """() => { const m = document.querySelector('.leaflet-container'), box = (s) => {
+  const r = m.querySelector(s).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const scale = box('.leaflet-control-scale'), attribution = box('.leaflet-control-attribution');
+  return {scale, attribution, under: attribution[0] < scale[2] && scale[0] < attribution[2]}; }"""
+# Settled: the source's credits shown, and the scale right above them where they run under it, else clear of them
+CORNERS_SETTLED = """() => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution'), s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    c = a.getBoundingClientRect(), under = c.left < s.right && s.left < c.right;
+  return /FABDEM/.test(a.textContent) && (under ? c.top - s.bottom >= 0 && c.top - s.bottom <= 10
+                                                : true); }"""  # side by side: apart by themselves
+SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
+  document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
+ZOOM_JS = "(by) => window.FINDALINE_MAP.setZoom(window.FINDALINE_MAP.getZoom() + by, {animate: false})"
+
+
+def _playwright() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("playwright") is not None
+
+
+def _corners(page, wait: int = 30000) -> dict:
+    """The corners once settled (the observers' frame after a change)."""
+    page.wait_for_function(CORNERS_SETTLED, timeout=wait)
+    return page.evaluate(CORNERS_JS)
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
+    """The result in Playwright's Edge with a source's credits, which wrap under the scale's corner (report defects 5,
+    7 and 13): the scale right above the credits on a desktop (the map column is narrow), after a zoom out and in
+    (the scale's width changes), on a phone with the sheet at full height (the corners in Leaflet's places), and on a
+    narrow window widened to a desktop (the sheet's corners undone, the card's taken over); the "Length" editor's ×
+    on neither row's number or unit, the two rows' fields in one column (desktop, and a touch phone with its larger
+    ×); the sorted column says its order in its name, largest first and after a click smallest first, with no
+    aria-sort, which a button may not carry."""
+    from playwright.sync_api import sync_playwright
+    add_credits(data, SMALL)  # a source's credits: the credits wrap
+    page_path = stub_page(data, "cplay")
+    from test_web import DESKTOP, PHONE
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        url = f"http://127.0.0.1:{port}/{page_path}#run={SMALL}"
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = browser.new_page(**context)
+                page.goto(url)
+                page.wait_for_selector(".r-filters", timeout=30000)
+                if kind == "phone":  # the sheet at full height: the corners back in Leaflet's places
+                    page.focus(".u-sheet-handle")
+                    page.keyboard.press("ArrowUp")  # half (its start) to full
+                    page.wait_for_selector(".u-sheet.u-full", timeout=30000)
+                r[f"{kind}_corners"] = _corners(page)
+                if kind == "desktop":
+                    for name, by in (("out", -3), ("in", 3)):
+                        page.evaluate(ZOOM_JS, by)
+                        r[f"zoom_{name}"] = _corners(page)
+                page.locator(".r-filters button", has_text="Length").first.click()
+                page.wait_for_selector(".r-editor .r-editor-x", timeout=30000)
+                r[f"{kind}_editor"] = page.evaluate(EDITOR_JS)
+                r[f"{kind}_sorted"] = page.evaluate(SORTED_JS)
+                if kind == "desktop":
+                    page.click(".r-dir")
+                    page.wait_for_function("() => document.querySelector('.r-col.r-on')?.textContent.includes('smallest')",
+                                           timeout=30000)
+                    r["ascending"] = page.evaluate(SORTED_JS)
+                page.close()
+            # a narrow window (the phone layout with its sheet) widened to a desktop's
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(url)
+            page.wait_for_selector(".u-sheet", timeout=30000)
+            r["narrow"] = _corners(page)
+            page.set_viewport_size({"width": 1280, "height": 900})
+            page.wait_for_selector(".u-sheet", state="detached", timeout=30000)
+            r["widened"] = _corners(page)
+            page.close()
+        finally:
+            browser.close()
+
+    def meet(a, b):
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+    for kind in ("desktop", "phone"):
+        editor = r[f"{kind}_editor"]
+        assert len(editor["rows"]) == 2, editor  # Length from, Length to
+        assert not any(meet(editor["x"], b) for row in editor["rows"] for b in row), (kind, editor)
+        (num1, unit1), (num2, unit2) = editor["rows"]
+        assert (num1[0], num1[2], unit1[2]) == (num2[0], num2[2], unit2[2]), (kind, editor)  # one column
+        count, name, sort = r[f"{kind}_sorted"]
+        assert count == 0 and sort == "hmean", r
+        assert name.startswith("Mean height") and name.endswith(", sorted largest first"), r
+    assert r["phone_editor"]["x"][2] - r["phone_editor"]["x"][0] == 40, r  # a touch screen's ×
+    assert r["ascending"][0] == 0 and r["ascending"][1].endswith(", sorted smallest first"), r
+    # the credits run under the scale's corner in every one of these layouts: the scale right above them
+    for name in ("desktop_corners", "zoom_out", "zoom_in", "phone_corners", "narrow", "widened"):
+        found = r[name]
+        assert found["under"] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, (name, found)
+
+
+# The phone's sheet: the head's shadow and the boxes of the head and the body
+SHEET_JS = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const head = document.querySelector('.u-sheet .u-sheet-head'), body = document.querySelector('.u-sheet .u-sheet-body');
+  return {shadow: getComputedStyle(head).boxShadow, head: box(head), body: box(body), top: body.scrollTop}; }"""
+# The result's profile card: every leaf of its bar and readout whose text is wider than its box, the chart's height,
+# and the boxes of the card, the scale and the credits
+CARD_JS = """() => { const card = document.querySelector('.r-card'), box = (e) => { const r = e.getBoundingClientRect();
+  return [r.left, r.top, r.right, r.bottom]; };
+  const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout')]
+    .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                   && e.scrollWidth > e.clientWidth + 1)  // .u-sr: for screen readers only, 1 px by design
+    .map((e) => [e.className, e.textContent.trim()]);
+  const m = document.querySelector('.leaflet-container');
+  return {cut, chart: Math.round(card.querySelector('.fal-profile-chart').getBoundingClientRect().height), card: box(card),
+          scale: box(m.querySelector('.leaflet-control-scale')), credits: box(m.querySelector('.leaflet-control-attribution')),
+          facts: card.querySelector('.r-facts')?.textContent}; }"""
+
+
+# The card under a moving cursor: for each place along the chart (a share of its width) the boxes of the card, its
+# chart and its readout, and any leaf of its bar or readout cut short; two frames after each move
+STEADY_JS = """async () => { const card = document.querySelector('.r-card'), hover = card.querySelector('.fal-hover');
+  const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); };
+  const out = [];
+  for (const at of [null, 0.02, 0.1, 0.25, 0.4, 0.6, 0.8, 0.95]) {
+    const r = hover.getBoundingClientRect();
+    hover.dispatchEvent(at === null ? new MouseEvent('mouseleave', {bubbles: true})
+      : new MouseEvent('mousemove', {clientX: r.left + r.width * at, clientY: r.top + 5, bubbles: true}));
+    await frame();
+    const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout *')]
+      .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                     && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim());
+    const readout = card.querySelector('.fal-profile-readout'), text = readout.querySelector('.fal-readout-text') || readout;
+    out.push({at, card: box(card), chart: box(card.querySelector('.fal-profile-chart')), readout: box(readout),
+              inside: text.getBoundingClientRect().bottom <= readout.getBoundingClientRect().bottom + 1, cut,
+              text: text.textContent.slice(0, 40)});
+  }
+  hover.dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}));
+  return out; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
+    """The user's choices "6 b" and "8 b" (report defects 6 and 8) in Playwright's Edge. On a touch phone the sheet's
+    head carries a shadow once its body is scrolled and none at the top, and neither box moves. On a desktop the
+    profile card's bar and readout show their whole text (the facts on a row of their own, the readout wrapping),
+    with the summary and with the long readout under the cursor, for the first line and the longest spot's; the chart
+    keeps at least 120 px; the scale and the credits stay clear of the card (useCornersAboveCard); the card, its chart
+    and its readout keep their boxes while the cursor moves over the chart, at the default width and at the card's
+    narrowest and lowest (code review 3 F1: the readout grew a line and the chart jumped under the pointer)."""
+    import urllib.parse
+    from playwright.sync_api import sync_playwright
+    from test_web import PHONE
+    add_credits(data, SMALL)
+    page_path = stub_page(data, "csheet")
+    line = urllib.parse.quote(first_line(data, SMALL), safe="")
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = browser.new_page(**PHONE)
+            page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}&line={line}")
+            page.wait_for_selector(".u-sheet .u-sheet-head", timeout=30000)
+            r["top"] = page.evaluate(SHEET_JS)
+            page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 120; }")
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow !== 'none'",
+                                   timeout=30000)
+            r["scrolled"] = page.evaluate(SHEET_JS)
+            page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 0; }")
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow === 'none'",
+                                   timeout=30000)
+            r["back"] = page.evaluate(SHEET_JS)
+            page.close()
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}")
+            page.wait_for_selector(".r-rows .r-spot > .r-row", timeout=30000)
+            for which in ("first", "longest"):
+                if which == "longest":  # the list by length, longest first; its first spot
+                    page.locator(".r-head .r-col", has_text="Length").click()
+                    page.wait_for_function("() => document.querySelector('.r-sort').value === 'len'", timeout=30000)
+                    if "smallest" in page.locator(".r-col.r-on").text_content():
+                        page.click(".r-dir")
+                page.click(".r-rows .r-spot:first-child > .r-row")
+                page.wait_for_selector(".r-card .fal-profile-chart svg", timeout=30000)
+                page.wait_for_function("() => /FABDEM/.test(document.querySelector('.leaflet-control-attribution').textContent)",
+                                       timeout=30000)
+                r[f"{which}_summary"] = page.evaluate(CARD_JS)
+                page.evaluate("""() => { const h = document.querySelector('.r-card .fal-hover'), b = h.getBoundingClientRect();
+                    h.dispatchEvent(new MouseEvent('mousemove', {clientX: b.left + b.width * 0.4, clientY: b.top + 5, bubbles: true})); }""")
+                page.wait_for_function("() => / from A1 /.test(document.querySelector('.r-card .fal-profile-readout').textContent)",
+                                       timeout=30000)
+                r[f"{which}_cursor"] = page.evaluate(CARD_JS)
+                page.evaluate("() => document.querySelector('.r-card .fal-hover').dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}))")
+            # the longest spot's card under a moving cursor at the default width, then at its narrowest and lowest
+            r["steady_default"] = page.evaluate(STEADY_JS)
+            for edge in (".r-card .r-card-l", ".r-card .r-card-top"):
+                page.focus(edge)
+                page.keyboard.press("Home")
+            page.wait_for_function(f"() => document.querySelector('.r-card').getBoundingClientRect().width < "
+                                   f"{r['steady_default'][0]['card'][2] - r['steady_default'][0]['card'][0] - 50}", timeout=30000)
+            r["steady_narrow"] = page.evaluate(STEADY_JS)
+            page.close()
+        finally:
+            browser.close()
+    print({k: (v.get("chart"), v.get("cut"), v.get("shadow")) if isinstance(v, dict) else v for k, v in r.items()})
+    assert r["top"]["shadow"] == "none" and r["back"]["shadow"] == "none" and r["scrolled"]["shadow"] != "none", r
+    assert r["scrolled"]["top"] > 0 and r["top"]["head"] == r["scrolled"]["head"] == r["back"]["head"], r
+    assert r["top"]["body"] == r["scrolled"]["body"] == r["back"]["body"], r
+
+    def meet(a, b):
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+    assert r["first_summary"]["facts"] != r["longest_summary"]["facts"], r  # two lines
+    # the card, its chart and its readout keep their boxes while the cursor moves, at the default width and the
+    # narrowest; the readout's text stays inside its box and nothing is cut
+    for name in ("steady_default", "steady_narrow"):
+        states = r[name]
+        assert len({(tuple(s["card"]), tuple(s["chart"]), tuple(s["readout"])) for s in states}) == 1, (name, states)
+        assert all(s["inside"] and s["cut"] == [] for s in states), (name, states)
+        assert any(" from A1" in s["text"] for s in states), (name, states)  # the cursor's readouts were shown
+    narrow, wide = r["steady_narrow"][0]["card"], r["steady_default"][0]["card"]
+    assert narrow[2] - narrow[0] < wide[2] - wide[0] - 50, (narrow, wide)
+    for name in ("first_summary", "first_cursor", "longest_summary", "longest_cursor"):
+        found = r[name]
+        assert found["cut"] == [] and found["chart"] >= 120, (name, found)
+        assert not meet(found["card"], found["scale"]) and not meet(found["card"], found["credits"]), (name, found)
+

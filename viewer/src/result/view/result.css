@@ -32,6 +32,11 @@
 .ui .r-other .u-grow { overflow: hidden; text-overflow: ellipsis; }
 .ui .r-downloads .u-btn { justify-content: flex-start; }
 .ui .r-downloads .u-small { margin-left: auto; }
+/* An export (RunActions Download): the ring in the icon's place (18px with its margin), the pressed row while its
+   file is made, and a failure's line, which starts at the left */
+.ui .r-spin.r-spin-ic { margin: 2px; }
+.ui .r-downloads .u-btn[aria-busy="true"], .ui .r-downloads .u-btn[aria-busy="true"]:hover { cursor: default; background: var(--surface); }
+.ui .r-downloads p.u-small { margin: 0; }
 .ui .r-linkfield { display: flex; flex-direction: column; gap: 4px; }
 .ui .r-linkfield .u-input { font: 12.5px var(--mono); }
 
@@ -94,6 +99,10 @@
 .ui .r-limit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .ui .r-limit.r-set .r-limit-head label { color: var(--accent); font-weight: 500; }
 .ui .r-limit-val { display: inline-flex; align-items: center; gap: 4px; }
+/* the rows' values and units end left of the editor's × (.r-editor-x: 28 px, 40 px on a touch screen, 6 px from
+   the edge), 4 px apart (the editor's own padding is 12 px): every row the same, so the fields stay in a column */
+.ui .r-editor > .r-limit .r-limit-head { padding-right: 26px; }
+@media (pointer: coarse) { .ui .r-editor > .r-limit .r-limit-head { padding-right: 38px; } }
 .ui .r-num { width: 76px; min-height: 28px; padding: 0 6px; text-align: right; font: 13px var(--mono); }
 .ui .r-more { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
   background: var(--surface); }
@@ -219,13 +228,14 @@
 .ui .r-card > .r-dock { flex: 1 1 auto; min-height: 0; background: none; border: 0; box-shadow: none; border-radius: inherit;
   padding: 8px 14px 8px; }
 .ui .r-card-folded > .r-dock { padding-bottom: 6px; }
-/* The card's profile is compact (Profile.tsx compact): its bar on one line with the line's facts after the
-   title (cut with an ellipsis, the whole in their title; the hint only where there is room), no head row, the
-   legend and the 1:1 scale under "Rigging and layers", one readout line under the chart */
+/* The card's profile is compact (Profile.tsx compact): its bar on one line (the hint only where there is room) with
+   the line's facts whole on a row of their own under it, no head row, the legend and the 1:1 scale under "Rigging and
+   layers", the readout under the chart wrapping in a box of steady height (the room of its longest text) */
 .ui .r-card { container-type: inline-size; }
-.ui .r-card .r-dock-bar { flex-wrap: nowrap; min-width: 0; }
+.ui .r-card .r-dock-bar { flex-wrap: wrap; min-width: 0; }
 .ui .r-card .r-dock-bar > b, .ui .r-card .r-dock-bar > button { flex: none; white-space: nowrap; }
-.ui .r-card .r-facts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the line's facts on a row of their own under the bar, whole (the user's choice "8 b", 2026-11-17) */
+.ui .r-card .r-facts { order: 9; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
 .ui .r-card .r-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container (max-width: 960px) { .ui .r-card .r-hint { display: none; } }
 /* Its edges: the top one (height) with a centred grip, as the sheet's; the sides (width) with a grip each */

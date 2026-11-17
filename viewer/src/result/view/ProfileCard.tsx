@@ -72,6 +72,16 @@ export function ProfileCard({model, view, measured, onCloseMeasured, layout, onL
   const latest = useRef(own);
   latest.current = own;
   const appeared = useRef(false), committed = useRef(false);
+  const sizes = useRef<ResizeObserver | null>(null);  // the parent, the card and its chart (below)
+
+  /** The card's least height: its content less the chart's box, plus the chart's least height. */
+  const leastOf = (card: HTMLElement) => {
+    const chart = card.querySelector<HTMLElement>(".fal-profile-chart");
+    if (chart && !card.classList.contains("r-card-folded")) {
+      setLeast(Math.max(LIMITS.cardMin, card.offsetHeight - chart.clientHeight + CHART_MIN));
+    }
+    return chart;
+  };
 
   useLayoutEffect(() => {
     const card = ref.current;
@@ -82,13 +92,15 @@ export function ProfileCard({model, view, measured, onCloseMeasured, layout, onL
       setBox((b) => b && b.w === parent.clientWidth && b.h === parent.clientHeight ? b
         : {w: parent.clientWidth, h: parent.clientHeight});
       setActual(card.offsetHeight);
+      leastOf(card);  // content that comes in a child's own render (the facts' row) shrinks the chart in a kept card
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(measure);
     observer.observe(parent);
     observer.observe(card);
-    return () => observer.disconnect();
+    sizes.current = observer;
+    return () => { observer.disconnect(); sizes.current = null; };
   }, [shown]);
 
   // After every render (also where no frame is drawn, so no ResizeObserver reports): the parent's size, the
@@ -103,10 +115,8 @@ export function ProfileCard({model, view, measured, onCloseMeasured, layout, onL
         : {w: parent.clientWidth, h: parent.clientHeight});
     }
     setActual(card.offsetHeight);
-    const chart = card.querySelector<HTMLElement>(".fal-profile-chart");
-    if (chart && !card.classList.contains("r-card-folded")) {
-      setLeast(Math.max(LIMITS.cardMin, card.offsetHeight - chart.clientHeight + CHART_MIN));
-    }
+    const chart = leastOf(card);
+    if (chart) sizes.current?.observe(chart);  // the chart (made anew with the profile) watched too
     if (!box || (appeared.current && !committed.current)) return;
     appeared.current = true;
     committed.current = false;

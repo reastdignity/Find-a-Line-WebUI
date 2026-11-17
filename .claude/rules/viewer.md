@@ -60,6 +60,14 @@ catalogue), `browser-tests.md`.
   `@types/*`, which are never bundled and would make it differ per platform) and starts every bundle with a comment
   naming it; the About page links it (`web.THIRD_PARTY_LICENCES`): a new runtime dependency changes it
   (apache-arrow, 2026-11-15: with flatbuffers and json-with-bigint; its `@types/node` stays out).
+- **`.ui button, .ui input, ... { font: inherit }`** (`ui/ui.css`) outranks a rule of one class: a control's own
+  font rule needs two classes (`.n-coverage .n-coverage-btn`), or the control is drawn at its parent's size.
+- **Touch texts**: a text that names a click or a key has a `<key>_touch` twin in the catalogue, chosen by
+  `ui/components.tsx` `TOUCH` (`(pointer: coarse)`; code without Preact asks `matchMedia` itself). Secondary text and
+  placeholders use `--muted`, which holds 4.5:1 on every light and dark surface (`test_secondary_text_contrast`).
+- **The map's corners** (`result/view/corners.ts`): the scale goes above the credits wherever they run under it,
+  re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or
+  card).
 
 ## Verifying changes
 

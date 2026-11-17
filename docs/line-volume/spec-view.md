@@ -169,8 +169,12 @@ and its phone frames). Every count below is of the lines that pass the filters.
    below 0.93 × it, leave above 1.07 ×); pressing Auto picks the level from the zoom at once. Another button holds its
    level at every zoom ("Lines held, far out"); the status line then adds "Held by you." and "Back to Auto". Start:
    Auto, Best 10. A small result opens without the area (Tatras at Spots on a desktop: "ok").
+   The view's map zooms in quarter steps, half a step for one notch of the wheel (the user, 2026-11-16: "2. b";
+   today's page keeps whole levels: at Malta's latitude zoom 16 is 1.93 m per pixel, inside the band around 2 m).
 2. **In view.** A spot is in view when its shown line, as a segment, crosses the map's view rectangle (a line under a
-   control counts; a line touching one point does not). The spots in view in the list's order; the best N are the
+   control counts; a line touching one point does not). On a phone the view rectangle is the part of the map a
+   person sees: not what lies under the sheet or the profile card (the user, 2026-11-16: "Only the map you can
+   see"); the numbers are placed again when the sheet moves. The spots in view in the list's order; the best N are the
    first N; with Best 10/30/100 they carry B1 … BN (no numbers with All, when refused, or above 100).
 3. **Area** ("First view"). Sharp squares of 25, 50, 100 or 200 m: the smallest whose side is at least 26 px, else
    200. A line counts in the squares of both anchors (once when both lie in one); a spot once per square. Colour by (a
@@ -196,6 +200,8 @@ and its phone frames). Every count below is of the lines that pass the filters.
 7. **The limit** ("All: too many"). Above 5 000 lines to draw no bold or thin line is drawn, only the pale lines of
    every spot in view; the status, marked: "Too many lines to draw here: 7 278. Zoom in, or choose 100." (100 for
    All, 30 for 100, 10 for 30, only "Zoom in." for 10).
+   The limit counts the thin lines of the Lines level, more than 5 000; the bold and pale lines come on top; Spots
+   with All has no limit (as the accepted mock-up counts; the user, 2026-11-16: "3. a").
 8. **Numbers and shapes.** B: a box with round corners; P: a diamond; L: a six-sided tag; A: a circle; "here": a ring
    of dashes; another spot: a pale line. A B or P number sits on the longest piece of its line that is on the map with
    the whole shape 2 px clear of the switch, zoom buttons, credits (button and open text), status line, hint and its
@@ -213,7 +219,9 @@ and its phone frames). Every count below is of the lines that pass the filters.
    several with a mouse open the table "{n} spots here: which one?" (numbered first by number with their shapes, then
    by distance as "1.3"; length, mean height, clearance; a numbered row selects the bold line); with a finger
    ("Crowded tap (phone)") the map zooms in one level around the point, flashes the lines 1.8 s and says "Several
-   spots here. Zoomed in. Tap again."; at the last zoom the table opens. A finger is the last pointer type, or the
+   spots here. Zoomed in. Tap again."; once the map shows 0.25 m per pixel or closer the table opens (the user,
+   2026-11-16: "9.b": the mock-up's last zoom; the app's map zooms on to about 6 cm per pixel, which would take
+   several more taps). A finger is the last pointer type, or the
    phone layout. Nothing hit at Area: a square zooms; elsewhere a press ends a selection. A mouse hover thickens the
    line under it; a long press on a shape is a press.
 10. **A selected spot** ("A spot selected"). Details: "Spot 7.1 · 104 lines"; long, mean height, clear, highest
@@ -225,6 +233,8 @@ and its phone frames). Every count below is of the lines that pass the filters.
     sector opens and pages until its row; the desktop list scrolls to the row, the phone sheet to its top. A row
     moves the map only when its line is not inside the view less 8 % or is under 60 px long ("ok"). The selected row
     pressed again, ×, or Esc ends the selection.
+    A row of the top block and a row of the tree alike (the user, 2026-11-16: "Ends the selection everywhere"; the
+    mock-up did it only on a row of the tree).
 11. **Lines from here** ("Lines from here"; open point 3 "ok"). Opened by a right click (desktop), press and hold
     (phone), a press on A1/A2, or the two buttons. The passing lines with an end within 10 m ("here"); none: the
     message "No line starts within 10 m of this point." (an open fan stays). By mean height; lines whose far ends lie
@@ -240,6 +250,8 @@ and its phone frames). Every count below is of the lines that pass the filters.
     from that point" with a finger or pen and always in the phone layout. Desktop: on the map beside the status line;
     phone: the sheet's first line under the map. Its × hides it and leaves a round "?" beside the status line that
     shows it again; kept in browser storage. Before any press the word follows `pointer: coarse`.
+    Press and hold is 600 ms within 15 px (Leaflet's own numbers; the planner, 2026-11-16); a pen presses with the
+    mouse's reach and can hold.
 13. **The list.** Top block: "Start here" at Area; else "Best in view: 10 of 283" with rows B1 … and a button "Show
     30" / "Show 100" / "Show all" (raises Best); with All "In view: 95 spots", at most 100 rows, "The first 100 of N.
     The tree below has them all."; "No spots in view." Below, "All spots" with "Sort by" mean height (start),
@@ -255,6 +267,10 @@ and its phone frames). Every count below is of the lines that pass the filters.
     on: 6 831 of 43 127 lines hang lower on the same face and are hidden. Press the chip to see them." / "… is off:
     the 6 831 lines that hang lower on the same face are shown too." The chip hides every line whose `top` is 0
     (B.3), everywhere: squares, counts, picks, list, shown lines.
+    The chip is on at every run's start and is not remembered (the planner). "Only clear" stays in More filters
+    only, and "How to read the result" is hidden in the view until its text is rewritten for it (the user,
+    2026-11-16: "5. a"). A link to a line that the chip hides also lifts the chip (the user: "6. a"; built with
+    today's features, wave 4).
 15. **The tight mark**: as A.2, in rows, the table of spots, "Lines from here" and details; key lines under each list.
 16. **Empty**: "No spots in view. Zoom out or move the map." on the map.
 
@@ -265,6 +281,8 @@ join the controls of item 8); the profile card, the 3D view and a line's links (
 favourites (the star, their filter; whether a favourite is a spot's shown line: item B-3); Compare (other runs: item
 B-4); Measure; Download (the store's exports); "Open spot" (the next mock-up, D-12's cards: until then item B-5);
 `#line=` links (select the line, open its spot); the share page.
+The real map's controls take the mock-up's places, judged on the first build's screenshots (the user, 2026-11-16:
+"8. a"); the squares follow the run's grid and may look slightly turned on the web map.
 
 ### B.3 Data: what the view reads
 Every column, its type and the wave that adds it are in the one schema of a run's lines: `spec-store.md` 1.3. The
@@ -282,6 +300,15 @@ the rule of item B-1 (decided: K-17 'Higher wins on a face', as the accepted moc
 more keeps only the lines within 10 m of its highest). One new function `mapping.view_columns` gives them to
 `linestore.write`, called by `search.save_run` (old runs are not converted: they are removed at store wave 4,
 `spec-store.md` section 2).
+**Decided in round 4 (2026-11-16), as view B1 was built.** A spot's shown line here is its first line in `by_spot`
+(the planner; the mock-up's data clustered the grouping's representative: on three reference runs 87 to 99.9 % of
+the spots get the same sector either way). The spots are numbered by sector, then by their first line's mean
+height, so a sector holds a run of numbers and a spot's label is "sector.n". The orders and `top` use the values as
+the store holds them (mean height and the ends' elevations at 0.01 m), so the page can re-derive them. Ward's
+memory grows with the square of the number of spots (10 000 spots: about 0.8 GB more), so above a cap of spots
+(measured by view B1; at least the goal case's 8 269) Ward runs on an even sample of that many spots and every
+other spot joins the nearest sector (the user, 2026-11-16: "Sample (Recommended)"). No reference run reaches the cap
+(the largest has 3 067 spots).
 In the browser, at every filter or view change: the shown line per spot (its first passing line), not beaten, in
 view, best N, squares, picks, numbers, the fan, the table of spots.
 Pairs (`.claude/rules/run-files.md`): "`mapping.group_lines` … and `groupLines` …: the browser must produce the same
@@ -302,6 +329,9 @@ list.ts`, `filters.ts`, `locales/en.json`, `viewer/dist`; Python: `mapping.view_
 `viewer.md` (`style-src 'self'`: no `style=` in HTML strings: the mock-up's HTML rows become components; the `&also=`
 pair), `run-files.md` (above; favourites by `keys.lineCoords`), `browser-tests.md`, `view3d.md` (the 3D link of the
 selected line), `coverage-map.md` (the squares' `--layer-1..5` tokens are the layer's).
+**Round 4 (the planner, with the user's "1.a" of B.10):** until the view is complete it is built in new files beside
+today's page (`result/viewgeom.ts`, `result/spots.ts`, `result/SpotMap.ts`, `result/view/MapBar.tsx`,
+`result/view/Spot*.tsx`) and joined with today's files when today's page goes.
 
 ### B.6 Screens (the mock-up's states; desktop 1400 × 900, phones 390 and 412, light and dark)
 First view, Zoomed in: spots, Close: lines, Best 30, All: too many, Lines held far out, A spot selected, Lines from
@@ -322,7 +352,8 @@ The mock-up's own checks, ported to Playwright tests of the result page on a tar
 - the fan: the hint, the hint again, empty, a fan line, moving it;
 - states: each state of B.6, the 5 000 limit, the legend lists the shapes on the map, storage blocked, the Area
   squares.
-Unit tests in `tests/test_viewer.py` for the pure parts (in view, squares, breaks, picks, not beaten, fan groups).
+Unit tests for the pure parts (in view, squares, breaks, picks, not beaten, fan groups): written for
+`tests/test_viewer.py`; round 4 puts them in new test files beside it.
 Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table. Regression entries: none change
 (the view and new columns only; exports unchanged). Truth check: not asked (no anchor or line rule).
 
@@ -331,8 +362,10 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
   anchor or A1 (2: the fan has a direction column), press the row (3) (estimate from the behaviour; part E3 counted
   6-8 today). Measured by a Playwright script on BAH, phone 390 and 412.
 - Lines drawn in the first view: the mock-up draws on BAH (desktop, far) 44 strokes at Area, 622 at Spots, 772 at
-  Lines Best 10; MGp 219 / 758 / 878; never more than 5 000 (counted on version 7 by the mock-up's agent). Target:
-  never above 5 000 strokes in any state; counted by the page's own count in the test.
+  Lines Best 10; MGp 219 / 758 / 878; never more than 5 000 (counted on version 7 by the mock-up's agent). Target
+  (the user, 2026-11-16: "3. a", as the accepted mock-up counts): never more than 5 000 thin lines at the Lines
+  level, the bold and pale lines on top; counted by the page's own count in the test, and the first build reports
+  the largest count of strokes on the goal case.
 - T6 (a filter or grouping change at most 0.3 s, desktop) and redraw: the mock-up's redraw script time 0.2-1.6 ms
   desktop, 1.2-6.4 ms phone 390 slowed 4 times; to the second frame 26-31 ms desktop, 27-137 ms phone (indicative).
   On the goal case (GZ1 with the square rule, 503 651 lines) a filter change recomputes every line: measure with
@@ -356,6 +389,10 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
 4. Today's features joined (profile card, 3D link, favourites, Compare, `#line=`, share page, overlays). Medium.
 5. The ported checks, `tools/ui_shots.py` review on the desktop and both phones, `viewer/dist`. Medium.
 
+Round 4 builds 2 and 3. Its plan moves two things: wave 2 also takes the base layers and overlays of 4 (the numbers
+must avoid the real controls), and each wave ports its own checks of 5; 5 keeps the review on three devices and the
+change of the default.
+
 The access mark (built on today's page in round 3) has parts that wait for this view: A1 and A2 carrying the state,
 the column "Far end" of "Lines from here", the three marks in the map's legend, the fifth "Start here" pick "From a
 top edge", and the phone legend of two lines with its fold (`spec-search.md` 3.9; the access mock-up, version 8,
@@ -370,6 +407,9 @@ shows them in this view's frame). They belong to waves 2 and 3 above.
 - Rollout with the store: a run without the view's columns (every run before view B1) opens in today's page; store
   wave 4 removes such runs on the user's word (`spec-store.md` section 2) and drops the reader of `data.js`. Today's
   page, which reads the store from store wave 2, stays until the result view is complete (B5).
+- **How the unfinished view lives in `main`** (the user, 2026-11-16: "1.a"): behind a flag. `?view=b` in the
+  address sets it in the browser's storage and `?view=today` clears it; without it every run opens in today's page
+  and today's tests stay as they are. The default changes when the view is complete (wave 5).
 
 ### B.11 Needs the user's word
 - **B-1. Which rule is the top-level flag: decided, K-17 'Higher wins on a face'** (the user, 2026-11-14: "2. a) .
@@ -384,6 +424,8 @@ shows them in this view's frame). They belong to waves 2 and 3 above.
   (gate 1's D4). Recommendation: drawn apart as today's overlay, not counted in best N.
 - **B-5. "Open spot" before the cards' mock-up:** the door hidden, or it selects the spot. Recommendation: hidden.
 - **B-6. A number for T9 (local density of the first view):** none set; the 5 000-line limit and Best 10 stand in.
+- **Decided in round 4 (2026-11-16):** the nine points of the view's technical plan and the sectors of a run with
+  very many spots (`spec.md` 6.6), applied in B.2, B.3, B.8 and B.10 above.
 
 ## C. The audit's reading choices (part P2, the audit tool's report) against the page and the view
 

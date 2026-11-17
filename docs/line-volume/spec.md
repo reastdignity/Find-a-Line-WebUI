@@ -201,7 +201,7 @@ recommended.
 | store U6 | Circles' profiles of every line | (a) kept now | store wave 4 |
 | store U7 | Light view, tiers, nested results (F-31, F-24, K-33) | (a) parked | – |
 | store U8 | The phone warning's threshold | (a) none until a real-device test | store wave 6 |
-| store U9 | Who may export | (a) owner, administrator, demo | store wave 3 |
+| store U9 | Who may export | (a) owner, administrator, demo; since 2026-11-16 the user's own decision (6.6) | store wave 3 |
 | store U10 | `--html` after `file://` ends | (a) accepted one release | store wave 4 |
 | store U11 | Filtered exports, GeoPackage, KML (F-32) | (b) parked | – |
 | view A-1 | Does "best" change the spots or only the line shown | (a) only the line | view A |
@@ -251,6 +251,26 @@ The user's words, verbatim, each on the question named.
 | – | "Search a cell" of the highline layer: "open in advanced with mark on". Searches stored before the mark stay as they are: "does not matter - old runs will be removed everywhere" | `main` 53fe802 |
 | – | A store of a newer format: the text keeps both sentences ("This result was made by a newer Find-a-Line. Update Find-a-Line to open it.") | `main` ef93df5 |
 | search U-12 | Applied: lip anchors keep about 70 % of the matched known lines, below the bar of 98 %, so they are not built | `spec-search.md` 4; `docs/roadmap.md` |
+
+### 6.6 Decided in round 4 (2026-11-16)
+The user's words, verbatim, each on the question named.
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| – | Round 4's scope: view B1 and the exports per download side by side, then the result view's map core and its list, details and "Lines from here" as specified ("1. a 2. a 3. PC is set free; run tasks as required 4. a 5. a") | `spec.md` 5 |
+| store U9 | A share link's page has no Download for a run with a store ("No Download there (Recommended)"): share links may not export. A visitor of a demo run who is not signed in gets no Download button either ("No Download button (Recommended)"). Exports have a limit of their own, 4 a minute and 30 an hour on the public site ("Yes, 4 a minute, 30 an hour (Recommended)") | `spec-store.md` 1.2, 1.4, 8 |
+| – | The privacy page names exports ("Yes, both as written"): in the audit list "exports of a run's lines made (CSV or GeoJSON: the format, not the content)," and the sentence "A file made for a download is kept on the server until it is fetched, for one hour at most." | `spec-store.md` 1.4 |
+| – | The Download buttons: "Preparing the file…" in the pressed row ("In the pressed row (Recommended)"); a failure as a red line in the menu ("Red line in the menu (Recommended)"); the mock-up's version 1 with its proposed texts ("The Download buttons' mock-up, version 1 - looks good do as recomended") | `spec-store.md` 1.2, 1.4, 1.6 |
+| – | The unfinished result view lives in `main` in new files behind a flag, `?view=b` ("1.a") | `spec-view.md` B.5, B.10 |
+| – | The view's map zooms in quarter steps ("2. b") | `spec-view.md` B.2 item 1 |
+| – | The 5 000 limit counts the thin lines at the Lines level, as the accepted mock-up ("3. a") | `spec-view.md` B.2 item 7, B.8 |
+| – | The selected row pressed again ends the selection on every row ("Ends the selection everywhere (Recommended)") | `spec-view.md` B.2 item 10 |
+| – | "Only clear" only in More filters; "How to read the result" hidden in the view until its text is rewritten ("5. a") | `spec-view.md` B.2 item 14 |
+| – | A link to a line that "Top level only" hides also lifts the chip ("6. a") | `spec-view.md` B.2 item 14 |
+| – | On a phone a spot is in view by the part of the map a person sees ("Only the map you can see (Recommended)") | `spec-view.md` B.2 item 2 |
+| – | The real map's controls take the mock-up's places, judged on the first build's screenshots ("8. a") | `spec-view.md` B.2 |
+| – | The crowded tap's table opens at 0.25 m per pixel ("9.b") | `spec-view.md` B.2 item 9 |
+| – | The sectors of a run with more spots than a cap: Ward on an even sample, every other spot to the nearest sector ("Sample (Recommended)") | `spec-view.md` B.3 |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.

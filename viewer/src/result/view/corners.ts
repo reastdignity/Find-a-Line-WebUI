@@ -9,14 +9,45 @@ import { useEffect } from "preact/hooks";
 type Box = RefObject<HTMLElement | null> | (() => HTMLElement | null);
 const element = (box: Box) => typeof box === "function" ? box() : box.current;
 
-/** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution (on a phone it
- *  wraps over the whole width). */
+/** How high the credits of the bottom-right `corner` reach above its foot where they run under the scale's corner
+ *  (on a phone they wrap over the whole width), else 0. The credits (the attribution control) are the corner's
+ *  lowest control; other controls may stand above them there (the search's map puts its buttons in it). */
+function creditsUnder(corner: HTMLElement | null, scale: HTMLElement | null): number {
+  const credits = corner?.querySelector<HTMLElement>(".leaflet-control-attribution");
+  if (!corner || !credits || !scale) return 0;
+  const c = credits.getBoundingClientRect(), s = scale.getBoundingClientRect();
+  const meet = c.width > 0 && s.width > 0 && c.left < s.right && s.left < c.right;
+  return meet ? Math.ceil(corner.getBoundingClientRect().bottom - c.top) : 0;
+}
+
+/** Raises the corners `bottom` px (0: Leaflet's own place), the scale above the attribution: when raised, and in
+ *  Leaflet's own place where the attribution reaches under it. */
 function place(map: HTMLElement, bottom: number) {
   const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
   const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
   if (attribution) attribution.style.bottom = bottom ? `${bottom}px` : "";
-  const above = bottom ? bottom + (attribution?.offsetHeight ?? 0) : 0;
+  const above = bottom ? bottom + (attribution?.offsetHeight ?? 0) : creditsUnder(attribution, scale);
   if (scale) scale.style.bottom = above ? `${above}px` : "";
+}
+
+/** Keeps the scale of a map that nothing covers above its attribution where the attribution reaches under it (the
+ *  search's map on a phone: two lines of credits over the whole width), following their sizes. */
+export function keepScaleAboveAttribution(map: HTMLElement) {
+  const update = () => place(map, 0);
+  update();
+  if (typeof ResizeObserver !== "function") return;
+  const observer = new ResizeObserver(update);
+  observer.observe(map);
+  const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+  if (attribution) observer.observe(attribution);
+  observeScale(observer, map);
+}
+
+/** The scale's corner observed too: the scale's width follows the zoom, and with it whether the credits run under it
+ *  (its `style.bottom`, which this module sets, does not change its size: no loop). */
+function observeScale(observer: ResizeObserver, map: HTMLElement) {
+  const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
+  if (scale) observer.observe(scale);
 }
 
 /** Keeps the corners of the map in `mapBox` above the `.u-sheet` in `root` while `on`. */
@@ -35,6 +66,7 @@ export function useCornersAboveSheet(root: Box, mapBox: Box, on: boolean) {
     // the attribution grows when its data credits unfold, and the scale above it moves up
     const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
     if (attribution) observer.observe(attribution);
+    observeScale(observer, map);
     return () => { observer.disconnect(); place(map, 0); };
   }, [on]);
 }
@@ -73,13 +105,17 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
         attribution.style.bottom = attributionUp ? `${up}px` : "";
         attribution.style.left = attribution.style.right = "";
       }
-      // Both raised and side by side on one line: the scale goes above the attribution
+      // Both raised and side by side on one line: the scale goes above the attribution; neither raised, the scale
+      // goes above the attribution where the credits run under its corner (a narrow map: lines over its width)
       const stacked = attributionUp && scaleUp && a && s && a.left < s.right;
-      if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px` : "";
+      const under = !attributionUp && !scaleUp ? creditsUnder(attribution, scale) : 0;
+      if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px`
+        : under ? `${under}px` : "";
     };
     const sizes = new ResizeObserver(update), styles = new MutationObserver(update);
     sizes.observe(map);
     if (attribution) sizes.observe(attribution);  // its data credits unfold
+    observeScale(sizes, map);
     // The card is added and removed (a selection, the profile closed): a child of its parent
     const children = holder.matches(".r-card") ? null : new MutationObserver(update);
     children?.observe(holder, {childList: true});

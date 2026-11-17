@@ -18,11 +18,13 @@ Read the section you need, not the whole file (several are over 200 KB).
 - [docs/data-sources.md](docs/data-sources.md) (adding a source), docs/3d-view-contract.md,
   docs/country-precompute/contract.md, docs/truth-check.md.
 - docs/code-map/: what each module and tool holds, in detail, one file per area (table below).
+- [docs/PRODUCT.md](docs/PRODUCT.md) (who the interface is for), [docs/DESIGN.md](docs/DESIGN.md) (the look as
+  built, the rules the user picked), [docs/design-review.md](docs/design-review.md) (the design reviewer's checks).
 - [docs/workflow.md](docs/workflow.md): the environment, finishing a task (squash, tag), the test lock's
   modes and the conventions, in full.
 - [docs/agent-workflow.md](docs/agent-workflow.md): work larger than a few edits: scope first with the
   user's answers recorded as design guides, a contract and briefs, worker agents, a scope reviewer and a
-  code reviewer before every merge, `main` only on the user's word.
+  code reviewer (for a screen also a design reviewer) before every merge, `main` only on the user's word.
 
 ## Commands
 - Python 3.12+. `uv sync`, `uv run findaline.py ...`; `--help` lists everything. After changing
@@ -49,7 +51,7 @@ Read the section you need, not the whole file (several are over 200 KB).
 | OSM, coastline | `osm.py`, `osmextract.py`, `coast.py` | osm | sources.md |
 | Web app, job queue, accounts, limits, texts | `web.py`, `jobs.py`, `accounts.py`, `audit.py`, `settings.py`, `messages.py`, `locales/` | web-app | web.md |
 | Metrics, monitoring | `metrics.py`, `servicecounts.py`, `deploy/monitoring/` | metrics | web.md, deploy.md |
-| Viewer (TypeScript, Preact, Leaflet), 3D view | `viewer/src/`, `viewer/dist/` (committed) | viewer, view3d, browser-tests | viewer.md |
+| Viewer (TypeScript, Preact, Leaflet), 3D view | `viewer/src/`, `viewer/dist/` (committed) | viewer, view3d, browser-tests, ui-design | viewer.md |
 | Coverage map | `viewer/src/coverage/`, `tools/coverage_*.py` | coverage-map | viewer.md, tools.md |
 | Country layer | `country.py`, `countcube.py`, `countkernels.py`, `relief.py` | country-layer | country.md |
 | Docker, the VPS, CI | `Dockerfile`, `compose.yaml`, `deploy/`, `.github/workflows/ci.yml` | deploy | deploy.md |
