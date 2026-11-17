@@ -1,6 +1,6 @@
 // The panels of the result view's frame (SpotColumns.tsx): the slots' types, the hook that follows a SpotView, and
 // what stands in the slots (PANELS). Until the list, the details, the hint and the table of spots are built (view
-// B3: SpotList, SpotDetails, Hint, SpotChooser), each slot shows a placeholder; B3 puts its components into PANELS
+// B3: SpotList, SpotDetails, Hint, SpotChooser), each slot is empty; B3 puts its components into PANELS
 // here and nowhere in the frame. PANELS' entries are functions called when the frame draws, so the components may
 // import this file's types and hook.
 
@@ -10,7 +10,6 @@ import type { Snap } from "../../ui/components";
 import type { Padding } from "../ResultMap";
 import type { SpotMap } from "../SpotMap";
 import type { SpotChoice, SpotView } from "../spots";
-import { t } from "../../i18n";
 import type { Area } from "./LineChooser";
 
 /** What every panel gets: the view's model, the canvas (null until the map is made), the layout (wide: the three
@@ -49,8 +48,8 @@ export function useSpotView(view: SpotView) {
 }
 
 export const PANELS: SpotPanels = {
-  list: () => <p class="v-placeholder" data-slot="list">{t("ui.view.map.placeholder_list")}</p>,
-  details: () => <p class="v-placeholder" data-slot="details">{t("ui.view.map.placeholder_details")}</p>,
+  list: () => null,
+  details: () => null,
   sheetHead: () => null,
   hint: () => null,
 };

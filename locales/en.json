@@ -682,8 +682,6 @@
   "ui.view.map.rail_details": "Line details",
   "ui.view.map.rail_spot": "Spot {{label}}",
   "ui.view.map.sheet": "Results",
-  "ui.view.map.placeholder_list": "The list of spots is not built yet.",
-  "ui.view.map.placeholder_details": "The details of a spot are not built yet.",
 
   "ui.list.col.length": "Length",
   "ui.list.col.length_title": "length of the line",
