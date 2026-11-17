@@ -299,3 +299,124 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
     assert sorted(store["files"]) == ["lines.arrow", "profiles.arrow"], store
     assert sorted(old["files"][:2]) == ["lines.arrow", "profiles.arrow"] and old["files"][2:] == ["data.js"], old
     assert store["lines"] == old["lines"]
+
+
+PROBE_FAILURES_SCRIPT = r"""
+const fs = require("fs");
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+// A made-up XMLHttpRequest as the servers answer: a file served with web.SIZE_HEADER, a missing one (404) with a short
+// body and its Content-Length only (as web.RunFiles' "Not Found"); `broken` files answer 502, `dropped` ones fail as a
+// network error. /s/<token>/ serves the case `shared[token]`; every send, answer and progress report is an event.
+const events = [], broken = new Set(), dropped = new Set(), shared = {};
+const NOT_FOUND = Buffer.from('{"detail":"Not Found"}');
+class FakeXHR {
+  static HEADERS_RECEIVED = 2;
+  open(method, url) { this.url = url; }
+  setRequestHeader() {}
+  getResponseHeader(name) {
+    name = name.toLowerCase();
+    if (name === "x-findaline-bytes") return this.status === 200 ? String(this.size) : null;
+    return name === "content-length" ? String(this.size) : null;
+  }
+  send() {
+    const path = this.url.replace("http://test", "");
+    const runs = /^\/runs\/([^/]+)\/([^/]+)$/.exec(path), share = /^\/s\/([^/]+)\/([^/]+)$/.exec(path);
+    const run = runs ? runs[1] : shared[share[1]], file = runs ? runs[2] : share[2], local = cases[run] + "/" + file;
+    events.push("send " + file);
+    setTimeout(() => {
+      events.push("answer " + file);
+      if (dropped.has(file)) { this.onerror(); return; }
+      const found = fs.existsSync(local) ? fs.readFileSync(local) : null;
+      this.status = broken.has(file) ? 502 : found ? 200 : 404;
+      const b = this.status === 200 ? found : NOT_FOUND;
+      const ab = new ArrayBuffer(b.length);
+      new Uint8Array(ab).set(b);
+      this.response = this.responseType === "text" ? b.toString("utf-8") : ab;
+      this.size = ab.byteLength;
+      this.readyState = 2;
+      this.onreadystatechange && this.onreadystatechange();
+      this.onprogress && this.onprogress({loaded: ab.byteLength});
+      this.onload({loaded: ab.byteLength});
+    });
+  }
+}
+const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
+globalThis.window = globalThis;
+window.FINDALINE_RUNS = [{id: "plain", name: "plain", created: "", description: "", store: block}];  // map's runs.js
+globalThis.XMLHttpRequest = FakeXHR;
+globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
+globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
+globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {  // data.js with NaN
+  const path = s.src.replace("http://test", ""), share = /^\/s\/([^/]+)\/([^/]+)$/.exec(path);
+  setTimeout(() => { new Function("window", fs.readFileSync(cases[shared[share[1]]] + "/" + share[2], "utf-8"))(window);
+                     s.onload(); });
+}}};
+const outcome = async (token, run) => {
+  events.splice(0);
+  shared[token] = run;
+  const report = (p) => { if (p.total != null) events.push("progress " + p.done + " of " + p.total); };
+  const load = token === "listed" ? m.loadRun("plain", "/runs/", report) : m.loadRun(token, "/s/", report);
+  try { const d = await load; return {ok: d.columns.length, events: events.splice(0)}; }
+  catch (e) { return {error: e.name, events: events.splice(0)}; }
+};
+(async () => {
+  const out = {};
+  out.store = await outcome("t1", "zone");          // both store files asked for before either answers
+  out.old = await outcome("t2", "old");             // no store: two 404s with a body, no progress from them
+  broken.add("lines.arrow");
+  out.badGateway = await outcome("t3", "zone");     // a probe's file answers 502: data.js
+  out.listedBadGateway = await outcome("listed", "plain");  // a listed store's file answers 502: refused
+  broken.clear();
+  dropped.add("profiles.arrow");
+  out.networkError = await outcome("t4", "zone");   // a probe's file fails on the network: data.js
+  dropped.clear();
+  out.newer = await outcome("t5", "newer");         // a probe that finds a store of a newer format: refused
+  out.unreadable = await outcome("t6", "garbage");  // a probe that finds a store it cannot read: refused
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_the_probes_failures_and_progress(tmp_path, store_cases):
+    """The probe (a share link's run here): its two store files asked for at once (both sent before either answers);
+    a 404 (with a short body that has a Content-Length) reports no progress before data.js; a file that cannot be
+    fetched (502, a network error) reads data.js as a 404 does, while a listed store's 502 stays a StoreFailed; a store
+    the probe fetched but of a newer format (NewerStore) or unreadable (StoreFailed) is refused, never data.js."""
+    import shutil
+
+    import pyarrow as pa
+
+    import linestore
+    cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
+    old = tmp_path / "old"  # a run saved before the store: data.js only
+    shutil.copytree(store_cases["zone"], old, ignore=shutil.ignore_patterns("*.arrow"))
+    newer = tmp_path / "newer"  # a store whose metadata says format 2
+    shutil.copytree(store_cases["zone"], newer)
+    with pa.OSFile(str(newer / linestore.LINES_FILE), "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    meta = json.loads(table.schema.metadata[linestore.META_KEY])
+    meta["format"] = linestore.FORMAT + 1
+    linestore._write_file(str(newer / linestore.LINES_FILE),
+                          table.replace_schema_metadata({linestore.META_KEY: json.dumps(meta).encode("utf-8")}))
+    garbage = tmp_path / "garbage"
+    shutil.copytree(store_cases["zone"], garbage)
+    (garbage / linestore.LINES_FILE).write_bytes(b"not an Arrow file " * 100)
+    cases.update(old=str(old).replace("\\", "/"), newer=str(newer).replace("\\", "/"),
+                 garbage=str(garbage).replace("\\", "/"))
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps(cases), encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), PROBE_FAILURES_SCRIPT, cases_path)
+    store = out["store"]
+    assert store["ok"] == 3000 and sorted(store["events"][:2]) == ["send lines.arrow", "send profiles.arrow"], store
+    data_js = (store_cases["zone"] / "data.js").stat().st_size
+    old_events = out["old"]["events"]
+    assert out["old"]["ok"] == 3000 and old_events.index("send data.js") > old_events.index("answer profiles.arrow")
+    assert not any(e.startswith("progress") for e in old_events[:old_events.index("send data.js")]), old_events
+    assert all(e.endswith(f" of {data_js}") for e in old_events if e.startswith("progress")), old_events
+    for name in ("badGateway", "networkError"):
+        got = out[name]
+        assert got["ok"] == 3000 and [e for e in got["events"] if e.startswith("send")] == [
+            "send lines.arrow", "send profiles.arrow", "send data.js"], (name, got)
+    for name, error in (("listedBadGateway", "StoreFailed"), ("newer", "NewerStore"), ("unreadable", "StoreFailed")):
+        got = out[name]
+        assert got.get("error") == error and "send data.js" not in got["events"], (name, got)

@@ -21,9 +21,12 @@
 // failed, or a save stopped before it wrote run.json) reads data.js, and so does a page from disk. A run the list
 // does not name (a share link, whose runs.js lists no runs; another user's run an administrator opens; a run saved
 // since the list was read) asks for its store's files directly (STORE_PROBE): a run without them answers 404 and
-// reads data.js. A store whose file is missing (404) falls back to data.js while runs keep it (until store wave 4);
-// a store of a newer format never does (NewerStore: its file's metadata says so), and a store that fails otherwise
-// is a StoreFailed. A body the browser could not hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is.
+// reads data.js, and so does a probe whose files could not be fetched (another status, a network error: the probe
+// is a guess, and an old run must not fail on it). A store whose file is missing (404) falls back to data.js while
+// runs keep it (until store wave 4); a store of a newer format never does (NewerStore: its file's metadata says so),
+// and a store that fails otherwise (a listed one not fetched, any one fetched but unreadable) is a StoreFailed. A
+// body the browser could not hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is. Only answers of 200
+// report the download's progress (a 404's short body is no part of the run).
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
 import { download } from "../download";
@@ -68,6 +71,10 @@ export class StoreFailed extends Error {
 
 /** A store's file answered 404: the run is read from data.js (or lines.js) instead while runs keep them. */
 class StoreMissing extends Error {}
+
+/** A store's file that could not be fetched (a status other than 200 or 404, a network error): a StoreFailed, but
+ *  the probe (STORE_PROBE) reads data.js instead. */
+class StoreNotFetched extends StoreFailed {}
 
 /** A run whose store is of a higher format than STORE_FORMAT: made by a newer Find-a-Line. */
 export class NewerStore extends Error {
@@ -164,7 +171,9 @@ async function fromServer(url: string, key: string, report: OnProgress): Promise
   try {
     return await downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true);
   } catch (e) {
-    if (e instanceof StoreMissing) return downloadRun(url, key, report);
+    if (e instanceof StoreMissing || (store === STORE_PROBE && e instanceof StoreNotFetched)) {
+      return downloadRun(url, key, report);
+    }
     throw e;
   }
 }
@@ -196,20 +205,22 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
   if (!(store.format <= STORE_FORMAT)) throw new NewerStore();
   const start = performance.now(), names = profiles ? STORE_FILES : STORE_FILES.slice(0, 1);
   const totals: (number | null | undefined)[] = names.map(() => undefined), done = names.map(() => 0);
+  let refused = false;  // an answer other than 200: its body is no part of the run, no progress from it
   const sum = (values: (number | null | undefined)[]) => values.every((v) => typeof v === "number")
     ? (values as number[]).reduce((a, b) => a + b, 0) : null;
   const progress = () => {
+    if (refused || !totals.every((v) => v !== undefined)) return;
     const total = sum(totals), got = done.reduce((a, b) => a + b, 0);
     report({phase: "download", fraction: total ? Math.min(1, got / total) : null, done: got, total});
   };
   report({phase: "download", fraction: null});
   const answers = await Promise.all(names.map((name, k) => download(folder + name, "arraybuffer", {
-    onHeaders: (total) => { totals[k] = total; if (totals.every((v) => v !== undefined)) progress(); },
-    onBytes: (bytes) => { done[k] = bytes; if (totals.every((v) => v !== undefined)) progress(); },
-  }))).catch(() => { throw new StoreFailed(key, "the download failed"); });
+    onHeaders: (total, status) => { refused ||= status !== 200; totals[k] = total; progress(); },
+    onBytes: (bytes) => { done[k] = bytes; progress(); },
+  }))).catch(() => { throw new StoreNotFetched(key, "the download failed"); });
   if (answers.some((a) => a.status === 404)) throw new StoreMissing();
   for (const answer of answers) {
-    if (answer.status !== 200) throw new StoreFailed(key, String(answer.status));
+    if (answer.status !== 200) throw new StoreNotFetched(key, String(answer.status));
     // The XHR gives null when it could not allocate the body's ArrayBuffer (XMLHttpRequest standard, "response")
     if (!answer.body && answer.bytes > 0) throw new TooLarge();
   }
@@ -431,9 +442,9 @@ let runList: Promise<RunInfo[]> | null = null;
 
 /** The runs the user may open as the maps list them (`/runs/runs.js`: window.FINDALINE_RUNS, with their
  * boxes for "other runs nearby"), loaded once; empty when it cannot be loaded. Its FINDALINE_APP (the
- * public site's flags) is set as for a map. `fresh`: loaded again (a run saved since). */
-export function loadRunList(src = "/runs/runs.js", fresh = false): Promise<RunInfo[]> {
-  if (runList && !fresh) return runList;
+ * public site's flags) is set as for a map. */
+export function loadRunList(src = "/runs/runs.js"): Promise<RunInfo[]> {
+  if (runList) return runList;
   runList = new Promise<RunInfo[]>((resolve) => {
     const script = document.createElement("script");
     script.src = src;
