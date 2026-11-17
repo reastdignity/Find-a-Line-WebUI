@@ -366,6 +366,38 @@ def test_the_estimate_that_still_reads_ready():
     assert not busy and 1.45 <= t <= 1.55
     page = FakePage(true={"leaflet-tile"}, busy=[(0.04, 1.2, "the estimate")])
     assert _settled(page, family="search", quiet_ms=0) == ([], 0.0)  # the stale "ready"
+    # the tool's own quiet time is long enough for that frame (QUIET_MS 0 would bring the trap back)
+    page = FakePage(true={"leaflet-tile"}, busy=[(0.04, 1.2, "the estimate")])
+    busy, t = _settled(page, family="search", quiet_ms=ui_shots.QUIET_MS)
+    assert not busy and t >= 1.2 + ui_shots.QUIET_MS / 1000
+    assert ui_shots.QUIET_MS >= 2 * ui_shots.POLL_MS  # more than one look inside the quiet time
+
+
+def test_a_failed_estimate_ends_its_wait(tmp_path):
+    """The estimate's bar "unavailable" or "refused" (Overpass down): the wait for "ready" ends at once (GIVE_UP), not
+    after c-basic-sea's 240 s; the page is shot as it is, its row says why, the exit code is 1, and the pass's later
+    estimate waits keep their whole limit. A wait without GIVE_UP waits for its expression alone."""
+    state = ui_shots.Pass("desktop", "light")
+    site = {**SITE, "cookies": {**SITE["cookies"], "one-rig": "o"}}
+    sea = lambda context: ui_shots.shoot_page(context, site, "c-basic-sea", "desktop", "light",  # noqa: E731
+                                              str(tmp_path), state)
+    context = FakeContext(true={"leaflet-tile", "'unavailable'"}, shown={"[data-goal=sea]"})
+    row = sea(context)
+    expression = ui_shots.READY[5:]
+    gave_up = f"{expression} (gave up: the estimate failed (unavailable or refused))"
+    assert row["outcome"] == "timed out" and row["path"] and row["timeouts"] == [gave_up] * 2
+    assert ui_shots.failed([row]) and row["seconds"] < 30
+    waits = [c for c in context.pages[0].calls if c[0] == "wait"]
+    assert waits[0][1] == f"() => ({expression}) || ({ui_shots.GIVE_UP[expression][0]})" and waits[0][2] == 240000
+    assert ("evaluate", f"!!({expression})") in context.pages[0].calls
+    assert state.limit(expression, "c-basic-sea") == 240000 and state.limit(expression) == 30000
+    lines = ui_shots.summary({}, [], [row], {}, 1.0)
+    assert f"Timed out: c-basic-sea (desktop light): {gave_up}" in lines
+    context = FakeContext(true={"leaflet-tile", "estimate === 'ready'"}, shown={"[data-goal=sea]"})  # it came
+    assert sea(context)["outcome"] == "saved"
+    context = FakeContext(true={"leaflet-tile", "dataset.ready", "dataset.edges"})
+    _shoot(context, "view3d-edges", tmp_path)
+    assert ("wait", f"() => ({ui_shots.EDGES_DRAWN[5:]})", 10000) in context.pages[0].calls
 
 
 def test_families_and_limits():

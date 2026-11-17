@@ -52,7 +52,8 @@ page_family, PAGE_STATE), at most 30 s after a load and 10 s after a step; a pag
 and noted "not settled" with what was busy (a note, like "map tiles still loading"). After a "wait:" step: two
 animation frames and nothing busy. A "wait:" waits at most 10 s, a page's first-draw mark (FIRST_DRAW: the 3D view's
 ready mark, the estimate's, the result's) 30 s, "c-basic-sea"'s estimate 240 s (SLOW_MARKS: its first "Sea cliffs"
-estimate in a fresh data folder fetches the coastline).
+estimate in a fresh data folder fetches the coastline); a mark that can no longer come (GIVE_UP: the estimate
+failed) ends its wait at once, as a wait that did not come true. A map tile that failed to load is not waited for.
 
 Each saved picture is printed with its seconds; at the end a summary: the set-up's parts, the seconds of each pass
 (a device and a theme), the ten slowest pages, the pages left out with their reasons, every wait that timed out and
@@ -197,6 +198,13 @@ FIRST_DRAW = (VIEW3D_READY[5:], READY[5:], NEED_READY)
 # the first "Sea cliffs" estimate in a fresh data folder fetches the view's coastline from Overpass (160 s in stage 2's
 # run, 33 s on 2026-11-17; then cached in the folder)
 SLOW_MARKS = {"c-basic-sea": 240000}
+# A mark that can no longer come: expression -> (what says so, the words of the note). Its wait ends there, as a wait
+# that did not come true (the picture shows the page as it is; exit code 1), without its limit and without a quarter
+# for the rest of the pass. The estimate's bar after a failed request: "unavailable" (no answer; Overpass's 502 Bad
+# Gateway on 2026-11-17 kept c-basic-sea waiting its whole 240 s) or "refused" (search/useSearch.ts; "paused" asks
+# again by itself)
+GIVE_UP = {READY[5:]: ("['unavailable', 'refused'].includes(document.querySelector('.s-bar')?.dataset.estimate)",
+                       "the estimate failed (unavailable or refused)")}
 # The phone's motion (view3d/views.ts; its button only on touch screens): held upright facing north, then turned
 # 40 degrees right and tilted 10 degrees up: two events with DeviceOrientationEvent's angles (WebKit on Windows
 # cannot construct one)
@@ -424,7 +432,9 @@ PAGE_STATE = """({family, line, frames}) => {
   const shows = (e) => e.checkVisibility({visibilityProperty: true});
   const inView = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && r.top < innerHeight; };
   if (document.readyState !== "complete") busy.push("the page loading");
-  if (has(".leaflet-tile:not(.leaflet-tile-loaded)")) busy.push("%s");
+  // a tile image that failed is complete but never "loaded" (Leaflet marks only a load without error)
+  if ([...document.querySelectorAll(".leaflet-tile:not(.leaflet-tile-loaded)")].some((t) => t.tagName !== "IMG" || !t.complete))
+    busy.push("%s");
   if (has(".leaflet-zoom-anim, .leaflet-pan-anim")) busy.push("a map moving");
   for (const a of document.getAnimations()) {
     if (a.playState !== "running" && !a.pending) continue;
@@ -978,11 +988,18 @@ def short(step: str, size: int = 100) -> str:
 
 def wait_until(page, expression: str, state: Pass, label: str, row: dict) -> bool:
     """Wait until `expression` is true in the page (at most the pass's limit for it): True when it came true; a
-    timeout is printed, kept in `row["timeouts"]` and shortens the expression's later waits in the pass. Another
-    error (the expression raised) goes on to the caller."""
+    timeout is printed, kept in `row["timeouts"]` and shortens the expression's later waits in the pass. A wait that
+    GIVE_UP ends (its mark can no longer come) is printed and kept too, with its words, at once and without a quarter.
+    Another error (the expression raised) goes on to the caller."""
+    give_up, words = GIVE_UP.get(expression, (None, None))
     try:  # a function: an expression would need eval, which the CSP forbids
-        page.wait_for_function(f"() => ({expression})", timeout=state.limit(expression, row.get("page")))
-        return True
+        page.wait_for_function(f"() => ({expression})" if give_up is None else f"() => ({expression}) || ({give_up})",
+                               timeout=state.limit(expression, row.get("page")))
+        if give_up is None or page.evaluate(f"!!({expression})"):
+            return True
+        print(f"{label}: gave up waiting for {expression}: {words}")
+        row["timeouts"].append(f"{expression} (gave up: {words})")
+        return False
     except Exception as error:
         if type(error).__name__ != "TimeoutError":  # playwright.sync_api.TimeoutError (not imported here)
             raise
