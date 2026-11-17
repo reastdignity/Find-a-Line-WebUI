@@ -1102,14 +1102,17 @@ container of the project's image with the clone's `tools/` mounted (`.dockerigno
 of the image; the tool's docstring has the command); the image has no 7-Zip, which a Deflate64
 ZIP would need.
 
-When no folder holds the dataset, the first planning of a search asks the data server for the
-dataset's index. No answer, a 5xx, or a 404 (the dataset is not published there: the islets today,
-which have no `PUBLISHABLE` row) all count as not answering: the source is unavailable, the run's
-text says why ("<layer>: the data copy at mirror.findaline.lukawski.org does not answer (HTTP 404:
-not published there)" for a 404), and `--source auto` takes the next source of the place:
-Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto Santo, the Desertas and
-the Selvagens Madeira's source (published, but its tiles do not reach the islets: the gap filling,
-`europe`, fills the area, and the run names Madeira's source). Later phases of the same
+When no folder holds the dataset, the first planning of a search reads the data server's list of
+published datasets (`/v1/datasets.json`, kept 300 s). A dataset the list does not name (the islets
+today, which have no `PUBLISHABLE` row) is unavailable, as without a data server: "<layer>: not
+published on the data server at mirror.findaline.lukawski.org, and no local copy is set up"; a
+source named with `--source` is refused with that text, and `sources check` shows it with that note,
+not as a failure. No list (no answer, a 5xx, a 404 of the list, a list that cannot be read) makes
+the source unavailable too ("... does not answer (...)"). Either way `--source auto` takes the next
+source of the place: Valle d'Aosta TINITALY (10 m), Madeira and Slovakia `europe` (30 m), Porto
+Santo, the Desertas and the Selvagens Madeira's source. That last is the catalogue's order (Madeira's
+source covers their region and follows them), the same without any data server: its tiles do not
+reach the islets, so the gap filling (`europe`) fills the area, and the run names Madeira's source. Later phases of the same
 search keep the source chosen at its start and fail if a tile still missing cannot be downloaded
 (running it again resumes from the cache). On 2026-11-15 the VPS's local copy holds `slovakia/`
 only. The regression entries R80, R81 and R86-R88 are skipped without their folders (`needs_path`)

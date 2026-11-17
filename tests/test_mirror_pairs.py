@@ -389,6 +389,65 @@ def test_dataset_names_are_the_servers():
         assert len(name) <= 40
 
 
+def test_the_clients_reading_of_the_list_the_tool_writes():
+    """The data server's list (U50): mirror_publish.write_datasets writes public/v1/datasets.json from the published
+    folders, and the client's start check (tilebases._checked_list, then the product's mirror folder against its
+    paths) reads it. For the three published datasets, their native and averaged folders, every folder the
+    catalogue's readers ask for (required_folders: each reader's `mirror`) is a path of the list as the tool writes
+    it; a format changed on one side alone (the key, the path's form) fails here. The tool's own test of the list:
+    tests/test_mirror_publish.py (rclone's local backend)."""
+    written = {}
+
+    class Done:
+        returncode, stdout, stderr = 0, b"", b""
+
+    class Rc:
+        def run(self, *args, **kwargs):
+            return Done()
+
+    class Remote:
+        """The server as write_datasets sees it: public/v1/tiles/<dataset>/<product>/<res>m with an index and a tile."""
+        rc = Rc()
+
+        def __init__(self, folders):
+            self.tree = folders
+
+        def folders(self, rel):
+            return sorted(self.tree) if rel == mp.TILES else []
+
+        def listing(self, rel):
+            dataset = rel.rsplit("/", 1)[-1]
+            found = {}
+            for folder in self.tree[dataset]:
+                below = folder.split("/", 1)[1]
+                found[f"{below}/index.json"] = 100
+                found[f"{below}/{tilebases.grid_tile_name(-3, 4)}"] = 1000
+            return found
+
+        def cat(self, rel):
+            return b'{"tiles": {}, "block": 10}'
+
+        def write(self, rel, data):
+            written[rel] = data
+
+        def path(self, rel=""):
+            return f"remote:{rel}"
+
+        def says(self, done):
+            return ""
+
+    tree = {name: mp.required_folders(row["source_id"]) for name, row in mp.PUBLISHABLE.items()}
+    assert any(folder.endswith(("/2m", "/5m")) and name == "slovakia" for name, folders in tree.items()
+               for folder in folders), "an averaged folder is among them"
+    content = mp.write_datasets(Remote(tree))
+    assert json.loads(written[mp.LIST_TMP]) == content
+    paths = tilebases._checked_list(content)
+    for name, folders in tree.items():
+        for folder in folders:
+            assert folder.strip("/") in paths, (name, folder, sorted(paths))
+    assert paths == {f for folders in tree.values() for f in folders}
+
+
 # 6. The block size
 
 def test_block_is_one_number():
