@@ -964,7 +964,11 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
 
 def _axe_source():
     if not os.path.exists(AXE):
-        print(f"axe-core not found ({os.path.relpath(AXE, REPO)}; `npm ci` in viewer): the axe part is left out")
+        try:
+            where = os.path.relpath(AXE, REPO)
+        except ValueError:  # another drive than the checkout's (Windows): the path as it is
+            where = AXE
+        print(f"axe-core not found ({where}; `npm ci` in viewer): the axe part is left out")
         return None
     return _read(AXE)
 

@@ -619,6 +619,7 @@ run({
 """
 
 
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_too_large(data, tmp_path):
     """A run whose data.js arrives as an empty text over http (Chromium's string limit; result/load.ts TooLarge):
     the app's result page and the run's map.html show "This result is too large for this browser." and load no
