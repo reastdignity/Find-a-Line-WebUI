@@ -173,3 +173,73 @@ def test_first_line_of_the_store_and_of_data_js(tmp_path_factory, tmp_path):
     with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
         assert f'"lines":[[{line},' in f.read()
     assert tool_runs.snapshot(str(tmp_path)) == before
+
+
+def test_measure_of_a_run_without_data_js(tmp_path_factory, tmp_path, monkeypatch):
+    """measure (the browser's part stubbed): a run of store wave 4 gets no data.js comparison (no page kept for it,
+    "compare" None, its row in the report) and its 3D view's line from the store; a run saved before the store gets
+    the comparison and its line from data.js; each says which file its line came from."""
+    import argparse
+    import contextlib
+    import types
+
+    import clip_runs
+    import tool_runs
+    data = clip_runs.data_copy(tmp_path_factory, "run-load-measure", CLIP_ARGS)
+    run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
+    runs = tmp_path / "runs"
+    tool_runs.store_only(str(data / "runs" / run), str(runs / "new"))
+    tool_runs.text_only(str(data / "runs" / run), str(runs / "old"))
+    kept, compared, lines = [], [], {}
+
+    class Page:
+        def close(self):
+            pass
+
+        def goto(self, url):
+            pass
+
+        def evaluate(self, script, arg):
+            compared.append(arg["url"])
+            return [{"script": 10, "fetch": 2, "parse": 5, "error": None, "lines": 7, "parsed": 7}]
+
+    class Context:
+        def new_page(self):
+            return Page()
+
+        def close(self):
+            pass
+
+    def open_result(browser, site, run_id, timeout, out, keep_page=False, view=False, interact=False):
+        kept.append((run_id, keep_page))
+        found = {"measures": _measures(100.0, 50.0), "file": None, "ready": 1000, "longtasks": [], "heap": None,
+                 "errors": [], "source": "store" if run_id == "new" else "data.js", "page": "today"}
+        return (found, Context(), Page()) if keep_page else found
+
+    def open_view3d(browser, site, run_id, line, level, timeout):
+        lines[run_id] = line
+        return {"measures": [], "file": None, "ready_at": 1.0, "error": None}
+
+    browser = types.SimpleNamespace(version="1.0", close=lambda: None)
+    pw = types.SimpleNamespace(chromium=types.SimpleNamespace(launch=lambda **k: browser))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api",
+                        types.SimpleNamespace(sync_playwright=lambda: contextlib.nullcontext(pw)))
+    monkeypatch.setattr(prl, "serve", lambda folder: ("http://127.0.0.1:1", lambda: None))
+    monkeypatch.setattr(prl, "open_result", open_result)
+    monkeypatch.setattr(prl, "open_view3d", open_view3d)
+    monkeypatch.setattr(prl, "size_of", lambda folder, source: {"bytes": 1, "gzip": 1})
+    args = argparse.Namespace(data_dir=None, runs_dir=str(runs), cache=str(tmp_path / "cache"), runs=["new", "old"],
+                              rounds=2, view=False, interact=False, timeout=60, out=str(tmp_path / "out"),
+                              compare_rounds=1, levels=["full"])
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "out").mkdir()
+    results = prl.measure(args)
+    new, old = results["runs"]
+    assert new["compare"] is None and "compare_trials" not in new
+    assert old["compare"]["json_ok"] is True and compared == ["/runs/old/data.js"]
+    assert kept == [("new", False), ("new", False), ("old", False), ("old", True)]
+    assert (new["line_read"], old["line_read"]) == ("store", "data.js")
+    assert lines["new"] == lines["old"] == new["line"] == prl.first_line(str(runs / "new"))
+    report = prl.markdown(results)
+    assert "| new | | | | | no data.js (a run saved since store wave 4) |" in report
+    assert "The first line read from: new store, old data.js." in report

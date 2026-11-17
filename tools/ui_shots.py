@@ -583,6 +583,11 @@ def with_surface(path: str):
         json.dump(meta, f)
 
 
+def lines_read(data: str, run: str) -> str:
+    """Which file first_line reads of a run: "store" (lines.arrow) or "data.js" (a run saved before the store)."""
+    return "store" if os.path.isfile(os.path.join(data, "runs", run, "lines.arrow")) else "data.js"
+
+
 def first_line(data: str, run: str, k: int = 0) -> str:
     """The first line of a run (or its line `k`, the last one beyond the end) as its links name it (keys.lineCoords:
     the anchors of its data.js row as written, round(value, 7)): from its store (lines.arrow, linestore.read: the same
@@ -1446,6 +1451,7 @@ def main() -> int:
         with timed(times, "the run's lines and border cell"):
             line = args.line or first_line(data, run)
             also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines ("view3d-others")
+            print(f"The run's lines read from its {lines_read(data, run)}")
             border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
         site_of = {"url": site, "cookies": cookies, "run": run, "share": share, "line": line, "also": also,
                    "border": border}

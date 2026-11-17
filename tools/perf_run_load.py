@@ -175,6 +175,11 @@ IMAGERY_DONE = ("() => performance.getEntriesByType('measure').some((m) => m.nam
                 "!document.querySelector('.v3-imagery-status') || document.querySelector('.v3-imagery-status').hidden")
 
 
+def lines_read(folder: str) -> str:
+    """Which file first_line reads of a run: "store" (lines.arrow) or "data.js" (a run saved before the store)."""
+    return "store" if os.path.isfile(os.path.join(folder, "lines.arrow")) else "data.js"
+
+
 def first_line(folder: str) -> str:
     """The first line of a run as the links name it (keys.lineCoords: its data.js row's first four values as written,
     round(value, 7)): from its store (lines.arrow, linestore.read: the same values in the same order), else from the
@@ -349,7 +354,9 @@ def markdown(results: dict) -> str:
                     " | ".join(_s(v[k]) for k in ("body", "decode", "mesh", "first-frame", "profile", "imagery")) +
                     f" | {v['tiles'] or ''} | {_s(v['ready'])} | {v['error'] or ''} |")
         out += ["", "*server*: the patch's request until its first byte (the quick lane's queue and step 1); "
-                "*ready*: from the page's start to the terrain drawn and the profile in."]
+                "*ready*: from the page's start to the terrain drawn and the profile in. The first line read from: "
+                + ", ".join(f"{run['id']} {run.get('line_read') or ''}".strip() for run in results["runs"]
+                            if run.get("view3d")) + "."]
     return "\n".join(out) + "\n"
 
 
@@ -517,7 +524,7 @@ def measure(args) -> dict:
                 entry["size"] = size_of(os.path.join(args.runs_dir, run), entry["result"]["source"])
                 if args.levels:
                     line = first_line(folder)
-                    entry["line"] = line
+                    entry["line"], entry["line_read"] = line, lines_read(folder)
                     entry["view3d"], entry["view3d_pages"] = {}, {}
                     for level in args.levels:
                         print(f"{run}: 3D view, {level}", flush=True)

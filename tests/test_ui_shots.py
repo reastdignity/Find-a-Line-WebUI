@@ -1061,6 +1061,8 @@ def test_first_line_of_the_store_and_of_data_js(tmp_path_factory, tmp_path):
     before = tool_runs.snapshot(str(tmp_path))
     with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
         rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    assert ui_shots.lines_read(str(tmp_path), "store") == "store"
+    assert ui_shots.lines_read(str(tmp_path), "text") == "data.js"
     for k in (0, 40, 200, 10 ** 9):
         line = ui_shots.first_line(str(tmp_path), "store", k)
         assert line == ui_shots.first_line(str(tmp_path), "text", k)
