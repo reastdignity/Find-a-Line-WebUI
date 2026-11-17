@@ -53,7 +53,7 @@ export function CoarserNote({model}: {model: ResultModel}) {
 /** "Why so many lines?" of a run made with the square rule: what the found lines are, and on a run with the no-fall
  *  zone or A-frames how many of its lines need each class of rigging, with a bar of their shares and a "Show"
  *  checkbox each (a cleared one hides that class: filters.ts hideNeed*, like any filter). */
-function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onClose(): void}) {
+export function WhyBox({model, found, onClose}: {model: ResultModel; found: number; onClose(): void}) {
   const needs = model.needCounts(), f = model.filters;
   const keys = ["ui.result.need_none", "ui.result.need_zone", "ui.result.need_lift"];
   return <section class="r-why" id="r-why" aria-label={t("ui.result.why_title")}>

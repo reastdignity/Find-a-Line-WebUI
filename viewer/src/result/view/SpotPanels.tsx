@@ -11,6 +11,7 @@ import type { Padding } from "../ResultMap";
 import type { SpotMap } from "../SpotMap";
 import type { SpotChoice, SpotView } from "../spots";
 import type { Area } from "./LineChooser";
+import { SLOTS } from "./SpotDetails";
 
 /** What every panel gets: the view's model, the canvas (null until the map is made), the layout (wide: the three
  *  columns; else a phone's map with the sheet), the map's free part for moves (SpotMap.reveal, zoomTo) and, on a
@@ -48,8 +49,9 @@ export function useSpotView(view: SpotView) {
 }
 
 export const PANELS: SpotPanels = {
-  list: () => null,
-  details: () => null,
-  sheetHead: () => null,
-  hint: () => null,
+  list: (p) => SLOTS.list(p),
+  details: (p) => SLOTS.details(p),
+  sheetHead: (p) => SLOTS.sheetHead(p),
+  hint: (p) => SLOTS.hint(p),
+  chooser: (p) => SLOTS.chooser(p),
 };

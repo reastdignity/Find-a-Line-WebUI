@@ -204,6 +204,18 @@ unfold holds until the sheet's next stop; "Legend" pressed without room lowers t
 stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
 `tests/test_view_units.py` (Node on a made-up run, the frame in headless Edge through `viewer/test/spotmap_page.ts`),
 `tests/test_shell_c_view_map.py` (Playwright on `clip_runs.view_clip`: the mock-up's checks ported).
+Its panels (`view.css`, classes `vl-*`; what stands in the slots is `view/SpotDetails.tsx` `SLOTS`):
+`view/SpotList.tsx` the list (the top block: "Start here" at Area, else "Best in view" with the B rows and the button
+that raises Best, with All "In view"; "All spots": the sort and the tree of sectors, 20 rows a page and 40 more; a
+row is a list item with ONE button, `aria-pressed`, one tab stop per list, read from the columns without a Line; the
+panels' shared pieces `Cells`, `metres`, `useViewPanels`, `useHover`), `view/SpotSummary.tsx` the headline with
+today's `WhyBox`, `view/ViewFilters.tsx` the chips (today's `MainEditor` and `MoreFilters` without the grouping,
+"Top level only" and its sentence), `view/SpotDetails.tsx` a spot's details (the stepper, "Stands for", "Lines from
+anchor A1 / A2", today's `AccessBlock` and `lineFacts`) and a phone's sheet head, `view/FanPanel.tsx` the panel of
+"Lines from here" (the model sorts; "Far end"), `view/SpotChooser.tsx` the table of spots, `view/Hint.tsx` the hint
+and its "?" (the frame's two places), `view/viewstate.ts` what is kept (`findaline.view.v1`: the sort and the hint
+only) and the panels' state per view (open sectors, pages; it outlives the change between columns and phone). Tests:
+`tests/test_view_list_units.py` (Node), `tests/test_shell_c_view_list.py` (Playwright, a desktop and two phones).
 
 ## `viewer/src/view3d/`
 
