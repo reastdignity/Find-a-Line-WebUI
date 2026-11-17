@@ -58,6 +58,17 @@ Before calling a failure of it a regression, run it alone on a clean checkout of
 In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
 out once, with other sessions running under the test lock; alone it passed 4 of 4.
 
+## `test_quick_lane` fails at some times with "disk I/O error"
+
+`tests/test_web.py::test_quick_lane` failed on 2026-11-17 in a full pytest of the ui-shots-waits branch with
+`sqlite3.OperationalError: disk I/O error` at `jobs.py:447`, raised while the test client shuts the app down (the
+scheduler and its worker still running beside it, a proxy set in the environment). Alone it failed 2 of 5 runs on a
+clean checkout of `main` (bca2aa6) and 2 of 5 on that branch, which touches neither `jobs.py`, `web.py` nor the test;
+it passed at f2f8015 and 2a04f84 in single runs, so no commit is known to have brought it in. The disk had 200 GB
+free. The cause is not found: an SQLite file of the test's `tmp_path` held or removed by another process while the
+app closes is the first thing to check. Before calling a failure of it a regression, run it alone a few times on a
+clean checkout of `main`.
+
 ## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
 
 `tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a
