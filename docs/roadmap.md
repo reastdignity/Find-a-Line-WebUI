@@ -1338,7 +1338,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     Tokyo's from a static table of 18 891 sheets (`tools/tokyo_sheets.py`), Shizuoka's LP grids from its bucket's
     listing, composed newest first; no surface model. R84 Okutama (9 lines in 5 spots), R85 Jogasaki (1 002 in 22).
   - *Madeira's other islands* (`porto_santo`, `desertas`, `selvagens`): DROTe's 5 m ZIP, a mirror dataset per island
-    group cut by the reworked `tools/mirror_tiles.py` (3.4 MB together, final and verified, copied into the local
+    group cut by the reworked `tools/mirror_tiles.py` (3.5 MB in all, final and verified, copied into the local
     mirror 2026-11-16); before `madeira` in pt-30, chosen by their boxes. R86 Porto Santo (7 184 lines in 431 spots),
     R87 Deserta Grande (784 in 130), R88 Selvagem Grande (972 in 114), skipped without the folders.
   - *Hong Kong* (`hong_kong`): CEDD's 2020 lidar DTM and DSM 0.5 m read on demand from the CSDI Portal's sheet ZIPs

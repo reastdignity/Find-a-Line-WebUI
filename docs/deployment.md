@@ -1083,8 +1083,8 @@ Our own tiles of six sources: Slovakia (`slovakia/`, `tools/sk_tiles.py`), Madei
 Valle d'Aosta (`aosta/dtm/2m`) and, since batch 6, Madeira's other island groups: Porto Santo
 (`porto-santo/dtm/5m`), the Desertas (`desertas/dtm/5m`) and the Selvagens (`selvagens/dtm/5m`).
 All but Slovakia's are cut by `tools/mirror_tiles.py`: Madeira and Valle d'Aosta from one file each
-(about 0.33 and 1.46 GB, 2026-11-15), the three islets from DROTe's 5 m ZIP (3.4 MB of tiles
-together, final and verified, 2026-11-16). The worker takes a dataset from the first place that
+(about 0.33 and 1.46 GB, 2026-11-15), the three islets from DROTe's 5 m ZIP (3.5 MB of tiles
+and indexes in all, final and verified, 2026-11-16). The worker takes a dataset from the first place that
 holds it: the folder of `FINDALINE_MIRROR` (compose.yaml sets `/mirror`, the folder that
 `FINDALINE_MIRROR_DIR` in `.env` mounts read-only, section 10), then the project's data server
 (section 17), which serves a dataset once it is published there (`tools/mirror_publish.py`, only a

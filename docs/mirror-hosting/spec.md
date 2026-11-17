@@ -3,7 +3,7 @@
 2026-11-15, second version (after a scope review and a builder's read of the first). The specification of a data
 server ("the mirror") from which every Find-a-Line installation downloads the tiles of the sources that cannot be
 read from their provider on demand. Built on 2026-11-16 (the task `mirror-hosting-build`); the text describes what
-exists, the sentences the build changed name the decision (U27-U56) or the planner's ruling behind them. What is
+exists, the sentences the build changed name the decision (U27-U57) or the planner's ruling behind them. What is
 still open is listed in section 9, never hidden.
 
 ## 1. How to read it
@@ -14,7 +14,7 @@ with: Decision, Behaviour, Data and interfaces, Files and pairs, Tests, Acceptan
 Section 8 is security and misuse, 9 what is still open, 10 the order of building with the files each agent owns,
 11 the rollout, 12 the definition of done, 13 the later payloads this design must not block.
 
-**Names.** "A.5" is behaviour 5 of solution A. U1-U56 are the user's decisions (U27-U56 taken during the build),
+**Names.** "A.5" is behaviour 5 of solution A. U1-U57 are the user's decisions (U27-U57 taken during the build),
 P1-P28 the planner's, S1-S17 the
 security rows, M2, E1 and E2 the open items. `<host>` stands for the mirror's host name, `mirror.findaline.lukawski.org` (U23).
 
@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U56 during the build, 2026-11-15 to 17)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -91,6 +91,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U54 | The data server's host name in the public site's failure texts: keep it or hide it | "a": keep it |
 | U55 | The islets' three `PUBLISHABLE` rows (the basis of Madeira's row, U11; against it the regional order's price of Porto Santo's 5 m model) | "a": all three approved as drafted (porto-santo, desertas, selvagens), 2026-11-17 |
 | U56 | The islets' served cards (two left out a change under "Changes made": the Desertas' replaced reference-system label, Porto Santo's float64 to float32) | "a": both fixed first; the new card texts shown to the user before anything is published |
+| U57 | Keeping the master's `README.md` files in step with the served cards (Porto Santo's and the Desertas' on the master are older than their cards of U56) | both: the publish tool notes a dataset's `README.md` that is missing or differs from the card it serves, at every `publish` and every `verify` of a master folder; the two files are rewritten once on the master by the cutting tool (`mirror_tiles.py cut`, which cuts nothing for a finished dataset), on the user's word |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -390,7 +391,8 @@ U1, U5, U8, U10, U11, U12, U20; P21, P22, P23, P27.
      reserve);
   2. copies exactly the files the indexes list, the indexes and nothing else into `<root>/staging/<dataset>/`
      (`rclone copy --files-from`; a rerun skips what is there), and writes the card `README.md` there from the
-     tool's card text for the dataset (P21);
+     tool's card text for the dataset (P21); a master's own `README.md` that is missing or differs from that
+     card is noted before the copy, never refused (U57; `verify` of a master folder notes it too);
   3. verifies the staged copy on the server against the master's indexes;
   4. moves `<root>/public/v1/tiles/<dataset>` to `<root>/trash/<dataset>-<UTC>` if it exists, then staging to
      `<root>/public/v1/tiles/<dataset>` (`rclone moveto`, a rename on the server), and after each move checks
@@ -656,7 +658,8 @@ main process reaches once, stops when its own source does not answer, and its wo
 process's pages make no request.
 
 ### Acceptance
-- Results pinned: regression rows R13, R21, R34, R80 and R81 from an empty cache with `--mirror-url` (the mirror's
+- Results pinned: regression rows R13, R21, R34, R80, R81, R86, R87 and R88 from an empty cache with
+  `--mirror-url` (the mirror's
   test stack on the PC, serving a copy on a local disk of exactly the tiles those rows need with their indexes:
   Docker Desktop showed the mapped network drive as empty) give the counts and the `lines.csv` sha256 of the
   baseline. No baseline changes. The copy is made by running those rows once from the folder into an empty
@@ -834,8 +837,8 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
    1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
    today (M2).
-2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; a few
-   MB in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
+2. Publish Madeira (0.33 GB), check; then its islets Porto Santo, the Desertas and the Selvagens (U53, U55; 3.5 MB
+   in all); then Valle d'Aosta, then Slovakia; `verify` on the remote after each. Step 1's cap
    check (LV15) keeps Madeira's tiles: no islet has a tile of 1 MB.
 3. M2 on the real path; the user confirms or corrects the numbers; a rework round if they change.
 4. The squash into `main` (the client and the address in one commit), push; the VPS updated (its Telegraf then
@@ -886,7 +889,8 @@ The build is done when every line below holds; each names its test or command.
 **The client (C)**
 - [ ] `pytest tests/test_mirror_client.py tests/test_sources.py tests/test_madeira_aosta.py tests/test_rates.py
       tests/test_probe.py tests/test_regression_needs.py` green; no test asks the real mirror.
-- [ ] `tests/regression.py --mirror-url ...` for R13, R21, R34, R80, R81 from an empty cache: the baseline's
+- [ ] `tests/regression.py --mirror-url ...` for R13, R21, R34, R80, R81, R86, R87, R88 from an empty cache: the
+      baseline's
       counts and `lines.csv` sha256; the 5 m Slovak search equal to the folder's.
 - [ ] `findaline.py sources check slovakia madeira aosta_valley porto_santo desertas selvagens` and
       `tools/check_source.py` for the six pass over HTTP.

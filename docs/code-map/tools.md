@@ -131,7 +131,8 @@ ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked i
 
 Run by hand on the PC that holds the master (docs/mirror-hosting/spec.md, solution B): publishes the mirror's datasets
 to the home server's `<root>` over rclone (1.76 or newer, `PATH` or `FINDALINE_RCLONE`; an SFTP remote of the user's
-own rclone config with `hashes = sha256`, `sha256sum_command = sha256sum`). `verify` (a folder: hashed here; a
+own rclone config with `hashes = sha256`, `sha256sum_command = sha256sum`). `verify` (a folder: hashed here, `readme_notes` noting a dataset's `README.md` that is not the served card,
+U57; a
 remote: `rclone checksum sha256` by the server), `publish` (refusals first, then under the lock `staging/.lock` with a
 token read back: the server's sha256 proven on the lock file (U35), "published already" unless `--same-values`, free
 space; the listed files copied into `staging/`, the card, the staged copy verified, two checked moves through
