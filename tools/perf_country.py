@@ -1131,6 +1131,12 @@ def time_model(metrics: Dict[str, Dict], band: str, res: float) -> Optional[Dict
             "group_s_per_line": per_line("group_s_per_km2")}
 
 
+def lines_bytes_today(lines: float) -> float:
+    """What today's search holds for this many lines (search.memory_needed without grids or profiles): LINE_BYTES a
+    line and the sectors' clustering of at most SECTOR_WARD_SPOTS spots."""
+    return lines * LINE_BYTES + WARD_SPOT_BYTES * min(lines, SECTOR_WARD_SPOTS) ** 2
+
+
 def band_time(inputs: Dict, model: Dict, lines: float, spots: float, km2: float, band: str, res: float, dsm: bool,
               factors: Dict, memory_gb: float) -> Dict:
     """The wall time of one band of a country at a resolution on a machine: over candidate tile
@@ -1163,8 +1169,7 @@ def band_time(inputs: Dict, model: Dict, lines: float, spots: float, km2: float,
                     "wall_groups_s": round(combine((serial + groups * factors["serial"]) / (k * SERIAL_EFFICIENCY),
                                                    parallel)),
                     "lines": round(lines), "spots": round(spots),
-                    "lines_gb_today": round((tile_lines * LINE_BYTES
-                                             + WARD_SPOT_BYTES * min(tile_lines, SECTOR_WARD_SPOTS) ** 2) / 1e9, 1)}
+                    "lines_gb_today": round(lines_bytes_today(tile_lines) / 1e9, 1)}
     return best
 
 

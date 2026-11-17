@@ -4012,7 +4012,9 @@ Since step 3a saving clusters a run's spots into sectors (`mapping.view_columns`
 on 2026-11-16 (below, "The result view's columns"). `memory_needed` now adds `search.WARD_SPOT_BYTES` (8 B) x
 min(lines, `SECTOR_WARD_SPOTS`)², the spots being at most the lines (the user's choice of 2026-11-17). It costs a
 search of 10 000 lines or more about 0.75 GiB of its slot. A worker with 18 GiB free at its start, 3 compute and 2
-download slots, has slots of 4.94 GiB: the largest public search (64 Mpx, 1.5 M lines) needs 4.98 GiB instead of 4.24,
+download slots, has slots of 4.94 GiB (all 18 GiB available; the 4.61 GiB of "What it changes" above is part E1's
+estimate of a container of 18 GiB less what the worker itself holds at its start, as `search.cgroup_limits` reads
+memory.max less memory.current): the largest public search (64 Mpx, 1.5 M lines) needs 4.98 GiB instead of 4.24,
 so the worker now warns at its start, and the lines that fit a slot with grids of 64 Mpx fall from 2 339 533 to
 1 450 644 (the number the warning names; more lines on such grids are refused for memory). Without lines nothing changes
 (the quick lane's reserve, the tiles' side). `search.lines_fitting` is the one inversion of `memory_needed` (the

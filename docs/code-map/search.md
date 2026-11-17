@@ -64,8 +64,9 @@ a compute slot's budget, `slot_memory`, for every user, also for the tile size) 
 `memory_needed`, `PIXEL_BYTES`, `LINE_BYTES`, `PROFILE_POINT_BYTES` for a circle's profiles of every line,
 `WARD_SPOT_BYTES` x min(lines, `mapping.SECTOR_WARD_SPOTS`)² for the sectors' clustering at saving; `lines_fitting`,
 its one inversion, names the lines that fit in the refusals and the warning; also the tile size and `memory_warning`
-at the worker's start; `tile_core_size`: a tile's core from `TILE_MEMORY_SHARE` of the budget at `PIXEL_BYTES` per pixel, at most `TILE_PX_MAX` pixels whatever the memory), off by default, so the CLI and
-the regression checksums are unchanged; F7: `find_valid_lines(check=_early_check(...))` stops at `lines_max` (with
+at the worker's start; `tile_core_size`: a tile's core from `TILE_MEMORY_SHARE` of the budget at `PIXEL_BYTES` per
+pixel, at most `TILE_PX_MAX` pixels whatever the memory), off by default, so the CLI and the regression checksums are
+unchanged; F7: `find_valid_lines(check=_early_check(...))` stops at `lines_max` (with
 limits) or `Plan.memory` (for every user) after the first evaluated part over it (`Plan.early_stop`:
 `Limits.lines_early_stop`, set by `jobs.run_phase` from the server's `Limits` for every job; codes
 `too_many_lines_early`, `too_many_lines_memory_early`), the final `_check_lines` stays; step 4 before the groups works

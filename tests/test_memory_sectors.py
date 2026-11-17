@@ -56,7 +56,7 @@ def test_lines_fitting_inverts_memory_needed(monkeypatch, line_bytes):
     cap = mapping.SECTOR_WARD_SPOTS
     for pixels in (0, 1, 300 * 300, 36e6, 64e6):
         grids = search.memory_needed(pixels, 0)
-        for per_line in (0, 0.5, 9, 37.25, 203):
+        for per_line in (0, 0.5, 9, 37.25, 203, 19.6, 15.194184663250367, 0.1, 7.3):  # some not exact in floats
             need = lambda n: search.memory_needed(pixels, n, n * per_line)  # noqa: E731
             budgets = {grids - 1, grids, grids + 1, need(1) - 1, need(1), need(1) + 1, grids + 1e6, grids + 1e8,
                        grids + 5e9, grids + 3.7e10}
@@ -72,6 +72,14 @@ def test_lines_fitting_inverts_memory_needed(monkeypatch, line_bytes):
                 assert search.lines_fitting(int(need(n)), pixels, per_line) in (n - 1, n)
     assert search.lines_fitting(-5, 0) == 0 and search.lines_fitting(0, 0) == 0
     assert search.lines_fitting(search.memory_needed(1000, 0), 1000) == 0  # the grids fill it: no line
+
+
+def test_lines_fitting_corrects_the_closed_form():
+    """Cases where the closed form alone is one line off (the code review's, fix round 1): the correction against
+    memory_needed itself gives the property."""
+    for budget, pixels, per_line, expected in ((8_561_392_000, 90_000, 19.6, 2_712_199),
+                                               (7_870_420_050, 93_817_472, 15.194184663250367, 983_520)):
+        assert _assert_inverts(budget, pixels, per_line) == expected
 
 
 def test_lines_fitting_by_brute_force(monkeypatch):
