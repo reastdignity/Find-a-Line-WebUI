@@ -315,8 +315,9 @@ def test_a_pseudo_element_grows_only_what_it_can():
 
 @BROWSER
 def test_covered_controls_apart():
-    """A control whose centre another element covers is listed apart (a tap there goes elsewhere); a cover that takes
-    no clicks (pointer-events none) covers nothing; a checkbox's own label is no cover."""
+    """A control whose centre another element covers is marked covered, with its cover, and still counted (a scroll
+    or a closed bubble may uncover it); a cover that takes no clicks (pointer-events none) covers nothing; a
+    checkbox's own label is no cover."""
     r = _measured('<button class="under">U</button><div class="lid"></div>'
                   '<button class="pass">P</button><div class="ghost"></div>'
                   '<label class="lb"><input type="checkbox"> label</label>',
@@ -324,8 +325,8 @@ def test_covered_controls_apart():
                   ".pass { left: 200px; } .lid, .ghost { position: absolute; top: 0; width: 100px; height: 100px; "
                   "background: #fff; } .lid { left: 0; } .ghost { left: 200px; pointer-events: none; } "
                   ".lb { position: absolute; top: 200px; left: 0; }")
-    assert r["covered"] == {"button.under": 1} and r["controls"] == 2
-    assert r["controls_under"]["44"] == {"button.pass": 1, "input[type=checkbox] (by its label)": 1}
+    assert r["covered"] == {"button.under": 1} and r["covers"] == {"div.lid": 1} and r["controls"] == 3
+    assert r["controls_under"]["44"] == {"button.pass": 1, "button.under": 1, "input[type=checkbox] (by its label)": 1}
 
 
 @BROWSER

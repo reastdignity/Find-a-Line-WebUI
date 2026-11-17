@@ -38,8 +38,9 @@ size is kept in the log, so `--summarise` with other `--controls`/`--text` bound
   (per axis; an absolutely positioned control only from its containing block up). A control that cannot be reached
   (wholly before the scroll origin of a scroller or of the document, or clipped to nothing) is listed apart, not
   counted; one below the fold of a scrolling page or panel counts. A control in the viewport whose centre another
-  element covers (one hit test: elementFromPoint at the centre of its own box, or its label's) is listed apart as
-  covered and not counted; one out of the viewport is not tested, and a cover of only a part is not seen. Signatures are tag, role, input type and class names without the state
+  element covers at the moment of measuring (one hit test: elementFromPoint at the centre of its own box, or its
+  label's; a sticky bar over a scrolling form, an open bubble) is marked covered, with the cover, and still counted
+  (a scroll may uncover it); one out of the viewport is not tested, and a cover of only a part is not seen. Signatures are tag, role, input type and class names without the state
   classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept), so one control in
   two states is one signature;
 - the visible text and its rendered font size (under 12, 11, 10 px, as shares of the visible characters; SVG text
@@ -688,13 +689,17 @@ MEASURE_JS = r"""(opts) => {
   };
   // Covered: the centre of the control's own box (its label's, for one measured by its label), when it lies in the
   // viewport, hits another element than the control, what it holds, its labels or an ancestor of it: a tap there
-  // goes elsewhere. One hit test a control in view; a control out of the viewport is not tested (null)
+  // goes elsewhere at this moment (a sticky bar over a scrolling form, an open bubble). A marker only: the control
+  // still counts (a scroll or a closed bubble may uncover it). The cover's signature, else null; one hit test a
+  // control in view, a control out of the viewport is not tested
   const covered = (e, owner) => {
     const r = owner.getBoundingClientRect(), x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
     const hit = document.elementFromPoint(x, y);
-    if (!hit || hit === e || e.contains(hit) || owner.contains(hit) || hit.contains(e)) return false;
-    return !(e.labels && [...e.labels].some((l) => l.contains(hit)));
+    if (!hit || hit === e || e.contains(hit) || owner.contains(hit) || hit.contains(e)) return null;
+    if (e.labels && [...e.labels].some((l) => l.contains(hit))) return null;
+    const cover = hit.closest("[class]") || hit;
+    return sig(cover);
   };
   // Where an element lies: "credits" inside a map's credits (Leaflet's attribution control, the 3D view's credits, the
   // home cards' mini-map credits), "scale" inside Leaflet's scale control, else null; and its nearest named ancestor
@@ -708,7 +713,7 @@ MEASURE_JS = r"""(opts) => {
     if (!a) return null;
     return a.tagName.toLowerCase() + (a.id ? "#" + a.id : classes(a).split(".").slice(0, 3).join("."));
   };
-  const controls = [], unreachable = [], hidden = [];
+  const controls = [], unreachable = [];
   let modal = null;  // an open modal dialog makes the rest of the page inert: only its controls count
   try { modal = document.querySelector("dialog:modal"); } catch (e) { modal = null; }
   for (const e of document.querySelectorAll(CONTROLS)) {
@@ -743,7 +748,8 @@ MEASURE_JS = r"""(opts) => {
                   within: within(e),
                   w: r1(cut.right - cut.left), h: r1(cut.bottom - cut.top),
                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
-    (!part ? unreachable : covered(e, owner) ? hidden : controls).push(item);
+    if (part) item.covered_by = covered(e, owner);
+    (part ? controls : unreachable).push(item);
   }
   const texts = [];
   const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "OPTION", "TITLE", "TEMPLATE", "desc", "title"]);
@@ -797,7 +803,7 @@ MEASURE_JS = r"""(opts) => {
       : parseFloat(s.borderTopLeftRadius);
     if (a >= 0.9 && framed && rad >= 8 && s.boxShadow !== "none") grey[k] = (grey[k] || 0) + 1;
   }
-  return {controls, unreachable, covered: hidden, texts, document_over: docOver > 1 ? docOver : 0, scrollers, containers, grey,
+  return {controls, unreachable, texts, document_over: docOver > 1 ? docOver : 0, scrollers, containers, grey,
           viewport: [innerWidth, innerHeight]};
 }"""
 
@@ -862,11 +868,13 @@ def measure(page, axe_source: str | None, controls=CONTROL_BOUNDS, text=TEXT_BOU
     result = {
         "viewport": raw["viewport"],
         "controls": len(raw["controls"]),
-        "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"], c["zone"], c["within"]]
+        "control_sizes": [[c["sig"], c["w"], c["h"], c["how"], c["inline"], c["text"], c["zone"], c["within"],
+                           c["covered_by"]]
                           for c in raw["controls"]],
         "controls_grown": sum(c["how"].startswith("with ::") for c in raw["controls"]),
         "unreachable": dict(sorted(Counter(c["sig"] for c in raw["unreachable"]).items())),
-        "covered": dict(sorted(Counter(c["sig"] for c in raw["covered"]).items())),
+        "covered": dict(sorted(Counter(c["sig"] for c in raw["controls"] if c["covered_by"]).items())),
+        "covers": dict(sorted(Counter(c["covered_by"] for c in raw["controls"] if c["covered_by"]).items())),
         "text_elements": len(raw["texts"]), "text_chars": sum(t["chars"] for t in raw["texts"]),
         "text_sizes": [[t["sig"], t["size"], t["chars"], t["text"], t["zone"], t["within"]] for t in raw["texts"]],
         "document_over": raw["document_over"], "scrollers": raw["scrollers"],
@@ -1110,6 +1118,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
     lists["scrollers"] = dedup(lambda r: [(s["sig"], s["over"], None) for s in scrollers(r)])
     lists["unreachable"] = dedup(lambda r: [(s, n, None) for s, n in r.get("unreachable", {}).items()])
     lists["covered"] = dedup(lambda r: [(s, n, None) for s, n in r.get("covered", {}).items()])
+    lists["covers"] = dedup(lambda r: [(s, n, None) for s, n in r.get("covers", {}).items()])
     lists["grey_boxes"] = dedup(lambda r: [(s, n, None) for s, n in r.get("grey_boxes", {}).items()])
     lists["containers"] = dedup(lambda r: [(s, n, None) for s, n in r.get("containers", {}).items()])
     axe_rows = {}
@@ -1139,7 +1148,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
 
 def pages_markdown(s: dict) -> str:
     cs, ts = s["bounds"]["controls"], s["bounds"]["text"]
-    columns = (["Device, theme", "States", "Controls (unreachable / covered apart)"]
+    columns = (["Device, theme", "States", "Controls (unreachable apart; of them covered)"]
                + [x for b in cs for x in (f"Under {b} px (signatures)", f"Links in a sentence under {b} px")]
                + ["Text chars"] + [f"Text under {b} px (outside a map's credits and scale)" for b in ts]
                + ["Document sideways / states with elements scrolling sideways", "Grey boxes / containers",
@@ -1179,7 +1188,9 @@ def pages_markdown(s: dict) -> str:
         rows(f"inline_links_under_{b}_phones", f"Links in a sentence under {b} px on the phones (apart)", ctl)
         rows(f"inline_links_under_{b}_desktop", f"Links in a sentence under {b} px on the desktop (apart)", ctl)
     rows("unreachable", "Controls that cannot be reached (not counted above)", lambda e: "")
-    rows("covered", "Controls covered by another element at their centre (not counted above)", lambda e: "")
+    rows("covered", "Controls covered by another element at their centre at the moment of measuring (counted above)",
+         lambda e: "")
+    rows("covers", "What covers them (the element hit at a covered control's centre)", lambda e: "")
     for b in ts:
         rows(f"text_under_{b}", f"Text under {b} px (count: characters)", txt)
     rows("document_sideways", "The document wider than its viewport (count: px over, summed)", lambda e: "")
