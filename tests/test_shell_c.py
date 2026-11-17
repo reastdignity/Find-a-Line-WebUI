@@ -1892,8 +1892,8 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["failedMenu"] == ["Edit & run again"], r
     assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
     assert r["waitingMenu"] == ["Edit & run again", "Remove…"] and r["itemTag"] == ["BUTTON", "menuitem"], r
-    asked = ("Remove “{}” from your searches? It was cancelled, so it has no result. It still counts toward your "
-             "daily limit of searches.")  # the user's words (2026-11-17), whatever the search's age
+    # the user's words (2026-11-17); the local app has no daily limit of searches: never "It still counts ..."
+    asked = "Remove “{}” from your searches? It was cancelled, so it has no result."
     assert r["ask"] == [asked.format("Cancelled while waiting"), "alertdialog", "Remove the search", "Keep it",
                         ["Remove", "Keep it"]], r
     assert r["oldAsk"] == asked.format("Cancelled two days ago"), r
@@ -1989,7 +1989,9 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
     """The public site in Playwright's Edge, signed in through a fake GitHub. An administrator's Home lists every
     user's searches: Remove… on their own cancelled card, not on another user's. A user's "Delete…" of a run their
     search made takes the search's card away without a reload, and the focus goes to the card that took its place;
-    removing the last card puts the focus on "Your searches"."""
+    removing the last card puts the focus on "Your searches". Remove…'s question says "It still counts toward your
+    daily limit of searches." only when true: to a user with the site's limits for a search of today, not for one
+    two days old, nor to an administrator (no daily limit)."""
     import socket
     import threading
 
@@ -1999,6 +2001,7 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
     from playwright.sync_api import sync_playwright
 
     import accounts as ac
+    import cache
     from jobs import Jobs
     from settings import AccountSettings, PublicSettings
     for key, value in ACCOUNTS.items():
@@ -2022,7 +2025,10 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
     jobs.set(saved, "done", run_id=RUN_A)
     a_cancelled = jobs.add(request, "A's cancelled search", a_id)
     admin_cancelled = jobs.add(request, "Admin's cancelled search", admin_id)
-    assert jobs.request_cancel(a_cancelled) and jobs.request_cancel(admin_cancelled)
+    a_old = jobs.add(request, "A's old cancelled search", a_id)
+    assert jobs.request_cancel(a_cancelled) and jobs.request_cancel(admin_cancelled) and jobs.request_cancel(a_old)
+    with jobs._db() as db:  # started two days ago: out of the day's window
+        db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), a_old))
 
     settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
     app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
@@ -2042,6 +2048,20 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
         items.first.wait_for(timeout=30000)
         return [t.strip() for t in items.all_text_contents()]
 
+    def asked(page, job: str, remove: bool = False) -> str:
+        """Remove…'s question of a card (its text), then kept ("Keep it") or confirmed."""
+        menu(page, job)
+        page.get_by_role("menuitem", name="Remove…").click()
+        ask = page.locator(f'.c-card[data-job="{job}"] .c-remove-ask')
+        text = ask.locator("span").first.text_content()
+        if remove:
+            page.locator(f'.c-card[data-job="{job}"] .c-confirm-remove').click()
+            page.locator(f'.c-card[data-job="{job}"]').wait_for(state="detached", timeout=30000)
+        else:
+            ask.get_by_role("button", name="Keep it").click()
+            ask.wait_for(state="detached", timeout=30000)
+        return text
+
     try:
         deadline = time.monotonic() + 30  # a port taken between the bind's close and uvicorn's: fail, not hang
         while not server.started and time.monotonic() < deadline:
@@ -2057,6 +2077,7 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
                     page = context.new_page()
                     page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
                     page.wait_for_selector(".c-cards", timeout=30000)
+                    page.wait_for_selector(".c-usage", timeout=30000)  # the usage loaded: who has a daily limit
                     if page.locator("dialog.n-beta[open]").count():  # the beta notice after a sign-in: closed
                         page.keyboard.press("Escape")
                         page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
@@ -2067,11 +2088,15 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
                 r["admin_theirs"] = menu(page, a_cancelled)
                 page.keyboard.press("Escape")
                 r["admin_own"] = menu(page, admin_cancelled)
+                page.keyboard.press("Escape")
+                r["admin_ask"] = asked(page, admin_cancelled)  # an administrator has no daily limit
                 context.close()
 
                 context, page = signed_in({"id": 11, "login": "a"})
                 saved_card = page.locator(f'.c-card[data-job="{saved}"]')
                 saved_card.wait_for(timeout=30000)
+                r["a_ask"] = asked(page, a_cancelled)  # a user with the site's limits, a search of today
+                r["a_old_ask"] = asked(page, a_old, remove=True)  # two days old: it no longer counts
                 r["cards"] = page.eval_on_selector_all(".c-cards > .c-card", "(cs) => cs.map((c) => c.dataset.job)")
                 menu(page, saved)
                 page.get_by_role("menuitem", name="Delete…").click()
@@ -2095,6 +2120,11 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
         thread.join(10)
     assert "Remove…" not in r["admin_theirs"] and "Edit & run again" in r["admin_theirs"], r
     assert "Remove…" in r["admin_own"], r
+    # "It still counts ..." only when true: a daily limit and a search of the day's window (the user's words)
+    short = "Remove “{}” from your searches? It was cancelled, so it has no result."
+    assert r["a_ask"] == short.format("A's cancelled search") + " It still counts toward your daily limit of searches.", r
+    assert r["a_old_ask"] == short.format("A's old cancelled search"), r
+    assert r["admin_ask"] == short.format("Admin's cancelled search"), r
     assert sorted(r["cards"]) == sorted([saved, a_cancelled]), r
     assert r["after_delete"][0] == {"card": a_cancelled} and r["after_delete"][1].endswith("/?ui=c"), r
     assert r["after_remove"] == {"heading": "Your searches"}, r

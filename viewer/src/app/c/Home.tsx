@@ -9,7 +9,7 @@ import { LinkField, Popover } from "../../result/view";
 import { forgetRun } from "../../result/load";
 import { canReport, openReport } from "../../report";
 import { UsageMeters, type UsageState } from "../../search";
-import { api, jobError, user, type RunListed } from "../api";
+import { api, jobError, user, type Job, type RunListed, type Usage } from "../api";
 import { errorText, t } from "../../i18n";
 import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJobs";
 import { editHash, runHash } from "./route";
@@ -85,6 +85,15 @@ function stateOf(card: Card): CardState {
           unfinished: false};
 }
 
+/** Whether a removed search still counts toward the user's daily limit of searches, so Remove…'s question may say
+ *  so: only when it is known true. The user has such a limit (the usage loaded and its jobs_day limit set: not on the
+ *  local app, whose limits never count its searches, nor for administrators and accounts without limits), and the
+ *  search started within the day's window (the usage's hours, jobs.DAY) by the page's clock now. */
+export function countsToday(job: Job, usage: Usage | null, now = Date.now()): boolean {
+  if (user.local || !usage || usage.usage.jobs_day.limit === null) return false;
+  return now - timeOf(job.created) < usage.hours * 3600e3;
+}
+
 function thumbOf(card: Card): ThumbSource {
   if (card.run && card.run.has_map) return {kind: "run", id: card.run.id, lines: card.run.summary.lines};
   if (card.job) return {kind: "job", id: card.job.id};
@@ -103,12 +112,13 @@ export function menuKeys(e: KeyboardEvent) {
   items[to].focus();
 }
 
-function SearchCard({card, runs, jobs, publicSite, highlight, onGone}:
+function SearchCard({card, runs, jobs, publicSite, highlight, usage, onGone}:
                     {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean;
-                     onGone(listed: Promise<boolean>): void}) {
+                     usage: Usage | null; onGone(listed: Promise<boolean>): void}) {
   const {job, run} = card;
   const st = stateOf(card);
   const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
+  const [counts, setCounts] = useState(false);  // Remove…'s question says the search still counts (countsToday)
   const [menu, setMenu] = useState(false);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -160,7 +170,8 @@ function SearchCard({card, runs, jobs, publicSite, highlight, onGone}:
       <Icon name="warn" />Report a problem…</button>,
     canDelete && <button key="delete" type="button" role="menuitem" class="c-menu-item c-danger" onClick={act(() => setPanel("delete"))}>
       <Icon name="close" />Delete…</button>,
-    canRemove && <button key="remove" type="button" role="menuitem" class="c-menu-item" onClick={act(() => setPanel("remove"))}>
+    canRemove && <button key="remove" type="button" role="menuitem" class="c-menu-item"
+                         onClick={act(() => { setCounts(countsToday(job!, usage)); setPanel("remove"); })}>
       <Icon name="close" />{t("ui.card.remove")}</button>,
   ].filter(Boolean);
 
@@ -210,7 +221,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight, onGone}:
     {/* asks as Delete… does, but in the panel's own grey (not Delete…'s red): nothing but the card goes */}
     {panel === "remove" && job && <div class="c-card-panel c-remove-ask" role="alertdialog"
                                        aria-label={t("ui.card.remove_title")} onKeyDown={panelKeys}>
-      <span>{t("ui.card.remove_ask", {name})}</span>
+      <span>{t("ui.card.remove_ask", {name})}{counts && ` ${t("ui.card.remove_counts")}`}</span>
       <div class="u-row">
         <Button class="c-confirm-remove" onClick={removeJob}>{t("ui.card.remove_yes")}</Button>
         <Button kind="ghost" class="c-panel-first" onClick={() => setPanel("")}>{t("ui.card.keep")}</Button>
@@ -295,7 +306,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         ? <p class="u-small c-empty">{show === "all" ? "No searches yet: start one with New search." :
             show === "running" ? "Nothing is running." : "No shared runs."}</p>
         : <div class="c-cards" ref={list}>{shown.map((c, at) =>
-            <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
+            <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public} usage={usage.usage}
                         highlight={!!highlight && c.job?.id === highlight}
                         onGone={(listed) => gone(c.key, at, listed)} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
