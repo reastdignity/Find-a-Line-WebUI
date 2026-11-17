@@ -196,12 +196,13 @@ without a load, and a page whose step `need:<expression>` is false once the resu
 leaves out, no browser). Each picture is printed with its seconds, then a summary (set-up parts, passes, the ten
 slowest pages, the pages left out, timeouts, failed steps); `--timings <file>` the same as JSON; a timed-out `wait:`
 gets a quarter of its limit for the rest of the pass, a step that raises fails only its page, `--strict` stops at
-the first; exit code 1 after a timeout or a failed step; a whole page too tall at the device's pixel ratio (WebKit's
+the first; exit code 1 after a timeout or a failed step (a page whose click finds nothing after a wait timed out is
+"timed out", not "left out"); a whole page too tall at the device's pixel ratio (WebKit's
 32767 px) is taken at one pixel per CSS pixel, a note. For a caller that measures the prepared pages: `shoot_all` (the
-passes' loop, rows kept as made), `pass_context` (a pass's context, the caller's options passed on) and `shoot_page`'s
+passes' loop, rows kept as made, `on_row` called with each), `pass_context` (a pass's context, the caller's options passed on) and `shoot_page`'s
 `act` (in place of the screenshot, its dict in the row). A `--data-dir` used before can be used again: its marker
-`ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module and
-the clip's files) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
+`ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module, the
+clip's files and the checkout's path, which the clip run's files name) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
 clip run made before: one in the folder, a failed removal retried at every start, the problem report made again);
 each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
 form's riggers get only the rigs they do not have yet, the problem report is added once
