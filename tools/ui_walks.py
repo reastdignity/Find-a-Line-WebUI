@@ -39,7 +39,9 @@ summed over the screens, the waits, dead ends. A screenshot per step into --out/
 
 No walk starts a search: the site has a worker and a started job would download elevation data. A walk ends at the
 enabled "Start" (step kind "unmade": counted, never tapped), the page's job requests are refused (and fail the run),
-the data folder must have no job before serve() starts and none at the end. A run still reaches outside, as
+the data folder must have no job before serve() starts and none at the end; it must hold no favourite either (R4
+saves one, so a second run on the same folder would count other screens): a fresh --data-dir each run. A run still
+reaches outside, as
 tools/ui_shots.py's Basic pages do: the estimate of a new search makes the worker fetch the source's map-sheet index
 (geoportal.gov.pl at the clip's place, about 5 MB into the data folder's cache) and a place lookup (Nominatim) when a
 walk sets a place; the maps load their tiles (OpenTopoMap, OpenStreetMap).
@@ -929,8 +931,9 @@ def _write(out: str, records: list):
         f.write(markdown(records))
 
 
-def _jobs(data: str) -> int:
-    """The jobs in the data folder's jobs.sqlite (read only; none without the file, which is not made)."""
+def _jobs(data: str, table: str = "jobs") -> int:
+    """The rows of `table` (jobs, favourites) in the data folder's jobs.sqlite (read only; none without the file,
+    which is not made)."""
     import contextlib
     import pathlib
     import sqlite3
@@ -939,7 +942,7 @@ def _jobs(data: str) -> int:
         return 0
     with contextlib.closing(sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)) as db:
         try:
-            return db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            return db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         except sqlite3.OperationalError:  # no table yet
             return 0
 
@@ -986,6 +989,8 @@ def main():
     try:
         if _jobs(data):  # before serve() starts its worker, which would claim a waiting job
             sys.exit("the data folder has jobs before the walks: a fresh --data-dir is needed")
+        if _jobs(data, "favourites"):  # R4 saves one: Home, the run's list and R4 itself would count other things
+            sys.exit("the data folder has favourites before the walks (an earlier run's): a fresh --data-dir is needed")
         site, cookies, run, share, stop = ui_shots.serve(data)
         values = {"run": run, "line": ui_shots.first_line(data, run)}
         with sync_playwright() as pw:

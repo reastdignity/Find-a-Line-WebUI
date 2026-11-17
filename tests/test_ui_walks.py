@@ -371,6 +371,25 @@ def test_main_refuses_a_data_folder_with_a_job_before_serving(tmp_path, monkeypa
         uw.main()
 
 
+def test_main_refuses_a_data_folder_with_a_favourite_before_serving(tmp_path, monkeypatch):
+    """A --data-dir holding a favourite (R4 of an earlier run saved one): main() stops before serve(), as the
+    second run's counts would differ (Home's and the list's controls, R4's dead end)."""
+    pytest.importorskip("playwright")
+    from jobs import Jobs
+    (tmp_path / "data").mkdir()
+    Jobs(str(tmp_path / "data")).set_favourite(None, "run", "50.1,19.7,50.2,19.8", {"len": 112})
+
+    def serve(*args, **kwargs):
+        raise AssertionError("serve() started with a favourite of an earlier run")
+    monkeypatch.setattr(ui_shots, "serve", serve)
+    monkeypatch.setattr(sys, "argv", ["ui_walks.py", "--out", str(tmp_path / "out"),
+                                      "--data-dir", str(tmp_path / "data")])
+    for name in ("ESRI_API_KEY", "DATAFORDELER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(SystemExit, match="has favourites before the walks"):
+        uw.main()
+
+
 def test_main_stops_the_site_and_cleans_up_when_a_step_after_serving_fails(tmp_path, monkeypatch):
     """first_line failing after serve(): the site is stopped and the temporary data folder removed."""
     pytest.importorskip("playwright")
