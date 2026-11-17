@@ -124,12 +124,19 @@ export function useHover(map: SpotMap | null, row: number) {
   return {onPointerEnter: (e: PointerEvent) => hover.enter(e.pointerType), onPointerLeave: (e: PointerEvent) => hover.leave(e.pointerType)};
 }
 
-/** The focus must not fall to the page's body when the control that held it went: once the page has drawn, if
- *  nothing has the focus, it goes to the first of `selectors` that is there. */
+// the element that last took the focus (it may have left the page since)
+let focused: Element | null = null;
+if (typeof document !== "undefined") document.addEventListener("focusin", (e) => { focused = e.target as Element; }, true);
+
+/** The focus must not fall to the page's body when the control that held it went away: once the page has drawn,
+ *  if the element that had the focus is gone and nothing has it, it goes to the first of `selectors` that is there
+ *  and can take it. A focus that was nowhere, or is still where it was (a press on the map or on a row selected
+ *  something), is left alone. */
 export function keepFocus(...selectors: (string | null | undefined)[]) {
   const go = (tries: number) => {
     const at = document.activeElement;
     if (at && at !== document.body && at.isConnected) return;
+    if (!focused || focused.isConnected) return;  // the focus was not lost with its element: nothing to restore
     for (const selector of selectors) {
       const to = selector ? document.querySelector<HTMLElement>(selector) : null;
       if (!to || (to as HTMLButtonElement).disabled) continue;

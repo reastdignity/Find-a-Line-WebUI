@@ -344,6 +344,9 @@ def test_selection_details_fan_and_table(site):
             d = page.evaluate("() => P.details()")
             best = int(number["label"][1:]) - 1
             assert d["selected"][0] == s["bestSpots"][best] and d["pressed"].count(d["selected"][0]) == 2
+            # a selection by a press on the map moves no focus: it stays on the map
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+            assert "leaflet-container" in page.evaluate("() => P.focus()")
             top = page.evaluate("() => P.rows('.vl-topblock').filter((r) => r.pressed === 'true').map((r) => r.mark)")
             assert top == [number["label"]]
             # the steps down a spot: by mean height, clearance, length; the ends of the stepper are off
@@ -507,14 +510,27 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert page.evaluate("() => P.text('.u-sheet-head .vl-count')") == _headline(s)
             assert page.evaluate("() => document.querySelectorAll('.vl-count').length") == 1
             assert s["sentence"] == _sentence(s) and s["chip"] == "true"
+            # a spot selected while nothing has the focus (a link, the page's own doing): the focus stays nowhere
+            page.evaluate("() => P.view().select(P.view().order[0])")
+            page.wait_for_selector(".u-sheet-head .vl-dclose", timeout=WAIT)
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+            assert page.evaluate("() => P.focus()") == ""
+            page.evaluate("() => P.view().select(null)")
+            page.wait_for_selector(".u-sheet-head .vl-count", timeout=WAIT)
             # a number of the map tapped at the low start: the spot's head in the low sheet, whole; the body at its top
             first = _state(page, "view.setLevel('spots');")
             assert first["numbers"], first["free"]
             box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
             number = first["numbers"][0]
+            before = page.evaluate("() => P.focus()")
             _tap(page, box[0] + number["x"], box[1] + number["y"])
             page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
             assert page.evaluate("() => P.view().selected.spot") == first["bestSpots"][int(number["label"][1:]) - 1]
+            # a selection by a tap on the map moves no focus: it is where the tap put it (the map), on no control of
+            # the sheet's head
+            page.evaluate("() => T.frames().then(() => T.frames()).then(() => T.frames())")
+            after = page.evaluate("() => P.focus()")
+            assert before == "" and "leaflet-container" in after and "vl-" not in after
             spot_head = page.evaluate(fits)
             assert spot_head["whole"] and spot_head["order"] == ["vl-hint", "vl-sheet-row"], spot_head
             assert page.evaluate("() => document.querySelector('.u-sheet-body').scrollTop") == 0
