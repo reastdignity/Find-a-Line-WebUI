@@ -1250,7 +1250,8 @@ def test_shell_c_layout(data, tmp_path):
     compact = r["compact"]
     assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), r
     assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), r
-    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "nowrap", r
+    # the readout wraps (the user's "8 b", 2026-11-17: no ellipsis; was one cut line)
+    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "normal", r
     rig = r["rigging"]
     assert rig["legend"] and rig["scale"] and rig["inControls"], r
     assert rig["toggled"][0].startswith("1:1 scale") and rig["toggled"][1] == "Auto scale", r
