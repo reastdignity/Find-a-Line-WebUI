@@ -227,9 +227,10 @@
    title (cut with an ellipsis, the whole in their title; the hint only where there is room), no head row, the
    legend and the 1:1 scale under "Rigging and layers", one readout line under the chart */
 .ui .r-card { container-type: inline-size; }
-.ui .r-card .r-dock-bar { flex-wrap: nowrap; min-width: 0; }
+.ui .r-card .r-dock-bar { flex-wrap: wrap; min-width: 0; }
 .ui .r-card .r-dock-bar > b, .ui .r-card .r-dock-bar > button { flex: none; white-space: nowrap; }
-.ui .r-card .r-facts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the line's facts on a row of their own under the bar, whole (the user's choice "8 b", 2026-11-17) */
+.ui .r-card .r-facts { order: 9; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
 .ui .r-card .r-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container (max-width: 960px) { .ui .r-card .r-hint { display: none; } }
 /* Its edges: the top one (height) with a centred grip, as the sheet's; the sides (width) with a grip each */

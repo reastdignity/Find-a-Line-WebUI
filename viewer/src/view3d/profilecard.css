@@ -4,9 +4,10 @@
 #view3d .v3-pcard { display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; padding: 6px 12px 8px;
   max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
   box-shadow: var(--shadow); }
-#view3d .v3-pcard-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#view3d .v3-pcard-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 #view3d .v3-pcard-head > b { flex: none; }
-#view3d .v3-pcard-facts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the line's facts on a row of their own under the head, whole (as the result's card, "8 b") */
+#view3d .v3-pcard-facts { order: 9; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
 #view3d .v3-pcard-head .u-chip, #view3d .v3-pcard-head .u-btn { flex: none; white-space: nowrap; }
 #view3d .v3-pcard-wait { margin: 6px 0 4px; color: var(--ink-2); font-size: 13px; }
 /* The chart fills the profile's box (Profile.tsx fill: at least 120 px); with the controls open the box grows */
