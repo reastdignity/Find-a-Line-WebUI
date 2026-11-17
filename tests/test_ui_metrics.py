@@ -654,6 +654,62 @@ def test_measure_all_goes_on_after_failures(site, monkeypatch):
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_run_pages_main_path(monkeypatch, tmp_path):
+    """run_pages as main() runs it, with ui_shots' site and loop replaced: the pages chosen, the one the run lacks the
+    feature of left out on every pass first, one shoot_all per pass with bypass_csp and act, a record per row of each
+    outcome (done, failed, timed out, left out), pages-run.json with the passes and the run's left-outs; exit 1."""
+    pages = {"p1": ("c", "", None), "p2": ("c", "", None), "p3": ("c", "", None), "p4": ("c", "", None),
+             "c-result-why": ("c", "", None)}
+    monkeypatch.setattr(ui_shots, "PAGES", pages)
+    stopped = []
+    monkeypatch.setattr(ui_shots, "serve", lambda data, run_folder=None, fresh=False, times=None:
+                        ("https://localhost:1", {"admin": "c"}, "run1", "share", lambda: stopped.append(1)))
+    monkeypatch.setattr(ui_shots, "first_line", lambda data, run, k=0: f"line{k}")
+    monkeypatch.setattr(ui_shots, "border_view", lambda data: "#layer")
+    monkeypatch.setattr(ui_shots, "run_features", lambda folder: set())
+    monkeypatch.setattr(ui_metrics, "AXE", str(tmp_path / "missing.js"))
+    calls = []
+    measured = {k: v for k, v in _state("x", "desktop", 1, 0).items() if k not in ("page", "device", "theme", "seconds")}
+
+    def shoot_all(pw, site, shown, devices, themes, out, strict, times, rows, passes, act=None, **extra):
+        calls.append((site["line"], site["also"], site["border"], tuple(shown), tuple(devices), tuple(themes), extra,
+                      callable(act)))
+        base = {"device": devices[0], "theme": themes[0], "reason": None, "path": None, "load": 1.0, "settle": 0.5,
+                "tiles": 0.1, "steps": [], "shot": 0.2, "seconds": 2.0, "timeouts": [], "error": None}
+        rows.append({**base, "page": "p1", "outcome": "done", "result": measured})
+        rows.append({**base, "page": "p2", "outcome": "failed", "error": "Error: broke"})
+        rows.append({**base, "page": "p3", "outcome": "timed out", "timeouts": ["w()"], "result": measured})
+        rows.append({**base, "page": "p4", "outcome": "left out", "reason": "the device does not show .x"})
+        passes.append({"device": devices[0], "theme": themes[0], "seconds": 1.0, "saved": 1, "left_out": 1,
+                       "complete": True})
+    monkeypatch.setattr(ui_shots, "shoot_all", shoot_all)
+    out, data = tmp_path / "out", tmp_path / "data"
+    assert ui_metrics.main(["pages", "--out", str(out), "--data-dir", str(data), "--devices", "desktop,iphone",
+                            "--dark"]) == 1
+    assert len(calls) == 4 and stopped == [1]
+    assert all(c[:4] == ("line0", "line40;line200", "#layer", ("p1", "p2", "p3", "p4")) and
+               c[6] == {"bypass_csp": True} and c[7] for c in calls)
+    assert [(c[4], c[5]) for c in calls] == [(("desktop",), ("light",)), (("desktop",), ("dark",)),
+                                             (("iphone",), ("light",)), (("iphone",), ("dark",))]
+    records = [json.loads(line) for line in (out / "pages-states.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["page"] for r in records[:4]] == ["c-result-why"] * 4 and all("left_out" in r for r in records[:4])
+    kinds = [("controls" in r, r.get("error", "")[:9], r.get("left_out", "")) for r in records[4:8]]
+    assert kinds == [(True, "", ""), (False, "failed: E", ""), (False, "timed out", ""),
+                     (False, "", "the device does not show .x")]
+    run = json.loads((out / "pages-run.json").read_text(encoding="utf-8"))
+    assert len(run["passes"]) == 4 and run["left_out_by_run"] == {"c-result-why": ui_shots.LACKS["found"]}
+    assert "4 states measured, 8 failed, 8 left out" in (out / "pages.md").read_text(encoding="utf-8")
+
+
+def test_summarise_guard_for_an_old_log():
+    """A log without kept sizes (a pass before they were kept) is summarised at the default bounds only."""
+    old = {k: v for k, v in _state("a", "iphone", 1, 0).items()}
+    assert ui_metrics.summarise([old])["per_device_theme"]["iphone light"]["controls_under_44"] == 1
+    with pytest.raises(SystemExit, match="keeps no sizes"):
+        ui_metrics.summarise([old], controls=(40,))
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
 def test_fresh_reaches_serve(monkeypatch, tmp_path):
     """--fresh is passed to ui_shots.serve (the kept data folder's clip run and cubes made anew)."""
     asked = []
