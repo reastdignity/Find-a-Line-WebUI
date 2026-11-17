@@ -2,8 +2,8 @@
 version: alpha
 name: Find-a-Line, the interface as built (main 2f019d6)
 description: >-
-  Today's tokens of viewer/src/ui/tokens.css and the kit of viewer/src/ui/ui.css, as the code has them. Not a
-  target: proposed rules are in the last section, none in force. A "-dark" name is the dark theme's value of the
+  Today's tokens of viewer/src/ui/tokens.css and the kit of viewer/src/ui/ui.css, as the code has them, not a
+  target. The rules the user picked on 2026-11-17 are in the last section. A "-dark" name is the dark theme's value of the
   token without it; a token the dark theme does not redefine keeps its light value.
 colors:
   bg: "#f3f5f2"
@@ -314,13 +314,14 @@ components:
 
 # Find-a-Line: the design language
 
-**Status: a draft (2026-11-16), not in force.** Two parts:
+**Status: part 1 describes; part 2 holds the rules the user picked on 2026-11-17, in force except R4.1 and R11.**
+Two parts:
 
 - **Part 1, "Today"** (the eight sections from Overview to Do's and Don'ts): the design language as the code has it
   at `main` 2f019d6, described, not judged. The token header above holds these values only. The numbers are of
   that commit; later changes of the code move them.
-- **Part 2, "Proposed rules"** (the last section): rules that do not depend on the new look, each with today's
-  number, measured alternatives and a recommendation. **None is in force**: the user picks.
+- **Part 2, "Rules"** (the last section): rules that do not depend on the new look, each with the user's pick,
+  today's number, how it is checked and the options not picked.
 
 What the app is for and for whom: [PRODUCT.md](PRODUCT.md). The new look itself (colours beyond the kept anchors,
 the body font, shapes, the containers' look, the label style) is not settled here: it is settled on the pilot's
@@ -552,7 +553,7 @@ longest 39). 25 page files hold English texts in the code and do not use the cat
 
 ## Do's and Don'ts
 
-Only rules the repository already states (the files named); the proposed ones are in the next section.
+Only rules the repository already states (the files named); the rules the user picked are in the next section.
 
 - Do scope styles under the root class `ui` and its `u-*` classes, never `:root` (`ui/tokens.css`, `ui/ui.css`).
 - Do style through classes or the CSSOM (`element.style`, Preact's `style` prop); don't write `style=` attributes
@@ -570,237 +571,211 @@ Only rules the repository already states (the files named); the proposed ones ar
 - Do show a UI change as an interactive mock-up first, and the built page's screenshots (desktop and both phones,
   light and dark) before it goes into `main` (docs/agent-workflow.md; `.claude/rules/viewer.md`).
 
-## Proposed rules (part 2: none in force)
+## Rules (part 2: picked by the user on 2026-11-17)
 
-Each rule has an id and lettered options, so it can be answered as "R1 a". Today's number comes from the baseline
-(the sources above); an option's effect is counted from it where it can be. A recommendation is a recommendation:
-the user picks. Rules here do not depend on the new look.
+The user picked from the proposed options on 2026-11-17 with the answer line "R1 a, R2 a, R2-desktop a, R3 a,
+R4-map c, R4-trees b, R5 a, R6 a, R7 c, R8 a, R8-d yes, R9 b, R10-text a, R10-flow a, R11 b, R12 a." and the note
+"R11 explain it more to me". Each rule below quotes its pick; what was weighed and not picked stays in one line.
+
+**In force since 2026-11-17**: R1, R2 (phones and desktop), R3, R4.2, R5, R6, R7, R8, R9, R10, R12. **Picked, not
+yet in force**: R4.1 (waits for its measurement) and R11 (to be confirmed after the explanation the user asked
+for).
+
+**A rule in force binds new and changed screens; today's screens are brought to it screen by screen in the
+improvement rounds, not at once** (the pilot screen first).
+
+**Today's numbers** in this part come from **[B]**, the baseline of record: one full pass of the final measuring
+code (`tools/ui_metrics.py pages`) over every state of `tools/ui_shots.py`, both themes, on the desktop, iPhone 13
+and Pixel 7 profiles (84 states a phone and 79 on the desktop in the light theme: states a device or the sample run
+cannot show are left out, one state timed out). It marks the map's credits and scale as a zone of their own and
+keeps every control's size. [S], [W] and [O] as above. **How a rule is checked**: the command named under it (both
+tools run by hand; `pages` takes `--only <pages>`, `--dark` and a `--data-dir` of its own; `--summarise --controls
+44,40,24 --text 12,11,10` cuts a kept log at other bounds without a new pass), or the design reviewer
+([design-review.md](design-review.md)) where no number exists.
 
 ### R1 The smallest text
 
-- **Rule**: no text a user reads is drawn smaller than N px.
-- **Today** [P; O for the columns without the map's credits]: on the iPhone 13 (Pixel 7 the same within 2
-  characters), of 178 479 visible characters:
+- **In force**: no text a user reads is drawn under 12 px. The map's credits and scale are a named exception with a
+  floor of 10 px. The user's pick: "R1 a".
+- **Today** [B; light theme]:
 
-| N | All text | Without the map's credits and scale | Also without the highline layer's bar numbers |
-| --- | --- | --- | --- |
-| 12 px | 22 705 (12.7 %) | 11 795 to 17 976 (6.6 to 10.1 %) | 9 780 to 15 961 (5.5 to 8.9 %) |
-| 11 px | 13 010 (7.3 %) | 2 529 to 8 398 (1.4 to 4.7 %) | 514 to 6 383 (0.3 to 3.6 %) |
-| 10 px | 5 450 (3.1 %) | 2 529 to 4 878 (1.4 to 2.7 %) | 514 to 2 863 (0.3 to 1.6 %) |
+| Device (states, characters) | Under 12 px: all | outside the credits and scale | Under 11 px: all | outside | Under 10 px: all | outside |
+| --- | --- | --- | --- | --- | --- | --- |
+| iPhone 13 (84, 177 181) | 22 461 (12.7 %) | 14 256 (8.0 %) | 12 878 (7.3 %) | 4 902 (2.8 %) | 5 439 (3.1 %) | 4 878 (2.8 %) |
+| Desktop (79, 188 623) | 20 241 (10.7 %) | 9 533 (5.1 %) | 15 261 (8.1 %) | 4 883 (2.6 %) | 12 888 (6.8 %) | 2 510 (1.3 %) |
 
-  "The map's credits and scale" are five kinds of element: the map's attribution
-  (`div.leaflet-control-attribution`), its scale (`div.leaflet-control-scale-line`), the run's data credits
-  (`span.u-credits`) and their button (`button.u-credits-toggle`), and the mini maps' credit on Home
-  (`p.c-thumb-credit`). The ranges: the log names an element by its tag and classes only, so the credits' links and
-  separators share their name (`a`, `span`) with other links and spans; the low end leaves out every such `a` and
-  `span`, the high end none of them. Desktop, 191 853 characters: 12 px 21 187 (11.0 %), without the credits 7 002 to 13 614 (3.6 to
-  7.1 %); 11 px 16 039 (8.4 %), without the credits 2 523 to 8 634 (1.3 to 4.5 %).
-- **What lies between 11 and 12 px today** (the iPhone, characters): the layer's chart names 2 313, the 3D view's
-  notes about 3 400, the list's column heads 540, the layer legend's note 544, the bottom bar 336, the profile
-  chart's labels about 610, the "?" 162, the eyebrow lines 125, the size word 125.
-- **Options**:
-  - a. 12 px; the map's credits and scale a named exception with a floor of 10 px (the credits' size on phones
-    today; the scale is 9.8 px everywhere and the desktop's credits 9.8 px, so both would grow slightly). Moves the
-    labels listed above to 12 px.
-  - b. 11 px with the same exception. Moves the layer's bar numbers, the "Data coverage" button, the map's
-    tooltips and some of the links and spans inside the range above.
-  - c. 12 px, no exception: the credits grow too (on phones they already take two lines and cover the scale).
-  - d. No rule; sizes are settled per screen on mock-ups.
-- **Recommendation**: a. Most of what lies between 11 and 12 px is text the user reads to decide (column heads,
-  chart labels, the bottom bar, notes), which is the user's "Readable text"; the credits are a legal duty more
-  than reading matter and already fight for room on phones.
+  Between 11 and 12 px outside the zone on the iPhone [O on [B]'s log]: 9 354 characters, among them the layer's
+  chart names 2 313, the 3D view's notes about 3 300, the layer legend's note 544, the list's column heads 510, the
+  bottom bar 336, the profile chart's labels about 600, the "?" 140, the eyebrow lines 125, the size word 125. Inside
+  the zone under 10 px: the scale (9.8 px; 561 characters on the iPhone); on the desktop also the credits (9.8 px;
+  10 378 characters with the scale).
+- **Checked by**: `tools/ui_metrics.py pages`: text under 12 px outside the zone, and the zone's text under 10 px.
+- Not picked: b. 11 px with the same exception; c. 12 px with no exception; d. no rule.
 
-### R2 The smallest control on touch screens
+### R2 The smallest control
 
-- **Rule**: on a touch screen no control is smaller than N px in either direction; links inside a sentence are
-  exempt (as WCAG 2.5.8 exempts them).
-- **Today** [P; O for the grouping]: the iPhone, light theme. "The rest" leaves out the coverage page (10 states,
-  names starting `page-coverage`) and the highline layer (9 states, `c-layer`), where every map area and chart bar
-  is a small control:
+- **In force**: on touch screens no control is smaller than 44 px in either direction; on the desktop none is
+  smaller than 24 px. Links and buttons inside a sentence are exempt (as WCAG 2.5.8 exempts them). The user's picks:
+  "R2 a", "R2-desktop a".
+- **Today** [B; light theme; links and buttons in a sentence left out; "the rest" leaves out the coverage page and
+  the highline layer, where every map area and chart bar is a small control]:
 
-| States | Controls | Under 44 px (of them links in text) | Under 40 px | Under 24 px (of them links in text) |
+| iPhone 13 | Controls | Under 44 px | Under 40 px | Under 24 px |
 | --- | --- | --- | --- | --- |
-| All 85 | 5 171 | 4 042 (435) | pending | 2 544 (391) |
-| The rest, 66 | 2 817 | 1 839 (348) | pending | 725 (305) |
-| Sign-in | 8 | 8 | pending | 5 |
-| Basic search, first visit | 35 | 22 | pending | 8 |
-| Result | 72 | 52 | pending | 26 |
-| Result, a line selected | 87 | 58 | pending | 27 |
+| All 84 states | 4 592 | 3 508 | 2 737 | 2 103 |
+| The rest, 65 states | 2 335 | 1 402 | 781 | 380 |
+| Sign-in | 8 | 8 | 5 | 5 |
+| Basic search, first visit | 29 | 16 | 7 | 2 |
+| Result | 65 | 45 | 30 | 19 |
+| Result, a line selected | 79 | 50 | 33 | 19 |
 
-  Under 40 px is pending: the log keeps counts under fixed bounds (44 and 24), not the sizes; a new pass that keeps
-  the sizes is being made. What 40 would let pass, from one measured example per kind (not a count): the goal
-  cards' buttons and the tabs at 42 px, the "?" at 40 with its larger target, the list's stars at 40.
-- **Options**:
-  - a. 44 px (the platforms' advice).
-  - b. 40 px.
-  - c. 24 px (the minimum of WCAG 2.2 level AA, 2.5.8).
-- **R2 desktop, a floor for the desktop** (links in text exempt). Today [P; O]: 1 866 of 4 870 controls under
-  24 px over 81 states, 452 of them links in text; without the coverage page and the layer, 869 of 2 664, 368 of
-  them links in text. Options: a. 24 px (WCAG 2.2 AA, 2.5.8); b. no floor on the desktop.
-- **Recommendation**: a for the main flows on phones (sign-in, search, result, Home), and R2 desktop a; decide
-  between a and b on phones when the 40 px count exists. 44 is what both phone platforms advise, and the phones are
-  the user's second aim.
+  Desktop [B]: of 4 239 controls over 79 states, 1 349 under 24 px; the rest (60 states): 446 of 2 127.
+- **Checked by**: `tools/ui_metrics.py pages`: controls under 44 px on the two phone profiles, under 24 px on the
+  desktop, links and buttons in a sentence apart.
+- Not picked: phones b. 40 px, c. 24 px; desktop b. no floor.
 
 ### R3 The contrast of text
 
-- **Rule**: text and its background reach a contrast ratio of at least N, in both themes, including secondary
-  text, chart labels, placeholders and text over a picture.
-- **Today** [P, O]: axe-core fails 99 of 251 states (964 elements, light theme); `--muted` is under 4.5:1 on all
-  three light surfaces (4.1024, 4.4977, 3.8276); the profile chart's labels 2.2623 to 4.3692 (Colors, above);
-  placeholders not measured.
-- **Options**:
-  - a. WCAG 2.2 AA: 4.5:1, 3:1 for large text (24 px, or 18.7 px bold). Fails today: `--muted` in the light
-    theme and the cases above.
-  - b. 7:1 (AAA) for body text, AA for secondary text. Fails today also: `--ink-2` on `--surface-2` (6.9767) and
-    the accent as text on every light surface (5.8537 to 6.8786).
-  - c. a, plus a stricter bar on the screens used outdoors, later (outdoor legibility is a secondary target).
-- **Recommendation**: a. It is the bar of PRODUCT.md's assumption, and the tokens already meet it except `--muted`
-  (light) and the chart's own colours.
+- **In force**: text and its background reach 4.5:1, large text (24 px, or 18.7 px bold) 3:1 (WCAG 2.2 AA), in both
+  themes, including secondary text, chart labels, placeholders and text over a picture. The user's pick: "R3 a".
+- **Today** [B, O]: axe-core's `color-contrast` fails on 99 states (964 elements; the light theme); it leaves text
+  over the map or a picture undecided on 333 states (both themes). `--muted` is under 4.5:1 on all three light
+  surfaces (4.1024, 4.4977, 3.8276); the profile chart's labels 2.2623 to 4.3692 (Colors, above); placeholders not
+  measured.
+- **Checked by**: `tools/ui_metrics.py pages` (axe-core's `color-contrast` violations); text axe leaves undecided,
+  in a drawing or on the map: the design reviewer, with the ratio computed from the colours.
+- Not picked: b. 7:1 for body text; c. AA plus a stricter bar outdoors later.
 
 ### R4 Lines on the map
 
-- **Rule, part 1**: a line drawn on the map reaches N against the map right beside it, on every base map.
-- **Today: not measured.** The measurement (the map drawn with and without the lines, the pixels beside each line
-  compared) waits for the choice of the 2D map's look, which changes what lies under the lines. Known from the
-  code: the map's line colours differ from the legend's tokens (Components, above).
-- **Options**:
-  - a. 3:1 (WCAG's bar for graphics, 1.4.11) for a stated share of the lines' length, measured per base map.
-  - b. A casing (a dark or light edge) on every line, so the contrast is the casing's, whatever the map.
-  - c. a, and a casing only on the base maps where a fails.
-- **Rule, part 2**: lines over trees are told apart from clear lines by something besides colour (WCAG 1.4.1).
-  Today: by colour only. Options: a. a second cue (a dash or a casing pattern); b. colour only, with the list as the
-  alternative.
-- **Recommendation**: part 1 c, after the measurement; part 2 a, which needs no measurement.
+- **R4.1, picked, not in force**: a line reaches 3:1 against the map right beside it for a stated share of its
+  length, measured per base map, and gets a casing (a dark or light edge) only on the base maps where it falls
+  short. The user's pick: "R4-map c". It waits for its measurement, which waits for the choice of the 2D map's look
+  (that choice changes what lies under the lines). Today: not measured; the map's line colours differ from the
+  legend's tokens (Components, above). Not picked: a. 3:1 without casings; b. a casing on every line.
+- **R4.2, in force**: lines over trees are told apart from clear lines by colour only; the list is the alternative
+  that does not rest on colour. The user's pick: "R4-trees b". This leaves WCAG 1.4.1 (use of colour) to the list:
+  the list and a line's details must say "over trees" in words. Today: by colour on the map. Checked by the design
+  reviewer. Not picked: a. a second cue on the map (a dash or a casing pattern).
 
 ### R5 A type scale
 
-- **Rule**: font sizes come from a named scale of a few steps; a value off the scale needs a reason in a comment.
-- **Today** [S]: 25 distinct px values over 183 declarations. Mapping each value to the nearest step (a tie goes
-  up) [O]; the counts are of CSS declarations, not of text drawn:
-- **Options** (they depend on R1):
-  - a. 12, 13, 14, 16, 20, 24, 30 (seven steps; with R1 a or c). 109 of 183 declarations change (103 up, 6
-    down): 8–11.5 → 12; 12.5 → 13; 13.5, 14.5 → 14; 15, 15.5, 17 → 16; 18, 19 → 20; 22, 26 → 24; 32 → 30.
-  - b. 11, 12, 13, 14, 16, 20, 24, 30 (eight steps; with R1 b). 94 change (88 up, 6 down): 8–10.5 → 11;
-    11.5 → 12; the rest as in a.
-  - c. 12, 13, 14, 16, 20, 30 (six steps). 110 change (98 up, 12 down): 18–24 → 20; 26, 32 → 30.
-  - d. 12, 14, 16, 20, 30 (five steps). 149 change (102 up, 47 down): 12.5 → 12, 13 → 14.
-- **Recommendation**: a with R1 a (b with R1 b). The 13 px step keeps today's most used sizes (12.5 and 13 px: 74
-  declarations) on one step. The rule's matter is the number of steps and the smallest step (R1); the steps from
-  13 px up (text, headings) depend on the body font and the look, and may move on the pilot's mock-up.
+- **In force**: font sizes come from a scale of seven steps, 12, 13, 14, 16, 20, 24 and 30 px; a value off the
+  scale needs a reason in a comment. The number of steps and the smallest step (R1) are the rule; the steps from
+  13 px up (text, headings) depend on the body font and may move on the pilot's mock-up. The user's pick: "R5 a".
+- **Today** [S]: 25 distinct px values over 183 declarations. Mapped to the nearest step (a tie goes up) [O], 109
+  of 183 declarations change (103 up, 6 down): 8–11.5 → 12; 12.5 → 13; 13.5, 14.5 → 14; 15, 15.5, 17 → 16; 18,
+  19 → 20; 22, 26 → 24; 32 → 30. Counts of CSS declarations, not of text drawn.
+- **Checked by**: `tools/ui_metrics.py static` (the font sizes in use).
+- Not picked: b. eight steps from 11 px; c. six steps (12, 13, 14, 16, 20, 30); d. five steps (12, 14, 16, 20, 30).
 
 ### R6 A radius scale
 
-- **Rule**: radii come from a named scale, plus "full" (pills) and "round" (50 %).
-- **Today** [S]: 17 distinct lengths. Mapped to the nearest step [O], of the 127 px declarations (999 px and 50 %
-  stay as full and round, 0 as none):
-- **Options**:
-  - a. 3, 8, 14, 20 px. 60 change: 1–5 → 3; 6, 10 → 8; 11, 12, 15 → 14; 20 stays (the sheet).
-  - b. 4, 8, 14 px. 69 change: 1–5 → 4; 6, 10 → 8; 11–20 → 14.
-  - c. 6, 12 px. 109 change.
-- **Recommendation**: a as the frame; the values themselves belong to the look and may move on the pilot's
-  mock-up, the number of steps should not.
+- **In force**: radii come from four steps, 3, 8, 14 and 20 px, plus "full" (pills) and "round" (50 %). The number
+  of steps is the rule; the values belong to the look and may move on the pilot's mock-up. The user's pick: "R6 a".
+- **Today** [S]: 17 distinct lengths. Mapped to the nearest step [O], 60 of the 127 px declarations change: 1–5 →
+  3; 6, 10 → 8; 11, 12, 15 → 14; 20 stays (the sheet); 999 px and 50 % stay as full and round, 0 as none.
+- **Checked by**: `tools/ui_metrics.py static` (the radii in use).
+- Not picked: b. 4, 8, 14 px; c. 6, 12 px.
 
 ### R7 A spacing scale
 
-- **Rule**: padding, margin and gaps come from a named scale.
-- **Today** [O]: 24 distinct px lengths in 785 uses (Layout, above). Mapped to the nearest step, of the 781 uses up
-  to 32 px:
-- **Options**:
-  - a. 0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32. 125 change (all up: the odd values, 14 → 16, 18 → 20, 22 → 24, 28 → 32).
-  - b. 0, 2, 4, 6, 8, 12, 16, 24, 32. 238 change (10 px, 97 uses, → 12).
-  - c. 0, 4, 8, 12, 16, 24, 32 (a 4 px grid). 386 change (6 px, 101 uses, → 8; 2 px → 4).
-- **Recommendation**: b: few enough steps to be a rule, and 10 px moving to 12 is a visible but small change; a
-  keeps today's look most closely but is nearly every even number. As with R6: spacing is open for the mock-ups
-  ("Keep anchors, open the rest"), so the values may move on the pilot's mock-up; the number of steps is this rule's
-  matter.
+- **In force**: padding, margins and gaps come from a 4 px grid of seven steps: 0, 4, 8, 12, 16, 24 and 32 px.
+  Spacing is open for the mock-ups ("Keep anchors, open the rest"), so the values may move on the pilot's mock-up;
+  the number of steps is the rule. The user's pick: "R7 c".
+- **Today** [O]: 24 distinct px lengths in 785 uses (Layout, above). Mapped to the nearest step (a tie goes up), 386
+  of the 781 uses up to 32 px change (346 up, 40 down):
+
+| Step | Today's values (uses) |
+| --- | --- |
+| 0 | 0 (8), 1 (7) |
+| 4 | 2 (47), 3 (18), 4 (86), 5 (6) |
+| 8 | 6 (101), 7 (11), 8 (163), 9 (12) |
+| 12 | 10 (97), 11 (8), 12 (76) |
+| 16 | 14 (44), 16 (44), 18 (15) |
+| 24 | 20 (16), 22 (3), 24 (17) |
+| 32 | 28 (1), 32 (1) |
+
+  The three uses above 32 px (34, 40, 64) are layout lengths, outside the scale.
+- **Checked by**: the design reviewer reads the change's CSS; the measuring tool does not count spacing yet (the
+  count above is this file's own).
+- Not picked: a. eleven steps (0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32; 125 uses change); b. nine steps (0, 2, 4, 6,
+  8, 12, 16, 24, 32; 238 change).
 
 ### R8 Levels of container
 
-- **Rule**: a container's look follows its level, and a level has one purpose. The rule against "the same grey
-  box": the kinds only, their look is the pilot mock-up's.
-- **Today** [S, P]: panels, cards, dialogs, popovers and legends share one look (Components); 18 selectors use all
-  four of surface, border, radius and shadow. No count yet measures what the user sees (Elevation).
-- **Options**:
-  - a. Three levels: **ground** (the page's own sections: groups of a form, the parts of a side panel),
-    **raised** (what floats over the map or over other content: the sheet, popovers, dialogs, the profile card, map
-    controls), **inset** (a value or a control set into its container: inputs, tiles, the segmented track).
-  - b. Two levels: ground and raised; what a holds as inset belongs to its container's level.
-  - c. Four levels: ground, band (a section set apart from the ground on a long page: the result's details, a
-    form's advanced part), raised, overlay (a dialog that blocks the page until it is answered).
-  - d. In addition to a, b or c (answerable on its own, "R8 d yes / no"): no box around a single sentence; a group
-    gets a box only when it can be moved or folded, or lies over something else.
-- Today's look, the mock-up decides: the ground has no box; raised things carry the shadow; tiles and controls
-  have none.
-- No number grounds this rule yet: the rendered count of boxes does not measure what the user sees (Elevation),
-  and the user's marks on screenshots are open.
-- **Recommendation**: a and d. They match the kinds the code already has (side panels and sections, floating
-  things, tiles and controls) and remove the box where the box says nothing.
+- **In force**: three levels, each with one purpose. **Ground**: the page's own sections (groups of a form, the
+  parts of a side panel). **Raised**: what floats over the map or over other content (the sheet, popovers, dialogs,
+  the profile card, map controls). **Inset**: a value or a control set into its container (inputs, tiles, the
+  segmented track). And: no box around a single sentence; a group gets a box only when it can be moved or folded,
+  or lies over something else. The levels' look is the pilot mock-up's. The user's picks: "R8 a", "R8-d yes".
+- **Today** [S, B]: panels, cards, dialogs, popovers and legends share one look (Components); 18 selectors use all
+  four of surface, border, radius and shadow; as rendered, 65 of 1 345 containers on the desktop and 31 of 1 699 on
+  the iPhone by that strict definition, which does not measure the user's tell (Elevation).
+- **Checked by**: the design reviewer (no number measures it yet).
+- Not picked: b. two levels (ground and raised); c. four levels (ground, band, raised, overlay).
 
 ### R9 Characters as icons, and dense strings
 
-- **Rule**: in a text the user reads, no character stands for a word or an icon; a value is written as its label,
-  the value and its unit ("Clearance 0.1 m"), several values as a table or a list of such pairs.
-- **Today** [S]: 83 dense strings; `·` as a joint 77 times in the code; 21 arrow and mark characters shown in the
-  code and 5 drawn by the CSS; `×` 20 times in the catalogue (multipliers). In the image sketches of 2026-11-16 all
-  five directions turned the line's dense facts into labelled values, the shortest as a table with one column per
-  anchor.
-- **Options**:
-  - a. Allowed: units (m, km, °, %), an en dash in a range ("30–300 m"), ≤ and ≥ in a filter's chip; everything
-    else from the icon set (sort direction, disclosure, close, favourite) or written out.
-  - b. a, and `·` allowed in one-line meta lines (a date and a count under a title), never between values.
-  - c. Only the values (a line's facts, the profile's readout, the receipt of a search) follow the rule; meta lines
-    and status texts stay.
-- **Recommendation**: b. It removes the dense strings the user named, the ones that cut off and the ones read as
-  code, and keeps a separator where a separator is the plainest form.
+- **In force**: in a text the user reads, no character stands for a word or an icon. A value is written as its
+  label, the value and its unit ("Clearance 0.1 m"), several values as a table or a list of such pairs. Allowed:
+  units (m, km, °, %), an en dash in a range ("30–300 m"), ≤ and ≥ in a filter's chip, and `·` in one-line meta
+  lines (a date and a count under a title), never between values; everything else from the icon set (sort
+  direction, disclosure, close, favourite) or written out. The user's pick: "R9 b".
+- **Today** [S, B]: 84 dense strings (counted per literal; 83 per line before); `·` as a joint 77 times in the code;
+  21 arrow and mark characters shown in the code and 5 drawn by the CSS; `×` 20 times in the catalogue
+  (multipliers). In the image sketches of 2026-11-16 all five directions turned the line's dense facts into
+  labelled values, the shortest as a table with one column per anchor.
+- **Checked by**: `tools/ui_metrics.py static` (characters and dense strings); whether a `·` stands in a meta line:
+  the design reviewer.
+- Not picked: a. no `·` at all; c. only the values follow the rule.
 
 ### R10 Text length
 
-- **Rule**: a text stays under N words; the longer story goes behind a link or a "?".
+- **In force, per text**: a help text (a "?") at most 40 words, an intro paragraph 30, a hint 25, an error 30; the
+  longer story goes behind a link or a "?". The user's pick: "R10-text a".
+- **In force, for the flow**: at most 400 visible words before a first search (the sign-in page to Start on a
+  phone). The user's pick: "R10-flow a".
 - **Today** [S; O for the counts over a limit, words split on spaces as [S] does]:
 
-| Kind | Texts | Median | Longest | Over 25 | Over 30 | Over 40 | Over 60 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Help (a "?") | 54 | 24.5 | 113 | 21 | 15 | 6 | 2 |
-| Intro, one paragraph | 51 | 6 | 56 | 9 | 6 | 4 | 0 |
-| Hint | 13 | 6 | 39 | 2 | 1 | 0 | 0 |
-| Error | 152 | 14 | 44 | 14 | 8 | 1 | 0 |
+| Kind | Texts | Median | Longest | Over the limit |
+| --- | --- | --- | --- | --- |
+| Help (a "?"), 40 | 54 | 24.5 | 113 | 6 |
+| Intro paragraph, 30 | 51 | 6 | 56 | 6 |
+| Hint, 25 | 13 | 6 | 39 | 2 |
+| Error, 30 | 152 | 14 | 44 | 8 |
 
-- **Options, per text**: a. help 40, intro paragraph 30, hint 25, error 30 (changes 6 + 6 + 2 + 8 texts); b. help
-  30, intro 25, hint 20, error 25 (15 + 9 + 4 + 14); c. help 60 only (2 texts).
-- **Words before a first search** [W, F1 on the iPhone]: 568 visible words over its screens: the sign-in page 58,
-  the beta notice 140, Home 37, the search's intro 183 (of its 425: the rest is scrolled out), the form 75, the form
-  with the place set 75 (the same screen counted again). Without the beta notice and the intro: 245.
-- **Options for the flow**: a. at most 400 (the notice and the intro together at most about 155 visible words);
-  b. at most 250 (neither opens by itself, or both shrink to a line); c. no limit for the flow, only per text.
-- **Recommendation**: per text a; for the flow a. Both keep every explanation available and remove the walls the
-  first-timer meets before acting ("not scare 1").
+  Before a first search [W, F1 on the iPhone]: 568 visible words over its screens: the sign-in page 58, the beta
+  notice 140, Home 37, the search's intro 183 (of its 425: the rest is scrolled out), the form 75, the form with the
+  place set 75 (the same screen counted again). Without the beta notice and the intro: 245; within 400, the notice
+  and the intro together keep at most about 155 visible words.
+- **Checked by**: `tools/ui_metrics.py static` (words per catalogue text); `tools/ui_walks.py --only F1` (the
+  flow's words).
+- Not picked: per text b. 30, 25, 20, 25 and c. help 60 only; for the flow b. 250 and c. no limit.
 
 ### R11 Controls on a first-timer's screens
 
-- **Rule**: a screen of the first-timer's way (sign-in, the beta notice, Home on a first visit, the Basic form, the
-  first result and a line's details on a phone) shows at most N controls at once.
-- **The measure**: [W]'s count, the visible, enabled controls of the surface in view (not [P]'s, which counts the
+- **Picked, to be confirmed after the explanation, not yet in force**: a screen of the first-timer's way (sign-in,
+  the beta notice, Home on a first visit, the Basic form, the first result and a line's details on a phone) shows at
+  most 25 controls at once. The user's pick: "R11 b", with the note "R11 explain it more to me".
+- **The measure**: [W]'s count, the visible, enabled controls of the surface in view (not [B]'s, which counts the
   whole page: 35 for the Basic form where [W] sees 20 to 22).
-- **Today** [W]: F1 (sign-in to Start): 8, 4, 6, 3, 20, 22; decision points (an action among more than 4 controls)
-  4 of 6. F2 (the first result): Home 13, the intro 2, the result 34, the details 24, the profile 20; 3 of 4.
-- **Options**: a. 20 (the Basic form loses 2, the phone's result 14, a line's details 4); b. 25 (the result loses
-  9); c. no number; decision points per walk instead.
+- **Today** [W]: F1 (sign-in to Start): 8, 4, 6, 3, 20, 22. F2 (the first result): Home 13, the intro 2, the result
+  34, the details 24, the profile 20. At 25 the Basic form stays as it is and the phone's result loses 9 (each row of
+  its list is three controls today).
 - **Where the rigger's depth goes instead**: the Advanced tab and "More settings", the desktop's side panels and
   their columns, sorting and filters one step away, the keyboard.
-- **Recommendation**: b. 25 leaves the Basic form as it is and asks the phone's result list to show fewer controls
-  per row (each row is three today), which also serves the rigger.
+- **Checked by**: `tools/ui_walks.py --only F1,F2` (the most controls on a screen).
+- Not picked: a. 20; c. no number, decision points per walk instead.
 
 ### R12 What a UI change shows before `main`
 
-- **Rule**: a change of a screen comes to review with evidence, beside today's screenshots.
-- **Options**:
-  - a. The numbers of `tools/ui_metrics.py` before and after on the pages it touches (text under R1, controls under
-    R2, axe-core's violations, containers, dense strings), the walks it touches, and the screenshots (desktop and
-    both phones, light and dark); a design reviewer reads them with PRODUCT.md and this file and gives a verdict.
-  - b. Screenshots and the design reviewer only.
-  - c. a, and a check that fails on a number that got worse.
-- **Recommendation**: a. The numbers are cheap once the tools are in `main`, and a failing check (c) should wait
-  until the thresholds above are picked and have held for a few rounds.
+- **In force**: a change of a screen comes to review with the numbers of `tools/ui_metrics.py` before and after on
+  the pages it touches (text under R1, controls under R2, axe-core's violations, containers, dense strings), the
+  walks it touches (`tools/ui_walks.py`), and the screenshots (desktop and both phones, light and dark). A design
+  reviewer reads them with PRODUCT.md and this file and gives a verdict: [design-review.md](design-review.md). The
+  user's pick: "R12 a".
+- Not picked: b. screenshots and the design reviewer only; c. a, plus a check that fails on a number that got worse.
 
 ### Waiting for the pilot's mock-up
 
@@ -812,11 +787,11 @@ Settled on the pilot's mock-up.
 
 #### Body font
 
-Settled on the pilot's mock-up.
+Settled on the pilot's mock-up (the type scale's steps from 13 px up: R5).
 
 #### Corner and edge shapes
 
-Settled on the pilot's mock-up.
+Settled on the pilot's mock-up (the number of radius steps: R6).
 
 #### Spacing values
 
@@ -824,7 +799,7 @@ Settled on the pilot's mock-up (the number of steps: R7).
 
 #### The containers' look
 
-Settled on the pilot's mock-up.
+Settled on the pilot's mock-up (the levels: R8).
 
 #### The label style
 
