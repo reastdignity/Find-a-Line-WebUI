@@ -78,7 +78,7 @@ lines.js: no store, or the file missing); a run read from its store carries `Run
 store answered 404), by which `view/RunActions.tsx` `mayExport` (with `api.canChange`: the page has the token,
 the app's page, never a map.html) gives Download's two rows that ask the worker for the file (`Export`:
 `api.exportRun`, "Preparing the file…" in the pressed row, the ring on the button while the menu is closed, the
-browser saves the answered address by a link's click, a failure one red line by the answer's code); a run with
+browser saves the answered address, this run's export only, by a link's click, a failure one red line by the answer's code; the wait and the line kept per run id outside the component, so a layout switch or a run change keeps them); a run with
 a store has no Download where the page may not ask, a run without one keeps its two links; `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
 selection, next/previous spot, favourites, on columns: the runs shown are `Table`s of `types.ts` `LineColumns` (this
 run's from index 0, each other run's from its own `start`, never given twice), a line is its index; the filters

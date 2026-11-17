@@ -193,44 +193,86 @@ function save(url: string) {
   a.remove();
 }
 
+// The exports of this page's life by run id, outside the component as Measure's mode is on the map: the page
+// draws another RunActions when its layout changes at 768 px (a phone turned) and when another run opens, and the
+// wait goes on. `busy`: the file asked for and not answered yet; `error`: the line of the last failure, kept until
+// that run's menu is closed (a run not on the page keeps it for its next menu).
+interface Wait { busy: Format | null; error: string }
+const IDLE: Wait = {busy: null, error: ""};
+const waits = new Map<string, Wait>();
+const drawn = new Set<() => void>();  // the mounted Exports: drawn again on a change
+// The Download menu on the page, as its button last drew it: a failure of its run opens it through the button's toggle
+let menu: {id: string; open: boolean; toggle(): void; of: object} | null = null;  // `of`: the Export that drew it
+
+const waitOf = (id: string): Wait => waits.get(id) ?? IDLE;
+function setWait(id: string, change: Partial<Wait>) {
+  const next = {...waitOf(id), ...change};
+  if (next.busy === null && !next.error) waits.delete(id);
+  else waits.set(id, next);
+  drawn.forEach((draw) => draw());
+}
+
+/** Something else has the person's attention: another menu of the actions is open, or the focus is in a field.
+ *  A failure's line then waits for the Download menu's next opening (opening it would close that menu and take
+ *  the focus). */
+function elsewhere(): boolean {
+  const at = document.activeElement;
+  return document.querySelector(".r-pop") !== null
+    || (at instanceof HTMLElement && (at.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(at.tagName)));
+}
+
+/** A run's file asked of the worker; one at a time for a run. Ready: the browser saves the answered address, if it
+ *  is this run's export (anything else is a failure), also when the run is no longer on the page (it was asked
+ *  for). A failure: its line into the run's wait, and its menu opened when it is on the page and closed and
+ *  nothing else has the attention. */
+function startExport(id: string, format: Format) {
+  if (waitOf(id).busy) return;
+  setWait(id, {busy: format, error: ""});
+  const failed = (e: unknown) => {
+    setWait(id, {busy: null, error: exportError(e)});
+    if (menu && menu.id === id && !menu.open && !elsewhere()) menu.toggle();
+  };
+  api.exportRun(id, format).then((r) => {
+    const url: unknown = r?.url;
+    if (typeof url !== "string" || !url.startsWith(`/api/runs/${encodeURIComponent(id)}/export/`)) return failed(null);
+    setWait(id, {busy: null});
+    save(url);
+  }, failed);
+}
+
 /** Download of a run read from its store: each row asks the worker for the file and waits ("Preparing the
- *  file…" in the pressed row, the other row off, the ring on the button while the menu is closed), then the
- *  browser saves it; a failure is a red line under the rows, in a menu that opens again if it was closed. */
+ *  file…" in the pressed row, the other row off, the ring on the button), then the browser saves it; a failure is
+ *  a red line under the rows, in a menu that opens again if it was closed (startExport). */
 function Export({model, compact}: RunActionsProps) {
   const id = model.runId;
-  const [busy, setBusy] = useState<Format | null>(null);
-  const [error, setError] = useState("");
-  // The menu as its button last drew it: a failure opens a closed one through the button's own toggle
-  const menu = useRef<{open: boolean; toggle(): void}>({open: false, toggle: () => undefined});
-  const opened = () => { if (!menu.current.open) menu.current.toggle(); };
-  const press = (format: Format) => {
-    if (busy) return;
-    setBusy(format);
-    setError("");
-    api.exportRun(id, format).then((r) => { setBusy(null); save(r.url); },
-                                   (e) => { setBusy(null); setError(exportError(e)); opened(); });
-  };
-  const waiting = busy ? t("ui.result.export_preparing_label") : undefined;
+  const [, setDrawn] = useState(0);
+  const self = useRef({});
+  useEffect(() => {
+    const draw = () => setDrawn((n) => n + 1);
+    drawn.add(draw);
+    return () => { drawn.delete(draw); if (menu?.of === self.current) menu = null; };
+  }, []);
+  const {busy, error} = waitOf(id);
   const ring = <span class="r-spin r-spin-ic" />;
-  const button = (isOpen: boolean, toggle: () => void) => {
-    menu.current = {open: isOpen, toggle};
-    if (!busy) {
-      return compact ? <IconButton icon="download" label="Download" expanded={isOpen} onClick={toggle} />
-        : <Button icon="download" aria-expanded={isOpen} onClick={toggle}>Download</Button>;
-    }
-    // the ring in the icon's place (IconButton draws an icon only)
+  // One button in both states (the focus stays on it when the wait ends): the ring in the icon's place, and
+  // its name says it waits. The phone's as IconButton draws its own, which takes an icon only.
+  const button = (open: boolean, toggle: () => void) => {
+    menu = {id, open, toggle, of: self.current};
+    const mark = busy ? ring : <Icon name="download" />;
+    const name = busy ? t("ui.result.export_preparing_label") : "Download";
     return compact
-      ? <button type="button" class={isOpen ? "u-ib u-on" : "u-ib"} aria-label={waiting} title={waiting} aria-expanded={isOpen}
-                onClick={toggle}>{ring}</button>
-      : <Button aria-expanded={isOpen} aria-label={waiting} onClick={toggle}>{ring}Download</Button>;
+      ? <button type="button" class={open ? "u-ib u-on" : "u-ib"} aria-label={name} title={name} aria-expanded={open}
+                onClick={toggle}>{mark}</button>
+      : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}Download</Button>;
   };
   // A closed menu takes its failure's line with it
-  return <Popover label="Download" align="right" onOpen={(now) => { if (!now) setError(""); }} button={button}>
+  return <Popover label="Download" align="right" onOpen={(now) => { if (!now && error) setWait(id, {error: ""}); }}
+                  button={button}>
     <div class="r-downloads">
       <b class="u-h4">Download the lines</b>
       {FORMATS.map(([format, name, what]) =>
         <button type="button" class="u-btn" key={format} aria-busy={busy === format} disabled={busy !== null && busy !== format}
-                onClick={() => press(format)}>{busy === format ? ring : <Icon name="download" />}
+                onClick={() => startExport(id, format)}>{busy === format ? ring : <Icon name="download" />}
           {name} <span class="u-small">{busy === format ? t("ui.result.export_preparing") : what}</span></button>)}
       {error && <p class="u-small r-error" role="alert">{error}</p>}
     </div>

@@ -4,6 +4,9 @@ token): the two rows ask the server for the file (POST /api/runs/<id>/export), w
 on the button while the menu is closed), then the browser saves the answered address; a failure is one red line
 under the rows, worded by the answer. A run without a store, and a store whose file answers 404, keep the two links
 to lines.csv and lines.geojson; a run with a store on its own map.html (no token there) has no Download at all.
+The wait belongs to the run, not to the drawn menu: it goes on across the layout's switch at 768 px and a change
+of the run, a failure never takes the attention from another menu or a field, and only this run's own export
+address is saved.
 
 The export's route is answered in the browser (page.route), so no worker runs: an answer is held until the test
 releases it, which is how the waiting state is looked at. Every wait is an event with a deadline. Run from
@@ -36,6 +39,7 @@ WAIT = 30000  # ms: the deadline of every wait for the page
 DESKTOP = {"viewport": {"width": 1400, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (data.js)
+OTHER = "2026-10-30_120000_Other_00000000000000e1"  # SMALL's lines again in a second run with a store
 with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
     EN = json.load(_f)
 PREPARING, PREPARING_LABEL = EN["ui.result.export_preparing"], EN["ui.result.export_preparing_label"]
@@ -93,13 +97,17 @@ def _listed(folder) -> dict:
     return {run["id"]: run for run in json.JSONDecoder().raw_decode(text, start)[0]}
 
 
-def _data(tmp_path, clip, old: bool = False):
+def _data(tmp_path, clip, old: bool = False, other: bool = False):
     """A data folder with the clip's run (BIG) and its first 300 lines with a store (SMALL), with `old` the same
     lines as a run without a store too (OLD: no block "store" in run.json, so none in runs.js, and no store
-    files); the app's page for the tests (its head has the token: api.ts canChange)."""
+    files), with `other` as a second small run with a store (OTHER); the app's page for the tests (its head has
+    the token: api.ts canChange)."""
     folder = tmp_path / "data"
     copy_clip(clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
+    if other:
+        small_copy(folder, BIG, small=OTHER, name="Other run")
+        assert _listed(folder)[OTHER].get("store"), "the second run has no store"
     if old:
         small_copy(folder, BIG, small=OLD, name="Old run")
         drop_store(folder, OLD)
@@ -531,3 +539,299 @@ def test_store_that_answers_404_keeps_the_two_links(tmp_path, clip):
     assert found["fromStore"] is None and found["rows"] == [], found
     assert found["links"] == [[f"/runs/{SMALL}/lines.csv", True], [f"/runs/{SMALL}/lines.geojson", True]], found
     assert found["csv"] == 1 and found["geojson"] == 1 and asked == [], (found, asked)
+
+
+# ---- the wait belongs to the run (RunActions.tsx waits, startExport, elsewhere) ----------------------------------
+
+COMPARE = ".r-actions button:has-text('Compare')"
+FIELD = ".r-table-tools .r-inview input"  # a field the desktop's result always has: the list's "Only in the map's view"
+NO_WORKER = (503, _coded("no_worker_local"))
+NO_WORKER_TEXT = EN["ui.result.export_no_worker_local"]
+# The Download button is drawn and holds no ring
+NO_RING = ("() => { const b = document.querySelector(%s); return !!b && !b.querySelector('.r-spin'); }"
+           % json.dumps(DOWNLOAD))
+# Where the attention is: the focused element, the open panels by their names, the run on the page
+ATTENTION = """() => { const at = document.activeElement, pop = at && at.closest('.r-pop');
+  const button = document.querySelector(DOWNLOAD);
+  return {tag: at && at.tagName, pop: pop && pop.getAttribute('aria-label'),
+          pops: [...document.querySelectorAll('.r-pop')].map((p) => p.getAttribute('aria-label')),
+          onDownload: !!button && at === button, onField: !!at && at.matches(FIELD),
+          kept: button && (button.dataset.kept ?? null), run: window.FINDALINE_RESULT?.model.runId ?? null,
+          phone: !!document.querySelector('.c-result-phone')}; }"""
+ATTENTION = ATTENTION.replace("DOWNLOAD", json.dumps(DOWNLOAD)).replace("FIELD", json.dumps(FIELD))
+
+
+def _escape(page):
+    """Escape closes the open panel (the caller made sure it listens: _menu, _listening)."""
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".r-pop", state="detached", timeout=WAIT)
+
+
+def _file_routes(page):
+    """An export's file answered as an attachment (a browser that asks through the page's routes)."""
+    page.route("**/api/runs/*/export/*", lambda route: route.fulfill(
+        status=200, body="length,height\n25.0,12.5\n",
+        headers={"Content-Disposition": 'attachment; filename="x.csv"', "Content-Type": "text/csv"}))
+
+
+def _go(page, run_id: str, name: str):
+    """Another run opened by the hash: its page drawn (the model's run, the title's name, its Download button)."""
+    page.evaluate("(id) => { location.hash = 'run=' + id; }", run_id)
+    page.wait_for_function(
+        """([id, name, button]) => { const r = window.FINDALINE_RESULT, title = document.querySelector('.c-run-name');
+            return !!r && r.model.runId === id && !!title && title.textContent === name && !!document.querySelector(button)
+              && !!document.querySelector('.r-rows .r-row'); }""", arg=[run_id, name, DOWNLOAD], timeout=WAIT)
+
+
+def _answered(page, export, answer):
+    """Release an answer whose arrival shows nothing on the page: wait for the response to end, then for the page's
+    tasks behind it (the answer's JSON read and the export's own handler: two turns of the page's timers)."""
+    with page.expect_response(lambda response: urlsplit(response.url).path.endswith("/export"), timeout=WAIT) as got:
+        export.release(answer)
+    got.value.finished()
+    for _ in range(2):
+        page.evaluate("() => new Promise((done) => setTimeout(() => setTimeout(() => done(true))))")
+
+
+def test_wait_goes_on_across_the_layout_switch(tmp_path, clip):
+    """CSV pressed on a desktop of 1400 px, then the window narrowed to 390 px while the answer waits (the page
+    draws the phone's layout, another RunActions): the phone's Download button has the ring and the name "Download:
+    preparing the file", its menu shows CSV preparing and GeoJSON disabled, and a press on the busy row sends no
+    second request. The menu closed, then a failure: the menu opens by itself with the red line, the rows idle,
+    the button without its ring."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip)
+    r = {}
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page, asked = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}", **DESKTOP)
+            export = Export(page)
+            _menu(page)
+            _press(page, 0)
+            r["wide"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.wait_for_selector(".c-result-phone .c-phone-top " + DOWNLOAD + " .r-spin", state="attached", timeout=WAIT)
+            r["narrow"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+            _menu(page)
+            page.wait_for_selector(BUSY, timeout=WAIT)
+            r["menu"] = page.evaluate(STATE)
+            page.click(ROW % 0)  # the busy row once more: nothing is asked again
+            r["pressed"], r["sent"] = page.evaluate(STATE), len(export.requests)
+            _escape(page)
+            r["closed"] = page.evaluate(STATE)
+            export.release(NO_WORKER)
+            page.wait_for_selector(".r-pop " + ERROR, timeout=WAIT)
+            page.wait_for_function(SETTLED, timeout=WAIT)
+            r["failed"] = page.evaluate(STATE)
+            r["requests"], r["asked"] = export.requests, asked
+        finally:
+            browser.close()
+    preparing = [["CSV", PREPARING, True, False, True, False], ["GeoJSON", WHAT[1], False, True, False, True]]
+    assert _rows(r["wide"][0]) == preparing and not r["wide"][1]["phone"], r["wide"]
+    narrow, attention = r["narrow"]
+    assert attention["phone"] and narrow["button"]["ring"] and not narrow["button"]["icon"], r["narrow"]
+    assert narrow["button"]["label"] == PREPARING_LABEL and narrow["button"]["text"] == "", narrow
+    for step in ("menu", "pressed"):
+        assert _rows(r[step]) == preparing and r[step]["open"] and r[step]["allErrors"] == 0, (step, r[step])
+    assert r["sent"] == 1, r["requests"]
+    assert not r["closed"]["open"] and r["closed"]["button"]["ring"], r["closed"]
+    assert r["closed"]["button"]["label"] == PREPARING_LABEL, r["closed"]
+    failed = r["failed"]
+    assert failed["open"] and failed["errors"] == [NO_WORKER_TEXT] and _rows(failed) == IDLE_ROWS, failed
+    assert not failed["button"]["ring"] and failed["button"]["icon"] and failed["button"]["label"] == "Download", failed
+    assert [json.loads(q["body"]) for q in r["requests"]] == [{"format": "csv"}] and len(r["asked"]) == 1, r["requests"]
+
+
+def test_wait_goes_on_across_a_run_change(tmp_path, clip):
+    """A file asked for on run A, then another run with a store (B) opened by the hash while the answer waits:
+    B's Download button has no ring and its menu's rows are idle, without a red line. The answer ready: the browser
+    still saves A's file and B's page shows nothing new. In a second pass the answer is a failure: nothing on B's
+    page (no menu opens, no line); back on run A its Download button has no ring and did not open, and its menu
+    opened shows the red line, which goes when the menu is closed."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip, other=True)
+    path = f"/api/runs/{SMALL}/export/{'a' * 22}.csv"
+    r = {}
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}"
+            # (a) the file is ready while run B is on the page
+            page, asked = _open(browser, url, _file_routes, **DESKTOP)
+            export = Export(page)
+            r["stores"] = [page.evaluate(STATE)["fromStore"]]
+            _menu(page)
+            _press(page, 0)
+            _go(page, OTHER, "Other run")
+            r["stores"].append(page.evaluate(STATE)["fromStore"])
+            r["other"] = page.evaluate(STATE)
+            _menu(page)
+            r["other menu"] = page.evaluate(STATE)
+            with page.expect_download(timeout=WAIT) as download:
+                export.release((200, {"url": path}))
+            r["saved"] = download.value.url
+            r["other after"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+            r["requests a"] = export.requests
+            page.close()
+            # (b) the answer is a failure while run B is on the page
+            page, asked = _open(browser, url, **DESKTOP)
+            export = Export(page)
+            _menu(page)
+            _press(page, 1)
+            _go(page, OTHER, "Other run")
+            _answered(page, export, NO_WORKER)
+            r["other failed"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+            _go(page, SMALL, "Small run")
+            page.wait_for_function(NO_RING, timeout=WAIT)
+            r["back"] = page.evaluate(STATE)
+            _menu(page)
+            r["back menu"] = page.evaluate(STATE)
+            _escape(page)
+            _menu(page)
+            r["again"] = page.evaluate(STATE)
+            r["requests b"] = export.requests
+        finally:
+            browser.close()
+    assert r["stores"] == [True, True], r["stores"]  # both runs read from their stores: both have the rows
+    other = r["other"]
+    assert not other["button"]["ring"] and other["button"]["icon"] and other["button"]["label"] is None, other
+    assert not other["open"], other
+    assert _rows(r["other menu"]) == IDLE_ROWS and r["other menu"]["allErrors"] == 0, r["other menu"]
+    assert r["saved"].endswith(path), r["saved"]
+    after, attention = r["other after"]
+    assert attention["run"] == OTHER and _rows(after) == IDLE_ROWS and after["allErrors"] == 0, r["other after"]
+    assert not after["button"]["ring"] and attention["pops"] == ["Download"], r["other after"]
+    assert [q["path"] for q in r["requests a"]] == [f"/api/runs/{SMALL}/export"], r["requests a"]
+    failed, attention = r["other failed"]
+    assert attention["run"] == OTHER and attention["pops"] == [] and failed["allErrors"] == 0, r["other failed"]
+    assert not failed["button"]["ring"] and not failed["open"], failed
+    back = r["back"]
+    assert not back["button"]["ring"] and not back["open"] and back["pops"] == 0, back
+    assert r["back menu"]["errors"] == [NO_WORKER_TEXT] and _rows(r["back menu"]) == IDLE_ROWS, r["back menu"]
+    assert r["again"]["open"] and r["again"]["allErrors"] == 0 and _rows(r["again"]) == IDLE_ROWS, r["again"]
+    assert [(q["path"], json.loads(q["body"])) for q in r["requests b"]] == \
+        [(f"/api/runs/{SMALL}/export", {"format": "geojson"})], r["requests b"]
+
+
+def test_failure_waits_while_something_else_has_the_attention(tmp_path, clip):
+    """A failure while the Download menu is closed and something else has the person's attention does not open it:
+    with Compare's menu open, that panel stays the only one and keeps the focus; with the focus in a field of the
+    page (the list's "Only in the map's view"), the focus stays there and no panel opens. The Download button
+    loses its ring both times, and its menu opened afterwards shows the red line (gone once the menu was closed).
+    With nothing else open the menu opens by itself: test_failure_opens_a_closed_menu_again."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip)
+    r = {}
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for way in ("compare", "field"):
+                page, asked = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}", **DESKTOP)
+                export = Export(page)
+                _menu(page)
+                _press(page, 0)
+                _escape(page)
+                if way == "compare":
+                    page.click(COMPARE)
+                    page.wait_for_function("""() => { const p = document.querySelector('.r-pop[aria-label="Compare with other runs"]');
+                        return !!p && p.contains(document.activeElement); }""", timeout=WAIT)
+                else:
+                    page.focus(FIELD, timeout=WAIT)
+                    page.wait_for_function("(field) => !!document.activeElement && document.activeElement.matches(field)",
+                                           arg=FIELD, timeout=WAIT)
+                before = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+                export.release(NO_WORKER)
+                page.wait_for_function(NO_RING, timeout=WAIT)  # the failure reached the page
+                after = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+                _menu(page)
+                opened = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+                _escape(page)
+                _menu(page)
+                r[way] = [before, after, opened, page.evaluate(STATE), len(export.requests)]
+                page.close()
+        finally:
+            browser.close()
+    for way, (before, after, opened, again, sent) in r.items():
+        assert before[0]["button"]["ring"] and not before[0]["open"], (way, before)
+        assert not after[0]["button"]["ring"] and after[0]["button"]["icon"] and not after[0]["open"], (way, after)
+        assert after[0]["allErrors"] == 0 and after[1] == before[1], (way, before[1], after[1])  # nothing moved
+        assert opened[1]["pops"] == ["Download"] and opened[0]["errors"] == [NO_WORKER_TEXT], (way, opened)
+        assert _rows(opened[0]) == IDLE_ROWS and again["allErrors"] == 0 and sent == 1, (way, opened, again, sent)
+    attention = r["compare"][1][1]
+    assert attention["pops"] == ["Compare with other runs"] and attention["pop"] == "Compare with other runs", attention
+    attention = r["field"][1][1]
+    assert attention["pops"] == [] and attention["onField"] and attention["tag"] == "INPUT", attention
+
+
+def test_phone_button_keeps_the_focus_when_the_file_is_ready(tmp_path, clip):
+    """A phone of 390 px: CSV pressed, the menu closed by Escape (the focus goes to the Download button, which
+    holds the ring), then the file is ready: the browser saves it and the focus is still on the Download button,
+    the same element as before (marked), now with its download icon, no ring and the name "Download"."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip)
+    path = f"/api/runs/{SMALL}/export/{'a' * 22}.csv"
+    r = {}
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page, asked = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}", _file_routes, **PHONE)
+            export = Export(page)
+            _menu(page)
+            _press(page, 0)
+            _escape(page)
+            page.wait_for_function("(button) => document.activeElement === document.querySelector(button)", arg=DOWNLOAD,
+                                   timeout=WAIT)
+            page.evaluate("(button) => { document.querySelector(button).dataset.kept = '1'; }", DOWNLOAD)
+            r["waiting"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+            with page.expect_download(timeout=WAIT) as download:
+                export.release((200, {"url": path}))
+            r["saved"] = download.value.url
+            page.wait_for_function(NO_RING, timeout=WAIT)
+            r["ready"] = [page.evaluate(STATE), page.evaluate(ATTENTION)]
+        finally:
+            browser.close()
+    waiting, attention = r["waiting"]
+    assert attention["phone"] and attention["onDownload"] and attention["kept"] == "1", r["waiting"]
+    assert waiting["button"]["ring"] and waiting["button"]["label"] == PREPARING_LABEL and not waiting["open"], waiting
+    assert r["saved"].endswith(path), r["saved"]
+    ready, attention = r["ready"]
+    assert attention["onDownload"] and attention["kept"] == "1" and attention["tag"] == "BUTTON", r["ready"]
+    assert attention["pops"] == [] and ready["allErrors"] == 0, r["ready"]
+    button = ready["button"]
+    assert button["icon"] and not button["ring"] and button["label"] == "Download" and button["text"] == "", button
+
+
+def test_only_the_runs_own_export_address_is_saved(tmp_path, clip):
+    """A 200 answer whose address is not this run's export (no `url` at all, an address of another site, another
+    run's export) is a failure: the line "The file could not be made. Try again in a moment.", the rows idle, and
+    no download starts."""
+    from playwright.sync_api import sync_playwright
+    folder, page_path = _data(tmp_path, clip)
+    answers = [("no url", {}), ("another site", {"url": "https://example.org/x.csv"}),
+               ("another run", {"url": f"/api/runs/{BIG}/export/{'a' * 22}.csv"})]
+    r, downloads = {}, []
+    with _server(folder) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}"
+            page, asked = _open(browser, url, _file_routes, **DESKTOP)
+            page.on("download", lambda download: downloads.append(download.url))
+            export = Export(page)
+            _menu(page)
+            for name, body in answers:
+                _press(page, 0)
+                export.release((200, body))
+                page.wait_for_selector(ERROR, timeout=WAIT)
+                page.wait_for_function(SETTLED, timeout=WAIT)
+                r[name] = [page.evaluate(STATE), list(downloads)]
+            r["where"] = page.evaluate("() => location.pathname + location.hash")
+            r["sent"] = len(export.requests)
+        finally:
+            browser.close()
+    for name, _ in answers:
+        found, saved = r[name]
+        assert found["errors"] == [FAILED] and found["allErrors"] == 1 and _rows(found) == IDLE_ROWS, (name, found)
+        assert found["open"] and not found["button"]["ring"] and saved == [], (name, found, saved)
+    assert downloads == [] and r["sent"] == len(answers), (downloads, r["sent"])
+    assert r["where"] == f"/{page_path}#run={SMALL}", r["where"]  # the page stayed
