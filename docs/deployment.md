@@ -1104,8 +1104,8 @@ ZIP would need.
 
 When no folder holds the dataset, the first planning of a search reads the data server's list of
 published datasets (`/v1/datasets.json`, kept 300 s). A dataset the list does not name (the islets
-today, which have no `PUBLISHABLE` row) is unavailable, as without a data server: "<layer>: not
-published on the data server at mirror.findaline.lukawski.org, and no local copy is set up"; a
+today, which have no `PUBLISHABLE` row) is unavailable, as without a data server: "<layer>: <product's folder>
+is not published on the data server at mirror.findaline.lukawski.org, and no local copy is set up"; a
 source named with `--source` is refused with that text, and `sources check` shows it with that note,
 not as a failure. No list (no answer, a 5xx, a 404 of the list, a list that cannot be read) makes
 the source unavailable too ("... does not answer (...)"). Either way `--source auto` takes the next

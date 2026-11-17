@@ -506,7 +506,8 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    is, and fetched once for the threads that wait for it (they take its answer, a failure too).
    - **Listed**: a product whose mirror folder is a `path` of the list answers.
    - **Not listed** (U50): the product is not published there, and the source is unavailable as it was before
-     the mirror, with "<layer>: not published on the data server at <host>, and no local copy is set up":
+     the mirror, with "<layer>: <product's folder> is not published on the data server at <host>, and no local
+     copy is set up":
      `--source auto` takes the next source of the place, a named source is an error. Nothing is remembered as the
      server's failure, and a dataset starts working by itself once it is published (at the latest 300 s later,
      when the kept list is taken again).
@@ -577,7 +578,9 @@ U4, U6, U7, U8; P4, P5, P8-P12, P24, P25, P28.
    300 s a tile).
 7. **Estimates.** For a remote base `GridTiles.estimate` uses the product's index: the kept one, or fetched when
    tiles are to be downloaded (`TileBases.index_for_estimate`; the start check keeps none), so null tiles are not
-   counted; when that fetch fails it counts every tile of the grid that is not cached, an upper bound, and never
+   counted. That fetch has the start check's manners (`timeout=(10, 20)`, two attempts, a 429 ending it at once),
+   so it waits at most `ESTIMATE_WAIT_MAX`, 96 s, below the quick lane's 120 s; when it fails it counts every
+   tile of the grid that is not cached, an upper bound, and never
    fails. A local folder's estimate stays as it is today.
 8. **Tests and tools.** `tests/conftest.py` sets `FINDALINE_MIRROR_URL` to `off` for every test (U37).
    `tests/regression.py` sets it to `off` too unless `--mirror-url <address>` is given; an entry with
