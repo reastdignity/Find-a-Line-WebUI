@@ -35,8 +35,9 @@ only for tiles written before wave 5 (search._lines keeps no pixel columns since
 Step 5 is what search.save_run does with the lines since store wave 4 (2026-11-17): the result view's columns
 (mapping.view_columns) and the store (linestore.write, its head mapping.map_head's); map.html, one small file, is left
 out. A --repo without linestore.py (a checkout before store wave 2) writes what its save_run wrote instead: the text
-files (runs.save_results: lines.csv, lines.geojson, run.json; mapping.save_map: data.js, lines.js, map.html). Until
-wave 4 save_run wrote both, the text files in saving.py's children from 100 000 lines; a "step 5 peak" measured
+files (runs.save_results: lines.csv, lines.geojson, run.json; mapping.save_map: data.js, lines.js, map.html); a
+--repo of store wave 2 or 3 (linestore, before or after view B1's view_columns) is measured on its store alone,
+though its save_run still wrote the text files too. Until wave 4 save_run wrote both, the text files in saving.py's children from 100 000 lines; a "step 5 peak" measured
 before compares with one measured after only as that. of a tile are not included (search.PIXEL_BYTES), nor the profiles of a circle's every
 line (search.PROFILE_POINT_BYTES: measure them with perf_profile.py --tracemalloc).
 
@@ -102,6 +103,9 @@ def save_step5(np, mp, rn, found, groups, out, n):
         mp.save_map(found, _Area, out, os.path.join(out, "runs"), run, "EPSG:32633")
         return sorted(os.listdir(out))
     head = mp.map_head(_Area, os.path.join(out, "map.html"), run, "EPSG:32633")
+    if not hasattr(mp, "view_columns"):  # a checkout of store wave 2 or 3 before view B1: the store alone
+        linestore.write(out, found, head)
+        return sorted(os.listdir(out))
     # the run's centre in the grid CRS (the sectors' origin): the anchors' middle, as no area is searched here
     centre = tuple(float(v) for v in np.mean(found.columns["a1_xy"], axis=0)) if n else (0.0, 0.0)
     view, view_head = mp.view_columns(found, groups, centre)
