@@ -563,7 +563,7 @@ def clip_run(data: str) -> str:
     if len(made) != 1:  # the run just made, never another of a data folder used before
         sys.exit(f"the clip's search made {len(made)} runs in {runs}, not one")
     run = made[0]
-    with_credits(os.path.join(runs, run, "data.js"))
+    with_credits(os.path.join(runs, run))
     with_surface(os.path.join(runs, run, "run.json"))
     return run
 
@@ -583,32 +583,48 @@ def with_surface(path: str):
         json.dump(meta, f)
 
 
+def lines_read(data: str, run: str) -> str:
+    """Which file first_line reads of a run: "store" (lines.arrow) or "data.js" (a run saved before the store)."""
+    return "store" if os.path.isfile(os.path.join(data, "runs", run, "lines.arrow")) else "data.js"
+
+
 def first_line(data: str, run: str, k: int = 0) -> str:
     """The first line of a run (or its line `k`, the last one beyond the end) as its links name it (keys.lineCoords:
-    the anchors of its data.js row)."""
-    with open(os.path.join(data, "runs", run, "data.js"), encoding="utf-8") as f:
+    the anchors of its data.js row as written, round(value, 7)): from its store (lines.arrow, linestore.read: the same
+    values in the same order), or from data.js for a run saved before the store (a --run of an old run)."""
+    folder = os.path.join(data, "runs", run)
+    if os.path.isfile(os.path.join(folder, "lines.arrow")):
+        import linestore
+        lines, _ = linestore.read(folder, profiles=False)
+        row = min(k, len(lines) - 1)
+        return ",".join(str(v) for v in lines.columns["anchor1"][row].tolist() + lines.columns["anchor2"][row].tolist())
+    with open(os.path.join(folder, "data.js"), encoding="utf-8") as f:
         rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
     return ",".join(str(v) for v in rows[min(k, len(rows) - 1)][:4])
 
 
-def with_credits(path: str):
-    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js, its store's head (the page reads
-    the store when the run has one) and run.json (a run of local files has none), so the map's and the 3D view's
-    attribution are as long as a real run's (on a phone: folded behind their button)."""
+def with_credits(folder: str):
+    """The credits of a run of geoportal.gov.pl filled with FABDEM in the run's folder: run.json, its store's head
+    (the page reads the store when the run has one) and its data.js when it has one (a run saved before store wave 4;
+    a run of local files has none), so the map's and the 3D view's attribution are as long as a real run's (on a
+    phone: folded behind their button)."""
     import sources as src
-    with open(path, encoding="utf-8") as f:
-        prefix, _, text = f.read().partition(" = ")
-    data = json.loads(text.rstrip().rstrip(";"))
-    data["attribution"] = [c.as_dict() for c in src.SOURCES["geoportal"].credits] + [src.FABDEM_CREDIT.as_dict()]
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(f"{prefix} = {json.dumps(data, ensure_ascii=False)};\n")
+    credits = [c.as_dict() for c in src.SOURCES["geoportal"].credits] + [src.FABDEM_CREDIT.as_dict()]
+    path = os.path.join(folder, "data.js")
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            prefix, _, text = f.read().partition(" = ")
+        data = json.loads(text.rstrip().rstrip(";"))
+        data["attribution"] = credits
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"{prefix} = {json.dumps(data, ensure_ascii=False)};\n")
     # the same in its run.json, which the 3D view's patch gives on (search.patch_of_line)
-    meta_path = os.path.join(os.path.dirname(path), "run.json")
+    meta_path = os.path.join(folder, "run.json")
     with open(meta_path, encoding="utf-8") as f:
         meta = json.load(f)
-    meta["attribution"] = data["attribution"]
+    meta["attribution"] = credits
     if meta.get("store"):
-        meta["store"] = with_store_head(os.path.dirname(path), {"attribution": data["attribution"]})
+        meta["store"] = with_store_head(folder, {"attribution": credits})
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
 
@@ -1435,6 +1451,7 @@ def main() -> int:
         with timed(times, "the run's lines and border cell"):
             line = args.line or first_line(data, run)
             also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines ("view3d-others")
+            print(f"The run's lines read from its {lines_read(data, run)}")
             border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
         site_of = {"url": site, "cookies": cookies, "run": run, "share": share, "line": line, "also": also,
                    "border": border}

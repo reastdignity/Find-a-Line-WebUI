@@ -9,8 +9,10 @@ folder lists the block); the report names the file read ("read": the store or da
 
 On the same origin, a run's data.js is then loaded as a script and compared with fetch + JSON.parse of the
 same text. This shows whether parsing it as JSON is faster, and whether JSON.parse accepts the file at all
-(it refuses the NaN and Infinity that runs.column_texts may write). The 3D view of each run's first line is
-opened at the levels asked; the patch's request and body come from its resource timing.
+(it refuses the NaN and Infinity that runs.column_texts may write). A run saved since store wave 4 (2026-11-17)
+has no data.js: its comparison is left out ("no data.js" in the report). The 3D view of each run's first line
+(from its store, or the data.js of a run saved before the store) is opened at the levels asked; the patch's
+request and body come from its resource timing.
 
     uv sync --group ui
     uv run playwright install chromium
@@ -24,7 +26,8 @@ and its part in script: in the result view a filter on and off, "Top level only"
 Lines level held and Auto again, "Lines from here" opened and closed; on today's page a filter and the grouping
 distance (round 3's private t56.py, docs/line-volume/spec-store.md 1.8: T6).
 
-The downloads here go over loopback. The table therefore adds each data.js gzipped as nginx sends it
+The downloads here go over loopback. The table therefore adds the file read (the store, or data.js) gzipped as nginx
+sends it
 (level 5) and the time that takes at a few line rates. Results go to <out>/perf_run_load.json and .md. The
 scratch data folder is removed at the end, all but its jobs.sqlite, which the app's worker holds open until the
 process ends (its links to the cache are gone by then).
@@ -50,9 +53,9 @@ sys.path.insert(0, REPO)
 RATES_MBIT = (10, 50, 200)  # line rates of the gzipped download estimate
 GZIP_LEVEL = 5  # deploy/nginx/findaline.conf gzip_comp_level
 VIEWPORT = {"width": 1400, "height": 900}  # the desktop of tools/ui_shots.py: the result in columns
-HEAD_MAX = 32 * 1024 * 1024  # bytes of data.js read to find its first line
+HEAD_MAX = 32 * 1024 * 1024  # bytes of data.js read to find its first line (a run without a store)
 # what the result and the 3D view read of a run: its store when it has one (run.json's block "store", listed in the
-# scratch folder's runs.js), else its data.js
+# scratch folder's runs.js), else its data.js (a run saved before the store); a run of store wave 4 has no data.js
 RUN_COPY = ("data.js", "lines.arrow", "profiles.arrow", "run.json", "ATTRIBUTION.txt")
 STORE_FILES = ("lines.arrow", "profiles.arrow")  # linestore.FILES
 # data.js read as a script (before 2026-11-04, a map from disk, a file JSON.parse refuses) or fetched and parsed
@@ -172,9 +175,22 @@ IMAGERY_DONE = ("() => performance.getEntriesByType('measure').some((m) => m.nam
                 "!document.querySelector('.v3-imagery-status') || document.querySelector('.v3-imagery-status').hidden")
 
 
-def first_line(path: str) -> str:
-    """The first line of a run's data.js as the links name it (keys.lineCoords: its row's first four values as
-    written), read from its start only (a large run's file is 100 MB)."""
+def lines_read(folder: str) -> str:
+    """Which file first_line reads of a run: "store" (lines.arrow) or "data.js" (a run saved before the store)."""
+    return "store" if os.path.isfile(os.path.join(folder, "lines.arrow")) else "data.js"
+
+
+def first_line(folder: str) -> str:
+    """The first line of a run as the links name it (keys.lineCoords: its data.js row's first four values as written,
+    round(value, 7)): from its store (lines.arrow, linestore.read: the same values in the same order), else from the
+    start of its data.js only (a run saved before the store; a large run's file is 100 MB)."""
+    if os.path.isfile(os.path.join(folder, "lines.arrow")):
+        import linestore
+        lines, _ = linestore.read(folder, profiles=False)
+        if not len(lines):
+            raise ValueError(f"no lines in the store of {folder}")
+        return ",".join(str(v) for v in lines.columns["anchor1"][0].tolist() + lines.columns["anchor2"][0].tolist())
+    path = os.path.join(folder, "data.js")
     with open(path, encoding="utf-8") as f:
         text = f.read(HEAD_MAX)
     at = text.find('"lines":[[')
@@ -320,7 +336,10 @@ def markdown(results: dict) -> str:
             f"| {run['id']} | {run['result'].get('page') or ''} | {kind} | {_ms(c['sync'])} | {_ms(c['total'])} |"
             for run in results["runs"] for kind, c in (run.get("interact") or {}).items()] + [""]
     for run in results["runs"]:
-        c = run["compare"]
+        c = run.get("compare")
+        if c is None:  # a run of store wave 4: no data.js to load as a script
+            out.append(f"| {run['id']} | | | | | no data.js (a run saved since store wave 4) |")
+            continue
         both = None if c["fetch"] is None or c["parse"] is None else c["fetch"] + c["parse"]
         ok = "yes" if c["json_ok"] else f"no: {c['error']}"
         out.append(f"| {run['id']} | {_s(c['script'])} | {_s(c['fetch'])} | {_s(c['parse'])} | {_s(both)} | {ok} |")
@@ -335,7 +354,9 @@ def markdown(results: dict) -> str:
                     " | ".join(_s(v[k]) for k in ("body", "decode", "mesh", "first-frame", "profile", "imagery")) +
                     f" | {v['tiles'] or ''} | {_s(v['ready'])} | {v['error'] or ''} |")
         out += ["", "*server*: the patch's request until its first byte (the quick lane's queue and step 1); "
-                "*ready*: from the page's start to the terrain drawn and the profile in."]
+                "*ready*: from the page's start to the terrain drawn and the profile in. The first line read from: "
+                + ", ".join(f"{run['id']} {run.get('line_read') or ''}".strip() for run in results["runs"]
+                            if run.get("view3d")) + "."]
     return "\n".join(out) + "\n"
 
 
@@ -348,9 +369,10 @@ def _unlink(path: str):
 
 
 def scratch_data(folder: str, runs_dir: str, cache_dir: str, runs: list) -> list:
-    """A data folder in `folder` with the cache linked, each run's files of RUN_COPY copied (the local app's
-    /runs follows no link out of its folder) and its runs.js written (the page reads a run's store when its entry
-    there has run.json's block "store"); the links made (for _unlink)."""
+    """A data folder in `folder` with the cache linked, each run's files of RUN_COPY that it has copied (the local
+    app's /runs follows no link out of its folder; a run needs run.json and its store or data.js) and its runs.js
+    written (the page reads a run's store when its entry there has run.json's block "store"); the links made (for
+    _unlink)."""
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from regression import link
     os.makedirs(os.path.join(folder, "runs"), exist_ok=True)
@@ -358,8 +380,9 @@ def scratch_data(folder: str, runs_dir: str, cache_dir: str, runs: list) -> list
     link(cache_dir, links[0])
     for run in runs:
         source, target = os.path.join(runs_dir, run), os.path.join(folder, "runs", run)
-        if not os.path.isfile(os.path.join(source, "data.js")):
-            raise SystemExit(f"no data.js in {source}")
+        if not os.path.isfile(os.path.join(source, "run.json")) or not any(
+                os.path.isfile(os.path.join(source, name)) for name in ("lines.arrow", "data.js")):
+            raise SystemExit(f"no run.json with a store or data.js in {source}")
         os.makedirs(target, exist_ok=True)
         for name in RUN_COPY:
             if os.path.isfile(os.path.join(source, name)):
@@ -472,12 +495,13 @@ def measure(args) -> dict:
             browser = pw.chromium.launch(args=["--js-flags=--expose-gc", "--enable-unsafe-swiftshader"])
             results["browser"] = browser.version
             for run in args.runs:
-                path = os.path.join(args.runs_dir, run, "data.js")
-                entry = {"id": run}
+                folder = os.path.join(args.runs_dir, run)
+                has_script = os.path.isfile(os.path.join(folder, "data.js"))  # none since store wave 4
+                entry = {"id": run, "compare": None}
                 rounds = []
                 for k in range(args.rounds):
                     print(f"{run}: result, round {k + 1} of {args.rounds}", flush=True)
-                    last = k == args.rounds - 1
+                    last = k == args.rounds - 1 and has_script  # the comparison on the last round's page
                     found = open_result(browser, site, run, args.timeout, args.out, keep_page=last, view=args.view,
                                         interact=args.interact)
                     if last:
@@ -499,8 +523,8 @@ def measure(args) -> dict:
                 print(f"{run}: gzip size", flush=True)
                 entry["size"] = size_of(os.path.join(args.runs_dir, run), entry["result"]["source"])
                 if args.levels:
-                    line = first_line(path)
-                    entry["line"] = line
+                    line = first_line(folder)
+                    entry["line"], entry["line_read"] = line, lines_read(folder)
                     entry["view3d"], entry["view3d_pages"] = {}, {}
                     for level in args.levels:
                         print(f"{run}: 3D view, {level}", flush=True)

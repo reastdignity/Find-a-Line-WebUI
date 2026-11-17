@@ -7,8 +7,9 @@ page as the app gives it, and the data one open of each line takes. Run by hand:
     python tools/device_page.py serve --data-dir <folder> [--port 8443] [--host 0.0.0.0]
     python tools/device_page.py measure --data-dir <folder> [--samples 20]
 
-`record` takes the runs of the data folder (or those named), the first `--lines` lines of each run's data.js
-whose middles lie at least `--spacing` metres apart (0: simply the first rows), and asks the local app,
+`record` takes the runs of the data folder (or those named), the first `--lines` lines of each run (in the
+search's order: its store, lines.arrow, or the data.js of a run saved before the store; the index says which as
+"lines_read") whose middles lie at least `--spacing` metres apart (0: simply the first rows), and asks the local app,
 in-process with its worker (as tests/test_patch.py does), for their /api/patch at steps 1 and 2 and their
 /api/profile; the answers, with their status, Content-Type and Cache-Control, go to <folder>/device/
 (index.json and one file per answer). Missing elevation tiles around a line are downloaded then, as the app
@@ -124,19 +125,32 @@ def _metres(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return math.hypot((lat2 - lat1) * k, (lon2 - lon1) * k * math.cos((lat1 + lat2) / 2 * math.pi / 180))
 
 
-def run_lines(data: str, run: str, count: int, spacing: float) -> List[Dict]:
-    """The first `count` lines of a run's data.js (their anchors as its links name them: keys.lineCoords)
-    whose middles lie at least `spacing` metres from the lines taken before."""
-    with open(os.path.join(data, "runs", run, "data.js"), encoding="utf-8") as f:
+def run_anchors(folder: str) -> Tuple[List[Tuple[float, float, float, float]], str]:
+    """The anchors of a run's lines in the search's order, as Python floats whose text is the links' (keys.lineCoords:
+    data.js's row as written, round(value, 7)), and the file read: (anchors, "store") from lines.arrow
+    (linestore.read: the same values), else (anchors, "data.js") for a run saved before the store."""
+    if os.path.isfile(os.path.join(folder, "lines.arrow")):
+        import linestore
+        lines, _ = linestore.read(folder, profiles=False)
+        a1, a2 = lines.columns["anchor1"].tolist(), lines.columns["anchor2"].tolist()
+        return [(p[0], p[1], q[0], q[1]) for p, q in zip(a1, a2)], "store"
+    with open(os.path.join(folder, "data.js"), encoding="utf-8") as f:
         rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    return [tuple(float(v) for v in row[:4]) for row in rows], "data.js"
+
+
+def run_lines(data: str, run: str, count: int, spacing: float) -> List[Dict]:
+    """The first `count` lines of a run (run_anchors: its store, or data.js; their anchors as its links name them:
+    keys.lineCoords) whose middles lie at least `spacing` metres from the lines taken before; each says the file
+    read ("read")."""
+    anchors, source = run_anchors(os.path.join(data, "runs", run))
     taken: List[Dict] = []
-    for row in rows:
-        lat1, lon1, lat2, lon2 = (float(v) for v in row[:4])
+    for lat1, lon1, lat2, lon2 in anchors:
         middle = ((lat1 + lat2) / 2, (lon1 + lon2) / 2)
         if any(_metres(*middle, *t["middle"]) < spacing for t in taken):
             continue
-        taken.append({"line": ",".join(str(v) for v in row[:4]), "middle": middle,
-                      "length_m": round(_metres(lat1, lon1, lat2, lon2), 1)})
+        taken.append({"line": ",".join(str(v) for v in (lat1, lon1, lat2, lon2)), "middle": middle,
+                      "length_m": round(_metres(lat1, lon1, lat2, lon2), 1), "read": source})
         if len(taken) >= count:
             break
     return taken
@@ -191,7 +205,7 @@ def record(data: str, runs: Optional[Sequence[str]] = None, lines: int = 3, spac
             for k, picked in enumerate(run_lines(data, run, lines, spacing)):
                 line = picked["line"]
                 entry = {"run": run, "title": _title(data, run), "line": line, "length_m": picked["length_m"],
-                         "answers": {}}
+                         "lines_read": picked["read"], "answers": {}}
                 asks = [(f"patch-{step}", f"/api/patch?run={run}&line={line}&step={step}",
                          {"X-Findaline-Patch": "1"}, "bin") for step in STEPS]
                 asks.append(("profile", f"/api/profile?run={run}&line={line}", {"X-Findaline-Profile": "1"}, "json"))

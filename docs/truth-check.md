@@ -613,7 +613,7 @@ The outputs:
 | `<out>/<cluster>/output.log` | the search's stdout, then its stderr after `--- stderr ---` |
 | `<out>/<cluster>/capture.json` | status (`done`, `no_lines`, `failed`), seconds, options, lines, anchors, source, the error's code and message, the saved run |
 | `<out>/<cluster>/capture/` | `grid.json`, `grids.npz`, `anchors.npy`, `lines.npz`, `result.json` (the capture above) |
-| `<out>/data/` | the study's data folder: `runs/<run>/run.json` of every saved run (for `--profiles`), `work/` while a search runs |
+| `<out>/data/` | the study's data folder: `runs/<run>/run.json` of every saved run (for `--profiles`; its line files deleted once the capture is written: the store, map.html, ATTRIBUTION.txt, and the text files of a run saved before store wave 4, `truth_study.RUN_FILES`), `work/` while a search runs. The counts come from the captures, never from a run's line files, so store wave 4 (no text files) changes none of them |
 | `<out>/<cluster>/analysis.json`, `<out>/analysis.json` | every known line's record: outcome, reason, tolerance, ends, funnel, best pair, match, zone × lift |
 | `<out>/study.json`, `<out>/study.md` | the report: the tables above, every place's counts, each miss's line, the failed searches |
 | `<out>/pictures/` | a hillshade per place, a profile chip per miss |

@@ -1,22 +1,23 @@
 """
 Run by hand: the memory of one search as a compute slot holds it, its whole process tree (docs/performance.md, "The
-memory constant"; search.LINE_BYTES). perf_profile.py only follows the search's own process; the peak of a search of
-many lines is in step 5, while saving's children write the text files, so this one starts the search in a child
-process (tools/perf_profile.py in it, with hooks) and samples the tree from outside every 0.2 s:
+memory constant"; search.LINE_BYTES). perf_profile.py only follows the search's own process; this one starts the
+search in a child process (tools/perf_profile.py in it, with hooks) and samples the tree from outside every 0.2 s:
 - each process's working set (rss), private bytes (Windows' commit) and, with --uss, unique set (USS: the pages no
   other process maps; slower to read), and the machine's used memory;
-- in the search's process (hooks): the stages (progress bars), `saving.save` and `saving.hand_over` (the size of its
-  folder), `mapping.view_columns`, `linestore.write`, the plan (the grid's and the largest tile's pixels, Plan.memory, whether the early
-  check is on) and the square rule's reducers (`BestPerSquarePair.counts()`: peak_rows, kept, found).
-Saving's children memory-map the same hand-over files, so the working sets summed count those pages once per child,
-while a container on Linux should count them once (inferred, not measured): the measure of `LINE_BYTES` is the unique
-sets summed plus the hand-over files once while they exist ("uss_plus_handover_mb", with --uss: the larger of its
-value at the working sets' peak and its largest over the run, each also given apart with its stage).
+- in the search's process (hooks): the stages (progress bars), `mapping.view_columns`, `linestore.write` (step 5:
+  what a search saves since store wave 4), the plan (the grid's and the largest tile's pixels, Plan.memory, whether
+  the early check is on) and the square rule's reducers (`BestPerSquarePair.counts()`: peak_rows, kept, found).
+The measure of `LINE_BYTES` is the unique sets summed (`peak_tree_uss_mb`, with --uss; `tree_uss_at_rss_peak_mb` at
+the working sets' peak). Until store wave 4 (2026-11-17) step 5's peak was in saving.py's children, which
+memory-mapped the same hand-over files, and the measure added those files once ("uss_plus_handover_mb", the hooks
+`saving.save` and `saving.hand_over`); since then a search writes no text file, saving.py is gone and no two
+processes of a search share such pages, so the hooks and the term went with it. A record made before compares with
+one made after only through that key (docs/performance.md, "The memory constant").
 
     uv run tools/perf_slot_memory.py --out <folder> --name <name> [--cores 7] [--memory BYTES] [--worker] [--uss]
                                      [--remove-run] -- <findaline.py options, with --data-dir>
 
---cores and --memory are perf_profile.py's (the VPS worker's 7 CPUs: saving takes 4 children; a compute slot's
+--cores and --memory are perf_profile.py's (the VPS worker's 7 CPUs; a compute slot's
 budget: the tiles of an area as the worker sizes them). --worker plans the search as the web worker does: the public
 limits (Limits.load(public=True)) and Plan.memory of one of 3 compute slots in 17 GiB free with 2 download slots
 (search.slot_memory), so the early check and the 2 % sample before the pairs run; only the search's own plan, not the
@@ -50,8 +51,8 @@ INTERVAL = 0.2
 CHILD = "--child"
 # The names the child patches, each called through its module's attribute by the search (a rename must fail
 # tests/test_perf_slot_memory.py, or the record would silently miss it)
-HOOKED = (("saving", "save"), ("saving", "hand_over"), ("mapping", "view_columns"), ("linestore", "write"),
-          ("search", "plan_search"), ("samelines.BestPerSquarePair", "counts"))
+HOOKED = (("mapping", "view_columns"), ("linestore", "write"), ("search", "plan_search"),
+          ("samelines.BestPerSquarePair", "counts"))
 HOOKED_SEARCH = ("plan_search", "estimate_search", "search_lines", "save_run")  # their SearchError: the refusal
 GIB = 2 ** 30
 SLOTS_FREE_GIB, COMPUTE_SLOTS, DOWNLOAD_SLOTS = 17, 3, 2  # --worker: an 18 GiB worker, 1 GiB for its own processes
@@ -99,8 +100,8 @@ def find_search(root: psutil.Process) -> Optional[int]:
 
 
 def totals(rows: Sequence[Sample], search: Optional[int]) -> Dict[str, int]:
-    """One sample summed: the tree, the search's process, and the others below it (saving's children; a launcher
-    above the search's process holds a few MB and counts in the tree only)."""
+    """One sample summed: the tree, the search's process, and the others below it (a child process of the search,
+    none since store wave 4; a launcher above the search's process holds a few MB and counts in the tree only)."""
     main = [r for r in rows if r[0] == search]
     under = [r for r in rows[1:] if r[0] != search] if search is not None else []
     return {"rss": sum(r[1] for r in rows), "private": sum(r[2] for r in rows), "uss": sum(r[3] for r in rows),
@@ -124,10 +125,10 @@ def stage_key(label: str) -> str:
 
 
 def summarise(series: Sequence[Tuple[float, Dict[str, int], int]], events: Sequence[Tuple[float, str]],
-              handover_bytes: Optional[int], uss: bool) -> Dict:
+              uss: bool) -> Dict:
     """The peaks of a run's samples (t, totals, the machine's used bytes) in MB, where each fell, the peaks per stage
-    (rss, private, the search's process rss, the children's private, uss) and, with uss, the unique sets at the
-    working sets' peak plus the hand-over files once."""
+    (rss, private, the search's process rss, the children's private, uss) and, with uss, the unique sets' peak (the
+    measure of LINE_BYTES) and their sum at the working sets' peak."""
     if not series:
         return {}
     top = max(series, key=lambda s: s[1]["rss"])
@@ -138,8 +139,7 @@ def summarise(series: Sequence[Tuple[float, Dict[str, int], int]], events: Seque
            "peak_main_rss_mb": round(max(s[1]["main_rss"] for s in series) / MB),
            "peak_children_rss_mb": round(max(s[1]["children_rss"] for s in series) / MB),
            "peak_children_private_mb": round(max(s[1]["children_private"] for s in series) / MB),
-           "used_start_mb": round(series[0][2] / MB), "peak_used_mb": round(max(s[2] for s in series) / MB),
-           "handover_mb": None if handover_bytes is None else round(handover_bytes / MB)}
+           "used_start_mb": round(series[0][2] / MB), "peak_used_mb": round(max(s[2] for s in series) / MB)}
     peaks: Dict[str, List[int]] = {}
     for t, x, _ in series:
         p = peaks.setdefault(stage_key(stage_at(events, t)), [0, 0, 0, 0, 0])
@@ -148,28 +148,9 @@ def summarise(series: Sequence[Tuple[float, Dict[str, int], int]], events: Seque
     out["stage_peaks_mb"] = {k: [round(v / MB) for v in p] for k, p in peaks.items()}
     if uss:
         utop = max(series, key=lambda s: s[1]["uss"])
-        held = [(t, x["uss"] + (handover_bytes or 0) * handed_over(events, t)) for t, x, _ in series]
-        most = max(held, key=lambda h: h[1])
-        at_peak = uss_plus_handover(top[1]["uss"], handover_bytes if handed_over(events, top[0]) else None)
         out.update(peak_tree_uss_mb=round(utop[1]["uss"] / MB), peak_tree_uss_at=stage_at(events, utop[0]),
-                   tree_uss_at_rss_peak_mb=round(top[1]["uss"] / MB),
-                   uss_plus_handover_at_rss_peak_mb=round(at_peak / MB),
-                   uss_plus_handover_max_mb=round(most[1] / MB), uss_plus_handover_max_at=stage_at(events, most[0]),
-                   uss_plus_handover_mb=round(max(at_peak, most[1]) / MB))
+                   tree_uss_at_rss_peak_mb=round(top[1]["uss"] / MB))
     return out
-
-
-def handed_over(events: Sequence[Tuple[float, str]], t: float) -> bool:
-    """Whether saving's hand-over files exist at time t: after `saving.hand_over` wrote them and before
-    `saving.save` ended (it removes them)."""
-    since = [e[0] for e in events if e[1] == "HOOK saving.hand_over end" and e[0] <= t]
-    return bool(since) and not any(e[1] == "HOOK saving.save end" and since[-1] <= e[0] < t for e in events)
-
-
-def uss_plus_handover(uss: int, handover_bytes: Optional[int]) -> int:
-    """The memory of the process tree as a container would be charged for it (inferred, not measured on Linux): the
-    unique sets summed and the hand-over files once (each child maps them: no child's unique set holds them)."""
-    return uss + (handover_bytes or 0)
 
 
 def option(args: Sequence[str], name: str) -> Optional[str]:
@@ -244,7 +225,7 @@ def main():
               "cores": a.cores, "memory": a.memory, "worker": a.worker, "uss": a.uss,
               "lock": os.environ.get("FINDALINE_TEST_LOCK"), "plan": info.get("plan"),
               "slot_memory": info.get("slot_memory"), "reducers": info.get("reducers"),
-              **summarise(tree, events, info.get("handover_bytes"), a.uss)}
+              **summarise(tree, events, a.uss)}
     new = sorted(n for n in (set(os.listdir(runs)) - before if runs and os.path.isdir(runs) else ())
                  if os.path.isfile(os.path.join(runs, n, "run.json")))
     if new:
@@ -258,21 +239,16 @@ def main():
             shutil.copy(os.path.join(folder, "run.json"), os.path.join(a.out, f"{a.name}-run.json"))
             shutil.rmtree(folder, ignore_errors=True)
     if not info:
-        result["warnings"].append(f"no {info_path}: the hooks' record is missing (no stages, plan or hand-over), "
-                                  "so uss_plus_handover_mb holds the unique sets alone")
+        result["warnings"].append(f"no {info_path}: the hooks' record is missing (no stages, plan or reducers)")
     if not new and not refused:
         result["warnings"].append("no new run found in " + (runs or "a data folder: give --data-dir"))
     if len(new) > 1:
         result["warnings"].append(f"{len(new)} new runs in {runs}: measured {new[-1]}; measure one search at a time")
-    if a.uss and info and result.get("summary") and (result["summary"].get("lines") or 0) >= 100_000 \
-            and info.get("handover_bytes") is None:
-        result["warnings"].append("no hand-over recorded for a search that saves through children")
     with open(os.path.join(a.out, f"{a.name}.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
     s = result.get("summary") or {}
     print(json.dumps({k: result.get(k) for k in ("name", "outcome", "refused", "exit", "wall_s", "peak_tree_rss_mb",
-                                                   "peak_tree_rss_at", "uss_plus_handover_mb",
-                                                   "uss_plus_handover_max_at", "peak_tree_uss_mb", "handover_mb")}
+                                                   "peak_tree_rss_at", "peak_tree_uss_mb", "peak_tree_uss_at")}
                      | {"lines": s.get("lines"), "found": s.get("found")}))
     for warning in result["warnings"]:
         print(f"WARNING: {warning}", file=sys.stderr)
@@ -305,7 +281,6 @@ def child(argv: List[str]):
     import linestore
     import mapping
     import samelines
-    import saving
     import search
     from settings import Limits
     slot = search.slot_memory(Limits(compute_slots=COMPUTE_SLOTS, download_slots=DOWNLOAD_SLOTS),
@@ -354,9 +329,6 @@ def child(argv: List[str]):
                 event(f"HOOK {module.__name__}.{name} end")
         setattr(module, name, run)
 
-    def hand_over_size(folder, *_):
-        info["handover_bytes"] = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
-
     def refusals(name):
         real = getattr(search, name)
 
@@ -371,8 +343,6 @@ def child(argv: List[str]):
 
     for name in HOOKED_SEARCH:  # as findaline.py calls them: a refusal ends the search with exit 0 in perf_profile
         refusals(name)
-    hooked(saving, "save")
-    hooked(saving, "hand_over", hand_over_size)
     hooked(mapping, "view_columns")  # the store's view columns, just before linestore.write
     hooked(linestore, "write")
     event("search start")
