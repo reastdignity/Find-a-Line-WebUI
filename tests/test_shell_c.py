@@ -1784,12 +1784,16 @@ meta.content = JSON.stringify({name: "Admin", provider: "github", status: "appro
 
 ADMIN_SCRIPT = """
 const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
+// a removed search's mark: the status chip's component (.u-st) at the status chip's own size, or null without a mark
+const sameChip = (row) => { const mark = row.querySelector(".c-admin-removed .u-st"), status = row.querySelector(".u-st");
+  return mark ? getComputedStyle(mark).fontSize === getComputedStyle(status).fontSize : null; };
 run({
   admin(next) {
     location.hash = "#admin";
     wait(() => $$(".c-admin-job").length >= 5, () => {
       result.admin = $$(".c-admin-job").map((row) => [inside(row, "b"), inside(row, ".u-st"),
-                                                      row.querySelector(".u-st").className, inside(row, ".c-admin-removed")]);
+                                                      row.querySelector(".u-st").className, inside(row, ".c-admin-removed"),
+                                                      sameChip(row)]);
       next();
     });
   },
@@ -1855,6 +1859,7 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["left"] == [True, True], r
     admin = {row[0]: row for row in r["admin"]}
     assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
+    assert [row[4] for row in r["admin"] if row[3]] == [True, True, True], r  # the marks: status chips, same size
     assert "u-cancelled" in admin["Removed search"][2] and admin["Cancelled while waiting"][3] == "removed", r
     assert admin["Saved search"][3] == "run deleted" and admin["Failed search"][3] == "", r
     assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
