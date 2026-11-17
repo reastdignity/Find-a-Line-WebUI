@@ -4,7 +4,8 @@
 // to draw), beside it the frame's hint, and the legend: exactly the shapes and colours on the map now (SpotMap's
 // legend()), at Area the squares' value (a select) and its five classes, and in a run with the access mark the
 // three marks with their "?". On a phone the legend is two lines of short labels with a fold (not kept: unfolded
-// while the sheet is low, folded while it is at half or higher, see MapBar). The bar's boxes carry `data-map-control`: the canvas places no number under them. Styles in
+// while the sheet is low, folded while it is at half or higher, see MapBar), and the access mark's key opens as a
+// panel above the map's controls. The bar's boxes carry `data-map-control`: the canvas places no number under them. Styles in
 // mapbar.css (classes v-*).
 
 import type { ComponentChildren } from "preact";
@@ -137,6 +138,9 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
   // (it scrolls inside); with less than a line of room at a stop above the low one, their press on "Legend" lowers
   // the sheet to its low stop and unfolds the legend there (the planner's decision of 2026-11-17: the person asked
   // to see the legend, and the map's room is what it needs): no control covers another, the button is never off.
+  // Where even the low stop has less than a line of room (a phone on its side: under about 400 px of height), their
+  // press opens the legend as a panel above the map's other controls, as an opened layers list lies above the bar
+  // (`asPanel`; it scrolls inside the map's height): closed by the same button, by Esc and by a press on the map.
   const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean} | null>(null);
   const [room, setRoom] = useState(Infinity);  // px the legend may take between the top controls and the status line
   const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
@@ -149,7 +153,28 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
       onSheet("peek");
     } else setChoice({at: sheet, folded: !folded});
   };
-  const folded = !wide && (asked === null ? high || room < natural.current : asked || room < LEGEND_LINE);
+  const asPanel = !wide && asked === false && room < LEGEND_LINE && !high;
+  const folded = !wide && (asked === null ? high || room < natural.current : asked || (room < LEGEND_LINE && !asPanel));
+  useEffect(() => {
+    const column = foot.current?.parentElement;
+    if (!asPanel || !column) return;
+    const close = () => setChoice({at: sheet, folded: true});
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();  // this Esc closes the legend's panel only (the frame's own order of Esc comes after it)
+      close();
+    };
+    const onPress = (e: Event) => {
+      const at = e.target as Element | null;
+      if (at?.closest?.(".c-leaflet") && !at.closest(".leaflet-control")) close();
+    };
+    document.addEventListener("keydown", onKey, true);
+    column.addEventListener("pointerdown", onPress, true);
+    return () => { document.removeEventListener("keydown", onKey, true); column.removeEventListener("pointerdown", onPress, true); };
+  }, [asPanel, sheet]);
+  // Where a phone's panels opened by the person stand (the legend as a panel, the access mark's key): from above the
+  // status line's row up to the switch at most, px of the map's column
+  const [over, setOver] = useState<{bottom: number; max: number} | null>(null);
   // A phone's foot where the status line's row would still reach one of those controls (a low phone with the sheet
   // at half: 39 px are left under the shore's chip on a screen of 390 x 664): the foot then stands beside the scale
   // instead of above it, its row's lines from the bottom with the buttons at the right (`aside`: its place, for
@@ -175,6 +200,11 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
     const others = box.height - (drawn ? drawn.offsetHeight + 6 : 0);
     const next = Math.floor(box.bottom - others - 6 - floor - 4);
     if (next !== room) setRoom(next);
+    const row = el.querySelector(".v-row")?.getBoundingClientRect(), ceiling = column.querySelector(".v-switch")?.getBoundingClientRect().top ?? col.top;
+    if (row) {
+      const at = {bottom: Math.round(col.bottom - row.top) + 6, max: Math.max(60, Math.floor(row.top - 6 - ceiling))};
+      if (!over || over.bottom !== at.bottom || over.max !== at.max) setOver(at);
+    }
     if (beside || !mine.some((b) => tops.some((c) => b.left < c.right + 4 && b.right > c.left - 4 && b.top < c.bottom + 4 && b.bottom > c.top - 4))) return;
     // right of what stands in the map's bottom left corner (the scale), above what reaches further right (the credits)
     const left = Math.max(col.left, ...rects(column, ".leaflet-bottom.leaflet-left > *").map((r) => r.right)) + 6;
@@ -185,6 +215,13 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
   const help = useAccessHelp();
   const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && (wide || !folded);
+  const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" aria-label={t("ui.view.map.legend")} data-map-control
+                                  style={!wide && !asPanel && room < natural.current ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`} : undefined}>
+    <LegendItems view={view} map={map} legend={legend} short={!wide} />
+    {wide && access && help.button}
+    {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}
+  </div>;
+  const helpBox = access && help.panel && <div class="v-help" data-map-control>{help.panel}</div>;
   return <>
     <div class="v-switch">
       <div class="u-seg v-levels" role="group" aria-label={t("ui.view.map.levels")} title={t("ui.view.map.levels_help")}
@@ -203,7 +240,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
     </div>
     <div class={cx("v-foot", !wide && "v-foot-phone", sheet === "full" && "v-foot-off", beside && "v-foot-beside")} ref={foot}
          style={beside ? {left: `${beside.left}px`, bottom: `${beside.bottom}px`} : undefined}>
-      {access && help.panel && <div class="v-help" data-map-control>{help.panel}</div>}
+      {wide && helpBox}
       <div class="v-row">
         <div class={cx("v-status", status.refused && "v-refused")} role="status" data-map-control>
           <span class="v-status-text">{status.text}</span>
@@ -218,12 +255,12 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
         {!wide && access && <span class="v-help-button" data-map-control>{help.button}</span>}
         {hint}
       </div>
-      {shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" aria-label={t("ui.view.map.legend")} data-map-control
-                     style={!wide && room < natural.current ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`} : undefined}>
-        <LegendItems view={view} map={map} legend={legend} short={!wide} />
-        {wide && access && help.button}
-        {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}
-      </div>}
+      {!asPanel && legendBox}
     </div>
+    {!wide && over && sheet !== "full" && (helpBox || (asPanel && legendBox)) &&
+      <div class="v-over" style={{bottom: `${over.bottom}px`, maxHeight: `${over.max}px`}}>
+        {helpBox}
+        {asPanel && legendBox}
+      </div>}
   </>;
 }

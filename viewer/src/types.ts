@@ -236,6 +236,7 @@ export interface ViewColumns { spot: Uint32Array; top: Uint8Array; bySpot: Uint3
 export interface RunData extends RunHead {
   columns: LineColumns;
   view?: ViewColumns;
+  fromStore?: boolean;  // read from the run's store (load.ts fromServer), not from data.js: RunActions mayExport
 }
 
 /** Does a run carry what the result view reads: the store's three columns, each of one value per line, and the

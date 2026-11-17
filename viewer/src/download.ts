@@ -19,8 +19,8 @@ export function bodySize(header: (name: string) => string | null): number | null
 
 export interface DownloadOptions {
   headers?: Record<string, string>;
-  /** The answer's headers are in: the body's size when known (bodySize). */
-  onHeaders?(total: number | null): void;
+  /** The answer's headers are in: the body's size when known (bodySize), and the answer's status. */
+  onHeaders?(total: number | null, status: number): void;
   /** Bytes of the body read so far, of `total`; at most every REPORT_MS. */
   onBytes?(done: number, total: number | null): void;
 }
@@ -47,7 +47,7 @@ export function download(url: string, type: "text" | "arraybuffer", options: Dow
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== XMLHttpRequest.HEADERS_RECEIVED) return;
       total = bodySize(header);
-      options.onHeaders?.(total);
+      options.onHeaders?.(total, xhr.status);
     };
     xhr.onprogress = (e) => {
       const now = performance.now();

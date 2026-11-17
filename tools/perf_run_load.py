@@ -59,7 +59,7 @@ STORE_FILES = ("lines.arrow", "profiles.arrow")  # linestore.FILES
 PHASES = ("fal:run:script", "fal:run:download", "fal:run:parse", "fal:run:lines", "fal:run:filter", "fal:run:group", "fal:run:ranges", "fal:run:rows")
 # the result view's own phases (viewer/src/result/spots.ts, SpotMap.ts)
 VIEW_PHASES = ("fal:view:first", "fal:view:pass", "fal:view:shown", "fal:view:order", "fal:view:picks", "fal:view:inview",
-               "fal:view:squares", "fal:view:draw", "fal:view:fan")
+               "fal:view:squares", "fal:view:draw", "fal:view:fan", "fal:view:refan")
 PHASES_3D = ("fal:3d:request", "fal:3d:body", "fal:3d:decode", "fal:3d:mesh", "fal:3d:first-frame",
              "fal:3d:profile", "fal:3d:imagery")
 

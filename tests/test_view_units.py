@@ -965,25 +965,60 @@ done();
 def test_the_fan_follows_the_maps_numbers(tmp_path, bundle, made_path, run):
     """An open fan is derived again when the numbers on the map change: a line that loses its B number becomes an L
     row in its place by the sort (no L row above a numbered one), one that gains it comes first; the person's sort
-    of the fan is kept; the Fan stays one object. With "Favourites only" on, a favourite taken away closes the fan."""
+    of the fan is kept; the Fan stays one object. It is derived for its anchor (a press on an anchor's circle lies
+    beside the anchor) or, opened at a point, for that point. A move that changes no number derives nothing, nor
+    does a view off the run. With "Favourites only" on, a favourite that changes the passing lines closes the fan,
+    one that does not (of a line "Top level only" hides) keeps it."""
     ok, _ = run.passing()
     shown, order = run.shown(ok), run.order(ok)
     star = int(run.spot[0])
     row = shown[star]
+    not_top = next(i for i in run.lines_of(star) if run.top[i] == 0)
     near_box = [X0 + SIDE / 2 - 40, Y0 + SIDE / 2 - 40, X0 + SIDE / 2 + 40, Y0 + SIDE / 2 + 40]
     found = node(tmp_path, bundle, made_path, r"""
 (async () => {
-const [star, row, nearBox] = %s;
+const [star, row, nearBox, notTop] = %s;
 const {view} = build();
-const at = {lat: made.rows[row][0], lng: made.rows[row][1]};
+const refans = () => performance.getEntriesByName("fal:view:refan").length;
+const anchor = [view.values.x1[row], view.values.y1[row]];
+// the press that opens the fan of an anchor lies beside the anchor (here 30 m east of it: no line starts there)
+const beside = view.fit.toLatLng(anchor[0] + 30, anchor[1]), at = {lat: beside[0], lng: beside[1]};
 const fan = () => ({sort: view.fan.sort, rows: view.fan.rows.map((r) => [r.row, r.label, r.numbered])});
 view.setLevel("spots");
 view.setView(box(nearBox), 1);
 view.openFan(at, {row, end: 1});
 const first = view.fan;
 out.numbered = fan();
+out.anchor = {anchor, xy: [list(view.fan.xy)]};
+// a move that changes no number (the same best spots in view), a view off the run and the way back: nothing derived
+const best = () => JSON.stringify(list(view.inView.best)), bestBefore = best(), b = made.head.box, away = [b[2] + 262, b[3] + 262];
+let count = refans();
+view.setView(box([nearBox[0] + 0.5, nearBox[1], nearBox[2] + 0.5, nearBox[3]]), 1);
+out.moved = {sameBest: best() === bestBefore, refans: refans() - count, rows: JSON.stringify(fan()) === JSON.stringify(out.numbered)};
+view.setView([away, away, away, away], 1);
+out.away = {m: view.inView.m, refans: refans() - count, rows: JSON.stringify(fan()) === JSON.stringify(out.numbered)};
+view.setView(box(nearBox), 1);
+out.back = {sameBest: best() === bestBefore, refans: refans() - count};
+// the list sorted another way: the best spots in view carry other numbers, the fan is derived again once
+count = refans();
+view.setSort("clr");
+out.resorted = {changed: best() !== bestBefore, refans: refans() - count, n: view.numberOf(star),
+                label: (view.fan.rows.find((r) => r.row === view.shownOf(star)) || {}).label};
+view.setSort("hmean");
+count = refans();
 view.setBest("all");                       // no number on the map any more
-out.plain = {...fan(), same: view.fan === first};
+out.plain = {...fan(), same: view.fan === first, refans: refans() - count};
+out.anchor.xy.push(list(view.fan.xy));
+// opened at a point (a right click 3 m beside the anchor): derived again for that point
+const p = build().view;
+p.setLevel("spots");
+p.setView(box(nearBox), 1);
+const near = p.fit.toLatLng(anchor[0] + 3, anchor[1] + 2);
+p.openFan({lat: near[0], lng: near[1]});
+out.point = {before: list(p.fan.xy), numbered: p.fan.rows.filter((r) => r.numbered).length};
+p.setBest("all");
+out.point.after = list(p.fan.xy);
+out.point.plain = p.fan.rows.filter((r) => r.numbered).length;
 view.sortFan("len");
 view.setBest(10);                          // the numbers are back: the person's sort stays
 out.sorted = {...fan(), same: view.fan === first};
@@ -997,6 +1032,9 @@ for (let k = 0; k < 1000 && !fav.model.favouritesOn; k++) await new Promise((res
 fav.model.setFilters({...m.NO_FILTERS, favOnly: true});
 fav.view.openFan(at, {row: lines[0], end: 1});
 out.fav = {open: !!fav.view.fan, lines: fav.view.fan && fav.view.fan.lines, passing: fav.view.counts.lines};
+// a favourite given to a line that "Top level only" hides: the same lines pass, the fan stays
+await fav.model.toggleFavourite(fav.model.lineAt(notTop));
+out.favSame = {open: !!fav.view.fan, passing: fav.view.counts.lines, favourites: fav.model.favouriteLines().length};
 await fav.model.toggleFavourite(fav.model.lineAt(lines[1]));
 out.favGone = {open: !!fav.view.fan, passing: fav.view.counts.lines};
 // without the filter a favourite's change keeps the fan
@@ -1005,10 +1043,33 @@ for (let k = 0; k < 1000 && !kept.model.favouritesOn; k++) await new Promise((re
 kept.view.openFan(at, {row: lines[0], end: 1});
 await kept.model.toggleFavourite(kept.model.lineAt(lines[1]));
 out.kept = !!kept.view.fan;
+// a favourite becomes its spot's shown line: the spot's number goes with it, in the open fan too (the same best spots)
+const moved = build({favourites: true, api: {...api, loadFavourites: async () => []}});
+for (let k = 0; k < 1000 && !moved.model.favouritesOn; k++) await new Promise((resolve) => setImmediate(resolve));
+moved.view.setLevel("spots");
+moved.view.setView(box(nearBox), 1);
+moved.view.openFan(at, {row: lines[0], end: 1});
+const carrying = () => ({shown: moved.view.shownOf(star), rows: moved.view.fan.rows.filter((r) => r.numbered).map((r) => [r.row, r.label]),
+                         best: JSON.stringify(list(moved.view.inView.best))});
+out.shownBefore = carrying();
+await moved.model.toggleFavourite(moved.model.lineAt(lines[2]));
+out.shownAfter = carrying();
 done();
 })();
-""" % json.dumps([star, row, near_box]))
+""" % json.dumps([star, row, near_box, not_top]))
     numbered = found["numbered"]["rows"]
+    # the fan is the anchor's, at its opening and derived again (not the pressed point's, 30 m away)
+    assert found["anchor"]["xy"] == [found["anchor"]["anchor"]] * 2 == [[float(run.x1[row]), float(run.y1[row])]] * 2
+    # nothing derived by a move that keeps the numbers, off the run, and back; once when the numbers go
+    assert found["moved"] == {"sameBest": True, "refans": 0, "rows": True}
+    assert found["away"] == {"m": 0, "refans": 0, "rows": True} and found["back"] == {"sameBest": True, "refans": 0}
+    resorted = found["resorted"]
+    assert resorted["changed"] is True and resorted["refans"] == 1 and resorted["n"] > 0 and resorted["label"] == f"B{resorted['n']}"
+    assert found["plain"]["refans"] == 1
+    # opened at a point: its place stays the point's (3 m east, 2 m north of the anchor, through the fit)
+    point = found["point"]
+    assert point["after"] == point["before"] and (point["numbered"], point["plain"]) == (1, 0)
+    assert math.dist(point["before"], [run.x1[row] + 3, run.y1[row] + 2]) < 0.6
     assert numbered[0][0] == row and numbered[0][1].startswith("B") and numbered[0][2] is True
     assert [r[1] for r in numbered[1:]] == [f"L{k + 1}" for k in range(len(numbered) - 1)]
     # without numbers: every row an L row, by mean height; the line that was B stands where its mean height puts it
@@ -1027,7 +1088,12 @@ done();
     every = [run.len[r[0]] for r in found["sortedPlain"]["rows"]]
     assert every == sorted(every, reverse=True) and found["sortedPlain"]["sort"] == "len"
     assert found["fav"] == {"open": True, "lines": 3, "passing": 3}
+    assert found["favSame"] == {"open": True, "passing": 3, "favourites": 4}
     assert found["favGone"] == {"open": False, "passing": 2} and found["kept"] is True
+    mine = [i for i in run.lines_of(star) if ok[i]]
+    before, after = found["shownBefore"], found["shownAfter"]
+    assert before["shown"] == row == mine[0] and len(before["rows"]) == 1 and before["rows"][0][0] == row and before["rows"][0][1].startswith("B")
+    assert after == {"shown": mine[2], "rows": [[mine[2], before["rows"][0][1]]], "best": before["best"]}
 
 
 FIT_MAX = 0.5

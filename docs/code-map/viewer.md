@@ -66,7 +66,7 @@ empty although its bytes came (Chromium's longest string, about 537 M characters
 `ui.result.too_large` the page shows, and is never tried as a script (that crashed the tab); `LoadProgress` to
 `RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`),
 over http(s) a run whose entry in runs.js holds run.json's block `store` (`storeOf`: the page's list, else
-`../runs.js` beside the run's folder, read afresh when the run is not in it; none on a share link) is read from its
+`../runs.js` beside the run's folder, loaded once; a run it does not name and a share link get `STORE_PROBE`: the store's files asked for directly, a 404 or a file not fetched reads data.js) is read from its
 store instead (store wave 2,
 docs/line-volume/spec-store.md 1.2): `lines.arrow` and `profiles.arrow` downloaded together as bytes, `readStore`
 (apache-arrow `RecordBatchReader`: one record batch; the head from the schema's metadata `findaline`, `parseLoose` for
@@ -74,7 +74,12 @@ its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied int
 `STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a store's file answering 404 falls back to data.js;
 another failure is `StoreFailed`, `ui.result.store_failed` on map.html; a null body `TooLarge`), `storedProfiles` a
 profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its `lines.arrow` (or its
-lines.js: no store, or the file missing); `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
+lines.js: no store, or the file missing); a run read from its store carries `RunData.fromStore` (not one whose
+store answered 404), by which `view/RunActions.tsx` `mayExport` (with `api.canChange`: the page has the token,
+the app's page, never a map.html) gives Download's two rows that ask the worker for the file (`Export`:
+`api.exportRun`, "Preparing the file…" in the pressed row, the ring on the button while the menu is closed, the
+browser saves the answered address, this run's export only, by a link's click, a failure one red line by the answer's code; the wait and the line kept per run id outside the component, so a layout switch or a run change keeps them); a run with
+a store has no Download where the page may not ask, a run without one keeps its two links; `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
 selection, next/previous spot, favourites, on columns: the runs shown are `Table`s of `types.ts` `LineColumns` (this
 run's from index 0, each other run's from its own `start`, never given twice), a line is its index; the filters
 (`filters.passes` through a `LineCursor`), the ranges (one pass, `filters.Ranger`), the counts and the grouping
@@ -185,7 +190,8 @@ from latitudes and longitudes by a polynomial of the lowest degree, 1 to 3, with
 point clamped to the anchors' box and a margin). `result/spots.ts` `SpotView`: which lines pass (the model's filters,
 "Top level only" as its own state), each spot's shown line, the order, the sectors, the picks, the lines not beaten,
 the spots in view with the best N and their numbers (a view without an area, the map moved off the run, holds
-none), the 5 000 limit, the selection, "Lines from here" (derived again whenever the map's numbers change), one Esc.
+none), the 5 000 limit, the selection, "Lines from here" (derived again only when the numbers its rows could carry
+changed: `marksKey`, timed as "fal:view:refan"), one Esc.
 `result/SpotMap.ts` the canvas (a Leaflet renderer without paths in a pane of its own: the lines are drawn from the
 columns, projected by hand; squares, strokes, numbers placed clear of every control, the presses with a press held and
 a right click, the hover; `legend()` what it drew; `drawn()` its own count, each line once). `view/SpotColumns.tsx` the
@@ -194,7 +200,8 @@ body; the Leaflet map with quarter zoom steps, the toast, Esc; `data-choosing` o
 spots is asked for; `window.FINDALINE_VIEW = {view, map}` once drawn, no `FINDALINE_RESULT`), `view/SpotPanels.tsx` its slots (`PANELS`: the list, the details, the sheet's head, the
 hint, the table of spots), `view/MapBar.tsx` the switch, Best, the status line and the legend (a phone: two lines with
 a fold, unfolded by itself while the sheet is low and there is room, folded at half or higher; a person's fold or
-unfold holds until the sheet's next stop), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
+unfold holds until the sheet's next stop; "Legend" pressed without room lowers the sheet, and where even the low
+stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
 `tests/test_view_units.py` (Node on a made-up run, the frame in headless Edge through `viewer/test/spotmap_page.ts`),
 `tests/test_shell_c_view_map.py` (Playwright on `clip_runs.view_clip`: the mock-up's checks ported).
 Its panels (`view.css`, classes `vl-*`; what stands in the slots is `view/SpotDetails.tsx` `SLOTS`):

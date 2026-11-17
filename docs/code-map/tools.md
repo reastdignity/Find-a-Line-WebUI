@@ -196,12 +196,13 @@ without a load, and a page whose step `need:<expression>` is false once the resu
 leaves out, no browser). Each picture is printed with its seconds, then a summary (set-up parts, passes, the ten
 slowest pages, the pages left out, timeouts, failed steps); `--timings <file>` the same as JSON; a timed-out `wait:`
 gets a quarter of its limit for the rest of the pass, a step that raises fails only its page, `--strict` stops at
-the first; exit code 1 after a timeout or a failed step; a whole page too tall at the device's pixel ratio (WebKit's
+the first; exit code 1 after a timeout or a failed step (a page whose click finds nothing after a wait timed out is
+"timed out", not "left out"); a whole page too tall at the device's pixel ratio (WebKit's
 32767 px) is taken at one pixel per CSS pixel, a note. For a caller that measures the prepared pages: `shoot_all` (the
-passes' loop, rows kept as made), `pass_context` (a pass's context, the caller's options passed on) and `shoot_page`'s
+passes' loop, rows kept as made, `on_row` called with each), `pass_context` (a pass's context, the caller's options passed on) and `shoot_page`'s
 `act` (in place of the screenshot, its dict in the row). A `--data-dir` used before can be used again: its marker
-`ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module and
-the clip's files) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
+`ui-shots.json` (the clip run shown and `data_key`, a sha256 of the root `*.py`, the tool, the cubes' test module, the
+clip's files and the checkout's path, which the clip run's files name) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
 clip run made before: one in the folder, a failed removal retried at every start, the problem report made again);
 each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
 form's riggers get only the rigs they do not have yet, the problem report is added once
@@ -221,6 +222,45 @@ only in one, sizes that differ, or the share of pixels whose largest channel dif
 255) and the largest difference; a table sorted by that share and a line of totals, exit code 0 always (it reports,
 map tiles differ from run to run); `--out` a difference picture per file that differs (the first picture dimmed, the
 changed pixels red). Pillow and numpy (`tests/test_shots_diff.py`)
+
+## `tools/ui_metrics.py`
+
+Run by hand: counts and measurements of the UI for design work, with no pass or fail (the user picks thresholds from
+the numbers; the bounds are parameters). `static` reads the source only: viewer/src's CSS by its own scanner (no
+nested rules), the .ts/.tsx code without comments and regular expressions, `locales/en.json`: distinct font sizes
+(`var()`/`calc()` "unresolved"), radii, z-index values, normalised colour literals outside `ui/tokens.css`, the
+monospace font and its uppercase, "the same grey box" per selector, characters used as icons or joints (those in an
+`aria-label` or `title` apart, the demo pages left out unless `--with-demos`), dense strings per literal, the
+catalogue's words per group, .tsx files with English text and no `t(`. `pages` measures every state of
+`ui_shots.PAGES` through `ui_shots.serve`, `select_pages`, `left_out_by_run` and one `shoot_all(act=,
+bypass_csp=True)` per device and theme (axe-core cannot be injected under the app's CSP; the screenshot tool's own
+contexts never bypass it), on a `--data-dir` of its own (one run per data folder; `--fresh` builds it anew; a kept
+folder is only safe while the checkout that made it exists). Per state, where the screenshot would be taken: every
+control's target size (with an absolutely positioned `::before`/`::after` that grows it, a checkbox or radio by its
+largest label, the part no ancestor clips, per axis and from the containing block up; unreachable ones apart; covered
+ones marked with the element hit at the centre of their seen part, still counted; a link or button in a sentence
+apart: inline, and its block holds words outside controls; signatures without state classes, `BASE_CLASSES` kept by
+hand); every visible text's rendered size (SVG scaled) with its zone (a map's credits or scale) and nearest named
+ancestor; the document's width; elements that scroll sideways; rendered grey boxes among containers; axe-core's
+violations and "incomplete" by impact (`viewer/node_modules/axe-core/axe.min.js`, a development dependency; without it
+the axe part is left out with one line). `pages-states.jsonl` keeps every size and a `definitions` number, so
+`--summarise --controls 40 --text 11` cuts at other bounds without a pass and names a log of older definitions; a
+state whose wait timed out or that failed is "not measured" with its reason and never counted; a state a device or
+the run cannot show is "left out" with its reason; a stopped pass leaves its remaining states recorded. `pages.json`
+and `pages.md`: totals per device and theme, page families by name prefix, lists by signature; `pages-run.json`: the
+seconds and whether each pass finished. Exit code 1 when a state was not measured or a pass did not finish. Known and
+left: docs/known-bugs.md, "The UI measuring tools" (`tests/test_ui_metrics.py`)
+
+## `tools/ui_walks.py`
+
+Run by hand: task walks through the app, counted. Each walk of `WALKS` (a user of `ui_shots.serve()`, a device of
+`ui_shots.DEVICES`, what the browser remembers, a start address, its steps) is driven with Playwright on `serve()`'s
+public site. Before each action it counts the surface's visible, enabled controls and words, then times the action to
+its expected state and checks for feedback within 300 ms. Per walk: screens, taps or clicks, keystrokes, changes
+between pointer and keyboard, decision points (an action among more than 4 controls), words, waits, dead ends. Writes
+a screenshot per step (share links masked), `walks.json` and `walks.md`; `compare` checks two runs' counts; `probe`
+lists a surface. No walk starts a search. The data folder must be a fresh one: a folder that holds a job or a
+favourite is refused (R4 saves a favourite, and Home then counts differently) (`tests/test_ui_walks.py`)
 
 ## `tools/perf_*.py`
 

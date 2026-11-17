@@ -1064,7 +1064,7 @@ def test_the_store_note_is_coded(tmp_path, offline, monkeypatch):
     plan = _plan(tmp_path, scene(), "note", events, access=False)
     lines, _ = search.search_lines(plan)
 
-    def failing(run_path, lines, head):
+    def failing(run_path, lines, head, view=None):
         raise MemoryError(r"no memory at C:\secret\path")
     monkeypatch.setattr(linestore, "write", failing)
     folder = tmp_path / "note" / "runs" / "note"
