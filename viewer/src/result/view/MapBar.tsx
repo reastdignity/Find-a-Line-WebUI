@@ -215,7 +215,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
   const help = useAccessHelp();
   const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && (wide || !folded);
-  const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" aria-label={t("ui.view.map.legend")} data-map-control
+  const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
                                   style={!wide && !asPanel && room < natural.current ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`} : undefined}>
     <LegendItems view={view} map={map} legend={legend} short={!wide} />
     {wide && access && help.button}
