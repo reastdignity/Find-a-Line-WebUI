@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -57,15 +58,61 @@ def _take(what, seconds=None):
         Clock.now.t += TAKES[what] if seconds is None else seconds
 
 
-class FakePage:
-    """A Playwright page for the step runner: `true` the expressions that hold (waits for the others time out),
-    `shown` the selectors a click finds, `stuck` those whose click fails, `throws` the scripts that raise,
-    `interrupt` the addresses whose load is interrupted (Ctrl+C)."""
+class FakeRequest:
+    def __init__(self, url):
+        self.url = url
 
-    def __init__(self, true=(), shown=(), stuck=(), throws=(), interrupt=(), shot_errors=()):
+    def is_navigation_request(self):
+        return self.url.endswith("#document")  # the page's own: never ends in WebKit
+
+
+class FakePage:
+    """A Playwright page for the step runner: `true` the expressions that hold (waits for the others time out;
+    without "leaflet-tile" the map's tiles never load), `shown` the selectors a click finds, `stuck` those whose click
+    fails, `throws` the scripts that raise, `interrupt` the addresses whose load is interrupted (Ctrl+C). On the fake
+    clock, in seconds from the page's load: `busy` (from, to, word) what PAGE_STATE says is busy then, `asked` the
+    times a frame or a timer is asked for, `requests` (start, end or None, url) its requests' events."""
+
+    def __init__(self, true=(), shown=(), stuck=(), throws=(), interrupt=(), shot_errors=(), busy=(), asked=(),
+                 requests=()):
         self.true, self.shown, self.stuck, self.throws = set(true), set(shown) | set(stuck), set(stuck), set(throws)
         self.interrupt, self.shot_errors = tuple(interrupt), list(shot_errors)
         self.calls, self.closed, self.default_timeout = [], False, None
+        self.busy, self.asked, self.requests = list(busy), list(asked), [[*r, FakeRequest(r[2]), 0] for r in requests]
+        self.handlers, self.loaded, self.states = {}, None, []
+
+    @staticmethod
+    def now():
+        return Clock.now.t if Clock.now is not None else time.perf_counter()
+
+    def t(self):
+        """Seconds since the load on the fake clock."""
+        return self.now() - self.loaded if self.loaded is not None else 0.0
+
+    def on(self, event, handler):
+        self.handlers.setdefault(event, []).append(handler)
+
+    def fire(self):
+        """The requests' events up to now (0: not begun, 1: in flight, 2: ended)."""
+        for r in self.requests:
+            start, end, _, request, seen = r
+            if seen == 0 and self.loaded is not None and start <= self.t():
+                r[4] = seen = 1
+                for handler in self.handlers.get("request", []):
+                    handler(request)
+            if seen == 1 and end is not None and end <= self.t():
+                r[4] = 2
+                for handler in self.handlers.get("requestfinished", []):
+                    handler(request)
+
+    def state(self, arg):
+        """What PAGE_STATE gives on this page now."""
+        t = self.t()
+        busy = [word for start, end, word in self.busy if start <= t < end]
+        if not any("leaflet-tile" in w for w in self.true):
+            busy.insert(0, ui_shots.TILES_NOTE)
+        self.states.append((t, arg, busy))
+        return {"busy": busy, "asked": sum(1 for a in self.asked if a <= t) if arg["frames"] else 0, "timed": 0}
 
     def set_default_timeout(self, ms):
         self.default_timeout = ms
@@ -79,22 +126,28 @@ class FakePage:
     def goto(self, url):
         self.calls.append(("goto", url))
         _take("goto")
+        self.loaded = self.now()
+        self.fire()
         if any(part in url for part in self.interrupt):
             raise KeyboardInterrupt
 
     def wait_for_timeout(self, ms):
         self.calls.append(("sleep", ms))
         _take("sleep", ms / 1000)
+        self.fire()
 
     def wait_for_function(self, expression, timeout):
         self.calls.append(("wait", expression, timeout))
         if not any(t in expression for t in self.true):
+            _take("sleep", timeout / 1000)
             raise TimeoutError(f"Timeout {timeout}ms exceeded.")
 
     def evaluate(self, script, arg=None):
         self.calls.append(("evaluate", script))
         if script in self.throws:
             raise Exception("Error: TypeError: x is null\n    at eval")
+        if script == ui_shots.PAGE_STATE:
+            return self.state(arg)
         return any(t in script for t in self.true)
 
     def query_selector(self, selector):
@@ -173,7 +226,8 @@ def test_a_page_from_its_load_to_its_shot(tmp_path):
 
 def test_a_wait_that_times_out_is_shortened_in_its_pass(tmp_path):
     """A "wait:" that timed out: noted in the record (picture saved, exit code 1); the same expression's later
-    waits in the pass get a quarter of the limit, a new pass the whole limit again."""
+    waits in the pass get a quarter of the limit (the 3D view's ready mark 30 s, then 7.5 s; another wait 10 s), a new
+    pass the whole limit again."""
     state = ui_shots.Pass("desktop", "light")
     context = FakeContext(true={"leaflet-tile"}, shown={".v3-views [data-view=eyes]"})
     first = _shoot(context, "view3d", tmp_path, state)
@@ -182,11 +236,11 @@ def test_a_wait_that_times_out_is_shortened_in_its_pass(tmp_path):
     assert first["outcome"] == second["outcome"] == "timed out" and first["path"] and second["path"]
     assert first["timeouts"] == [ready] and second["timeouts"] == [ready, "document.getElementById('view3d')?."
                                                                           "dataset.view === 'eyes'"]
-    waits = [c[2] for page in context.pages for c in page.calls if c[0] == "wait" and "leaflet-tile" not in c[1]]
-    assert waits == [60000, 15000, 60000]
+    waits = [c[2] for page in context.pages for c in page.calls if c[0] == "wait"]
+    assert waits == [30000, 7500, 10000]
     assert ui_shots.failed([first])
     other = ui_shots.Pass("desktop", "dark")
-    assert other.limit(ready) == 60000 and state.limit(ready) == 15000
+    assert other.limit(ready) == 30000 and state.limit(ready) == 7500
     # after a wait that timed out, a click that finds nothing is no "left out" (the device may well show it): timed
     # out, no picture, the reason kept and named in the summary
     row = _shoot(FakeContext(true={"leaflet-tile"}), "view3d-eyes", tmp_path / "none", other)
@@ -233,12 +287,123 @@ def test_need_waits_for_the_result_then_tests_once(tmp_path):
     row = _shoot(context, "c-result-shore-folded", tmp_path)
     page = context.pages[0]
     assert row["outcome"] == "left out" and not row["timeouts"] and row["reason"].startswith("the run does not have")
-    assert [c[1] for c in page.calls if c[0] == "wait"][1:] == [f"() => ({ui_shots.NEED_READY})"]
+    assert [c[1] for c in page.calls if c[0] == "wait"] == [f"() => ({ui_shots.NEED_READY})"]
     assert ("evaluate", "!!(document.querySelector('.u-shore-ctl:not([hidden])'))") in page.calls
-    after = page.calls[page.calls.index(("wait", f"() => ({ui_shots.NEED_READY})", ui_shots.WAIT_MS)) + 1:]
+    after = page.calls[page.calls.index(("wait", f"() => ({ui_shots.NEED_READY})", ui_shots.FIRST_DRAW_MS)) + 1:]
     assert after == [("evaluate", "!!(document.querySelector('.u-shore-ctl:not([hidden])'))")]  # no wait, no sleep
     context = FakeContext(true={"leaflet-tile", ui_shots.NEED_READY, "u-shore-ctl"})
     assert _shoot(context, "c-result-shore-folded", tmp_path)["outcome"] == "saved"
+
+
+def _settled(page, quiet_ms=250, limit_ms=10000, family="home", frames=True, line=False):
+    """settled on a fake page loaded now: (what was busy at the end, seconds it took on the fake clock)."""
+    requests = ui_shots.Requests(page)
+    page.goto("https://localhost:1/")
+    start = Clock.now.t
+    busy = ui_shots.settled(page, family, limit_ms, quiet_ms, requests, line, frames)
+    return busy, Clock.now.t - start
+
+
+def test_settled_follows_the_page():
+    """settled: nothing busy, it returns after the quiet time; a request in flight holds it, the event stream does
+    not; the quiet time passes in one piece (a request or a frame begun inside it starts it again); a page that
+    stays busy (a request that never ends) runs into the limit and says what was busy."""
+    quiet = lambda busy, t: not busy and 0.25 <= t <= 0.25 + 2 * ui_shots.POLL_MS / 1000  # noqa: E731
+    assert quiet(*_settled(FakePage(true={"leaflet-tile"})))
+    events = (0.0, None, "https://localhost:1/api/events")  # never ends, ignored
+    assert quiet(*_settled(FakePage(true={"leaflet-tile"}, requests=[events])))
+    document = (0.0, None, "https://localhost:1/view3d#document")  # the page's document: WebKit reports no end
+    assert quiet(*_settled(FakePage(true={"leaflet-tile"}, requests=[document])))
+    busy, t = _settled(FakePage(true={"leaflet-tile"}, requests=[events, (0.0, 0.5, "https://localhost:1/api/runs")]))
+    assert not busy and 0.75 <= t <= 0.85
+    # a request begun and ended inside the quiet time (between two looks) starts it again
+    busy, t = _settled(FakePage(true={"leaflet-tile"}, requests=[(0.0, 0.5, "a"), (0.61, 0.63, "b")]))
+    assert not busy and 0.9 <= t <= 1.01
+    busy, t = _settled(FakePage(true={"leaflet-tile"}, asked=[0.2]))  # a frame asked for at 0.2 s
+    assert not busy and 0.45 <= t <= 0.61
+    busy, t = _settled(FakePage(true={"leaflet-tile"}, asked=[0.2]), frames=False)  # frames not watched (SPINS)
+    assert quiet(busy, t)
+    busy, t = _settled(FakePage(true={"leaflet-tile"}, busy=[(0.0, 1.0, "an animation")]))
+    assert not busy and 1.25 <= t <= 1.35
+    busy, t = _settled(FakePage(requests=[(0.1, None, "https://tile.example/1/2/3.png?key=x")]), limit_ms=3000)
+    assert busy == [ui_shots.TILES_NOTE, "requests in flight (https://tile.example/1/2/3.png)"] and 3.0 <= t <= 3.1
+    page = FakePage(true={"leaflet-tile"})  # the family and the line go to the page's own look
+    _settled(page, family="result", line=True)
+    assert page.states[0][1] == {"family": "result", "line": True, "frames": True}
+
+
+def test_a_page_that_does_not_settle_is_shot_and_noted(tmp_path):
+    """A page still busy at the limit of its settled wait (30 s after the load, 10 s after a step): shot all the same,
+    the row says after what and what was busy (the tiles also as "tiles_loading"), the summary notes it, the exit code
+    stays 0; the pass's later settled waits of that family and kind get a quarter of the limit."""
+    state = ui_shots.Pass("desktop", "light")
+    never = [(0.1, None, "https://localhost:1/api/stuck")]
+    row = _shoot(FakeContext(true={"leaflet-tile"}, requests=never), "c-home", tmp_path, state)
+    assert row["outcome"] == "saved" and row["path"] and not ui_shots.failed([row]) and not row["tiles_loading"]
+    assert row["unsettled"] == [{"after": "the load", "busy": ["requests in flight (https://localhost:1/api/stuck)"]}]
+    assert 30.0 <= row["settle"] <= 30.1 and row["tiles"] == 0.0
+    again = _shoot(FakeContext(true={"leaflet-tile"}, requests=never), "c-favourites", tmp_path, state)
+    assert 7.5 <= again["settle"] <= 7.6  # a quarter: the home family's load timed out before in this pass
+    row = _shoot(FakeContext(shown={".r-filters .u-chip.u-add"}, busy=[(0, 99, "the result not drawn")]),
+                 "c-result-more", tmp_path)
+    assert [u["after"] for u in row["unsettled"]] == ["the load", ".r-filters .u-chip.u-add", "js:" + ui_shots.ANCHORS_SHOWN]
+    assert row["unsettled"][1]["busy"] == [ui_shots.TILES_NOTE, "the result not drawn"] and row["tiles_loading"]
+    seconds = [s["seconds"] for s in row["steps"]]  # 10 s after a step, then a quarter
+    assert 10 <= seconds[0] < 10.1 and 2.5 <= seconds[1] < 2.6
+    lines = ui_shots.summary({}, [], [row], {}, 1.0)
+    assert any(line.startswith("Not settled, shot at the limit (a note): c-result-more (desktop light) after the load: "
+                               "map tiles still loading, the result not drawn;") for line in lines)
+    assert "Map tiles still loading (a note): c-result-more (desktop light)" in lines
+
+
+def test_the_estimate_that_still_reads_ready():
+    """The search form's trap: right after a click the estimate's mark still reads "ready" from the request before
+    (useSearch.ts sets "waiting" in an effect, a frame later; the request goes out 800 ms after): the quiet time
+    outlasts that frame, so the wait sees "waiting", then "loading", and returns only once the new estimate is in.
+    Without a quiet time it would return at once, on the stale mark."""
+    page = FakePage(true={"leaflet-tile"}, busy=[(0.04, 1.2, "the estimate")])
+    busy, t = _settled(page, family="search")
+    assert not busy and 1.45 <= t <= 1.55
+    page = FakePage(true={"leaflet-tile"}, busy=[(0.04, 1.2, "the estimate")])
+    assert _settled(page, family="search", quiet_ms=0) == ([], 0.0)  # the stale "ready"
+
+
+def test_families_and_limits():
+    """page_family by interface and hash; the limits: 30 s for the first-draw marks (the 3D view's, the estimate's,
+    the result's), 240 s for c-basic-sea's (SLOW_MARKS), 10 s for every other wait, 30 s and 10 s for the settled
+    waits after a load and after a step; a quarter after a first timeout in the pass."""
+    families = {"view3d-eyes": "view3d", "view3d-valid": "view3d", "view3d-phone": "view3d",
+                "page-coverage-europe": "coverage", "page-signin": "static",
+                "page-privacy": "static", "c-result": "result", "c-line": "result", "map-shared": "result",
+                "c-basic-sea": "search", "c-new-more": "search", "c-layer-world": "layer", "c-layer-border": "layer",
+                "c-home": "home", "c-menu": "home", "c-osm": "home", "c-admin": "home", "c-account-end": "home"}
+    assert {name: ui_shots.page_family(name) for name in families} == families
+    assert {ui_shots.page_family(name) for name in ui_shots.PAGES} == {
+        "view3d", "coverage", "static", "result", "search", "layer", "home"}
+    state = ui_shots.Pass("pixel", "dark")
+    view3d, estimate = ui_shots.VIEW3D_READY[5:], ui_shots.READY[5:]
+    assert [state.limit(e) for e in (view3d, estimate, ui_shots.NEED_READY)] == [30000] * 3
+    assert state.limit(estimate, "c-basic-sea") == 240000 and state.limit(estimate, "c-basic-long") == 30000
+    assert state.limit(ui_shots.EDGES_DRAWN[5:], "view3d-edges") == 10000
+    assert state.limit("settled (home) after the load") == 30000 and state.limit("settled (home) after a step") == 10000
+    state.timed_out |= {estimate, "settled (home) after a step"}
+    assert state.limit(estimate, "c-basic-sea") == 60000 and state.limit(estimate) == 7500
+    assert state.limit("settled (home) after a step") == 2500 and state.limit("settled (search) after a step") == 10000
+
+
+def test_no_sleep_after_a_wait(tmp_path):
+    """After a "wait:" step: two animation frames and one look that finds nothing busy, no quiet time and no sleep;
+    after the globe's button (SPINS: it turns until touched) the page's frames are not waited for."""
+    context = FakeContext(true={"leaflet-tile", "dataset.ready", "dataset.edges"})
+    row = _shoot(context, "view3d-edges", tmp_path)
+    calls = context.pages[0].calls
+    at = calls.index(("wait", "() => (" + ui_shots.EDGES_DRAWN[5:] + ")", ui_shots.WAIT_MS))
+    assert calls[at + 1:at + 3] == [("evaluate", ui_shots.TWO_FRAMES), ("evaluate", ui_shots.PAGE_STATE)]
+    assert calls[at + 3][0] == "shot" and row["outcome"] == "saved"
+    context = FakeContext(true={"leaflet-tile"}, shown={ui_shots.GLOBE, ".cov-zoombar button:nth-child(2)"})
+    _shoot(context, "page-coverage-globe", tmp_path)
+    frames = [arg["frames"] for _, arg, _ in context.pages[0].states]
+    assert False in frames and frames[-1] is True
 
 
 def test_pages_selected_by_their_names():
@@ -540,9 +705,9 @@ class FakePlaywright:
                         "Pixel 7": {"viewport": {"width": 412, "height": 839}, "default_browser_type": "chromium"}}
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def clock(monkeypatch):
-    """ui_shots' clock moved only by the fakes (TAKES)."""
+    """ui_shots' clock moved only by the fakes (TAKES; a page's settled wait runs on it)."""
     Clock.now = Clock()
     monkeypatch.setattr(ui_shots, "time", type("FakeTime", (), {"perf_counter": staticmethod(Clock.now.perf_counter)}))
     yield Clock.now
@@ -581,7 +746,7 @@ def test_act_in_place_of_the_shot(tmp_path):
         calls.append((page, name, device, theme))
         assert not page.closed
         if name == "c-result-grouping":
-            assert page.calls[-1] == ("sleep", 600)  # after the last step's wait
+            assert page.calls[-1] == ("evaluate", ui_shots.PAGE_STATE)  # after the last step's settled wait
         if name == "c-home":
             raise ValueError("no metrics here\nmore")
         return {"cls": 0.01}

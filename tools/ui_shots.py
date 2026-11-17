@@ -45,13 +45,23 @@ For a caller that measures the prepared pages instead of shooting them: shoot_al
 records kept as they are made, `on_row` called with each row), pass_context (a pass's browser context, with the caller's options such as
 `bypass_csp`) and shoot_page's `act` (called on the open page in place of the screenshot, its dict in the row).
 
+No fixed sleeps: after a page's load and after each click, script or scroll the tool waits until the page is settled
+(settled: for QUIET_MS in a row no request in flight, no map tile loading and no map moving, no CSS animation, no busy
+spinner, no animation frame or short timer of the page pending or asked for, and the mark of the page's family:
+page_family, PAGE_STATE), at most 30 s after a load and 10 s after a step; a page still busy then is shot all the same
+and noted "not settled" with what was busy (a note, like "map tiles still loading"). After a "wait:" step: two
+animation frames and nothing busy. A "wait:" waits at most 10 s, a page's first-draw mark (FIRST_DRAW: the 3D view's
+ready mark, the estimate's, the result's) 30 s, "c-basic-sea"'s estimate 240 s (SLOW_MARKS: its first "Sea cliffs"
+estimate in a fresh data folder fetches the coastline).
+
 Each saved picture is printed with its seconds; at the end a summary: the set-up's parts, the seconds of each pass
 (a device and a theme), the ten slowest pages, the pages left out with their reasons, every wait that timed out and
-every failed step; `--timings` writes all of it as JSON (a record per page and pass: the seconds of the load, the
-wait after it, the tiles, each step and the shot; the outcome). A "wait:" that timed out once gets a quarter of its
-limit for the rest of the pass; a step that raises (a click that cannot be done: 10 s, a script's error) fails its
-page, and the run goes on; `--strict` stops at the first timeout or failed step. The exit code is 1 when a wait timed
-out or a step failed ("map tiles still loading" is a note only). A page whose later step finds nothing after a wait
+every failed step, the pages not settled; `--timings` writes all of it as JSON (a record per page and pass: the seconds
+of the load, the settled wait after it ("settle"; "tiles" 0, the tiles are in it), each step and the shot; the outcome;
+"unsettled"). A wait that timed out once gets a quarter of its limit for the rest of the pass (a settled wait: per
+family, after a load or a step); a step that raises (a click that cannot be done: 10 s, a script's error) fails its
+page, and the run goes on; `--strict` stops at the first timeout or failed step. The exit code is 1 when a "wait:" timed
+out or a step failed ("not settled" and "map tiles still loading" are notes only). A page whose later step finds nothing after a wait
 timed out is "timed out", not "left out": nobody knows then what the device shows. A whole page too tall for its picture at the
 device's pixel ratio (WebKit's 32767 px: the coverage page on the iPhone) is taken at one pixel per CSS pixel and
 noted ("scale": "css").
@@ -95,10 +105,11 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
 ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
            "l.textContent.trim() === 'Esri World Imagery')?.querySelector('input').click()")
-# The coverage page: a click on an area of the flat view (by its key), and a wait for moving maps and tiles
+# The coverage page: a click on an area of the flat view (by its key)
 COVERAGE_CLICK = "document.querySelector('.cov-shape[data-key=\"{key}\"]').dispatchEvent(new MouseEvent('click', {{bubbles: true}}))"
-SETTLE = "new Promise((done) => setTimeout(done, 2500))"
-ZOOM_OUT = "(window.FINDALINE_PLACE.map.setZoom(5), new Promise((done) => setTimeout(done, 2500)))"
+GLOBE = ".cov-bar .u-seg button:nth-child(3)"  # the globe view: it turns by itself until touched (SPINS)
+# The place map zoomed out (its zoom's animation and tiles: settled)
+ZOOM_OUT = "window.FINDALINE_PLACE.map.setZoom(5)"
 # The section "Anchors" of a result's More filters in view: its terrain line in the middle (the anchors'
 # heights and percentiles around it), else its heading at the top
 ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
@@ -110,16 +121,23 @@ RIGGING_SHOWN = "document.querySelector('.r-lift')?.scrollIntoView({block: 'cent
 # from 768 px up it is hidden and the box is open anyway). A run without uncertain shore (the clip's) has no control:
 # its shore pages are left out (NEEDS before any load; "need:" as the second line of defence), not shot empty after a
 # wait or failed on the chip's click
-SHORE_SHOWN = ["js:(window.FINDALINE_MAP.zoomOut(1, {animate: false}), new Promise((done) => setTimeout(done, 1500)))",
-               "need:document.querySelector('.u-shore-ctl:not([hidden])')"]  # zoomed out: a coast at the area's edge
+# (zoomed out: a coast at the area's edge; the control follows the map's "moveend" at once, shoreLayer.ts, and the
+# tiles are settled)
+SHORE_SHOWN = ["js:window.FINDALINE_MAP.zoomOut(1, {animate: false})",
+               "need:document.querySelector('.u-shore-ctl:not([hidden])')"]
 SHORE_UNFOLD = "document.querySelector('.u-shore-chip')?.click()"
 # What a "need:" step waits for before it tests its expression once: the result's map made (the shore's control is
 # added before it is set: ResultColumns.tsx, KitResult.tsx)
 NEED_READY = "window.FINDALINE_RESULT"
-WAIT_MS = 60000  # how long a "wait:" step waits (a quarter of it in a pass after the expression timed out once)
+# The limits of the waits (the user's choice at gate 2 of 2026-11-17; stage 2 measured every wait but the estimate
+# under 0.1 s after the old fixed 2.5 s, the 3D view's ready mark once 7.7 s under load). A wait that reaches its limit
+# in a pass gets a quarter of it for the rest of the pass (Pass.limit)
+WAIT_MS = 10000  # a "wait:" step (FIRST_DRAW_MS for a page's first-draw mark)
+FIRST_DRAW_MS = 30000  # the first-draw marks (FIRST_DRAW: the 3D view's ready mark, the estimate's, the result's)
+SETTLE_LOAD_MS = 30000  # settled after a page's load (then the page is shot and noted "not settled")
+SETTLE_STEP_MS = 10000  # settled after a step
 CLICK_MS = 10000  # the pages' default timeout (a click; Playwright's own is 30 s)
 LOAD_MS = 30000  # a page's load and its screenshot (Playwright's default, kept)
-TILES_MS = 10000  # the wait for the maps' tiles (then a note, no failure)
 # The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
 PROFILE_IN_VIEW = "document.querySelector('.r-dock .fal-profile-chart')?.scrollIntoView({block: 'center'})"
 # A click at the map's centre on what is there (the cells' canvas: Leaflet finds the cell under it)
@@ -132,8 +150,7 @@ MORE = [ADVANCED, ".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More s
 # The Basic search form (spec-search 1.6): the centre set at the clip's place, so the bar shows the receipt
 POINT = "js:window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
 READY = "wait:document.querySelector('.s-bar')?.dataset.estimate === 'ready'"  # the source and grid in the bar
-SEA_VIEW = "js:(window.FINDALINE_PLACE.map.setView([36.055, 14.20], 14, {animate: false}), " + \
-           "new Promise((done) => setTimeout(done, 1500)))"  # a coast in view (Gozo, Dwejra)
+SEA_VIEW = "js:window.FINDALINE_PLACE.map.setView([36.055, 14.20], 14, {animate: false})"  # a coast in view (Gozo, Dwejra)
 FORM_END = "scroll:.c-form"  # the rig's row at the end of Basic (phones)
 RETURN = ["js:(window.FINDALINE_SEARCH.setValue('pretension', 4), window.FINDALINE_SEARCH.setValue('min_drop', 50))",
           ".s-tabs [data-tab=basic]"]  # two values Basic cannot show, then back to Basic: its dialog
@@ -174,6 +191,11 @@ EDGES_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find(
             "b.textContent.trim() === 'Edges')?.click()")
 EDGES_DRAWN = "wait:document.getElementById('view3d')?.dataset.edges === 'on'"
 VIEW3D = "#run={run}&line={line}"
+# The first-draw marks: a page's first draw waited for (FIRST_DRAW_MS; a page of SLOW_MARKS its own limit)
+FIRST_DRAW = (VIEW3D_READY[5:], READY[5:], NEED_READY)
+# A page whose first-draw marks may take longer: page -> its limit. "c-basic-sea": the first "Sea cliffs" estimate in a
+# fresh data folder fetches the view's coastline from Overpass (about 160 s, then cached in the folder)
+SLOW_MARKS = {"c-basic-sea": 240000}
 # The phone's motion (view3d/views.ts; its button only on touch screens): held upright facing north, then turned
 # 40 degrees right and tilted 10 degrees up: two events with DeviceOrientationEvent's angles (WebKit on Windows
 # cannot construct one)
@@ -271,10 +293,9 @@ PAGES = {
     "page-coverage-card": ("/coverage?lang=en", "", "js:" + COVERAGE_CLICK.format(key="pl"), "visitor"),
     "page-coverage-partly": ("/coverage?lang=en", "", ["js:" + COVERAGE_CLICK.format(key="de")], "visitor"),
     "page-coverage-europe": ("/coverage?lang=en", "", ".cov-zoombar button:nth-child(2)", "visitor"),
-    "page-coverage-leaflet": ("/coverage?lang=en", "", [".cov-bar .u-seg button:nth-child(2)", "js:" + SETTLE,
-                                                        ".cov-zoombar button:nth-child(2)", "js:" + SETTLE], "visitor"),
-    "page-coverage-globe": ("/coverage?lang=en", "", [".cov-bar .u-seg button:nth-child(3)",
-                                                      ".cov-zoombar button:nth-child(2)", "js:" + SETTLE], "visitor"),
+    "page-coverage-leaflet": ("/coverage?lang=en", "", [".cov-bar .u-seg button:nth-child(2)",
+                                                        ".cov-zoombar button:nth-child(2)"], "visitor"),
+    "page-coverage-globe": ("/coverage?lang=en", "", [GLOBE, ".cov-zoombar button:nth-child(2)"], "visitor"),
     "page-coverage-stars": ("/coverage?lang=en", "", [".cov-scale button:nth-child(3)",
                                                       "js:" + COVERAGE_CLICK.format(key="es")], "visitor"),
     "page-coverage-life": ("/coverage?lang=en", "", [".cov-scale button:nth-child(2)",
@@ -348,6 +369,92 @@ LAYER_LAYOUTS = {
 }
 
 INTROS = ("search", "result")  # the intros of ui/Intro.tsx (localStorage "findaline.intro.<name>")
+
+# Settled (settled): a page is shot once, for QUIET_MS in a row, no request is in flight (Requests), no map tile loads,
+# no map moves, no finite CSS animation or transition runs, no busy spinner shows, no animation frame or short timer
+# of the page is pending or was asked for (WATCH), and the page's family (page_family) says it is drawn (PAGE_STATE).
+QUIET_MS = 250  # (trial value)
+POLL_MS = 50  # between two looks at the page
+SHORT_TIMER_MS = 1000  # a page's timer up to this long is waited for (the coverage page's 150 ms remount, debounces)
+EVENTS = "/api/events"  # the event stream: never ends, not a request in flight
+TILES_NOTE = "map tiles still loading"
+# The steps after which the page's animation frames are not waited for: the globe turns by itself until touched
+# (coverage/page/globe.ts); the next step's click stops it
+SPINS = {GLOBE}
+# The page's animation frames and short timers watched (an init script of every page, before the page's own scripts):
+# how many are pending, and how many were asked for (a frame or a timer asked for and run between two looks counts)
+WATCH = """(() => {
+  if (window.__uiShots) return;
+  const s = window.__uiShots = {frames: 0, timers: 0, asked: 0, timed: 0};
+  const frames = new Set(), timers = new Set();
+  const raf = window.requestAnimationFrame, caf = window.cancelAnimationFrame;
+  const st = window.setTimeout, ct = window.clearTimeout;
+  window.requestAnimationFrame = function (fn) {
+    s.asked++;
+    const id = raf.call(window, (t) => { frames.delete(id); s.frames = frames.size; fn(t); });
+    frames.add(id); s.frames = frames.size;
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) { frames.delete(id); s.frames = frames.size; return caf.call(window, id); };
+  window.setTimeout = function (fn, ms, ...rest) {
+    if (typeof fn !== "function" || (Number(ms) || 0) > %d) return st.call(window, fn, ms, ...rest);
+    s.timed++;
+    const id = st.call(window, () => { timers.delete(id); s.timers = timers.size; fn(...rest); }, ms);
+    timers.add(id); s.timers = timers.size;
+    return id;
+  };
+  window.clearTimeout = function (id) { if (timers.delete(id)) s.timers = timers.size; return ct.call(window, id); };
+})();""" % SHORT_TIMER_MS
+# What is still busy in the page (a list of words, empty when nothing is) and the counts of frames and timers asked
+# for. The families' marks: "result" window.FINDALINE_RESULT (ResultColumns.tsx, KitResult.tsx) and with a line in
+# the address its profile's chart; "view-b" window.FINDALINE_VIEW (the result view of line-volume round 4, set after its
+# first full draw); "search" the bar's estimate neither waiting nor loading (search/useSearch.ts; its 800 ms debounce
+# is a short timer too); "layer" the histograms not waiting and the total not "Counting…" (LayerPage.tsx,
+# LayerHistograms.tsx); "coverage" its status gone (coverage/page/CoveragePage.tsx); "view3d" the activity's pill
+# hidden or a notice (view3d/main.ts, as VIEW3D_READY); "home" no "Loading…" (Home.tsx, FavouritesPage.tsx, Trip.tsx),
+# no mini map loading in view (Thumb.tsx: its tiles are SVG images, requests), the OSM page's list or its error
+# (OsmC.tsx); "static" nothing of its own
+PAGE_STATE = """({family, line, frames}) => {
+  const busy = [], s = window.__uiShots || {frames: 0, timers: 0, asked: 0, timed: 0};
+  const has = (sel) => !!document.querySelector(sel);
+  const shows = (e) => e.checkVisibility({visibilityProperty: true});
+  const inView = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && r.top < innerHeight; };
+  if (document.readyState !== "complete") busy.push("the page loading");
+  if (has(".leaflet-tile:not(.leaflet-tile-loaded)")) busy.push("%s");
+  if (has(".leaflet-zoom-anim, .leaflet-pan-anim")) busy.push("a map moving");
+  for (const a of document.getAnimations()) {
+    if (a.playState !== "running" && !a.pending) continue;
+    if (a.effect?.getComputedTiming().endTime !== Infinity) { busy.push("an animation"); break; }
+    const target = a.effect.target;
+    if (target && shows(target)) { busy.push("a spinner"); break; }
+  }
+  if (frames && s.frames) busy.push("animation frames");
+  if (s.timers) busy.push("short timers");
+  if (family === "result") {
+    if (!window.FINDALINE_RESULT) busy.push("the result not drawn");
+    if (line && !has(".r-dock .fal-profile-chart")) busy.push("the profile not drawn");
+  } else if (family === "view-b") {
+    if (!window.FINDALINE_VIEW) busy.push("the result view not drawn");
+  } else if (family === "search") {
+    const bar = document.querySelector(".s-bar");
+    if (!bar) busy.push("no estimate bar");
+    else if (bar.dataset.estimate === "waiting" || bar.dataset.estimate === "loading") busy.push("the estimate");
+  } else if (family === "layer") {
+    if (has(".c-layer-right.c-layer-waiting") || has(".c-layer-total > span.u-small")) busy.push("the layer counting");
+  } else if (family === "coverage") {
+    if (has(".cov-status")) busy.push("the coverage loading");
+  } else if (family === "view3d") {
+    const pill = document.querySelector(".v3-activity");
+    if (pill && !pill.classList.contains("v3-hidden") && !pill.classList.contains("v3-activity-notice")) busy.push("the 3D view's activity");
+  } else if (family === "home") {
+    if ([...document.querySelectorAll("p.u-small")].some((p) => p.textContent === "Loading…")) busy.push("Loading…");
+    if ([...document.querySelectorAll(".c-thumb[data-thumb=loading]")].some(inView)) busy.push("a mini map loading");
+    const osm = document.querySelector(".c-osm");
+    if (osm && !osm.querySelector(".c-error") && osm.lastElementChild?.tagName === "H2") busy.push("the regions list");
+  }
+  return {busy, asked: frames ? s.asked : 0, timed: s.timed};
+}""" % TILES_NOTE
+TWO_FRAMES = "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))"
 
 DESKTOP = {"viewport": {"width": 1400, "height": 900}, "device_scale_factor": 1}
 DEVICES = {"desktop": ("chromium", None), "iphone": ("webkit", "iPhone 13"), "pixel": ("chromium", "Pixel 7")}
@@ -733,16 +840,124 @@ def page_url(site: dict, ui: str, hash_: str) -> str:
     return f"{site['url']}{start}{hash_.format(run=site['run'], line=site['line'], also=site['also'], border=site['border'])}"
 
 
+def page_family(name: str) -> str:
+    """The family of a page, from its interface and hash: what says it is drawn (PAGE_STATE). The result view of
+    line-volume round 4 (a table VIEWS beside LAYOUTS) is to be "view-b" here."""
+    ui, hash_ = PAGES[name][:2]
+    if ui.startswith("/view3d"):  # also "/view3d?level=..."
+        return "view3d"
+    if ui.startswith("/coverage"):
+        return "coverage"
+    if ui.startswith("/"):  # sign-in, privacy, about: the load event
+        return "static"
+    if ui in ("map", "shared") or hash_.startswith("#run="):
+        return "result"
+    if hash_.startswith("#new"):
+        return "search"
+    if hash_.startswith("#layer") or hash_ == "{border}":
+        return "layer"
+    return "home"  # Home, the menu, the account, favourites, Admin, OSM
+
+
+class Requests:
+    """A page's requests in flight, from Playwright's page events (the event stream EVENTS ignored: it never ends; the
+    page's document too);
+    `started` counts every request begun, so one that starts and ends between two looks is seen."""
+
+    def __init__(self, page):
+        self.flying, self.started = set(), 0
+        page.on("request", self.start)
+        page.on("requestfinished", self.end)
+        page.on("requestfailed", self.end)
+
+    def start(self, request):
+        # the page's own document: the load waits for it, and WebKit never reports its end
+        if EVENTS in request.url or request.is_navigation_request():
+            return
+        self.flying.add(request)
+        self.started += 1
+
+    def end(self, request):
+        self.flying.discard(request)
+
+    def words(self) -> list:
+        """The requests in flight for a note: their addresses without the query (no key or token in a log)."""
+        return sorted({r.url.split("?")[0] for r in self.flying})[:3]
+
+
+def settled(page, family: str, limit_ms: int, quiet_ms: int = QUIET_MS, requests: Requests | None = None,
+            line: bool = False, frames: bool = True) -> list:
+    """Wait until the page is settled (QUIET_MS in a row with nothing busy: PAGE_STATE of its family, `requests`
+    none in flight and none begun, no animation frame or short timer asked for, the frames not with `frames` False);
+    at most `limit_ms`. [] when it settled, else what was still busy at the limit. A look every POLL_MS (the page's
+    wait_for_timeout: Playwright's events of the requests come in during it)."""
+    began = time.perf_counter()
+    quiet_since, last = None, None
+    while True:
+        state = page.evaluate(PAGE_STATE, {"family": family, "line": line, "frames": frames})
+        now = time.perf_counter()
+        busy = list(state["busy"])
+        if requests is not None and requests.flying:
+            busy.append("requests in flight (" + ", ".join(requests.words()) + ")")
+        counts = (state["asked"], state["timed"], requests.started if requests is not None else 0)
+        if busy or (last is not None and counts != last):
+            quiet_since = None
+        elif quiet_since is None:
+            quiet_since = now
+        last = counts
+        if quiet_since is not None and now - quiet_since >= quiet_ms / 1000:
+            return []
+        if now - began >= limit_ms / 1000:
+            return busy or ["frames, timers or requests begun"]
+        page.wait_for_timeout(POLL_MS)
+
+
+class Watch:
+    """What settles one page (shoot_page): its family, whether its address names a line, its requests; each wait
+    that ends at its limit is noted in the row ("unsettled": after what, what was busy; the tiles also as
+    "tiles_loading") and gets a quarter of its limit for the rest of the pass."""
+
+    def __init__(self, page, name: str, state: "Pass", row: dict, label: str):
+        self.page, self.name, self.state, self.row, self.label = page, name, state, row, label
+        self.family, self.line = page_family(name), "&line=" in PAGES[name][1]
+        self.requests = Requests(page)
+
+    def settle(self, after: str, load: bool = False, frames: bool = True, quiet_ms: int | None = None):
+        key = f"settled ({self.family}) after " + ("the load" if load else "a step")
+        busy = settled(self.page, self.family, self.state.limit(key), QUIET_MS if quiet_ms is None else quiet_ms,
+                       self.requests, self.line, frames)
+        if busy:
+            self.state.timed_out.add(key)
+            self.row["unsettled"].append({"after": after, "busy": busy})
+            self.row["tiles_loading"] = self.row["tiles_loading"] or TILES_NOTE in busy
+            print(f"{self.label}: not settled after {short(after, 60)}: {', '.join(busy)}")
+
+    def after_wait(self, step: str):
+        """After a "wait:" or "need:" step: no quiet time (the step proved the state), two animation frames (a frame
+        the state asked for is drawn: the 3D view's flags), then nothing busy."""
+        self.page.evaluate(TWO_FRAMES)
+        self.settle(step, quiet_ms=0)
+
+
 class Pass:
-    """One pass of the pages (a device and a theme): the "wait:" expressions that timed out in it (their later
-    waits in the pass get a quarter of WAIT_MS) and whether a timeout or a failed step stops the run (--strict)."""
+    """One pass of the pages (a device and a theme): the waits that timed out in it (their later waits in the pass
+    get a quarter of their limit) and whether a timeout or a failed step stops the run (--strict)."""
 
     def __init__(self, device: str, theme: str, strict: bool = False):
         self.device, self.theme, self.strict = device, theme, strict
         self.timed_out = set()
 
-    def limit(self, expression: str) -> int:
-        return WAIT_MS // 4 if expression in self.timed_out else WAIT_MS
+    def limit(self, expression: str, page: str | None = None) -> int:
+        """The limit of a wait for `expression` on `page` (ms): WAIT_MS, FIRST_DRAW_MS for the first-draw marks
+        (SLOW_MARKS' for its pages), the settled waits' (Watch's keys) SETTLE_LOAD_MS or SETTLE_STEP_MS; a quarter
+        after the expression's first timeout in the pass."""
+        if expression.startswith("settled ("):
+            base = SETTLE_LOAD_MS if expression.endswith("the load") else SETTLE_STEP_MS
+        elif expression in FIRST_DRAW:
+            base = SLOW_MARKS.get(page, FIRST_DRAW_MS)
+        else:
+            base = WAIT_MS
+        return base // 4 if expression in self.timed_out else base
 
 
 def error_line(error: BaseException) -> str:
@@ -761,7 +976,7 @@ def wait_until(page, expression: str, state: Pass, label: str, row: dict) -> boo
     timeout is printed, kept in `row["timeouts"]` and shortens the expression's later waits in the pass. Another
     error (the expression raised) goes on to the caller."""
     try:  # a function: an expression would need eval, which the CSP forbids
-        page.wait_for_function(f"() => ({expression})", timeout=state.limit(expression))
+        page.wait_for_function(f"() => ({expression})", timeout=state.limit(expression, row.get("page")))
         return True
     except Exception as error:
         if type(error).__name__ != "TimeoutError":  # playwright.sync_api.TimeoutError (not imported here)
@@ -772,22 +987,28 @@ def wait_until(page, expression: str, state: Pass, label: str, row: dict) -> boo
     return False
 
 
-def run_step(page, step: str, label: str, state: Pass, row: dict) -> str | None:
+def run_step(page, step: str, label: str, state: Pass, row: dict, watch: Watch | None = None) -> str | None:
     """One step of a page (PAGES' actions) on a Playwright page: "missing" when the page is left out (a click
     finds nothing to click, a "need:" is false; the reason in `row`), "timeout" when a wait timed out, else None.
-    What the page raises (a click Playwright cannot do, a script's error) goes on to the caller."""
+    After it the page is settled (`watch`: after a click, a script or a scroll the quiet time; after a wait two
+    frames and nothing busy; none without a watch). What the page raises (a click Playwright cannot do, a script's
+    error) goes on to the caller."""
+    def settle(**kwargs):
+        if watch is not None:
+            watch.settle(step, **kwargs)
     if step.startswith("scroll:"):
         page.evaluate("(sel) => { const e = document.querySelector(sel) || "
                       "document.scrollingElement; e.scrollTop = e.scrollHeight; }", step[7:])
-        page.wait_for_timeout(400)
+        settle()
         return None
     if step.startswith("js:"):
         page.evaluate(step[3:])
-        page.wait_for_timeout(600)
+        settle()
         return None
     if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
         came = wait_until(page, step[5:], state, label, row)
-        page.wait_for_timeout(600)
+        if watch is not None:
+            watch.after_wait(step)
         return None if came else "timeout"
     if step.startswith("need:"):  # what the page shows, absent in this run: no page
         ready = wait_until(page, NEED_READY, state, label, row)  # the result drawn, then the expression once
@@ -795,7 +1016,8 @@ def run_step(page, step: str, label: str, state: Pass, row: dict) -> str | None:
             print(f"{label}: left out, this run does not have {step[5:]}")
             row["reason"] = f"the run does not have {step[5:]}"
             return "missing"
-        page.wait_for_timeout(600)
+        if watch is not None:
+            watch.after_wait(step)
         return None if ready else "timeout"
     if step.startswith("low:"):  # the last one, at the bottom of its panel
         page.evaluate(LOWEST, step[4:])
@@ -807,7 +1029,7 @@ def run_step(page, step: str, label: str, state: Pass, row: dict) -> str | None:
     if step != "[data-shot-low]":
         target.scroll_into_view_if_needed()
     target.click()
-    page.wait_for_timeout(600)
+    settle(frames=step not in SPINS)
     return None
 
 
@@ -816,8 +1038,8 @@ TOO_LARGE = "Cannot take screenshot larger than"  # Playwright's error for a pic
 
 def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str | None, state: Pass,
                act=None) -> dict:
-    """One page from its load to its screenshot in a browser context: its record (seconds of the load, the wait
-    after it, the tiles' wait, each step and the shot; the outcome "saved", "left out" (on this device: a click
+    """One page from its load to its screenshot in a browser context: its record (seconds of the load, the settled
+    wait after it, each step and the shot; the waits not settled; the outcome "saved", "left out" (on this device: a click
     finds nothing, or a "need:" is false), "timed out" (a wait timed out: the picture saved all the same, but not
     with --strict, and not when a later step then finds nothing: after a timeout that is no "left out", the reason
     kept) or "failed" (a step, the load or the shot raised: no picture); the picture's path; "scale":
@@ -828,7 +1050,7 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
     ui, hash_, steps, *who = PAGES[name]
     row = {"page": name, "device": device, "theme": theme, "outcome": None, "reason": None, "path": None,
            "load": None, "settle": None, "tiles": None, "tiles_loading": False, "steps": [], "shot": None,
-           "seconds": None, "timeouts": [], "error": None}
+           "seconds": None, "timeouts": [], "error": None, "unsettled": []}
     label = f"{name} ({device})"
     began = time.perf_counter()
     page = None
@@ -843,18 +1065,17 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
         page.set_default_timeout(CLICK_MS)
         page.set_default_navigation_timeout(LOAD_MS)
         page.add_init_script(page_storage(name))
+        page.add_init_script(WATCH)
+        watch = Watch(page, name, state, row, label)
         start = time.perf_counter()
         page.goto(page_url(site, ui, hash_))
         row["load"], start = time.perf_counter() - start, time.perf_counter()
-        page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
-        row["settle"], start = time.perf_counter() - start, time.perf_counter()
-        try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
-            page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",
-                                   timeout=TILES_MS)
-        except Exception:
-            print(f"{label}: map tiles still loading")
-            row["tiles_loading"] = True
-        row["tiles"] = time.perf_counter() - start
+        # settled (the event stream stays open: no "network idle"); the maps' tiles are part of it (OpenTopoMap can be
+        # slow: an empty map is no finding, TILES_NOTE a note), so "tiles" stays 0. The 3D view: its first step waits
+        # for its ready mark (FIRST_DRAW_MS), then it is settled
+        if watch.family != "view3d":
+            watch.settle("the load", load=True)
+        row["settle"], row["tiles"] = time.perf_counter() - start, 0.0
         full = False
         for step in page_steps(steps):
             if step == "full":
@@ -862,7 +1083,7 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
                 continue
             start = time.perf_counter()
             try:
-                result = run_step(page, step, label, state, row)
+                result = run_step(page, step, label, state, row, watch)
             except Exception as error:
                 row["steps"].append({"step": step, "seconds": time.perf_counter() - start, "outcome": "failed"})
                 row["outcome"], row["error"] = "failed", error_line(error)
@@ -953,6 +1174,11 @@ def summary(times: dict, passes: list, rows: list, dropped: dict, total: float) 
     if any(r["tiles_loading"] for r in rows):
         lines.append("Map tiles still loading (a note): " + ", ".join(
             f"{r['page']} ({r['device']} {r['theme']})" for r in rows if r["tiles_loading"]))
+    unsettled = [(r, u) for r in rows for u in r.get("unsettled") or []]
+    if unsettled:
+        lines.append("Not settled, shot at the limit (a note): " + "; ".join(
+            f"{r['page']} ({r['device']} {r['theme']}) after {short(u['after'], 60)}: {', '.join(u['busy'])}"
+            for r, u in unsettled))
     return lines
 
 
