@@ -23,9 +23,11 @@ export RUN --format csv|geojson` (export_main) writes a run's lines as text from
 """
 
 import gc
+import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
+from urllib.parse import quote
 
 import cache
 import mapping as mp
@@ -189,6 +191,85 @@ def export_main(argv: List[str]) -> int:
     return 0
 
 
+def _run_folder(run: str, data_dir: str) -> str:
+    """The folder of a run of `findaline.py view`: a run folder (its data folder must hold it in runs/), a run id
+    of the data folder, or "" for the newest run there; ends with a message when there is none."""
+    runs_dir = os.path.join(data_dir, "runs")
+    if not run:
+        listed = rn.list_runs(runs_dir)
+        if not listed:
+            sys.exit(f"No run in {runs_dir}")
+        return os.path.join(runs_dir, listed[0]["id"])
+    if os.path.isfile(os.path.join(run, "run.json")):
+        folder = os.path.abspath(run)
+        if os.path.basename(os.path.dirname(folder)) != "runs":
+            sys.exit(f"view opens the runs of a data folder (<data>/runs/<id>); {folder} is not in one")
+        return folder
+    folder = os.path.join(runs_dir, run)
+    if os.path.basename(run) != run or not os.path.isfile(os.path.join(folder, "run.json")):
+        sys.exit(f"No run {run}: give a run folder or the id of a run in {runs_dir}")
+    return folder
+
+
+def app_holds(port: int, folder: str) -> Optional[bool]:
+    """Whether the app on `port` of this computer holds the run `folder`: None when nothing listens there, True
+    when the app's runs folder serves this run's run.json (the local app serves its runs folder as files: the same
+    id and time say the same data folder), False for any other answer (another data folder, the public site,
+    another program)."""
+    import socket
+
+    import requests
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(2)
+        if probe.connect_ex(("127.0.0.1", port)) != 0:
+            return None
+    with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
+        mine = json.load(f)
+    session = requests.Session()
+    session.trust_env = False  # no proxy for this computer's own port
+    try:
+        answer = session.get(f"http://127.0.0.1:{port}/runs/{quote(mine['id'])}/run.json", timeout=2)
+        theirs = answer.json() if answer.status_code == 200 else {}
+    except (requests.RequestException, ValueError):
+        return False
+    return isinstance(theirs, dict) and theirs.get("id") == mine["id"] and theirs.get("created") == mine["created"]
+
+
+def view_main(argv: List[str]) -> int:
+    """`findaline.py view [RUN] [--port N] [--data-dir DIR] [--no-browser]`: open a run in the app
+    (docs/line-volume/spec-store.md 1.2): the app on the port when it holds the run, else the app started here as
+    `findaline.py web` runs it (it keeps running; Ctrl+C stops it), the browser at /#run=<id>. An app on the port
+    that does not hold the run (another data folder, another program) ends with a message: never a second app."""
+    import argparse
+    import webbrowser
+
+    import web
+    parser = argparse.ArgumentParser(prog="findaline.py view", description="Open a run in Find-a-Line.")
+    parser.add_argument("run", metavar="RUN", nargs="?", default="",
+                        help="a run folder, or the id of a run in the data folder (default: the newest run)")
+    parser.add_argument("--port", type=int, default=web.PORT, help=f"the app's port (default {web.PORT})")
+    parser.add_argument("--data-dir", help="the data folder (default: FINDALINE_DATA, else the folder of the script)")
+    parser.add_argument("--no-browser", action="store_true", help="print the address, do not open the browser")
+    args = parser.parse_args(argv)
+    data = cache.data_dir(args.data_dir)
+    folder = _run_folder(args.run, data)
+    data = os.path.dirname(os.path.dirname(folder))
+    run_id = os.path.basename(folder)
+    path = f"/#run={quote(run_id)}"
+    held = app_holds(args.port, folder)
+    if held is False:
+        sys.exit(f"Port {args.port} answers, but not with this run: another Find-a-Line (another data folder) or "
+                 f"another program. Stop it, or use --port.")
+    if held is None:  # nothing there: the app, here, as findaline.py web runs it
+        return web.main(["--port", str(args.port), "--data-dir", data] + (["--no-browser"] if args.no_browser else []),
+                        open_path=path)
+    url = f"http://127.0.0.1:{args.port}{path}"
+    print(f"The run in Find-a-Line: {url}")
+    if not args.no_browser:
+        webbrowser.open(url)
+    return 0
+
+
 if __name__ == "__main__":
     utf8_output()  # output redirected to a file gets the Windows code page, which has no "²" and the like
     if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
@@ -205,6 +286,8 @@ if __name__ == "__main__":
         sys.exit(country.main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "export":
         sys.exit(export_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "view":
+        sys.exit(view_main(sys.argv[2:]))
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []
