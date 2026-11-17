@@ -40,6 +40,14 @@ export function keepScaleAboveAttribution(map: HTMLElement) {
   observer.observe(map);
   const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
   if (attribution) observer.observe(attribution);
+  observeScale(observer, map);
+}
+
+/** The scale's corner observed too: the scale's width follows the zoom, and with it whether the credits run under it
+ *  (its `style.bottom`, which this module sets, does not change its size: no loop). */
+function observeScale(observer: ResizeObserver, map: HTMLElement) {
+  const scale = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left");
+  if (scale) observer.observe(scale);
 }
 
 /** Keeps the corners of the map in `mapBox` above the `.u-sheet` in `root` while `on`. */
@@ -58,6 +66,7 @@ export function useCornersAboveSheet(root: Box, mapBox: Box, on: boolean) {
     // the attribution grows when its data credits unfold, and the scale above it moves up
     const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
     if (attribution) observer.observe(attribution);
+    observeScale(observer, map);
     return () => { observer.disconnect(); place(map, 0); };
   }, [on]);
 }
@@ -106,6 +115,7 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
     const sizes = new ResizeObserver(update), styles = new MutationObserver(update);
     sizes.observe(map);
     if (attribution) sizes.observe(attribution);  // its data credits unfold
+    observeScale(sizes, map);
     // The card is added and removed (a selection, the profile closed): a child of its parent
     const children = holder.matches(".r-card") ? null : new MutationObserver(update);
     children?.observe(holder, {childList: true});
