@@ -14,12 +14,17 @@ The frame makes rounds comparable: the same scores and checks every time.
   touches, `tools/ui_walks.py` for the walks it touches).
 - The source of the changed screens where a state is not pictured. Never the worker's report.
 
+When the reviewer runs a measuring tool or the screenshot tool itself, it does so as every agent does
+(docs/workflow.md): through the test lock, browsers started from PowerShell, the service keys removed from the
+command's environment.
+
 ## The frame
 
 **1. Ten usability heuristics** (Nielsen's ten), each scored 0 to 4: 0 missing or blocking, 1 a major problem,
 2 works with clear problems, 3 good with small problems, 4 nothing to improve; "n/a" where the change does not touch
-it. One line of reason each, with a screenshot's name or a file and line. The total (of 40) is compared with the
-last round's, not with a band.
+it. One line of reason each, with a screenshot's name or a file and line. The total is written over the heuristics
+scored, with the "n/a" ones named: "27 of 36 (n/a: 9, 10)". It is compared with the last round's total of the same
+screen, not with a band; a screen's first round compares with nothing: it is the baseline.
 
 | # | Heuristic | What to look for in this app |
 | --- | --- | --- |
@@ -58,7 +63,8 @@ reported, with every decision point that shows more than four choices at once (s
 
 `local/<task>-<date>/<agent>/design-review.md`:
 1. The rules in force that the change touches, one row each: met / partly / not met / not checkable, with the
-   number (before and after) or the screenshot as evidence.
+   number (before and after) or the screenshot as evidence; then one line naming the rules in force it judged
+   untouched.
 2. The ten scores, the eight checks with the decision points, the two walks and the keyboard pass.
 3. What the numbers say got better and what got worse.
 4. Findings, most important first, each marked **blocks a task**, **should be fixed** or **polish**, with its
