@@ -1750,7 +1750,7 @@ STEADY_JS = """async () => { const card = document.querySelector('.r-card'), hov
     const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout *')]
       .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
                      && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim());
-    const text = card.querySelector('.fal-readout-text'), readout = card.querySelector('.fal-profile-readout');
+    const readout = card.querySelector('.fal-profile-readout'), text = readout.querySelector('.fal-readout-text') || readout;
     out.push({at, card: box(card), chart: box(card.querySelector('.fal-profile-chart')), readout: box(readout),
               inside: text.getBoundingClientRect().bottom <= readout.getBoundingClientRect().bottom + 1, cut,
               text: text.textContent.slice(0, 40)});
