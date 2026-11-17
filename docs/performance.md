@@ -4059,7 +4059,26 @@ So 10 000: the goal case's 8 269 spots stay as specified.
 | KOB (target rig) | 605 729 | 0.34 s | 0.35 / 0.34 s | 62.4 → 67.8 MB | 29.2 → 31.9 MB |
 | BAH (target rig) | 2 010 351 | 1.10 s | 1.23 / 1.25 s | 205.1 → 223.2 MB (+9.0 B a line) | 88.3 → 97.8 MB (+4.7 B a line) |
 
-`top` on that BAH table: 1 418 889 of 2 010 351 lines (70.6 %).
+`top` on that BAH table: 1 418 889 of 2 010 351 lines (70.6 %). On BAH in the target rig with the square rule at 5
+(43 127 kept lines, 607 spots): 37 162 (86.2 %), equal to `tools/prune_study.py`'s `higher_wins` on the run's own
+table (0 lines differ).
+
+### Saving and the process tree, before and after (exclusive)
+`tools/perf_slot_memory.py --cores 7 --memory 4947666090 --uss`, one search at a time under `--exclusive`, `main`
+ee67bd1 against the branch (its tool hooks `mapping.view_columns`), both in the target rig with `--same-line-square
+5`. Saving: from step 5's first event to the search's end.
+
+| Case (kept lines, spots) | Saving before → after | `view_columns` | `linestore.write` | Tree's peak RSS (where) | USS + hand-over, the `LINE_BYTES` measure (where) |
+|---|---|---:|---:|---|---|
+| BAH (43 127, 607) | 2.24 → 3.32 s | 0.42 s | 0.03 s | 489 → 457 MB (step 3) | 358 → 337 MB (steps 2-3) |
+| the Gozo coast (503 651, 8 269) | 5.04 → 5.88 s | 0.95 s | 0.39 → 0.40 s | 2 928 → 2 932 MB (step 1) | 943 → 1 070 MB (step 2 → `view_columns`) |
+
+On the Gozo coast `view_columns` is now the highest point of the unique sets: while it runs the search's process
+holds 1 157 MB (working set) and the tree 1 070 MB of USS, against 663 and 583 MB during `linestore.write` (+494 and
++487 MB); Ward's clustering of its 8 269 spots alone needs about
+8 B × 8 269² = 547 MB. The tree's peak (step 1's grids) does not move. `memory_needed` counts 900 B a line and no
+term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed, not
+changed).
 
 ### The input's row order (spec-store.md 1.10's open check)
 On KOB and BAH (above), the same lines in a random order and in the order of `by_spot`: the same groups and
