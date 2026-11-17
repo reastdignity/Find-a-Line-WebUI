@@ -41,7 +41,7 @@
 .ui .vl-sw { width: 10px; }
 /* a pick: its name on a line of its own, above the same numbers as every row */
 .ui .vl-pick > .vl-main { row-gap: 1px; padding-block: 5px; }
-.ui .vl-pick .vl-sh { grid-column: 1; grid-row: 1 / 3; }
+.ui .vl-pick .v-sh { grid-column: 1; grid-row: 1 / 3; }
 .ui .vl-pick .vl-sw { grid-column: 2; grid-row: 1 / 3; }
 .ui .vl-lab { grid-column: 3 / -1; grid-row: 1; color: var(--ink-2); font-size: 13px; line-height: 1.2; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
@@ -51,10 +51,8 @@
 .ui .vl-door:hover { background: var(--line); color: var(--ink); }
 @media (pointer: coarse) { .ui .vl-main { min-height: 46px; } .ui .vl-door { width: 40px; height: 40px; } }
 
-/* the marks of the map in rows: a box (B), a diamond (P), a six-sided tag (L), a circle (A) */
-.ui .vl-sh { display: block; width: 40px; height: 24px; flex: none; overflow: visible; }
-.ui .vl-sh path, .ui .vl-sh circle { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }
-.ui .vl-sh text { fill: var(--ink); font: 600 11.5px var(--font); text-anchor: middle; dominant-baseline: central; }
+/* the marks of the map in rows are the map's own (Shape.tsx, mapbar.css .v-sh) */
+.ui .vl-main .v-sh { display: block; }
 
 /* ---- the tree of sectors ---- */
 .ui .vl-sec { border-top: 1px solid var(--line); }
@@ -119,8 +117,7 @@
   color: var(--ink-2); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); padding: 0; flex: none; }
 .ui .vl-hint-open:hover { background: var(--surface-2); }
 /* on a phone: the sheet's first line */
-.ui .vl-sheet-head { display: flex; flex-direction: column; gap: 6px; }
-.ui .vl-sheet-head .vl-hint { display: flex; justify-content: space-between; padding-left: 10px; box-shadow: none; background: var(--bg); }
+.ui .vl-hint.vl-hint-sheet { display: flex; justify-content: space-between; padding-left: 10px; box-shadow: none; background: var(--bg); }
 .ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ui .vl-sheet-row h3 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: .01em; }
 .ui .vl-sheet-row .vl-count { flex: 1; min-width: 0; }

@@ -7,10 +7,10 @@
 // from here" is open its panel stands here instead (FanPanel). Not here yet (they join with today's other features,
 // step 3c): "Open spot", the star, the profile, the 3D view, the line's links.
 //
-// This file also holds what stands in the frame's slots (SPOT_PANELS): the list, these details, the table of spots,
-// the hint, and a phone's sheet head (the hint as the sheet's first line, then what is open: the title of "Lines
-// from here" with "Close", the spot's title with ×, or the headline; the buttons of a head work while the sheet is
-// at its lowest, where its body is cut off).
+// This file also holds what stands in the frame's slots (SLOTS, which SpotPanels.tsx PANELS calls): the list, these
+// details, the table of spots, the hint, and a phone's sheet head (what is open: the title of "Lines from here"
+// with "Close", the spot's title with ×, or the headline; the buttons of a head work while the sheet is at its
+// lowest, where its body is cut off).
 
 import { Fragment } from "preact";
 import { useEffect, useRef } from "preact/hooks";
@@ -23,11 +23,11 @@ import { clearanceText, isTight, tightLine } from "../../tight";
 import type { SpotView } from "../spots";
 import { count, cx, num } from "./common";
 import { FanHead, FanPanel } from "./FanPanel";
-import { Hint, HintLine, HintOpen } from "./Hint";
+import { Hint } from "./Hint";
 import { AccessBlock, lineFacts } from "./LineDetails";
 import { SpotChooser } from "./SpotChooser";
 import { SpotList, useViewPanels } from "./SpotList";
-import type { ChooserProps, PanelProps, SpotPanels } from "./SpotPanels";
+import type { ChooserProps, PanelProps } from "./SpotPanels";
 import { SpotCount } from "./SpotSummary";
 
 /** "Spot 7.1 · 104 lines" (the spot's passing lines), the selected line's two access marks, and ×. */
@@ -101,21 +101,18 @@ function Details(p: PanelProps) {
   return wide ? <p class="c-pick vl-empty"><Icon name="info" />{t("ui.view.empty")}</p> : null;
 }
 
-/** A phone's sheet head: the hint as the sheet's first line, then the head of what is open, or the headline (with
- *  the hint's "?" while the hint is hidden). */
+/** A phone's sheet head: the head of what is open ("Lines from here" with "Close", the spot with its ×), else the
+ *  headline. */
 function SheetHead({view}: PanelProps) {
   useViewPanels(view);
-  return <div class="vl-sheet-head">
-    <HintLine view={view} wide={false} />
-    <div class="vl-sheet-row">
-      {view.fan ? <FanHead view={view} /> : view.selected ? <SpotHead view={view} /> : <SpotCount view={view} />}
-      <HintOpen view={view} />
-    </div>
+  return <div class="vl-sheet-row">
+    {view.fan ? <FanHead view={view} /> : view.selected ? <SpotHead view={view} /> : <SpotCount view={view} />}
   </div>;
 }
 
-/** What stands in the frame's slots (SpotPanels.tsx PANELS). */
-export const SPOT_PANELS: SpotPanels = {
+/** What stands in the frame's slots (SpotPanels.tsx PANELS takes them: its entries call these when the frame
+ *  draws, so the two files may import each other). */
+export const SLOTS = {
   list: (p: PanelProps) => <SpotList {...p} />,
   details: (p: PanelProps) => <Details {...p} />,
   sheetHead: (p: PanelProps) => <SheetHead {...p} />,

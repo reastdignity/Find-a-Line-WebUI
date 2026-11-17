@@ -12,8 +12,9 @@
 // the run's columns (SpotView.values, the columns' `at`): no Line is made for a row. A row's values carry their
 // columns' names for a screen reader (the headings above are hidden from it).
 //
-// This file also holds the pieces the view's other panels share: the marks' shapes (Shape), a row's cells (Cells),
-// metres and the hook that follows a view and its panel state (useViewPanels). Styles in view.css (classes vl-*).
+// This file also holds the pieces the view's other panels share: a row's cells (Cells), metres and the hook that
+// follows a view and its panel state (useViewPanels); the marks' shapes are the map's (Shape.tsx). Styles in
+// view.css (classes vl-*).
 
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -25,7 +26,8 @@ import type { SpotMap } from "../SpotMap";
 import type { Best, Pick as SpotPick, SectorRow, SpotView, ViewSort } from "../spots";
 import { BEST_ROWS } from "../viewgeom";
 import { count, cx, Swatch, TightKey, TightMark } from "./common";
-import { useSpotView, type PanelProps } from "./SpotPanels";
+import { Shape } from "./Shape";
+import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
 import { ViewFilters, ViewMoreFilters } from "./ViewFilters";
 import { changePanels, follow, isOpen, MORE, PAGE, panelState, sortBy, SORTS, watchPanels } from "./viewstate";
@@ -36,27 +38,17 @@ const DOOR = false;
 
 /** Draw the component again after every change of the view, of its model and of its panels' state. */
 export function useViewPanels(view: SpotView) {
-  useSpotView(view);
   const [, setTick] = useState(0);
-  useEffect(() => watchPanels(view, () => setTick((n) => n + 1)), [view]);
+  useEffect(() => {
+    const redraw = () => setTick((n) => n + 1);
+    const stops = [view.subscribe(redraw), watchPanels(view, redraw)];
+    return () => stops.forEach((stop) => stop());
+  }, [view]);
 }
 
 /** Metres as the view writes them: "120 m" (a no-break space), "–" when not known. */
 export function metres(v: number | null | undefined, digits = 0): string {
   return typeof v === "number" && Number.isFinite(v) ? t("ui.view.metres", {v: v.toFixed(digits)}) : "–";
-}
-
-const SHAPES: Record<string, ComponentChildren> = {
-  B: <path d="M6 2h28a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4z" />,
-  P: <path d="M20 1.2 38.8 12 20 22.8 1.2 12z" />,
-  L: <path d="M8 2h24l6.8 10L32 22H8L1.2 12z" />,
-  A: <circle cx="20" cy="12" r="10.6" />,
-};
-
-/** A mark as it is on the map (a box B, a diamond P, a six-sided tag L, a circle A) with its text inside. */
-export function Shape({text}: {text: string}) {
-  return <svg class="vl-sh" viewBox="0 0 40 24" role="img" aria-label={text} data-kind={text[0]}>
-    {SHAPES[text[0]]}<text x="20" y="12.5">{text}</text></svg>;
 }
 
 /** A value of a row with its column's name for a screen reader. */

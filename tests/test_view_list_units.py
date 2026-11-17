@@ -42,8 +42,8 @@ def made_path(run, tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def bundle(tmp_path_factory):
-    """The panels' modules bundled for Node (their styles left out; SpotDetails is not among them: it needs
-    Leaflet, which needs a window)."""
+    """The panels' modules bundled for Node (their styles left out; the slots' file SpotDetails.tsx is not among them:
+    it needs Leaflet and today's details, which need a window)."""
     folder = tmp_path_factory.mktemp("list-bundle")
     src = os.path.join(VIEWER, "src").replace("\\", "/")
     entry = folder / "entry.ts"

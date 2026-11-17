@@ -3,7 +3,8 @@
 // lines from that point" with a finger or a pen and always in the phone layout; before any press the word follows
 // the device (pointer: coarse). Its × hides it and leaves a round "?" that shows it again; the choice is kept in the
 // browser (viewstate.ts). In the columns both stand on the map beside the status line (the frame's `hint` slot:
-// their boxes are obstacles of the map's numbers); on a phone the line is the sheet's first (the sheet's head).
+// their boxes are obstacles of the map's numbers); on a phone the line is the sheet's first and the "?" stands
+// beside the map's status line (the frame asks for each: PanelProps.place).
 // Two parts, so that each can stand where its layout wants it: HintLine and HintOpen.
 
 import { useEffect } from "preact/hooks";
@@ -48,7 +49,7 @@ export function HintLine({view, wide}: {view: SpotView; wide: boolean}) {
   usePointer(view);
   useRefocus();
   if (!panelState(view).hint) return null;
-  return <div class="vl-hint">
+  return <div class={wide ? "vl-hint" : "vl-hint vl-hint-sheet"}>
     <span class="vl-hint-text">{hintText(view, wide)}</span>
     <button type="button" class="r-note-x vl-hint-x" aria-label={t("ui.view.hint.hide")}
             onClick={() => { refocus = ".vl-hint-open"; showHint(view, false); }}><Icon name="close" /></button>
@@ -64,9 +65,10 @@ export function HintOpen({view}: {view: SpotView}) {
                  onClick={() => { refocus = ".vl-hint-x"; showHint(view, true); }}>?</button>;
 }
 
-/** The frame's `hint` slot: in the columns the hint or its "?", beside the map's status line; on a phone nothing
- *  here (the sheet's head holds them: SpotDetails' SheetHead). */
-export function Hint({view, wide}: PanelProps) {
-  if (!wide) return null;
-  return <><HintLine view={view} wide /><HintOpen view={view} /></>;
+/** The frame's `hint` slot: in the columns the hint or its "?", beside the map's status line; on a phone the
+ *  frame asks twice: for the sheet's first line (`place` "sheet": the hint) and for the map (`place` "map": the
+ *  "?" beside the status line while the hint is hidden). */
+export function Hint({view, wide, place}: PanelProps) {
+  if (wide) return <><HintLine view={view} wide /><HintOpen view={view} /></>;
+  return place === "sheet" ? <HintLine view={view} wide={false} /> : <HintOpen view={view} />;
 }

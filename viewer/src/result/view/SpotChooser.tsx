@@ -14,7 +14,8 @@ import { t } from "../../i18n";
 import type { SpotChoice } from "../spots";
 import { cx, TightKey } from "./common";
 import type { Area } from "./LineChooser";
-import { Cells, rowKeys, Shape, tightRow } from "./SpotList";
+import { Shape } from "./Shape";
+import { Cells, rowKeys, tightRow } from "./SpotList";
 import type { ChooserProps } from "./SpotPanels";
 
 const GAP = 12;  // px between the press's point and the panel

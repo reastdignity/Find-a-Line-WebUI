@@ -17,7 +17,8 @@ import { t } from "../../i18n";
 import type { Fan, FanRow, FanSort, SpotView } from "../spots";
 import { bearing, FAN_HERE } from "../viewgeom";
 import { count, cx, TightKey, TightMark } from "./common";
-import { metres, rowKeys, Shape, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
+import { Shape } from "./Shape";
+import { metres, rowKeys, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
 import type { PanelProps } from "./SpotPanels";
 import { clearanceText } from "../../tight";
 
