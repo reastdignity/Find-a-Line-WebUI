@@ -701,6 +701,20 @@ def test_run_pages_main_path(monkeypatch, tmp_path):
     assert "4 states measured, 8 failed, 8 left out" in (out / "pages.md").read_text(encoding="utf-8")
 
 
+def test_older_definitions_are_named(capsys):
+    """Every record a pass writes carries DEFINITIONS; a log with older ones is summarised with a note in the
+    headline and a printed warning; one of today's has none."""
+    log = io.StringIO()
+    records = ui_metrics.measure_all(_NoWebKit(), {}, ["c-home"], ["iphone"], ["light"], None, log, {}, [])
+    assert json.loads(log.getvalue())["definitions"] == ui_metrics.DEFINITIONS == records[0]["definitions"]
+    today = {**_state("a", "iphone", 1, 0), "definitions": ui_metrics.DEFINITIONS}
+    assert ui_metrics.summarise([today])["older_definitions"] == ""
+    old = ui_metrics.summarise([_state("a", "iphone", 1, 0)])
+    assert old["older_definitions"].startswith("measured with older definitions (0 < 3)")
+    assert "covered controls may have been left out" in ui_metrics.pages_markdown(old)
+    assert "this log was measured with older definitions" in capsys.readouterr().out
+
+
 def test_summarise_guard_for_an_old_log():
     """A log without kept sizes (a pass before they were kept) is summarised at the default bounds only."""
     old = {k: v for k, v in _state("a", "iphone", 1, 0).items()}

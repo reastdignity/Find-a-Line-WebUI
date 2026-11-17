@@ -115,6 +115,11 @@ STATE_CLASS = r"(^|-)(" + "|".join(STATE_WORDS) + r")$"
 # the favourites' open buttons, the pages' "open" links, the result's loading box): kept in the signatures
 BASE_CLASSES = ("c-card-open", "c-fav-open", "c-folder-open", "p-open", "c-loading")
 TEMP_PREFIX = "ui-shots-metrics-"  # tools/clean_temp.py removes the ui-shots-* folders of runs that did not end
+# The definitions a record was measured with, raised when a change makes a log's counts mean something else: none
+# (before), covered controls left out of the counts (e380f59..69a9b78) or counted with the cover at the box's centre
+# and links in a sentence by their parent's text (587ae08); 3: covered by the seen part, links and buttons in a
+# sentence by their block's words, a timeout never "left out"
+DEFINITIONS = 3
 
 
 # ---------------------------------------------------------------------------------------------------------- static
@@ -996,6 +1001,7 @@ class _Logged(list):
         self.keep(record_of(row))
 
     def keep(self, record: dict):
+        record["definitions"] = DEFINITIONS
         self.records.append(record)
         self.log.write(json.dumps(record, ensure_ascii=False) + "\n")
         self.log.flush()
@@ -1101,6 +1107,17 @@ def _families(ok: list, controls, text) -> dict:
                      "text_chars": sum(r["text_chars"] for r in rs),
                      **{f"text_chars_under_{b}": sum(r["text_chars_under"][str(b)] for r in rs) for b in text}}
     return out
+
+
+def _older(records: list) -> str:
+    """A note when the log was measured with older definitions than DEFINITIONS (also printed), else ""."""
+    older = sorted({r.get("definitions", 0) for r in records if r.get("definitions", 0) < DEFINITIONS})
+    if not older:
+        return ""
+    note = (f"measured with older definitions ({', '.join(map(str, older))} < {DEFINITIONS}): covered controls may "
+            "have been left out of the counts, covers and links in a sentence were taken otherwise")
+    print("this log was " + note)
+    return note
 
 
 def _left_out(records: list) -> dict:
@@ -1231,6 +1248,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS, passes: 
             "states_left_out": sum(1 for r in records if "left_out" in r),
             "left_out": _left_out(records),
             "passes_not_finished": [f"{p['device']} {p['theme']}" for p in passes or [] if not p.get("complete", True)],
+            "older_definitions": _older(records),
             "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
 
 
@@ -1246,6 +1264,7 @@ def pages_markdown(s: dict) -> str:
            f"{s.get('states_left_out', 0)} left out"
            + (f"; passes that did not finish: {', '.join(s['passes_not_finished'])}"
               if s.get("passes_not_finished") else "")
+           + (f"; {s['older_definitions']}" if s.get("older_definitions") else "")
            + f"; seconds in all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
            "| " + " | ".join(columns) + " |", "|" + " --- |" * len(columns)]
     for key, r in s["per_device_theme"].items():
