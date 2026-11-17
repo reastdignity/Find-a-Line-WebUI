@@ -218,11 +218,25 @@ const out = document.createElement("pre");
 const finish = (r) => { out.id = "result"; out.textContent = JSON.stringify(r); document.body.appendChild(out); };
 const waitFor = (ok, then, tries = 300) => ok() ? then() : tries ? setTimeout(() => waitFor(ok, then, tries - 1), 200)
                                                  : finish({timeout: location.pathname});
-waitFor(() => model() && document.querySelector(".r-rows .r-row"), () => {
+// The run's actions (RunActions: .r-actions): the labels of its buttons, and the Download menu's links once opened
+const actions = () => [...document.querySelectorAll(".r-actions button")]
+  .map((b) => b.getAttribute("aria-label") || b.textContent.trim());
+const downloadButton = () => [...document.querySelectorAll(".r-actions button")]
+  .find((b) => b.textContent.trim() === "Download" || b.getAttribute("aria-label") === "Download");
+waitFor(() => model() && document.querySelector(".r-rows .r-row") && document.querySelector(".r-actions"), () => {
   const folder = location.pathname.replace(/[^/]*$/, "");
-  finish({files: filesOf(folder), lists: lists(), lines: model().total, runs: window.FINDALINE_RUNS === undefined,
-          others: asked().filter((p) => p.startsWith("/runs/") || (p.startsWith("/s/") && !p.startsWith(folder)
-                                                                  && p !== "/s/runs.js" && !p.startsWith("/s/_viewer/")))});
+  const r = {files: filesOf(folder), lists: lists(), lines: model().total, runs: window.FINDALINE_RUNS === undefined,
+             others: asked().filter((p) => p.startsWith("/runs/") || (p.startsWith("/s/") && !p.startsWith(folder)
+                                                                    && p !== "/s/runs.js" && !p.startsWith("/s/_viewer/"))),
+             map: !!window.FINDALINE_MAP && !!document.querySelector(".leaflet-container"),
+             actionsBar: !!document.querySelector(".r-actions"), actions: actions(), downloads: null,
+             menu: !!document.querySelector(".r-downloads")};
+  if (!downloadButton()) return finish(r);
+  downloadButton().click();
+  waitFor(() => document.querySelector(".r-downloads a"), () => {
+    r.downloads = [...document.querySelectorAll(".r-downloads a")].map((a) => new URL(a.href).pathname);
+    finish(r);
+  });
 });
 """
 
@@ -280,14 +294,16 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
             assert time.monotonic() < deadline, "the server did not start"
             time.sleep(0.05)
         found = {}
-        for run_id, token in tokens.items():
+        jobs.set_visibility(RUN_A, "demo")  # also a demo run: a visitor not signed in opens /runs/<id>/map.html
+        pages = [(run_id, f"/s/{token}/map.html") for run_id, token in tokens.items()]
+        for key, page in pages + [("demo", f"/runs/{RUN_A}/map.html")]:
             import subprocess
             dom = subprocess.run(
-                [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / ('edge-' + run_id[-2:])}",
-                 "--no-first-run", "--virtual-time-budget=90000", "--dump-dom", f"{site}/s/{token}/map.html"],
+                [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / ('edge-' + key[-2:])}",
+                 "--no-first-run", "--virtual-time-budget=90000", "--dump-dom", f"{site}{page}"],
                 capture_output=True, text=True, encoding="utf-8", timeout=240).stdout
-            found[run_id] = _result_of(dom)
-            assert _violations(dom) == [], run_id
+            found[key] = _result_of(dom)
+            assert _violations(dom) == [], key
     finally:
         server.should_exit = True
         thread.join(10)
@@ -299,6 +315,17 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
     assert sorted(store["files"]) == ["lines.arrow", "profiles.arrow"], store
     assert sorted(old["files"][:2]) == ["lines.arrow", "profiles.arrow"] and old["files"][2:] == ["data.js"], old
     assert store["lines"] == old["lines"]
+    # The Download (the user, 2026-11-16: "No Download there"): a share link's page of a run with a store has none, in
+    # its actions bar (.r-actions: no button "Download", no menu .r-downloads), the page itself drawn (the map, the
+    # rows, the bar); a run without a store keeps its menu of the two kept files; a not-signed-in visitor's demo run
+    # with a store has none either
+    demo = found["demo"]
+    for got in (store, old, demo):
+        assert "timeout" not in got and got["map"] and got["actionsBar"] and got["lines"] > 0, got
+    for got in (store, demo):
+        assert "Download" not in got["actions"] and not got["menu"] and got["downloads"] is None, got
+    assert "Download" in old["actions"], old
+    assert old["downloads"] == [f"/s/{OTHER_TOKEN}/lines.csv", f"/s/{OTHER_TOKEN}/lines.geojson"], old
 
 
 PROBE_FAILURES_SCRIPT = r"""

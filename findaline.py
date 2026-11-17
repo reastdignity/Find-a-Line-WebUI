@@ -18,7 +18,8 @@ Run `python findaline.py --help` for all options. The cache commands
 (`python findaline.py sources check`) are update.py,
 the web application (`python findaline.py web`) is web.py, its worker as a process of
 its own (`python findaline.py worker`, with `web --no-worker`) jobs.py, the country layer
-(`python findaline.py country run|status|build|compare <id>`) country.py.
+(`python findaline.py country run|status|build|compare <id>`) country.py. `python findaline.py
+export RUN --format csv|geojson` (export_main) writes a run's lines as text from its store.
 """
 
 import gc
@@ -135,6 +136,58 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
     print("=" * 60)
 
 
+EXPORT_FORMATS = {"csv": "csv", "geojson": "geojson"}  # --format: the file's extension (linestore.EXPORTS)
+
+
+def export_main(argv: List[str]) -> int:
+    """`findaline.py export RUN --format csv|geojson [--out PATH]`: a run's lines.csv or lines.geojson
+    made from its store (linestore.export: the bytes the search's own text file holds), written where
+    --out says (default <run id>.<format> in the current folder), never into the run folder: no run
+    keeps an export (docs/line-volume/spec-store.md 1.2, store U4). RUN is a run folder or a run id of
+    the data folder. A run without a store, an output in the run folder, a folder as --out or a folder
+    that does not exist end with a message and exit status 1, before any work; an existing file is
+    overwritten."""
+    import argparse
+
+    import linestore
+    parser = argparse.ArgumentParser(prog="findaline.py export",
+                                     description="Write a run's lines as CSV or GeoJSON, made from its store.")
+    parser.add_argument("run", metavar="RUN", help="a run folder, or the id of a run in the data folder")
+    parser.add_argument("--format", required=True, choices=sorted(EXPORT_FORMATS), help="the file's format")
+    parser.add_argument("--out", help="the file to write, never in the run folder; an existing file is overwritten "
+                                      "(default: <run id>.csv or <run id>.geojson in the current folder)")
+    parser.add_argument("--data-dir", help="the data folder of a run id (default: FINDALINE_DATA, else the folder "
+                                           "of the script)")
+    args = parser.parse_args(argv)
+    folder = args.run
+    if not os.path.isfile(os.path.join(folder, "run.json")):
+        folder = os.path.join(cache.data_dir(args.data_dir), "runs", args.run)
+        if os.path.basename(args.run) != args.run or not os.path.isfile(os.path.join(folder, "run.json")):
+            sys.exit(f"No run {args.run}: give a run folder or the id of a run in {os.path.dirname(folder)}")
+    run_id = os.path.basename(os.path.normpath(os.path.abspath(folder)))
+    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
+        sys.exit(f"The run {run_id} has no store ({linestore.LINES_FILE}): it was saved before exports were made "
+                 f"from it; its own {linestore.EXPORTS[args.format]} is in its folder")
+    out = args.out or f"{run_id}.{EXPORT_FORMATS[args.format]}"
+    target = os.path.dirname(os.path.abspath(out))
+    if os.path.isdir(out):
+        sys.exit(f"--out names a folder ({os.path.abspath(out)}): give the file to write")
+    if not os.path.isdir(target):
+        sys.exit(f"No folder {target} to write {os.path.basename(out)} into")
+    run_folder = os.path.realpath(folder)
+    try:
+        inside = os.path.commonpath([os.path.realpath(target), run_folder]) == run_folder
+    except ValueError:  # another drive (Windows)
+        inside = False
+    if inside:
+        sys.exit(f"{os.path.abspath(out)} is in the run folder, which keeps no export: give another --out "
+                 f"(or run the command from another folder)")
+    with progress.bars():  # the grouping's progress
+        linestore.export(folder, args.format, out)
+    print(f"Saved {os.path.abspath(out)}")
+    return 0
+
+
 if __name__ == "__main__":
     utf8_output()  # output redirected to a file gets the Windows code page, which has no "²" and the like
     if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
@@ -149,6 +202,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "country":
         import country
         sys.exit(country.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "export":
+        sys.exit(export_main(sys.argv[2:]))
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []
