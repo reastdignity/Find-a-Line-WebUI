@@ -1840,8 +1840,7 @@ def test_shell_c_cancelled_search(tmp_path):
         db.execute("UPDATE jobs SET created = ? WHERE id = ?", (cache.now_iso(ago=2 * 86400), ids["old"]))
     gone = "2026-11-01_100000_Gone_0000000000000001"
     jobs.set(ids["failed"], "failed", error="the server stopped")
-    jobs.set(ids["deleted"], "done", run_id=gone)
-    jobs.delete_run(gone, str(data / "runs"))
+    jobs.set(ids["deleted"], "done", run_id=gone)  # its run deleted by hand (no folder): gone, not marked
     assert jobs.request_cancel(ids["removed"]) and jobs.remove(ids["removed"])
     jobs.set(ids["running"], "computing")
     jobs.set(ids["running"], "cancelled", when=("computing",))  # as the worker does after cancel_requested

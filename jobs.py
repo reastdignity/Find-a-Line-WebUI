@@ -14,8 +14,9 @@ The job queue of the web application and its worker.
   restart of the web server does not touch the jobs of a separate worker).
 - Cancelling sets jobs.cancel_requested; the worker running the job kills its whole
   process tree (psutil) and marks it cancelled. A waiting job is cancelled at once. Its
-  owner may then remove it from their list (removed_at); a finished job whose run is gone
-  leaves it too (told at listing: Jobs.all). A removed job's row stays and counts as before.
+  owner may then remove it from their list (removed_at, as deleting a run marks the job that
+  saved it); a finished job whose run is gone otherwise (by hand, or away) leaves it too, told
+  at listing (Jobs.all). A removed job's row stays and counts as before.
 - run_phase: a phase in its own process; its stdout becomes "info" events
   (_EventWriter), the progress goes as "progress" events.
 - The public site (`worker --public`, Jobs(public=True)): events, errors and answers pass
@@ -907,15 +908,18 @@ class Jobs:
 
     def delete_run(self, run_id: str, runs_dir: str):
         """Delete a run: its folder, then its row (its share link and demo flag go with it) and the
-        favourite lines of everyone in it (the jobs that saved it leave their owner's list with the run:
-        Jobs.all tells a run gone; their rows stay and count as before). A folder that cannot be deleted
-        raises OSError and keeps its row (or adopt_runs would give it away)."""
+        favourite lines of everyone in it; the jobs that saved it are marked removed with the time (the privacy
+        page says so: their rows stay and count as before; Jobs.all would leave them out of their owner's list
+        anyway, a run gone). A folder that cannot be deleted raises OSError and keeps its row (or adopt_runs would
+        give it away)."""
         folder = os.path.join(runs_dir, run_id)
         if os.path.isdir(folder):
             shutil.rmtree(folder)
         with self._db() as db:
             db.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             db.execute("DELETE FROM favourites WHERE run_id = ?", (run_id,))
+            db.execute("UPDATE jobs SET removed_at = ? WHERE run_id = ? AND removed_at IS NULL",
+                       (cache.now_iso(), run_id))
 
     def remove(self, job_id: str) -> bool:
         """Remove a cancelled job from its owner's list (removed_at; the row stays, so it counts toward the

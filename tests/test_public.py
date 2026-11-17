@@ -1260,8 +1260,9 @@ def test_removing_searches(run_people, tmp_path):
     """A cancelled search is removed by its owner only (POST /api/jobs/<id>/remove: another user, an
     administrator, a visitor not signed in, one with only a share link, a pending or blocked account cannot); it
     leaves the owner's list, an administrator's keeps it marked; the audit log records job_remove; the row
-    stays, so it counts toward the daily quota and the usage as before. Deleting a run takes the job that saved it
-    off the owner's list too (told at listing, run_gone; its card was a "done" with no run before)."""
+    stays, so it counts toward the daily quota and the usage as before. Deleting a run marks the job that saved
+    it removed with the time (the privacy page's words), and it leaves the owner's list (its card was a "done"
+    with no run before)."""
     import audit
     from jobs import QuotaExceeded
     from settings import Limits
@@ -1302,8 +1303,8 @@ def test_removing_searches(run_people, tmp_path):
 
     assert a.delete(f"/api/runs/{RUN_A}").status_code == 200
     assert set(ids_of(a)) == {failed}
-    assert ids_of(admin)[saved]["run_gone"] and not ids_of(admin)[saved]["removed_at"]  # told, not stored
-    assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"] is None
+    assert ids_of(admin)[saved]["run_gone"] and ids_of(admin)[saved]["removed_at"]  # marked with the time
+    assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"]
     assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
 
 
