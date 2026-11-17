@@ -133,9 +133,10 @@ VIEW_CROWDED = """(() => { const {view, map} = window.FINDALINE_VIEW, m = window
       const at = m.layerPointToContainerPoint(m.containerPointToLayerPoint([x, y]));
       m.fire('click', {latlng: m.containerPointToLatLng(at), containerPoint: at, layerPoint: m.containerPointToLayerPoint(at)});
       return; } } })()"""
-# A phone's sheet one stop higher (its handle's arrow key: from its low start to half)
-VIEW_HALF = ("document.querySelector('.u-sheet-handle')?.dispatchEvent(new KeyboardEvent('keydown', "
-             "{key: 'ArrowUp', bubbles: true}))")
+# A phone's sheet one stop lower (its handle's arrow key), and one stop higher (from its low start to half)
+VIEW_LOW = ("document.querySelector('.u-sheet-handle')?.dispatchEvent(new KeyboardEvent('keydown', "
+            "{key: 'ArrowDown', bubbles: true}))")
+VIEW_HALF = VIEW_LOW.replace("ArrowDown", "ArrowUp")
 # The map's own controls open: the layers' list and, where they fold (a phone), the data credits
 VIEW_CONTROLS = ("(() => { document.querySelector('.leaflet-control-layers')?.classList.add('leaflet-control-layers-expanded'); "
                  "const credits = document.querySelector('.u-credits-toggle'); if (credits && credits.offsetParent) credits.click(); })()")
