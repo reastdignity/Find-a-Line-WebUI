@@ -3312,3 +3312,131 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue
+
+
+# ---- Contrast of the interface's colours (WCAG 2's formula, AA: 4.5:1 for text) -------------------------------------
+
+def _css_blocks(path: str) -> dict:
+    """The custom properties of each block of a CSS file that sets some ({selector: {name: value}}), comments out."""
+    text = re.sub(r"/\*.*?\*/", "", open(path, encoding="utf-8").read(), flags=re.S)
+    blocks = {}
+    for selector, body in re.findall(r"([^{};]+)\{([^{}]*--[^{}]*)\}", text):
+        found = dict(re.findall(r"(--[\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)", body))
+        if found:
+            blocks.setdefault(" ".join(selector.split()), {}).update(found)
+    return blocks
+
+
+def _luminance(colour: str) -> float:
+    """The relative luminance of a #rrggbb colour."""
+    channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG 2's contrast ratio of two #rrggbb colours (1 to 21)."""
+    high, low = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+TOKENS_CSS = os.path.join(VIEWER, "src", "ui", "tokens.css")
+
+
+def _dark_blocks(blocks: dict) -> list:
+    """The dark theme's blocks of _css_blocks: the one that follows the system and the one set by data-theme."""
+    return [v for k, v in blocks.items() if 'data-theme="dark"' in k or 'not([data-theme="light"])' in k]
+
+
+def _themes() -> dict:
+    """The tokens of the light theme and of the dark one (ui/tokens.css: .ui, then the dark block that follows the
+    system and the one set by data-theme, which must agree)."""
+    blocks = _css_blocks(TOKENS_CSS)
+    dark = _dark_blocks(blocks)
+    assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of tokens.css differ"
+    return {"light": blocks[".ui"], "dark": {**blocks[".ui"], **dark[0]}}
+
+
+def test_contrast_of_contrast_helper():
+    """The helper gives WCAG's numbers: black on white 21, a colour on itself 1, #767676 on white about 4.54."""
+    assert contrast("#000000", "#ffffff") == pytest.approx(21)
+    assert contrast("#6c7a73", "#6c7a73") == pytest.approx(1)
+    assert contrast("#767676", "#ffffff") == pytest.approx(4.54, abs=0.01)
+
+
+def test_secondary_text_contrast():
+    """The secondary text (--muted) reads at 4.5:1 or more on the page (--bg), the cards (--surface) and the second
+    surface (--surface-2) in both themes (axe's color-contrast, report defect 1: 3.83:1 on --surface-2 before)."""
+    for theme, tokens in _themes().items():
+        for ground in ("--bg", "--surface", "--surface-2"):
+            assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, (theme, ground, tokens["--muted"])
+
+
+def test_placeholder_contrast():
+    """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
+    Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both
+    themes (report defect 3: the browser's own grey, 3.75:1 in the dark theme)."""
+    text = re.sub(r"/\*.*?\*/", "", open(os.path.join(VIEWER, "src", "ui", "ui.css"), encoding="utf-8").read(), flags=re.S)
+    rule = re.search(r"\.ui ::placeholder\s*\{([^}]*)\}", text)
+    assert rule, "no placeholder rule in ui.css"
+    token = re.search(r"color:\s*var\((--[\w-]+)\)", rule.group(1))
+    assert token and re.search(r"opacity:\s*1\s*(;|$)", rule.group(1)), rule.group(1)
+    assert re.search(r"\.ui \.u-input\s*\{[^}]*background:\s*var\(--surface\)", text)
+    for theme, tokens in _themes().items():
+        assert contrast(tokens[token.group(1)], tokens["--surface"]) >= 4.5, (theme, token.group(1))
+
+
+def test_profile_label_contrast():
+    """The profile chart's coloured labels (highest, over trees, min. clearance; profile.css) read at 4.5:1 or more on
+    the card's --surface in both themes, each from its own colour per theme, while the curves keep Profile.tsx's
+    PROFILE colours (report defect 4: 2.26:1 and 3.96:1 in the dark theme, 4.04:1 and 4.37:1 in the light one)."""
+    path = os.path.join(VIEWER, "src", "profile.css")
+    blocks = _css_blocks(path)
+    dark = _dark_blocks(blocks)
+    names = ("--r-highest-label", "--r-trees-label", "--r-min-label")
+    assert len(dark) == 2 and all(d[n] == dark[0][n] for d in dark for n in names)
+    light = blocks[".ui"]
+    text = open(path, encoding="utf-8").read()
+    for cls, name in zip(("highest", "trees", "min"), names):
+        assert re.search(rf"\.fal-label-{cls}\s*\{{\s*fill:\s*var\({name}\)", text), cls
+    themes = _themes()
+    for theme, colours in (("light", light), ("dark", dark[0])):
+        for name in names:
+            assert contrast(colours[name], themes[theme]["--surface"]) >= 4.5, (theme, name, colours[name])
+    profile = open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8").read()
+    assert all(c in profile for c in ('envelope: "#6a3d9a"', 'trees: "#3f8f35"', 'terrain: "#8a7656"'))
+
+
+def _mix(a: str, b: str, share: float) -> str:
+    """CSS color-mix(in srgb, a share, b) of two #rrggbb colours."""
+    channels = [round(int(a[i:i + 2], 16) * share + int(b[i:i + 2], 16) * (1 - share)) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(channels)
+
+
+def test_view3d_trees_text_contrast():
+    """The 3D view's readout over trees (view3d.css --v3-trees-text) reads at 4.5:1 or more on the bar's --surface:
+    the line's orange darkened towards the ink in the light theme, the orange itself in the dark one, while --trees
+    (the line's colour) stays (report defect 14: 2.65:1 in the light theme)."""
+    text = open(os.path.join(VIEWER, "src", "view3d", "view3d.css"), encoding="utf-8").read()
+    light = re.search(r"#view3d \{ --v3-trees-text: color-mix\(in srgb, var\(--trees\) (\d+)%, var\(--ink\)\); \}", text)
+    assert light and len(re.findall(r"--v3-trees-text: var\(--trees\)", text)) == 2
+    assert ".v3-read.v3-trees { color: var(--v3-trees-text); }" in text
+    themes = _themes()
+    shown = {"light": _mix(themes["light"]["--trees"], themes["light"]["--ink"], int(light.group(1)) / 100),
+             "dark": themes["dark"]["--trees"]}
+    for theme, colour in shown.items():
+        assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
+    assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
+
+
+def test_result_intro_names_the_default_line_of_a_spot():
+    """"How to read the result" says which line a spot shows as the page does: by default the highest on average
+    (model.ts: the state's `by` starts at BY_MEAN), the others as "Show per spot" offers them (report defect 9: it
+    said "the most clearance")."""
+    import messages
+    model = open(os.path.join(VIEWER, "src", "result", "model.ts"), encoding="utf-8").read()
+    assert re.search(r"this\.state = \{group: true, distance: this\.data\.distance, by: BY_MEAN,", model)
+    spots = messages.text("intro.result.spots")
+    assert "the line that is highest above the ground on average" in spots and "most clearance" in spots, spots
+    choices = [messages.text("ui.filter.by_mean"), messages.text("ui.filter.by_height")]
+    assert choices == ["Highest on average", "Highest point"] and "<b>Show per spot</b>" in spots, spots

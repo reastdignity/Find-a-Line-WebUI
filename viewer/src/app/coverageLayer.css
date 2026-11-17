@@ -2,7 +2,9 @@
    controls; the areas' colours come from coverage/palette.ts through the CSSOM. */
 .n-coverage { background: var(--surface, #fff); color: var(--ink, #17201c); max-width: 230px; border: 1px solid var(--line, #d2dad4);
   border-radius: 8px; box-shadow: var(--shadow, 0 1px 5px rgb(0 0 0 / .3)); overflow: hidden; }
-.n-coverage-btn { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: var(--surface, #fff);
+/* .n-coverage before it: one class more than the base rule `.ui button { font: inherit }` (ui.css), which took its
+   size otherwise (the map's controls' 9.75 px) */
+.n-coverage .n-coverage-btn { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: var(--surface, #fff);
   color: inherit; font: 500 13px/1.2 var(--font, sans-serif); padding: 7px 10px; min-height: 32px; cursor: pointer; text-align: left; }
 .n-coverage-btn::before { content: ""; width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--muted, #6c7a73); flex: none; }
 .n-coverage-btn.n-on::before { background: var(--accent, #2350c8); border-color: var(--accent, #2350c8);
