@@ -10,7 +10,8 @@ The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `
 app's result view, `result/view/ResultColumns.tsx`, loading the run's store or data.js itself (`loadRunFrom`; a
 map.html written before 2026-11-04 loads data.js by a tag first, which it still takes), `#line=` in its hash, the way
 back to the app, none on a share link; the disk notice (store wave 4: `mapping.MAP_HTML`'s `#disk-notice`, `NOTICE`,
-`map/notice.css`): over http(s) the page is marked `fal-served` before the notice is parsed, which hides it, and it is
+`map/notice.css`): over http(s) the page is marked `fal-served` by `map/served.ts` (the entry's first import, so a
+later module that throws leaves the mark) before the notice is parsed, which hides it, and it is
 removed once parsed; from disk a page with the notice shows it (the run's name, `ui.map.disk_notice`, `findaline.py
 view <id>`) in the stored theme and loads nothing, one without it (written before) loads its data.js as a script and
 goes back to `../index.html`, until the reader of data.js ends; the old map with popups and panels was removed on
