@@ -1500,6 +1500,106 @@ def test_an_islet_on_a_server_that_publishes_madeira(tmp_path, http_server, monk
     assert [r.path for r in http_server.log] == ["/v1/datasets.json"]
 
 
+ISLET = (33.075, -16.34)  # Porto Santo (the catalogue's sample of porto_santo)
+
+
+def make_islet(root):
+    """porto-santo/dtm/5m under root in the islets' layout (tools/mirror_tiles.py: 2 km tiles of 5 m pixels on edges
+    at 2.5 m, the island's own EPSG:3061): the 3 x 3 tiles around ISLET's, the north-eastern one null (outside the
+    data), the others a made-up slope; an index with their sha256. Returns (the folder, the tiles with data)."""
+    from rasterio.warp import transform
+    layer = src.SOURCES["porto_santo"].nmt
+    crs, origin, res = src.SOURCES["porto_santo"].crs, layer.origin, layer.native_res
+    assert (crs, origin, res, layer.tile_m, layer.mirror) == ("EPSG:3061", (2.5, 2.5), 5.0, 2000, "porto-santo/dtm/5m")
+    (x,), (y,) = transform("EPSG:4326", crs, [ISLET[1]], [ISLET[0]])
+    ci, cj = int((x - origin[0]) // 2000), int((y - origin[1]) // 2000)
+    folder = os.path.join(str(root), *layer.mirror.split("/"))
+    tiles, data = {}, []
+    n = int(2000 / res)
+    for j in range(cj - 1, cj + 2):
+        for i in range(ci - 1, ci + 2):
+            if (i, j) == (ci + 1, cj + 1):
+                tiles[f"{i}_{j}"] = None
+                continue
+            left, bottom = i * 2000 + origin[0], j * 2000 + origin[1]
+            columns, rows = np.meshgrid(np.arange(n), np.arange(n))
+            band = (100.0 + 0.3 * (left / res + columns) - 0.2 * (bottom / res + rows)).astype(np.float32)
+            path = os.path.join(folder, *src.grid_tile_name(i, j).split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write_tile(path, band, crs, from_origin(left, bottom + 2000, res, res))
+            tiles[f"{i}_{j}"] = _sha(path)
+            data.append((i, j))
+    _write_index(folder, tiles)
+    return folder, data
+
+
+def test_an_islet_read_as_madeira_is(tmp_path, http_server, monkeypatch, offline):
+    """U53/U55: the data server publishes porto-santo/dtm/5m (the catalogue's own porto_santo source, no local folder).
+    The start check finds it in the list (one request, no index), --source auto at the islet takes the islet's source
+    (not Madeira's); the search's tiles come over HTTP (the index once, then each tile with data the grid touches, its
+    sha256 checked: a served tile changed is refused and not written) and the cache gets the very files the local
+    folder gives, byte for byte."""
+    import search
+    served = Mirror(http_server, str(tmp_path / "served"))
+    folder, data = make_islet(served.root)
+    assert served.products() == ["porto-santo/dtm/5m"]  # the list names the islet alone (not Madeira)
+    set_url(served.url)
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "pt")
+    monkeypatch.setattr(src.choose, "region_codes", lambda lat, lon, cache_dir, country: ("pt-30",))
+    for sid in ("porto_santo", "madeira"):  # the catalogue's readers: nothing kept from another test
+        reader = src.SOURCES[sid].nmt.readers[src.SOURCES[sid].nmt.native_res]
+        monkeypatch.setattr(reader, "_unanswered", {})
+        monkeypatch.setattr(reader, "_kept", {})
+    params = search.SearchParams(lat=ISLET[0], lon=ISLET[1], radius=200, water="off", fill_gaps="off", nmpt="off",
+                                 ortho="never")
+    assert params.source == "auto"
+
+    def planned(name):
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        return search.plan_search(params, paths, lambda kind, text: None, reach=True)
+
+    plan = planned("http")
+    assert plan.source.id == "porto_santo" and plan.layers == [src.SOURCES["porto_santo"].nmt]
+    assert served.asked() == [Mirror.LIST]  # the start check: the list alone
+    base = f"/v1/tiles/{plan.source.nmt.mirror}"
+    asked = []
+    get = net._get
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(net, "_get", lambda url, **kw: (asked.append(url), get(url, **kw))[1])
+        search._download_layers(plan)
+    tiles = plan.source.nmt.tiles(plan.grid)
+    wanted = sorted(f"{base}/{src.grid_tile_name(*t[1:])}" for t in tiles if t[1:] in data)
+    assert wanted and served.asked("index") == [f"{base}/index.json"] and sorted(served.asked("tile")) == wanted
+    assert all(url.startswith(served.url) for url in asked)  # nothing but the local server
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("FINDALINE_MIRROR", served.root)
+        set_url("off")
+        patch.setattr(net, "_get", lambda *a, **k: pytest.fail("the local folder: no request"))
+        local = planned("folder")
+        assert local.source.id == "porto_santo"
+        search._download_layers(local)
+    layer, written = plan.source.nmt, 0
+    for tile in tiles:
+        a, b = layer.tile_path(plan.paths.cache, tile), layer.tile_path(local.paths.cache, tile)
+        assert cache.state(plan.paths.cache, a) == cache.state(local.paths.cache, b)
+        assert os.path.exists(a) == os.path.exists(b) == (tile[1:] in data)
+        if os.path.exists(a):
+            assert _sha(a) == _sha(b)
+            written += 1
+    assert written == len(wanted)
+
+    set_url(served.url)  # a served tile changed after its index: refused, not written
+    first = sorted(t for t in tiles if t[1:] in data)[0]
+    with open(os.path.join(folder, *src.grid_tile_name(*first[1:]).split("/")), "ab") as f:
+        f.write(b"x")
+    changed = planned("changed")
+    with pytest.raises(Exception, match="does not match the sha256 of its index"):
+        search._download_layers(changed)
+    assert not os.path.exists(layer.tile_path(changed.paths.cache, first))
+
+
 def test_what_the_public_site_shows(tmp_path, monkeypatch, offline, mirror, two_sources, capsys):
     """D4: each failure text of the client as a visitor of the public site gets it (a job's error stored through
     jobs.Jobs(public=True): messages.Coded's public reading, which these codes do not have, and the redaction) names
