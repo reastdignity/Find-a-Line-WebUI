@@ -626,13 +626,19 @@ their `--out` and data folders.
   This is wider than the option's words ("Links inside a sentence"), for three reasons: WCAG 2.5.8 exempts any
   target inside a sentence; the measuring tool exempts a link or a button in a sentence; and the numbers the user
   picked from already left those buttons out (30 on the iPhone and 18 on the desktop, beside 436 and 452 links).
-- **Excepted by name** (the user, 2026-11-17, "yes" to the planner's recommendation to except them): drawn marks
-  that can be pressed, namely the coverage page's map areas and the highline layer's chart bars, each with a list or
-  a table beside it that says the same. They count as controls in the measuring tool (2 106 of the iPhone's 3 508
-  controls under 44 px), so R2's numbers are read without the coverage page and the highline layer ("the rest"
-  below).
+- **The coverage page and the highline layer** hold 2 106 of the iPhone's 3 508 controls under 44 px (light theme,
+  counted from the baseline's kept sizes [B; O]). What they are, and the user's three answers of 2026-11-17 (each
+  "ok" to the planner's recommendation):
+  - **Excepted by name**: the highline layer's chart bars (774; about 24 × 63 px each), as marks of a drawing: a
+    bar's width follows the data.
+  - **Bound by R2**: the coverage page's country list (856 text buttons such as "Åland Islands", about 91 × 22 px
+    each, about 86 a state): a row of the list is a control like any other.
+  - **Bound by R2** (and by R1: their text is under 12 px): the names of the highline layer's charts (144 text
+    buttons such as "By length", about 50 × 14 px).
+  An earlier version of this file called the coverage page's controls "map areas" and excepted them: that was a
+  wrong description by the planner, corrected the same day.
 - **Today** [B; light theme; links and buttons in a sentence left out; "the rest" leaves out the coverage page and
-  the highline layer, where every map area and chart bar is a small control]:
+  the highline layer, whose long list and chart bars would hide the other pages' numbers]:
 
 | iPhone 13 | Controls | Under 44 px | Under 40 px | Under 24 px |
 | --- | --- | --- | --- | --- |
