@@ -1,9 +1,11 @@
 # Product: who Find-a-Line is for and what its interface aims at
 
-**Status: a draft (2026-11-16), not in force.** Written for the UX and UI design task from the user's recorded
-answers of 2026-11-16, quoted as given. A sentence marked *proposed* has no source in those answers: it is the
-draft's reading and waits for the user's word. Its companion, [DESIGN.md](DESIGN.md), describes the look as the code
-has it and proposes rules; neither file sets a colour or a font.
+**Status (2026-11-17).** Written for the UX and UI design task from the user's recorded answers of 2026-11-16. The
+user's decisions are the quoted sentences (who wins, the aims, the tells, the anchors, the secondary targets); a
+sentence marked *proposed* has no source in those answers: it is a reading and waits for the user's word. Its
+companion, [DESIGN.md](DESIGN.md), describes the look as the code has it and holds the rules the user picked on
+2026-11-17, in force since that day (except R4.1 and R11); the design reviewer's checklist is
+[design-review.md](design-review.md). Neither file sets a colour or a font.
 
 ## Who uses it, and where
 
@@ -82,7 +84,9 @@ Each traced to its source. *Proposed* marks a reading with no source in the user
 ## Accessibility bar (*an assumption the user has not confirmed*)
 
 WCAG 2.2 level AA on the main flows (sign-in, search, result), checked with an automated scan on the rendered pages
-and a keyboard pass. The map canvas is a named exception: the list of lines is its accessible alternative.
+and a keyboard pass. The map canvas is a named exception: the list of lines is its accessible alternative. Three
+parts of it are picked (DESIGN.md, 2026-11-17): the smallest text (R1), the smallest control (R2) and the contrast
+of text (R3); the bar as a whole stays an assumption.
 
 ## Secondary targets
 
