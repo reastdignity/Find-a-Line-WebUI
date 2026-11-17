@@ -708,9 +708,9 @@ def test_phone_controls_apart(site):
     of the map covers another (the status line, the legend, its fold, the "?", the switch, Best, the zoom buttons,
     the layers button, the shore's chip, the scale, the credits, the message, the top bar) and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
-    legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it (its
-    button is disabled). An opened layers list lies above the bar. A tap on a square fits it into the part of the
-    map free of the bar and the sheet."""
+    legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
+    press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
+    square fits it into the part of the map free of the bar and the sheet."""
     from playwright.sync_api import sync_playwright
     settled = "() => { const s = T.state(); return %s && s.spots.length === s.inPixels.length; }"
     fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
@@ -763,9 +763,21 @@ def test_phone_controls_apart(site):
                 boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
                 assert "toast" in boxes and page.evaluate("() => document.querySelector('.v-toast').textContent") == WORDS["ui.view.map.crowded"]
                 page.wait_for_selector(".v-toast", state="detached", timeout=WAIT)
-            # at half this phone's map has no room for the legend (39 px under the chip): its button says so
+            # at half this phone's map has no room for the legend (39 px under the chip): a press on "Legend" lowers the
+            # sheet and unfolds the legend there; nothing covers another; raised again, the legend is folded by itself
             _state(page, fit + "view.setLevel('spots');")
-            assert page.evaluate("() => document.querySelector('.v-fold').disabled") is True and page.evaluate(legend) == ["false", False]
+            assert page.evaluate("() => document.querySelector('.v-fold').disabled") is False and page.evaluate(legend) == ["false", False]
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75", timeout=WAIT)
+            page.wait_for_function(f"() => JSON.stringify(({legend})()) === '[\"true\",true]'", timeout=WAIT)
+            lowered = _apart(page, "lowered by a press on Legend")
+            assert "legend" in lowered and _state(page)["selected"] is None
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
+            _state(page, fit + "view.setLevel('spots');")
+            assert page.evaluate(legend) == ["false", False]
+            _apart(page, "half again")
             # an opened layers list lies above the bar: where it crosses the bar's boxes, a press reaches the list (the
             # clip's list is short: made as long as a run's with an orthophoto and overlays, it crosses the bar's foot)
             _tap_on(page, ".leaflet-control-layers-toggle")
