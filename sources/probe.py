@@ -498,9 +498,9 @@ def _deep(cache_dir: str, layer: Layer, tile, folder: str) -> str:
 
 def _remote_grid_tiles(cache_dir: str, source: Source, layer: GridTiles, row: Row, deep: bool, folder: str) -> Row:
     """Our own tiles read from the project's data server (no local folder first): the index column is the start
-    check (layer.reach: the native index.json); the read is one byte of the first tile its index lists with
-    data, the sample's tiles first (a tile the index lists as null is not on the server), with --deep that
-    tile downloaded and checked."""
+    check (layer.reach: the data server's list of datasets; a product it does not name is a row of notes, not a
+    failure); the read is one byte of the first tile the product's index lists with data, the sample's tiles
+    first (a tile the index lists as null is not on the server), with --deep that tile downloaded and checked."""
     why = layer.reach()
     if isinstance(why, NotPublished):  # nothing is broken: the data server does not publish it (U50); not a failure
         row.notes.append(why)
