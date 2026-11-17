@@ -287,7 +287,7 @@ and M open pages), `perf_lines_memory.py` (bytes per line of steps 3, 4 and 5, f
 `perf_line_funnel.py`: `--call`, or of the join of a tiled run's tiles and, for tile files that still hold the pixel
 columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the traced heap of one process; step 5
 `save_step5`: what `save_run` writes since store wave 4, `mapping.view_columns` and `linestore.write`, or a
-`--repo` without the store's text files; `tests/test_perf_lines_memory.py`),
+`--repo` without linestore.py (a checkout before the store) its text files; `tests/test_perf_lines_memory.py`),
 `perf_slot_memory.py` (the memory of one search's whole process tree, as `search.LINE_BYTES` counts it: the search
 through `perf_profile.py` in a child process with hooks (the stages, `mapping.view_columns`, `linestore.write`,
 the plan's pixels, the square rule's `peak_rows`; `saving.py`'s hooks and hand-over term went with it in store wave

@@ -37,8 +37,10 @@ Step 5 is what search.save_run does with the lines since store wave 4 (2026-11-1
 out. A --repo without linestore.py (a checkout before store wave 2) writes what its save_run wrote instead: the text
 files (runs.save_results: lines.csv, lines.geojson, run.json; mapping.save_map: data.js, lines.js, map.html); a
 --repo of store wave 2 or 3 (linestore, before or after view B1's view_columns) is measured on its store alone,
-though its save_run still wrote the text files too. Until wave 4 save_run wrote both, the text files in saving.py's children from 100 000 lines; a "step 5 peak" measured
-before compares with one measured after only as that. of a tile are not included (search.PIXEL_BYTES), nor the profiles of a circle's every
+though its save_run still wrote the text files too. Until wave 4 save_run wrote both, the text files in saving.py's
+children from 100 000 lines; a "step 5 peak" measured before compares with one measured after only as that.
+
+The grids of a tile are not included (search.PIXEL_BYTES), nor the profiles of a circle's every
 line (search.PROFILE_POINT_BYTES: measure them with perf_profile.py --tracemalloc).
 
     uv run tools/perf_lines_memory.py --call <capture>/call-0 --out <scratch> [--repo <checkout>] [--json <file>]
