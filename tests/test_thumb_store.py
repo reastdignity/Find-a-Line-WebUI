@@ -118,23 +118,27 @@ def _edit_meta(folder, change):
 
 @pytest.fixture
 def thumb_data(tmp_path, clip_run):
-    """A local data folder with the clip's run as every case above."""
+    """A local data folder with the clip's run (saved since store wave 4: its store, no lines.js) as every case
+    above; the cases that read a lines.js get the one a run of before held (tests/old_runs.py)."""
     import linestore
+    import old_runs
     data = tmp_path / "data"
     runs = data / "runs"
     for k, name in enumerate(DRAWN + FAILED + (LARGE,)):
         copy_clip(clip_run, data, name, f"Run {k}")
         _edit_meta(runs / name, lambda m, k=k: m.update(created=f"2026-10-20T12:{k:02d}:00"))
     assert json.loads((runs / STORED / "run.json").read_text("utf-8"))["store"]["lines"] <= MAX_LINES
-    drop_store(data, SCRIPT)
-    (runs / MISSING / linestore.LINES_FILE).unlink()
-    for name in (linestore.LINES_FILE, "lines.js"):
-        (runs / GONE / name).unlink()
-    (runs / BROKEN / linestore.LINES_FILE).write_bytes(b"not an Arrow file " * 100)
-    _edit_meta(runs / NEWER, lambda m: m["store"].update(format=m["store"]["format"] + 1))
+    assert not (runs / STORED / "lines.js").exists()
+    for name in (MISSING, UNLISTED_FAIL):  # runs saved between view B1 and store wave 4: a store and lines.js
+        old_runs.write_scripts(runs / name, ("lines.js",))
+    drop_store(data, SCRIPT)  # a run of before: its lines.js, no store
+    drop_store(data, UNLISTED_OLD)
     for name in linestore.FILES:
         (runs / UNLISTED_OLD / name).unlink()
-    drop_store(data, UNLISTED_OLD)
+    (runs / MISSING / linestore.LINES_FILE).unlink()
+    (runs / GONE / linestore.LINES_FILE).unlink()  # and no lines.js: a run saved since store wave 4
+    (runs / BROKEN / linestore.LINES_FILE).write_bytes(b"not an Arrow file " * 100)
+    _edit_meta(runs / NEWER, lambda m: m["store"].update(format=m["store"]["format"] + 1))
     _newer_file(runs / UNLISTED_NEW)
     _edit_meta(runs / LARGE, lambda m: m["summary"].update(lines=MAX_LINES + 1))
     rn.write_index(str(runs))
@@ -196,10 +200,11 @@ OVER_SCRIPT = run_id("Overscript")  # the same lines listed without a store: fro
 def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
     """The two kinds of line (`over` from the store's column, lines.js's row[13]) drawn as two paths, the store's
     picture the same as lines.js's: the big clip's (surface model) first lines up to both kinds, at most MAX_LINES."""
-    rows = json.loads((big_clip / "lines.js").read_text("utf-8").partition("] = ")[2].rstrip().rstrip(";"))["lines"]
-    first = next(i for i, row in enumerate(rows) if bool(row[13]) != bool(rows[0][13]))
+    import linestore
+    over = linestore.read(str(big_clip), profiles=False)[0].columns["over_obstacles"].astype(bool).tolist()
+    first = next(i for i, value in enumerate(over) if value != over[0])
     n = min(MAX_LINES, max(300, first + 1))
-    assert {bool(row[13]) for row in rows[:n]} == {True, False}, n
+    assert set(over[:n]) == {True, False}, n
     data = tmp_path / "data"
     big = run_id("Bigclip")
     copy_clip(big_clip, data, big, "Big run")

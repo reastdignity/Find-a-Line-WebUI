@@ -220,14 +220,11 @@ def copy_clip(clip, data_dir, run_id: str, name: str):
 
 @pytest.fixture
 def data(tmp_path, big_clip):
-    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL). SMALL
-    also has its lines.js as runs saved before store wave 4 do (tests/old_runs.py): Home's mini map reads it
-    (Thumb.tsx) until store wave 4's item 3 reads the store."""
-    import old_runs
+    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL), both
+    saved since store wave 4 (their store, no text files): Home's mini map draws SMALL from its lines.arrow."""
     folder = tmp_path / "data"
     copy_clip(big_clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
-    old_runs.write_scripts(folder / "runs" / SMALL, ("lines.js",))
     return folder
 
 

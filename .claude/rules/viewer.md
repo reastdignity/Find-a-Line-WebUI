@@ -55,6 +55,11 @@ catalogue), `browser-tests.md`.
 
 ## Pitfalls
 
+- **The disk notice** (store wave 4): a run's map.html written since then (`mapping.MAP_HTML`, `DISK_NOTICE` =
+  `map/main.tsx` `NOTICE`) stands after the viewer's script, so the viewer marks a served page (`fal-served`, hidden by
+  `map/notice.css` in the head's viewer.css) before the notice is parsed: no frame shows it over http(s); from disk it
+  loads nothing. Its sentence is `ui.map.disk_notice`, filled by Python (`mapping.map_page`); the page shows it without
+  the bundle too (`tests/test_disk_notice.py`). Old map.html files (no notice) still open from disk as below.
 - **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over
   http(s); a run with a store over http(s) its `lines.arrow`/`profiles.arrow` as bytes, `result/load.ts`) and the
   list of runs too (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never

@@ -7,9 +7,13 @@ and the pitfalls are in `.claude/rules/` (viewer, view3d, browser-tests, coverag
 ## `viewer/`
 
 The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `map.html` (bundle `viewer.js`: the
-app's result view, `result/view/ResultColumns.tsx`, loading the run's data.js itself (`loadRunFrom`; a map.html
-written before 2026-11-04 loads it by a tag first, which it still takes), `#line=` in its hash, the way back to
-`../index.html` from disk or to the app, none on a share link; the old map with popups and panels was removed on
+app's result view, `result/view/ResultColumns.tsx`, loading the run's store or data.js itself (`loadRunFrom`; a
+map.html written before 2026-11-04 loads data.js by a tag first, which it still takes), `#line=` in its hash, the way
+back to the app, none on a share link; the disk notice (store wave 4: `mapping.MAP_HTML`'s `#disk-notice`, `NOTICE`,
+`map/notice.css`): over http(s) the page is marked `fal-served` before the notice is parsed, which hides it, and it is
+removed once parsed; from disk a page with the notice shows it (the run's name, `ui.map.disk_notice`, `findaline.py
+view <id>`) in the stored theme and loads nothing, one without it (written before) loads its data.js as a script and
+goes back to `../index.html`, until the reader of data.js ends; the old map with popups and panels was removed on
 2026-10-30), `types.ts` the run data's types and a run's lines as columns (`lineColumns` from data.js's or lines.js's rows: a
 `NumberColumn` per value, the grouping's values as `Float64Array`, the others as the narrowest integers that give back
 the very double (null, NaN and -0 kept), else doubles; `lineAt` a Line of a row, `LineCursor` its values without one;

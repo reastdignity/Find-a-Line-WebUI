@@ -461,9 +461,13 @@ def install_viewer(runs_dir: str):
                 f.write(content)
 
 
-# A run's map: the viewer loads the run's data.js itself (viewer/src/map/main.tsx: fetched with a progress bar
-# from a server, a script from disk); maps written before 2026-11-04 load it by a tag before the viewer, which
-# the viewer still takes
+# A run's map: over http(s) the viewer loads the run's store itself (viewer/src/map/main.tsx, result/load.ts). From
+# disk (file://) it loads nothing: the disk notice (the element DISK_NOTICE) names the run and the command that opens
+# it through the app (docs/line-volume/spec-store.md 1.2), and shows without the viewer too. It stands after the
+# viewer's script, so that over http the viewer, run first, hides it before it is parsed: no frame shows it there.
+# Maps written before store wave 4 have no notice: from disk they load their data.js as before (until the reader of
+# data.js ends), and those of before 2026-11-04 load it by a tag before the viewer, which the viewer still takes
+DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
 MAP_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
@@ -471,6 +475,11 @@ MAP_HTML = """<!doctype html>
 </head><body><div id="map"></div>
 <script src="../runs.js"></script>
 <script src="../{viewer}/viewer.js"></script>
+<div id="{notice_id}" class="ui fal-disk" data-run="{run}"><div class="fal-disk-box">
+<h1 class="fal-disk-name">{title}</h1>
+<p class="fal-disk-text">{notice}</p>
+<pre class="fal-disk-command"><code>findaline.py view {run}</code></pre>
+</div></div>
 </body></html>
 """
 
@@ -516,6 +525,14 @@ def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
 MAP_FILES = ("data.js", "lines.js")  # the scripts of a map (write_map_scripts); save_map adds map.html
 
 
+def map_page(run: Dict) -> str:
+    """The text of a run's map.html (MAP_HTML): its name, its id in the disk notice's command and the notice's
+    sentence from the message catalogue (locales/en.json `ui.map.disk_notice`), each escaped for HTML."""
+    import messages  # the catalogue (json only)
+    return MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER, notice_id=DISK_NOTICE,
+                           run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
+
+
 def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, crs: str,
              group_distance: float = 20, group_by: str = "clearance", ortho_cache: Optional[str] = None,
              ortho_service=None, model: str = "formula", rigging: Optional[Rigging] = None,
@@ -531,9 +548,10 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
     browser like group_lines. Orthophoto tiles are read from ortho_cache (a
     {z}/{x}/{y}.jpg folder) when present there, and from the WMS of ortho_service
     (a sources.OrthoService) otherwise. Both scripts are written together, LINES_CHUNK
-    lines at a time, never all rows at once (write_map_scripts; the children of saving.py
-    write them apart); on_lines(n, file) reports progress after each chunk. `files`: only
-    those of the three; map.html also installs the viewer. Returns the path of map.html.
+    lines at a time, never all rows at once (write_map_scripts); on_lines(n, file) reports
+    progress after each chunk. `files`: only those of the three (a search since store wave 4
+    writes map.html only, its lines in the store); map.html (map_page: with the disk notice)
+    also installs the viewer. Returns the path of map.html.
     """
     path = os.path.join(run_path, "map.html")
     if "map.html" in files:
@@ -545,7 +563,7 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
         write_map_scripts(lines, run_path, heads, on_lines, scripts)
     if "map.html" in files:
         with open(path, "w", encoding="utf-8") as f:
-            f.write(MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER))
+            f.write(map_page(run))
     return path
 
 
