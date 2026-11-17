@@ -2202,7 +2202,9 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
         try:
             page = browser.new_page(**PHONE)
             page.goto(f"http://127.0.0.1:{port}/{page_path}#run={SMALL}&line={line}")
-            page.wait_for_selector(".u-sheet .u-sheet-head", timeout=30000)
+            # the head of the address's line (its title), not the run's summary, which the head shows for a render
+            # or two before the line is selected (32 px against the line's 52: a read then failed under load)
+            page.wait_for_selector(".u-sheet .u-sheet-head .r-dtitle", timeout=30000)
             r["top"] = page.evaluate(SHEET_JS)
             page.evaluate("() => { document.querySelector('.u-sheet .u-sheet-body').scrollTop = 120; }")
             page.wait_for_function("() => getComputedStyle(document.querySelector('.u-sheet .u-sheet-head')).boxShadow !== 'none'",
