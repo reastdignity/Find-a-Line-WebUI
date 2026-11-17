@@ -15,8 +15,10 @@ differs, unless --keep.
 
 What is compared (expected values in regression.json):
 - the counts of the search: anchors, open anchors, checked pairs, lines, spots, water...;
-- the content of the results: the sha256 of lines.csv, with readable totals (length,
-  clearances, lines over trees) that show what changed when the checksum does;
+- the content of the results: the sha256 of the CSV that the export (linestore.export, as a
+  download makes it) writes from the run's store, the bytes of lines.csv (none is kept from store
+  wave 4 on), with readable totals (length, clearances, lines over trees) that show what changed
+  when the checksum does;
 - the data: the share of the search area with elevation data before any filling, and
   the tiles without data (a lost tile shows here, e.g. the north coast of Gozo);
 - "same_as": lines.csv identical to that of another test (tiles against one grid);
@@ -105,12 +107,19 @@ def measure(output: str, run_dir: str) -> dict:
     for layer, n in re.findall(r"^(.+): (\d+) of \d+ tiles without data", output, re.M):
         empty[layer] = max(empty.get(layer, 0), int(n))
     found["empty_tiles"] = sum(empty.values())
-    files = glob.glob(os.path.join(run_dir, "*", "lines.csv"))
-    if files:
-        with open(files[0], "rb") as f:
-            found["csv_sha256"] = hashlib.sha256(f.read()).hexdigest()
-        with open(files[0], encoding="utf-8-sig") as f:
-            rows = list(csv.DictReader(f))
+    folders = [os.path.dirname(p) for p in glob.glob(os.path.join(run_dir, "*", "run.json"))]
+    table = None
+    if folders:
+        started = time.time()
+        table, found["store_problems"] = check_export(folders[0])
+        found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
+        kept = os.path.join(folders[0], "lines.csv")
+        if table is None and os.path.isfile(kept):  # no store (a problem): the counts from the kept text
+            with open(kept, "rb") as f:
+                table = f.read()
+    if table is not None:
+        found["csv_sha256"] = hashlib.sha256(table).hexdigest()
+        rows = list(csv.DictReader(io.StringIO(table.decode("utf-8-sig"), newline="")))
         found["lines"] = len(rows)
         found["spots"] = sum(r["representative"] == "True" for r in rows)
         found["water_lines"] = sum(float(r["water_m"]) > 0 for r in rows)
@@ -124,11 +133,7 @@ def measure(output: str, run_dir: str) -> dict:
         if rows and "access1" in rows[0]:  # --access: the marks of the line ends, and lines.csv without them
             ends = [r[f"access{k}"] for r in rows for k in (1, 2)]
             found["access_ends"] = [ends.count(str(state)) for state in (0, 1, 2)]
-            with open(files[0], "rb") as f:
-                found["csv_sha256_without_access"] = hashlib.sha256(without_access(f.read())).hexdigest()
-        started = time.time()
-        found["store_problems"] = check_export(os.path.dirname(files[0]))
-        found["store_seconds"] = time.time() - started  # not the search's: left out of its seconds
+            found["csv_sha256_without_access"] = hashlib.sha256(without_access(table)).hexdigest()
     return found
 
 
@@ -142,22 +147,30 @@ def without_access(table: bytes) -> bytes:
                          for row in rows)
 
 
-def check_export(folder: str) -> list:
-    """The CSV that linestore.export makes from the run's store is its lines.csv byte for byte (the
-    checksum the regression keeps, docs/line-volume/spec-store.md 1.7): problems as text."""
+def check_export(folder: str) -> tuple:
+    """(the CSV that linestore.export makes from the run's store, as the download of an export makes it:
+    the text whose sha256 the regression keeps, docs/line-volume/spec-store.md 1.7; problems as text). Until
+    store wave 4 every run still writes its lines.csv: the export must equal it byte for byte. A run
+    without a store: (None, its problem)."""
     import linestore
     if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)):
-        return ["the run has no store (lines.arrow)"]
-    out = os.path.join(os.path.dirname(folder), "export.csv")
+        return None, ["the run has no store (lines.arrow)"]
+    out = os.path.join(os.path.dirname(folder), "export.csv")  # beside the run folder, never in it
     try:
         with contextlib.redirect_stdout(io.StringIO()):  # the grouping's progress
             linestore.export(folder, "csv", out)
-        with open(out, "rb") as f, open(os.path.join(folder, "lines.csv"), "rb") as g:
-            same = f.read() == g.read()
+        with open(out, "rb") as f:
+            table = f.read()
     finally:
         with contextlib.suppress(OSError):
             os.remove(out)
-    return [] if same else ["the CSV exported from the store differs from lines.csv"]
+    kept = os.path.join(folder, "lines.csv")
+    if not os.path.isfile(kept):  # every search still writes it until store wave 4
+        return table, ["the run wrote no lines.csv"]
+    with open(kept, "rb") as g:
+        if g.read() != table:
+            return table, ["the CSV exported from the store differs from lines.csv"]
+    return table, []
 
 
 def count_in_region(run_dir: str, where: str, cache_dir: str) -> int:

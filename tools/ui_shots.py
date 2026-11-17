@@ -32,7 +32,8 @@ folder ready, but starts no browser). `--dark` is `--themes both`.
 
 A data folder given with `--data-dir` is kept and can be used again: its marker ui-shots.json holds the clip run
 shown there and a key (data_key: the sha256 of the repository's root *.py, this tool, tests/test_country_web.py and
-the clip's two files). A start whose key is the marker's keeps the clip run and the three cubes (4 s of a 13 s
+the clip's two files, and of the repository's path: the clip run names the clip's files by it, so a folder is kept
+for the checkout that made it). A start whose key is the marker's keeps the clip run and the three cubes (4 s of a 13 s
 desktop start on 2026-11-16 with numba's cache warm; more when it is cold); another key, no marker (a folder of
 before) or `--fresh` makes them anew, and the clip run the marker names is removed then (folder and row: one clip
 run in a kept folder; a `--run` start removes nothing; one whose removal fails is named in the marker and tried
@@ -41,7 +42,7 @@ tool's users before it makes theirs, so Admin's counts stay the same: one run at
 start ends the first one's sessions). The default data folder is a temporary one, removed at the end.
 
 For a caller that measures the prepared pages instead of shooting them: shoot_all (the passes' loop, rows and pass
-records kept as they are made), pass_context (a pass's browser context, with the caller's options such as
+records kept as they are made, `on_row` called with each row), pass_context (a pass's browser context, with the caller's options such as
 `bypass_csp`) and shoot_page's `act` (called on the open page in place of the screenshot, its dict in the row).
 
 Each saved picture is printed with its seconds; at the end a summary: the set-up's parts, the seconds of each pass
@@ -50,7 +51,8 @@ every failed step; `--timings` writes all of it as JSON (a record per page and p
 wait after it, the tiles, each step and the shot; the outcome). A "wait:" that timed out once gets a quarter of its
 limit for the rest of the pass; a step that raises (a click that cannot be done: 10 s, a script's error) fails its
 page, and the run goes on; `--strict` stops at the first timeout or failed step. The exit code is 1 when a wait timed
-out or a step failed ("map tiles still loading" is a note only). A whole page too tall for its picture at the
+out or a step failed ("map tiles still loading" is a note only). A page whose later step finds nothing after a wait
+timed out is "timed out", not "left out": nobody knows then what the device shows. A whole page too tall for its picture at the
 device's pixel ratio (WebKit's 32767 px: the coverage page on the iPhone) is taken at one pixel per CSS pixel and
 noted ("scale": "css").
 
@@ -588,8 +590,10 @@ REPORT = "The lake in the profile is 3 m too high near the second anchor."  # Ad
 
 def data_key() -> str:
     """The sha256 over the contents of the files a data folder's clip run and cubes come from: the repository's
-    root *.py (sorted by name), this tool, tests/test_country_web.py and the clip's two files."""
-    digest = hashlib.sha256()
+    root *.py (sorted by name), this tool, tests/test_country_web.py and the clip's two files; and over the
+    repository's path, since the clip run names the clip's files by it (a kept folder used from another checkout
+    is built anew: the checkout that made it may be gone, and the 3D view reads those files)."""
+    digest = hashlib.sha256(os.path.normcase(os.path.abspath(REPO)).encode("utf-8") + b"\0")
     names = sorted(n for n in os.listdir(REPO) if n.endswith(".py")) + KEYED
     for name in names:
         digest.update(name.replace(os.sep, "/").encode("utf-8") + b"\0")
@@ -881,7 +885,8 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
     """One page from its load to its screenshot in a browser context: its record (seconds of the load, the wait
     after it, the tiles' wait, each step and the shot; the outcome "saved", "left out" (on this device: a click
     finds nothing, or a "need:" is false), "timed out" (a wait timed out: the picture saved all the same, but not
-    with --strict) or "failed" (a step, the load or the shot raised: no picture); the picture's path; "scale":
+    with --strict, and not when a later step then finds nothing: after a timeout that is no "left out", the reason
+    kept) or "failed" (a step, the load or the shot raised: no picture); the picture's path; "scale":
     "css" when a whole page was too tall for its picture at the device's pixel ratio). `act(page, name, device,
     theme) -> dict`, for a caller that measures the prepared pages: called in place of the screenshot (the page
     open, after the last step; not for a page left out, nor with --strict after a timeout), its dict the row's
@@ -930,8 +935,8 @@ def shoot_page(context, site: dict, name: str, device: str, theme: str, out: str
                 print(f"{label}: step failed: {short(step)}: {row['error']}")
                 return row
             row["steps"].append({"step": step, "seconds": time.perf_counter() - start, "outcome": result or "done"})
-            if result == "missing":  # this device does not show it
-                row["outcome"] = "left out"
+            if result == "missing":  # this device does not show it; after a wait that timed out, nobody knows
+                row["outcome"] = "timed out" if row["timeouts"] else "left out"
                 return row
             if result == "timeout" and state.strict:
                 row["outcome"] = "timed out"
@@ -1003,6 +1008,8 @@ def summary(times: dict, passes: list, rows: list, dropped: dict, total: float) 
     for r in rows:
         for expression in r["timeouts"]:
             lines.append(f"Timed out: {r['page']} ({r['device']} {r['theme']}): {expression}")
+        if r["timeouts"] and r["reason"]:  # a later step then found nothing: not shot, and not "left out"
+            lines.append(f"Timed out: {r['page']} ({r['device']} {r['theme']}): then {r['reason']}, no picture")
         if r["outcome"] == "failed":
             step = next((s["step"] for s in r["steps"] if s["outcome"] == "failed"), "the load or the shot")
             lines.append(f"Failed: {r['page']} ({r['device']} {r['theme']}): {short(step)}: {r['error']}")
@@ -1054,9 +1061,10 @@ def pass_context(browser, pw, device: str, theme: str, **extra):
 
 
 def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str | None, strict: bool, times: dict,
-              rows: list, passes: list, act=None, **extra):
+              rows: list, passes: list, act=None, on_row=None, **extra):
     """Every page of `shown` in a pass per device and theme (shoot_page; `act` and `extra` for a caller that measures
-    the prepared pages: shoot_page's and pass_context's): each row added to `rows` as it is made, each pass's record
+    the prepared pages: shoot_page's and pass_context's; `on_row(row)` called with each row once it is in `rows`,
+    an error of it going on to the caller): each row added to `rows` as it is made, each pass's record
     to `passes` (its seconds from after its context is made, its pictures and pages left out; "complete" False
     when it was interrupted), so an interrupt keeps what was done. Launches, contexts and their closing are timed
     into `times`. `strict`: the run stops after the first row with a timeout or a failure."""
@@ -1075,6 +1083,8 @@ def shoot_all(pw, site: dict, shown: list, devices: list, themes: list, out: str
                     for name in shown:
                         row = shoot_page(context, site, name, device, theme, out, state, act)
                         rows.append(row)
+                        if on_row:
+                            on_row(row)
                         if row["path"]:
                             print(f"{row['path']}  ({row['seconds']:.1f} s)")
                         if strict and failed([row]):
