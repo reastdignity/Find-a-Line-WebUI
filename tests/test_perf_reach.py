@@ -223,7 +223,7 @@ def test_patch_is_patch_of_lines_square(clip):
         patch.close()
 
 
-def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path):
+def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path, request):
     """The clip's run read as a run of store wave 4 (its store alone) and as a run of before the store (its text
     files alone): the same longest line and busiest anchor, each saying which file it read, and nothing written into
     either run's folder (the store's CSV is exported outside it)."""
@@ -233,6 +233,10 @@ def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path):
     store = tool_runs.store_only(run, str(tmp_path / "store"))
     text = tool_runs.text_only(run, str(tmp_path / "text"))
     before = {folder: tool_runs.snapshot(folder) for folder in (store, text)}
+    import linestore  # the export runs in a child (run_rows): never in this process, whose step 1 is measured
+    export = linestore.export
+    linestore.export = lambda *a, **k: pytest.fail("the store exported in the measuring process")
+    request.addfinalizer(lambda: setattr(linestore, "export", export))
     assert pr.lines_read(store) == "store" and pr.lines_read(text) == "lines.csv"
     with pr.run_rows(store) as (rows, source):
         assert source == "store" and len(list(rows)) == meta["summary"]["lines"]

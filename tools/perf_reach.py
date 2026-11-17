@@ -672,18 +672,26 @@ def run_rows(run_dir: str):
     file they come from: (rows, "store") for a run with a store (lines.arrow: linestore.export's CSV, written into
     a temporary folder outside the run: the text and the order of the run's own lines.csv, so a tie on the longest
     line is broken as before), else (rows, "lines.csv") for a run saved before the store (2026-11-15), as the
-    named cases are. Nothing is written into the run's folder."""
+    named cases are. Nothing is written into the run's folder. The export runs in a child process (EXPORT_CHILD):
+    its reading of the store, the grouping's numba code and save_results never enter this process, whose step 1
+    (measure_case's PeakRss and seconds) then starts as it did when the clip's lines.csv was read with the csv
+    module only, comparable with the records made before."""
     import csv
     if os.path.isfile(os.path.join(run_dir, "lines.arrow")):
-        import linestore
         with tempfile.TemporaryDirectory(prefix="perf-reach-") as tmp:
             path = os.path.join(tmp, "lines.csv")
-            linestore.export(run_dir, "csv", path)
+            subprocess.run([sys.executable, "-c", EXPORT_CHILD, HERE, run_dir, path], check=True, cwd=tmp,
+                           capture_output=True, timeout=3600)
             with open(path, encoding="utf-8-sig", newline="") as f:
                 yield csv.DictReader(f), "store"
         return
     with open(os.path.join(run_dir, "lines.csv"), encoding="utf-8-sig", newline="") as f:
         yield csv.DictReader(f), "lines.csv"
+
+
+# run_rows' child: linestore.export of a run's store into a file (argv: the repository, the run, the file)
+EXPORT_CHILD = ("import sys; sys.path.insert(0, sys.argv[1]); import linestore; "
+                "linestore.export(sys.argv[2], 'csv', sys.argv[3])")
 
 
 def lines_read(run_dir: str) -> str:
