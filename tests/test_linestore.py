@@ -331,7 +331,7 @@ def test_store_written_whole_or_not_at_all(tmp_path, monkeypatch):
 def test_a_store_that_fails_keeps_no_run(tmp_path, monkeypatch):
     """A store that cannot be written (here linestore.write raising, a half-written file left) fails the search
     since store wave 4 (a run without its store has no lines at all: the user's answer, 2026-11-17): SearchError
-    "store_failed" with the error on the command line, and the run's folder removed with what was written."""
+    "run_not_saved" with the error on the command line, and the run's folder removed with what was written."""
     import search
 
     def failing(run_path, lines, head, view=None):
@@ -340,9 +340,8 @@ def test_a_store_that_fails_keeps_no_run(tmp_path, monkeypatch):
     monkeypatch.setattr(linestore, "write", failing)
     with pytest.raises(search.SearchError) as error:
         _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"), radius=150)
-    assert error.value.code == "store_failed"
-    assert str(error.value) == "The run could not be saved: its lines could not be written (MemoryError: no memory " \
-                               "for the store)"
+    assert error.value.code == "run_not_saved"
+    assert str(error.value) == "The run could not be saved (MemoryError: no memory for the store)"
     assert not (tmp_path / "runs" / "clip").exists()
 
 

@@ -47,7 +47,7 @@ only, `at_seams`: scipy's 3 × 3 dilation and not erosion read at the anchors,
 `tests/test_units.py::test_seams_as_before`; `Lines.terrain` = `hypsometry.statistics`), `save_run` (5: the run and
 the map, nothing downloaded: the view's columns and the store (`linestore.write`) in the Compute stage "saving
 results", then `map.html` (not with --no-html), `ATTRIBUTION.txt` and `run.json` last with its block `store`; no text
-file since store wave 4; a store that cannot be written raises `SearchError` `store_failed` and removes the run's
+file since store wave 4; anything that fails between the folder and run.json raises `SearchError` `run_not_saved` (`_not_saved` removes the run's
 folder (a tiled run keeps its tiles), view columns that fail leave a store without them and the note
 `view_columns_failed`), `orthophoto_lines` and `download_orthophoto` (the orthophoto
 for offline use, a step after the run: the lines of the best groups by the detail rules, the tiles not cached yet, the
@@ -164,7 +164,7 @@ false: no stage, no columns, no disk counted), the coded note `access_skipped`, 
 measure's own answer; an anchor on a pixel without heights asserted impossible); `_run_params` (`access`) and
 `_search_hash` hold the option only when set; `tile_bytes` (1 B) and `estimate_search` (`ACCESS_DISK_BYTES` of the
 whole grid) count its files (docs/performance.md, "The access grid's memory"); `save_run`'s
-`SearchError` `store_failed` and note `view_columns_failed` hold the exception's text on the command line only
+`SearchError` `run_not_saved` and note `view_columns_failed` hold the exception's text on the command line only
 
 ## `area.py`
 
@@ -326,8 +326,9 @@ final order); imported inside `group_lines`, so `import mapping` stays free of n
 Saved runs (`runs/<date>_<time>_<place>_<random>/`, the place in ASCII by `anyascii`: `_slug`),
 `runs/runs.js` (`write_index`, after each run of the command line and the local app: `search.Plan.index_runs`, which
 the public worker clears; `_listed` leaves out the run's `terrain`; no `runs/index.html` since store wave 4),
-`old_runs` (the runs of `findaline.py runs remove-old`: old, current, skipped with the reason; by
-`linestore.store_state`), run names, `params_summary` (a run's description: the elevation band first among the limits);
+`old_runs` (the runs of `findaline.py runs remove-old`: old, current, skipped with the reason, the folders a
+removal left; by `run_state`: `linestore.store_state` and run.json's `VIEW_FAILED`), `park_run` and `finish_removal`
+(a removal: the folder renamed to `_removing-<id>` under the runs lock, then deleted), run names, `params_summary` (a run's description: the elevation band first among the limits);
 `save_results` writes `lines.csv` and `lines.geojson` (for `linestore.export`; the search writes only its
 `ATTRIBUTION.txt` and `run.json`) `LINES_CHUNK` rows at a time, each part's rows in their order
 computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` which of its four files;
@@ -359,7 +360,8 @@ profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`
 when the store has them; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
 with run.json's values without its `store`: the bytes the run's `lines.csv`/`lines.geojson` held before store
-wave 4. `store_state(run_path)`: "current", "old", "missing", "unreadable" or "newer" from the schema alone (what
+wave 4. `store_state(run_path)`: "current", "no_view", "old", "missing", "unreadable", "newer" or "cannot_read" (an
+error while reading: never "unreadable") from the schema alone (what
 `findaline.py runs remove-old` counts as an old run). numpy and pyarrow
 only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never
 imported by the web process (`tests/test_linestore.py`)

@@ -298,6 +298,13 @@ def test_area_in_tiles(tmp_path):
     assert one == tiled  # every column, the order of the anchors too (their pixels depend on it)
     tile_files = glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))
     assert len(tile_files) > 1
+    # a tiled run's files since store wave 4: the store, map.html, ATTRIBUTION.txt, run.json and its work state, no
+    # text file (data.js, lines.js, lines.csv, lines.geojson)
+    tiled_folder = os.path.dirname(os.path.dirname(tile_files[0]))
+    saved = set(os.listdir(tiled_folder))
+    assert {"lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt", "run.json", "tiles"} <= saved, saved
+    assert not {"data.js", "lines.js", "lines.csv", "lines.geojson"} & saved, saved
+    assert json.load(open(os.path.join(tiled_folder, "progress.json"), encoding="utf-8"))["status"] == "done"
     # The terrain of the area (hypsometry.py) from the tiles' cores: exactly that of one grid
     assert sorted(f.replace(".table.pkl.gz", "") for f in tile_files) == sorted(
         f.replace(".terrain.npz", "") for f in glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.npz")))

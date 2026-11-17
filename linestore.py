@@ -367,26 +367,38 @@ def _read_file(path: str) -> Tuple[pa.Table, Dict]:
 
 def store_state(run_path: str) -> str:
     """Whether a run has the store of today (docs/line-volume/spec-store.md 2.2, `findaline.py runs remove-old`):
-    "current" (lines.arrow of FORMAT with the result view's columns, VIEW, of their types), "old" (of a lower format
-    or without the view's columns: saved between store wave 2 and view B1), "missing" (no lines.arrow: saved before
-    the store, or a store that failed), "unreadable" (not an Arrow file of Find-a-Line), "newer" (made by a newer
-    Find-a-Line). Only the schema is read, so a store of any size costs nothing; the file is closed afterwards."""
+    "current" (lines.arrow of FORMAT with the result view's columns, VIEW, of their types), "no_view" (of FORMAT
+    without the view's columns: a run whose view columns failed at saving, run.json's "view_columns_failed", or one
+    saved between store wave 2 and view B1), "old" (of a lower format), "missing" (no lines.arrow: saved before the
+    store), "unreadable" (a file that opens but is no Arrow file of Find-a-Line), "newer" (made by a newer
+    Find-a-Line), or "cannot_read" (the file could not be opened or read now: a file held by another program, a disk
+    or network error, no memory; never taken for a broken store, since remove-old deletes what is old). Only the
+    schema is read, so a store of any size costs nothing; the file is closed afterwards."""
     path = os.path.join(run_path, LINES_FILE)
     if not os.path.isfile(path):
         return "missing"
     try:
         with pa.OSFile(path, "rb") as source:
             schema = pa.ipc.open_file(source).schema
+    except (OSError, MemoryError):  # pyarrow's IO errors are OSErrors
+        return "cannot_read"
+    except (ValueError, TypeError, KeyError, IndexError):  # pyarrow's ArrowInvalid is a ValueError: not an Arrow file
+        return "unreadable"
+    except Exception:  # noqa: BLE001 - anything else is no proof that the file is broken
+        return "cannot_read"
+    try:
         meta = json.loads((schema.metadata or {})[META_KEY].decode("utf-8"))
         fmt = meta["format"]
-        if not isinstance(fmt, int):
-            return "unreadable"
-    except Exception:  # noqa: BLE001 - whatever it is, it is no store this code reads
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return "unreadable"
+    if not isinstance(fmt, int) or isinstance(fmt, bool):
         return "unreadable"
     if fmt > FORMAT:
         return "newer"
-    if fmt < FORMAT or any(name not in schema.names or schema.field(name).type != kind for name, kind in VIEW):
+    if fmt < FORMAT:
         return "old"
+    if any(name not in schema.names or schema.field(name).type != kind for name, kind in VIEW):
+        return "no_view"
     return "current"
 
 

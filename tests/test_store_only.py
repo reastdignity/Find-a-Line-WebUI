@@ -1,7 +1,7 @@
 """Store wave 4 (docs/line-volume/spec-store.md 1.2): a new run keeps its lines only in its store. A search writes
 lines.arrow, profiles.arrow, map.html (not with --no-html), ATTRIBUTION.txt and run.json, in that order (run.json
 last, with its block "store"), and none of data.js, lines.js, lines.csv, lines.geojson; no runs/index.html and no
-findaline_map.html; a store that cannot be written fails the search (store_failed) and keeps no run; view columns
+findaline_map.html; a run that cannot be saved whole fails the search (run_not_saved) and keeps no run; view columns
 that cannot be computed leave a store without them and a coded warning (view_columns_failed). Also tests/old_runs.py,
 the old runs the tests make until store wave 4's item 5."""
 
@@ -86,7 +86,7 @@ def test_run_json_is_written_last(scene_lines, tmp_path, monkeypatch):
 
 
 def test_a_store_that_fails_keeps_no_run(scene_lines, tmp_path, monkeypatch):
-    """A store that cannot be written fails the search with the code store_failed (the page's text from the
+    """A store that cannot be written fails the search with the code run_not_saved (the page's text from the
     catalogue, no exception text in it: it may hold paths), and the run folder is removed."""
     plan, lines = scene_lines
 
@@ -96,8 +96,8 @@ def test_a_store_that_fails_keeps_no_run(scene_lines, tmp_path, monkeypatch):
     monkeypatch.setattr(linestore, "write", failing)
     with pytest.raises(search.SearchError) as error:
         _save(plan, lines, tmp_path, "failed")
-    assert error.value.code == "store_failed" and "OSError" in str(error.value)
-    assert error.value.web_text() == messages.text("error.store_failed") and "secret" not in error.value.web_text()
+    assert error.value.code == "run_not_saved" and "OSError" in str(error.value)
+    assert error.value.web_text() == messages.text("error.run_not_saved") and "secret" not in error.value.web_text()
     assert not (tmp_path / "runs" / "failed").exists()
 
 
@@ -148,3 +148,110 @@ def test_old_runs_are_todays_files(scene_lines, tmp_path):
     assert "store" not in json.loads((kinds["data_js"] / "run.json").read_text("utf-8"))
     page = (kinds["data_js"] / "map.html").read_text("utf-8")
     assert page == old_runs.BASE_MAP_HTML.format(title="r0ld5x", viewer=mapping.VIEWER_FOLDER)
+
+
+def test_a_failure_after_the_store_keeps_no_run(scene_lines, tmp_path, monkeypatch):
+    """Anything that fails after the store is written (here run.json's write: a disk full) fails the search with
+    run_not_saved and removes the run's folder, store included: a folder without run.json is never left behind. A
+    tiled run (its search's folder) keeps its work state (tiles, progress.json "running") to be resumed, and loses
+    only what the save wrote."""
+    import runs as rn
+    plan, lines = scene_lines
+    real = rn.save_results
+
+    def failing(run_path, lines, groups, meta, *args, **kwargs):
+        if "run.json" in kwargs.get("files", ()):
+            raise OSError(28, "No space left on device")
+        return real(run_path, lines, groups, meta, *args, **kwargs)
+    monkeypatch.setattr(rn, "save_results", failing)
+    with pytest.raises(search.SearchError) as error:
+        _save(plan, lines, tmp_path, "after")
+    assert error.value.code == "run_not_saved" and not (tmp_path / "runs" / "after").exists()
+    tiled = tmp_path / "runs" / "tiled"
+    (tiled / "tiles").mkdir(parents=True)
+    (tiled / "tiles" / "0.table.pkl.gz").write_bytes(b"tile")
+    (tiled / "progress.json").write_text('{"status": "running"}', "utf-8")
+    run = {"id": "tiled", "path": str(tiled), "created": datetime(2026, 11, 17, 12), "name": "tiled", "search": "k",
+           "tile_core": 150}
+    with pytest.raises(search.SearchError) as error:
+        search.save_run(plan, lines, run)
+    assert error.value.code == "run_not_saved"
+    assert sorted(os.listdir(tiled)) == ["progress.json", "tiles"]
+    assert json.loads((tiled / "progress.json").read_text("utf-8"))["status"] == "running"
+
+
+def test_the_saving_stage(scene_lines, tmp_path, monkeypatch):
+    """Step 5's one Compute stage "saving results" (no "saving the map" since store wave 4): it starts with the lines
+    as its total and ends done at that count."""
+    import progress
+    plan, lines = scene_lines
+    seen = []
+    monkeypatch.setattr(progress, "_listeners", [*progress._listeners, seen.append])
+    _save(plan, lines, tmp_path, "stage")
+    stages = [e for e in seen if e["bar"] == "Compute" and e["stage"].startswith("saving")]
+    assert {e["stage"] for e in stages} == {"saving results"}
+    n = len(lines.results)
+    assert stages[0]["count"] == 0 and stages[0]["total"] == n and not stages[0]["done"]
+    assert stages[-1]["done"] and stages[-1]["count"] == n
+
+
+@pytest.fixture(scope="module")
+def scene_lines_with_ends(tmp_path_factory, offline):  # noqa: F811
+    """The access scene's search with the access mark, the no-fall zone, A-frames and the square rule: (plan, lines)."""
+    folder = tmp_path_factory.mktemp("store-only-ends")
+    plan = _plan(folder, scene(), "e", access=True, end_zone=5, anchor_lift=2, same_line_square=5)
+    lines, _ = search.search_lines(plan)
+    return plan, lines
+
+
+def test_old_runs_with_ends_are_todays_files(scene_lines_with_ends, tmp_path):
+    """tests/old_runs.py's data.js and lines.js of a run with "ends" (the A-frame heights, the access mark, the square
+    rule's count: the heads it builds by hand) equal mapping.save_map's from the search's own lines, byte for byte."""
+    plan, lines = scene_lines_with_ends
+    path, result = _save(plan, lines, tmp_path, "r0ld5e")
+    assert {"lift_needed", "access1", "stands_for"} <= set(result.results.columns)
+    p = plan.params
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    mapping.save_map(result.results, plan.area, str(reference), str(tmp_path / "runs"), result.meta, plan.crs,
+                     plan.group_distance, p.group_by, None, None, p.model, plan.rigging, high_above=p.high_above,
+                     files=mapping.MAP_FILES)
+    old_runs.make_old(path, "with_text")
+    for name in mapping.MAP_FILES:
+        text = (path / name).read_text("utf-8")
+        assert '"ends":["lift_needed","lift_no_zone","access1","access2","stands_for"]' in text, name
+        assert text == (reference / name).read_text("utf-8"), name
+
+
+class _Stub:
+    def __init__(self, **values):
+        self.__dict__.update(values)
+
+
+def _main_output(monkeypatch, capsys, tmp_path, **options) -> str:
+    """findaline.main with the search stubbed (no grid, no lines): what it prints after a run is saved."""
+    import findaline
+    import params as pm
+    monkeypatch.setattr(search, "plan_search", lambda params, paths, emit: _Stub(group_distance=20))
+    monkeypatch.setattr(search, "estimate_search", lambda plan: _Stub(reasons=[]))
+    monkeypatch.setattr(search, "search_lines", lambda plan: (None, None))
+    monkeypatch.setattr(findaline, "print_lines", lambda *args: [])
+    monkeypatch.setattr(search, "save_run", lambda plan, lines, run: _Stub(meta={"id": "2026-11-17_run"}))
+    monkeypatch.setattr(search, "orthophoto_lines", lambda plan, lines: [])
+    monkeypatch.setattr(search, "download_orthophoto", lambda plan, spots, confirm: None)
+    params = pm.SearchParams(lat=50.1, lon=19.7, no_html=options.pop("no_html", False))
+    findaline.main(params, pm.CliOptions(no_plot=True, yes=True, **options), search.Paths(str(tmp_path), str(tmp_path)))
+    return capsys.readouterr().out
+
+
+def test_the_last_lines(monkeypatch, capsys, tmp_path):
+    """A search ends with the command that opens its run, once: also with --html (store U10: accepted for one
+    release, it says it is no longer used and writes nothing) and with --no-html (the app opens such a run too)."""
+    out = _main_output(monkeypatch, capsys, tmp_path)
+    assert out.count("findaline.py view 2026-11-17_run") == 1 and "View it: findaline.py view 2026-11-17_run\n" in out
+    out = _main_output(monkeypatch, capsys, tmp_path, html=str(tmp_path / "latest.html"))
+    assert out.count("findaline.py view 2026-11-17_run") == 1, out
+    assert "--html is no longer used: maps open through the app.\nView it: findaline.py view 2026-11-17_run" in out
+    assert not (tmp_path / "latest.html").exists()
+    out = _main_output(monkeypatch, capsys, tmp_path, no_html=True)
+    assert out.count("View it: findaline.py view 2026-11-17_run") == 1, out

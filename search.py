@@ -2529,9 +2529,10 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     """Step 5: save the run: its store (lines.arrow, profiles.arrow), map.html (not with --no-html),
     ATTRIBUTION.txt and run.json, in that order (run.json last). The orthophoto for offline use is a
     step of its own after it (orthophoto_lines, download_orthophoto): the map reads its tiles from the
-    cache as they arrive and loads the rest online. A store that cannot be written fails the search
-    (SearchError "store_failed") and no run is kept; the view's columns that cannot be computed leave a
-    store without them and a warning ("view_columns_failed").
+    cache as they arrive and loads the rest online. Anything that fails between the run's folder and its
+    run.json (the store, map.html, ATTRIBUTION.txt, run.json) fails the search (SearchError "run_not_saved")
+    and keeps no run (_not_saved); the view's columns that cannot be computed leave a store without them,
+    run.json's runs.VIEW_FAILED and a warning ("view_columns_failed"): a run of today all the same.
 
     run: the run folder of a tiled search (search_lines); otherwise a new one is made.
     """
@@ -2553,81 +2554,82 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         run = rn.new_run(plan.paths.runs, name, created)
     else:
         created, name = run["created"], run["name"]
-    circle = isinstance(plan.area, ar.Circle)
-    meta = {
-        "id": run["id"],
-        "name": name,
-        "created": created.astimezone(timezone.utc).isoformat(timespec="seconds"),  # local time in its id
-        "center": {"lat": center_lat, "lon": center_lon, "x": x, "y": y, "crs": plan.crs},
-        "area": plan.area.describe(),
-        "source": {"id": plan.source.id, "name": plan.source.name, "description": plan.source.description},
-        "data": _dated_data(_merged_data(), created.year),  # folders, files and fetch times of the data used
-        "params": _run_params(plan),
-        "summary": {"lines": len(results), "spots": len(spot_groups),
-                    "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
-                    # which lines have a profile in the map (runs before 2026-11: all of a circle's)
-                    "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
-        "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
-        "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
-        # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
-        "terrain_sources": lines.terrain_sources,
-    }
-    if plan.access_skipped:  # the access mark asked and left out ("memory": the area too wide for it)
-        meta["access_skipped"] = plan.access_skipped
-    if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
-        meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
-        emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
-    meta["description"] = rn.params_summary(meta)
-    meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
-    if not circle:
-        # Large areas: only the group representatives carry a profile in the map
-        representatives = set(spot_groups.rep.tolist())
-        results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
+    own = "search" not in run  # a folder of this run alone (a tiled run's is its search's, with its work state)
+    # Everything from the run's folder to its run.json under one try: a run that cannot be saved whole is no run
+    # (spec-store.md 1.2, the user's Q1a): its folder goes (a tiled run keeps its work state to resume), and the
+    # search ends with the coded error run_not_saved (the exception's text on the command line only: paths)
+    try:
+        circle = isinstance(plan.area, ar.Circle)
+        meta = {
+            "id": run["id"],
+            "name": name,
+            "created": created.astimezone(timezone.utc).isoformat(timespec="seconds"),  # local time in its id
+            "center": {"lat": center_lat, "lon": center_lon, "x": x, "y": y, "crs": plan.crs},
+            "area": plan.area.describe(),
+            "source": {"id": plan.source.id, "name": plan.source.name, "description": plan.source.description},
+            "data": _dated_data(_merged_data(), created.year),  # folders, files and fetch times of the data used
+            "params": _run_params(plan),
+            "summary": {"lines": len(results), "spots": len(spot_groups),
+                        "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
+                        # which lines have a profile in the map (runs before 2026-11: all of a circle's)
+                        "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
+            "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
+            "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
+            # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
+            "terrain_sources": lines.terrain_sources,
+        }
+        if plan.access_skipped:  # the access mark asked and left out ("memory": the area too wide for it)
+            meta["access_skipped"] = plan.access_skipped
+        if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
+            meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
+            emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
+        meta["description"] = rn.params_summary(meta)
+        meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
+        if not circle:
+            # Large areas: only the group representatives carry a profile in the map
+            representatives = set(spot_groups.rep.tolist())
+            results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
 
-    ortho_cache = ortho_service = None
-    if not p.no_html:
-        source = plan.source
-        # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
-        # the run, earlier runs did too), falling back to the service for a tile not there
-        ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
-        ortho_service = _dated_ortho(source, created.year)
-    # The run's lines are kept once, in its store (linestore: lines.arrow, profiles.arrow; docs/line-volume/
-    # spec-store.md 1.2: no data.js, lines.js, lines.csv or lines.geojson since store wave 4: CSV and GeoJSON are
-    # made from the store by `findaline.py export` or a download), with the result view's columns
-    # (mapping.view_columns: spots, sectors, the top-level flag, the order inside a spot) and their head keys. Then
-    # map.html (not with --no-html), ATTRIBUTION.txt and run.json last, with its block "store": a folder without
-    # run.json is a run being saved (runs.old_runs skips it, runs.list_runs does not list it).
-    progress.compute.start("saving results", len(results), unit="line")
-    head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
-                       p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-    try:
-        view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
-    except Exception as error:  # noqa: BLE001 - the lines are saved without the view's columns
-        # The run opens in today's result page; runs remove-old lists it as an old run (spec-store.md 2.2). A coded
-        # note: the exception's text only on the command line, it may hold paths
-        view, view_head = None, {}
-        emit("warning", messages.Note(f"The run is saved without the result view's columns (spots' sectors): "
-                                      f"{type(error).__name__}: {error}", "view_columns_failed"))
-    try:
+        ortho_cache = ortho_service = None
+        if not p.no_html:
+            source = plan.source
+            # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
+            # the run, earlier runs did too), falling back to the service for a tile not there
+            ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
+            ortho_service = _dated_ortho(source, created.year)
+        # The run's lines are kept once, in its store (linestore: lines.arrow, profiles.arrow; docs/line-volume/
+        # spec-store.md 1.2: no data.js, lines.js, lines.csv or lines.geojson since store wave 4: CSV and GeoJSON are
+        # made from the store by `findaline.py export` or a download), with the result view's columns
+        # (mapping.view_columns: spots, sectors, the top-level flag, the order inside a spot) and their head keys. Then
+        # map.html (not with --no-html), ATTRIBUTION.txt and run.json last, with its block "store": a folder without
+        # run.json is a run being saved (runs.old_runs skips it, runs.list_runs does not list it).
+        progress.compute.start("saving results", len(results), unit="line")
+        head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
+                           p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+        try:
+            view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
+        except Exception as error:  # noqa: BLE001 - the lines are saved without the view's columns
+            # The run opens in today's result page; run.json says so (runs.VIEW_FAILED), so runs remove-old keeps it as
+            # a run of today (the planner's Q1b). A coded note: the exception's text only on the command line (paths)
+            view, view_head = None, {}
+            meta[rn.VIEW_FAILED] = True
+            emit("warning", messages.Note(f"The run is saved without the result view's columns (spots' sectors): "
+                                          f"{type(error).__name__}: {error}", "view_columns_failed"))
         store = linestore.write(run["path"], results, {**head, **view_head}, view)
+        del view
+        meta["store"] = store
+        progress.compute.update(len(results))
+        progress.compute.finish()
+        map_path = None
+        if not p.no_html:
+            map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs,
+                                   files=("map.html",))  # and the viewer installed
+        rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
     except Exception as error:
-        # No lines, no run: a run folder of its own goes (a tiled run keeps its tiles to be resumed)
-        for file in linestore.FILES:
-            with contextlib.suppress(OSError):
-                os.remove(os.path.join(run["path"], file))
-        if "search" not in run:
-            shutil.rmtree(run["path"], ignore_errors=True)
-        raise SearchError(f"The run could not be saved: its lines could not be written "
-                          f"({type(error).__name__}: {error})", "store_failed") from error
-    del view
-    meta["store"] = store
-    progress.compute.update(len(results))
-    progress.compute.finish()
-    map_path = None
-    if not p.no_html:
-        map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs,
-                               files=("map.html",))  # and the viewer installed
-    rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
+        _not_saved(run, own)
+        if isinstance(error, SearchError):
+            raise
+        raise SearchError(f"The run could not be saved ({type(error).__name__}: {error})", "run_not_saved") from error
     if "search" in run:  # a tiled run is done: not resumed again
         _progress(run, "done")
     emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
@@ -2635,6 +2637,19 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         rn.write_index(plan.paths.runs)
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
+
+
+def _not_saved(run: Dict, own: bool):
+    """A run save_run could not save: the folder it made removed; a tiled run's folder (its search's, own False)
+    keeps its work state (tiles, progress.json still "running": resumed by the same search, skipped by remove-old)
+    and loses what the save wrote (the store, map.html, ATTRIBUTION.txt, their temporary files)."""
+    if own:
+        shutil.rmtree(run["path"], ignore_errors=True)
+        return
+    for name in os.listdir(run["path"]):
+        if name.startswith(linestore.FILES + ("map.html", "ATTRIBUTION.txt", "run.json.")):
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(run["path"], name))
 
 
 def _dated_ortho(source: src.Source, year: int) -> Optional[src.OrthoService]:

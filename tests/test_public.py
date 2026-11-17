@@ -3730,10 +3730,41 @@ def test_runs_list_written_locally_only(tmp_path, monkeypatch):
         assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
         runs = data / "runs"
         assert os.path.exists(runs / "runs.js") == (not public) and not os.path.exists(runs / "index.html")
+        # the run's files as the worker saves them since store wave 4: the store, map.html, ATTRIBUTION.txt and
+        # run.json, no text file (the public worker and the local app's alike)
+        run_folder = runs / jobs.get(job)["run_id"]
+        assert set(os.listdir(run_folder)) == {"lines.arrow", "profiles.arrow", "map.html", "ATTRIBUTION.txt",
+                                               "run.json"}, (public, os.listdir(run_folder))
         assert os.path.exists(runs / "_viewer" / "viewer.js") and installed == [str(runs)]
         installed.clear()
     listed = (tmp_path / "local" / "runs" / "runs.js").read_text("utf-8")
     assert jobs.get(job)["run_id"] in listed
+
+
+@pytest.mark.parametrize("public", [True, False], ids=["public", "local"])
+def test_a_run_not_saved_fails_its_job(tmp_path, monkeypatch, public):
+    """A run that cannot be saved (its store's write failing) in the worker's compute phase: the job is "failed" with
+    the code run_not_saved and the catalogue's text (no path of the server in it), and no run folder is left."""
+    import jobs as jb
+    import linestore
+    import messages
+    _phase_in_this_process(monkeypatch)
+
+    def failing(run_path, lines, head, view=None):
+        raise OSError(28, r"No space left on device: C:\secret\path")
+    monkeypatch.setattr(linestore, "write", failing)
+    jobs = jb.Jobs(str(tmp_path), public=public)
+    job = jobs.add({"params": {**CLIP, "northing": 254608, "easting": 553966, "radius": 100}, "geometry": None},
+                   "clip", user_id=7 if public else None)
+    for phase, waiting in (("download", "queued"), ("compute", "ready")):
+        jobs.claim(waiting, jb.PHASE_STATUS[phase], "w1")
+        jb.run_phase(str(tmp_path), job, phase, None, public)
+    row = next(j for j in jobs.all() if j["id"] == job)
+    assert row["status"] == "failed" and row["error_info"] == {"code": "run_not_saved", "params": {}}, row
+    assert row["error"] == messages.text("error.run_not_saved") and "secret" not in row["error"]
+    runs = tmp_path / "runs"
+    assert not runs.exists() or not [d for d in os.listdir(runs) if not d.startswith(("_", "."))
+                                      and (runs / d).is_dir()], os.listdir(runs)
 
 
 def test_scheduler_warms_numba_up(tmp_path, monkeypatch):

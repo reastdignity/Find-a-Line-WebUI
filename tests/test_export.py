@@ -95,7 +95,9 @@ def test_export_command(clip_store, tmp_path, monkeypatch, capsys):
     """`findaline.py export RUN --format csv|geojson [--out PATH]`: linestore.export's text of the run's store byte
     for byte (the run's own lines.csv / lines.geojson before store wave 4: test_linestore keeps that equality); RUN a
     run id of --data-dir or a run folder; by default <run id>.<format> in the
-    current folder; nothing written into the run folder."""
+    current folder; nothing written into the run folder.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     import findaline
     data, run_id, folder = copy_data(clip_store, tmp_path)
     expected = {fmt: exported(folder, fmt, tmp_path / "expected") for fmt in ("csv", "geojson")}
@@ -138,7 +140,9 @@ def test_export_command_refuses(clip_store, tmp_path, monkeypatch):
 def test_export_command_refuses_its_output(clip_store, tmp_path, monkeypatch):
     """An --out that names a folder, a folder that does not exist, or a place in the run folder (also the default
     name when the current folder is the run folder) is refused with a message and exit status 1 before any work
-    (linestore.export is never called), and nothing is written; an existing file is overwritten."""
+    (linestore.export is never called), and nothing is written; an existing file is overwritten.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     import findaline
     import linestore
     data, run_id, folder = copy_data(clip_store, tmp_path)
@@ -172,7 +176,9 @@ def test_export_command_refuses_its_output(clip_store, tmp_path, monkeypatch):
 def test_regression_takes_the_export(clip_store, tmp_path):
     """tests/regression.py: check_export gives the CSV the export makes and no problem (since store wave 4 a run
     keeps no lines.csv to compare it with), nothing written into or beside the run folder; measure's checksum and
-    counts are the export's; a run without a store is a problem and has no checksum."""
+    counts are the export's; a run without a store is a problem and has no checksum.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     import hashlib
     import regression
     data, run_id, folder = copy_data(clip_store, tmp_path)
@@ -198,7 +204,9 @@ def test_quick_export_writes_once_and_cleans_up(clip_store, tmp_path, monkeypatc
     EXPORT_KEEP_SECONDS go at the worker's start and before each export, younger ones stay; below the
     server's free_disk_gb_min once the file is written (LANE_LIMITS, whatever the task's limits; the file's size
     estimated from the store's lines) it refuses with export_disk_full, for a run without a store with
-    export_failed."""
+    export_failed.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     from jobs import QuotaExceeded
     from messages import UserError
     data, run_id, folder = copy_data(clip_store, tmp_path)
@@ -339,7 +347,9 @@ def test_export_routes_of_the_local_app(clip_store, tmp_path, monkeypatch):
     as an attachment named after the run (its name, else its id), with its media type, once: the file is
     deleted and a second request answers 404; a Range request gets the whole file. 503 without a worker; the
     format checked; a run without a store refused (409 export_failed) before the lane is asked; other names
-    and other runs' exports answer 404 and leave the file."""
+    and other runs' exports answer 404 and leave the file.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     data, run_id, folder = copy_data(clip_store, tmp_path)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta["name"] = 'Żabi "Koń"/1'

@@ -927,7 +927,9 @@ def test_disk_estimate_counts_the_access_grid(tmp_path, offline):
 
 @pytest.fixture(scope="module")
 def scene_runs(tmp_path_factory, offline):
-    """The float scene searched without and with --access, each saved by search.save_run: {name: run folder}."""
+    """The float scene searched without and with --access, each saved by search.save_run: {name: run folder}. Beside
+    each run folder (`<name>.expected/`): the lines.csv and lines.geojson the search wrote from its own lines and
+    groups before store wave 4 (runs.save_results in memory), the reference of its exports."""
     folder = tmp_path_factory.mktemp("scene-runs")
     runs = {}
     for name, on in (("off", False), ("on", True)):
@@ -935,8 +937,12 @@ def scene_runs(tmp_path_factory, offline):
         lines, _ = search.search_lines(plan)
         path = folder / name / "runs" / name
         path.mkdir(parents=True)
-        search.save_run(plan, lines, {"id": name, "path": str(path), "created": datetime(2026, 11, 15, 12),
-                                      "name": name})
+        result = search.save_run(plan, lines, {"id": name, "path": str(path), "created": datetime(2026, 11, 15, 12),
+                                               "name": name})
+        expected = folder / name / f"{name}.expected"
+        expected.mkdir()
+        rn.save_results(str(expected), lines.results, lines.spot_groups,
+                        {k: v for k, v in result.meta.items() if k != "store"}, files=("lines.csv", "lines.geojson"))
         runs[name] = path
     return runs
 
@@ -945,8 +951,13 @@ def test_files_with_the_option_and_without(scene_runs):
     """Off: no column, no "ends", run.json's params and the search's key without "access". On: the CSV and GeoJSON
     exports hold access1, access2 after the anchors' columns (the rest byte for byte the run without the option),
     the store's head names them in "ends" and its two uint8 columns are read back as the search's (data.js and
-    lines.js held two values before the profile before store wave 4), run.json's params "access": true."""
+    lines.js held two values before the profile before store wave 4), run.json's params "access": true. Both exports
+    of both runs are byte for byte the text the search writes from its own lines in memory (runs.save_results)."""
     off, on = scene_runs["off"], scene_runs["on"]
+    for folder in (off, on):
+        expected = folder.parent.parent / f"{folder.name}.expected"
+        assert _export(folder) == (expected / "lines.csv").read_bytes(), folder.name
+        assert _export(folder, "geojson") == (expected / "lines.geojson").read_bytes(), folder.name
     meta = {name: json.loads((folder / "run.json").read_text(encoding="utf-8")) for name, folder in scene_runs.items()}
     assert "access" not in meta["off"]["params"] and meta["on"]["params"]["access"] is True
     assert meta["on"]["summary"]["lines"] == meta["off"]["summary"]["lines"] > 50
@@ -1068,7 +1079,7 @@ def test_tiles_give_one_grids_answers(tmp_path, monkeypatch):
 
 def test_the_store_error_is_coded(tmp_path, offline, monkeypatch):
     """A store that cannot be written fails the search (store wave 4: a run without its store has no lines): a coded
-    SearchError (error.store_failed) whose page text holds no exception text (it may hold paths); the command line's
+    SearchError (error.run_not_saved) whose page text holds no exception text (it may hold paths); the command line's
     text names the error, and no run folder is kept."""
     events = []
     plan = _plan(tmp_path, scene(), "note", events, access=False)
@@ -1082,10 +1093,9 @@ def test_the_store_error_is_coded(tmp_path, offline, monkeypatch):
     with pytest.raises(search.SearchError) as error:
         search.save_run(plan, lines, {"id": "note", "path": str(folder), "created": datetime(2026, 11, 15),
                                       "name": "n"})
-    assert error.value.code == "store_failed"
-    assert str(error.value) == r"The run could not be saved: its lines could not be written (MemoryError: no memory " \
-                               r"at C:\secret\path)"
-    assert error.value.web_text() == messages.text("error.store_failed") and "secret" not in error.value.web_text()
+    assert error.value.code == "run_not_saved"
+    assert str(error.value) == r"The run could not be saved (MemoryError: no memory at C:\secret\path)"
+    assert error.value.web_text() == messages.text("error.run_not_saved") and "secret" not in error.value.web_text()
     assert not folder.exists()
 
 
@@ -1210,7 +1220,8 @@ def test_the_page_reads_the_store_of_a_run_with_the_option(tmp_path, scene_runs)
     """The page's store reader (result/load.ts readStore, types.ts storedColumns) reads a run made with --access with
     the same Line values, profiles, keys and head as its data.js, and the page's model on it gives data.js's spots and
     counts (test_viewer.py's STORE_SCRIPT); the store's access1, access2 (apache-arrow, the page's library) are uint8
-    with each row's values of data.js (named by its "ends")."""
+    with each row's values of data.js (named by its "ends"). Its data.js is written from Python's reading of the
+    store (old_runs): the page's reader is checked against Python's; the store's fidelity is test_linestore's."""
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from test_viewer import STORE_SCRIPT, _run_node, _store_bundle
     folder = _old_copy(scene_runs["on"], tmp_path)  # its data.js beside the store: the page's reference
