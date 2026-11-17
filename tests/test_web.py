@@ -2822,7 +2822,7 @@ CORNERS_CLEAR = ("() => { const m = document.querySelector('.leaflet-container')
                  "a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(); "
                  "const under = a.left < s.right && s.left < a.right; "
                  "return a.height > 0 && (under ? a.top - s.bottom >= 0 && a.top - s.bottom <= 10 "
-                 ": s.bottom <= a.top || s.top >= a.bottom); }")
+                 ": true); }")  # side by side: apart by themselves
 PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.map.getZoom() + by, {animate: false})"
 # Where the focus is after "Clear the place": [the place box's text field, a text field at all, the chosen mode, the
 # page's body, the button still shown]

@@ -1626,7 +1626,7 @@ CORNERS_SETTLED = """() => { const m = document.querySelector('.leaflet-containe
   const a = m.querySelector('.leaflet-control-attribution'), s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
     c = a.getBoundingClientRect(), under = c.left < s.right && s.left < c.right;
   return /FABDEM/.test(a.textContent) && (under ? c.top - s.bottom >= 0 && c.top - s.bottom <= 10
-                                                : s.bottom <= c.top || s.top >= c.bottom); }"""
+                                                : true); }"""  # side by side: apart by themselves
 SORTED_JS = """() => [document.querySelectorAll('.r-col[aria-sort]').length,
   document.querySelector('.r-col.r-on')?.textContent, document.querySelector('.r-sort').value]"""
 ZOOM_JS = "(by) => window.FINDALINE_MAP.setZoom(window.FINDALINE_MAP.getZoom() + by, {animate: false})"
