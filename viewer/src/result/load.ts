@@ -34,7 +34,7 @@ import { t } from "../i18n";
 import { measure, timed } from "../perf";
 import { nextPaint } from "../paint";
 import { runData, storedColumns, type LineColumns, type Ortho, type Profile, type ProfileSource, type RunData, type RunHead,
-         type RunInfo, type RunScript, type StoredColumn, type StoreInfo } from "../types";
+         type RunInfo, type RunScript, type StoredColumn, type StoreInfo, type ViewColumns } from "../types";
 
 const PREFIX = "window.FINDALINE_RUN = ";  // mapping._script_head of data.js
 /** The store's format this page reads (linestore.FORMAT): a store of a higher one is refused (NewerStore). */
@@ -326,7 +326,19 @@ export function readStore(lines: ArrayBuffer, profiles: ArrayBuffer | null): Run
   measure("fal:run:parse", parseStart, {store: true});
   const columns: LineColumns = timed("fal:run:lines", () => storedColumns(n, stored, over!, head.terrain, profileSource),
                                      {count: n, store: true});
-  return {...head, columns};
+  const view = viewColumns(stored, n);
+  return view ? {...head, columns, view} : {...head, columns};
+}
+
+/** The result view's columns of a store (linestore.VIEW: `spot` uint32, `top` uint8, `by_spot` uint32, none
+ *  missing), as the file's own arrays; null for a store without them (a run saved before the view's columns) or
+ *  whose three are not of these types and of one value per line. */
+function viewColumns(stored: Map<string, StoredColumn>, n: number): ViewColumns | null {
+  const of = (name: string) => { const c = stored.get(name); return c && c.valid === null ? c.values : null; };
+  const spot = of("spot"), top = of("top"), bySpot = of("by_spot");
+  if (!(spot instanceof Uint32Array) || !(top instanceof Uint8Array) || !(bySpot instanceof Uint32Array)) return null;
+  if (spot.length !== n || top.length !== n || bySpot.length !== n) return null;
+  return {spot, top, bySpot};
 }
 
 /** profiles.arrow as the run's profiles by row: each made when it is asked for (lineAt), as helpers.line_profile's

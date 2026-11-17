@@ -15,6 +15,14 @@ opened at the levels asked; the patch's request and body come from its resource 
     uv sync --group ui
     uv run playwright install chromium
     uv run tools/perf_run_load.py --runs <id> [<id> ...] --out <folder> [--rounds 3] [--levels full,phone]
+                                  [--view] [--interact]
+
+`--view` opens the result view of mock-up 2 (the page's flag `?view=b`; a run without the view's columns opens
+today's page all the same, and the report says which page drew it); its phases are the measures "fal:view:*".
+`--interact` then times changes on the open page, each from the call to two frames later (the map drawn again)
+and its part in script: in the result view a filter on and off, "Top level only" off and on, Best 30 and 10, the
+Lines level held and Auto again, "Lines from here" opened and closed; on today's page a filter and the grouping
+distance (round 3's private t56.py, docs/line-volume/spec-store.md 1.8: T6).
 
 The downloads here go over loopback. The table therefore adds each data.js gzipped as nginx sends it
 (level 5) and the time that takes at a few line rates. Results go to <out>/perf_run_load.json and .md. The
@@ -49,6 +57,9 @@ RUN_COPY = ("data.js", "lines.arrow", "profiles.arrow", "run.json", "ATTRIBUTION
 STORE_FILES = ("lines.arrow", "profiles.arrow")  # linestore.FILES
 # data.js read as a script (before 2026-11-04, a map from disk, a file JSON.parse refuses) or fetched and parsed
 PHASES = ("fal:run:script", "fal:run:download", "fal:run:parse", "fal:run:lines", "fal:run:filter", "fal:run:group", "fal:run:ranges", "fal:run:rows")
+# the result view's own phases (viewer/src/result/spots.ts, SpotMap.ts)
+VIEW_PHASES = ("fal:view:first", "fal:view:pass", "fal:view:shown", "fal:view:order", "fal:view:picks", "fal:view:inview",
+               "fal:view:squares", "fal:view:draw", "fal:view:fan", "fal:view:refan")
 PHASES_3D = ("fal:3d:request", "fal:3d:body", "fal:3d:decode", "fal:3d:mesh", "fal:3d:first-frame",
              "fal:3d:profile", "fal:3d:imagery")
 
@@ -74,6 +85,47 @@ async (resource) => {
                   bytes: r.decodedBodySize, transferred: r.transferSize}));
   return {ready, measures, file: files[0] ?? null, longtasks: window.__falLongTasks || [],
           heap: performance.memory ? performance.memory.usedJSHeapSize : null};
+}
+"""
+
+# Changes on the open page, each timed from its call to two frames later, with its part in script: the result
+# view's (window.FINDALINE_VIEW) or today's page's (window.FINDALINE_RESULT)
+INTERACT = """
+async () => {
+  const frames = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done))));
+  const out = [];
+  const timed = async (kind, change) => {
+    await frames();
+    const t0 = performance.now();
+    change();
+    const sync = performance.now() - t0;
+    await frames();
+    out.push({kind, sync, total: performance.now() - t0});
+  };
+  const shown = window.FINDALINE_VIEW, today = window.FINDALINE_RESULT;
+  if (shown) {
+    const {view} = shown, model = view.model, c = model.data.columns;
+    await timed("filter on", () => model.setFilters({...model.filters, clrMin: 2}));
+    await timed("filter off", () => model.setFilters({...model.filters, clrMin: null}));
+    await timed("top level only off", () => view.setTopOnly(false));
+    await timed("top level only on", () => view.setTopOnly(true));
+    await timed("best 30", () => view.setBest(30));
+    await timed("best 10", () => view.setBest(10));
+    await timed("lines held", () => view.setLevel("lines"));
+    await timed("auto again", () => view.setLevel("auto"));
+    if (view.order.length) {
+      const row = view.shownOf(view.order[0]);
+      await timed("lines from here", () => view.openFan({lat: c.lat1.at(row), lng: c.lon1.at(row)}, {row, end: 1}));
+      await timed("lines from here closed", () => view.closeFan());
+    }
+  } else if (today) {
+    const {model} = today;
+    await timed("filter on", () => model.setFilters({...model.filters, clrMin: 2}));
+    await timed("filter off", () => model.setFilters({...model.filters, clrMin: null}));
+    await timed("grouping wider", () => model.setState({...model.state, distance: model.data.distance * 1.5}));
+    await timed("grouping back", () => model.setState({...model.state, distance: model.data.distance}));
+  }
+  return out;
 }
 """
 
@@ -186,7 +238,20 @@ def summarize_result(rounds: list) -> dict:
     out["longest_task"] = median(max((d for _, d in r.get("longtasks", [])), default=0) for r in rounds)
     out["long_tasks"] = median(sum(d for _, d in r.get("longtasks", [])) for r in rounds)
     out["heap_mb"] = median(r["heap"] / 2 ** 20 if r.get("heap") else None for r in rounds)
+    out["page"] = ", ".join(sorted({r["page"] for r in rounds if r.get("page")}))
+    if any(m["name"].startswith("fal:view:") for r in rounds for m in r.get("measures", [])):
+        out["view"] = {name.split(":")[-1]: median(phase_ms(r["measures"], name) for r in rounds) for name in VIEW_PHASES}
     return out
+
+
+def summarize_interact(rounds: list) -> dict:
+    """The medians of the changes timed on the open page (INTERACT), in their order: for each its part in script
+    (`sync`) and the time to the second frame after it (`total`), ms."""
+    kinds = []
+    for r in rounds:
+        kinds += [c["kind"] for c in r.get("interact") or [] if c["kind"] not in kinds]
+    return {kind: {key: median(c[key] for r in rounds for c in r.get("interact") or [] if c["kind"] == kind)
+                   for key in ("sync", "total")} for kind in kinds}
 
 
 def summarize_compare(trials: list) -> dict:
@@ -215,6 +280,10 @@ def _s(ms) -> str:
     return "" if ms is None else f"{ms / 1000:.2f}"
 
 
+def _ms(ms) -> str:
+    return "" if ms is None else f"{ms:.1f}"
+
+
 def markdown(results: dict) -> str:
     """The report's tables (seconds unless named)."""
     out = ["# Loading a run in the browser", "",
@@ -239,6 +308,17 @@ def markdown(results: dict) -> str:
             "page's start to the result drawn.", "",
             "## data.js as a script against fetch + JSON.parse (from the HTTP cache)", "",
             "| run | script | fetch + text | JSON.parse | fetch + JSON.parse | JSON.parse reads it |", "|---|---|---|---|---|---|"]
+    views = [run for run in results["runs"] if run["result"].get("view")]
+    if views:
+        names = [name.split(":")[-1] for name in VIEW_PHASES]
+        out[-4:-4] = ["## The result view's phases at the first draw (ms)", "", "| run | " + " | ".join(names) + " |",
+                      "|" + "---|" * (1 + len(names))] + [
+            f"| {run['id']} | " + " | ".join(_ms(run["result"]["view"].get(name)) for name in names) + " |" for run in views] + [""]
+    if any(run.get("interact") for run in results["runs"]):
+        out[-4:-4] = ["## Changes on the open page (ms)", "", "| run | page | change | in script | to the second frame |",
+                      "|---|---|---|---|---|"] + [
+            f"| {run['id']} | {run['result'].get('page') or ''} | {kind} | {_ms(c['sync'])} | {_ms(c['total'])} |"
+            for run in results["runs"] for kind, c in (run.get("interact") or {}).items()] + [""]
     for run in results["runs"]:
         c = run["compare"]
         both = None if c["fetch"] is None or c["parse"] is None else c["fetch"] + c["parse"]
@@ -313,18 +393,23 @@ def serve(data: str):
     return f"http://127.0.0.1:{port}", stop
 
 
-def open_result(browser, site: str, run: str, timeout: float, out: str, keep_page: bool = False):
+def open_result(browser, site: str, run: str, timeout: float, out: str, keep_page: bool = False, view: bool = False,
+                interact: bool = False):
     """One round of a run's result in a fresh profile: its measures; with keep_page also (context, page).
-    A result that does not show stops the tool, with a screenshot in `out`."""
+    A result that does not show stops the tool, with a screenshot in `out`. `view`: the page is asked for the result
+    view (`?view=b`; "page" says which page drew the run: "view" or "today"); `interact`: the changes of INTERACT
+    are timed on the open page ("interact")."""
     context = browser.new_context(viewport=VIEWPORT)
     context.add_init_script(LONG_TASKS)
     page = context.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)[:200]))
-    page.goto(f"{site}/#run={quote(run, safe='')}", wait_until="commit")
+    page.goto(f"{site}/{'?view=b' if view else ''}#run={quote(run, safe='')}", wait_until="commit")
     try:
         page.wait_for_selector(".c-result, .c-result-wait .c-error", timeout=timeout * 1000)
         failed = page.evaluate("() => document.querySelector('.c-result-wait .c-error')?.textContent || null")
+        if not failed:  # the page's model and map are there (the result view: after its first draw)
+            page.wait_for_function("() => !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT)", timeout=timeout * 1000)
     except Exception as e:
         failed = str(e).splitlines()[0]
     if failed:
@@ -337,7 +422,10 @@ def open_result(browser, site: str, run: str, timeout: float, out: str, keep_pag
                                      ".map((r) => new URL(r.name).pathname)"))
     found = page.evaluate(COLLECT, "/lines.arrow" if source == "store" else "/data.js")
     found["source"] = source
-    print(f"{run}: read from {found['source']}", flush=True)
+    found["page"] = page.evaluate("() => window.FINDALINE_VIEW ? 'view' : 'today'")
+    print(f"{run}: read from {found['source']}, drawn by {found['page']}", flush=True)
+    if interact:
+        found["interact"] = page.evaluate(INTERACT)
     found["errors"] = errors
     if keep_page:
         return found, context, page
@@ -390,7 +478,8 @@ def measure(args) -> dict:
                 for k in range(args.rounds):
                     print(f"{run}: result, round {k + 1} of {args.rounds}", flush=True)
                     last = k == args.rounds - 1
-                    found = open_result(browser, site, run, args.timeout, args.out, keep_page=last)
+                    found = open_result(browser, site, run, args.timeout, args.out, keep_page=last, view=args.view,
+                                        interact=args.interact)
                     if last:
                         found, context, page = found
                         page.close()  # its model freed; the context keeps the HTTP cache
@@ -405,6 +494,8 @@ def measure(args) -> dict:
                     rounds.append(found)
                 entry["result_rounds"] = rounds
                 entry["result"] = summarize_result(rounds)
+                if args.interact:
+                    entry["interact"] = summarize_interact(rounds)
                 print(f"{run}: gzip size", flush=True)
                 entry["size"] = size_of(os.path.join(args.runs_dir, run), entry["result"]["source"])
                 if args.levels:
@@ -440,6 +531,8 @@ def main():
     parser.add_argument("--levels", default="full,phone",
                         help="the 3D view's levels, comma-separated; empty: no 3D view (default full,phone)")
     parser.add_argument("--timeout", type=float, default=600, help="seconds a page may take (default 600)")
+    parser.add_argument("--view", action="store_true", help="open the result view (the page's flag ?view=b)")
+    parser.add_argument("--interact", action="store_true", help="time changes on the open page (filters, levels, the fan)")
     args = parser.parse_args()
     args.levels = [v for v in args.levels.split(",") if v]
     os.makedirs(args.out, exist_ok=True)

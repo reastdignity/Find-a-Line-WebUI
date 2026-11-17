@@ -402,19 +402,20 @@ def test_a_failed_estimate_ends_its_wait(tmp_path):
 
 def test_families_and_limits():
     """page_family by interface and hash; the limits: 30 s for the first-draw marks (the 3D view's, the estimate's,
-    the result's), 240 s for c-basic-sea's (SLOW_MARKS), 10 s for every other wait, 30 s and 10 s for the settled
+    the result's, the result view's), 240 s for c-basic-sea's (SLOW_MARKS), 10 s for every other wait, 30 s and 10 s for the settled
     waits after a load and after a step; a quarter after a first timeout in the pass."""
     families = {"view3d-eyes": "view3d", "view3d-valid": "view3d", "view3d-phone": "view3d",
                 "page-coverage-europe": "coverage", "page-signin": "static",
                 "page-privacy": "static", "c-result": "result", "c-line": "result", "map-shared": "result",
                 "c-basic-sea": "search", "c-new-more": "search", "c-layer-world": "layer", "c-layer-border": "layer",
-                "c-home": "home", "c-menu": "home", "c-osm": "home", "c-admin": "home", "c-account-end": "home"}
+                "c-home": "home", "c-menu": "home", "c-osm": "home", "c-admin": "home", "c-account-end": "home",
+                "c-view": "view-b", "c-view-area": "view-b"}
     assert {name: ui_shots.page_family(name) for name in families} == families
     assert {ui_shots.page_family(name) for name in ui_shots.PAGES} == {
-        "view3d", "coverage", "static", "result", "search", "layer", "home"}
+        "view3d", "coverage", "static", "result", "search", "layer", "home", "view-b"}
     state = ui_shots.Pass("pixel", "dark")
     view3d, estimate = ui_shots.VIEW3D_READY[5:], ui_shots.READY[5:]
-    assert [state.limit(e) for e in (view3d, estimate, ui_shots.NEED_READY)] == [30000] * 3
+    assert [state.limit(e) for e in (view3d, estimate, ui_shots.NEED_READY, ui_shots.VIEW_READY[5:])] == [30000] * 4
     assert state.limit(estimate, "c-basic-sea") == 240000 and state.limit(estimate, "c-basic-long") == 30000
     assert state.limit(ui_shots.EDGES_DRAWN[5:], "view3d-edges") == 10000
     assert state.limit("settled (home) after the load") == 30000 and state.limit("settled (home) after a step") == 10000
@@ -992,8 +993,12 @@ def test_page_storage():
     script = ui_shots.page_storage("c-layer-collapsed")
     assert "localStorage.removeItem('findaline.layout')" in script and \
         json.dumps(json.dumps(ui_shots.LAYER_LAYOUTS["c-layer-collapsed"])) in script
-    assert ui_shots.page_storage("c-home") == ("try { localStorage.removeItem('findaline.layout'); "
+    assert ui_shots.page_storage("c-home") == ("try { localStorage.removeItem('findaline.view'); "
+                                               "localStorage.removeItem('findaline.layout'); "
                                                "localStorage.removeItem('findaline.layer.layout'); } catch (e) {}")
+    # the result view's flag: set for its pages, removed for every other page of the pass
+    assert ui_shots.page_storage("c-view").startswith("try { localStorage.setItem('findaline.view', \"b\"); ")
+    assert "localStorage.removeItem('findaline.view')" in ui_shots.page_storage("c-result-rails")
 
 
 def test_credits_go_into_data_js_and_the_store(tmp_path):

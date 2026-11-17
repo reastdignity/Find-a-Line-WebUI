@@ -125,6 +125,11 @@ export interface ResultOptions {
   /** The list's sorting while the user has kept no choice of their own (default: list.ts LIST_DEFAULTS);
    *  not saved until the user changes the list. */
   list?: Partial<ListState>;
+  /** The result view's model (result/spots.ts) reads the spots the run's store holds: this model then groups
+   *  nothing and keeps no groups, rows or selection (`compute` gives only the filters' ranges; a change of the
+   *  filters or of the lines shown is kept and told to the listeners, which apply it); the lines, favourites,
+   *  profiles, links and other runs are as before. */
+  ungrouped?: boolean;
 }
 
 /** "Show per spot" (LinesState.by) of the highest line on average: the spots are the run's grouping (`data.by`),
@@ -228,6 +233,8 @@ export class ResultModel {
   private readonly api: ResultApi;
   private readonly wantFavourites: boolean;
   readonly canCompute: boolean;
+  /** Built for the result view (ResultOptions.ungrouped): no groups, rows or selection here. */
+  readonly ungrouped: boolean;
   private selectedLine: Line | null = null;
   // This run's lines (the first) and the other runs', each from its own index on; indices are never given twice
   // (a run shown again gets new ones), so a Line's index (`index`) never names another line
@@ -264,6 +271,7 @@ export class ResultModel {
     const app = appFlags();
     this.wantFavourites = options.favourites ?? app?.favourites ?? fromServer();
     this.canCompute = options.profiles ?? app?.profiles ?? fromServer();
+    this.ungrouped = options.ungrouped === true;
     this.state = {group: true, distance: this.data.distance, by: BY_MEAN, showClean: true, showOver: true};
     this.filters = savedFilters();
     this.list = options.list && !hasSavedList() ? {...savedList(), ...options.list} : savedList();
@@ -536,6 +544,10 @@ export class ResultModel {
   /** The groups and rows again: after a change of the filters, of the grouping
    *  or of the runs shown. */
   private compute() {
+    if (this.ungrouped) {  // the result view: the spots are the store's, nothing is filtered or grouped here
+      this.ranges = timed("fal:run:ranges", () => this.rangesNow());
+      return;
+    }
     const s = this.state;
     const visible = timed("fal:run:filter", () => this.visibleLines());
     this.grouped = timed("fal:run:group", () => s.group ? this.groupVisible(visible)
