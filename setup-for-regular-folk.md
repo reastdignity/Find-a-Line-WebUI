@@ -64,7 +64,7 @@ In the same terminal, run
 uv run findaline.py view
 ```
 
-It starts Find-a-Line in your web browser and opens your latest search (`uv run findaline.py view <name of the search>` opens another one). Keep the terminal open while you look; close it, or press Ctrl+C, to stop. A search's `map.html` no longer opens by a double-click: it only says to run this command.
+It starts Find-a-Line in your web browser and opens your latest search (`uv run findaline.py view <id of the search>` opens another one: the id is the search's folder name in `runs`, which the search's last line names too). Keep the terminal open while you look; close it, or press Ctrl+C, to stop. A search's `map.html` no longer opens by a double-click: it only says to run this command.
 
 - **Pink lines** have enough clearance over the terrain and over the trees; **orange lines** clear the terrain but pass too close to trees or buildings.
 - The **list on the right** (on a phone: slide the sheet at the bottom up) shows the spots, the clearest first. The chips above it filter the lines (length, clearance, height); *More filters* has the rest, and the grouping of similar lines.
@@ -73,7 +73,7 @@ It starts Find-a-Line in your web browser and opens your latest search (`uv run 
 - In the **top-right corner** of the map switch the background to **Orthophoto** to see aerial photos (you can zoom in very close to check the rocks and trees). The photos around the found lines also work without internet, while Find-a-Line runs on your computer.
 - The **arrow in the top-left corner** goes back to the list of all your searches (Home).
 
-Every search is kept in the `runs` folder, and Home lists them all. To open the lines of a search in Excel or any spreadsheet program, use *Download* → *CSV* on its result, or run `uv run findaline.py export <name of the search> --format csv`, which writes `<name of the search>.csv` in the current folder.
+Every search is kept in the `runs` folder, and Home lists them all. To open the lines of a search in Excel or any spreadsheet program, use *Download* → *CSV* on its result, or run `uv run findaline.py export <id of the search> --format csv`, which writes `<id of the search>.csv` in the current folder.
 
 ## Searching in the browser instead
 Instead of typing commands, you can use Find-a-Line as a page in your web browser:

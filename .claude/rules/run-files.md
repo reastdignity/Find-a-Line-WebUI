@@ -64,8 +64,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   the export matches only while the search keeps them at 0.1 m (`covered_metres`). A column no integer holds exactly
   is float64 of round(value, decimals) without `decimals` (the reader takes both). `save_run` writes the store first,
   then `map.html`, `ATTRIBUTION.txt` and `run.json` last with its block `store` (never in the export's `lines.geojson`:
-  `export` leaves it out): a folder without run.json is a run being saved. A store that cannot be written fails the
-  search (`store_failed`, no run kept); view columns that fail leave a store without them (`view_columns_failed`).
+  `export` leaves it out): a folder without run.json is a run being saved. Anything failing between the folder and run.json
+  fails the search (`run_not_saved`, no run kept; a tiled run keeps its work state); view columns that fail leave a
+  store without them and run.json's `view_columns_failed`. run.json is written whole (`cache.replacing`).
   `has_lines`: `lines.arrow` or (old runs, until item 5) `lines.js`. The head is `mapping.map_head`'s. Its media type
   `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
 - The page's reader of the store (`result/load.ts` `readStore`, `storedProfiles`, `STORE_FORMAT`; `types.ts`
@@ -108,10 +109,13 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   mark asked but left out (the area too wide: `search._check_access`) makes the run of a search without the option
   plus `"access_skipped": "memory"` in run.json and every head (`mapping._ends`: data.js, lines.js, the store's) =
   `types.ts` `RunHead.access_skipped`.
-- An old run (docs/line-volume/spec-store.md 2.2) is what `linestore.store_state` does not call "current" (no
-  lines.arrow of `FORMAT` with `VIEW`'s columns): `runs.old_runs` sorts the runs of `findaline.py runs remove-old` by
-  it, so a new `FORMAT` or view column makes every run of before old (removed on the user's word, never converted).
-  The remove-old's dry run writes nothing in the data folder (`jobs.run_facts` reads a copy of jobs.sqlite).
+- An old run (docs/line-volume/spec-store.md 2.2) is what `runs.run_state` does not call "current" (no
+  lines.arrow of `FORMAT` with `VIEW`'s columns, but for run.json's `runs.VIEW_FAILED`: today's run whose view
+  columns failed): `runs.old_runs` sorts the runs of `findaline.py runs remove-old` by it, so a new `FORMAT` or view
+  column makes every run of before old (removed on the user's word, never converted). A read error is never "old"
+  (`linestore.store_state` "cannot_read": skipped). A removal renames the folder first (`runs.park_run` to
+  `_removing-<id>` under the runs lock, then the rows, then `runs.finish_removal` outside it): `Jobs.delete_run` and
+  `runs_main` alike. The dry run writes nothing in the data folder (`jobs.run_facts` reads a checked copy).
   `tests/old_runs.py` makes the runs of before for the tests (today's writers; their map.html is BASE's
   `MAP_HTML`, without the disk notice) until item 5.
 - The uncertain shore: `sources.filling.shore_segments`' dict is run.json's and data.js's `shore`

@@ -436,7 +436,10 @@ def test_every_new_run_has_the_view_columns(tmp_path):
     and a surface model, the square rule on, the access mark on, a tiled area; each equals view_columns of the
     lines read back from the store (its values as stored), and the run keeps no text file (store wave 4; the
     export equals what the search wrote from its own lines: test_linestore's clip). A tiled area and one grid with
-    equal lines: the same CSV export and the same columns."""
+    equal lines: the same CSV export and the same columns.
+    (Its searches run in a process of their own, so no in-memory reference: the export's bytes of runs with the
+    options are held by test_store_round_trip (ends, square, access), test_access_search's
+    test_files_with_the_option_and_without and the regression checksums of R14, R16, R65, R83.)"""
     area = tmp_path / "square.geojson"
     area.write_text(json.dumps({"type": "Feature", "properties": {},
                                 "geometry": {"type": "Polygon", "coordinates": SQUARE}}))
@@ -491,8 +494,9 @@ def test_the_same_columns_on_1_and_8_threads(tmp_path, cap):
 
 def test_view_columns_that_fail_never_cost_the_run(tmp_path, monkeypatch):
     """view_columns raising (here a MemoryError) leaves the run saved with a store without the view's columns
-    (store wave 4, the planner's Q1b: it opens in today's page, and runs remove-old counts it as old), its map,
-    run.json with "store", and a coded warning (view_columns_failed) naming the error on the command line."""
+    (store wave 4, the planner's Q1b: it opens in today's page; run.json's view_columns_failed makes it a run of
+    today, which runs remove-old keeps), its map, run.json with "store", and a coded warning (view_columns_failed)
+    naming the error on the command line."""
     def failing(lines, groups, centre):
         raise MemoryError("no memory for the view")
     monkeypatch.setattr(mp, "view_columns", failing)
@@ -502,7 +506,8 @@ def test_view_columns_that_fail_never_cost_the_run(tmp_path, monkeypatch):
     assert meta["store"]["lines"] == meta["summary"]["lines"] == len(results) > 0
     stored, head = linestore.read(str(folder), profiles=False)
     assert not set(mp.VIEW_COLUMNS) & set(stored.columns) and not set(linestore.VIEW_HEAD) & set(head)
-    assert linestore.store_state(str(folder)) == "old"
+    assert linestore.store_state(str(folder)) == "no_view" and meta[rn.VIEW_FAILED] is True
+    assert rn.run_state(str(folder))[0] == "current"  # a run of today: runs remove-old keeps it (the planner's Q1b)
     assert ("warning", "The run is saved without the result view's columns (spots' sectors): MemoryError: no memory "
                        "for the view") in events
 

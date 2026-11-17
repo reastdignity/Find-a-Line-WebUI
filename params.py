@@ -149,8 +149,7 @@ class SearchParams(BaseModel):
                                 "cannot tell, or hard access (from the terrain alone: no paths, fences, "
                                 "private land or trees; no line is filtered out)", "search")
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
-                                         "at most a container's CPU quota); from 2, the files of a large run are "
-                                         "written by processes of their own (2 and 3: two, 4 and more: four)",
+                                         "at most a container's CPU quota)",
                                    "search")
     tile_size: Optional[float] = field(None, "large areas are computed in square tiles of this size in metres "
                                              "(plus an overlap of --max-length); default: from the free memory",
