@@ -2040,8 +2040,10 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
         return [t.strip() for t in items.all_text_contents()]
 
     try:
-        while not server.started:
-            time.sleep(0.1)
+        deadline = time.monotonic() + 30  # a port taken between the bind's close and uvicorn's: fail, not hang
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "the public site did not start"
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="msedge", headless=True)
             try:
