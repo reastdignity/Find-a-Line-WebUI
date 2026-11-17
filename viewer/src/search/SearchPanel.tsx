@@ -72,14 +72,13 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   const touch = useMedia(TOUCH);  // a tap, not a click, on a touch screen
   const placed = !!(s.point || s.shapes > 0 || s.file || s.osmName || s.within || s.name);  // what clear() empties
   const where = useRef<HTMLDivElement>(null);
-  // The button goes with what it cleared, so the focus moves within the block, never to the page: by keyboard
-  // (Enter or Space: no pointer) or on a desktop to its first control (the place box); after a tap on a touch screen
-  // to the chosen "Where" mode, as a focused text field would open the on-screen keyboard
-  const clear = (e: MouseEvent) => {
-    const keyboard = e.detail === 0;
+  // The button goes with what it cleared, so the focus moves within the block, never to the page: where the pointer
+  // is fine to its first control (the place box); on a touch screen to the chosen "Where" mode however the button was
+  // pressed (a tap, a key, a screen reader's activation, which Chromium sends as a click of detail 0 like a key), as a
+  // focused text field would open the on-screen keyboard
+  const clear = () => {
     s.clear();
-    where.current?.querySelector<HTMLElement>(keyboard || !touch ? "input, button" : "[role=radio][aria-checked=true]")
-      ?.focus();
+    where.current?.querySelector<HTMLElement>(touch ? "[role=radio][aria-checked=true]" : "input, button")?.focus();
   };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
     {s.areas === 1 ? "1 area" : `${s.areas} separate areas`}
