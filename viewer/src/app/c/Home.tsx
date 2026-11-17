@@ -105,7 +105,7 @@ export function menuKeys(e: KeyboardEvent) {
 
 function SearchCard({card, runs, jobs, publicSite, highlight, onGone}:
                     {card: Card; runs: RunsState; jobs: JobsState; publicSite: boolean; highlight: boolean;
-                     onGone(): void}) {
+                     onGone(listed: Promise<boolean>): void}) {
   const {job, run} = card;
   const st = stateOf(card);
   const [panel, setPanel] = useState<"" | "share" | "delete" | "remove">("");
@@ -141,13 +141,12 @@ function SearchCard({card, runs, jobs, publicSite, highlight, onGone}:
   const unshare = () => api.unshare(run!.id).then(() => { setUrl(""); runs.change(run!.id, {shared: false}); },
                                                   (e) => setError(e.message));
   // The job that saved the run is then listed as one whose run is gone: listed again, its card goes with the run
-  // (onGone: Home moves the focus on once the card is gone)
-  const remove = () => api.deleteRun(run!.id).then(() => { onGone(); forgetRun(run!.id); runs.change(run!.id, null);
-                                                           return jobs.refresh(); },
+  // (onGone with the listing: Home moves the focus on once the card is gone, and forgets it if the listing fails)
+  const remove = () => api.deleteRun(run!.id).then(() => { forgetRun(run!.id); runs.change(run!.id, null);
+                                                           onGone(jobs.refresh()); },
                                                    (e) => setError(e.message));
   const cancel = () => api.cancel(job!.id).then(() => jobs.refresh(), (e) => setError(e.message));
-  const removeJob = () => api.removeJob(job!.id).then(() => { onGone(); return jobs.refresh(); },
-                                                      (e) => setError(e.message));
+  const removeJob = () => api.removeJob(job!.id).then(() => onGone(jobs.refresh()), (e) => setError(e.message));
   const canRemove = !!job && job.status === "cancelled" && job.own === true;  // not another user's (an administrator's Home)
   const items = [
     open && <a key="open" role="menuitem" class="c-menu-item" href={open}><Icon name="layers" />Open the result</a>,
@@ -243,6 +242,12 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
   const list = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const going = useRef<{key: string; at: number} | null>(null);
+  const gone = (key: string, at: number, listed: Promise<boolean>) => {
+    const mark = {key, at};
+    going.current = mark;
+    listed.then((ok) => { if (!ok && going.current === mark) going.current = null; });  // never a late jump
+  };
+  useEffect(() => { going.current = null; }, [show]);  // another filter: the card left the view, not the list
   useEffect(() => {
     const pending = going.current;
     if (!pending || shown.some((c) => c.key === pending.key)) return;
@@ -292,7 +297,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         : <div class="c-cards" ref={list}>{shown.map((c, at) =>
             <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
                         highlight={!!highlight && c.job?.id === highlight}
-                        onGone={() => { going.current = {key: c.key, at}; }} />)}</div>}
+                        onGone={(listed) => gone(c.key, at, listed)} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
       {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>
