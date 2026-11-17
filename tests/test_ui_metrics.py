@@ -383,6 +383,29 @@ def test_text_in_a_maps_credits_and_scale_apart():
 
 
 @BROWSER
+def test_covered_by_the_seen_part():
+    """The hit test takes the centre of the part of a control seen now: one below a scroller's fold (its box's centre
+    over an element under the scroller) and one half clipped (its box's centre over a neighbour) are not covered; one
+    out of the viewport is not tested; a class-less overlay inside a panel is named as itself, not as the panel."""
+    r = _measured('<div class="scr"><div class="pad"></div><button class="b1">1</button></div><div class="under"></div>'
+                  '<div class="clip"><button class="b2">2</button></div><div class="nb"></div>'
+                  '<button class="far">F</button>'
+                  '<div class="panel"><button class="pb">P</button><div></div></div>',
+                  ".scr { position: absolute; left: 0; top: 0; width: 200px; height: 100px; overflow: auto; } "
+                  ".pad { height: 150px; } .b1 { display: block; width: 60px; height: 60px; } "
+                  ".under { position: absolute; left: 0; top: 100px; width: 200px; height: 200px; background: #eee; } "
+                  ".clip { position: absolute; left: 300px; top: 0; width: 20px; height: 60px; overflow: hidden; } "
+                  ".b2 { display: block; width: 60px; height: 60px; } "
+                  ".nb { position: absolute; left: 320px; top: 0; width: 80px; height: 60px; background: #ddd; } "
+                  ".far { position: absolute; left: 0; top: 2000px; width: 30px; height: 30px; } "
+                  ".panel { position: absolute; left: 500px; top: 300px; width: 100px; height: 100px; } "
+                  ".pb { width: 40px; height: 40px; } .panel > div { position: absolute; left: 0; top: 0; "
+                  "width: 100px; height: 100px; background: #fff; }")
+    assert r["covered"] == {"button.pb": 1} and r["covers"] == {"div": 1}
+    assert {c[0] for c in r["control_sizes"]} == {"button.b1", "button.b2", "button.far", "button.pb"}
+
+
+@BROWSER
 def test_a_decorating_pseudo_element_grows_nothing():
     """An absolutely positioned ::before inside the control's box (a dot, the 3D view's .v3-opt-dot) is no growth:
     the control is "own", not "with ::before", and not counted in controls_grown."""

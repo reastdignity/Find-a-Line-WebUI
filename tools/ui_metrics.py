@@ -35,12 +35,15 @@ size is kept in the log, so `--summarise` with other `--controls`/`--text` bound
   sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
   and for a checkbox or radio the largest of that and its labels' boxes; under 44 px and 24 px in width or height
   (WCAG 2.5.8's size; its spacing exception is not modelled). A target's size is the part of it no ancestor clips
-  (per axis; an absolutely positioned control only from its containing block up). A control that cannot be reached
-  (wholly before the scroll origin of a scroller or of the document, or clipped to nothing) is listed apart, not
-  counted; one below the fold of a scrolling page or panel counts. A control in the viewport whose centre another
-  element covers at the moment of measuring (one hit test: elementFromPoint at the centre of its own box, or its
-  label's; a sticky bar over a scrolling form, an open bubble) is marked covered, with the cover, and still counted
-  (a scroll may uncover it); one out of the viewport is not tested, and a cover of only a part is not seen. Signatures are tag, role, input type and class names without the state
+  (per axis; an absolutely positioned control only from its containing block up: an ancestor positioned or with a
+  transform, a filter or containment; will-change, perspective, backdrop-filter and container-type are not looked
+  at, nor a fixed control inside a transformed ancestor). A control that cannot be reached (wholly before the scroll
+  origin of a scroller or of the document, or clipped to nothing) is listed apart, not counted; one below the fold of
+  a scrolling page or panel counts. A control whose seen part (cut by its scrolling and clipping ancestors and the
+  viewport) another element covers at its centre at the moment of measuring (one hit test, elementFromPoint; a
+  sticky bar over a scrolling form, an open bubble) is marked covered, with the element hit, and still counted (a
+  scroll may uncover it); one with no seen part (below the fold) is not tested, and a cover of only a part is not
+  seen. Signatures are tag, role, input type and class names without the state
   classes (STATE_CLASS: on, open, selected, ...; the viewer's BASE_CLASSES that end so are kept: a hand list, to be
   extended when a new class names what an element is with such an ending), so one control in two states is one
   signature. A link or button "in a sentence" (WCAG 2.5.8 exempts it; counted apart): laid out inline (display
@@ -694,19 +697,39 @@ MEASURE_JS = r"""(opts) => {
     }
     return r.right + scrollX > 0 && r.bottom + scrollY > 0 ? own : null;
   };
-  // Covered: the centre of the control's own box (its label's, for one measured by its label), when it lies in the
-  // viewport, hits another element than the control, what it holds, its labels or an ancestor of it: a tap there
-  // goes elsewhere at this moment (a sticky bar over a scrolling form, an open bubble). A marker only: the control
-  // still counts (a scroll or a closed bubble may uncover it). The cover's signature, else null; one hit test a
-  // control in view, a control out of the viewport is not tested
-  const covered = (e, owner) => {
-    const r = owner.getBoundingClientRect(), x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
-    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
-    const hit = document.elementFromPoint(x, y);
+  // The part of a box seen now: cut by every ancestor that does not show its overflow (hidden, clip, auto or scroll:
+  // what lies past a scroller's fold is reachable but not seen), from an absolute box's containing block up, and by
+  // the viewport; null when nothing of it is seen (below the fold, scrolled away)
+  const seenPart = (x, b) => {
+    const r = {...b};
+    if (!escapes(x)) {
+      let absolute = getComputedStyle(x).position === "absolute";
+      for (let a = x.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (absolute && !contains(s)) continue;
+        absolute = s.position === "absolute";
+        const ab = a.getBoundingClientRect();
+        if (s.overflowX !== "visible") { r.left = Math.max(r.left, ab.left); r.right = Math.min(r.right, ab.right); }
+        if (s.overflowY !== "visible") { r.top = Math.max(r.top, ab.top); r.bottom = Math.min(r.bottom, ab.bottom); }
+        if (escapes(a)) break;
+      }
+    }
+    r.left = Math.max(r.left, 0); r.top = Math.max(r.top, 0);
+    r.right = Math.min(r.right, innerWidth); r.bottom = Math.min(r.bottom, innerHeight);
+    return r.right > r.left && r.bottom > r.top ? r : null;
+  };
+  // Covered: the centre of the seen part of the control's target (its label's, for one measured by its label) hits
+  // another element than the control, what it holds, its labels or an ancestor of it: a tap there goes elsewhere at
+  // this moment (a sticky bar over a scrolling form, an open bubble). A marker only: the control still counts (a
+  // scroll or a closed bubble may uncover it). The cover's signature (the element hit itself), else null; a control
+  // with no seen part (below the fold, scrolled away) is not tested; one hit test a control in view
+  const covered = (e, owner, part) => {
+    const v = seenPart(owner, part);
+    if (!v) return null;
+    const hit = document.elementFromPoint((v.left + v.right) / 2, (v.top + v.bottom) / 2);
     if (!hit || hit === e || e.contains(hit) || owner.contains(hit) || hit.contains(e)) return null;
     if (e.labels && [...e.labels].some((l) => l.contains(hit))) return null;
-    const cover = hit.closest("[class]") || hit;
-    return sig(cover);
+    return sig(hit);
   };
   // Where an element lies: "credits" inside a map's credits (Leaflet's attribution control, the 3D view's credits, the
   // home cards' mini-map credits), "scale" inside Leaflet's scale control, else null; and its nearest named ancestor
@@ -779,7 +802,7 @@ MEASURE_JS = r"""(opts) => {
                   within: within(e),
                   w: r1(cut.right - cut.left), h: r1(cut.bottom - cut.top),
                   text: short(e.getAttribute("aria-label") || e.textContent || e.getAttribute("title") || e.value || "")};
-    if (part) item.covered_by = covered(e, owner);
+    if (part) item.covered_by = covered(e, owner, part);
     (part ? controls : unreachable).push(item);
   }
   const texts = [];
