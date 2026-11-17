@@ -759,8 +759,12 @@ def test_page_storage():
     script = ui_shots.page_storage("c-layer-collapsed")
     assert "localStorage.removeItem('findaline.layout')" in script and \
         json.dumps(json.dumps(ui_shots.LAYER_LAYOUTS["c-layer-collapsed"])) in script
-    assert ui_shots.page_storage("c-home") == ("try { localStorage.removeItem('findaline.layout'); "
+    assert ui_shots.page_storage("c-home") == ("try { localStorage.removeItem('findaline.view'); "
+                                               "localStorage.removeItem('findaline.layout'); "
                                                "localStorage.removeItem('findaline.layer.layout'); } catch (e) {}")
+    # the result view's flag: set for its pages, removed for every other page of the pass
+    assert ui_shots.page_storage("c-view").startswith("try { localStorage.setItem('findaline.view', \"b\"); ")
+    assert "localStorage.removeItem('findaline.view')" in ui_shots.page_storage("c-result-rails")
 
 
 def test_credits_go_into_data_js_and_the_store(tmp_path):

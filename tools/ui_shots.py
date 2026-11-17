@@ -114,6 +114,28 @@ SHORE_UNFOLD = "document.querySelector('.u-shore-chip')?.click()"
 # What a "need:" step waits for before it tests its expression once: the result's map made (the shore's control is
 # added before it is set: ResultColumns.tsx, KitResult.tsx)
 NEED_READY = "window.FINDALINE_RESULT"
+# The result view (viewer/src/result/view/SpotColumns.tsx) is drawn: window.FINDALINE_VIEW = {view, map}, the model of
+# spots and the canvas, is set after its first full draw (window.FINDALINE_RESULT is not set in this view)
+VIEW_READY = "wait:window.FINDALINE_VIEW"
+# The view's map centred on the best spot's shown line at about %s metres per pixel (the canvas's own zoom for it)
+VIEW_AT = ("(() => { const {view, map} = window.FINDALINE_VIEW, c = view.model.data.columns, row = view.shownOf(view.order[0]); "
+           "window.FINDALINE_MAP.setView([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2], "
+           "map.zoomOf(%s), {animate: false}); })()")
+VIEW_DO = "(() => { const {view, map} = window.FINDALINE_VIEW; %s; })()"  # a change of the view's model
+# A press where several spots lie about as near (found on the best spots' lines by the canvas's own answer, away from
+# the map's edges): on a phone the map zooms in around it, flashes the lines and says so
+VIEW_CROWDED = """(() => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, c = view.model.data.columns, size = m.getSize();
+  const finger = matchMedia('(max-width: 767px)').matches;
+  for (const spot of view.inView.spots) { const row = view.shownOf(spot);
+    const a = m.latLngToContainerPoint([c.lat1.at(row), c.lon1.at(row)]), b = m.latLngToContainerPoint([c.lat2.at(row), c.lon2.at(row)]);
+    for (let t = 0.1; t < 0.95; t += 0.05) { const x = Math.round(a.x + (b.x - a.x) * t), y = Math.round(a.y + (b.y - a.y) * t);
+      if (x < 40 || y < 170 || x > size.x - 40 || y > size.y * 0.42 || map.pickAt(x, y, finger).length < 2) continue;
+      const at = m.layerPointToContainerPoint(m.containerPointToLayerPoint([x, y]));
+      m.fire('click', {latlng: m.containerPointToLatLng(at), containerPoint: at, layerPoint: m.containerPointToLayerPoint(at)});
+      return; } } })()"""
+# The map's own controls open: the layers' list and, where they fold (a phone), the data credits
+VIEW_CONTROLS = ("(() => { document.querySelector('.leaflet-control-layers')?.classList.add('leaflet-control-layers-expanded'); "
+                 "const credits = document.querySelector('.u-credits-toggle'); if (credits && credits.offsetParent) credits.click(); })()")
 WAIT_MS = 60000  # how long a "wait:" step waits (a quarter of it in a pass after the expression timed out once)
 CLICK_MS = 10000  # the pages' default timeout (a click; Playwright's own is 30 s)
 LOAD_MS = 30000  # a page's load and its screenshot (Playwright's default, kept)
@@ -213,6 +235,19 @@ PAGES = {
     "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
+    # The result view of mock-up 2 (VIEWS: the page's flag; NEEDS "view": a run whose store has the view's columns),
+    # its map's states: the first view; the Area level (zoomed out to it); Spots; Lines; Best 30; All refused above
+    # 5 000 thin lines; Lines held far out; several spots under one press (a phone zooms in and says so); the map's own
+    # controls open (the layers, the data credits)
+    "c-view": ("c", "#run={run}", [VIEW_READY]),
+    "c-view-area": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6]),
+    "c-view-spots": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1]),
+    "c-view-lines": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 0.3]),
+    "c-view-best30": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_DO % "view.setBest(30)"]),
+    "c-view-all": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_DO % "view.setLevel('lines'); view.setTopOnly(false); view.setBest('all')"]),
+    "c-view-held": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6, "js:" + VIEW_DO % "view.setLevel('lines')"]),
+    "c-view-crowded": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_DO % "view.setLevel('spots')", "js:" + VIEW_CROWDED]),
+    "c-view-controls": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_CONTROLS]),
     # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
     # opened (scrolling inside the box); a desktop shows the box, always open
     "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
@@ -312,15 +347,22 @@ LAYOUTS = {
                       "profile": {"h": 300, "folded": False, "l": 200, "r": 12}},
 }
 
+# The pages of the result view: the page's flag kept in localStorage ("findaline.view", SpotColumns.tsx viewWanted) is
+# set to the page's value; every other page starts without it (today's result page)
+VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
+                                "c-view-held", "c-view-crowded", "c-view-controls")}
+
 # The pages that show something only some runs have (run_features, read from the run's run.json before any browser
 # starts): a page whose feature the run lacks is left out without a load
 NEEDS = {
     "c-result-rigging": "lift",
     "c-result-shore-folded": "shore", "c-result-shore": "shore", "c-result-shore-help": "shore",
     "c-result-why": "found",
+    **{name: "view" for name in VIEWS},
 }
 LACKS = {"lift": "the run has no no-fall zone or A-frames", "shore": "the run has no uncertain shore",
-         "found": "the run was not made with the square rule"}
+         "found": "the run was not made with the square rule",
+         "view": "the run's store has no columns of the result view"}
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
 # its scrolling panel (or above a bar that stays there, data-hint-floor), then marked for the click
@@ -498,7 +540,9 @@ def saved_run(data: str, folder: str) -> str:
 def run_features(run_folder: str) -> set:
     """What a run has of NEEDS' features, from its run.json (read once, before any browser starts): "lift" a no-fall
     zone or A-frames (params "end_zone", "anchor_lift": the head's, mapping._ends), "shore" an uncertain shore (a
-    segment of run.json's "shore": shore.ts hasShore), "found" the square rule (params "same_line_side")."""
+    segment of run.json's "shore": shore.ts hasShore), "found" the square rule (params "same_line_side"), "view" the
+    result view's columns in its store (run.json's block "store" and the column `spot` of lines.arrow: types.ts
+    hasView; a run saved before them opens in today's page whatever the flag)."""
     with open(os.path.join(run_folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     params = meta.get("params") or {}
@@ -509,7 +553,19 @@ def run_features(run_folder: str) -> set:
         features.add("shore")
     if params.get("same_line_side"):
         features.add("found")
+    if meta.get("store") and store_has_view(run_folder):
+        features.add("view")
     return features
+
+
+def store_has_view(run_folder: str) -> bool:
+    """Does a run's lines.arrow hold the result view's columns (its schema names `spot`; False when it cannot be read)."""
+    try:
+        import pyarrow as pa
+        with pa.OSFile(os.path.join(run_folder, "lines.arrow"), "rb") as f:
+            return "spot" in pa.ipc.open_file(f).schema.names
+    except Exception:
+        return False
 
 
 def left_out_by_run(pages, features: set) -> dict:
@@ -713,9 +769,12 @@ def page_steps(steps) -> list:
 
 
 def page_storage(name: str) -> str:
-    """The init script of a page: its kept layouts (LAYOUTS, LAYER_LAYOUTS) set, or removed for the defaults."""
-    kept, layer = LAYOUTS.get(name), LAYER_LAYOUTS.get(name)
+    """The init script of a page: its kept layouts (LAYOUTS, LAYER_LAYOUTS) set, or removed for the defaults; the
+    result view's flag (VIEWS) set for its pages, removed for every other page (one context serves a whole pass)."""
+    kept, layer, view = LAYOUTS.get(name), LAYER_LAYOUTS.get(name), VIEWS.get(name)
     return "try { " + (
+        f"localStorage.setItem('findaline.view', {json.dumps(view)}); " if view
+        else "localStorage.removeItem('findaline.view'); ") + (
         f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
         else "localStorage.removeItem('findaline.layout'); ") + (
         f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
