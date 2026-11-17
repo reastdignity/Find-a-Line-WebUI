@@ -69,6 +69,10 @@ ci` in viewer); without it the axe part is left out with a note. The app's pages
 opened with Playwright's bypass_csp, which tools/ui_shots.py's never are. With the CSP bypassed a page could apply
 what the CSP would block (inline styles): the viewer has none (.claude/rules/viewer.md), so the pages look the same.
 
+A kept --data-dir is only safe while the worktree that made it exists: its clip run's run.json names that
+checkout's clip files by their path, and tools/ui_shots.py keeps a folder by the files' contents, not their place (a
+folder made from a removed checkout gives 3D views that never draw); `--fresh` makes the clip run and cubes anew.
+
 The keys of the user's services (ESRI_API_KEY, DATAFORDELER_API_KEY) are best removed from the environment of
 "pages": the clip's run shows no Esri imagery without them.
 """
@@ -1031,7 +1035,7 @@ def measure_all(pw, site: dict, shown: list, devices: list, themes: list, axe_so
     return records
 
 
-def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | None) -> list:
+def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | None, fresh: bool = False) -> list:
     """The site of tools/ui_shots.py set up (serve; its data folder a temporary one named for tools/clean_temp.py
     unless `data_dir`, one run at a time per data folder), the pages chosen as ui_shots.main chooses them (those the
     run lacks the feature of left out first), every state measured (pages-states.jsonl; the set-up's and passes'
@@ -1045,7 +1049,7 @@ def run_pages(out: str, only: str, devices: list, dark: bool, data_dir: str | No
     stop = None
     times, passes, dropped = {}, [], {}
     try:
-        url, cookies, run, share, stop = ui_shots.serve(data, times=times)
+        url, cookies, run, share, stop = ui_shots.serve(data, fresh=fresh, times=times)
         site = {"url": url, "cookies": cookies, "run": run, "share": share, "line": ui_shots.first_line(data, run),
                 "also": ";".join(ui_shots.first_line(data, run, k) for k in (40, 200)),
                 "border": ui_shots.border_view(data)}
@@ -1327,6 +1331,7 @@ def main(argv=None):
     p.add_argument("--devices", default="desktop,iphone,pixel", help="of: desktop, iphone, pixel")
     p.add_argument("--dark", action="store_true", help="the dark theme too")
     p.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
+    p.add_argument("--fresh", action="store_true", help="the data folder's clip run and cubes made anew (ui_shots)")
     p.add_argument("--summarise", action="store_true", help="only the summary again, from --out's pages-states.jsonl")
     p.add_argument("--controls", default=",".join(map(str, CONTROL_BOUNDS)),
                    help="the bounds of the controls, px (comma-separated)")
@@ -1340,7 +1345,7 @@ def main(argv=None):
     if args.summarise:
         records = read_log(os.path.join(args.out, "pages-states.jsonl"))
     else:
-        records = run_pages(args.out, args.only, args.devices.split(","), args.dark, args.data_dir)
+        records = run_pages(args.out, args.only, args.devices.split(","), args.dark, args.data_dir, args.fresh)
     number = lambda v: int(v) if float(v).is_integer() else float(v)  # noqa: E731
     controls = tuple(number(v) for v in args.controls.split(",") if v)
     text = tuple(number(v) for v in args.text.split(",") if v)

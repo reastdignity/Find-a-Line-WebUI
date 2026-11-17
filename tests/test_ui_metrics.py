@@ -647,6 +647,23 @@ def test_measure_all_goes_on_after_failures(site, monkeypatch):
 
 
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
+def test_fresh_reaches_serve(monkeypatch, tmp_path):
+    """--fresh is passed to ui_shots.serve (the kept data folder's clip run and cubes made anew)."""
+    asked = []
+
+    def serve(data, run_folder=None, fresh=False, times=None):
+        asked.append(fresh)
+        raise RuntimeError("stop here")
+    monkeypatch.setattr(ui_shots, "serve", serve)
+    monkeypatch.setattr(ui_metrics, "AXE", str(tmp_path / "missing.js"))
+    for fresh in (False, True):
+        with pytest.raises(RuntimeError, match="stop here"):
+            ui_metrics.main(["pages", "--out", str(tmp_path / "out"), "--data-dir", str(tmp_path / "data")]
+                            + (["--fresh"] if fresh else []))
+    assert asked == [False, True]
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright (group ui)")
 def test_run_pages_removes_its_temporary_folder(monkeypatch, tmp_path):
     """The temporary data folder is named as tools/clean_temp.py's ui-shots-* and removed also when setting up the
     site fails."""
