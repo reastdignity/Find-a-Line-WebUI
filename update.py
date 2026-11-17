@@ -319,6 +319,8 @@ def changed_runs(cache_dir: str, runs_dir: str) -> List[Tuple[str, int, int]]:
     """Runs computed on data that has changed since: (run folder, changed files, files)."""
     found = []
     for path in sorted(glob.glob(os.path.join(runs_dir, "*", "run.json"))):
+        if os.path.basename(os.path.dirname(path)).startswith((".", "_")):  # no run (runs.list_runs' rule)
+            continue
         with open(path, encoding="utf-8") as f:
             meta = json.load(f)
         created = datetime.fromisoformat(meta["created"]).astimezone(timezone.utc)

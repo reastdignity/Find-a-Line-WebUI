@@ -3761,7 +3761,8 @@ def test_a_run_not_saved_fails_its_job(tmp_path, monkeypatch, public):
         jb.run_phase(str(tmp_path), job, phase, None, public)
     row = next(j for j in jobs.all() if j["id"] == job)
     assert row["status"] == "failed" and row["error_info"] == {"code": "run_not_saved", "params": {}}, row
-    assert row["error"] == messages.text("error.run_not_saved") and "secret" not in row["error"]
+    from test_store_only import RUN_NOT_SAVED
+    assert row["error"] == RUN_NOT_SAVED and "secret" not in row["error"]
     runs = tmp_path / "runs"
     assert not runs.exists() or not [d for d in os.listdir(runs) if not d.startswith(("_", "."))
                                       and (runs / d).is_dir()], os.listdir(runs)
@@ -4235,3 +4236,28 @@ def test_privacy_page_names_the_exports(run_people):
                            "content), the demo flag") in text
     assert "A file made for a download is kept on the server until it is fetched, for one hour at most." in text
     assert jb.EXPORT_KEEP_SECONDS == 3600 and 0 < jb.EXPORT_SWEEP < jb.EXPORT_KEEP_SECONDS
+
+
+def test_delete_route_in_use_and_a_leftover(run_people, monkeypatch, capsys):
+    """The public site's Delete: the runs lock not taken in time (filelock.Timeout, an OSError) answers 409 and keeps
+    the run; a folder left after the rename is logged by the run id alone (no user data) and the run is gone."""
+    import filelock
+    import jobs as jb
+    a = run_people["a"]
+    real = jb.Jobs.delete_run
+
+    def timeout(self, run_id, runs_dir):
+        raise filelock.Timeout(os.path.join(runs_dir, "_runs.lock"))
+    monkeypatch.setattr(jb.Jobs, "delete_run", timeout)
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 409
+    assert run_people["jobs"].run(RUN_A)
+
+    def left(self, run_id, runs_dir):
+        real(self, run_id, runs_dir)
+        return os.path.join(runs_dir, "_removing-" + run_id)
+    monkeypatch.setattr(jb.Jobs, "delete_run", left)
+    capsys.readouterr()
+    assert a.delete(f"/api/runs/{RUN_A}").status_code == 200 and not run_people["jobs"].run(RUN_A)
+    said = capsys.readouterr().err
+    assert f"run_delete: the folder of run {RUN_A} could not be deleted yet" in said
+    assert "A's run" not in said and "@" not in said

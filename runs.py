@@ -511,6 +511,7 @@ NEWER = "made by a newer Find-a-Line"
 UNREADABLE_META = "its run.json cannot be read"
 CANNOT_READ = "cannot read now"
 REMOVING = "_removing-"  # a run folder renamed for its removal (park_run): no run any more, its bytes still there
+REMOVING_AGE = 3600  # s: the worker's housekeeping finishes a parked folder this old (a removal stopped meanwhile)
 VIEW_FAILED = "view_columns_failed"  # run.json's key: the run's view columns failed at saving (a current run)
 
 
@@ -584,7 +585,9 @@ def park_run(runs_dir: str, run_id: str) -> Optional[str]:
     runs remove-old), under cache.runs_lock (the caller's): one rename on the same volume, so a rename that fails (a
     file of the run held open on Windows) raises OSError and changes nothing, and a removal stopped later leaves no
     half run: the renamed folder is no run (list_runs, adopt_runs, old_runs skip "_"), and the next remove-old
-    finishes it. Returns the renamed folder's path, None when the run has no folder."""
+    finishes it (Jobs.finish_removals, also the worker's housekeeping after REMOVING_AGE). The renamed folder's
+    time is set to now (its age: how long ago it was parked). Returns the renamed folder's path, None when the run
+    has no folder."""
     folder = os.path.join(runs_dir, run_id)
     if not os.path.isdir(folder):
         return None
@@ -592,6 +595,9 @@ def park_run(runs_dir: str, run_id: str) -> Optional[str]:
     if os.path.lexists(parked):  # a removal of the same id stopped before: finished first
         finish_removal(parked)
     os.rename(folder, parked)
+    if not (os.path.islink(parked) or (hasattr(os.path, "isjunction") and os.path.isjunction(parked))):
+        with contextlib.suppress(OSError):  # a link's own time cannot be set everywhere: left as it is
+            os.utime(parked)
     return parked
 
 

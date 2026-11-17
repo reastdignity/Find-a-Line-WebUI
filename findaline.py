@@ -390,6 +390,7 @@ def runs_main(argv: List[str]) -> int:
                   + (f' --data-dir "{data}"' if args.data_dir else ""))
         return 0
     deleted, failed, left, kept_now = [], [], [], []
+    jobs, interrupted = None, False
     try:
         jobs = jb.Jobs(data) if with_db else None
         for r in old:
@@ -416,14 +417,20 @@ def runs_main(argv: List[str]) -> int:
                 rn.finish_removal(parked)
             except OSError as error:
                 left.append(f"runs/{rn.REMOVING}{r['id']}: {error}")
+    except KeyboardInterrupt:  # Ctrl+C: what went so far is still said below, then a non-zero exit
+        interrupted = True
     except Exception as error:  # noqa: BLE001 - e.g. the database could not be opened: nothing more deleted
         failed.append(f"{type(error).__name__}: {error}")
     finally:
-        for name, path in unfinished:
-            try:
-                rn.finish_removal(path)
-            except OSError as error:
-                left.append(f"{name}: {error}")
+        if jobs is not None:  # its rows too, while no run of that id came back (Jobs.finish_removals)
+            _, stopped = jobs.finish_removals(runs_dir, names=[name.split("/", 1)[1] for name, _ in unfinished])
+            left += [f"runs/{name}: {error}" for name, error in stopped]
+        else:
+            for name, path in unfinished:
+                try:
+                    rn.finish_removal(path)
+                except OSError as error:
+                    left.append(f"{name}: {error}")
         for name, path in leftovers:
             try:
                 os.remove(path)
@@ -455,6 +462,9 @@ def runs_main(argv: List[str]) -> int:
     print(_skipped_and_kept(found["skipped"], found["current"]))
     if deleted and with_db and facts is None:
         print(FACTS_NOTE)
+    if interrupted:
+        print("Stopped (Ctrl+C): the runs listed above are deleted; run the command again for the rest.")
+        return 130
     return 1 if failed or left else 0
 
 
