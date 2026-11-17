@@ -137,7 +137,15 @@ def test_hooks_reach_what_the_search_calls():
 
 
 def test_perf_country_copies_the_constant():
-    """tools/perf_country.py's copy of the line constant follows search.LINE_BYTES."""
+    """tools/perf_country.py's copy of the line constant follows search.LINE_BYTES, and of the sectors' term
+    search.WARD_SPOT_BYTES and mapping.SECTOR_WARD_SPOTS."""
+    import mapping
     import perf_country
     import search
     assert perf_country.LINE_BYTES == search.LINE_BYTES
+    assert perf_country.WARD_SPOT_BYTES == search.WARD_SPOT_BYTES
+    assert perf_country.SECTOR_WARD_SPOTS == mapping.SECTOR_WARD_SPOTS
+    for lines in (0, 1, 4_000, 10_000, 20_000, 1_500_000):  # lines_gb_today's bytes: memory_needed's, the cap's term
+        assert perf_country.lines_bytes_today(lines) == search.memory_needed(0, lines), lines
+    term = lambda lines: perf_country.lines_bytes_today(lines) - lines * perf_country.LINE_BYTES  # noqa: E731
+    assert term(20_000) == term(10_000) == 800_000_000 > term(9_999)

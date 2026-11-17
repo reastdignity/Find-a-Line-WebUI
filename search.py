@@ -120,6 +120,12 @@ ACCESS_DISK_BYTES = 9
 # (the process, its imports: about 0.4 GB) is not in memory_needed. Before, by the traced heap of one process
 # (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450
 LINE_BYTES = 900
+# The sectors of a run's spots at saving (mapping.view_columns): Ward's clustering (scipy's linkage) holds the
+# condensed distances of every pair of at most mapping.SECTOR_WARD_SPOTS spots and a copy, about this many bytes times
+# the spots squared (16 B a pair, n²/2 pairs). Measured 2026-11-16 (docs/performance.md, "The result view's
+# columns"): an extra peak of 800 MB at 10 000 spots. memory_needed counts it by the lines (a run has at most as many
+# spots as lines): WARD_SPOT_BYTES x min(lines, SECTOR_WARD_SPOTS)², at most 0.75 GiB
+WARD_SPOT_BYTES = 8
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
 # (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
@@ -667,9 +673,40 @@ def cgroup_limits(root: Optional[str] = None) -> CgroupLimits:
 def memory_needed(pixels: float, lines: float, profile_points: float = 0) -> float:
     """Bytes a search needs for grids of this many pixels, this many lines and profiles of this
     many points in all: a tile's grids (steps 1-3), its lines and those of the tiles done already
-    at their process tree's peak (step 5's saving, LINE_BYTES), a circle's profiles of every line.
-    The process itself (its imports, about 0.4 GB) is not counted."""
-    return pixels * PIXEL_BYTES + lines * LINE_BYTES + profile_points * PROFILE_POINT_BYTES
+    at their process tree's peak (step 5's saving, LINE_BYTES), a circle's profiles of every line,
+    and Ward's clustering of the run's spots into sectors at saving (WARD_SPOT_BYTES times the
+    square of min(lines, mapping.SECTOR_WARD_SPOTS): the spots are at most the lines). With no lines
+    only the grids (the quick lane's reserve of slot_memory, the tiles' side). The process itself
+    (its imports, about 0.4 GB) is not counted. lines_fitting is its only inversion."""
+    spots = min(lines, mp.SECTOR_WARD_SPOTS)
+    return (pixels * PIXEL_BYTES + lines * LINE_BYTES + profile_points * PROFILE_POINT_BYTES
+            + WARD_SPOT_BYTES * spots ** 2)
+
+
+def lines_fitting(memory: float, pixels: float = 0, points_per_line: float = 0) -> int:
+    """The most lines that fit into `memory` bytes with grids of this many pixels and profiles of
+    this many points a line (a circle's mean profile; 0: none), as memory_needed counts them, the
+    sectors' term included: the n with need(n) <= memory < need(n + 1), need(n) =
+    memory_needed(pixels, n, n * points_per_line); 0 when not even one line fits. The "fits" of the
+    refusals and of memory_warning: the only inversion of memory_needed."""
+    def need(n: int) -> float:
+        return memory_needed(pixels, n, n * points_per_line)
+
+    if need(1) > memory:
+        return 0
+    rest = memory - pixels * PIXEL_BYTES
+    line_bytes = LINE_BYTES + points_per_line * PROFILE_POINT_BYTES
+    cap = mp.SECTOR_WARD_SPOTS
+    if need(cap) <= memory:  # the term grows no more: line_bytes a line
+        n = int((rest - WARD_SPOT_BYTES * cap ** 2) // line_bytes)
+    else:  # below the cap: WARD_SPOT_BYTES n² + line_bytes n <= rest
+        n = int((math.sqrt(line_bytes ** 2 + 4 * WARD_SPOT_BYTES * rest) - line_bytes) / (2 * WARD_SPOT_BYTES))
+    n = max(1, n)
+    while n > 1 and need(n) > memory:  # either formula's float roundings, against memory_needed's own
+        n -= 1
+    while need(n + 1) <= memory:
+        n += 1
+    return n
 
 
 def profile_points(lines: sh.LineTable) -> int:
@@ -690,7 +727,7 @@ def memory_warning(limits: Optional[Limits], budget: Optional[int] = None) -> Op
     need = memory_needed(pixels, limits.lines_max)
     if need <= free:
         return None
-    fits = max(0, int((free - memory_needed(pixels, 0)) // LINE_BYTES))
+    fits = lines_fitting(free, pixels)
     room = "free" if budget is None else f"for each of {limits.compute_slots} compute slots"
     return (f"WARNING: the largest search the limits allow ({limits.lines_max} lines, grids of "
             f"{pixels / 1e6:g} million pixels) needs about {need / 2 ** 30:.1f} GiB, {free / 2 ** 30:.1f} GiB "
@@ -1710,8 +1747,7 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
                           f"{messages.advice_cli(advice)}", "too_many_lines",
                           n=count, max=plan.limits.lines_max, advice=advice)
     if plan.memory is not None and memory_needed(pixels, count, points) > plan.memory:
-        per_line = memory_needed(0, 1, points / max(count, 1))  # with the mean profile of these lines
-        fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // per_line))
+        fits = lines_fitting(plan.memory, pixels, points / max(count, 1))  # with the mean profile of these lines
         advice = messages.line_advice(plan.params)
         raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site; "
                           f"{messages.advice_cli(advice)}",
@@ -1742,7 +1778,7 @@ def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int
                               f"{messages.advice_cli(advice)}", "too_many_lines_early",
                               n=total, max=lines_max, advice=advice)
         if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
-            fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
+            fits = lines_fitting(plan.memory, pixels)
             advice = messages.line_advice(plan.params)
             raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
                               f"memory of this site; "
@@ -1938,7 +1974,7 @@ def _estimate_check(plan: Plan, estimate: float, se: float, pixels: int):
     lo, hi = max(0, int(round(estimate - 2 * se))), int(round(estimate + 2 * se))
     plan.funnel["estimate"] = n
     lines_max = plan.limits.lines_max if plan.limits else None
-    fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES)) if plan.memory is not None else None
+    fits = lines_fitting(plan.memory, pixels) if plan.memory is not None else None
     shown = _shown(n, lo, hi)
     if lines_max and estimate > REFUSE_FACTOR * lines_max:
         advice = messages.line_advice(plan.params)

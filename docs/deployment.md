@@ -82,14 +82,15 @@ timer, SSH, the free disk, the monitoring; a timer runs it daily, section 15).
   meanwhile. One computing search keeps only about 1.5 cores busy (docs/performance.md), so a
   larger machine runs several: `WORKER_COMPUTE_SLOTS` and `WORKER_DOWNLOAD_SLOTS` in `.env`.
   With more than one compute slot each search gets an equal share of the memory free at the
-  worker's start, after about 1.8 GB for the quick lane (a profile measured on a map) and 0.5 GB
+  worker's start, after about 1.8 GB for the quick lane (a profile measured on a map) and 0.8 GB
   per download slot: the largest public search (a tile of 64 million pixels and 1.5 million
-  lines) needs about 3.9 GB, and the worker warns at its start (`docker compose logs worker`)
-  when it does not fit into a slot. For the 8-core, 24 GB VPS: `WORKER_CPUS=7`,
-  `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 6.2 GB each), `WORKER_DOWNLOAD_SLOTS=2`;
-  each computing search keeps all `WORKER_CPUS` numba threads (`NUMBA_NUM_THREADS`), which only
-  its line search uses. Each user's oldest waiting search goes first when that user has the
-  fewest searches running, so one user's queue does not hold the others back.
+  lines, with the sectors of its spots) needs about 5.35 GB, and the worker warns at its start
+  (`docker compose logs worker`) when it does not fit into a slot. For the 8-core, 24 GB VPS:
+  `WORKER_CPUS=7`, `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 6.0 GB each),
+  `WORKER_DOWNLOAD_SLOTS=2`; each computing search keeps all `WORKER_CPUS` numba threads
+  (`NUMBA_NUM_THREADS`), which only its line search uses. Each user's oldest waiting search
+  goes first when that user has the fewest searches running, so one user's queue does not hold
+  the others back.
 - **Disk.** The data volume holds the cache of elevation data, orthophotos and OpenStreetMap
   extracts and the saved runs; it grows with every new area searched. The site accepts no new
   searches below 20 GB free (`FINDALINE_LIMIT_FREE_DISK_GB_MIN`), but the cache has no automatic
