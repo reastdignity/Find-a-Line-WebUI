@@ -519,7 +519,7 @@ g_livecap() {
     # removed after it), from this machine through the stand-in's published port, where its
     # controls can switch the cap off
     docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "head -c 1800000 /dev/urandom > /f$T/0_0/2_1.tif && chmod 0644 /f$T/0_0/2_1.tif" > /dev/null
-    live_cap K01 "http://127.0.0.1:$PORT" "$T/0_0/2_1.tif" 1800000
+    live_cap C09 "http://127.0.0.1:$PORT" "$T/0_0/2_1.tif" 1800000
     docker run --rm --user 0 --network none -v "${PROJECT}_public:/f" --entrypoint sh "$PROJECT-files:orig"         -c "rm -f /f$T/0_0/2_1.tif" > /dev/null
 }
 
@@ -764,6 +764,33 @@ g_start() {
     eq T12 "MIRROR_SUBNET 0.0.0.0/0: refuses to start" "$(start_run subnet MIRROR_CONTACT=x@example.org MIRROR_SUBNET=0.0.0.0/0)" "false 64"
     eq T13 "MIRROR_CONTACT empty: refuses to start" "$(start_run contact MIRROR_SUBNET=172.29.0.0/24 MIRROR_CONTACT=)" "false 64"
     check T14 "a refusal says why" grep -q 'is not a single IPv4 address; not starting' "$WORK/start-bad3.log"
+}
+
+g_readme() {
+    # The README's check line for old log files ("Checks"), taken from the README as written and
+    # run in the file server's image (BusyBox's date and awk; tried by hand with GNU date and mawk
+    # in Debian and Ubuntu, deploy/mirror/README.md): a folder with files 13 days back, today's,
+    # other names and impossible dates prints the day 14 days back and nothing else (G01); with
+    # files 14 and 15 days back it prints those two (G02, the control that it finds); with a date
+    # that fails it says NOT CHECKED (G03)
+    local line days d0 d13 d14 d15 out
+    line=$(grep -F 'c=$(date -u -d ' "$MIRROR/README.md")   # the line itself (one line)
+    [ "$(printf '%s\n' "$line" | wc -l)" -eq 1 ] || line="echo 'README: not exactly one check line'"
+    readme_run() {  # <files to make> [a failing date first on PATH]
+        docker run --rm --user 0 --network none -e LINE="$line" --entrypoint sh "$PROJECT-files:orig" -c "
+            ROOT=/r; mkdir -p /r/logs && cd /r/logs && touch $1
+            [ -z '${2:-}' ] || { mkdir -p /stub && printf '#!/bin/sh\nexit 1\n' > /stub/date && chmod +x /stub/date && PATH=/stub:\$PATH; }
+            eval \"\$LINE\"" 2>&1 | tr '\n' ' '
+    }
+    days=$(docker run --rm --network none --entrypoint sh "$PROJECT-files:orig" -c \
+        'n=$(date -u +%s); for k in 0 13 14 15; do date -u -d "@$((n - k * 86400))" +%F; done' | tr '\n' ' ')
+    read -r d0 d13 d14 d15 <<< "$days"
+    out=$(readme_run "access-$d0.log access-$d13.log access-notes.log notes.txt access-2000-13-45.log access-0000-00-00.log")
+    eq G01 "README's old-log line, nothing to find: the day 14 days back only (BusyBox)" "$out" "14 days back: $d14 "
+    out=$(readme_run "access-$d0.log access-$d13.log access-$d14.log access-$d15.log access-2000-13-45.log")
+    eq G02 "README's old-log line finds the files 14 and 15 days back (BusyBox)" "$out" "14 days back: $d14 access-$d15.log access-$d14.log "
+    out=$(readme_run "access-$d15.log" stub)
+    check G03 "README's old-log line says NOT CHECKED when the day cannot be computed" has "$out" "^NOT CHECKED"
 }
 
 logs_as_root() {  # <command>: a shell as root on the log volume at /l (works while the server is down)
@@ -1094,8 +1121,8 @@ VARIANTS=(
     'headers off @@ nginx.conf @@ /add_header X-Content-Type-Options/d; /add_header Cross-Origin-Resource-Policy/d; /add_header X-Accel-Buffering/d; s#add_header X-Robots-Tag "noindex" always;#add_header Access-Control-Allow-Origin "*" always;#; s#server_tokens off;#server_tokens on;# @@ content @@ H01 H02 H03 H04 H05 H06 H07'
     'types, charset, caching, gzip off @@ nginx.conf @@ /image\/tiff tif;/d; /application\/json json;/d; /text\/plain md txt;/d; s#charset utf-8;#charset off;#; /add_header Cache-Control/d; s#gzip on;#gzip off;# @@ content @@ P01 P02 P03 P04 P05 P06 P07 P08 P09 P12'
     'caps off @@ nginx.conf @@ /limit_conn visitor_address 4;/d; /limit_conn visitors_all 8;/d; /limit_conn trusted_address 4;/d; /limit_conn trusted_all 4;/d @@ caps @@ C03 C04 C05 C07'
-    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps livecap @@ C06 K01'
-    'an address without its cap @@ nginx.conf @@ /limit_conn visitor_address 4;/d @@ livecap @@ K01'
+    'an address: 3 at once @@ nginx.conf @@ s#visitor_address 4;#visitor_address 3;# @@ caps livecap @@ C06 C09'
+    'an address without its cap @@ nginx.conf @@ /limit_conn visitor_address 4;/d @@ livecap @@ C09'
     'all visitors: 7 at once @@ nginx.conf @@ s#visitors_all 8;#visitors_all 7;# @@ caps @@ C01'
     'a trusted address: 3 at once @@ nginx.conf @@ s#trusted_address 4;#trusted_address 3;# @@ caps @@ C02'
     'the trusted class: 3 at once @@ nginx.conf @@ s#trusted_all 4;#trusted_all 3;# @@ caps @@ C02'
@@ -1330,7 +1357,7 @@ if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
     echo "== done, failures: $FAILS"
     exit 0
 fi
-run_checks container content paths swag caps livecap bytes rate refusals forged timeouts log start
+run_checks container content paths swag caps livecap bytes rate refusals forged timeouts log start readme
 declare -A MAIN=()
 for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== live mode against the stand-in (http://127.0.0.1:$PORT)"
@@ -1338,7 +1365,7 @@ sleep 3
 live_checks "http://127.0.0.1:$PORT"
 # LV15's other side: with a tile below the size that can show the cap (the fixture's 10 kB tile at
 # 0.5 m), its procedure is a SKIP that says why, never a FAIL or a PASS (beside it, LV15 with the
-# 48 MB tile ran the cap itself, and K01 the same procedure with its controls)
+# 48 MB tile ran the cap itself, and C09 the same procedure with its controls)
 QUIET=1
 live_cap LV15small "http://127.0.0.1:$PORT" "$H/0_0/0_1.tif" 10240
 QUIET=0

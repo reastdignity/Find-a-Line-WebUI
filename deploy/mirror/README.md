@@ -86,8 +86,12 @@ docker network connect findaline-mirror_mirror swag          # "swag": SWAG's co
 cp swag/findaline-mirror.subdomain.conf /path/to/swag/config/nginx/proxy-confs/
 docker restart swag                                           # or SWAG_AUTORELOAD
 ```
+If `docker network connect` answers `endpoint with name swag already exists in network findaline-mirror_mirror`
+(exit 1), SWAG is already attached: nothing to do. Whether it is attached is told by the check line of
+"Checking it" below, not by that command's exit code.
 The attachment lasts until SWAG's container is recreated (an image update recreates it): **run the
-`docker network connect` again after every update of SWAG**, and check it (below). This way can never stop SWAG:
+`docker network connect` again after every update of SWAG** (the same "already exists" answer means the
+recreation kept it), and check it (below). This way can never stop SWAG:
 the conf names the mirror through a variable and SWAG's resolver, so SWAG starts and serves its other sites
 whether the mirror is there or not (tried with the test stack's stand-in: taken off the mirror's network and
 restarted, it started and answered the mirror's name with 502).
@@ -186,7 +190,13 @@ door's host key and pose as the door on the LAN; and whoever holds it decides wh
   ```sh
   ssh-keygen -t ed25519 -C findaline-publish -f <keys folder on the PC>/findaline-publish
   ```
-  (a passphrase is possible; rclone then needs it as `key_file_pass`, obscured, in its config).
+  (a passphrase is possible; rclone then needs it as `key_file_pass`, obscured, in its config:
+  `rclone obscure <passphrase>` prints that form).
+  Only its public half, `findaline-publish.pub`, goes to the server: copy it there by any way you trust (a USB
+  stick, `scp <keys folder on the PC>/findaline-publish.pub <you>@<the server's LAN address>:`), into the folder
+  you run the install's `install -m 0644 findaline-publish.pub ...` from. On the server,
+  `ssh-keygen -l -f findaline-publish.pub` must show the same fingerprint as on the PC. The private half never
+  leaves the PC.
 
 **Install** (on the server; `ROOT` as in the mirror's install, `KEYS` a folder outside the copy of this folder):
 ```sh
@@ -228,16 +238,27 @@ md5sum_command = none
 sha1sum_command = none
 ```
 - `known_hosts_file` holds one line, `[<address>]:<port> ssh-ed25519 AAAA...`, the content of the server's
-  `ssh_host_ed25519_key.pub` (compare `ssh-keygen -l -f` of it with the fingerprint noted). Without it rclone
-  checks no host key at all.
+  `$KEYS/ssh_host_ed25519_key.pub` (public; bring it to the PC as you brought the other key the other way, or
+  copy its text from the server's screen). Before using it, on the PC: `ssh-keygen -l -f <a known_hosts file on
+  the PC>` must show the fingerprint noted at the install (`SHA256:...`, the line printed after the host key was
+  made); a different one means it is not the door's key. Without the file rclone checks no host key at all.
 - `shell_type`, `hashes` and `sha256sum_command` must be set: rclone's detection would set the hashes to `none`
   behind the gate.
 - The remote's top folder is the mirror folder as the container shows it: `findaline-mirror:/mirror` (so
   `--to findaline-mirror:/mirror`, `--from findaline-mirror:/mirror/logs`).
 
-**Checking it**: from the PC, `rclone --config <file> lsd findaline-mirror:/mirror` lists `logs`, `public`, `staging`,
-`trash`, and `rclone --config <file> hashsum sha256 findaline-mirror:/mirror/public/v1` hashes on the server.
-`tests/mirror_check.sh` checks the door (the D lines) on a PC or in CI.
+**Checking it**, from the PC (works before the first publish too):
+```sh
+rclone --config <file> lsd findaline-mirror:/mirror                                  # logs, public, staging, trash
+echo door-check | rclone --config <file> rcat findaline-mirror:/mirror/staging/door-check.txt
+rclone --config <file> hashsum sha256 findaline-mirror:/mirror/staging/door-check.txt  # the server's hash
+echo door-check | sha256sum                                                           # the same value
+rclone --config <file> deletefile findaline-mirror:/mirror/staging/door-check.txt
+```
+The hash must come from the server (the publish tool's check of every copied file needs it): "hash unsupported:
+hash type not supported" means the `hashes` and `sha256sum_command` lines above are missing. Hashing
+`public/v1` instead works only after the first publish (before it the folder does not exist: "directory not
+found"). `tests/mirror_check.sh` checks the door (the D lines) on a PC or in CI.
 
 **Updating**: monthly, with the file server's image: the base is pinned by digest (`ARG ALPINE_IMAGE` in
 `publish/Dockerfile`); the packages are not pinned, so a rebuild takes the newest OpenSSH of that Alpine branch.
@@ -269,8 +290,12 @@ wget -q -T 5 -O /dev/null http://1.1.1.1/; echo $?                      # 0 from
 ROOT=/path/to/findaline-mirror                                          # as in Install (MIRROR_ROOT)
 ls -l "$ROOT/logs"                                                      # access-<day>.log files
 # no log file named for a day 14 or more days back (the cleanup's own rule, by the name's date):
-ls "$ROOT/logs" | awk -v c="access-$(date -u -d '14 days ago' +%F).log" '/^access-[0-9]{4}-[0-9]{2}-[0-9]{2}\.log$/ && $0 <= c'   # nothing
+c=$(date -u -d "@$(( $(date -u +%s) - 14 * 86400 ))" +%F) && [ -n "$c" ] && echo "14 days back: $c" && ls "$ROOT/logs" | awk -v c="access-$c.log" '/^access-[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])\.log$/ && $0 <= c' || echo "NOT CHECKED: the day 14 days back could not be computed"
 ```
+The last line prints the day 14 days back and nothing else. A file name under it is a file the cleanup should
+have deleted, and "NOT CHECKED" means nothing was compared. It works with GNU's and BusyBox's `date` and `awk`
+(tried in the file server's image, Alpine, Debian and Ubuntu). The form `date -d '14 days ago'` is GNU only:
+BusyBox refuses it, and a line built on it then prints nothing and looks like a pass.
 
 From a PC with the repository, through SWAG (what needs no test data; the cap check needs one published
 dataset, the index comparison `--master <folder>` the master copy):
