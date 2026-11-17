@@ -7,6 +7,9 @@
 .ui *, .ui *::before, .ui *::after { box-sizing: border-box; }
 .ui.u-screen { position: fixed; inset: 0; overflow: hidden; display: flex; }
 .ui button, .ui input, .ui select, .ui textarea { font: inherit; color: inherit; }
+/* a placeholder as secondary text, in both themes (the browsers' own grey is too faint on a dark field; Firefox
+   also dims it with opacity) */
+.ui ::placeholder { color: var(--muted); opacity: 1; }
 .ui a { color: var(--accent); }
 .ui :focus { outline: none; }
 .ui :focus-visible { outline: none; box-shadow: var(--focus); }
@@ -173,7 +176,10 @@
 .ui .u-sheet-handle { flex: none; display: flex; justify-content: center; align-items: center; width: 100%; min-height: 28px; padding: 0;
   border: 0; background: none; cursor: grab; touch-action: none; border-radius: 20px 20px 0 0; }
 .ui .u-sheet-handle::before { content: ""; width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
-.ui .u-sheet-head { flex: none; padding: 0 16px 8px; }
+.ui .u-sheet-head { flex: none; padding: 0 16px 8px; position: relative; z-index: 1; background: var(--surface); }
+/* the body scrolled: a soft shadow under the head marks the edge the text passes under (the ink's colour, so it
+   reads in both themes: dark on a light sheet, light on a dark one) */
+.ui .u-sheet.u-scrolled .u-sheet-head { box-shadow: 0 6px 8px -6px color-mix(in srgb, var(--ink) 30%, transparent); }
 .ui .u-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
 .ui .u-sheet.u-peek .u-sheet-body { overflow: hidden; }
 

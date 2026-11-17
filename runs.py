@@ -542,7 +542,7 @@ def _write_index(runs_dir: str):
 
     with cache.replacing(os.path.join(runs_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Find-a-Line runs</title>
+<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line runs</title>
 <link rel="stylesheet" href="{mapping.VIEWER_FOLDER}/index.css">
 </head>
 <body>
@@ -562,7 +562,7 @@ def write_latest_redirect(path: str, map_path: str):
     target = os.path.relpath(map_path, os.path.dirname(os.path.abspath(path))).replace(os.sep, "/")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Find-a-Line - latest run</title>
+<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line - latest run</title>
 <meta http-equiv="refresh" content="0; url={html.escape(target)}"></head>
 <body><a href="{html.escape(target)}">Open the latest run</a></body></html>
 """)

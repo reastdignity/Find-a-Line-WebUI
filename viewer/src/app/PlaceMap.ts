@@ -9,6 +9,7 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { FeatureCollection, GeoJSON } from "geojson";
 import L from "leaflet";
 import { baseLayers } from "../baselayers";
+import { keepScaleAboveAttribution } from "../result/view/corners";
 import { CoverageLayer } from "./coverageLayer";
 
 export type Mode = "point" | "draw" | "file" | "preset";
@@ -37,6 +38,7 @@ export class PlaceMap {
     this.map = L.map(element, {center: START, zoom: 13, maxZoom: MAX_ZOOM, zoomControl: false});
     L.control.zoom({position: options.controls}).addTo(this.map);
     L.control.scale().addTo(this.map);
+    keepScaleAboveAttribution(element);  // on a phone the credits take the whole width: the scale above them
     const layers = baseLayers(null, MAX_ZOOM);
     Object.values(layers)[0].addTo(this.map);
     L.control.layers(layers, {}, {position: options.controls}).addTo(this.map);

@@ -4,7 +4,7 @@
    fonts.css: Barlow Condensed of --display, for every bundle that starts from here (app, run maps, coverage). */
 @import "./fonts.css";
 .ui {
-  --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #6c7a73; --line: #d2dad4;
+  --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #626e68; --line: #d2dad4;
   --accent: #2350c8; --accent-soft: #e1e8fa; --on-accent: #ffffff;
   --ok: #1d7a47; --ok-soft: #e0f1e6; --warn: #995500; --warn-soft: #fbefd9; --bad: #b3261e; --bad-soft: #fbe4e1;
   --map-bg: #ecebdf; --water: #93c3e3; --rock: #8a7b63;

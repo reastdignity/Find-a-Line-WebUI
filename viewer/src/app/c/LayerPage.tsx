@@ -17,7 +17,7 @@
 import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import L from "leaflet";
-import { Button, DESKTOP, Field, Segmented, useMedia } from "../../ui/components";
+import { Button, DESKTOP, Field, Segmented, TOUCH, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { ApiError, api, user, type CountryBand, type CountryCells, type CountryCube, type CountryHistogram,
          type CountryOutline } from "../api";
@@ -157,6 +157,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
                    params: URLSearchParams; pick?: (data: CountryCells) => number[] | null; extras?: MapPageExtras}) {
   const cube0 = cubes[0];
   const wide = useMedia(DESKTOP);
+  const touch = useMedia(TOUCH);  // a tap, not a click, on a touch screen
   const [state, setState] = useState<LayerState>(() => parseState(params, cube0));
   const [moves, setMoves] = useState(0);       // map moves seen
   const [theme, setTheme] = useState(0);       // theme changes seen (the canvas reads the tokens)
@@ -746,7 +747,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       </div>
       {cardHint ? <p class="c-layer-search-hint"><Icon name="info" /><span>{cardHint}</span></p>
         : <p class="u-small">{t("ui.layer.search_note")}</p>}
-    </section> : <p class="u-small">{t("ui.layer.click_hint")}</p>}
+    </section> : <p class="u-small">{touch ? t("ui.layer.click_hint_touch") : t("ui.layer.click_hint")}</p>}
 
     <section class="c-layer-notes">
       <h2 class="u-h4">{t("ui.layer.about")}</h2>

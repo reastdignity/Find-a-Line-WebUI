@@ -20,7 +20,6 @@ export function createWalk(scene: SceneCore, line: LineView, root: HTMLElement):
   button.type = speed.type = "button";
   button.className = "u-btn v3-walk";
   speed.className = "u-btn v3-speed";
-  speed.setAttribute("aria-label", t("ui.view3d.speed"));
   speed.title = t("ui.view3d.speed");
   const note = document.createElement("span");
   note.className = "u-small v3-reduced";
@@ -42,6 +41,8 @@ export function createWalk(scene: SceneCore, line: LineView, root: HTMLElement):
     button.textContent = t(walking ? "ui.view3d.stop" : "ui.view3d.walk");
     button.setAttribute("aria-pressed", String(walking));
     speed.textContent = t("ui.view3d.speed_value", {times: SPEEDS[speedIndex]});
+    // the name says what it is and holds the shown text ("Speed ×1"), so a voice command by that text finds it
+    speed.setAttribute("aria-label", t("ui.view3d.speed_name", {value: speed.textContent}));
     root.dataset.walk = walking ? "1" : "0";
   };
   const self: Walk = {

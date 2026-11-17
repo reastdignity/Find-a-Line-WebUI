@@ -65,7 +65,9 @@ export function createPoint(scene: SceneCore, _line: LineView, edit: Edit): Poin
     reach.setOn(on);
     reset();
     if (on) {
-      list.note(t("ui.view3d.point_hint"));
+      // a tap on a touch screen (the app's query, ui/components.tsx TOUCH; views.ts asks it the same way)
+      const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+      list.note(touch ? t("ui.view3d.point_hint_touch") : t("ui.view3d.point_hint"));
       root.dataset.point = "0";
     } else root.dataset.point = "";
     scene.invalidate();
