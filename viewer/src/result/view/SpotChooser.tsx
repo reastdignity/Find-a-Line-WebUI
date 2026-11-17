@@ -15,7 +15,7 @@ import type { SpotChoice } from "../spots";
 import { cx, TightKey } from "./common";
 import type { Area } from "./LineChooser";
 import { Shape } from "./Shape";
-import { Cells, rowKeys, tightRow } from "./SpotList";
+import { Cells, FOCUS_REST, keepFocus, rowKeys, tightRow } from "./SpotList";
 import type { ChooserProps } from "./SpotPanels";
 
 const GAP = 12;  // px between the press's point and the panel
@@ -32,7 +32,7 @@ export function chooserRows(choices: SpotChoice[]): SpotChoice[] {
 
 /** The panel's corner: beside the point (right and below, else left or above), within the area (LineChooser's
  *  placing). */
-function place(at: {x: number; y: number}, w: number, h: number, area: Area): {left: number; top: number} {
+export function place(at: {x: number; y: number}, w: number, h: number, area: Area): {left: number; top: number} {
   const fit = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
   const right = Math.min(area.right, innerWidth) - 4, bottom = Math.min(area.bottom, innerHeight) - 4;
   const left0 = Math.max(area.left, 0) + 4, top0 = Math.max(area.top, 0) + 4;
@@ -60,7 +60,14 @@ export function SpotChooser({view, map, wide, choices, at, area, onClose}: Choos
   useEffect(() => {
     const outside = (e: Event) => { if (panel.current && !panel.current.contains(e.target as Node)) onClose(); };
     document.addEventListener("pointerdown", outside);
-    return () => { document.removeEventListener("pointerdown", outside); map?.highlight(null); };
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      map?.highlight(null);
+      // closed (its ×, Esc, a row): the focus to the selected spot's row, else to the map
+      const sel = view.selected?.spot;
+      keepFocus(sel === undefined ? null : `#vl-row-${sel} .vl-main`, sel === undefined ? null : `#vl-top-${sel} .vl-main`,
+                ".v-map .leaflet-container", ...FOCUS_REST);
+    };
   }, []);
 
   const choose = (c: SpotChoice) => {

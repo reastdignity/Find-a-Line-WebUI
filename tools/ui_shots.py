@@ -263,8 +263,8 @@ PAGES = {
     "c-view-spots-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_LOW, "js:" + VIEW_AT % 1]),
     # its panels' states: a spot selected (its details; a phone: at the sheet's top, and with the sheet lowered its
     # head alone); "Lines from here" opened from the selected line's first anchor; a second sector of the tree open
-    # (a phone: the sheet at full height); "Top level only" off ("All levels"); "Why so many?" open; the list sorted
-    # by lines with the Area level's "Start here" above it
+    # (a phone: the sheet at full height); "Top level only" off ("All levels"); "Why so many?" open; the Area
+    # level's "Start here" above the tree (a phone: the sheet at full height)
     "c-view-selected": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED]),
     "c-view-selected-low": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED, "js:" + VIEW_LOW]),
     "c-view-fan": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED,

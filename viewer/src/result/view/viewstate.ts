@@ -59,8 +59,13 @@ export function byFinger(wide: boolean, pressedBy: string, coarse: boolean): boo
 export interface PanelState {
   /** A sector (its index from 0) opened or closed by the user or a selection; not there: the first shown is open. */
   open: Map<number, boolean>;
-  /** The rows a sector shows (not there: PAGE). */
+  /** The rows a sector shows by the user's "Show more" (not there: PAGE). */
   limit: Map<number, number>;
+  /** The rows a sector shows because the selected spot's row lies beyond them: they go back when the selection
+   *  leaves the sector or ends. */
+  paged: Map<number, number>;
+  /** What opened "Lines from here" from the details (the selector of its button), for the focus when it closes. */
+  fanFrom: string | null;
   /** The hint is shown (kept). */
   hint: boolean;
   /** "Why so many?" is open. */
@@ -71,8 +76,12 @@ export interface PanelState {
   pressedBy: string;
   /** The spot whose selection the list has followed (its sector opened and paged). */
   followed: number | null;
+  /** The list's order when it followed (the sort and the lines that pass): another order is followed again. */
+  followedOrder: string;
   /** The list still has to scroll to the followed spot's row. */
   scroll: boolean;
+  /** That scroll follows another spot (a phone's sheet goes to its top only then, not for a new order). */
+  scrollNew: boolean;
 }
 
 interface Held { state: PanelState; listeners: Set<() => void> }
@@ -82,8 +91,8 @@ function holdOf(view: SpotView): Held {
   let h = held.get(view);
   if (!h) {
     const k = kept();
-    h = {state: {open: new Map(), limit: new Map(), hint: k.hint, why: false, editing: null, pressedBy: "",
-                 followed: null, scroll: false},
+    h = {state: {open: new Map(), limit: new Map(), paged: new Map(), fanFrom: null, hint: k.hint, why: false, editing: null,
+                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false},
          listeners: new Set()};
     held.set(view, h);
     // the kept sort, once per view and before anything is drawn from its order (the B numbers follow it)
@@ -111,17 +120,24 @@ export function watchPanels(view: SpotView, f: () => void): () => void {
   return () => { h.listeners.delete(f); };
 }
 
-/** Sort the list of spots and keep the choice. */
+/** Sort the list of spots and keep the choice (written only when it changes). */
 export function sortBy(view: SpotView, sort: ViewSort) {
   const hint = holdOf(view).state.hint;  // first: a view's first use of its panel state gives it the kept sort
+  if (sort === view.sort) return;
   view.setSort(sort);
   keep({sort, hint});
 }
 
-/** Show or hide the hint and keep the choice. */
+/** Show or hide the hint and keep the choice (written only when it changes). */
 export function showHint(view: SpotView, on: boolean) {
+  if (holdOf(view).state.hint === on) return;
   changePanels(view, (s) => { s.hint = on; });
   keep({sort: view.sort, hint: on});
+}
+
+/** The rows a sector shows: the user's pages ("Show more"), or more while the selected spot's row needs them. */
+export function limitOf(s: PanelState, sector: number): number {
+  return Math.max(s.limit.get(sector) ?? PAGE, s.paged.get(sector) ?? 0);
 }
 
 /** Is a sector open: as the user or a selection left it, else the first one shown (`k` 0). */
@@ -129,20 +145,28 @@ export function isOpen(s: PanelState, sector: number, k: number): boolean {
   return s.open.get(sector) ?? k === 0;
 }
 
-/** The list follows a selection: the selected spot's sector opens and pages until its row (once per selected spot:
- *  the user may close the sector again); true when the list has to scroll to the row. Nothing selected: forgotten. */
+/** The list follows a selection: the selected spot's sector opens (once per selected spot: the user may close it
+ *  again) and shows pages until its row; again when the list's order changed under the selection (another sort,
+ *  other lines passing). The pages a selection needed go back when it leaves the sector or ends; the user's own
+ *  ("Show more") stay. True when the list has to scroll to the row. */
 export function follow(s: PanelState, view: SpotView): boolean {
   const sel = view.selected;
   if (!sel) {
     s.followed = null;
     s.scroll = false;
+    s.paged.clear();
     return false;
   }
-  if (s.followed === sel.spot) return s.scroll;
-  s.followed = sel.spot;
-  s.scroll = true;
+  const order = `${view.sort}|${view.version}`, same = s.followed === sel.spot;
+  if (same && s.followedOrder === order) return s.scroll;
   const n = view.sectorOf(sel.spot), sector = view.sectors.find((x) => x.n === n);
-  s.open.set(n, true);
-  if (sector) s.limit.set(n, pageFor(sector.spots.indexOf(sel.spot), s.limit.get(n) ?? PAGE));
+  if (!same) s.open.set(n, true);
+  s.followed = sel.spot;
+  s.followedOrder = order;
+  s.scroll = true;
+  s.scrollNew = !same;
+  s.paged.clear();
+  const mine = s.limit.get(n) ?? PAGE, needed = sector ? pageFor(sector.spots.indexOf(sel.spot), mine) : mine;
+  if (needed > mine) s.paged.set(n, needed);
   return true;
 }

@@ -8,7 +8,7 @@
 // height, clearance with the tight mark, the height difference from the near end to the far end (signed, 0.1 m),
 // the direction ("SE 141°") and, in a run with the access mark, the far anchor's mark. A row selects its line and
 // closes the fan (SpotView.select); "Close" closes it and keeps the selection. Rows as SpotList's: a list item
-// with one button.
+// with one button, one tab stop for the list (the first row), arrows, Home and End.
 
 import { useEffect, useRef } from "preact/hooks";
 import { Button } from "../../ui/components";
@@ -55,7 +55,7 @@ export function FanHead({view}: {view: SpotView}) {
   </>;
 }
 
-function FanLine({p, r}: {p: PanelProps; r: FanRow}) {
+function FanLine({p, r, tab}: {p: PanelProps; r: FanRow; tab: boolean}) {
   const {view, map, padding} = p, v = view.values, c = view.model.data.columns, row = r.row;
   const hover = useHover(map, row);
   const far = accessState(r.near === 1 ? c.access2.at(row) : c.access1.at(row));
@@ -64,9 +64,10 @@ function FanLine({p, r}: {p: PanelProps; r: FanRow}) {
     map?.reveal(row, padding());
   };
   return <li class="vl-row">
-    <button type="button" class="vl-main" data-row={row} data-label={r.label} onClick={press}
+    <button type="button" class="vl-main" tabIndex={tab ? 0 : -1} data-row={row} data-label={r.label} onClick={press}
             {...hover}>
       <Shape text={r.label} />
+      {c.over[row] === 1 && <span class="u-sr">{t("ui.result.legend_over")} </span>}
       <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
       <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>
       <Value name={t("ui.list.col.clear")} class="vl-clr">
@@ -107,7 +108,7 @@ export function FanPanel({head = true, ...p}: PanelProps & {head?: boolean}) {
       {acc && <span class="vl-cell-acc">{t("ui.view.fan.far_end")}</span>}
     </div>
     <ul class={cx("vl-rows", acc && "vl-with-acc")} aria-label={t("ui.view.fan.title")} onKeyDown={rowKeys}>
-      {fan.rows.map((r) => <FanLine key={r.row} p={p} r={r} />)}
+      {fan.rows.map((r, k) => <FanLine key={r.row} p={p} r={r} tab={k === 0} />)}
     </ul>
     {fan.rows.some((r) => tightRow(view, r.row)) && <TightKey lift={view.model.data.lift} />}
   </div>;

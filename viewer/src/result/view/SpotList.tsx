@@ -16,7 +16,7 @@
 // follows a view and its panel state (useViewPanels); the marks' shapes are the map's (Shape.tsx). Styles in
 // view.css (classes vl-*).
 
-import type { ComponentChildren } from "preact";
+import { Component, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { AccessPair } from "../../access";
 import { t } from "../../i18n";
@@ -30,7 +30,7 @@ import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
 import { ViewFilters, ViewMoreFilters } from "./ViewFilters";
-import { changePanels, follow, isOpen, MORE, PAGE, panelState, sortBy, SORTS, watchPanels } from "./viewstate";
+import { changePanels, follow, isOpen, limitOf, MORE, panelState, sortBy, SORTS, watchPanels } from "./viewstate";
 import "./view.css";
 
 /** The door "›" of a row ("Open spot"): off until a spot's cards exist (spec-view.md B-5: hidden). */
@@ -62,12 +62,14 @@ export const withAccess = (view: SpotView): boolean => view.model.hasAccess;
 /** Is a line tight (by its row). */
 export const tightRow = (view: SpotView, row: number): boolean => isTight(view.values.clr[row]);
 
-/** The cells of a line that every row of the view shares: its colour (clear, or over trees or buildings), length,
+/** The cells of a line that every row of the view shares: its colour (clear, or over trees or buildings: then
+ *  also in words for a screen reader), length,
  *  mean height (`height` "hmax": the highest point in its place) and clearance with the tight mark. */
 export function Cells({view, row, height = "hmean"}: {view: SpotView; row: number; height?: "hmean" | "hmax"}) {
   const v = view.values, over = view.model.data.columns.over[row] === 1;
   return <>
     <Swatch color={over ? COLORS.over : COLORS.clean} class="vl-sw" />
+    {over && <span class="u-sr">{t("ui.result.legend_over")} </span>}
     <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
     {height === "hmax" ? <Value name={t("ui.list.col.highest")}>{metres(v.hmax[row])}</Value>
       : <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>}
@@ -95,25 +97,54 @@ export function rowKeys(e: KeyboardEvent) {
 }
 
 // the line a row thickens on the map while the mouse is over it
-let hovered: {map: SpotMap; row: number} | null = null;
+let hovered: {map: Pick<SpotMap, "highlight">; row: number} | null = null;
 
-/** A row's handlers for the mouse over it: its line is drawn wider on the map; a row that goes while the mouse is
- *  over it (a filter, the map moving under a list that follows it) never sees the pointer leave, so it ends the
- *  highlight itself. */
-export function useHover(map: SpotMap | null, row: number) {
-  const leave = () => {
+/** The mouse over a row and away from it (`pointer`: the event's pointer type; only a mouse counts): the row's line
+ *  is drawn wider on the map; `gone`: the row went (or shows another line), which ends its own highlight only. */
+export function hoverOf(map: Pick<SpotMap, "highlight"> | null, row: number) {
+  const end = () => {
     if (hovered && hovered.row === row) { hovered.map.highlight(null); hovered = null; }
   };
-  useEffect(() => leave, [map, row]);
   return {
-    onPointerEnter: (e: PointerEvent) => {
-      if (e.pointerType !== "mouse" || !map) return;
+    enter(pointer: string) {
+      if (pointer !== "mouse" || !map) return;
       hovered = {map, row};
       map.highlight(row);
     },
-    onPointerLeave: (e: PointerEvent) => { if (e.pointerType === "mouse") leave(); },
+    leave(pointer: string) { if (pointer === "mouse") end(); },
+    gone: end,
   };
 }
+
+/** A row's handlers for the mouse over it (hoverOf); a row that goes while the mouse is over it (a filter, the
+ *  map moving under a list that follows it) never sees the pointer leave, so it ends the highlight itself. */
+export function useHover(map: SpotMap | null, row: number) {
+  const hover = hoverOf(map, row);
+  useEffect(() => hover.gone, [map, row]);
+  return {onPointerEnter: (e: PointerEvent) => hover.enter(e.pointerType), onPointerLeave: (e: PointerEvent) => hover.leave(e.pointerType)};
+}
+
+/** The focus must not fall to the page's body when the control that held it went: once the page has drawn, if
+ *  nothing has the focus, it goes to the first of `selectors` that is there. */
+export function keepFocus(...selectors: (string | null | undefined)[]) {
+  const go = (tries: number) => {
+    const at = document.activeElement;
+    if (at && at !== document.body && at.isConnected) return;
+    for (const selector of selectors) {
+      const to = selector ? document.querySelector<HTMLElement>(selector) : null;
+      if (to && !(to as HTMLButtonElement).disabled) { to.focus({preventScroll: true}); return; }
+    }
+    if (tries > 0) requestAnimationFrame(() => go(tries - 1));
+  };
+  requestAnimationFrame(() => go(5));
+}
+
+/** Where the focus goes when nothing better is there: the list's tab stop, then the map. */
+export const FOCUS_REST = [".vl-tree .vl-main[tabindex='0']", ".vl-topblock .vl-main[tabindex='0']", ".v-map .leaflet-container"];
+
+/** The rows drawn so far (window.FINDALINE_ROWS: tests and measurements of what a redraw costs). */
+export const drawn = {rows: 0};
+if (typeof window !== "undefined") (window as any).FINDALINE_ROWS = drawn;  // for tests and the browser console
 
 interface RowProps extends PanelProps {
   spot: number;
@@ -142,6 +173,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
     if (now) map?.reveal(now.row, padding());  // a list's selection may move the map
   };
   const label = view.label(spot), hover = useHover(map, row);
+  drawn.rows++;
   return <li class={cx("vl-row", on && "vl-sel", pick && "vl-pick")} id={id}>
     <button type="button" class="vl-main" aria-pressed={on} tabIndex={tab ? 0 : -1} data-spot={spot} data-row={row}
             onClick={press}
@@ -227,9 +259,9 @@ function TopBlock(p: PanelProps) {
 
 /** A sector of the tree: its head (number and word, spots and their highest mean height, lines and their lengths),
  *  "Show on the map", and while open its rows by pages. */
-function Sector({p, sector, k}: {p: PanelProps; sector: SectorRow; k: number}) {
+function SectorRows({p, sector, k}: SectorProps) {
   const {view, map} = p, ui = panelState(view), n = sector.n;
-  const open = isOpen(ui, n, k), limit = ui.limit.get(n) ?? PAGE;
+  const open = isOpen(ui, n, k), limit = limitOf(ui, n);
   const name = t("ui.view.sector", {n: n + 1, word: sector.word});
   const height = view.sort === "hmax" ? "hmax" : "hmean";
   const shown = open ? sector.spots.slice(0, limit) : [], stop = tabStop(view, shown), rest = sector.spots.length - limit;
@@ -261,19 +293,40 @@ function Sector({p, sector, k}: {p: PanelProps; sector: SectorRow; k: number}) {
   </div>;
 }
 
+interface SectorProps { p: PanelProps; sector: SectorRow; k: number; sig?: string }
+
+/** Everything a sector's picture depends on: the lines that pass and their order (the view's version, the sort),
+ *  whether it is open and how many rows, the selected spot when it is one of its own, the canvas. */
+function sectorSig({view, map, wide}: PanelProps, sector: SectorRow, k: number): string {
+  const ui = panelState(view), sel = view.selected;
+  const mine = sel && view.sectorOf(sel.spot) === sector.n ? sel.spot : -1;
+  return [view.version, view.sort, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0].join("|");
+}
+
+/** A sector, drawn again only when its picture changes (a move of the map redraws the list at its end: the top
+ *  block follows the view, the tree does not). */
+class Sector extends Component<SectorProps> {
+  shouldComponentUpdate(next: SectorProps) {
+    return next.sig !== this.props.sig || next.p.view !== this.props.p.view || next.p.map !== this.props.p.map;
+  }
+  render() {
+    return <SectorRows {...this.props} />;
+  }
+}
+
 /** "All spots": the sort and the tree of sectors. */
 function Tree(p: PanelProps) {
   const {view} = p, ui = panelState(view), sectors = view.sectors;
   const tight = sectors.some((s, k) => isOpen(ui, s.n, k) &&
-    s.spots.slice(0, ui.limit.get(s.n) ?? PAGE).some((spot) => tightRow(view, view.shownOf(spot))));
+    s.spots.slice(0, limitOf(ui, s.n)).some((spot) => tightRow(view, view.shownOf(spot))));
   return <section class="vl-block vl-tree" aria-labelledby="vl-tree-title">
     <div class="vl-block-head"><h3 id="vl-tree-title">{t("ui.view.all_spots")}</h3><span class="u-grow" />
       <label class="vl-sort"><span class="u-small">{t("ui.view.sort_by")}</span>
         <select class="r-sort" value={view.sort} onChange={(e) => sortBy(view, e.currentTarget.value as ViewSort)}>
           {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label></div>
-    {tight && <TightKey lift={view.model.data.lift} />}
-    {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} />)}
+    {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} sig={sectorSig(p, s, k)} />)}
     {!sectors.length && <p class="u-small vl-note">{t("ui.view.none_pass")}</p>}
+    {tight && <TightKey lift={view.model.data.lift} />}
   </section>;
 }
 
@@ -297,15 +350,15 @@ export function SpotList(p: PanelProps) {
   const {view, wide} = p;
   useViewPanels(view);
   const ui = panelState(view), root = useRef<HTMLDivElement>(null);
-  // a selection opens its sector and pages it until the row; the list then scrolls to the row (a phone's sheet
-  // to its top, where the details stand)
+  // a selection opens its sector and pages it until the row; the list then scrolls to the row, again after the
+  // order changed under it (a phone's sheet goes to its top, where the details stand, for another spot only)
   follow(ui, view);
   useEffect(() => {
     if (!ui.scroll || !root.current) return;
     ui.scroll = false;
     if (!wide) {
       const body = root.current.closest<HTMLElement>(".u-sheet-body");
-      if (body) body.scrollTop = 0;
+      if (body && ui.scrollNew) body.scrollTop = 0;
       return;
     }
     const row = root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);

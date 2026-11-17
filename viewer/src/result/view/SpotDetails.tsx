@@ -2,7 +2,7 @@
 // `details` slot): "Spot 7.1 · 104 lines" with × (ends the selection, as Esc and the row pressed again), the
 // selected line's four values (long, mean height, clear, highest point), the tight line, "Reaching the anchors"
 // (today's AccessBlock, in a run with the access mark), "‹ Line 1 of 104 ›" stepping through every passing line of
-// the spot by mean height (the map does not move), "Stands for: …" in phase 4's words, the two buttons "Lines
+// the spot by mean height (the map does not move), "Stands for: …" in phase 4's two forms, the two buttons "Lines
 // from anchor A1 / A2" (they open "Lines from here" at that anchor) and today's facts of the line. While "Lines
 // from here" is open its panel stands here instead (FanPanel). Not here yet (they join with today's other features,
 // step 3c): "Open spot", the star, the profile, the 3D view, the line's links.
@@ -26,7 +26,8 @@ import { FanHead, FanPanel } from "./FanPanel";
 import { Hint } from "./Hint";
 import { AccessBlock, lineFacts } from "./LineDetails";
 import { SpotChooser } from "./SpotChooser";
-import { SpotList, useViewPanels } from "./SpotList";
+import { FOCUS_REST, keepFocus, SpotList, useViewPanels } from "./SpotList";
+import { panelState } from "./viewstate";
 import type { ChooserProps, PanelProps } from "./SpotPanels";
 import { SpotCount } from "./SpotSummary";
 
@@ -40,6 +41,13 @@ export function SpotHead({view}: {view: SpotView}) {
       {hasAccess(sel.line) && <>{" "}<AccessPair line={sel.line} /></>}</h3>
     <IconButton icon="close" label={t("ui.view.close")} class="vl-dclose" onClick={() => view.select(null)} />
   </>;
+}
+
+/** A line's "Stands for" in phase 4's words: "Stands for: 41 found lines between the same two anchor squares", or,
+ *  for a line that stands for itself, "this line only: no other was found between its two anchor squares". */
+export function standsFor(n: number): string {
+  const words = t("ui.details.stands_for_n", {count: n, n: count(n)});
+  return n === 1 ? words : t("ui.view.stands_for", {text: words});
 }
 
 /** The details; `head` false: without the title and × (a phone's sheet shows them in its head). */
@@ -63,7 +71,10 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
     pressed.current = by;
     view.step(by);
   };
-  const fan = (end: 1 | 2) => view.openFan(L.latLng(end === 1 ? l.lat1 : l.lat2, end === 1 ? l.lon1 : l.lon2), {row: sel.row, end});
+  const fan = (end: 1 | 2) => {
+    panelState(view).fanFrom = `.vl-from-${end}`;  // where the focus returns when the fan closes
+    view.openFan(L.latLng(end === 1 ? l.lat1 : l.lat2, end === 1 ? l.lon1 : l.lon2), {row: sel.row, end});
+  };
   const stands = t("ui.details.stands_for");
   const facts = lineFacts(l, model.data.high_above, model.data).filter(([label]) => label !== stands);
   return <div class={cx("vl-details", !wide && "vl-phone", l.over && "r-over")} ref={root} data-spot={sel.spot} data-row={sel.row}>
@@ -81,8 +92,7 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
       <span class="vl-step-text">{t("ui.view.line_of", {k: count(at + 1), n: count(n)})}</span>
       <IconButton icon="next" label={t("ui.view.line_next")} plain class="vl-next" disabled={at >= n - 1} onClick={() => step(1)} />
     </div>
-    {typeof l.stands_for === "number" && <p class="vl-stands">
-      {t("ui.view.stands_for", {text: t("ui.details.stands_for_n", {count: l.stands_for, n: count(l.stands_for)})})}</p>}
+    {typeof l.stands_for === "number" && <p class="vl-stands">{standsFor(l.stands_for)}</p>}
     <div class="vl-acts">
       <Button full class="vl-from-1" onClick={() => fan(1)}>{t("ui.view.from_anchor", {n: 1})}</Button>
       <Button full class="vl-from-2" onClick={() => fan(2)}>{t("ui.view.from_anchor", {n: 2})}</Button>
@@ -96,6 +106,20 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
 function Details(p: PanelProps) {
   const {view, wide} = p;
   useViewPanels(view);
+  // the focus never falls to the page's body when what held it goes: the fan opened (its first row), the fan
+  // closed over a spot (the button that opened it, else the spot's row), the selection ended (its row, the list)
+  const now = view.fan ? "fan" : view.selected ? "spot" : "none", spot = view.selected?.spot ?? null;
+  const was = useRef<{shown: string; spot: number | null}>({shown: now, spot});
+  useEffect(() => {
+    const before = was.current;
+    was.current = {shown: now, spot};
+    if (before.shown === now && before.spot === spot) return;
+    const row = (k: number | null) => k === null ? [] : [`#vl-row-${k} .vl-main`, `#vl-top-${k} .vl-main`];
+    if (now === "fan") keepFocus(".vl-fan .vl-main[tabindex='0']", ".vl-fan-close");
+    else if (now === "spot") keepFocus(before.shown === "fan" ? panelState(view).fanFrom : null, ...row(spot), ".vl-dclose", ...FOCUS_REST);
+    else keepFocus(...row(before.spot), ...FOCUS_REST);
+    if (now !== "fan" && before.shown === "fan") panelState(view).fanFrom = null;
+  }, [now, spot]);
   if (view.fan) return <FanPanel {...p} head={wide} />;
   if (view.selected) return <SpotDetails {...p} head={wide} />;
   return wide ? <p class="c-pick vl-empty"><Icon name="info" />{t("ui.view.empty")}</p> : null;

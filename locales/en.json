@@ -781,6 +781,8 @@
   "ui.view.chip.editor_close": "Close the filter",
   "ui.view.top_on": "Top level only is on: {{n}} of {{m}} lines hang lower on the same face and are hidden. Press the chip to see them.",
   "ui.view.top_off": "Top level only is off: the {{n}} lines that hang lower on the same face are shown too.",
+  "ui.view.top_on_one": "Top level only is on: 1 of {{m}} lines hangs lower on the same face and is hidden. Press the chip to see it.",
+  "ui.view.top_off_one": "Top level only is off: the 1 line that hangs lower on the same face is shown too.",
 
   "ui.profile.anchor_lift": "+{{m}}",
   "ui.profile.aframe": "A-frame {{m}} m",

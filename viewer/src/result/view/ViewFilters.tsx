@@ -26,12 +26,13 @@ const set = (f: Filters): number => active({...f, groupMin: NO_FILTERS.groupMin}
 /** The sentence under the chips: what "Top level only" hides (on) or shows too (off), of the lines that pass the
  *  other filters. */
 export function topSentence(view: SpotView): string {
-  const c = view.counts;
-  return view.topOnly ? t("ui.view.top_on", {n: count(c.topHidden), m: count(c.lines + c.topHidden)})
-    : t("ui.view.top_off", {n: count(c.topHidden)});
+  const c = view.counts, one = c.topHidden === 1;  // exactly one such line: the sentence's own singular
+  return view.topOnly ? t(one ? "ui.view.top_on_one" : "ui.view.top_on", {n: count(c.topHidden), m: count(c.lines + c.topHidden)})
+    : t(one ? "ui.view.top_off_one" : "ui.view.top_off", {n: count(c.topHidden)});
 }
 
-function lengthLabel(f: Filters): string {
+/** The Length chip's words: the range, one limit, or the plain name. */
+export function lengthLabel(f: Pick<Filters, "lenMin" | "lenMax">): string {
   if (f.lenMin !== null && f.lenMax !== null) return t("ui.view.chip.length_range", {a: num(f.lenMin), b: num(f.lenMax)});
   if (f.lenMin !== null) return t("ui.view.chip.length_min", {a: num(f.lenMin)});
   if (f.lenMax !== null) return t("ui.view.chip.length_max", {b: num(f.lenMax)});
@@ -78,8 +79,10 @@ export function ViewFilters({view}: {view: SpotView}) {
       <Chip add icon="filter" on={ui.editing === "more" || extra > 0} onClick={() => toggle("more")}>
         {t("ui.view.chip.more")}{extra > 0 && <span class="u-badge">{extra}</span>}</Chip>
       {anything && <button type="button" class="r-link vl-clear" onClick={() => {
-        model.setState({...s, showClean: true, showOver: true});
-        model.clearFilters();  // "Top level only" is not a filter of the model: it stays
+        // each a change of the model (a pass over every line): only the ones that change something; "Top level
+        // only" is not a filter of the model: it stays
+        if (!s.showClean || !s.showOver) model.setState({...s, showClean: true, showOver: true});
+        if (active(f) > 0) model.clearFilters();
         edit(null);
       }}>{t("ui.view.chip.clear")}</button>}
     </Chips>
