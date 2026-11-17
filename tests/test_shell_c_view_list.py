@@ -45,7 +45,9 @@ window.P = {
             "Clear. " + (clr < 1 ? (Math.floor(clr * 10 + 1e-4) / 10).toFixed(1) : clr.toFixed(1)) + " m"]; },
   holds(rows, height) { const view = this.view(); return rows.filter((r) => {
     const want = this.want(r.row, height).concat(r.spot === null ? [] : ["Lines " + this.n(view.passingCount(r.spot))]);
-    return !(want.every((w) => r.text.includes(w)) && r.tight === (view.values.clr[r.row] < 1) && r.item === "LI>BUTTON" && r.inner === 0); })
+    const over = view.model.data.columns.over[r.row] === 1;
+    return !(want.every((w) => r.text.includes(w)) && r.tight === (view.values.clr[r.row] < 1) && r.item === "LI>BUTTON" && r.inner === 0
+             && r.text.includes("Over trees or buildings") === over); })
     .map((r) => r.text); },
   heads(sel) { return [...document.querySelectorAll(sel + " .vl-cols span")].map((s) => s.textContent).filter(Boolean); },
   text(sel) { return document.querySelector(sel)?.textContent ?? null; },
@@ -61,6 +63,8 @@ window.P = {
             order: Array.from(view.order), model: view.sectors.map((s) => ({n: s.n, word: s.word, spots: s.spots, lines: s.lines, hmeanMax: s.hmeanMax, len: s.len})),
             picks: view.picks().map((k) => [k.kind, k.row, k.spot, k.n]), kept: (() => { try { return localStorage.getItem("findaline.view.v1"); } catch (e) { return "blocked"; } })(),
             tabstops: [...document.querySelectorAll(".vl-rows")].map((u) => u.querySelectorAll('.vl-main[tabindex="0"]').length),
+            keyLast: !!document.querySelector(".vl-tree")?.lastElementChild?.classList.contains("r-tight-key"),
+            keys: document.querySelectorAll(".vl-tree .r-tight-key").length, tightRows: this.rows(".vl-tree").filter((r) => r.tight).length,
             csp: window.CSP_VIOLATIONS}; },
   details() { const view = this.view(), sel = view.selected, d = document.querySelector(".vl-details");
     return {selected: sel && [sel.spot, sel.row], index: view.selectedIndex, passing: sel ? Array.from(view.passingOf(sel.spot)) : [],
@@ -77,6 +81,8 @@ window.P = {
             lines: fan?.lines, farEnds: fan?.farEnds, capped: fan?.capped, sort: fan?.sort,
             pressed: [...document.querySelectorAll(".vl-fan [data-sort]")].filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.sort),
             onMap: window.FINDALINE_VIEW.map.drawn().numbers.map((n) => n.label).filter((l) => l[0] === "L")}; },
+  // what has the focus: its class and id, "" for the page's body
+  focus() { const a = document.activeElement; return !a || a === document.body ? "" : (a.closest("li")?.id ? "#" + a.closest("li").id + " " : "") + a.className; },
   inBox(el, box) { const r = el.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; },
   size(sel) { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; },
 };
@@ -184,8 +190,13 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             assert 1 <= len(start["picks"]) <= 5 and start["picks"][0][0] == "mean" and start["more"] is None
             assert page.evaluate("() => P.holds(P.rows('.vl-topblock'), 'hmean')") == []
             assert "▾" not in "".join(page.evaluate("() => P.heads('.vl-topblock')"))  # the picks are not ranked
-            if start["picks"][-1][0] == "edge":  # "From a top edge": both anchors read easy access
-                assert page.evaluate("() => { const c = P.view().model.data.columns, r = P.view().picks().at(-1).row; return [c.access1.at(r), c.access2.at(r)]; }") == [2, 2]
+            # the fifth pick, "From a top edge", is the highest line on average whose two anchors read easy access, left
+            # out when it is an earlier pick's line: on the clip that line is the first pick's own, so no fifth row
+            # (the pick's rule: tests/test_view_units.py)
+            edge = page.evaluate("() => { const v = P.view(), c = v.model.data.columns, h = v.values.hmean; let best = -1; "
+                                 "for (let r = 0; r < v.count; r++) if (v.passes(r) && c.access1.at(r) === 2 && c.access2.at(r) === 2 && "
+                                 "(best < 0 || h[r] > h[best])) best = r; return best; }")
+            assert edge == start["picks"][0][1] and "edge" not in [k[0] for k in start["picks"]]
             page.evaluate("() => P.view().setLevel('auto')")
             # the five sorts: the tree follows the model's order, the ranking column is marked, the choice is kept
             for sort, head in (("clr", "Clear."), ("len", "Length"), ("hmax", "Highest point"), ("n", "Lines"), ("hmean", "Mean height")):
@@ -210,6 +221,26 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             page.wait_for_function(f"() => document.querySelectorAll('.vl-sec[data-sector=\"{big['n']}\"] .vl-main').length === {min(len(big['spots']), PAGE + MORE)}",
                                    timeout=WAIT)
             _tree_holds(_list(page), {big["n"]: PAGE + MORE})
+            # the tight mark's key line stands under the list, and only while a row shown is tight
+            tight = page.evaluate("() => { const v = P.view(); return Array.from(v.order).find((s) => v.values.clr[v.shownOf(s)] < 1); }")
+            assert tight is not None, "the clip has no spot whose shown line is tight"
+            page.evaluate(f"() => P.view().select({tight})")
+            page.wait_for_selector(f"#vl-row-{tight} .r-tight", timeout=WAIT)
+            keyed = _list(page)
+            assert keyed["tightRows"] >= 1 and keyed["keys"] == 1 and keyed["keyLast"] is True
+            page.evaluate("() => { P.view().select(null); const m = P.view().model; m.setFilters({...m.filters, clrMin: 1}); }")
+            page.wait_for_function("() => document.querySelectorAll('.vl-tree .r-tight').length === 0", timeout=WAIT)
+            assert _list(page)["keys"] == 0
+            page.evaluate("() => P.view().model.clearFilters()")
+            page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
+            # a redraw that changes nothing in the tree (the map moved) draws the top block's rows only
+            before = page.evaluate("() => [window.FINDALINE_ROWS.rows, document.querySelectorAll('.vl-tree .vl-main').length, document.querySelectorAll('.vl-topblock .vl-main').length]")
+            assert before[1] > PAGE
+            page.evaluate("() => window.FINDALINE_MAP.panBy([40, 0], {animate: false})")
+            page.evaluate("() => T.frames()")
+            page.evaluate("() => T.frames()")
+            after = page.evaluate("() => [window.FINDALINE_ROWS.rows, document.querySelectorAll('.vl-topblock .vl-main').length]")
+            assert 0 < after[0] - before[0] <= 3 * max(before[2], after[1]), (before, after)
             # "Top level only" off: the lines that hang lower are shown too; on again
             page.click(".vl-top")
             page.wait_for_function("() => P.view().topOnly === false && P.list().chip === 'false'", timeout=WAIT)
@@ -263,13 +294,13 @@ def test_selection_details_fan_and_table(site):
             empty = page.evaluate("() => P.details()")
             assert empty["selected"] is None and empty["empty"] == WORDS["ui.view.empty"] and empty["shown"] is False
             # a spot far down its sector, selected from the map's side (the model): its sector opens and pages to it
-            target = page.evaluate("""() => { const v = P.view(), s = v.sectors.find((x, k) => k > 0 && x.spots.length > 25) ?? v.sectors[0];
-                return {spot: s.spots[s.spots.length - 1], n: s.n, rank: s.spots.length - 1}; }""")
+            target = page.evaluate("""() => { const v = P.view(), s = v.sectors.find((x, k) => k > 0 && x.spots.length > 25);
+                return {spot: s.spots[s.spots.length - 1], n: s.n, rank: s.spots.length - 1, size: s.spots.length}; }""")
             page.evaluate(f"() => P.view().select({target['spot']})")
             page.wait_for_selector(f"#vl-row-{target['spot']}", timeout=WAIT)
             page.wait_for_function(f"() => P.inBox(document.querySelector('#vl-row-{target['spot']}'), document.querySelector('.vl-body'))", timeout=WAIT)
             shown = page.evaluate(f"() => document.querySelectorAll('.vl-sec[data-sector=\"{target['n']}\"] .vl-main').length")
-            assert shown == -(-(target["rank"] + 1) // PAGE) * PAGE or shown == target["rank"] + 1
+            assert shown == min(target["size"], -(-(target["rank"] + 1) // PAGE) * PAGE) > PAGE
             d = page.evaluate("() => P.details()")
             n = len(d["passing"])
             assert d["selected"] == d["data"] == [target["spot"], d["passing"][0]] and d["index"] == 0
@@ -277,13 +308,33 @@ def test_selection_details_fan_and_table(site):
             assert d["step"] == WORDS["ui.view.line_of"].replace("{{k}}", "1").replace("{{n}}", _count(n)) and d["prev"] is True
             assert len(d["stats"]) == 4 and d["stats"][1].startswith(f"{d['hmean']:.1f}") and d["access"] == 2
             assert (d["tight"] is not None) == (d["clr"] < 1) and target["spot"] in d["pressed"]
-            if d["standsFor"] is not None:
-                words = WORDS["ui.details.stands_for_n_one"] if d["standsFor"] == 1 else \
-                    WORDS["ui.details.stands_for_n_other"].replace("{{n}}", _count(d["standsFor"]))
-                assert d["stands"] == WORDS["ui.view.stands_for"].replace("{{text}}", words)
-            # the row pressed again ends the selection; Esc and × too
+            # another sort: the selection is followed again (its row paged in and in the list's box)
+            for sort in ("n", "len", "hmean"):
+                page.select_option(".vl-tree select", sort)
+                page.wait_for_function(f"() => P.view().sort === '{sort}' && !!document.querySelector('#vl-row-{target['spot']}') && "
+                                       f"P.inBox(document.querySelector('#vl-row-{target['spot']}'), document.querySelector('.vl-body'))", timeout=WAIT)
+            # the row pressed again ends the selection; the pages the selection opened go back
             page.click(f"#vl-row-{target['spot']} .vl-main")
             page.wait_for_function("() => P.view().selected === null && !document.querySelector('.vl-details')", timeout=WAIT)
+            page.wait_for_function(f"() => document.querySelectorAll('.vl-sec[data-sector=\"{target['n']}\"] .vl-main').length === {PAGE}", timeout=WAIT)
+            # "Stands for" in its two forms: a line that stands for several found lines, and one for itself alone
+            both = page.evaluate("""() => { const v = P.view(), c = v.model.data.columns, out = {};
+                for (let row = 0; row < v.count && !(out.one && out.many); row++) { if (!v.passes(row)) continue; const n = c.stands_for.at(row);
+                  if (n === 1 && !out.one) out.one = [v.spotOf(row), row, n]; if (n > 1 && !out.many) out.many = [v.spotOf(row), row, n]; }
+                return out; }""")
+            assert both.get("one") and both.get("many"), both
+            for key, (spot_, row_, n_) in both.items():
+                page.evaluate(f"() => P.view().select({spot_}, {row_})")
+                page.wait_for_function(f"() => P.details().data && P.details().data[1] === {row_}", timeout=WAIT)
+                want = WORDS["ui.details.stands_for_n_one"] if key == "one" else \
+                    "Stands for: " + WORDS["ui.details.stands_for_n_other"].replace("{{n}}", _count(n_))
+                assert page.evaluate("() => P.details().stands") == want
+            assert WORDS["ui.details.stands_for_n_one"] == "this line only: no other was found between its two anchor squares"
+            # the × of the details ends the selection: the focus goes to the spot's row, not to the page's body
+            page.focus(".vl-dclose")
+            page.click(".vl-dclose")
+            page.wait_for_function("() => P.view().selected === null && P.focus() !== ''", timeout=WAIT)
+            assert page.evaluate("() => P.focus()").endswith("vl-main")
             # a press on a number of the map: its spot, the top block's row and the tree's are pressed
             s = _state(page, "view.setLevel('spots');")
             box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
@@ -336,6 +387,13 @@ def test_selection_details_fan_and_table(site):
             page.evaluate("() => T.frames()")
             f = page.evaluate("() => P.fan()")
             assert f["open"] and not page.evaluate("() => !!document.querySelector('.vl-details')")
+            # one tab stop for the fan's rows; the focus went from the button that is gone to the first row; arrows move
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
+            assert page.evaluate("() => document.querySelectorAll('.vl-fan .vl-main[tabindex=\"0\"]').length") == 1
+            if len(f["rows"]) > 1:
+                page.keyboard.press("End")
+                assert page.evaluate("() => document.activeElement === [...document.querySelectorAll('.vl-fan .vl-main')].at(-1)")
+                page.keyboard.press("Home")
             lines = WORDS["ui.view.fan.lines_one" if f["lines"] == 1 else "ui.view.fan.lines_other"].replace("{{n}}", _count(f["lines"]))
             ends = WORDS["ui.view.fan.ends_one" if f["farEnds"] == 1 else "ui.view.fan.ends_other"].replace("{{n}}", _count(f["farEnds"]))
             text = WORDS["ui.view.fan.text"].replace("{{lines}}", lines).replace("{{m}}", "10").replace("{{ends}}", ends)
@@ -366,12 +424,16 @@ def test_selection_details_fan_and_table(site):
             page.click(".vl-fan .vl-row:last-child .vl-main")
             page.wait_for_function(f"() => P.view().fan === null && P.view().selected && P.view().selected.row === {last}", timeout=WAIT)
             assert page.evaluate("() => P.details().data[1]") == last
-            # "Close" keeps the selection
+            page.wait_for_function("() => P.focus().includes('vl-from-1')", timeout=WAIT)  # the button that opened the fan
+            # "Close" keeps the selection; the focus goes back to the button that opened the fan
             page.click(".vl-from-2")
             page.wait_for_selector(".vl-fan-close", timeout=WAIT)
             page.click(".vl-fan-close")
             page.wait_for_function("() => P.view().fan === null && !!document.querySelector('.vl-details')", timeout=WAIT)
+            page.wait_for_function("() => P.focus().includes('vl-from-2')", timeout=WAIT)
+            # Esc ends the selection: the focus goes to the spot's row or the list, never to the body
             page.keyboard.press("Escape")
+            page.wait_for_function("() => P.view().selected === null && P.focus().endsWith('vl-main')", timeout=WAIT)
             # several spots under a mouse press: the table of spots, numbered first by number, the rest by distance
             _state(page, "view.setLevel('lines');")
             at = page.evaluate("() => T.crowded(false)")
@@ -390,11 +452,17 @@ def test_selection_details_fan_and_table(site):
             assert page.evaluate("() => P.view().selected") is None
             # Esc closes the table first; a row selects its spot, closes the table and never moves the map
             page.keyboard.press("Escape")
-            page.wait_for_function("() => !document.querySelector('.vl-choose')", timeout=WAIT)
+            page.wait_for_function("() => !document.querySelector('.vl-choose') && P.focus().includes('leaflet-container')", timeout=WAIT)
+            # its ×: the same
+            page.mouse.click(at["x"], at["y"])
+            page.wait_for_selector(".vl-choose:not(.vl-choose-new)", timeout=WAIT)
+            page.click(".vl-choose-x")
+            page.wait_for_function("() => !document.querySelector('.vl-choose') && P.focus().includes('leaflet-container')", timeout=WAIT)
             page.mouse.click(at["x"], at["y"])
             page.wait_for_selector(".vl-choose:not(.vl-choose-new)", timeout=WAIT)
             page.click(".vl-choose .vl-row:last-child .vl-main")
             page.wait_for_function("() => !document.querySelector('.vl-choose') && P.view().selected !== null", timeout=WAIT)
+            page.wait_for_function("() => P.focus() !== ''", timeout=WAIT)  # the selected spot's row, else the map
             assert page.evaluate("() => P.view().selected.spot") == rows[-1]["spot"]
             assert page.evaluate("() => { const m = window.FINDALINE_MAP; return [m.getCenter().lat, m.getCenter().lng, m.getZoom()]; }") == centre
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
@@ -424,6 +492,7 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert s["sentence"] == _sentence(s) and s["chip"] == "true"
             page.tap(".vl-hint-x")
             page.wait_for_selector(".v-map .vl-hint-open", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement.className === 'vl-hint-open'", timeout=WAIT)
             assert page.evaluate("() => [!!document.querySelector('.vl-hint'), document.activeElement.className, localStorage.getItem('findaline.view.v1')]") == \
                 [False, "vl-hint-open", '{"sort":"hmean","hint":false}']
             page.tap(".vl-hint-open")
@@ -467,14 +536,12 @@ def test_phone_sheet_hint_and_fan(site, device):
             page.wait_for_function("() => P.view().selected === null && !!document.querySelector('.u-sheet-head .vl-count')", timeout=WAIT)
             # a tap on a number of the map (the sheet is low): the spot's head; a fan row selects its line
             low = _state(page, "view.setLevel('spots');")
-            if low["numbers"]:
-                box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
-                number = low["numbers"][0]
-                _tap(page, box[0] + number["x"], box[1] + number["y"])
-                page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
-                assert page.evaluate("() => P.view().selected.spot") == low["bestSpots"][int(number["label"][1:]) - 1]
-            else:
-                page.evaluate("() => P.view().select(P.view().order[0])")
+            assert low["numbers"], low["free"]
+            box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
+            number = low["numbers"][0]
+            _tap(page, box[0] + number["x"], box[1] + number["y"])
+            page.wait_for_selector(".u-sheet-head .vl-spot-title", timeout=WAIT)
+            assert page.evaluate("() => P.view().selected.spot") == low["bestSpots"][int(number["label"][1:]) - 1]
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
             page.keyboard.press("ArrowUp")

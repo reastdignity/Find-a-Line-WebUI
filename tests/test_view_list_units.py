@@ -50,10 +50,10 @@ def bundle(tmp_path_factory):
     entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
                      f'export * from "{src}/result/spots";\nexport {{ NO_FILTERS }} from "{src}/filters";\n'
                      f'export * from "{src}/result/view/viewstate";\n'
-                     f'export {{ chooserRows, CHOICES }} from "{src}/result/view/SpotChooser";\n'
+                     f'export {{ chooserRows, CHOICES, place }} from "{src}/result/view/SpotChooser";\n'
                      f'export {{ fanText, signedMetres, directionText }} from "{src}/result/view/FanPanel";\n'
-                     f'export {{ topSentence }} from "{src}/result/view/ViewFilters";\n'
-                     f'export {{ metres }} from "{src}/result/view/SpotList";\n', encoding="utf-8")
+                     f'export {{ topSentence, lengthLabel }} from "{src}/result/view/ViewFilters";\n'
+                     f'export {{ metres, hoverOf }} from "{src}/result/view/SpotList";\n', encoding="utf-8")
     out = folder / "list.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
                                   "bundle: true, format: 'cjs', platform: 'node', "
@@ -65,10 +65,10 @@ def bundle(tmp_path_factory):
 # the browser's storage, before the bundle is loaded: a plain map, or one that refuses (storage blocked)
 STORAGE = r"""
 const stored = new Map(Object.entries(JSON.parse(process.argv[4] || "{}")));
-let blocked = false;
+let blocked = false, writes = 0;
 globalThis.localStorage = {
   getItem: (k) => { if (blocked) throw new Error("blocked"); return stored.has(k) ? stored.get(k) : null; },
-  setItem: (k, v) => { if (blocked) throw new Error("blocked"); stored.set(k, String(v)); },
+  setItem: (k, v) => { if (blocked) throw new Error("blocked"); writes++; stored.set(k, String(v)); },
   removeItem: (k) => { if (blocked) throw new Error("blocked"); stored.delete(k); },
 };
 """
@@ -120,12 +120,15 @@ def test_the_view_remembers_only_the_sort_and_the_hint(tmp_path, bundle, made_pa
 const a = build().view;
 out.before = [a.sort, a.topOnly];
 const state = m.panelState(a);
-out.first = [a.sort, state.hint, list(a.order).slice(0, 5)];
+out.first = [a.sort, state.hint, list(a.order).slice(0, 5), writes];
 a.setSort("hmean");                 // the user's choice of this visit is not undone by a later use of the state
 m.panelState(a);
 out.once = a.sort;
 m.sortBy(a, "n");
 out.sorted = [a.sort, stored.get("findaline.view.v1")];
+const once = writes;
+m.sortBy(a, "n"); m.showHint(a, m.panelState(a).hint); m.panelState(a);  // nothing changed: nothing is written
+out.writes = [once, writes];
 m.showHint(a, true);
 a.setTopOnly(false);
 out.shown = [m.panelState(a).hint, stored.get("findaline.view.v1"), [...stored.keys()].sort()];
@@ -148,9 +151,10 @@ out.blocked = [m.kept(), c.sort, m.panelState(c).hint];
 done();
 """, {"findaline.view.v1": json.dumps({"sort": "len", "hint": False}), "findaline.filters": "{}"})
     assert found["before"] == ["hmean", True]
-    assert found["first"] == ["len", False, run.order(ok, "len")[:5]]
+    assert found["first"] == ["len", False, run.order(ok, "len")[:5], 0]  # reading the kept choices writes nothing
     assert found["once"] == "hmean"
     assert found["sorted"][0] == "n" and json.loads(found["sorted"][1]) == {"sort": "n", "hint": False}
+    assert found["writes"] == [1, 1]  # a choice is written when it changes, once
     assert found["shown"][0] is True and json.loads(found["shown"][1]) == {"sort": "n", "hint": True}
     assert "findaline.view.v1" in found["shown"][2] and not [k for k in found["shown"][2] if "top" in k.lower()]
     assert found["drawn"] == 2
@@ -159,9 +163,11 @@ done();
 
 
 def test_the_list_follows_a_selection(tmp_path, bundle, made_path, run):
-    """A selected spot's sector opens and pages until its row, in steps of 20, and the list has to scroll, once per
-    selected spot (the user may close the sector again; stepping through the spot's lines changes nothing); the
-    first sector shown is open until the user says otherwise; nothing selected: forgotten."""
+    """A selected spot's sector opens and shows pages until its row, in steps of 20, and the list has to scroll, once
+    per selected spot (the user may close the sector again; stepping through the spot's lines changes nothing); the
+    pages a selection needed go back when it leaves the sector or ends, the user's own ("Show more") stay; after a
+    change of the sort the selection is followed again (paged to its new place, scrolled once, a phone's sheet not
+    sent to its top); the first sector shown is open until the user says otherwise."""
     ok, _ = run.passing()
     order = run.order(ok)
     by_sector = {}
@@ -172,43 +178,109 @@ def test_the_list_follows_a_selection(tmp_path, bundle, made_path, run):
     assert len(by_sector[big]) > 2 * PAGE
     last, early = by_sector[big][-1], by_sector[big][3]
     rank = len(by_sector[big]) - 1
+    # under the sort by lines: a spot of the big sector on its first page by mean height and beyond it by lines
+    by_lines = [s for s in run.order(ok, "n") if int(run.sector_of_spot[s]) == big]
+    moved = next(s for s in by_sector[big][:PAGE] if by_lines.index(s) >= PAGE)
     found = node(tmp_path, bundle, made_path, r"""
 const {view} = build();
-const [big, last, early, first] = %s;
+const [big, last, early, first, moved, other] = %s;
 const s = m.panelState(view);
 const k = (n) => view.sectors.findIndex((x) => x.n === n);
-const state = () => ({open: m.isOpen(s, big, k(big)), limit: s.limit.get(big) ?? null, followed: s.followed, scroll: s.scroll});
+const state = () => ({open: m.isOpen(s, big, k(big)), limit: m.limitOf(s, big), own: s.limit.get(big) ?? null, followed: s.followed, scroll: s.scroll});
 out.start = [m.follow(s, view), state(), m.isOpen(s, first, k(first)), view.sectors.map((x) => m.isOpen(s, x.n, k(x.n)))];
 view.select(last);
-out.selected = [m.follow(s, view), state()];
+out.selected = [m.follow(s, view), state(), s.scrollNew];
 s.scroll = false;                                // the list scrolled
 out.again = [m.follow(s, view), state()];
 view.step(1);
 out.stepped = [m.follow(s, view), state().followed];
 s.open.set(big, false);                          // the user closes the sector: it stays closed
 out.closed = [m.follow(s, view), state().open];
-view.select(early);                              // another spot of it: opens again, the pages stay
+view.select(early);                              // another spot of it, on its first page: opens again, the pages go back
 out.early = [m.follow(s, view), state()];
-view.select(null);
+view.select(last);
+m.follow(s, view);
+view.select(other);                              // the selection leaves the sector: its pages go back
+m.follow(s, view);
+out.left = state().limit;
+view.select(last);
+m.follow(s, view);
+view.select(null);                               // the selection ends: its pages go back
 out.none = [m.follow(s, view), state()];
-s.limit.set(big, m.PAGE + m.MORE);               // "Show more" once, then a spot on the first page
+s.limit.set(big, m.PAGE + m.MORE);               // "Show more" once, then a selection beyond it and its end
 view.select(early);
 m.follow(s, view);
-out.more = state().limit;
+out.more = [state().limit, state().own];
+view.select(null);
+m.follow(s, view);
+out.kept = [state().limit, state().own];
+s.limit.delete(big);
+// another sort under a selection: followed again, paged to the row's new place, scrolled once
+view.select(moved);
+m.follow(s, view);
+s.scroll = false;
+out.before = [state().limit, view.sectors.find((x) => x.n === big).spots.indexOf(moved)];
+m.sortBy(view, "n");
+out.sorted = [m.follow(s, view), state(), s.scrollNew, view.sectors.find((x) => x.n === big).spots.indexOf(moved)];
+s.scroll = false;
+out.sortedAgain = m.follow(s, view);
+// other lines pass (a filter): followed again too
+const version = view.version;
+view.setTopOnly(false);
+out.filtered = [view.version !== version, m.follow(s, view)];
 s.open.set(first, false);
 out.firstClosed = m.isOpen(s, first, k(first));
 done();
-""" % json.dumps([big, last, early, first]))
+""" % json.dumps([big, last, early, first, moved, by_sector[first][0]]))
     paged = -(-(rank + 1) // PAGE) * PAGE
-    assert found["start"][0] is False and found["start"][1] == {"open": False, "limit": None, "followed": None, "scroll": False}
+    assert found["start"][0] is False and found["start"][1] == {"open": False, "limit": PAGE, "own": None, "followed": None, "scroll": False}
     assert found["start"][2] is True and found["start"][3] == [True] + [False] * (len(by_sector) - 1)
-    assert found["selected"] == [True, {"open": True, "limit": paged, "followed": last, "scroll": True}]
-    assert found["again"] == [False, {"open": True, "limit": paged, "followed": last, "scroll": False}]
+    assert found["selected"] == [True, {"open": True, "limit": paged, "own": None, "followed": last, "scroll": True}, True]
+    assert found["again"] == [False, {"open": True, "limit": paged, "own": None, "followed": last, "scroll": False}]
     assert found["stepped"] == [False, last]
     assert found["closed"] == [False, False]
-    assert found["early"] == [True, {"open": True, "limit": paged, "followed": early, "scroll": True}]
-    assert found["none"] == [False, {"open": True, "limit": paged, "followed": None, "scroll": False}]
-    assert found["more"] == PAGE + MORE and found["firstClosed"] is False
+    assert found["early"] == [True, {"open": True, "limit": PAGE, "own": None, "followed": early, "scroll": True}]
+    assert found["left"] == PAGE
+    assert found["none"] == [False, {"open": True, "limit": PAGE, "own": None, "followed": None, "scroll": False}]
+    assert found["more"] == [PAGE + MORE, PAGE + MORE] and found["kept"] == [PAGE + MORE, PAGE + MORE]
+    place = by_lines.index(moved)
+    assert found["before"] == [PAGE, by_sector[big].index(moved)] and place >= PAGE
+    assert found["sorted"] == [True, {"open": True, "limit": -(-(place + 1) // PAGE) * PAGE, "own": None, "followed": moved, "scroll": True},
+                               False, place]
+    assert found["sortedAgain"] is False and found["filtered"] == [True, True] and found["firstClosed"] is False
+
+
+def test_hover_length_chip_and_the_tables_place(tmp_path, bundle, made_path, words):
+    """The mouse over a row thickens its line on the map and a row that goes ends only its own highlight (a finger
+    never highlights); the Length chip's words; the table of spots stands beside the press (right and below, else
+    left or above) inside the map's free part."""
+    found = node(tmp_path, bundle, made_path, r"""
+const calls = [], map = {highlight: (row) => calls.push(row)};
+const a = m.hoverOf(map, 5), b = m.hoverOf(map, 9), none = m.hoverOf(null, 5);
+a.enter("touch"); a.enter("pen"); none.enter("mouse"); a.gone(); a.leave("mouse");
+out.quiet = calls.slice();
+a.enter("mouse"); a.leave("touch"); a.leave("mouse"); a.leave("mouse");
+out.overAndAway = calls.splice(0);
+a.enter("mouse"); b.enter("mouse"); a.gone(); a.leave("mouse");   // the mouse is over another row by now
+out.other = calls.splice(0);
+b.gone(); b.gone();
+out.gone = calls.splice(0);
+out.length = [{lenMin: null, lenMax: null}, {lenMin: 40, lenMax: null}, {lenMin: null, lenMax: 120}, {lenMin: 40.4, lenMax: 120.6}].map(m.lengthLabel);
+globalThis.innerWidth = 1400; globalThis.innerHeight = 900;
+const area = {left: 372, top: 58, right: 1020, bottom: 866};
+out.place = [[500, 300], [900, 300], [500, 800], [380, 60], [1010, 860]].map(([x, y]) => m.place({x, y}, 300, 200, area));
+out.small = m.place({x: 400, y: 100}, 300, 200, {left: 372, top: 58, right: 600, bottom: 200});
+globalThis.innerWidth = 700;                                       // a window narrower than the area says
+out.narrow = m.place({x: 500, y: 300}, 300, 200, area);
+done();
+""")
+    assert found["quiet"] == [] and found["overAndAway"] == [5, None] and found["other"] == [5, 9] and found["gone"] == [None]
+    assert found["length"] == [words["ui.view.chip.length"], words["ui.view.chip.length_min"].replace("{{a}}", "40"),
+                               words["ui.view.chip.length_max"].replace("{{b}}", "120"),
+                               words["ui.view.chip.length_range"].replace("{{a}}", "40").replace("{{b}}", "121")]
+    at = lambda left, top: {"left": left, "top": top}  # noqa: E731
+    assert found["place"] == [at(512, 312), at(588, 312), at(512, 588), at(392, 72), at(698, 648)]
+    assert found["small"] == at(376, 62) and found["narrow"] == at(376, 312)
 
 
 def test_table_of_spots_order(tmp_path, bundle, made_path):
@@ -236,6 +308,14 @@ def test_texts_of_the_fan_the_chip_and_metres(tmp_path, bundle, made_path, run, 
     than the rows), a height difference with its sign at 0.1 m, a direction as "SE 141°", the sentence of "Top
     level only" on and off (N of M of the lines that pass the other filters), and metres with a no-break space."""
     ok, top_hidden = run.passing()
+    # filters under which exactly two, and exactly one, of the lines that hang lower pass: the two with the most
+    # clearance among them, then only the longer of the two
+    lower = sorted((i for i in range(run.n) if run.top[i] == 0), key=lambda i: -run.clr[i])
+    a, b, c = lower[:3]
+    two = {"clrMin": float(run.clr[b] + run.clr[c]) / 2}
+    one = {**two, "lenMin": float(run.len[a] + run.len[b]) / 2}
+    assert run.clr[b] > run.clr[c] and run.len[a] != run.len[b]
+    assert run.passing(clr_min=two["clrMin"])[1] == 2 and run.passing(clr_min=one["clrMin"], len_min=one["lenMin"])[1] == 1
     star = int(run.spot[0])  # the star's spot: its lines start at one point, their far ends 22 m apart
     found = node(tmp_path, bundle, made_path, r"""
 const {model, view} = build();
@@ -254,8 +334,16 @@ model.setFilters({...m.NO_FILTERS, clrMin: 10});
 out.offFiltered = [m.topSentence(view), view.counts.topHidden];
 view.setTopOnly(true);
 out.onFiltered = [m.topSentence(view), view.counts.lines, view.counts.topHidden];
+// exactly one line hangs lower, then two: the singular's own words
+for (const few of %s) {
+  model.setFilters({...m.NO_FILTERS, ...few});
+  const on = [m.topSentence(view), view.counts.lines + view.counts.topHidden, view.counts.topHidden];
+  view.setTopOnly(false);
+  (out.ones ||= []).push([...on, m.topSentence(view)]);
+  view.setTopOnly(true);
+}
 done();
-""" % star)
+""" % (star, json.dumps([one, two])))
     lines, ends, rows, capped, text = found["fan"]
     assert capped is True and rows == 40 and ends > rows
     assert text == f"{count(lines)} lines start within 10 m of this point, to {count(ends)} far ends. The best 40 are shown."
@@ -275,5 +363,11 @@ done();
     assert off == f"Top level only is off: the {count(top_hidden)} lines that hang lower on the same face are shown too."
     ok10, hidden10 = run.passing(clr_min=10)
     assert found["offFiltered"] == [words["ui.view.top_off"].replace("{{n}}", count(hidden10)), hidden10]
+    (on1, m1, n1, off1), (on2, m2, n2, off2) = found["ones"]
+    assert (n1, n2) == (1, 2) and m1 == int(run.passing(clr_min=one["clrMin"], len_min=one["lenMin"])[0].sum()) + 1
+    assert on1 == f"Top level only is on: 1 of {count(m1)} lines hangs lower on the same face and is hidden. Press the chip to see it."
+    assert off1 == "Top level only is off: the 1 line that hangs lower on the same face is shown too."
+    assert on2 == words["ui.view.top_on"].replace("{{n}}", "2").replace("{{m}}", count(m2))
+    assert off2 == "Top level only is off: the 2 lines that hang lower on the same face are shown too."
     assert found["onFiltered"] == [words["ui.view.top_on"].replace("{{n}}", count(hidden10))
                                    .replace("{{m}}", count(int(ok10.sum()) + hidden10)), int(ok10.sum()), hidden10]
