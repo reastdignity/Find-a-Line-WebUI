@@ -626,9 +626,11 @@ their `--out` and data folders.
   This is wider than the option's words ("Links inside a sentence"), for three reasons: WCAG 2.5.8 exempts any
   target inside a sentence; the measuring tool exempts a link or a button in a sentence; and the numbers the user
   picked from already left those buttons out (30 on the iPhone and 18 on the desktop, beside 436 and 452 links).
-- **Open, the user's to say**: the coverage page's map areas and the highline layer's chart bars are drawn marks
-  that count as controls (2 106 of the iPhone's 3 508 controls under 44 px); whether R2 binds them is the user's to
-  say.
+- **Excepted by name** (the user, 2026-11-17, "yes" to the planner's recommendation to except them): drawn marks
+  that can be pressed, namely the coverage page's map areas and the highline layer's chart bars, each with a list or
+  a table beside it that says the same. They count as controls in the measuring tool (2 106 of the iPhone's 3 508
+  controls under 44 px), so R2's numbers are read without the coverage page and the highline layer ("the rest"
+  below).
 - **Today** [B; light theme; links and buttons in a sentence left out; "the rest" leaves out the coverage page and
   the highline layer, where every map area and chart bar is a small control]:
 
@@ -711,8 +713,7 @@ their `--out` and data folders.
 | 24 | 20 (16), 22 (3), 24 (17) |
 | 32 | 28 (1), 32 (1) |
 
-  The four uses above 32 px (34 twice, 40, 64): proposed, for the user to confirm, that they are layout lengths
-  outside the scale.
+  The four uses above 32 px (34 twice, 40, 64) are layout lengths outside the scale (the user, 2026-11-17: "yes").
 - **Checked by**: the design reviewer reads the change's CSS; the measuring tool does not count spacing yet (the
   count above is this file's own).
 - Not picked: a. eleven steps (0, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32; 125 uses change); b. nine steps (0, 2, 4, 6,
