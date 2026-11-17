@@ -223,9 +223,9 @@
 .ui .r-card > .r-dock { flex: 1 1 auto; min-height: 0; background: none; border: 0; box-shadow: none; border-radius: inherit;
   padding: 8px 14px 8px; }
 .ui .r-card-folded > .r-dock { padding-bottom: 6px; }
-/* The card's profile is compact (Profile.tsx compact): its bar on one line with the line's facts after the
-   title (cut with an ellipsis, the whole in their title; the hint only where there is room), no head row, the
-   legend and the 1:1 scale under "Rigging and layers", one readout line under the chart */
+/* The card's profile is compact (Profile.tsx compact): its bar on one line (the hint only where there is room) with
+   the line's facts whole on a row of their own under it, no head row, the legend and the 1:1 scale under "Rigging and
+   layers", the readout under the chart wrapping in a box of steady height (the room of its longest text) */
 .ui .r-card { container-type: inline-size; }
 .ui .r-card .r-dock-bar { flex-wrap: wrap; min-width: 0; }
 .ui .r-card .r-dock-bar > b, .ui .r-card .r-dock-bar > button { flex: none; white-space: nowrap; }
