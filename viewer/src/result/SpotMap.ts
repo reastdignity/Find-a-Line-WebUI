@@ -67,6 +67,7 @@ export const CLOSE_MPP = 0.25;
 export const SQUARE_MPP = 0.96;
 const SNAP = 0.25;
 const PANE = "spots";  // the canvas's pane on the map
+const FIT_ROOM = 96;  // px a fit of the map keeps for what it fits, whatever covers the map
 const REACH_MOUSE = 8, REACH_TOUCH = 20, TIE_MOUSE = 3, TIE_TOUCH = 8, CHOICES_MAX = 6;
 /** A press held this long within this many px opens "Lines from here" (Leaflet's own numbers of a tap held); a
  *  browser's own contextmenu within MENU_QUIET ms after it is the same press. */
@@ -820,7 +821,17 @@ export class SpotMap {
   // --- moves ---
 
   private fitOptions(p: Padding, margin: number, maxMpp?: number): L.FitBoundsOptions {
-    return {paddingTopLeft: [p.left + margin, p.top + margin], paddingBottomRight: [p.right + margin, p.bottom + margin],
+    // What covers the map may leave no room (a phone's sheet at full: the bar's foot stands above the map's top):
+    // FIT_ROOM px stay for the fitted thing each way, the paddings give way in their proportion (with none left,
+    // Leaflet's fit would ask for the zoom of a negative size)
+    const size = this.map.getSize();
+    const squeeze = (a: number, b: number, total: number): [number, number] => {
+      const over = a + b - Math.max(0, total - FIT_ROOM);
+      return over > 0 && a + b > 0 ? [a - over * a / (a + b), b - over * b / (a + b)] : [a, b];
+    };
+    const [top, bottom] = squeeze(p.top + margin, p.bottom + margin, size.y);
+    const [left, right] = squeeze(p.left + margin, p.right + margin, size.x);
+    return {paddingTopLeft: [left, top], paddingBottomRight: [right, bottom],
             maxZoom: maxMpp ? this.zoomOf(maxMpp) : this.view.model.data.max_zoom, animate: false};
   }
 

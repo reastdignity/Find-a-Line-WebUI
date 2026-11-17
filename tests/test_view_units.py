@@ -1203,4 +1203,10 @@ def test_frame_in_edge(tmp_path, run):
     above = out["phoneView"]
     assert abs(above["above"] - above["pixels"]) <= 1 and above["whole"] > above["pixels"] > 0
     assert above["fitted"]["above"] == above["fitted"]["spots"] == spots  # the first fit left no spot under the sheet
+    # a fan opened through the model on the phone: the map moved until every far end is above the sheet
+    assert out["phoneFan"]["moved"] is True and out["phoneFan"]["outside"] == 0 and out["phoneFan"]["rows"] == 40
+    # the sheet at full: what covers the map exceeds its height, and a panel's move still gives a finite view
+    full = out["full"]
+    assert full["padding"][0] + full["padding"][1] > full["height"] and full["sane"] == [True] * 3, full
+    assert full["sheet"] == "function"  # a phone's panels get the sheet's state and its setter
     assert test_web._violations(dom) == []

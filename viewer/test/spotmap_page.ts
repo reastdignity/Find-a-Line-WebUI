@@ -80,7 +80,7 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   // the slots filled by the page's own panels (the frame's default ones are the view's real panels)
   const panels: SpotPanels = {
     list: () => h("p", {"data-slot": "list"}, "the list's slot"), details: () => h("p", {"data-slot": "details"}, "the details' slot"),
-    sheetHead: () => h("b", {"data-slot": "head"}, "the sheet's head"),
+    sheetHead: (p) => { (window as any).PANEL = p; return h("b", {"data-slot": "head"}, "the sheet's head"); },
     hint: (p) => h("button", {type: "button", "data-slot": "hint-" + p.place}, "?")};
   const props = {runId: data.run.id, line: null, nav: 0, hashOf: () => "", model, data, panels};
   const places = () => Array.from(document.querySelectorAll<HTMLElement>("[data-slot^=hint], [data-slot=head]"),
@@ -179,6 +179,30 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
   const size = (window as any).FINDALINE_MAP.getSize();
   out.phoneView = {above: phone.view.inView.m, pixels: inPixels(phone.view, [0, 0, size.x, size.y - (box.bottom - sheet.top)]),
                    whole: inPixels(phone.view, [0, 0, size.x, size.y]), fitted};
+  // a fan opened through the model on the phone, its far ends outside the part above the sheet: the map moves
+  // until every far end is there, clear of the sheet
+  const phoneMap = (window as any).FINDALINE_MAP, star = phone.view.spotOf(0), starRow = phone.view.shownOf(star), cols = phone.view.model.data.columns;
+  phoneMap.setView([cols.lat1.at(starRow), cols.lon1.at(starRow)], phone.map.zoomOf(0.7), {animate: false});
+  await sleep(50);
+  const farOutside = () => { const s = phoneMap.getSize(), floor = s.y - Math.round(document.querySelector(".c-leaflet")!.getBoundingClientRect().bottom - document.querySelector(".u-sheet")!.getBoundingClientRect().top);
+    return phone.view.fan!.rows.filter((r) => { const q = phoneMap.latLngToContainerPoint(r.near === 1 ? [cols.lat2.at(r.row), cols.lon2.at(r.row)] : [cols.lat1.at(r.row), cols.lon1.at(r.row)]);
+      return q.x < 0 || q.y < 0 || q.x > s.x || q.y > floor; }).length; };
+  const centreBefore = phoneMap.getCenter();
+  phone.view.select(star);
+  phone.view.openFan(centreBefore, {row: starRow, end: 1});
+  await sleep(50);
+  out.phoneFan = {moved: !phoneMap.getCenter().equals(centreBefore), outside: farOutside(), rows: phone.view.fan!.rows.length};
+  phone.view.select(null);
+  // what covers the map may exceed its height (the sheet at full: the bar's foot stands above the map's top; this
+  // page draws no frames, so the sheet's own move cannot be waited for): a move asked by a panel with such a
+  // padding still gives the map a finite, sensible view
+  const panel = (window as any).PANEL;
+  const sane = () => { const z = phoneMap.getZoom(), c = phoneMap.getCenter(); return Number.isFinite(z) && z >= 0 && z <= phoneMap.getMaxZoom() && Number.isFinite(c.lat) && Number.isFinite(c.lng) && Math.abs(c.lat - cols.lat1.at(starRow)!) < 0.5; };
+  const pad = {...panel.padding(), top: 500, bottom: 700}, size2 = phoneMap.getSize(), full: boolean[] = [];
+  phone.map.reveal(starRow, pad); full.push(sane());
+  phone.map.zoomTo(starRow, pad); full.push(sane());
+  phone.map.fitArea(pad); full.push(sane());
+  out.full = {sane: full, padding: [pad.top, pad.bottom], height: size2.y, zoom: phoneMap.getZoom(), sheet: typeof panel.sheet.setSnap};
   render(null, root);
   localStorage.removeItem("findaline.view");
   out.after = viewWanted();
