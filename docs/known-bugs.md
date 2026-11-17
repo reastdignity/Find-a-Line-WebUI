@@ -253,3 +253,28 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
   (left out) with a marked run (read as correct).
 - **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
   will not be marked reads in the receipt.
+
+## The UI measuring tools: known and left (2026-11-17)
+
+Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's
+pages (checked by the last reviewer against the baseline pass):
+- **`--summarise` after a hard kill**: a run killed without a chance to finish leaves a cut last line and no
+  `pages-run.json`; the summary then carries no mark of the unfinished pass and exits 0, and in an `--out` folder used
+  before it reads the earlier run's `pages-run.json`. A run stopped by an exception or Ctrl+C is marked.
+- **A cover is named by the element hit**, so one cover appears under several names in the "covers" list (the open
+  coverage card under nine); a cover drawn by one of the control's own ancestors reads "not covered". The counts of
+  controls are not affected (covered controls are counted).
+- **"In a sentence" is wide for buttons**: a default (inline-block) button in a block beside any letter or digit
+  counts as in a sentence (a stepper beside "12" or "m"). No such control exists in the viewer today.
+- **`strip_comments` drops characters after a closing tag whose name uses only regular-expression flag letters**
+  (`</div>`, `</i>`, `</s>`, `</g>`, `</svg>`, `</dd>` followed by a "/" on the line). No line of the tree is hit.
+- **Dense strings per literal** miss JSX text with an apostrophe, the middle lines of a template that spans lines and
+  strings with an escaped quote; a line with two literals is listed twice.
+- **The walks' guard reads only the favourites**: a run stopped after R4 began but before it saved its favourite
+  leaves a folder that passes.
+- **One browser per device and theme**; a `browser.close` that raises after a complete pass marks that pass
+  unfinished (exit 1).
+- **`BASE_CLASSES` is a hand list**: a new base class that ends in a state word is merged into its tag until it is
+  added. The containing-block rule does not look at `will-change`, `perspective`, `backdrop-filter`, `container-type`.
+- **`c-basic-sea` on the desktop** can time out waiting for the search bar's estimate (once in the baseline pass of
+  2026-11-17): the state is then "not measured" and the pass exits 1.
