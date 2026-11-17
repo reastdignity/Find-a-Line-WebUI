@@ -72,8 +72,15 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   const touch = useMedia(TOUCH);  // a tap, not a click, on a touch screen
   const placed = !!(s.point || s.shapes > 0 || s.file || s.osmName || s.within || s.name);  // what clear() empties
   const where = useRef<HTMLDivElement>(null);
-  // the button goes with what it cleared: the focus to the block's first control (the place box), not the page
-  const clear = () => { s.clear(); where.current?.querySelector<HTMLElement>("input, button")?.focus(); };
+  // The button goes with what it cleared, so the focus moves within the block, never to the page: by keyboard
+  // (Enter or Space: no pointer) or on a desktop to its first control (the place box); after a tap on a touch screen
+  // to the chosen "Where" mode, as a focused text field would open the on-screen keyboard
+  const clear = (e: MouseEvent) => {
+    const keyboard = e.detail === 0;
+    s.clear();
+    where.current?.querySelector<HTMLElement>(keyboard || !touch ? "input, button" : "[role=radio][aria-checked=true]")
+      ?.focus();
+  };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
     {s.areas === 1 ? "1 area" : `${s.areas} separate areas`}
     {s.shapes !== s.areas && ` (${s.shapes} shapes; those that overlap or touch are one area)`}</p>;
