@@ -4,8 +4,9 @@ as from its lines.js; a run listed without a store reads its lines.js as before;
 asks for its lines.arrow directly (result/load.ts loadRunLines, as storeOf's STORE_PROBE); a store that fails (both
 files missing, a fetch error, a file that is no store, a newer format) shows the card's placeholder as a lines.js
 that failed, and a newer store never reads lines.js; a run of more lines asks for none. In headless Edge on the local
-app with the Żabi Koń clip's run (1 048 lines, its store and lines.js both written by save_run); on the public site
-the page's list of runs gives the store and RunFiles serves lines.arrow to the run's owner only."""
+app with the Żabi Koń clip's run (1 048 lines, its store and lines.js both written by save_run; no line too close to
+trees or buildings without a surface model) and the first lines of the big clip's (surface model: both kinds); on
+the public site the page's list of runs gives the store and RunFiles serves lines.arrow to the run's owner only."""
 
 import json
 import os
@@ -21,7 +22,8 @@ import web  # noqa: E402
 
 pytest.importorskip("httpx2")
 
-from test_shell_c import C_STUBS, HELPERS, RUN_DATA, _edge, copy_clip, drop_store, stub_page  # noqa: E402
+from test_shell_c import (C_STUBS, HELPERS, RUN_DATA, _edge, big_clip, copy_clip, drop_store, small_copy,  # noqa: E402,F401
+                          stub_page)
 from test_public import (RUN_A, RUN_B, account_settings, clip_run, providers, run_people,  # noqa: E402,F401
                          settings)
 from test_web import EDGE, _server  # noqa: E402
@@ -184,6 +186,38 @@ def test_thumbnails_from_the_store(thumb_data, tmp_path):
     # 4. only files RunFiles serves, and the list of runs once; 5. never profiles.arrow
     assert r["outside"] == [] and r["lists"] == ["/runs/runs.js"], r
     assert not any("profiles.arrow" in cards[name]["files"] for name in runs), cards
+
+
+OVER_STORED = run_id("Overstored")  # the big clip's first lines, both kinds (over and clean): from its store
+OVER_SCRIPT = run_id("Overscript")  # the same lines listed without a store: from lines.js
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
+    """The two kinds of line (`over` from the store's column, lines.js's row[13]) drawn as two paths, the store's
+    picture the same as lines.js's: the big clip's (surface model) first lines up to both kinds, at most MAX_LINES."""
+    rows = json.loads((big_clip / "lines.js").read_text("utf-8").partition("] = ")[2].rstrip().rstrip(";"))["lines"]
+    first = next(i for i, row in enumerate(rows) if bool(row[13]) != bool(rows[0][13]))
+    n = min(MAX_LINES, max(300, first + 1))
+    assert {bool(row[13]) for row in rows[:n]} == {True, False}, n
+    data = tmp_path / "data"
+    big = run_id("Bigclip")
+    copy_clip(big_clip, data, big, "Big run")
+    for name in (OVER_STORED, OVER_SCRIPT):
+        small_copy(data, big, lines=n, small=name, name=name)
+    drop_store(data, OVER_SCRIPT)
+    stubs = THUMB_STUBS % {"hidden": "[]", "not_fetched": "[]"}
+    page = stub_page(data, "cthumb", THUMB_SCRIPT % {"runs": json.dumps([OVER_STORED, OVER_SCRIPT]),
+                                                     "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs)
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c", tmp_path / "edge-over", size="1280,2000")
+    assert "timeout" not in r and "error" not in r and "rejection" not in r, json.dumps(r)[:3000]
+    assert r["csp"] == []
+    stored, script = r["cards"][OVER_STORED], r["cards"][OVER_SCRIPT]
+    assert [f for f in stored["files"] if f in RUN_DATA] == ["lines.arrow"], stored
+    assert [f for f in script["files"] if f in RUN_DATA] == ["lines.js"], script
+    assert stored["thumb"] == "lines" and stored["lines"] == n and stored["paths"] == 2, stored
+    assert stored["svg"] == script["svg"]
 
 
 def test_public_runs_list_gives_the_store(run_people):
