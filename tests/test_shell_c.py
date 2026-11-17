@@ -1952,3 +1952,123 @@ def test_shell_c_remove_question_on_phones(tmp_path, device, engine):
         assert found["top"] <= top and bottom <= found["bottom"], found  # under the top bar, above the bottom bar
     assert (round(after["width"]), round(after["height"])) == (round(thumb["width"]), round(thumb["height"])), \
         (thumb, after)
+
+
+# What has the focus: the card it is in (its job or run) or the heading's text
+FOCUS_JS = """() => { const e = document.activeElement, card = e && e.closest(".c-card");
+  return card ? {card: card.dataset.job || card.dataset.run} : {heading: e && e.matches("h1") ? e.textContent : null}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
+    """The public site in Playwright's Edge, signed in through a fake GitHub. An administrator's Home lists every
+    user's searches: Remove… on their own cancelled card, not on another user's. A user's "Delete…" of a run their
+    search made takes the search's card away without a reload, and the focus goes to the card that took its place;
+    removing the last card puts the focus on "Your searches"."""
+    import socket
+    import threading
+
+    import uvicorn
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    from playwright.sync_api import sync_playwright
+
+    import accounts as ac
+    from jobs import Jobs
+    from settings import AccountSettings, PublicSettings
+    for key, value in ACCOUNTS.items():
+        monkeypatch.setenv(key, value)
+    account_settings = AccountSettings.load()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    providers = FakeProviders(site)
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(clip_run, data, RUN_A, "A's run")
+    a_id, _, _ = session_of(data, account_settings, "a")
+    admin_id, _, _ = session_of(data, account_settings, "admin")
+    jobs = Jobs(str(data))
+    jobs.add_run(RUN_A, a_id, 1)
+    request = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
+    saved = jobs.add(request, "A's saved search", a_id)
+    jobs.set(saved, "done", run_id=RUN_A)
+    a_cancelled = jobs.add(request, "A's cancelled search", a_id)
+    admin_cancelled = jobs.add(request, "Admin's cancelled search", admin_id)
+    assert jobs.request_cancel(a_cancelled) and jobs.request_cancel(admin_cancelled)
+
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
+    signing_in = [{"id": 11, "login": "a"}]
+
+    @app.get("/test-provider/authorize")
+    def authorize(request: Request):  # the provider's page: the user agrees at once
+        return RedirectResponse(providers.authorize(str(request.url), signing_in[0]), 302)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    r = {}
+
+    def menu(page, job: str) -> list:
+        page.locator(f'.c-card[data-job="{job}"] .c-card-menu').click()
+        items = page.locator(f'.c-card[data-job="{job}"] .c-menu-item')
+        items.first.wait_for(timeout=30000)
+        return [t.strip() for t in items.all_text_contents()]
+
+    try:
+        while not server.started:
+            time.sleep(0.1)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                def signed_in(who: dict):
+                    signing_in[0] = who
+                    context = browser.new_context(viewport={"width": 1280, "height": 800})
+                    context.add_init_script(C_STUBS)
+                    page = context.new_page()
+                    page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
+                    page.wait_for_selector(".c-cards", timeout=30000)
+                    if page.locator("dialog.n-beta[open]").count():  # the beta notice after a sign-in: closed
+                        page.keyboard.press("Escape")
+                        page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
+                    return context, page
+
+                context, page = signed_in({"id": 1, "login": "admin"})
+                page.wait_for_selector(f'.c-card[data-job="{a_cancelled}"]', timeout=30000)
+                r["admin_theirs"] = menu(page, a_cancelled)
+                page.keyboard.press("Escape")
+                r["admin_own"] = menu(page, admin_cancelled)
+                context.close()
+
+                context, page = signed_in({"id": 11, "login": "a"})
+                saved_card = page.locator(f'.c-card[data-job="{saved}"]')
+                saved_card.wait_for(timeout=30000)
+                r["cards"] = page.eval_on_selector_all(".c-cards > .c-card", "(cs) => cs.map((c) => c.dataset.job)")
+                menu(page, saved)
+                page.get_by_role("menuitem", name="Delete…").click()
+                page.locator(".c-confirm-delete").click()
+                saved_card.wait_for(state="detached", timeout=30000)  # no reload: the job's card goes with its run
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_delete"] = [page.evaluate(FOCUS_JS), page.url]
+                menu(page, a_cancelled)
+                page.get_by_role("menuitem", name="Remove…").click()
+                page.locator(".c-confirm-remove").click()
+                page.locator(".c-card").first.wait_for(state="detached", timeout=30000)
+                page.wait_for_function("() => document.activeElement && document.activeElement !== document.body",
+                                       timeout=30000)
+                r["after_remove"] = page.evaluate(FOCUS_JS)
+                context.close()
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(10)
+    assert "Remove…" not in r["admin_theirs"] and "Edit & run again" in r["admin_theirs"], r
+    assert "Remove…" in r["admin_own"], r
+    assert sorted(r["cards"]) == sorted([saved, a_cancelled]), r
+    assert r["after_delete"][0] == {"card": a_cancelled} and r["after_delete"][1].endswith("/?ui=c"), r
+    assert r["after_remove"] == {"heading": "Your searches"}, r
+    assert not (data / "runs" / RUN_A).exists() and jobs.get(saved)["status"] == "done"
