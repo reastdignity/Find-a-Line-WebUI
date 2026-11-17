@@ -128,6 +128,7 @@ def test_hooks_reach_what_the_search_calls():
     assert "saving.save(" in inspect.getsource(search.save_run)
     assert "hand_over(folder" in inspect.getsource(saving.save)  # saving's own global: patched on the module
     assert "linestore.write(" in inspect.getsource(search.save_run)
+    assert "mp.view_columns(" in inspect.getsource(search.save_run)  # through the module mapping, as hooked
     for name in psm.HOOKED_SEARCH:
         assert f"search.{name}(" in inspect.getsource(findaline), name
     # the profiles' plans, which the child leaves alone

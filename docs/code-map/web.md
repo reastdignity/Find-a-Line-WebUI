@@ -80,6 +80,20 @@ user's bounds or not allowed, or a default it leaves is outside them); the priva
 `COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); `font/woff2` registered with `mimetypes` (Python on
 Windows has no type for it); the audit log through `record`; the page is `viewer/src/app`
 
+Exports (store wave 3, docs/line-volume/spec-store.md 1.4: made for each download, none kept): `POST
+/api/runs/<run>/export` with `{"format": "csv"|"geojson"}` (`run_access`: the owner, administrators, a signed-in
+visitor of a demo run; a share link has no session; a run without run.json's `store` 409 `export_failed`; audit
+`run_export` with the format, once it is made) after `within_rate("export")` (`export_rate`, 429 `rate_export`) queues the quick kind `export` and waits as
+`quick` does (503 without a worker, 504, 429 `quick_waiting`), answering `{"url": "/api/runs/<run>/export/<token>.<ext>"}` from the lane's `{"name"}`; `GET
+/api/runs/<run>/export/<name>` (`run_access`; `EXPORT_NAME`: 22 URL-safe characters and the extension, so no path and
+no other run's file) takes the file from `work/exports/` by renaming it (`take_export`: the name read first, a file older than
+`jobs.EXPORT_KEEP_SECONDS` deleted and 404, a rename refused or a file gone meanwhile 404, the taken file's mtime set
+to now (a refused mtime sends it all the same) so no clean-up deletes it while it is sent;
+`SENDING`: a second request 404s at once) and sends it as `SentOnce` (a `FileResponse` that sends the whole file
+whatever the Range and deletes it afterwards, also when the client breaks off or the sending raises),
+`EXPORT_MEDIA`, `content_disposition` (run.json's name, else the run id: `filename*` in UTF-8 and an ASCII
+`filename` without what `PLAIN_UNSAFE` refuses after NFKD). Neither route imports `linestore` or pyarrow.
+
 ## `messages.py`, `locales/`
 
 The message catalogue of the web interface: `locales/<language>.json` (English only now: `en.json`), flat namespaced
@@ -107,7 +121,7 @@ one user, an administrator), Authlib's OAuth clients (`oauth_clients`, `identity
 ## `audit.py`
 
 The audit log of the public site: `audit.sqlite` (its own database: the web server and the worker write it, the worker
-never opens `accounts.sqlite`), `Audit.log(action, user_id, target, detail)` with the actions of `ACTIONS`, no IP
+never opens `accounts.sqlite`), `Audit.log(action, user_id, target, detail)` with the actions of `ACTIONS` (`run_export`: an export asked, its format), no IP
 addresses; `purge` after `KEEP_DAYS` (90) in `Scheduler.housekeeping`; no viewer, read with `sqlite3`
 
 ## `jobs.py`
@@ -155,7 +169,14 @@ running jobs (NULL users as one), one `UPDATE` in a write transaction; cancellin
 `kill_tree`; the quick lane: one long-lived process, `run_quick`, serving estimates and profiles and the 3D view's
 patches (`quick_patch`; `Redact.RAW` keeps its base64url `heights` out of the key masking) from the table `quick`
 (idle it only reads, `quick_waiting`, and claims with a write transaction when a task waits; `quick_take` reads before
-it deletes); `Scheduler.housekeeping`: old events, `.part` files, work folders, the cache's size per top-level folder
+it deletes), and exports (`quick_export`: `linestore.export` of a run with a store into `work/exports/` as
+`<run id>-<token>.<ext>`, `EXPORTS`, `EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS`, answering the name; refused 503
+`export_disk_full` when the free space less the file's estimated size (`export_bytes`: the store's lines times
+`EXPORT_LINE_BYTES`, measured) would fall below the server's `free_disk_gb_min` (`LANE_LIMITS`, set by `run_quick` for
+every task), `export_failed` without a store; what the folder holds since `export_sweep_age()` (the hour less two
+`EXPORT_SWEEP`s, so none outlives the privacy page's hour) goes before each export, at the worker's start, every
+`EXPORT_SWEEP` seconds in its loop and first in `housekeeping`: `remove_old_exports`; `_remove_old` survives a listing
+that fails); `Scheduler.housekeeping`: old events, `.part` files, work folders, the cache's size per top-level folder
 (`write_cache_sizes` → `work/cache-sizes.json`), the coverage of the finished searches (`coverage` →
 `work/coverage.json`: the union's km² on the ellipsoid, searches per 0.25° cell) and what the round removed
 (`work/housekeeping.json`), all for `metrics.py`; `Scheduler.memory` is measured at the worker's start (`_begin`),
@@ -205,7 +226,7 @@ resolution too, on the validated `SearchParams`; `bounds`, `not_allowed`; `Limit
 `area_km2_max` also for circles, ...), a user's quotas (`jobs_active_max`, `jobs_day_max`, `mpx_day_max`: km² /
 resolution² (`jobs.plan_mpx`, the page shows it as km² at the search's resolution), `km2_day_max` (off on the public
 site), `download_mb_day_max`, `runs_gb_max`, `nominatim_day_max`) and rates (`estimate_rate`, `profile_rate`,
-`place_rate`, `report_rate`, `time_zone_rate`, `reach_rate`, `job_rate`: the `limits` library's notation), the
+`place_rate`, `report_rate`, `time_zone_rate`, `reach_rate`, `export_rate`, `job_rate`: the `limits` library's notation), the
 server's safeguards for everyone (`queue_max`, `free_disk_gb_min`, also checked by the worker before each phase),
 `lines_early_stop` (F7, true unless set: the line search stops as soon as its lines are over `lines_max` or the
 memory; false: refused at the end with their exact number); `PublicSettings` of `--public` (`FINDALINE_PUBLIC_URL`,

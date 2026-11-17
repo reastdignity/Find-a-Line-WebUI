@@ -291,7 +291,15 @@ store's head (`linestore.write`), `map_heads` the scripts' texts before the line
 `write_map_scripts` the lines of `data.js` and/or `lines.js` from them: what the children of `saving.py` run; the
 run's `terrain` in the heads of both scripts; `end_zone`, `lift` and `"ends": ["lift_needed", "lift_no_zone"]` in them
 only when the run has the options, `map_rows` putting those values before the profile; a run made with the square
-rule has `square`, `found` and `stands_for` as the last name of `ends`, each row's count before the profile)
+rule has `square`, `found` and `stands_for` as the last name of `ends`, each row's count before the profile);
+`view_columns(lines, groups, centre)` the result view's columns of a new run's store (view B1, docs/line-volume/
+spec-store.md 1.3, from the values as the store holds them): `spot` (`group_lines`' groups renumbered by sector, then
+by their first line's mean height), `by_spot` (rows by spot, inside a spot by mean height, clearance, length, then
+the row; NaN last), `top` (`top_level`: K-17 'Higher wins on a face', `tools/prune_study.py`'s `higher_wins` with
+`STACK_CELL`/`STACK_STEP`) and the head's `sectors` (`_ward_sectors`: Ward's clustering, scipy, of the spots' shown
+lines' ends into at most `SECTORS_MAX`; above `SECTOR_WARD_SPOTS` spots (10 000, memory by their square) Ward's of
+that many taken evenly in group order, every spot then to the nearest cluster's mean, `_nearest`; a word of
+`SECTOR_WORDS` or "centre"), `box`, `lengths`; NaN after every number in each order (`_highest_first`)
 
 ## `grouping.py`
 
@@ -322,13 +330,17 @@ values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integ
 the narrowest int type (field metadata `decimals`), nulls where a value may miss, the end columns and `stands_for`
 (uint32) only when the lines have them; the schema metadata `findaline` holds `format` (`FORMAT`, a higher one is
 refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the rows of each integer column whose value
-rounds to -0.0). `write(run_path, lines, head)` → run.json's block `store` (format, lines, bytes, the first 16 hex of
+rounds to -0.0). Since view B1 (2026-11-16) `VIEW` (`spot` uint32, `top` uint8, `by_spot` uint32, after `COLUMNS`) and
+the head's `VIEW_HEAD` (`sectors`, `box`, `lengths`): `mapping.view_columns`' values, which `save_run` computes in
+the store's `try` (a failure: the run without a store); the format stays 1. `write(run_path, lines, head, view)` →
+run.json's block `store` (format, lines, bytes, the first 16 hex of
 `lines.arrow`'s sha256); `lines_table`/`profiles_table` the two tables (a profile from any number of
 `helpers.Profiles` batches and dicts of `line_profile`); a scaled column whose values no integer holds exactly (beyond
 2^53 once scaled, an infinity, a NaN where none may miss, an anchor beyond int32) is float64 of round(value,
 decimals), without `decimals`, and a count beyond uint32 uint64, so a store never refuses a run's values; both files under `.part` names until both are
 whole. `read(run_path,
-profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`; `export(run_path, "csv"|"geojson",
+profiles=True)` → (`LineTable`, head), the profiles as dicts of `line_profile`, the view's columns by their names
+when the store has them; `export(run_path, "csv"|"geojson",
 out)` regroups (`mapping.group_lines` with run.json's distance and value) and writes with `runs.save_results`
 with run.json's values without its `store`: the bytes of the run's `lines.csv`/`lines.geojson`. numpy and pyarrow
 only at module level (`runs` inside `write` and `export`, `mapping`, which groups with numba, inside `export`): never

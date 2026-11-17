@@ -1854,6 +1854,8 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     meta.pop("store", None)
     (folder / "run.json").write_text(json.dumps(meta), encoding="utf-8")
+    for name in ("lines.arrow", "profiles.arrow"):  # and its files: the copies below are not in runs.js, and a run
+        (folder / name).unlink()                   # outside the list asks for its store's files (load.ts storeOf)
     rn.write_index(str(tmp_path / "runs"))
     nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
     shutil.copytree(folder, nan)
@@ -2159,6 +2161,8 @@ RESULTS_SCRIPT = """
       button("Download").click();
       later(() => {
         const links = $$(".r-downloads a").map((a) => a.getAttribute("href"));
+        // a run read from its store: two rows that ask for an export (RunActions Export), no links
+        result.exportRows = $$(".r-downloads button.u-btn").map((b) => b.textContent.trim());
         Promise.all(links.map((href) => fetch(href).then((r) => r.status))).then((statuses) => {
           result.downloads = links.map((href, k) => href + " " + statuses[k]);
           next();
@@ -2222,7 +2226,7 @@ def test_results_ui(tmp_path, monkeypatch):
     """The results UI of the new interfaces (result/view) on its demo page, ?ui=kit-result&run=<id>: the summary
     and the list, a row selects its line (details, profile; a touch on the profile reads a point), the next
     spot, Enter on a row, a filter chip changes the counts and is removed, a favourite kept by the server,
-    the copied link holds the line, the downloads answer, #line= opens a line, measuring shows its profile;
+    the copied link holds the line, Download offers the two files, #line= opens a line, measuring shows its profile;
     below 768 px a sheet instead of the panel; no CSP violations."""
     import html
     import re
@@ -2266,8 +2270,9 @@ def test_results_ui(tmp_path, monkeypatch):
     assert r["favButton"] == "Favourite" and r["unmarked"] == 0, r
     assert r["copied"].endswith("&line=" + urllib.parse.quote(r["coords"], safe="")), r
     assert r["copyButton"] == "Link copied", r
-    assert sorted(r["downloads"]) == sorted(f"/runs/{urllib.parse.quote(run_id)}/{f} 200"
-                                            for f in ("lines.csv", "lines.geojson")), r
+    # the run has a store and the page its token: Download's rows ask the worker for the file, no kept file is linked
+    # (tests/test_shell_c_download.py presses them; a run without a store keeps its two links there)
+    assert r["downloads"] == [] and r["exportRows"] == ["CSV table, every line", "GeoJSON for GIS and map apps"], r
     assert r["linked"], r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
     assert _violations(dom) == []

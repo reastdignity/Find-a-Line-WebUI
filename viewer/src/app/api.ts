@@ -189,6 +189,9 @@ export interface SearchRequest {
 }
 
 const token = document.querySelector<HTMLMetaElement>("meta[name=findaline-token]")?.content || "";
+/** Whether this page can send changes: it has the token (the app's page; a run's map.html has none, and the
+ *  server refuses a change without it). */
+export const canChange = token !== "";
 
 /** The signed-in user of the public site (web.py, accounts.User.public), or {local: true}. */
 export interface PageUser { local?: boolean; name?: string; provider?: string; status?: string; admin?: boolean }
@@ -246,6 +249,9 @@ export const api = {
   runs: () => call<{runs: RunListed[]; public: boolean}>("GET", "/api/runs"),
   share: (id: string) => call<{url: string}>("POST", `/api/runs/${encodeURIComponent(id)}/share`),
   unshare: (id: string) => call<{ok: boolean}>("DELETE", `/api/runs/${encodeURIComponent(id)}/share`),
+  /** A run's lines made as a file by the worker (web.py export_run): the address that sends it once. */
+  exportRun: (id: string, format: "csv" | "geojson") =>
+    call<{url: string}>("POST", `/api/runs/${encodeURIComponent(id)}/export`, {format}),
   deleteRun: (id: string) => call<{ok: boolean}>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
   report: (body: {category: string; text: string; context: object}) =>
     call<{id: number}>("POST", "/api/reports", body),

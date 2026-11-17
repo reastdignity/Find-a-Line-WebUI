@@ -56,7 +56,10 @@ tests that start Edge).
   write (`map.html`, `data.js`, `lines.js`, `lines.csv`, `lines.geojson`, `ATTRIBUTION.txt`): a new file a map needs
   goes into both, a file with the owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither.
   `web.SIZED_FILES` carry `web.SIZE_HEADER`, the name `viewer/src/download.ts` `SIZE_HEADER` reads
-  (`tests/test_viewer.py::test_run_script_parsed_and_body_sized`). `window.FINDALINE_APP` (`profiles`: may the map
+  (`tests/test_viewer.py::test_run_script_parsed_and_body_sized`). An export (`jobs.quick_export`) lives only in
+  `work/exports/` as `<run id>-<token>.<ext>` until its one GET deletes it: never in a run folder, `RUN_FILES` or a
+  run's `bytes`; `web.EXPORT_NAME` follows `jobs.EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS` (`tests/test_export.py`).
+  `window.FINDALINE_APP` (`profiles`: may the map
   compute profiles and measure; `favourites`: may it mark favourite lines) is written by the dynamic `runs.js` of
   `web.py` and read by `viewer/src/result/model.ts` (declared in `types.ts`); undefined means as before (from a server
   yes, from disk no).

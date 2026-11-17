@@ -44,6 +44,31 @@ not caused by its changes; the tests are unchanged):
 changes); alone it passed 3 of 3. The cause is not found. Run it alone before calling a failure of it a
 regression.
 
+## `test_access_mark_in_the_form` fails at some times on `main` itself
+
+`tests/test_web.py::test_access_mark_in_the_form` (Edge through Playwright) failed on 2026-11-16, late evening: after
+the click on Basic's "?" of "Reaching the anchors" it presses Esc and waits for the help to go
+(`wait_for_selector(".s-access .ac-help", state="detached")`), and the help stayed for the whole 30 s. It failed in a
+full pytest of the ui-shots-speed branch, alone 3 of 3 there, and alone on a clean checkout of `main` (ee67bd1), so
+it was not that branch's (which touches neither the test nor the viewer). The same test had passed two hours earlier
+in a full pytest of the same branch. The cause is not found; the test relies on the keyboard focus being on the "?"
+after the click, so the state of the PC (which window has the focus, a locked screen) is the first thing to check.
+Before calling a failure of it a regression, run it alone on a clean checkout of `main`.
+
+In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
+out once, with other sessions running under the test lock; alone it passed 4 of 4.
+
+## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
+
+`tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a
+wait for `data-reach="1"`) on the iPhone 13 profile (Playwright's WebKit on Windows) has no terrain and no line, only
+the anchors' handles: in both themes and in both whole-set runs of 2026-11-16 (the clip's run, `main` 2f019d6). The
+same page on the Pixel 7 and the desktop (Chromium) is drawn, and so are the iPhone's other twelve 3D pages
+(`view3d-full`, `view3d-trees`, `view3d-point` among them). In one of the two runs the pill "Checking valid lines…"
+was still shown although `data-reach` was already "1". Not looked into: either the reach overlay's pass leaves
+WebKit's canvas empty (a fault a real iPhone would show too), or WebKit's screenshot misses the frame drawn after
+it. The first check: the page on a real iPhone (`tools/device_page.py`).
+
 ## Five tests fail on macOS (arm64) on `main` itself
 
 Seen 2026-11-08 on a MacBook (Apple silicon, macOS 26.6.1; Python 3.15.2 from uv, numpy 2.5.4, numba 0.68.0,
@@ -208,16 +233,9 @@ tile not cached yet lists for about 20 s; a 600 m search in Hong Kong reads 24 s
 ## Line volume, the store and the access mark: known and left (2026-11-16)
 
 Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the access mark), none fixed:
-- **A share link's page and a run outside the viewer's `runs.js` read `data.js`, not the store.** `/s/runs.js` lists
-  no runs, so the page finds no store block there; an administrator who opens another user's run meets the same. No
-  value differs; the download is the larger text. It must be solved before the text files end (store wave 4:
-  docs/line-volume/spec-store.md 1.10).
 - **Compare says "· no lines" for a store it refuses or cannot read** (a store of a newer format, a body too large,
   a server error): the run has lines. The result page and `map.html` show the right text; Compare does not. Needs a
   store format that does not exist yet, or a server error.
-- **A run missing from the page's list costs `runs.js` twice**: `map.html` of an unlisted run loads `/runs/runs.js`
-  two times before its `data.js`; in the app one fresh `runs.js` per open of such a run. Latency and server work
-  only.
 - **Nothing cleans an orphan "running" tiled folder**: a tiled run interrupted and never resumed keeps its work
   folder, for example a run interrupted under one choice of the access mark (marked or left out) whose search then
   runs under the other. As for any interrupted tiled run whose hash never returns.
@@ -228,3 +246,28 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
   (left out) with a marked run (read as correct).
 - **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
   will not be marked reads in the receipt.
+
+## The UI measuring tools: known and left (2026-11-17)
+
+Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's
+pages (checked by the last reviewer against the baseline pass):
+- **`--summarise` after a hard kill**: a run killed without a chance to finish leaves a cut last line and no
+  `pages-run.json`; the summary then carries no mark of the unfinished pass and exits 0, and in an `--out` folder used
+  before it reads the earlier run's `pages-run.json`. A run stopped by an exception or Ctrl+C is marked.
+- **A cover is named by the element hit**, so one cover appears under several names in the "covers" list (the open
+  coverage card under nine); a cover drawn by one of the control's own ancestors reads "not covered". The counts of
+  controls are not affected (covered controls are counted).
+- **"In a sentence" is wide for buttons**: a default (inline-block) button in a block beside any letter or digit
+  counts as in a sentence (a stepper beside "12" or "m"). No such control exists in the viewer today.
+- **`strip_comments` drops characters after a closing tag whose name uses only regular-expression flag letters**
+  (`</div>`, `</i>`, `</s>`, `</g>`, `</svg>`, `</dd>` followed by a "/" on the line). No line of the tree is hit.
+- **Dense strings per literal** miss JSX text with an apostrophe, the middle lines of a template that spans lines and
+  strings with an escaped quote; a line with two literals is listed twice.
+- **The walks' guard reads only the favourites**: a run stopped after R4 began but before it saved its favourite
+  leaves a folder that passes.
+- **One browser per device and theme**; a `browser.close` that raises after a complete pass marks that pass
+  unfinished (exit 1).
+- **`BASE_CLASSES` is a hand list**: a new base class that ends in a state word is merged into its tag until it is
+  added. The containing-block rule does not look at `will-change`, `perspective`, `backdrop-filter`, `container-type`.
+- **`c-basic-sea` on the desktop** can time out waiting for the search bar's estimate (once in the baseline pass of
+  2026-11-17): the state is then "not measured" and the pass exits 1.

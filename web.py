@@ -50,6 +50,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 
 import pydantic
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 import accounts as ac
@@ -486,7 +487,7 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
 RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "reach": "reach calculations",
-              "place": "place lookups",
+              "place": "place lookups", "export": "downloads",
               # Limits.<kind>_rate
               "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
@@ -558,6 +559,47 @@ SIZE_HEADER = "X-Findaline-Bytes"
 SIZED_FILES = ("data.js", "lines.js", "lines.arrow", "profiles.arrow")
 # A run id, a share token (token_urlsafe: may start with - or _), a file name: no leading dot (no ".."), no "/"
 SAFE_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
+# An export waiting for its download (jobs.quick_export): <token>.<extension>, the token of jobs.EXPORT_TOKEN_BYTES
+# (token_urlsafe of 16 bytes: always 22 characters, so <run id>-<token> of one run is never that of another)
+EXPORT_NAME = re.compile(f"[A-Za-z0-9_-]{{{math.ceil(jb.EXPORT_TOKEN_BYTES * 4 / 3)}}}\\.("
+                         + "|".join(jb.EXPORT_EXTENSIONS.values()) + ")")
+EXPORT_MEDIA = {"csv": "text/csv; charset=utf-8", "geojson": "application/geo+json"}  # by extension (nginx gzips both)
+SENDING = ".sending"  # an export's name while it is sent (taken by one request: a second one finds nothing)
+FILE_NAME_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')  # characters no file name of Windows takes
+PLAIN_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*=;]')  # and in the ASCII `filename`, the header's separators
+
+
+def content_disposition(name: str, fallback: str) -> str:
+    """Content-Disposition of a download named `name` (a run's name and the extension): the name as
+    UTF-8 (RFC 6266's filename*) and an ASCII form of it for older clients (letters without their
+    accents, the rest left out; the file name `fallback` when no name is left before the extension),
+    without the characters a file name cannot hold or a quoted string would end at."""
+    import unicodedata
+    from urllib.parse import quote
+    name = FILE_NAME_UNSAFE.sub("_", name).strip()
+    # NFKD makes fullwidth forms of refused characters (＂ ＼ ／ ：) plain ones: refused again after it, with the
+    # header's own separators (= ;), which a client that reads only `filename` might take for parameters
+    plain = PLAIN_UNSAFE.sub("_", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii"))
+    plain = plain.strip()
+    if plain.startswith("."):
+        plain = fallback
+    if name.startswith("."):
+        name = fallback
+    return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+class SentOnce(FileResponse):
+    """A file sent once and then deleted (an export, jobs.quick_export): after the whole answer and also
+    when the client breaks off (the sending is cancelled: the file is closed first, so Windows deletes it
+    too). Always the whole file: a Range request gets it whole, not a part that would delete the rest."""
+
+    async def __call__(self, scope, receive, send):
+        scope = {**scope, "headers": [(k, v) for k, v in scope.get("headers", []) if k.lower() != b"range"]}
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with contextlib.suppress(OSError):  # left over: jobs.remove_old_exports deletes it later
+                os.remove(self.path)
 
 
 class RunFiles(StaticFiles):
@@ -1607,6 +1649,97 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         record("share_revoke", user, run)
         return {"ok": True}
 
+    # --- Exports: a run's lines.csv or lines.geojson made from its store for each download, none kept
+    # (docs/line-volume/spec-store.md 1.4, store U4): the worker's quick lane writes it, this process sends it
+    # once and deletes it. Who may: run_access (the owner, an administrator, a signed-in visitor of a demo run;
+    # not a share link's visitor, who has no session; store U9) ---
+
+    exports_dir = jb.exports_folder(data_dir)
+
+    def has_store(run_id: str) -> bool:
+        """Whether a run has a store to export from (run.json's block "store": linestore.write wrote it)."""
+        with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+            return bool(json.load(f).get("store"))
+
+    @app.post("/api/runs/{run}/export")
+    async def export_run(body: Dict, client: Request, run: str = Depends(run_access),
+                         user: ac.User = Depends(current_user)):
+        """Make a run's lines as text for one download: {"format": "csv"|"geojson"} -> {"url": the address
+        that sends it once} (jobs.quick_export in the quick lane, waited for as an estimate is: 503 without
+        a worker, 504 when the wait runs out, 429 while the user's other quick task waits). A run without a
+        store: 409 export_failed (the page downloads such a run's own text files instead)."""
+        fmt = body.get("format") if isinstance(body, dict) else None
+        if fmt not in jb.EXPORT_EXTENSIONS:
+            raise HTTPException(400, "format: csv or geojson")
+        if not await run_in_threadpool(has_store, run):
+            raise HTTPException(409, messages.UserError(f"the run {run} has no store to export from",
+                                                        "export_failed").detail(public=bool(public)))
+        await run_in_threadpool(within_rate, "export", user)  # Limits.export_rate (429 rate_export)
+        answer = await quick("export", {"run": run, "format": fmt}, user, client)
+        if not isinstance(answer, dict) or not EXPORT_NAME.fullmatch(str(answer.get("name"))):
+            raise HTTPException(500, "the worker gave no export")
+        await run_in_threadpool(record, "run_export", user, run, {"format": fmt})  # an export made
+        return {"url": f"/api/runs/{run}/export/{answer['name']}"}
+
+    def take_export(run_id: str, name: str) -> Optional[Tuple[str, str, os.stat_result]]:
+        """(the export's file, renamed for its one download, so a second request finds nothing; the name of
+        its download: run.json's name of the run, else its id, and the extension; the file's stat), or None:
+        no such export, or it cannot be taken (a rename refused on Windows while a scanner holds the file).
+        A file older than jobs.EXPORT_KEEP_SECONDS is deleted and never sent (the privacy page's "for one hour
+        at most", also while no worker sweeps). The name is read first; the taken file's mtime is set to now,
+        so no clean-up deletes it while it is sent (remove_old_exports goes by mtime); a refused mtime (Windows)
+        sends it all the same."""
+        path = os.path.join(exports_dir, f"{run_id}-{name}")
+        try:
+            made = os.stat(path)
+        except OSError:
+            return None
+        if not os.path.isfile(path):
+            return None
+        if time.time() - made.st_mtime > jb.EXPORT_KEEP_SECONDS:  # older than the hour: never sent
+            with contextlib.suppress(OSError):
+                os.remove(path)
+            return None
+        try:
+            with open(os.path.join(runs_dir, run_id, "run.json"), encoding="utf-8") as f:
+                title = json.load(f).get("name")
+        except (OSError, ValueError):  # the run deleted or being rewritten: its id names the file
+            title = None
+        stem = title.strip() if isinstance(title, str) and title.strip() else run_id
+        taken = f"{path}.{secrets.token_hex(4)}{SENDING}"
+        try:
+            os.replace(path, taken)
+        except OSError:  # gone meanwhile (another request took it), or held by another process
+            return None
+        try:
+            os.utime(taken)
+        except FileNotFoundError:  # deleted between the rename and now
+            return None
+        except OSError:  # refused (Windows: a scanner): the file is sent all the same
+            pass
+        try:
+            return taken, f"{stem}.{name.rpartition('.')[2]}", os.stat(taken)
+        except OSError:  # deleted between the rename and now
+            with contextlib.suppress(OSError):
+                os.remove(taken)
+            return None
+
+    @app.get("/api/runs/{run}/export/{name}")
+    async def download_export(name: str, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+        """An export of this run (POST /api/runs/<run>/export's address) sent once as an attachment and
+        deleted (SentOnce: also when the client breaks off); 404 for any other name, another run's export,
+        one sent already or deleted after jobs.EXPORT_KEEP_SECONDS. Never a path out of the exports' folder:
+        the name is a token and an extension (EXPORT_NAME), the run one run_access let through."""
+        found = EXPORT_NAME.fullmatch(name)
+        if not found:
+            raise HTTPException(404, "no such export")
+        taken = await run_in_threadpool(take_export, run, name)
+        if taken is None:
+            raise HTTPException(404, "no such export")
+        path, title, stat = taken
+        return SentOnce(path, media_type=EXPORT_MEDIA[found.group(1)], stat_result=stat,
+                        headers={"Content-Disposition": content_disposition(title, f"{run}.{found.group(1)}")})
+
     # --- Favourite lines: marked on a run's map, listed in the app ---
 
     @app.get("/api/runs/{run}/favourites")
@@ -2303,7 +2436,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
-         "renewed or revoked."),
+         "renewed or revoked. A file made for a download is kept on the server until it is fetched, for one hour "
+         "at most."),
         ("Favourite lines", f"The lines you mark as favourites on a map: the run, the line's anchors and its values "
          f"(length, clearances, heights, angles, prominence), when you marked it and its folder; at most "
          f"{jb.FAVOURITES_MAX}. Why: to list them for you. Kept until you unmark them, delete their folder or the "
@@ -2319,8 +2453,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          "an administrator deletes it (ask the contact below to have yours deleted)."),
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
-        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, share links "
-         f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
+        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, "
+         f"share links made, renewed and revoked, deleted runs, exports of a run's lines made (CSV or GeoJSON: the "
+         f"format, not the content), the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "
          f"text), other "

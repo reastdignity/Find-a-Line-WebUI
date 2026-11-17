@@ -19,11 +19,13 @@ integer has no sign of zero and lines.csv prints "-0.0". A column whose values n
 3.4e38 in a terrain file) is float64 of round(value, decimals), without `decimals`; a count
 beyond uint32 is uint64: the store never refuses a run's values. The schema metadata `findaline` (JSON) holds
 {"format": FORMAT, "head": the head of data.js without the lines (mapping.map_head), "negative_zero":
-{column: [rows]}}; a reader refuses a higher format.
+{column: [rows]}}; a reader refuses a higher format. A run saved since view B1 (2026-11-16) also has the result
+view's columns after them (VIEW: `spot`, `top`, `by_spot`, mapping.view_columns at saving) and their keys in the
+head (VIEW_HEAD: `sectors`, `box`, `lengths`); the format stays 1 (a reader takes columns by name).
 
-write(run_path, lines, head) writes both files and gives the block run.json keeps as "store";
+write(run_path, lines, head, view) writes both files and gives the block run.json keeps as "store";
 read(run_path) gives the lines back as a helpers.LineTable (with the profiles as dicts of
-helpers.line_profile) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
+helpers.line_profile, the view's columns by their names) and the head; export(run_path, fmt, out) writes lines.csv or lines.geojson from the
 store through mapping.group_lines and runs.save_results, the bytes the run's own files hold.
 
 Plain numpy and pyarrow at import: runs (Python's round() of a column, runs.round_floats) only inside
@@ -77,6 +79,10 @@ COLUMNS = [
     *[(name, name, None, "mark", False) for name in ACCESS],
     (STANDS_FOR, STANDS_FOR, None, "count", False),
 ]
+# The result view's columns after them (view B1, from 2026-11-16: mapping.view_columns at saving, not columns of the
+# LineTable), each never missing: the spot's number, the top-level flag (0 / 1), the rows in the view's order
+VIEW = (("spot", pa.uint32()), ("top", pa.uint8()), ("by_spot", pa.uint32()))
+VIEW_HEAD = ("sectors", "box", "lengths")  # the head's keys of view_columns (in the store's head only, not data.js's)
 FIXED = {name: pa.int32() for name in ("lat1", "lon1", "lat2", "lon2")}  # the anchors: int32 whatever the run
 INTS = (pa.int8(), pa.int16(), pa.int32(), pa.int64())
 # The profile's values of a row of profiles.arrow besides the lists (helpers.Profiles' small: distance and value)
@@ -128,8 +134,18 @@ def _metadata(value: Dict) -> Dict[bytes, bytes]:
     return {META_KEY: json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
 
 
-def lines_table(lines, head: Dict) -> pa.Table:
-    """lines.arrow's table of lines (a helpers.LineTable after mapping.coordify) with the run's head."""
+def _view_array(name: str, kind: pa.DataType, values: np.ndarray, n: int) -> pa.Array:
+    """A column of VIEW as its type: one value per line, every value within the type (never wrapped)."""
+    values = np.asarray(values)
+    info = np.iinfo(kind.to_pandas_dtype())
+    if values.shape != (n,) or (n and (values.min() < info.min or values.max() > info.max)):
+        raise ValueError(f"the view's column {name} does not fit the lines")
+    return pa.array(values.astype(kind.to_pandas_dtype()), type=kind)
+
+
+def lines_table(lines, head: Dict, view: Optional[Dict[str, np.ndarray]] = None) -> pa.Table:
+    """lines.arrow's table of lines (a helpers.LineTable after mapping.coordify) with the run's head, and the
+    result view's columns (VIEW: mapping.view_columns' first value) after them when given."""
     fields, arrays, negative_zero = [], [], {}
     for name, column, index, decimals, nullable in COLUMNS:
         if column not in lines.columns:
@@ -162,6 +178,9 @@ def lines_table(lines, head: Dict) -> pa.Table:
                 negative_zero[name] = zeros
         fields.append(pa.field(name, array.type, nullable=nullable, metadata=metadata))
         arrays.append(array)
+    for name, kind in VIEW if view is not None else ():
+        arrays.append(_view_array(name, kind, view[name], len(lines)))
+        fields.append(pa.field(name, kind, nullable=False))
     schema = pa.schema(fields, metadata=_metadata({"format": FORMAT, "head": head, "negative_zero": negative_zero}))
     return pa.Table.from_arrays(arrays, schema=schema)
 
@@ -300,16 +319,17 @@ def _write_file(path: str, table: pa.Table):
                 [pa.array([], type=f.type) for f in table.schema], schema=table.schema))
 
 
-def write(run_path: str, lines, head: Dict) -> Dict:
+def write(run_path: str, lines, head: Dict, view: Optional[Dict[str, np.ndarray]] = None) -> Dict:
     """lines.arrow and profiles.arrow of a run (lines: a helpers.LineTable after mapping.coordify, its
-    profiles those the map keeps; head: mapping.map_head's). Returns run.json's block "store": the
+    profiles those the map keeps; head: mapping.map_head's, with view_columns' VIEW_HEAD for a new run; view:
+    mapping.view_columns' columns, None for none). Returns run.json's block "store": the
     format, the lines, the bytes of both files and the first 16 hex digits of lines.arrow's sha256.
     Both are written under temporary names (PART) and take their names only when both are whole,
     profiles.arrow first: a process stopped meanwhile leaves no half store under the files' names."""
     paths = [os.path.join(run_path, name) for name in FILES]
     parts = [path + PART for path in paths]
     try:
-        _write_file(parts[0], lines_table(lines, head))
+        _write_file(parts[0], lines_table(lines, head, view))
         _write_file(parts[1], profiles_table(lines))
         digest = hashlib.sha256()
         with open(parts[0], "rb") as f:
@@ -414,7 +434,9 @@ def _profile_dicts(table: pa.Table) -> Dict[int, Dict]:
 
 def read(run_path: str, profiles: bool = True):
     """(helpers.LineTable, head) of a run's store: the columns write took, the decoded values (NaN for a
-    null, -0.0 where it was), the profiles as dicts of helpers.line_profile (profiles=False: none)."""
+    null, -0.0 where it was), the result view's columns (VIEW, as their types) by their names when the store
+    has them (not a store saved before view B1), the profiles as dicts of helpers.line_profile (profiles=False:
+    none)."""
     import helpers as sh
     table, meta = _read_file(os.path.join(run_path, LINES_FILE))
     zeros = meta.get("negative_zero") or {}
@@ -434,6 +456,10 @@ def read(run_path: str, profiles: bool = True):
             pairs.setdefault(column, [None, None])[index] = values
     for column, (first, second) in pairs.items():
         columns[column] = np.column_stack([first, second])
+    for name, kind in VIEW:
+        if name in table.schema.names:
+            columns[name] = table.column(name).combine_chunks().to_numpy(zero_copy_only=False).astype(
+                kind.to_pandas_dtype())
     lines = sh.LineTable(columns)
     if profiles:
         table, _ = _read_file(os.path.join(run_path, PROFILES_FILE))

@@ -241,6 +241,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
   const [drag, setDrag] = useState<{start: number; from: number; height: number} | null>(null);
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const [box, setBox] = useState(0);  // the container's height
+  const [scrolled, setScrolled] = useState(false);  // the body scrolled: a shadow under the head marks its edge
 
   useEffect(() => {
     // The positioned ancestor, not the parent: that may have no box (display: contents)
@@ -281,7 +282,8 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
     }
     set(best);
   };
-  return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging")} aria-label={label}
+  return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging", scrolled && "u-scrolled")}
+                  aria-label={label}
                   style={box ? {height: `${height}px`} : undefined}>
     <button type="button" class="u-sheet-handle" aria-label={`${label}: ${current}; drag or press to resize`}
             aria-expanded={current !== "peek"}
@@ -293,7 +295,8 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
             onClick={(e) => { if (e.detail === 0) set(current === "full" ? "peek" : SNAPS[SNAPS.indexOf(current) + 1]); }} />
     {header && <div class="u-sheet-head">{header}</div>}
     {/* At peek the body is cut off: inert, so Tab does not walk into controls nobody sees */}
-    <div class="u-sheet-body" inert={current === "peek" && !drag ? true : undefined}>{children}</div>
+    <div class="u-sheet-body" inert={current === "peek" && !drag ? true : undefined}
+         onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>{children}</div>
   </section>;
 }
 

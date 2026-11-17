@@ -187,6 +187,15 @@ def test_a_wait_that_times_out_is_shortened_in_its_pass(tmp_path):
     assert ui_shots.failed([first])
     other = ui_shots.Pass("desktop", "dark")
     assert other.limit(ready) == 60000 and state.limit(ready) == 15000
+    # after a wait that timed out, a click that finds nothing is no "left out" (the device may well show it): timed
+    # out, no picture, the reason kept and named in the summary
+    row = _shoot(FakeContext(true={"leaflet-tile"}), "view3d-eyes", tmp_path / "none", other)
+    assert row["outcome"] == "timed out" and row["path"] is None and row["timeouts"] == [ready]
+    assert row["reason"] == "the device does not show .v3-views [data-view=eyes]" and ui_shots.failed([row])
+    lines = ui_shots.summary({}, [], [row], {}, 1.0)
+    assert not any(line.startswith("Left out") for line in lines)
+    assert "Timed out: view3d-eyes (desktop light): then the device does not show .v3-views [data-view=eyes], " \
+           "no picture" in lines
 
 
 def test_strict_stops_at_the_first_timeout(tmp_path):
@@ -316,6 +325,12 @@ def test_data_key_follows_the_files(tmp_path, monkeypatch):
         (tmp_path / name).write_bytes(before)
     assert ui_shots.data_key() == key
     (tmp_path / "c.py").write_text("")
+    assert ui_shots.data_key() != key
+    (tmp_path / "c.py").unlink()
+    assert ui_shots.data_key() == key
+    import shutil  # the same files in another checkout: another key (the clip run names the clip's files by path)
+    shutil.copytree(tmp_path, tmp_path.parent / "other-checkout")
+    monkeypatch.setattr(ui_shots, "REPO", str(tmp_path.parent / "other-checkout"))
     assert ui_shots.data_key() != key
 
 
@@ -590,14 +605,14 @@ def test_act_in_place_of_the_shot(tmp_path):
 
 
 def test_strict_stops_the_run_at_the_first_bad_row(tmp_path):
-    """shoot_all with --strict stops after the first row with a timeout or a failure, whatever its outcome (a
-    "need:" whose wait for the result timed out and whose page is then left out); without --strict every page of
-    every pass is done (failed() True: main's exit code 1, test_timings_file)."""
+    """shoot_all with --strict stops after the first row with a timeout or a failure (a "need:" whose wait for
+    the result timed out and whose expression is then false: timed out, not left out); without --strict every
+    page of every pass is done (failed() True: main's exit code 1, test_timings_file)."""
     pages = ["c-result-shore-folded", "c-home", "c-favourites"]
     times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), pages, tmp_path, ("desktop", "pixel"),
                                ("light", "dark"), strict=True)
     assert [(r["page"], r["outcome"], r["timeouts"]) for r in rows] == [
-        ("c-result-shore-folded", "left out", [ui_shots.NEED_READY])]
+        ("c-result-shore-folded", "timed out", [ui_shots.NEED_READY])]
     assert [(p["device"], p["theme"]) for p in passes] == [("desktop", "light")] and ui_shots.failed(rows)
     times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), pages, tmp_path, ("desktop", "pixel"),
                                ("light", "dark"))
@@ -607,6 +622,25 @@ def test_strict_stops_the_run_at_the_first_bad_row(tmp_path):
     assert [r["outcome"] for r in rows] == ["failed"]
     times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-home", "c-favourites"], tmp_path, strict=True)
     assert [r["outcome"] for r in rows] == ["saved", "saved"] and not ui_shots.failed(rows)
+
+
+def test_each_row_is_handed_to_on_row(tmp_path):
+    """shoot_all's `on_row`: called with each row, in order, once the row is in `rows`; an error of it goes on to
+    the caller with the rows made so far kept."""
+    seen, counts = [], []
+    times, rows, passes = _all(FakePlaywright(true={"leaflet-tile"}), ["c-home", "c-favourites"], tmp_path,
+                               ("desktop", "pixel"), on_row=lambda row: seen.append(row))
+    assert len(rows) == 4 and all(a is b for a, b in zip(seen, rows))
+    rows, passes = [], []
+
+    def stop_at_two(row):
+        counts.append(len(rows))  # the row is already in the caller's list
+        if len(rows) == 2:
+            raise RuntimeError("the caller's own")
+    with pytest.raises(RuntimeError, match="the caller's own"):
+        ui_shots.shoot_all(FakePlaywright(true={"leaflet-tile"}), SITE, ["c-home", "c-favourites", "c-osm"],
+                           ["desktop"], ["light"], str(tmp_path), False, {}, rows, passes, on_row=stop_at_two)
+    assert counts == [1, 2] and len(rows) == 2 and passes[0]["complete"] is False
 
 
 def test_timings_add_up(tmp_path, clock):
