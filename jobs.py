@@ -919,13 +919,11 @@ class Jobs:
 
     def remove(self, job_id: str) -> bool:
         """Remove a cancelled job from its owner's list (removed_at; the row stays, so it counts toward the
-        daily quota and the statistics as before). Whether it is removed now: False for a job that is not
-        cancelled; True again for one removed before (a second removal changes nothing)."""
+        daily quota and the statistics as before). Whether this call removed it: False for a job that is not
+        cancelled and for one removed before (a second removal changes nothing; of two at once, one is True)."""
         with self._db() as db:
-            db.execute("UPDATE jobs SET removed_at = ? WHERE id = ? AND status = 'cancelled' AND removed_at IS NULL",
-                       (cache.now_iso(), job_id))
-            row = db.execute("SELECT removed_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return row is not None and row[0] is not None
+            return bool(db.execute("UPDATE jobs SET removed_at = ? WHERE id = ? AND status = 'cancelled' AND "
+                                   "removed_at IS NULL", (cache.now_iso(), job_id)).rowcount)
 
     # --- Favourite lines (the maps mark them, the app lists them) ---
 

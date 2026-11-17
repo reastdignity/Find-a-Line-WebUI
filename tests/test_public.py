@@ -1322,6 +1322,22 @@ def test_listed_jobs_say_whose(public, people, tmp_path):
     assert own("a") == {theirs: True}
 
 
+def test_two_removals_at_once(public, people, tmp_path, monkeypatch):
+    """Two removals of one cancelled job at the same moment (both read it not removed yet): one writes the mark and
+    the audit row, the other answers ok and records nothing."""
+    import audit
+    from jobs import Jobs
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}, "A's", people["ids"]["a"])
+    assert jobs.request_cancel(job)
+    read = Jobs.get
+    monkeypatch.setattr(Jobs, "get", lambda self, job_id: {**read(self, job_id), "removed_at": None})  # read before
+    for _ in range(2):
+        assert people["a"].post(f"/api/jobs/{job}/remove").json() == {"ok": True}
+    assert read(jobs, job)["removed_at"]
+    assert [e["target"] for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "job_remove"] == [job]
+
+
 FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "over": False, "water": 0.0,
              "filled": 0.0, "hmax": 15.0, "hmean": 9.5, "highPct": 0.0, "angle1": 12.0, "angle2": None,
              "prom1": 3.0, "prom2": None, "drop1": 30.0, "drop2": None}

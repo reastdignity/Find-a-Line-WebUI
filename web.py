@@ -1463,13 +1463,14 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     @app.post("/api/jobs/{job_id}/remove")
     def remove_job(job: Dict = Depends(own_job), user: ac.User = Depends(current_user)):
         """Remove a cancelled job from its owner's list (the card goes; nothing else exists to delete). Not
-        DELETE /api/jobs/<id>, which cancels. A job removed before answers ok again."""
+        DELETE /api/jobs/<id>, which cancels. A job removed before answers ok again; the audit log gets the
+        removal once (of two at once, the one whose write removed it)."""
         if not job["removed_at"]:
             if job["status"] != "cancelled":
                 raise HTTPException(409, messages.UserError("only a cancelled search can be removed",
                                                             "job_not_cancelled").detail())
-            jobs.remove(job["id"])
-            record("job_remove", user, job["id"])
+            if jobs.remove(job["id"]):
+                record("job_remove", user, job["id"])
         return {"ok": True}
 
     @app.get("/api/events")
