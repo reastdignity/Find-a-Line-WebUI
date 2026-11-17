@@ -40,7 +40,11 @@ catalogue), `browser-tests.md`.
 - The result view (step 3b, beside today's page behind `findaline.view`; docs/code-map/viewer.md): `result/spots.ts`
   reads the store's `spot`, `top`, `by_spot` as written (run-files.md: the order inside a spot is Python's); its
   interface (`SpotView`, `SpotMap`, the slots of `view/SpotPanels.tsx`) is shared with the panels: add to it, never
-  rename. `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
+  rename. The panels (`view/Spot*.tsx`, `FanPanel.tsx`, `Hint.tsx`, `ViewFilters.tsx`) import only types from
+  `SpotPanels.tsx` (it imports their slots, and the Node units bundle them without Leaflet), make no Line for a row
+  (`view.values`, the columns' `at`), keep a row as a list item with one button and its other controls as siblings,
+  and keep in the browser only the sort and the hint (`viewstate.ts`; "Top level only" is on at every start).
+  `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
   over the map carries `data-map-control`, and one that takes no press (the toast) has `pointer-events: none`. The
   phone's sheet has no height at the first draw (`covered` counts its state's height until then), and Preact 11 runs

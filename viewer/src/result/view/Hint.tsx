@@ -4,7 +4,8 @@
 // the device (pointer: coarse). Its × hides it and leaves a round "?" that shows it again; the choice is kept in the
 // browser (viewstate.ts). In the columns both stand on the map beside the status line (the frame's `hint` slot:
 // their boxes are obstacles of the map's numbers); on a phone the line is the sheet's first and the "?" stands
-// beside the map's status line (the frame asks for each: PanelProps.place).
+// beside the map's status line (the frame asks for each: PanelProps.place). A box of theirs over the map carries
+// `data-map-control` (the viewer's rule: no number of the map under it).
 // Two parts, so that each can stand where its layout wants it: HintLine and HintOpen.
 
 import { useEffect } from "preact/hooks";
@@ -49,7 +50,7 @@ export function HintLine({view, wide}: {view: SpotView; wide: boolean}) {
   usePointer(view);
   useRefocus();
   if (!panelState(view).hint) return null;
-  return <div class={wide ? "vl-hint" : "vl-hint vl-hint-sheet"}>
+  return <div class={wide ? "vl-hint" : "vl-hint vl-hint-sheet"} data-map-control={wide ? true : undefined}>
     <span class="vl-hint-text">{hintText(view, wide)}</span>
     <button type="button" class="r-note-x vl-hint-x" aria-label={t("ui.view.hint.hide")}
             onClick={() => { refocus = ".vl-hint-open"; showHint(view, false); }}><Icon name="close" /></button>
@@ -62,7 +63,7 @@ export function HintOpen({view}: {view: SpotView}) {
   useRefocus();
   if (panelState(view).hint) return null;
   return <button type="button" class="vl-hint-open" aria-label={t("ui.view.hint.show")} title={t("ui.view.hint.show")}
-                 onClick={() => { refocus = ".vl-hint-x"; showHint(view, true); }}>?</button>;
+                 data-map-control onClick={() => { refocus = ".vl-hint-x"; showHint(view, true); }}>?</button>;
 }
 
 /** The frame's `hint` slot: in the columns the hint or its "?", beside the map's status line; on a phone the

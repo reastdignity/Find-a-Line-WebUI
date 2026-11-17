@@ -210,7 +210,9 @@ The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Bes
 spots under one press, the map's controls open, a phone's sheet lowered) open with the page's flag: `VIEWS` names the
 pages whose `findaline.view` `page_storage` sets (removed for every other page of the pass), each waits for
 `window.FINDALINE_VIEW` (`VIEW_READY`), and a run whose store has no column `spot` leaves them out (`NEEDS` "view":
-`store_has_view`); `tests/test_ui_shots_view.py`.
+`store_has_view`); `tests/test_ui_shots_view.py`. Its panels' states: `c-view-selected` (and `-low`: a phone's sheet
+lowered to its head), `c-view-fan`, `c-view-sector`, `c-view-all-levels`, `c-view-why`, `c-view-start` (a phone's
+sheet at full height for the list's states: `VIEW_UP`); their steps are scripts and waits only.
 
 ## `tools/shots_diff.py`
 
