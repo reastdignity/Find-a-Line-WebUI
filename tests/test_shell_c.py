@@ -1736,13 +1736,38 @@ CARD_JS = """() => { const card = document.querySelector('.r-card'), box = (e) =
           facts: card.querySelector('.r-facts')?.textContent}; }"""
 
 
+# The card under a moving cursor: for each place along the chart (a share of its width) the boxes of the card, its
+# chart and its readout, and any leaf of its bar or readout cut short; two frames after each move
+STEADY_JS = """async () => { const card = document.querySelector('.r-card'), hover = card.querySelector('.fal-hover');
+  const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); };
+  const out = [];
+  for (const at of [null, 0.02, 0.1, 0.25, 0.4, 0.6, 0.8, 0.95]) {
+    const r = hover.getBoundingClientRect();
+    hover.dispatchEvent(at === null ? new MouseEvent('mouseleave', {bubbles: true})
+      : new MouseEvent('mousemove', {clientX: r.left + r.width * at, clientY: r.top + 5, bubbles: true}));
+    await frame();
+    const cut = [...card.querySelectorAll('.r-dock-bar *, .fal-profile-readout *')]
+      .filter((e) => e.children.length === 0 && !e.closest('.u-sr') && e.textContent.trim() && e.getClientRects().length
+                     && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim());
+    const text = card.querySelector('.fal-readout-text'), readout = card.querySelector('.fal-profile-readout');
+    out.push({at, card: box(card), chart: box(card.querySelector('.fal-profile-chart')), readout: box(readout),
+              inside: text.getBoundingClientRect().bottom <= readout.getBoundingClientRect().bottom + 1, cut,
+              text: text.textContent.slice(0, 40)});
+  }
+  hover.dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}));
+  return out; }"""
+
+
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
     """The user's choices "6 b" and "8 b" (report defects 6 and 8) in Playwright's Edge. On a touch phone the sheet's
     head carries a shadow once its body is scrolled and none at the top, and neither box moves. On a desktop the
     profile card's bar and readout show their whole text (the facts on a row of their own, the readout wrapping),
     with the summary and with the long readout under the cursor, for the first line and the longest spot's; the chart
-    keeps at least 120 px; the scale and the credits stay clear of the card (useCornersAboveCard)."""
+    keeps at least 120 px; the scale and the credits stay clear of the card (useCornersAboveCard); the card, its chart
+    and its readout keep their boxes while the cursor moves over the chart, at the default width and at the card's
+    narrowest and lowest (code review 3 F1: the readout grew a line and the chart jumped under the pointer)."""
     import urllib.parse
     from playwright.sync_api import sync_playwright
     from test_web import PHONE
@@ -1786,10 +1811,18 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
                                        timeout=30000)
                 r[f"{which}_cursor"] = page.evaluate(CARD_JS)
                 page.evaluate("() => document.querySelector('.r-card .fal-hover').dispatchEvent(new MouseEvent('mouseleave', {bubbles: true}))")
+            # the longest spot's card under a moving cursor at the default width, then at its narrowest and lowest
+            r["steady_default"] = page.evaluate(STEADY_JS)
+            for edge in (".r-card .r-card-l", ".r-card .r-card-top"):
+                page.focus(edge)
+                page.keyboard.press("Home")
+            page.wait_for_function(f"() => document.querySelector('.r-card').getBoundingClientRect().width < "
+                                   f"{r['steady_default'][0]['card'][2] - r['steady_default'][0]['card'][0] - 50}", timeout=30000)
+            r["steady_narrow"] = page.evaluate(STEADY_JS)
             page.close()
         finally:
             browser.close()
-    print({k: (v.get("chart"), v.get("cut"), v.get("shadow")) for k, v in r.items()})
+    print({k: (v.get("chart"), v.get("cut"), v.get("shadow")) if isinstance(v, dict) else v for k, v in r.items()})
     assert r["top"]["shadow"] == "none" and r["back"]["shadow"] == "none" and r["scrolled"]["shadow"] != "none", r
     assert r["scrolled"]["top"] > 0 and r["top"]["head"] == r["scrolled"]["head"] == r["back"]["head"], r
     assert r["top"]["body"] == r["scrolled"]["body"] == r["back"]["body"], r
@@ -1797,6 +1830,15 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
     def meet(a, b):
         return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
     assert r["first_summary"]["facts"] != r["longest_summary"]["facts"], r  # two lines
+    # the card, its chart and its readout keep their boxes while the cursor moves, at the default width and the
+    # narrowest; the readout's text stays inside its box and nothing is cut
+    for name in ("steady_default", "steady_narrow"):
+        states = r[name]
+        assert len({(tuple(s["card"]), tuple(s["chart"]), tuple(s["readout"])) for s in states}) == 1, (name, states)
+        assert all(s["inside"] and s["cut"] == [] for s in states), (name, states)
+        assert any(" from A1" in s["text"] for s in states), (name, states)  # the cursor's readouts were shown
+    narrow, wide = r["steady_narrow"][0]["card"], r["steady_default"][0]["card"]
+    assert narrow[2] - narrow[0] < wide[2] - wide[0] - 50, (narrow, wide)
     for name in ("first_summary", "first_cursor", "longest_summary", "longest_cursor"):
         found = r[name]
         assert found["cut"] == [] and found["chart"] >= 120, (name, found)
