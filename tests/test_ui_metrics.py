@@ -198,11 +198,8 @@ def test_strip_comments():
     assert lines[:2] == ["<p>{a} / {b} ×</p>", "<p>/ day ×</p>"]
     assert lines[2].rstrip() == "x = default:" and "×" not in lines[3] and lines[3].endswith(".test(s)")
     # a "/" after ":" or "(" in JSX text: the closing tag's "/" ends no regular expression ("p" is no flag)
-    text = "<p>Folder: /data ×</p>
-<p>Speed (/h) ×</p>
-r = (/a×/gi)"
-    lines = ui_metrics.strip_comments(text, blank_regex=True).split("
-")
+    text = "<p>Folder: /data ×</p>\n<p>Speed (/h) ×</p>\nr = (/a×/gi)"
+    lines = ui_metrics.strip_comments(text, blank_regex=True).split("\n")
     assert lines[:2] == ["<p>Folder: /data ×</p>", "<p>Speed (/h) ×</p>"] and "×" not in lines[2]
 
 
@@ -862,7 +859,7 @@ class _NoWebKit(_Fake):
         self.webkit = self
 
     def launch(self):
-        raise RuntimeError("Executable doesn't exist at webkit\\nmore of the call log")
+        raise RuntimeError("Executable doesn't exist at webkit\nmore of the call log")
 
 
 def test_a_pass_that_stops_leaves_its_states_recorded():
@@ -897,8 +894,7 @@ def test_exit_code(tmp_path):
     """0 when every state was measured or left out and every pass finished; 1 when a state was not measured or a pass
     did not finish (pages-run.json)."""
     ok = [_state("a", "iphone", 1, 0), {"page": "c", "device": "iphone", "theme": "light", "left_out": "x"}]
-    (tmp_path / "pages-states.jsonl").write_text("".join(json.dumps(r) + "
-" for r in ok), encoding="utf-8")
+    (tmp_path / "pages-states.jsonl").write_text("".join(json.dumps(r) + "\n" for r in ok), encoding="utf-8")
     assert ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"]) == 0
     (tmp_path / "pages-run.json").write_text(json.dumps({"passes": [{"device": "iphone", "theme": "light",
                                                                      "complete": False}]}), encoding="utf-8")
