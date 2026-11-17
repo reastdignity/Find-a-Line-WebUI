@@ -155,6 +155,9 @@ BASIS_KINDS = ("licence", "metadata statement", "written permission")
 # "none" (P23); a row with an empty field, or without `approved` (the user's word and its date), is refused. The
 # attribution is not a field: it is the catalogue's Credit of source_id (P22). `changes`: per product folder.
 # Facts from local/mirror-hosting-2026-11-15/w0-publish/quotes.md (read 2026-11-15; L1-L8 there).
+# The SNIG record abba9a83 (Madeira's 2 m and the islands' 5 m models) as read for the rows
+SNIG_5M_XML = ("https://snig.dgterritorio.gov.pt/rndg/srv/api/records/abba9a83-cb1c-4d2c-ad1d-ccb592247754/"
+               "formatters/xml")
 PUBLISHABLE: Dict[str, Dict] = {
     "slovakia": dict(
         dataset="slovakia", source_id="slovakia",
@@ -218,6 +221,83 @@ PUBLISHABLE: Dict[str, Dict] = {
               "answered 404 on 2026-11-15 and the sentence was not seen there; as quoted it is about the download "
               "service, not about redistribution.",
         approved="publish, the user's word of 2026-11-15 (U12)"),
+    # Madeira's islets: the 5 m model of the same SNIG record (checked 2026-11-17, publish/islets-rows.txt of the
+    # build's notes); approved as drafted by the user's U55
+    "porto-santo": dict(
+        dataset="porto-santo",
+        source_id="porto_santo",
+        title="Porto Santo: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "PortoSanto_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in its own reference system, Porto Santo 1995 / UTM zone 28N (EPSG:3061, not "
+            "reprojected; tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data value 0, which is "
+            "the sea, made no data; its float64 values stored as float32 with LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 "
+              "(https://joram.madeira.gov.pt/joram/1serie/Ano%20de%202022/ISerie-022-2022-02-09.pdf): obtaining "
+              "DROTe's products \"está sujeita ao pagamento do respetivo preço\" (Art. 3.º 1), and its price table "
+              "lists \"MDT 5 m (Porto Santo)\" at 500 EUR; the use licences of Art. 4 are not found. The record "
+              "(2026-06-12) offers the 5 m ZIP as a free download; whether that file is the priced product is not "
+              "established. Art. 3.º 4: end users are told of every change (the card). An objection is answered with "
+              "unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
+    "desertas": dict(
+        dataset="desertas",
+        source_id="desertas",
+        title="Desertas: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "Desertas_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in PTRA08 / UTM zone 28N (EPSG:5016), the system its coordinates are in, while "
+            "the file is labelled Porto Santo 1995 / UTM 28N (EPSG:3061): the label replaced, nothing reprojected "
+            "(tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data values -32768 and -999 and every "
+            "value below -1 m (coast pixels averaged with -999) made no data; LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 (as Madeira's row): obtaining DROTe's products is subject to "
+              "payment (Art. 3.º 1), its price table lists \"MDT 5 m (folha)\" at 37 EUR a sheet; the use licences of "
+              "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. The file's "
+              "EPSG:3061 label is wrong: its coast fits PTRA08 (against OSM and the 2023 orthophoto, 2026-11-15, the "
+              "new-sources task). Art. 3.º 4: end users are told of every change (the card). An objection is answered "
+              "with unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
+    "selvagens": dict(
+        dataset="selvagens",
+        source_id="selvagens",
+        title="Selvagens: MDT 5 m, photogrammetry 2018-2019 (DROTe, Região Autónoma da Madeira), as 2 km tiles",
+        basis_kind="metadata statement",
+        licence="none",
+        licence_url="none",
+        basis_url=SNIG_5M_XML,
+        basis_quote="useLimitation: \"No conditions apply\"; otherConstraints: \"Acesso e uso sem condições\", "
+                    "\"Acesso público sem restrições\"",
+        basis_checked="2026-11-17",
+        changes={"dtm/5m": (
+            "Selvagens_5m.tif of the record's 5 m ZIP (mdt_5m.zip) cut into 2 km x 2 km Cloud Optimized GeoTIFFs on "
+            "its own 5 m pixel grid in its own reference system, PTRA08 / UTM zone 28N (EPSG:5016, not reprojected; "
+            "tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); its no-data values -32768 and -999 and every "
+            "value below -1 m (coast pixels averaged with -999) made no data; LERC compression within 5 mm")},
+        not_endorsed="Made for Find-a-Line (a highline finder); not endorsed by DROTe.",
+        notes="A weak basis: the record's statement, no licence document; the same record as Madeira's row. Against "
+              "it, in the regional Portaria 36/2022 (as Madeira's row): obtaining DROTe's products is subject to "
+              "payment (Art. 3.º 1), its price table lists \"MDT 5 m (folha)\" at 37 EUR a sheet; the use licences of "
+              "Art. 4 are not found; whether the record's free ZIP is a priced product is not established. Art. 3.º "
+              "4: end users are told of every change (the card). An objection is answered with unpublish.",
+        approved="a (approve all three), the user's word of 2026-11-17 (U55)"),
 }
 
 

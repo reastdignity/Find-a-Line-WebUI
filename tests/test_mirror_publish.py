@@ -523,7 +523,7 @@ def test_clean_removes_old_trash_only(world, capsys):
 
 # The datasets tools/mirror_tiles.py cuts that have no PUBLISHABLE row (no approval to publish them): Madeira's
 # islets of batch 6. A new one is named here when it is added; a row is added only on the user's word
-CUT_WITHOUT_A_ROW = {"porto-santo", "desertas", "selvagens"}
+CUT_WITHOUT_A_ROW = set()  # Madeira's islets got their rows (U55, 2026-11-17)
 
 
 def test_publishable_datasets_are_the_mirrors_datasets():
@@ -580,11 +580,19 @@ def test_cards_state_the_changes():
     def changes(card):
         return " ".join(card.split("Changes made:", 1)[1].split("\n\n", 1)[0].split())
 
-    for name, card in mp.cards().items():
-        if name not in mp.PUBLISHABLE:
-            continue  # a card of a dataset without a row is the cutting tool's own (generated), never served
-        assert "5 mm" in changes(card) and "Values are not otherwise changed" in changes(card), name
+    served = {name: card for name, card in mp.cards().items() if name in mp.PUBLISHABLE}
+    assert set(served) == {"slovakia", "madeira", "aosta", "porto-santo", "desertas", "selvagens"}
+    for name, card in served.items():
+        # the fixed cards of before say it as a sentence of its own, the generated ones after "Heights ...;"
+        fixed = name in ("slovakia", "madeira", "aosta")
+        said = "Values are not otherwise changed" if fixed else "; values are not otherwise changed"
+        assert "5 mm" in changes(card) and said in changes(card), name
         assert "not endorsed by" in card
+    # the islets' own changes (U56): the Desertas' label replaced, Porto Santo's float64 stored as float32
+    assert ("the file's reference-system label replaced: it is labelled EPSG:3061, its coordinates are in EPSG:5016 "
+            "(PTRA08 / UTM zone 28N); nothing reprojected") in changes(served["desertas"])
+    assert "the values, float64 in the file, stored as float32 (within those 5 mm)" in changes(served["porto-santo"])
+    assert "label replaced" not in served["selvagens"] and "float64" not in served["selvagens"]
     sk = changes(mp.cards()["slovakia"])
     assert "2 m and 5 m" in sk and "mean" in sk and "2 × 2" in sk and "5 × 5" in sk
     aosta = mp.cards()["aosta"]
@@ -1276,13 +1284,15 @@ def test_the_cutters_own_files_never_leave_the_master(world, capsys):
     assert tree(world.server / "public" / "v1" / "tiles" / "madeira")["README.md"].decode() == mirror_tiles.MADEIRA_CARD
 
 
-def test_a_cut_dataset_without_a_row_is_refused(world, capsys):
-    """Batch 6's islets are cut by tools/mirror_tiles.py but have no PUBLISHABLE row: publish refuses them with the
-    tool's text for a dataset without a row, before any request."""
-    for name in sorted(CUT_WITHOUT_A_ROW):
-        assert _publish(world, name) == 1
-        out = capsys.readouterr().out
-        assert f"refused: {name}: no row in PUBLISHABLE" in out
+def test_a_cut_dataset_without_a_row_is_refused(world, monkeypatch, capsys):
+    """A dataset cut by tools/mirror_tiles.py without a PUBLISHABLE row (a stand-in: every cut dataset has a row
+    today) is refused with the tool's text for a dataset without a row, before any request."""
+    stand_in = mirror_tiles.replace(mirror_tiles.dataset("selvagens"), name="islet-without-a-row")
+    monkeypatch.setitem(mirror_tiles.DATASETS, "islet-without-a-row", stand_in)
+    assert "islet-without-a-row" in mp.cards() and "islet-without-a-row" not in mp.PUBLISHABLE
+    make_dataset(world.mirror, "islet-without-a-row", {"dtm/5m": [(199, 1661)]})
+    assert _publish(world, "islet-without-a-row") == 1
+    assert "refused: islet-without-a-row: no row in PUBLISHABLE" in capsys.readouterr().out
     assert tree(world.server) == {}
 
 
@@ -1299,3 +1309,110 @@ def test_a_first_publish_says_what_its_log_holds(world, capsys):
     assert "first publish" not in capsys.readouterr().out
     assert _publish(world, "aosta") == 0
     assert "first publish" not in capsys.readouterr().out
+
+
+# The islets' served cards, word for word as the user saw them (Selvagens) or approved them after U56 (Porto
+# Santo, Desertas): a change of the generator or a record shows here first
+ISLET_CARDS = {
+    'porto-santo': (
+        '# Porto Santo: DTM 5 m (DROTe, 2018-2019) as 2 km tiles\n'
+        '\n'
+        'Made from the data of **Direção Regional do Ordenamento do Território (DROTe), Região Autónoma da '
+        'Madeira** '
+        '(https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/abba9a83-cb1c-4d2c-ad1d-ccb59'
+        '2247754).\n'
+        'Licence: No conditions apply (SNIG record abba9a83). Attribution: DTM 5 m: Direção Regional do '
+        'Ordenamento do Território (DROTe), Região Autónoma da Madeira, 2018-2019.\n'
+        '\n'
+        '## `dtm/5m`: MDT 5 m, Porto Santo (DROTe, photogrammetry 2018-2019)\n'
+        '\n'
+        'Source: PortoSanto_5m.tif of https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip (Porto '
+        'Santo 1995 / UTM zone 28N, EPSG:3061); Porto Santo and its islets; the sea written as 0 there.\n'
+        '\n'
+        'Changes made: cut into 2 km x 2 km Cloud Optimized GeoTIFFs on its own 5 m pixel grid in EPSG:3061 '
+        "(tile (i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); the files' own no-data value and the "
+        "sea's value 0 made no data; stored with LERC compression with a maximum error of 5 mm; the values, "
+        'float64 in the file, stored as float32 (within those 5 mm). Heights as published (metres); values are '
+        'not otherwise changed.\n'
+        '\n'
+        'Layout: `<product>/<res>m/<i//10>_<j//10>/<i>_<j>.tif`; `<product>/<res>m/index.json` lists every tile '
+        'of the extent with its sha256 (null: no data). Made for Find-a-Line (a highline finder); not endorsed '
+        'by DROTe.\n'
+    ),
+    'desertas': (
+        '# Desertas: DTM 5 m (DROTe, 2018-2019) as 2 km tiles\n'
+        '\n'
+        'Made from the data of **Direção Regional do Ordenamento do Território (DROTe), Região Autónoma da '
+        'Madeira** '
+        '(https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/abba9a83-cb1c-4d2c-ad1d-ccb59'
+        '2247754).\n'
+        'Licence: No conditions apply (SNIG record abba9a83). Attribution: DTM 5 m: Direção Regional do '
+        'Ordenamento do Território (DROTe), Região Autónoma da Madeira, 2018-2019.\n'
+        '\n'
+        '## `dtm/5m`: MDT 5 m, Desertas (DROTe, photogrammetry 2018-2019)\n'
+        '\n'
+        'Source: Desertas_5m.tif of https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip (PTRA08 / UTM '
+        'zone 28N, EPSG:5016; the file is labelled EPSG:3061); Deserta Grande, Bugio and Ilhéu Chão.\n'
+        '\n'
+        'Changes made: cut into 2 km x 2 km Cloud Optimized GeoTIFFs on its own 5 m pixel grid in EPSG:5016 (tile '
+        "(i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); the files' own no-data value, the values "
+        '-32768, -999 and every value below -1 m made no data; stored with LERC compression with a maximum error of '
+        "5 mm; the file's reference-system label replaced: it is labelled EPSG:3061, its coordinates are in "
+        'EPSG:5016 (PTRA08 / UTM zone 28N); nothing reprojected. Heights as published (metres); values are '
+        'not otherwise changed.\n'
+        '\n'
+        'Layout: `<product>/<res>m/<i//10>_<j//10>/<i>_<j>.tif`; `<product>/<res>m/index.json` lists every tile '
+        'of the extent with its sha256 (null: no data). Made for Find-a-Line (a highline finder); not endorsed '
+        'by DROTe.\n'
+    ),
+    'selvagens': (
+        '# Selvagens: DTM 5 m (DROTe, 2018-2019) as 2 km tiles\n'
+        '\n'
+        'Made from the data of **Direção Regional do Ordenamento do Território (DROTe), Região Autónoma da '
+        'Madeira** '
+        '(https://snig.dgterritorio.gov.pt/rndg/srv/por/catalog.search#/metadata/abba9a83-cb1c-4d2c-ad1d-ccb59'
+        '2247754).\n'
+        'Licence: No conditions apply (SNIG record abba9a83). Attribution: DTM 5 m: Direção Regional do '
+        'Ordenamento do Território (DROTe), Região Autónoma da Madeira, 2018-2019.\n'
+        '\n'
+        '## `dtm/5m`: MDT 5 m, Selvagens (DROTe, photogrammetry 2018-2019)\n'
+        '\n'
+        'Source: Selvagens_5m.tif of https://irig-storage.madeira.gov.pt/irig-catalogo/mdt_5m.zip (PTRA08 / UTM zone '
+        '28N, EPSG:5016); Selvagem Grande, Selvagem Pequena and Ilhéu de Fora.\n'
+        '\n'
+        'Changes made: cut into 2 km x 2 km Cloud Optimized GeoTIFFs on its own 5 m pixel grid in EPSG:5016 (tile '
+        "(i, j) starts at x = 2000 i + 2.5, y = 2000 j + 2.5); the files' own no-data value, the values -32768, "
+        '-999 and every value below -1 m made no data; stored with LERC compression with a maximum error of '
+        '5 mm. Heights as published (metres); values are not otherwise changed.\n'
+        '\n'
+        'Layout: `<product>/<res>m/<i//10>_<j//10>/<i>_<j>.tif`; `<product>/<res>m/index.json` lists every tile '
+        'of the extent with its sha256 (null: no data). Made for Find-a-Line (a highline finder); not endorsed '
+        'by DROTe.\n'
+    ),
+}
+
+
+def test_the_islets_cards_word_for_word():
+    """The three generated cards publish serves (card_text): the Selvagens' as the user saw it, Porto Santo's and
+    the Desertas' with the change U56 asked named under "Changes made"; Madeira's and Valle d'Aosta's fixed cards
+    unchanged."""
+    for name, text in ISLET_CARDS.items():
+        assert mp.cards()[name] == text, name
+    assert mp.cards()["madeira"] == mirror_tiles.MADEIRA_CARD and mp.cards()["aosta"] == mirror_tiles.AOSTA_CARD
+
+
+def test_a_5m_islet_published_end_to_end(world, capsys):
+    """An islet of 5 m (Porto Santo's row) published in the local backend: its tiles, its index and its generated
+    card (the float64 change named) served, datasets.json listing it with the catalogue's credit."""
+    files = make_dataset(world.mirror, "porto-santo", {"dtm/5m": [(186, 1828), (187, 1829), (-1, 1830)]})
+    world.files["porto-santo"] = files
+    assert world.run("verify", str(world.mirror / "porto-santo")) == 0
+    assert _publish(world, "porto-santo") == 0
+    published_ok(world, "porto-santo")
+    card = tree(world.server / "public" / "v1" / "tiles" / "porto-santo")["README.md"].decode("utf-8")
+    assert card == ISLET_CARDS["porto-santo"] and "float64 in the file, stored as float32" in card
+    listing = json.loads((world.server / "public" / "v1" / "datasets.json").read_text(encoding="utf-8"))
+    [entry] = [d for d in listing["datasets"] if d["id"] == "porto-santo"]
+    assert entry["attribution"] == SOURCES["porto_santo"].attribution and entry["licence"] == "none"
+    assert [p["path"] for p in entry["products"]] == ["porto-santo/dtm/5m"] and entry["products"][0]["tiles"] == 3
+    assert "published porto-santo" in capsys.readouterr().out

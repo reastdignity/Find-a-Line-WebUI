@@ -258,6 +258,7 @@ class Product:
     floor: Optional[float] = None    # every value below it made no data (a guessed threshold: measured first)
     overlap: str = "first"           # "first": the first listed wins; "agree": within MAX_Z_ERROR, else an error
     about: str = ""                  # the card's sentence on what the product is and where it comes from
+    card_changes: str = ""           # a change the card names besides the cut's own (a label replaced, a type)
 
 
 @dataclass(frozen=True)
@@ -285,11 +286,11 @@ DROTE = "Direção Regional do Ordenamento do Território (DROTe), Região Autó
 
 
 def _island(name: str, island: str, member: str, crs: str, crs_name: str, nodata: Tuple[float, ...],
-            sea: Optional[float], about: str, floor: Optional[float] = None) -> Dataset:
+            sea: Optional[float], about: str, floor: Optional[float] = None, card_changes: str = "") -> Dataset:
     """One island of Madeira's 5 m ZIP as a dataset of its own (the SNIG record abba9a83)."""
     product = Product("dtm", 5.0, crs, (2.5, 2.5), (replace(PORTO_SANTO_ZIP, members=(member,)),),
                       f"MDT 5 m, {island} (DROTe, photogrammetry 2018-2019)", "as published (metres)",
-                      nodata=nodata, sea=sea, floor=floor,
+                      nodata=nodata, sea=sea, floor=floor, card_changes=card_changes,
                       about=f"{member} of {PORTO_SANTO_ZIP.url} ({crs_name}); {about}")
     return Dataset(name, f"{island}: DTM 5 m (DROTe, 2018-2019)", DROTE, "No conditions apply (SNIG record abba9a83)",
                    f"DTM 5 m: {DROTE}, 2018-2019", (product,), record=MADEIRA_5M_RECORD, not_endorsed="DROTe")
@@ -323,10 +324,13 @@ DATASETS: Dict[str, Union[Dict, Dataset]] = {
     # 2026-11-15, the rule of IGN's overseas models); Porto Santo's lowest land is -0.84 m, no floor
     "porto-santo": _island("porto-santo", "Porto Santo", "PortoSanto_5m.tif", "EPSG:3061",
                            "Porto Santo 1995 / UTM zone 28N, EPSG:3061", (), 0.0,
-                           "Porto Santo and its islets; the sea written as 0 there"),
+                           "Porto Santo and its islets; the sea written as 0 there",
+                           card_changes="the values, float64 in the file, stored as float32 (within those 5 mm)"),
     "desertas": _island("desertas", "Desertas", "Desertas_5m.tif", "EPSG:5016",
                         "PTRA08 / UTM zone 28N, EPSG:5016; the file is labelled EPSG:3061", (-32768.0, -999.0), None,
-                        "Deserta Grande, Bugio and Ilhéu Chão", floor=-1.0),
+                        "Deserta Grande, Bugio and Ilhéu Chão", floor=-1.0,
+                        card_changes="the file's reference-system label replaced: it is labelled EPSG:3061, its "
+                                     "coordinates are in EPSG:5016 (PTRA08 / UTM zone 28N); nothing reprojected"),
     "selvagens": _island("selvagens", "Selvagens", "Selvagens_5m.tif", "EPSG:5016",
                          "PTRA08 / UTM zone 28N, EPSG:5016", (-32768.0, -999.0), None,
                          "Selvagem Grande, Selvagem Pequena and Ilhéu de Fora", floor=-1.0),
@@ -1925,7 +1929,8 @@ def card_text(ds: Dataset, out: Optional[str] = None) -> str:
                   + (f", the inputs joined where they meet ({rule})" if joined else "")
                   + f"; {', '.join(masks[:-1]) + ' and ' + masks[-1] if len(masks) > 1 else masks[0]} made no "
                   "data; stored with LERC compression with a maximum error of "
-                  f"5 mm. Heights {product.heights}; values are not otherwise changed."
+                  "5 mm" + (f"; {product.card_changes}" if product.card_changes else "")
+                  + f". Heights {product.heights}; values are not otherwise changed."
                   + (f" Cut without {len(missing)} sheets the provider did not deliver: {', '.join(missing)}."
                      if missing else ""), ""]
     lines += [f"Layout: `<product>/<res>m/<i//10>_<j//10>/<i>_<j>.tif`; `<product>/<res>m/index.json` lists every "
