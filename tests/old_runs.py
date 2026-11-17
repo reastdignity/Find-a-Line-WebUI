@@ -17,6 +17,7 @@ disk notice). The kinds:
 - "no_view": saved between wave 2 and view B1: the text files and a store without the view's columns;
 - "with_text": saved between view B1 and wave 4: the current store and the text files (not old by 2.2).
 `make_running`, `make_unsaved`, `newer_store` and `make_leftovers` make the other folders remove-old meets.
+`data_js(folder)` gives the value data.js would hold (window.FINDALINE_RUN) for tests that read its rows.
 """
 
 import json
@@ -48,8 +49,9 @@ def _write_meta(folder, meta: dict):
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
-def write_scripts(folder, files=("data.js", "lines.js")):
-    """data.js and lines.js of a run with a store, as mapping.save_map wrote them before store wave 4."""
+def write_scripts(folder, files=("data.js", "lines.js"), out=None):
+    """data.js and lines.js of a run with a store, as mapping.save_map wrote them before store wave 4, into the run
+    folder (or the folder `out`)."""
     import linestore
     import mapping
     folder = str(folder)
@@ -60,7 +62,7 @@ def write_scripts(folder, files=("data.js", "lines.js")):
     heads = (mapping._script_head("window.FINDALINE_RUN", {**data, "lines": None}),
              mapping._script_head(target, {"crs": data["crs"], "area": data["area"], "terrain": data["terrain"],
                                            **mapping._ends(meta), "lines": None}))
-    mapping.write_map_scripts(lines, folder, heads, files=tuple(files))
+    mapping.write_map_scripts(lines, str(out or folder), heads, files=tuple(files))
 
 
 def write_text(folder, files=("lines.csv", "lines.geojson")):
@@ -189,3 +191,13 @@ def copy_run(run_folder, runs_dir, run_id: str) -> Path:
         head = table.schema.metadata[linestore.META_KEY].decode("utf-8").replace(old, run_id)
         linestore._write_file(str(path), table.replace_schema_metadata({linestore.META_KEY: head.encode("utf-8")}))
     return target
+
+
+def data_js(folder) -> dict:
+    """The value of the data.js a run with a store had before store wave 4 (its head and "lines": a row per line,
+    the profile last or null), made in a temporary folder: the run folder is left as it is."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="data-js-") as out:
+        write_scripts(folder, ("data.js",), out)
+        text = (Path(out) / "data.js").read_text("utf-8")
+    return json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))

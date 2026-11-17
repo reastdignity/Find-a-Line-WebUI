@@ -153,9 +153,10 @@ def test_drawn_area_through_the_queue(tmp_path, monkeypatch):
          *[a for k, v in common.items() for a in ("--" + k.replace("_", "-"), str(v))]],
         cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=dict(os.environ))
     assert cli.returncode == 0, cli.stdout + cli.stderr
-    cli_csv = next((tmp_path / "cli" / "runs").glob("*/lines.csv"))
-    lines = (folder / "lines.csv").read_bytes()
-    assert len(lines.splitlines()) > 10 and lines == cli_csv.read_bytes()
+    import clip_runs
+    cli_run = next((tmp_path / "cli" / "runs").glob("*/run.json")).parent
+    lines = clip_runs.export_text(folder)  # the runs' lines.csv before store wave 4
+    assert len(lines.splitlines()) > 10 and lines == clip_runs.export_text(cli_run)
 
 
 def test_jobs_database_migrated(tmp_path):
@@ -303,7 +304,8 @@ def test_job_through_the_queue(tmp_path, monkeypatch):
     steps = {e["data"]["step"].split(":")[0] for e in jobs.events(0, job) if e["kind"] == "progress"} - {""}
     assert steps == {f"Step {n}/5" for n in range(1, 6)}, steps
     stages = {e["data"]["stage"] for e in jobs.events(0, job) if e["kind"] == "progress"}
-    assert {"checking lines", "coordinates", "saving results", "saving the map"} <= stages, stages
+    assert {"checking lines", "coordinates", "saving results"} <= stages, stages  # "saving the map": gone with
+    assert "saving the map" not in stages  # store wave 4 (map.html is one small file, written in "saving results"'s step)
 
 
 def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
@@ -591,8 +593,9 @@ def test_orthophoto_after_done_in_the_worker(tmp_path, monkeypatch, http_server,
     db.close()
     assert steps.get("orthophoto", 0) > 0 and steps["5"] > 0, steps
     assert not os.path.exists(jobs.folder(job))
-    data = (tmp_path / "runs" / row["run_id"] / "data.js").read_text(encoding="utf-8")
-    assert json.loads(data.partition(" = ")[2].rstrip().rstrip(";"))["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256"
+    import linestore  # the map's orthophoto entry: the store's head (data.js's before store wave 4)
+    head = linestore.read(str(tmp_path / "runs" / row["run_id"]), profiles=False)[1]
+    assert head["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256"
 
     # The step failing: the job stays done with its run; a warning event and a line on stderr
     def broken(plan, spots, confirm=None):
@@ -1030,8 +1033,12 @@ def _clip_run(tmp_path, monkeypatch, *extra) -> str:
 
 
 def _lines_of(tmp_path, run_id):
-    text = (tmp_path / "runs" / run_id / "data.js").read_text(encoding="utf-8")
-    return json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    """The rows of a run's lines as its data.js held them (since store wave 4 made from its store: old_runs)."""
+    import old_runs
+    folder = tmp_path / "runs" / run_id
+    if (folder / "data.js").is_file():  # an old run
+        return json.loads((folder / "data.js").read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    return old_runs.data_js(folder)["lines"]
 
 
 def test_profile_on_demand(tmp_path, monkeypatch):
@@ -1617,7 +1624,12 @@ def _map_page(folder, name: str, script: str, before_data: str = "", after_data:
     """A copy of the run's map.html with test scripts (`before_data` first in its head, `after_data` between
     data.js and the viewer, `script` at the end); its file name. data.js is loaded by a tag before the viewer,
     as a map.html written before 2026-11-04 does (the viewer takes its window.FINDALINE_RUN), so `after_data`
-    can change the data; test_run_map_loads_its_data has the viewer load it."""
+    can change the data; test_run_map_loads_its_data has the viewer load it. A page that loads data.js by a tag is
+    an old run's: a run saved since store wave 4 is made one first (tests/old_runs.py "with_text": its data.js,
+    lines.js and the text files its Download links fetch, as the run of before held them)."""
+    import old_runs
+    if not (folder / "data.js").is_file():
+        old_runs.make_old(folder, "with_text")
     page = (folder / "map.html").read_text(encoding="utf-8")
     assert "<style" not in page and " style=" not in page and 'src="data.js"' not in page
     for suffix, content in (("before", before_data), ("after", after_data), ("test", script)):
@@ -1685,10 +1697,11 @@ def test_run_map(tmp_path, monkeypatch):
     assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", r["measuredFacts"]), r
     assert r["measuringHint"] == ["Select a line on the map or in the list.", True], r
     assert _violations(dom) == []
-    index = (tmp_path / "runs" / "index.html").read_text(encoding="utf-8")
-    assert "<style" not in index and "_viewer/index.css" in index and XSS_NAME not in index
+    # no runs/index.html since store wave 4 (the app lists the runs); runs.js lists both, the name as JSON
+    assert not (tmp_path / "runs" / "index.html").exists()
     assert os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
-    assert other in index
+    listed = (tmp_path / "runs" / "runs.js").read_text(encoding="utf-8")
+    assert other in listed and json.dumps(XSS_NAME, ensure_ascii=False) in listed
 
 
 # A map on a phone's width with the satellite map's key: the data credits folded behind their button, the tile
@@ -1797,10 +1810,14 @@ run({
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_run_map_from_disk(tmp_path, monkeypatch):
     """A run's map.html opened from disk (file://): the way back is the list of runs beside it, no measuring or
-    favourites (no server), the saved profile of a line, its hash, and another run compared from its lines.js."""
+    favourites (no server), the saved profile of a line, its hash, and another run compared from its lines.js. Old
+    runs (saved before store wave 4, tests/old_runs.py) open so from disk until item 5 ends the reader of data.js."""
     import subprocess
+
+    import old_runs
     run_id = _clip_run(tmp_path, monkeypatch)
-    _clip_run(tmp_path, monkeypatch, "--easting", "554066")
+    other = _clip_run(tmp_path, monkeypatch, "--easting", "554066")
+    old_runs.make_old(tmp_path / "runs" / other, "with_text")
     folder = tmp_path / "runs" / run_id
     page = _map_page(folder, "disk_test", DISK_SCRIPT, before_data=INTROS_SEEN, after_data=CREDITS_STUB)
     dom = subprocess.run(
@@ -1850,6 +1867,8 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
     rows = len(_lines_of(tmp_path, run_id))
+    import old_runs  # since store wave 4 an old run's (saved before the store: tests/old_runs.py) until item 5
+    old_runs.make_old(folder, "with_text")
     import runs as rn  # data.js is what this test loads: the run as one without a store (a store is read instead)
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     meta.pop("store", None)
@@ -2822,19 +2841,18 @@ HTML_EN = '<!doctype html>\n<html lang="en">'  # a page's first two lines
 
 def test_pages_say_their_language(tmp_path):
     """Every page the app writes or serves names its language, English (report defect 11: the app, the 3D view, a
-    run's own map, the runs' list and the latest-run redirect had no lang): the templates, the pages runs.py writes,
-    and the app's page as served."""
+    run's own map, the runs' list and the latest-run redirect had no lang): the templates and the app's page as
+    served. runs.py writes no page since store wave 4 (no runs/index.html, no latest-run redirect: runs.js only)."""
     import mapping
     for name in ("APP_HTML", "COVERAGE_HTML", "VIEW3D_HTML", "SIGNIN_HTML", "PAGE_HTML"):
         assert getattr(web, name).startswith(HTML_EN), name
     assert mapping.MAP_HTML.startswith(HTML_EN)
-    import runs  # the runs' list and the latest-run redirect, written by runs.py
+    import runs
     folder = tmp_path / "runs"
     folder.mkdir()
-    runs.write_index(str(folder), viewer=False)
-    runs.write_latest_redirect(str(tmp_path / "latest.html"), str(folder / "x" / "map.html"))
-    for page in (folder / "index.html", tmp_path / "latest.html"):
-        assert page.read_text(encoding="utf-8").startswith(HTML_EN), page
+    runs.write_index(str(folder))
+    assert sorted(os.listdir(folder)) in (["runs.js"], ["_runs.lock", "runs.js"])
+    assert not hasattr(runs, "write_latest_redirect")
     app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
     with TestClient(app, base_url=LOCAL) as client:
         assert '<html lang="en">' in client.get("/").text

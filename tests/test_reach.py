@@ -5,7 +5,6 @@ local files), the quick lane's answer on the public site (Redact) and the warm-u
 
 import base64
 import copy
-import csv
 import hashlib
 import json
 import math
@@ -49,8 +48,7 @@ def clip_data(tmp_path_factory):
         "--nmpt", "off", "--model", "sag"])
     run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     meta = json.loads((data / "runs" / run / "run.json").read_text("utf-8"))
-    with open(data / "runs" / run / "lines.csv", encoding="utf-8-sig", newline="") as f:
-        rows = list(csv.DictReader(f))
+    rows = clip_runs.export_rows(data / "runs" / run)  # its lines.csv before store wave 4
     ends = Counter()
     for row in rows:
         ends[(row["anchor1_lat"], row["anchor1_lon"])] += 1

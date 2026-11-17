@@ -692,8 +692,8 @@ def clip_run(tmp_path_factory):
 
 
 def copy_run(clip_run, data_dir, run_id: str, name: str):
-    """The clip's run as another run of a data folder (its id and name changed; its id in data.js and in its
-    store's head too, as the page reads either)."""
+    """The clip's run as another run of a data folder (its id and name changed; its id in its store's head too, and
+    in data.js and lines.js of an old run, tests/old_runs.py, as the page reads either)."""
     import hashlib
     import shutil
     import pyarrow as pa
@@ -702,8 +702,9 @@ def copy_run(clip_run, data_dir, run_id: str, name: str):
     shutil.copytree(clip_run, folder)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta.update(id=run_id, name=name)
-    data = (folder / "data.js").read_text("utf-8").replace(clip_run.name, run_id)
-    (folder / "data.js").write_text(data, "utf-8")
+    for script in ("data.js", "lines.js"):  # an old run's (saved before store wave 4)
+        if (folder / script).is_file():
+            (folder / script).write_text((folder / script).read_text("utf-8").replace(clip_run.name, run_id), "utf-8")
     if meta.get("store"):
         path = folder / linestore.LINES_FILE
         with pa.OSFile(str(path), "rb") as f:
@@ -723,10 +724,13 @@ RUN_A, RUN_B, RUN_OLD = "2026-10-01_100000_A_00000000000000aa", "2026-10-01_1000
 @pytest.fixture
 def run_people(tmp_path, clip_run, settings, account_settings, providers):
     """A public app over a data folder with a run of A, one of B and one from before the public mode
-    (no row: given to the first administrator when the app starts), with a client per person."""
+    (no row: given to the first administrator when the app starts), with a client per person. The runs hold every
+    file of web.RUN_FILES: runs of before store wave 4 (tests/old_runs.py "with_text"), which the site serves until
+    item 5 ends their reader."""
+    import old_runs
     from jobs import Jobs
     for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run"), (RUN_OLD, "Old run")):
-        copy_run(clip_run, tmp_path, run_id, name)
+        old_runs.make_old(copy_run(clip_run, tmp_path, run_id, name), "with_text")
     (tmp_path / "runs" / RUN_A / "progress.json").write_text("{}")
     (tmp_path / "runs" / RUN_A / "tiles").mkdir()
     (tmp_path / "runs" / RUN_A / "tiles" / "0.pkl.gz").write_bytes(b"x")
@@ -3058,8 +3062,11 @@ def test_names_paths_and_profiles(run_people, clip_run, tmp_path, account_settin
     assert users.sign_in("github", "99", "Eve‮gnp.exe").name == "Evegnp.exe"
 
     folder = os.path.join(REPO, "tests", "data")
-    for name in ("lines.geojson", "ATTRIBUTION.txt", "data.js", "map.html"):
-        text = (clip_run / name).read_text("utf-8")
+    import clip_runs  # the run's own files, its store (the head data.js had before store wave 4) and its exports
+    texts = {name: (clip_run / name).read_bytes().decode("utf-8", "replace")
+             for name in ("ATTRIBUTION.txt", "lines.arrow", "profiles.arrow", "map.html")}
+    texts["export.geojson"] = clip_runs.export_text(clip_run, "geojson").decode("utf-8")
+    for name, text in texts.items():
         for form in (folder, folder.replace("\\", "/"), json.dumps(folder)[1:-1]):
             assert form not in text, (name, form)
     meta = json.loads((clip_run / "run.json").read_text("utf-8"))
@@ -3702,9 +3709,9 @@ def test_no_server_paths_in_public_events(tmp_path, monkeypatch):
 
 
 def test_runs_list_written_locally_only(tmp_path, monkeypatch):
-    """runs.write_index (runs.js and index.html of the runs folder, which only the local app and maps
-    opened from disk read) after a local job's run, not after a public one's; the viewer is installed
-    once a run (by its map)."""
+    """runs.write_index (runs.js of the runs folder, which only the local app and maps read; no index.html since
+    store wave 4) after a local job's run, not after a public one's; the viewer is installed once a run (by its
+    map)."""
     import jobs as jb
     import mapping
     _phase_in_this_process(monkeypatch)
@@ -3722,7 +3729,7 @@ def test_runs_list_written_locally_only(tmp_path, monkeypatch):
             jb.run_phase(str(data), job, phase, None, public)
         assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
         runs = data / "runs"
-        assert os.path.exists(runs / "runs.js") == os.path.exists(runs / "index.html") == (not public)
+        assert os.path.exists(runs / "runs.js") == (not public) and not os.path.exists(runs / "index.html")
         assert os.path.exists(runs / "_viewer" / "viewer.js") and installed == [str(runs)]
         installed.clear()
     listed = (tmp_path / "local" / "runs" / "runs.js").read_text("utf-8")
@@ -4101,7 +4108,7 @@ def test_view3d_permissions_policy(tmp_path, settings, account_settings, provide
 
 def test_satellite_key_in_no_saved_file(tmp_path):
     """A search run with the satellite map's key in its environment writes it nowhere: not into the run's files
-    (map.html, data.js, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
+    (map.html, the store, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
     import subprocess
     env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
            "ESRI_API_KEY": ESRI_KEY}
@@ -4113,7 +4120,7 @@ def test_satellite_key_in_no_saved_file(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert ESRI_KEY not in result.stdout + result.stderr
     files = [os.path.join(top, name) for top, _, names in os.walk(tmp_path) for name in names]
-    assert any(f.endswith("data.js") for f in files) and any(f.endswith("ATTRIBUTION.txt") for f in files)
+    assert any(f.endswith("lines.arrow") for f in files) and any(f.endswith("ATTRIBUTION.txt") for f in files)
     for path in files:
         with open(path, "rb") as f:
             assert ESRI_KEY.encode() not in f.read(), path

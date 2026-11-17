@@ -1474,15 +1474,21 @@ def clip_folder(tmp_path_factory):
 
 
 def _clip_folder(tmp_path_factory, name: str):
-    """A copy of the folder of clip_data's run (the search runs once per session)."""
+    """A copy of the folder of clip_data's run (the search runs once per session), a run of before store wave 4:
+    its data.js, lines.js and text files beside its store (tests/old_runs.py "with_text"), which these tests of the
+    page's reader of data.js compare the store with until item 5."""
     import clip_runs
+    import old_runs
     tests_data = os.path.join(REPO, "tests", "data")
     data = clip_runs.data_copy(tmp_path_factory, name, [
         "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
         "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
         "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
         "--ortho", "never"])
-    return next((data / "runs").glob("*/data.js")).parent
+    folder = next((data / "runs").glob("*/run.json")).parent
+    if not (folder / "data.js").is_file():
+        old_runs.make_old(folder, "with_text")
+    return folder
 
 
 def test_store_gives_the_rows_values(tmp_path, store_cases):

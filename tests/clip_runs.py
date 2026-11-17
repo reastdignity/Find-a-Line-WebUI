@@ -141,3 +141,23 @@ def output_of(tmp_path_factory, args: Sequence[str]) -> str:
     stored with its result: a test of what a search prints needs no findaline.py of its own."""
     root = store_root(tmp_path_factory)
     return json.loads((root / key_of([str(a) for a in args]) / "result.json").read_text("utf-8"))["output"]
+
+
+def export_text(folder, fmt: str = "csv") -> bytes:
+    """The CSV (or GeoJSON) of a run folder as `findaline.py export` makes it (linestore.export, into a scratch file
+    beside the run folder: never into it): since store wave 4 a run keeps no lines.csv, and this is its text."""
+    import linestore
+    folder = Path(folder)
+    out = folder.parent / f".{folder.name}.export.{fmt}"
+    try:
+        linestore.export(str(folder), fmt, str(out))
+        return out.read_bytes()
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def export_rows(folder) -> list:
+    """The rows of a run folder's CSV export as csv.DictReader reads them (the lines.csv of before store wave 4)."""
+    import csv
+    import io
+    return list(csv.DictReader(io.StringIO(export_text(folder).decode("utf-8-sig"), newline="")))
