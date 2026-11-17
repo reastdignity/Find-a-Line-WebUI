@@ -410,8 +410,8 @@ def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, fi
     if "ATTRIBUTION.txt" in files:
         with open(os.path.join(run_path, "ATTRIBUTION.txt"), "w", encoding="utf-8") as f:
             f.write(attribution_text(meta))
-    if "run.json" in files:
-        with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
+    if "run.json" in files:  # whole or not at all (cache.replacing): since store wave 4 it marks a run saved
+        with cache.replacing(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
         on_lines(0, "run.json")
 
@@ -429,6 +429,8 @@ def list_runs(runs_dir: str, only: Optional[Iterable[str]] = None) -> List[Dict]
     runs = []
     if os.path.isdir(runs_dir):
         for run_id in os.listdir(runs_dir) if only is None else set(only):
+            if run_id.startswith((".", "_")):  # no run: the viewer, the lock, a folder being removed (park_run)
+                continue
             path = os.path.join(runs_dir, run_id, "run.json")
             if os.path.isfile(path):
                 with open(path, encoding="utf-8") as f:
@@ -507,52 +509,105 @@ RUNNING = "a tiled search still running"
 BEING_SAVED = "being saved: no run.json"
 NEWER = "made by a newer Find-a-Line"
 UNREADABLE_META = "its run.json cannot be read"
+CANNOT_READ = "cannot read now"
+REMOVING = "_removing-"  # a run folder renamed for its removal (park_run): no run any more, its bytes still there
+VIEW_FAILED = "view_columns_failed"  # run.json's key: the run's view columns failed at saving (a current run)
 
 
 def old_runs(runs_dir: str) -> Dict[str, list]:
     """The runs of a runs folder sorted for `findaline.py runs remove-old` (docs/line-volume/spec-store.md 2.2): "old"
     (a dict per run: id, created, lines, bytes, unreadable) are the folders with run.json and no store of today
-    (linestore.store_state: missing, old or unreadable, the last marked "unreadable"); "current" the ids of the runs
-    with today's store; "skipped" (id, reason): a folder without run.json (being saved: save_run writes it last), a
-    tiled search whose progress.json says "running", a store of a newer Find-a-Line, a run.json that cannot be read.
-    Folders starting with "." or "_" (the viewer, the lock) are no runs. Reads only: the caller holds
-    cache.runs_lock. linestore (pyarrow) is imported here, never by importing runs (the web process imports runs)."""
-    import linestore
-    found = {"old": [], "current": [], "skipped": []}
+    (linestore.store_state: missing, old or unreadable, the last marked "unreadable"; a store of today's format
+    without the view's columns is old unless run.json says its view columns failed at saving, VIEW_FAILED: such a run
+    was saved by today's code and opens in today's page); "current" the ids of the runs with today's store;
+    "skipped" (id, reason): a folder without run.json (being saved: save_run writes it last), a tiled search whose
+    progress.json says "running", a store of a newer Find-a-Line, a run.json that cannot be read, a store that cannot
+    be read now (a file held, a disk error: never taken for a broken one); "removing" the names of folders a removal
+    left behind (REMOVING: renamed, not deleted yet). Folders starting with "." or "_" (the viewer, the lock) are no
+    runs. Reads only: the caller holds cache.runs_lock. linestore (pyarrow) is imported here, never by importing runs
+    (the web process imports runs)."""
+    found = {"old": [], "current": [], "skipped": [], "removing": []}
     if not os.path.isdir(runs_dir):
         return found
     for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+        if entry.name.startswith(REMOVING) and entry.is_dir(follow_symlinks=False):
+            found["removing"].append(entry.name)
+            continue
         if not entry.is_dir() or entry.name.startswith((".", "_")):
             continue
-        meta_path = os.path.join(entry.path, "run.json")
-        if not os.path.isfile(meta_path):
-            found["skipped"].append((entry.name, BEING_SAVED))
-            continue
-        try:
-            with open(os.path.join(entry.path, "progress.json"), encoding="utf-8") as f:
-                running = json.load(f).get("status") == "running"
-        except (OSError, ValueError, AttributeError):
-            running = False
-        if running:
-            found["skipped"].append((entry.name, RUNNING))
-            continue
-        try:
-            with open(meta_path, encoding="utf-8") as f:
-                meta = json.load(f)
-            lines = int((meta.get("summary") or {}).get("lines") or 0)
-        except (OSError, ValueError, TypeError, AttributeError):
-            found["skipped"].append((entry.name, UNREADABLE_META))
-            continue
-        state = linestore.store_state(entry.path)
+        state, meta = run_state(entry.path)
         if state == "current":
             found["current"].append(entry.name)
-        elif state == "newer":
-            found["skipped"].append((entry.name, NEWER))
-        else:
+        elif state in ("old", "unreadable"):
             found["old"].append({"id": entry.name, "created": cache.utc_iso(meta.get("created")) or "",
-                                 "lines": lines, "bytes": folder_bytes(entry.path),
-                                 "unreadable": state == "unreadable"})
+                                 "lines": int((meta.get("summary") or {}).get("lines") or 0),
+                                 "bytes": folder_bytes(entry.path), "unreadable": state == "unreadable"})
+        else:
+            found["skipped"].append((entry.name, state))
     return found
+
+
+def run_state(folder: str) -> tuple:
+    """(state, run.json) of a run folder for old_runs: "current", "old", "unreadable" (a store that is no Arrow file
+    of ours: old too), or the reason it is skipped (BEING_SAVED, RUNNING, UNREADABLE_META, NEWER, CANNOT_READ); the
+    run.json read ({} without one). Also the recheck of a run right before its removal (findaline.py runs_main)."""
+    import linestore
+    meta_path = os.path.join(folder, "run.json")
+    if not os.path.isfile(meta_path):
+        return BEING_SAVED, {}
+    try:
+        with open(os.path.join(folder, "progress.json"), encoding="utf-8") as f:
+            running = json.load(f).get("status") == "running"
+    except (OSError, ValueError, AttributeError):
+        running = False
+    if running:
+        return RUNNING, {}
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        int((meta.get("summary") or {}).get("lines") or 0)
+    except OSError:
+        return CANNOT_READ, {}
+    except (ValueError, TypeError, AttributeError):
+        return UNREADABLE_META, {}
+    state = linestore.store_state(folder)
+    if state == "no_view":
+        state = "current" if meta.get(VIEW_FAILED) else "old"
+    elif state == "missing":
+        state = "old"
+    return {"current": "current", "old": "old", "unreadable": "unreadable", "newer": NEWER,
+            "cannot_read": CANNOT_READ}[state], meta
+
+
+def park_run(runs_dir: str, run_id: str) -> Optional[str]:
+    """Rename a run's folder to REMOVING + its id, the first step of its removal (Jobs.delete_run, findaline.py
+    runs remove-old), under cache.runs_lock (the caller's): one rename on the same volume, so a rename that fails (a
+    file of the run held open on Windows) raises OSError and changes nothing, and a removal stopped later leaves no
+    half run: the renamed folder is no run (list_runs, adopt_runs, old_runs skip "_"), and the next remove-old
+    finishes it. Returns the renamed folder's path, None when the run has no folder."""
+    folder = os.path.join(runs_dir, run_id)
+    if not os.path.isdir(folder):
+        return None
+    parked = os.path.join(runs_dir, REMOVING + run_id)
+    if os.path.lexists(parked):  # a removal of the same id stopped before: finished first
+        finish_removal(parked)
+    os.rename(folder, parked)
+    return parked
+
+
+def finish_removal(parked: Optional[str]):
+    """Delete a folder park_run renamed (raises OSError when a file in it cannot be deleted now: the folder stays,
+    with what is left, for the next remove-old). A symbolic link or junction is removed itself, never followed."""
+    if not parked or not os.path.lexists(parked):
+        return
+    if os.path.islink(parked) or (hasattr(os.path, "isjunction") and os.path.isjunction(parked)):
+        if os.name == "nt":  # a link to a folder (a symbolic link or a junction) is removed as a folder there
+            os.rmdir(parked)
+        else:
+            os.unlink(parked)
+        return
+    import shutil
+    shutil.rmtree(parked)
 
 
 def write_index(runs_dir: str):
