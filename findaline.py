@@ -19,13 +19,18 @@ Run `python findaline.py --help` for all options. The cache commands
 the web application (`python findaline.py web`) is web.py, its worker as a process of
 its own (`python findaline.py worker`, with `web --no-worker`) jobs.py, the country layer
 (`python findaline.py country run|status|build|compare <id>`) country.py. `python findaline.py
-export RUN --format csv|geojson` (export_main) writes a run's lines as text from its store.
+export RUN --format csv|geojson` (export_main) writes a run's lines as text from its store, `python
+findaline.py view [RUN]` (view_main) opens a run in the local app, and `python findaline.py runs
+remove-old --dry-run|--yes` (runs_main) lists or deletes the runs saved before the store of today
+(docs/line-volume/spec-store.md 1.2 and section 2). A search ends with the `view` command of its run.
 """
 
 import gc
+import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
+from urllib.parse import quote
 
 import cache
 import mapping as mp
@@ -122,12 +127,13 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
     except search.SearchError as e:
         sys.exit(str(e))
 
-    html = options.html or os.path.join(paths.data, "findaline_map.html")
-    if result.map_path:
-        rn.write_latest_redirect(html, result.map_path)
-        print(f"Interactive map saved to {os.path.abspath(result.map_path)}")
-        print(f"Open {os.path.abspath(html)} in a web browser to see the latest run")
-    print(f"All runs: {os.path.abspath(os.path.join(paths.runs, 'index.html'))}")
+    # A run opens through the app (docs/line-volume/spec-store.md 1.2: no page of the latest run, no index.html
+    # since store wave 4); --html is accepted for one release (store U10) and only says so
+    # (a data folder given by --data-dir is named too: `view` would look in the default one)
+    view = f"findaline.py view {result.meta['id']}" + (f' --data-dir "{paths.data}"' if options.data_dir else "")
+    if options.html:
+        print(f"--html is no longer used: maps open through the app. View it: {view}")
+    print(f"View it: {view}")
     if not options.no_plot:
         mp.mapify(shown, plan.area)
 
@@ -188,6 +194,193 @@ def export_main(argv: List[str]) -> int:
     return 0
 
 
+def _run_folder(run: str, data_dir: str) -> str:
+    """The folder of a run of `findaline.py view`: a run folder (its data folder must hold it in runs/), a run id
+    of the data folder, or "" for the newest run there; ends with a message when there is none."""
+    runs_dir = os.path.join(data_dir, "runs")
+    if not run:
+        listed = rn.list_runs(runs_dir)
+        if not listed:
+            sys.exit(f"No run in {runs_dir}")
+        return os.path.join(runs_dir, listed[0]["id"])
+    if os.path.isfile(os.path.join(run, "run.json")):
+        folder = os.path.abspath(run)
+        if os.path.basename(os.path.dirname(folder)) != "runs":
+            sys.exit(f"view opens the runs of a data folder (<data>/runs/<id>); {folder} is not in one")
+        return folder
+    folder = os.path.join(runs_dir, run)
+    if os.path.basename(run) != run or not os.path.isfile(os.path.join(folder, "run.json")):
+        sys.exit(f"No run {run}: give a run folder or the id of a run in {runs_dir}")
+    return folder
+
+
+def app_holds(port: int, folder: str) -> Optional[bool]:
+    """Whether the app on `port` of this computer holds the run `folder`: None when nothing listens there, True
+    when the app's runs folder serves this run's run.json (the local app serves its runs folder as files: the same
+    id and time say the same data folder), False for any other answer (another data folder, the public site,
+    another program)."""
+    import socket
+
+    import requests
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(2)
+        if probe.connect_ex(("127.0.0.1", port)) != 0:
+            return None
+    with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
+        mine = json.load(f)
+    session = requests.Session()
+    session.trust_env = False  # no proxy for this computer's own port
+    try:
+        answer = session.get(f"http://127.0.0.1:{port}/runs/{quote(mine['id'])}/run.json", timeout=2)
+        theirs = answer.json() if answer.status_code == 200 else {}
+    except (requests.RequestException, ValueError):
+        return False
+    return isinstance(theirs, dict) and theirs.get("id") == mine["id"] and theirs.get("created") == mine["created"]
+
+
+def view_main(argv: List[str]) -> int:
+    """`findaline.py view [RUN] [--port N] [--data-dir DIR] [--no-browser]`: open a run in the app
+    (docs/line-volume/spec-store.md 1.2): the app on the port when it holds the run, else the app started here as
+    `findaline.py web` runs it (it keeps running; Ctrl+C stops it), the browser at /#run=<id>. An app on the port
+    that does not hold the run (another data folder, another program) ends with a message: never a second app."""
+    import argparse
+    import webbrowser
+
+    import web
+    parser = argparse.ArgumentParser(prog="findaline.py view", description="Open a run in Find-a-Line.")
+    parser.add_argument("run", metavar="RUN", nargs="?", default="",
+                        help="a run folder, or the id of a run in the data folder (default: the newest run)")
+    parser.add_argument("--port", type=int, default=web.PORT, help=f"the app's port (default {web.PORT})")
+    parser.add_argument("--data-dir", help="the data folder (default: FINDALINE_DATA, else the folder of the script)")
+    parser.add_argument("--no-browser", action="store_true", help="print the address, do not open the browser")
+    args = parser.parse_args(argv)
+    data = cache.data_dir(args.data_dir)
+    folder = _run_folder(args.run, data)
+    data = os.path.dirname(os.path.dirname(folder))
+    run_id = os.path.basename(folder)
+    path = f"/#run={quote(run_id)}"
+    held = app_holds(args.port, folder)
+    if held is False:
+        sys.exit(f"Port {args.port} answers, but not with this run: another Find-a-Line (another data folder) or "
+                 f"another program. Stop it, or use --port.")
+    if held is None:  # nothing there: the app, here, as findaline.py web runs it
+        return web.main(["--port", str(args.port), "--data-dir", data] + (["--no-browser"] if args.no_browser else []),
+                        open_path=path)
+    url = f"http://127.0.0.1:{args.port}{path}"
+    print(f"The run in Find-a-Line: {url}")
+    if not args.no_browser:
+        webbrowser.open(url)
+    return 0
+
+
+def _size(n: int) -> str:
+    """A size on disk in plain words: 45 MB, 1.2 GB."""
+    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
+
+
+def _number(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+def runs_main(argv: List[str]) -> int:
+    """`findaline.py runs remove-old (--dry-run | --yes) [--data-dir DIR]` (docs/line-volume/spec-store.md section 2):
+    the old runs of the data folder (runs.old_runs: no store of today) listed (--dry-run: nothing written at all,
+    the database read read-only, jobs.run_facts) or deleted (--yes: Jobs.delete_run with a jobs.sqlite, the folder
+    alone without one; then runs/index.html and findaline_map.html, which list or open old runs only, and runs.js
+    rewritten where it exists). The listing names runs by id and owners by user id only (never a name or an e-mail).
+    Old runs are removed, never converted, and only on the user's word after the list (store U5)."""
+    import argparse
+    import shutil
+
+    import jobs as jb
+    parser = argparse.ArgumentParser(prog="findaline.py runs", description="Commands on the saved runs.")
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    remove = verbs.add_parser("remove-old", description="List (--dry-run) or delete (--yes) the runs saved before the "
+                                                        "current store: they no longer open.")
+    how = remove.add_mutually_exclusive_group(required=True)
+    how.add_argument("--dry-run", action="store_true", help="list the old runs, delete nothing")
+    how.add_argument("--yes", action="store_true", help="delete the old runs listed by --dry-run")
+    remove.add_argument("--data-dir", help="the data folder (default: FINDALINE_DATA, else the folder of the script)")
+    args = parser.parse_args(argv)
+    data = cache.data_dir(args.data_dir)
+    runs_dir = os.path.join(data, "runs")
+    database = os.path.join(data, "jobs.sqlite")
+    if not os.path.isdir(runs_dir):  # nothing to list; no runs folder made by the lock
+        print(f"Old runs in {runs_dir}: 0")
+        return 0
+    failed = []
+    with cache.runs_lock(runs_dir):
+        found = rn.old_runs(runs_dir)
+        facts = jb.run_facts(database)
+        old = found["old"]
+        leftovers = [(name, path) for name, path in (("runs/index.html", os.path.join(runs_dir, "index.html")),
+                                                     ("findaline_map.html", os.path.join(data, "findaline_map.html")))
+                     if os.path.isfile(path)]
+        print(f"Old runs in {runs_dir}: {len(old)}"
+              + (" (saved before the current store; they will no longer open)" if old else ""))
+        if old:
+            with_db = os.path.isfile(database)
+            width = max(len(r["id"]) + (19 if r["unreadable"] else 0) for r in old)
+            head = f"{'Run id':<{width}}  {'Created':<16}  {'Lines':>11}  {'Size':>8}"
+            if with_db:
+                head += f"  {'Owner':>6}  Shared  Demo  Favourites"
+            print(head)
+            for r in old:
+                name = r["id"] + (" (store unreadable)" if r["unreadable"] else "")
+                row = (f"{name:<{width}}  {rn._local_time(r['created']):<16}  {_number(r['lines']):>11}  "
+                       f"{_size(r['bytes']):>8}")
+                if with_db:
+                    f = facts.get(r["id"], {})
+                    owner = "–" if f.get("user_id") is None else str(f["user_id"])
+                    row += (f"  {owner:>6}  {'yes' if f.get('shared') else 'no':<6}  {'yes' if f.get('demo') else 'no':<4}"
+                            f"  {f.get('favourites', 0):>10}")
+                print(row)
+            total = (f"Total: {len(old)} run{'s' if len(old) != 1 else ''}, "
+                     f"{_number(sum(r['lines'] for r in old))} lines, {_size(sum(r['bytes'] for r in old))}")
+            if with_db:
+                favourites = sum(facts.get(r["id"], {}).get("favourites", 0) for r in old)
+                searches = sum(facts.get(r["id"], {}).get("searches", 0) for r in old)
+                total += (f", {favourites} favourite line{'s' if favourites != 1 else ''}, {searches} "
+                          f"{'search leaves' if searches == 1 else 'searches leave'} the list on Home")
+            print(total + ".")
+        if leftovers:
+            print(f"Also deleted: {', '.join(name for name, _ in leftovers)} (they list or open old runs only).")
+        if found["skipped"]:
+            print(f"Skipped: {len(found['skipped'])}")
+            for run_id, reason in found["skipped"]:
+                print(f"  {run_id}: {reason}")
+        print(f"Kept: {len(found['current'])} run{'s' if len(found['current']) != 1 else ''} with the current store.")
+        if old and os.path.isfile(database):
+            print('Favourite lines in these runs are deleted with them. To keep them, export them first: Favourites '
+                  'in the app, "Export for the trip" (CSV or GeoJSON).')
+        if args.dry_run:
+            if old or leftovers:
+                print("Nothing was deleted (--dry-run). To delete these runs: findaline.py runs remove-old --yes"
+                      + (f' --data-dir "{data}"' if args.data_dir else ""))
+            return 0
+        jobs = jb.Jobs(data) if os.path.isfile(database) else None
+        for r in old:
+            try:
+                if jobs is not None:
+                    jobs.delete_run(r["id"], runs_dir)
+                else:
+                    shutil.rmtree(os.path.join(runs_dir, r["id"]))
+            except OSError as error:
+                failed.append(f"{r['id']}: {error}")
+        for name, path in leftovers:
+            try:
+                os.remove(path)
+            except OSError as error:
+                failed.append(f"{name}: {error}")
+    if os.path.isfile(os.path.join(runs_dir, "runs.js")):
+        rn.write_index(runs_dir)
+    gone = len(old) - sum(1 for text in failed if not text.startswith(("runs/index.html", "findaline_map.html")))
+    print(f"Deleted {gone} run{'s' if gone != 1 else ''}" + (f"; not deleted: {len(failed)}" if failed else "") + ".")
+    for text in failed:
+        print(f"  {text}")
+    return 1 if failed else 0
+
+
 if __name__ == "__main__":
     utf8_output()  # output redirected to a file gets the Windows code page, which has no "²" and the like
     if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
@@ -204,6 +397,10 @@ if __name__ == "__main__":
         sys.exit(country.main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "export":
         sys.exit(export_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "view":
+        sys.exit(view_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "runs":
+        sys.exit(runs_main(sys.argv[2:]))
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []

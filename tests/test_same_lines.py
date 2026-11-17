@@ -10,6 +10,7 @@ import csv
 import gc
 import glob
 import hashlib
+import io
 import json
 import os
 import sys
@@ -276,9 +277,23 @@ def _read(run: str, name: str) -> bytes:
         return f.read()
 
 
-def _script(run: str, name: str) -> dict:
-    text = _read(run, name).decode("utf-8")
-    return json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))
+def _export(run: str, fmt: str = "csv") -> bytes:
+    """The run's CSV or GeoJSON export (its lines.csv and lines.geojson before store wave 4)."""
+    import clip_runs
+    return clip_runs.export_text(run, fmt)
+
+
+def _store(run: str):
+    """(the store's lines as a LineTable, its head): data.js's rows and head before store wave 4."""
+    import linestore
+    return linestore.read(run, profiles=False)
+
+
+def _store_table(run: str):
+    """lines.arrow without its schema's metadata (the head names the run)."""
+    import pyarrow as pa
+    with pa.OSFile(os.path.join(run, "lines.arrow"), "rb") as f:
+        return pa.ipc.open_file(f).read_all().replace_schema_metadata(None)
 
 
 def _table_reference(table: sh.LineTable, side: float) -> dict:
@@ -293,18 +308,21 @@ def _table_reference(table: sh.LineTable, side: float) -> dict:
 
 @pytest.mark.parametrize("setting", list(SETTINGS))
 def test_search_with_the_option_off_as_before(tmp_path, setting):
-    """Option off: lines.csv byte for byte as before the option existed, and no file of the run knows
-    of it (no column, no value of a row, no key of run.json or of the scripts' heads)."""
+    """Option off: the CSV export byte for byte the lines.csv of before the option existed, and no file of the run
+    knows of it (no column, no value of a row, no key of run.json or of the store's head; the exports too)."""
     import search
     run, table, plan = _search(tmp_path, "off", **SETTINGS[setting])
-    assert hashlib.sha256(_read(run, "lines.csv")).hexdigest() == OFF_SHA256[setting]
+    assert hashlib.sha256(_export(run)).hexdigest() == OFF_SHA256[setting]
     assert COLUMN not in table.columns and plan.square == 0
     meta = json.loads(_read(run, "run.json"))
     assert "found" not in meta["summary"] and not [k for k in meta["params"] if k.startswith("same_line")]
-    for name in ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json"):
-        assert b"stands_for" not in _read(run, name) and b"same_line" not in _read(run, name), name
-    rows = len(sh.END_VALUES) if SETTINGS[setting] else 0
-    assert all(len(row) == 25 + rows + 1 for row in _script(run, "data.js")["lines"])
+    for name, text in (("csv", _export(run)), ("geojson", _export(run, "geojson")), *(
+            (name, _read(run, name)) for name in ("lines.arrow", "profiles.arrow", "run.json"))):
+        assert b"stands_for" not in text and b"same_line" not in text, name
+    stored, head = _store(run)
+    assert COLUMN not in stored.columns and "found" not in head and "square" not in head
+    assert set(sh.END_VALUES) <= set(stored.columns) if SETTINGS[setting] else \
+        not set(sh.END_VALUES) & set(stored.columns)
     assert "same_line_square" not in search._run_params(plan)
 
 
@@ -329,39 +347,35 @@ def test_search_keeps_one_line_per_pair_of_squares(tmp_path, setting):
     assert tiled_plan.tiles and len(glob.glob(os.path.join(tiled, "tiles", "*.pkl.gz"))) > 1
     one_thread, _, _ = _search(tmp_path, "one-thread", same_line_square=5, threads=1, **values)
     for other in (tiled, one_thread):
-        assert _read(other, "lines.csv") == _read(run, "lines.csv")
-        assert _script(other, "lines.js")["lines"] == _script(run, "lines.js")["lines"]
+        assert _export(other) == _export(run)
+        assert _store_table(other).equals(_store_table(run))  # lines.js's rows before store wave 4
         assert json.loads(_read(other, "run.json"))["summary"] == json.loads(_read(run, "run.json"))["summary"]
 
 
 def test_run_stores_the_count_and_the_side(tmp_path):
-    """A run made with the option: every line with the found lines it stands for (lines.csv's last
-    column, a property of lines.geojson, a value the scripts' heads name in "ends" before the profile),
+    """A run made with the option: every line with the found lines it stands for (the CSV export's last
+    column, a property of the GeoJSON export, a column of the store that its head names last in "ends"),
     run.json with the option, the side its squares had and the lines found."""
     values = SETTINGS["sag"]
     _, full, _ = _search(tmp_path, "off", **values)
     run, kept, plan = _search(tmp_path, "on", same_line_square=5, **values)
-    with open(os.path.join(run, "lines.csv"), encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
+    rows = list(csv.DictReader(io.StringIO(_export(run).decode("utf-8-sig"), newline="")))
     assert list(rows[0])[-1] == "stands_for" and len(rows) == len(kept)
     assert sum(int(r["stands_for"]) for r in rows) == len(full) and min(int(r["stands_for"]) for r in rows) >= 1
-    features = json.loads(_read(run, "lines.geojson"))["features"]
+    features = json.loads(_export(run, "geojson"))["features"]
     assert [f["properties"]["stands_for"] for f in features] == [int(r["stands_for"]) for r in rows]
     meta = json.loads(_read(run, "run.json"))
     assert meta["summary"]["lines"] == len(kept) and meta["summary"]["found"] == len(full)
     assert meta["params"]["same_line_square"] == 5 and meta["params"]["same_line_side"] == 5
     assert "one line per pair of 5 m anchor squares" in meta["description"]
-    data, short = _script(run, "data.js"), _script(run, "lines.js")
-    assert data["ends"] == short["ends"] == [*sh.END_VALUES, "stands_for"]
-    assert data["found"] == short["found"] == len(full)
-    at = 25 + data["ends"].index("stands_for")
-    assert sorted(row[at] for row in data["lines"]) == sorted(kept.columns[COLUMN].tolist())
-    assert [row[:-1] for row in data["lines"]] == short["lines"]
-    # the formula (no A-frame heights): the count alone before the profile
+    stored, head = _store(run)
+    assert head["ends"] == [*sh.END_VALUES, "stands_for"] and head["found"] == len(full) and head["square"] == 5
+    assert sorted(stored.columns[COLUMN].tolist()) == sorted(kept.columns[COLUMN].tolist())
+    # the formula (no A-frame heights): the count alone
     run, kept, _ = _search(tmp_path, "formula", same_line_square=5)
-    data = _script(run, "data.js")
-    assert data["ends"] == ["stands_for"] and all(len(row) == 27 for row in data["lines"])
-    assert sum(row[25] for row in data["lines"]) == data["found"] > len(kept)
+    stored, head = _store(run)
+    assert head["ends"] == ["stands_for"] and not set(sh.END_VALUES) & set(stored.columns)
+    assert int(stored.columns[COLUMN].sum()) == head["found"] > len(kept)
     # a coarser grid: the squares are as many pixels wide
     run, _, plan = _search(tmp_path, "coarse", same_line_square=5, resolution=2)
     assert plan.square == 10 and json.loads(_read(run, "run.json"))["params"]["same_line_side"] == 10

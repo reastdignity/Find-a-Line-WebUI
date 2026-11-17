@@ -890,6 +890,26 @@ only counts them; `cache status` says how many are left). It can run while the s
 be stopped at any tile; with nothing left it only reads the tiles' headers. `deploy/vps.sh update`
 runs it after the services started; a failure is listed at the end and leaves the site running.
 
+**Old runs: removed in two deploys** (store wave 4, docs/line-volume/spec-store.md section 2; the user's word of
+2026-11-14, "old runs removed - both on server and on this pc"). Since the first deploy a new run keeps its lines
+only in its store (`lines.arrow`, `profiles.arrow`, with `map.html`, `ATTRIBUTION.txt`, `run.json`), and the page
+still reads the `data.js` of the runs saved before, so every run opens. The old runs (every run without a store of
+the current format with the result view's columns) are then removed **only on the user's word, after the user has
+seen the list**; `deploy/vps.sh update` never removes a run:
+```sh
+docker compose exec -T worker python findaline.py runs remove-old --dry-run   # the list: deletes nothing
+docker compose exec -T worker python findaline.py runs remove-old --yes       # on the user's word
+```
+The list names each old run by its id, its time, its lines, its size, its owner's user id (never a name or an
+e-mail), whether it is shared or a demo and how many favourite lines point into it, with the totals. `--yes`
+deletes those folders with their rows (their share links and demo marks go with them) and their favourite lines;
+the searches that saved them leave their owners' list on Home (an administrator still sees them, marked); jobs,
+reports, folders of favourites, quotas and the cache stay. A user who wants to keep favourite lines saves them first
+with *Export for the trip*. Then the **demo** is made again: an administrator runs the demo search with the new code
+and marks its run (`POST /api/runs/<id>/demo`, the admin page), since the sign-in page shows no demo until then.
+Only after the removal on this server does the **second deploy** (the page without the reader of `data.js`) come
+here; until then old runs must stay readable.
+
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at
 the new address and run `sudo deploy/vps.sh setup` from the new place: it writes the backup's unit

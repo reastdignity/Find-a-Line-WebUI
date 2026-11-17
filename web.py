@@ -2750,7 +2750,9 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def main(argv: List[str]) -> int:
+def main(argv: List[str], open_path: str = "/") -> int:
+    """`findaline.py web`; open_path: the page the browser opens (`findaline.py view`: a run's result,
+    "/#run=<id>")."""
     import argparse
     parser = argparse.ArgumentParser(prog="findaline.py web", description="Find-a-Line in the browser.")
     parser.add_argument("--port", type=int, default=PORT, help=f"port (default {PORT})")
@@ -2802,7 +2804,7 @@ def main(argv: List[str]) -> int:
               f"separately (findaline.py worker --public)")
     else:
         server["proxy_headers"] = False  # no proxy in front of the local app
-        url = f"http://127.0.0.1:{args.port}/"
+        url = f"http://127.0.0.1:{args.port}{open_path}"
         print(f"Find-a-Line is running at {url} (close this window or press Ctrl+C to stop it)")
         if not args.no_browser:
             threading.Timer(1.5, webbrowser.open, args=(url,)).start()

@@ -2781,7 +2781,7 @@ def test_replacing(tmp_path):
 
 
 def test_shared_run_files_one_process_at_a_time(tmp_path):
-    """The viewer and the index of the runs folder are written by one process at a time
+    """The viewer and the list of the runs folder (runs.js) are written by one process at a time
     (cache.runs_lock): a run saved while another process holds the lock waits for it, then writes
     them. Two compute slots installing the viewer at once failed on Windows (PermissionError of
     os.replace while the other process had the file open), seen in test_two_jobs_computing_at_once."""
@@ -2791,6 +2791,7 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     code = ("import sys; sys.path.insert(0, sys.argv[1]); import mapping, runs\n"
             "open(sys.argv[3], 'w').close()\n"
+            "mapping.install_viewer(sys.argv[2])\n"  # as save_run's map.html, then the list
             "runs.write_index(sys.argv[2])\n")
     started = tmp_path / "started"
     with cache.runs_lock(str(runs_dir)):
@@ -2806,7 +2807,7 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
         assert not (runs_dir / "runs.js").exists() and not (runs_dir / "_viewer" / "viewer.js").exists()
     assert child.wait(timeout=120) == 0
     assert (runs_dir / "runs.js").read_text(encoding="utf-8") == "window.FINDALINE_RUNS = [];\n"
-    assert (runs_dir / "index.html").exists() and (runs_dir / "_viewer" / "viewer.js").exists()
+    assert (runs_dir / "_viewer" / "viewer.js").exists() and not (runs_dir / "index.html").exists()  # store wave 4
 
 
 def test_labels_topics_and_presets():
@@ -3538,99 +3539,3 @@ def _batch_profiles(n: int, rng) -> "sh.Profiles":
     for k, (lo, hi) in enumerate(zip(offsets[:-1].tolist(), offsets[1:].tolist())):
         flags[k] = (1 if w[lo:hi].any() else 0) | (2 if g[lo:hi].any() else 0) | (4 if np.isnan(z[lo:hi]).any() else 0)
     return sh.Profiles(offsets, d, z, s, w, g, small, flags)
-
-
-def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
-    """saving.py: the line files of a run written by child processes (one per file, or the
-    results' apart from the map's) are byte for byte those save_results and save_map write in
-    one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
-    a lift ("zone", "lift"), the A-frame heights of a run with those options, the found lines each
-    line stands for of a run with the square rule (an int64 column), the access mark of a run with --access
-    (two uint8 columns), profiles that
-    are dicts, lines without one and values hard to round; the children's progress reaches the Compute bars
-    "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
-    removed; a failing child raises RuntimeError naming its file."""
-    import os
-    from shapely.geometry import Point
-    import mapping as mp
-    import runs as rn
-    import saving
-    from progress import progress
-
-    class Area:
-        center = (50.0, 19.1)
-
-        @staticmethod
-        def shape_wgs84():
-            return Point(19.1, 50.0).buffer(0.01)
-
-    rng = np.random.default_rng(7)
-    n = 50_000
-    lines = _fake_lines(n)
-    hard = np.array(HARD_FLOATS)
-    for shift, name in enumerate(["length", "clearance", "clearance_nmpt", "height_max", "high_pct", "prom1", "drop2"]):
-        lines.columns[name][:len(hard)] = np.roll(hard, shift)
-    lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
-    # a run with --end-zone and --anchor-lift: the A-frame heights of every line, hard ones among them
-    lines.columns["lift_needed"] = np.round(rng.random(n) * 2, 3)
-    lines.columns["lift_no_zone"] = lines.columns["lift_needed"] + rng.random(n) * 5
-    lines.columns["lift_no_zone"][:len(hard)] = np.roll(hard, 3)
-    lines.columns["stands_for"] = np.random.default_rng(8).integers(1, 5000, n).astype(np.int64)  # --same-line-square
-    for name in ("access1", "access2"):  # --access: each anchor's answer, 0 to 2 (uint8)
-        lines.columns[name] = rng.integers(0, 3, n).astype(np.uint8)
-    batch = _batch_profiles(n, rng)
-    zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
-    zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
-    lines.profiles = {k: (zoned if k % 3 == 0 else batch)[k] for k in range(n) if k % 7}
-    assert "zone" in lines.profiles[3].as_dict() and "zone" not in lines.profiles[1].as_dict()
-    lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
-    members = rng.permutation(n).astype(np.int64)
-    start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
-    rep = np.array([members[rng.integers(a, b)] if b > a else n + g for g, (a, b) in enumerate(zip(start[:-1], start[1:]))],
-                   dtype=np.int64)
-    groups = mp.Groups(rep, members, start)
-    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00",
-            "summary": {"lines": n, "found": int(lines.columns["stands_for"].sum())},
-            "attribution": [], "source": {"id": "files"},
-            "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2, "same_line_side": 5, "access": True},
-            "data": [{"file": "C:/a/b.tif"}]}
-    one = tmp_path / "one"
-    one.mkdir()
-    rn.save_results(str(one), lines, groups, meta)
-    mp.save_map(lines, Area, str(one), str(tmp_path / "runs"), meta, "EPSG:2180")
-    files = ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json", "ATTRIBUTION.txt", "map.html")
-    assert sorted(os.listdir(one)) == sorted(files)
-    assert (one / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[0].endswith(",access1,access2,stands_for")
-
-    work = tmp_path / "work"
-    for count in (4, 2):
-        folder = tmp_path / f"children{count}"
-        folder.mkdir()
-        heads = mp.map_heads(Area, str(folder / "map.html"), meta, "EPSG:2180")
-        states = []
-        progress.subscribe(states.append)
-        try:
-            saving.save(str(work), str(folder), lines, groups, meta, heads, saving.plan(count),
-                        lambda: rn.save_results(str(folder), lines, groups, meta, files=("ATTRIBUTION.txt", "run.json")))
-        finally:
-            progress.unsubscribe(states.append)
-        mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), meta, "EPSG:2180", files=("map.html",))
-        for name in files:
-            assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
-        assert b"lift_no_zone_m" in (folder / "lines.csv").read_bytes()
-        assert b'"ends":["lift_needed","lift_no_zone","access1","access2","stands_for"]' in (folder / "lines.js").read_bytes()
-        assert (folder / "lines.csv").read_bytes().splitlines()[0].endswith(b",stands_for")
-        assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
-        # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
-        bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]
-        assert [b for b in bars if b[3]] == [("saving results", n, n, True), ("saving the map", n, n, True)]
-        for stage in ("saving results", "saving the map"):
-            counts = [c for name, c, total, done in bars if name == stage and not done]
-            assert counts and counts == sorted(counts) and 0 <= counts[0] and counts[-1] <= n, stage
-    assert saving.plan(1) == [] and saving.plan(2) == [saving.RESULT_FILES, saving.MAP_FILES]
-    assert saving.plan(3, map_files=False) == [("lines.csv",), ("lines.geojson",)] and len(saving.plan(4)) == 4
-    assert [saving.processes(t) for t in (1, 2, 3, 4, 24)] == [1, 2, 2, 4, 4]
-    with pytest.raises(RuntimeError, match="saving lines"):  # the run folder missing: every child fails
-        saving.save(str(work), str(tmp_path / "missing"), lines, groups, meta, heads, [("lines.csv",), ("lines.js",)],
-                    lambda: None)
-    assert not (work / saving.FOLDER).exists()

@@ -615,17 +615,40 @@ def test_blocks_sized_from_the_budget(tmp_path, offline):
     assert search._access_block_px(big) == max(500, side - 2 * access.margin_px(1.0))
 
 
-def _head(path) -> dict:
-    """The head of a run's data.js or lines.js (everything before its lines)."""
-    text = open(path, encoding="utf-8").read()
-    return json.loads(text[text.index(" = {") + 3:text.index(',"lines":[')] + "}")
+def _export(folder, fmt: str = "csv") -> bytes:
+    """A run's CSV or GeoJSON export (its lines.csv, lines.geojson before store wave 4)."""
+    import clip_runs
+    return clip_runs.export_text(folder, fmt)
+
+
+def _store_rows(folder) -> list:
+    """The store's rows (without the result view's columns, which follow the row order), sorted, as JSON texts."""
+    import pyarrow as pa
+    with pa.OSFile(os.path.join(str(folder), linestore.LINES_FILE), "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    table = table.drop_columns([n for n, _ in linestore.VIEW if n in table.schema.names])
+    return sorted(json.dumps(row) for row in table.to_pylist())
+
+
+def _old_copy(folder, tmp_path) -> "os.PathLike":
+    """A copy of a run made a run of before store wave 4 (tests/old_runs.py "with_text": data.js, lines.js and the
+    text files beside its store), for the tests of the page's reader of data.js until item 5."""
+    import old_runs
+    import pathlib
+    target = pathlib.Path(tmp_path) / "old" / pathlib.Path(folder).name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        shutil.copytree(folder, target)
+        old_runs.make_old(target, "with_text")
+    return target
 
 
 def test_too_wide_for_the_mark_runs_without_it(tmp_path, offline, monkeypatch):
     """A search with --access whose access grid cannot fit its memory even in the smallest blocks is not refused
     (the user's choice of 2026-11-16): the coded note access_skipped once (need, have in GiB), the step "access to
-    anchors" not run, the run made as without the option (lines.csv byte for byte, no access columns, no "ends") with
-    "access_skipped": "memory" in run.json and in every head (data.js, lines.js, the store's); with enough memory
+    anchors" not run, the run made as without the option (the CSV export byte for byte, no access columns, no
+    "ends") with "access_skipped": "memory" in run.json and the store's head (data.js's, lines.js's before store
+    wave 4); with enough memory
     the same search is marked and has no such key."""
     import pyarrow as pa
     z = scene()
@@ -663,12 +686,12 @@ def test_too_wide_for_the_mark_runs_without_it(tmp_path, offline, monkeypatch):
             assert plan.access_skipped is None and notes == []
     assert calls == ["marked"]  # the step not run for the skipped search
     off, skipped, marked = folders["off"], folders["skipped"], folders["marked"]
-    assert (skipped / "lines.csv").read_bytes() == (off / "lines.csv").read_bytes()
-    assert b",access1,access2" in (marked / "lines.csv").read_bytes()[:2000]
+    assert _export(skipped) == _export(off)
+    assert b",access1,access2" in _export(marked)[:2000]
     for name, folder, key in (("off", off, None), ("skipped", skipped, "memory"), ("marked", marked, None)):
         meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
         assert meta.get("access_skipped") == key and ("access" in meta["params"]) == (name == "marked"), name
-        heads = [_head(folder / "data.js"), _head(folder / "lines.js")]
+        heads = []
         with pa.OSFile(str(folder / "lines.arrow"), "rb") as source:
             schema = pa.ipc.open_file(source).schema
         heads.append(json.loads(schema.metadata[b"findaline"])["head"])
@@ -773,11 +796,10 @@ def test_a_tiled_search_without_the_mark(tmp_path, offline, monkeypatch):
         folder = r["path"]
         meta = json.load(open(os.path.join(folder, "run.json"), encoding="utf-8"))
         assert meta.get("access_skipped") == key and ("access" in meta["params"]) == (key is None)
-        heads = [_head(os.path.join(folder, "data.js")), _head(os.path.join(folder, "lines.js"))]
         with pa.OSFile(os.path.join(folder, "lines.arrow"), "rb") as source:
             schema = pa.ipc.open_file(source).schema
-        heads.append(json.loads(schema.metadata[b"findaline"])["head"])
-        assert [h.get("access_skipped") for h in heads] == [key] * 3 and ("access1" in schema.names) == (key is None)
+        head = json.loads(schema.metadata[b"findaline"])["head"]
+        assert head.get("access_skipped") == key and ("access1" in schema.names) == (key is None)
 
 
 @pytest.mark.parametrize("public", [True, False], ids=["public", "local"])
@@ -919,48 +941,37 @@ def scene_runs(tmp_path_factory, offline):
     return runs
 
 
-def _script(path) -> dict:
-    text = open(path, encoding="utf-8").read()
-    return json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))
-
-
 def test_files_with_the_option_and_without(scene_runs):
-    """Off: no column, no "ends", run.json's params and the search's key without "access". On: lines.csv and
-    lines.geojson hold access1, access2 after the anchors' columns (the rest byte for byte the run without the
-    option), data.js and lines.js two values before the profile named by "ends", run.json's params "access": true,
-    the store two uint8 columns read back as the search's and exported as lines.csv byte for byte."""
+    """Off: no column, no "ends", run.json's params and the search's key without "access". On: the CSV and GeoJSON
+    exports hold access1, access2 after the anchors' columns (the rest byte for byte the run without the option),
+    the store's head names them in "ends" and its two uint8 columns are read back as the search's (data.js and
+    lines.js held two values before the profile before store wave 4), run.json's params "access": true."""
     off, on = scene_runs["off"], scene_runs["on"]
     meta = {name: json.loads((folder / "run.json").read_text(encoding="utf-8")) for name, folder in scene_runs.items()}
     assert "access" not in meta["off"]["params"] and meta["on"]["params"]["access"] is True
     assert meta["on"]["summary"]["lines"] == meta["off"]["summary"]["lines"] > 50
     # lines.csv: the on run's less its two columns is the off run's, byte for byte
-    table = (on / "lines.csv").read_bytes().decode("utf-8-sig").split("\r\n")
+    table = _export(on).decode("utf-8-sig").split("\r\n")
     header = table[0].split(",")
     assert header[-2:] == rn.ACCESS and header[:-2] == rn.FIELDS
     cut = "\r\n".join(",".join(row.split(",")[:-2]) for row in table[:-1]) + "\r\n"
-    assert cut.encode("utf-8-sig") == (off / "lines.csv").read_bytes()
+    assert cut.encode("utf-8-sig") == _export(off)
     assert {row.split(",")[-1] for row in table[1:-1]} <= {"0", "1", "2"}
     # lines.geojson: the same features with two properties more, the same "findaline" but its params
-    geo = {name: json.loads((folder / "lines.geojson").read_text(encoding="utf-8"))
-           for name, folder in scene_runs.items()}
+    geo = {name: json.loads(_export(folder, "geojson")) for name, folder in scene_runs.items()}
     for feature in geo["on"]["features"]:
         assert list(feature["properties"])[-2:] == rn.ACCESS
         for name in rn.ACCESS:
             assert feature["properties"].pop(name) in (0, 1, 2)
     assert geo["on"]["features"] == geo["off"]["features"]
-    # data.js and lines.js: two values before the profile, "ends" names them; nothing else differs
-    for file, profiles in (("data.js", True), ("lines.js", False)):
-        heads = {name: _script(folder / file) for name, folder in scene_runs.items()}
-        assert "ends" not in heads["off"] and heads["on"]["ends"] == rn.ACCESS
-        rows = heads["on"].pop("lines")
-        cut = [row[:-3] + row[-1:] if profiles else row[:-2] for row in rows]
-        assert cut == heads["off"].pop("lines")
-        assert {v for row in rows for v in (row[-3:-1] if profiles else row[-2:])} <= {0, 1, 2}
-        heads["on"].pop("ends")
-        for head in heads.values():
-            head.pop("run", None)
-        assert heads["on"] == heads["off"], file
-    # the store: two uint8 columns, read back as the search wrote them, exported as the run's lines.csv
+    # the store's head: "ends" names the two columns; nothing else differs
+    heads = {name: linestore.read(str(folder), profiles=False)[1] for name, folder in scene_runs.items()}
+    assert "ends" not in heads["off"] and heads["on"]["ends"] == rn.ACCESS
+    heads["on"].pop("ends")
+    for head in heads.values():
+        head.pop("run", None)
+    assert heads["on"] == heads["off"]
+    # the store: two uint8 columns, read back as the search wrote them, the rest the run's without the option
     import pyarrow as pa
     with pa.OSFile(str(on / linestore.LINES_FILE), "rb") as source:
         schema = pa.ipc.open_file(source).schema
@@ -969,10 +980,10 @@ def test_files_with_the_option_and_without(scene_runs):
         assert not set(rn.ACCESS) & set(pa.ipc.open_file(source).schema.names)
     lines, _ = linestore.read(str(on), profiles=False)
     assert lines.columns["access1"].dtype == np.uint8
-    linestore.export(str(on), "csv", str(on / "export.csv"))
-    assert (on / "export.csv").read_bytes() == (on / "lines.csv").read_bytes()
-    linestore.export(str(on), "geojson", str(on / "export.geojson"))
-    assert (on / "export.geojson").read_bytes() == (on / "lines.geojson").read_bytes()
+    plain, _ = linestore.read(str(off), profiles=False)
+    assert set(lines.columns) - set(plain.columns) == set(rn.ACCESS)
+    assert all(np.array_equal(plain.columns[k], lines.columns[k], equal_nan=lines.columns[k].dtype.kind == "f")
+               for k in plain.columns)
 
 
 def test_search_key_without_the_option(tmp_path, offline):
@@ -1036,10 +1047,8 @@ def test_tiles_give_one_grids_answers(tmp_path, monkeypatch):
             assert not glob.glob(os.path.join(paths.work, "*.npy"))  # access.npy too, after the tiles
     assert computed == [None, os.path.join(str(tmp_path / "tiled" / "work"), search.ACCESS_FILE)]  # once each
     read = lambda name, file: open(os.path.join(runs[name], file), "rb").read()  # noqa: E731
-    assert read("one", "lines.csv") == read("tiled", "lines.csv") and b",access1,access2" in read("one", "lines.csv")
-    for file in ("data.js", "lines.js"):
-        rows = {name: _script(os.path.join(runs[name], file))["lines"] for name in ("one", "tiled")}
-        assert sorted(map(json.dumps, rows["one"])) == sorted(map(json.dumps, rows["tiled"])), file
+    assert _export(runs["one"]) == _export(runs["tiled"]) and b",access1,access2" in _export(runs["one"])
+    assert _store_rows(runs["one"]) == _store_rows(runs["tiled"])  # data.js's and lines.js's rows before wave 4
     assert len(glob.glob(os.path.join(runs["tiled"], "tiles", "*.table.pkl.gz"))) > 1
     # with the square rule too: the access columns pass the reducer and the join of the tiles' kept lines
     kept = {}
@@ -1052,14 +1061,15 @@ def test_tiles_give_one_grids_answers(tmp_path, monkeypatch):
         plan = dataclasses.replace(search.plan_search(params, paths, lambda kind, text: None), index_runs=False)
         lines, run = search.search_lines(plan)
         kept[name] = search.save_run(plan, lines, run).run["path"]
-    table = open(os.path.join(kept["one-square"], "lines.csv"), "rb").read()
-    assert table == open(os.path.join(kept["tiled-square"], "lines.csv"), "rb").read()
+    table = _export(kept["one-square"])
+    assert table == _export(kept["tiled-square"])
     assert b",access1,access2,stands_for\r\n" in table[:2000]
 
 
-def test_the_store_note_is_coded(tmp_path, offline, monkeypatch):
-    """A store that cannot be written: the warning is a coded note (error.store_failed) whose page text holds no
-    exception text (it may hold paths); the command line's text names the error as before."""
+def test_the_store_error_is_coded(tmp_path, offline, monkeypatch):
+    """A store that cannot be written fails the search (store wave 4: a run without its store has no lines): a coded
+    SearchError (error.store_failed) whose page text holds no exception text (it may hold paths); the command line's
+    text names the error, and no run folder is kept."""
     events = []
     plan = _plan(tmp_path, scene(), "note", events, access=False)
     lines, _ = search.search_lines(plan)
@@ -1069,12 +1079,14 @@ def test_the_store_note_is_coded(tmp_path, offline, monkeypatch):
     monkeypatch.setattr(linestore, "write", failing)
     folder = tmp_path / "note" / "runs" / "note"
     folder.mkdir(parents=True)
-    search.save_run(plan, lines, {"id": "note", "path": str(folder), "created": datetime(2026, 11, 15), "name": "n"})
-    notes = [text for kind, text in events if kind == "warning" and "store" in str(text)]
-    assert len(notes) == 1 and isinstance(notes[0], messages.Note) and notes[0].code == "store_failed"
-    assert str(notes[0]) == r"The run is saved without its store (lines.arrow): MemoryError: no memory at C:\secret\path"
-    assert notes[0].web_text() == messages.text("error.store_failed") and "secret" not in notes[0].web_text()
-    assert "store" not in json.loads((folder / "run.json").read_text(encoding="utf-8"))
+    with pytest.raises(search.SearchError) as error:
+        search.save_run(plan, lines, {"id": "note", "path": str(folder), "created": datetime(2026, 11, 15),
+                                      "name": "n"})
+    assert error.value.code == "store_failed"
+    assert str(error.value) == r"The run could not be saved: its lines could not be written (MemoryError: no memory " \
+                               r"at C:\secret\path)"
+    assert error.value.web_text() == messages.text("error.store_failed") and "secret" not in error.value.web_text()
+    assert not folder.exists()
 
 
 def test_favourite_keeps_the_access_mark():
@@ -1158,16 +1170,17 @@ def test_the_page_reads_the_run_as_without_the_option_and_its_marks(tmp_path, sc
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/types.ts'], bundle: true, "
                                   f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
                    cwd=VIEWER, check=True)
+    off, on = (_old_copy(scene_runs[name], tmp_path) for name in ("off", "on"))  # runs of before (data.js)
     for file in ("data.js", "lines.js"):
         script = tmp_path / "page-test.cjs"
         script.write_text(f"const m = require({json.dumps(str(bundle))});\n{PAGE_SCRIPT}", encoding="utf-8")
-        result = subprocess.run(["node", str(script), str(scene_runs["off"] / file), str(scene_runs["on"] / file)],
+        result = subprocess.run(["node", str(script), str(off / file), str(on / file)],
                                 capture_output=True, text=True, encoding="utf-8", check=True)
         out = json.loads(result.stdout)
         assert (out["rows"], out["cols"], out["same"]) == (True, True, True) and out["n"] > 50, (file, out)
         assert out["on"][0] == out["on"][1] and set(out["on"][0]) <= {"0", "1", "2"} and out["on"][0], (file, out)
         assert out["off"] == [["null"], ["null"]], (file, out)
-        assert re.search(r'"ends":\["access1","access2"\]', (scene_runs["on"] / file).read_text(encoding="utf-8"))
+        assert re.search(r'"ends":\["access1","access2"\]', (on / file).read_text(encoding="utf-8"))
 
 
 ACCESS_STORE_SCRIPT = r"""
@@ -1200,7 +1213,7 @@ def test_the_page_reads_the_store_of_a_run_with_the_option(tmp_path, scene_runs)
     with each row's values of data.js (named by its "ends")."""
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from test_viewer import STORE_SCRIPT, _run_node, _store_bundle
-    folder = scene_runs["on"]
+    folder = _old_copy(scene_runs["on"], tmp_path)  # its data.js beside the store: the page's reference
     cases = tmp_path / "cases.json"
     cases.write_text(json.dumps({"access": str(folder).replace("\\", "/")}), encoding="utf-8")
     out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases)["access"]

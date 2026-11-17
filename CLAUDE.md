@@ -46,7 +46,7 @@ Read the section you need, not the whole file (several are over 200 KB).
 | --- | --- | --- | --- |
 | The search (steps 1-5), options, areas, grids | `findaline.py`, `params.py`, `search.py`, `area.py`, `grid.py`, `progress.py`, `warmup.py`, `samelines.py` | search-pipeline | search.md |
 | Anchors and the line test (numba kernels) | `helpers.py`, `linesearch.py`, `lineprofiles.py`, `terrain.py`, `obstacles.py`, `sag.py` | line-test | search.md |
-| A run's files, grouping, terrain statistics | `mapping.py`, `grouping.py`, `runs.py`, `saving.py`, `hypsometry.py` | run-files | search.md |
+| A run's files, grouping, terrain statistics | `mapping.py`, `grouping.py`, `runs.py`, `linestore.py`, `hypsometry.py` | run-files | search.md |
 | Data sources, cache, mosaic, filling | `sources/`, `cache.py`, `update.py`, `orthophoto.py` | sources, providers | sources.md |
 | OSM, coastline | `osm.py`, `osmextract.py`, `coast.py` | osm | sources.md |
 | Web app, job queue, accounts, limits, texts | `web.py`, `jobs.py`, `accounts.py`, `audit.py`, `settings.py`, `messages.py`, `locales/` | web-app | web.md |
@@ -63,7 +63,7 @@ into context by itself when a file it names is read or edited (a worktree's copy
 before. Planning without opening those files, or briefing a subagent: read the rule, or name it in the brief.
 
 ## Always
-- Results are pinned: the regression set compares the counts and the sha256 of `lines.csv`. A change that
+- Results are pinned: the regression set compares the counts and the sha256 of the CSV export. A change that
   should not change results leaves every checksum as it was; one that should says so and re-baselines.
 - Kernels may pass too much, never too little; `helpers.evaluate_line` decides. Results never depend on
   the number of threads.

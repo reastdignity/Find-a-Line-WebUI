@@ -65,7 +65,6 @@ import obstacles
 import orthophoto as ortho
 import osm
 import runs as rn
-import saving
 import sag as sg
 import samelines
 import sources as src
@@ -118,7 +117,9 @@ ACCESS_DISK_BYTES = 9
 # so 900 B. The store (linestore.write, after the children) moves no peak. With the square rule step 3 holds the
 # reducer's rows: 181-287 B a row measured, at most 1.275 rows a kept line, below a kept line's cost. The fixed part
 # (the process, its imports: about 0.4 GB) is not in memory_needed. Before, by the traced heap of one process
-# (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450
+# (tools/perf_lines_memory.py, 2026-11-01): steps 3-5 at most 389 B a line, so 450. Since store wave 4 (2026-11-17)
+# step 5 writes no text files and starts no children (saving.py is gone): the peak can only be lower, so the
+# constant stays (it may refuse a little early, never too late) until it is measured again
 LINE_BYTES = 900
 # The sectors of a run's spots at saving (mapping.view_columns): Ward's clustering (scipy's linkage) holds the
 # condensed distances of every pair of at most mapping.SECTOR_WARD_SPOTS spots and a copy, about this many bytes times
@@ -263,9 +264,9 @@ class Plan:
     # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
     # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
     early_stop: bool = True
-    # Rewrite the runs folder's list (runs.write_index: runs.js and index.html) after saving the run:
-    # not on the public site (the web worker clears it), where nothing reads them (web.py makes each
-    # user's runs.js, index.html redirects to the app) and they grow with every run of the site
+    # Rewrite the runs folder's list (runs.write_index: runs.js) after saving the run: not on the
+    # public site (the web worker clears it), where nothing reads it (web.py makes each user's
+    # runs.js) and it grows with every run of the site
     index_runs: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
@@ -2525,9 +2526,12 @@ def _run_params(plan: Plan) -> Dict:
 
 
 def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
-    """Step 5: save the run (results, parameters, data used) and the map. The orthophoto for
-    offline use is a step of its own after it (orthophoto_lines, download_orthophoto): the map
-    reads its tiles from the cache as they arrive and loads the rest online.
+    """Step 5: save the run: its store (lines.arrow, profiles.arrow), map.html (not with --no-html),
+    ATTRIBUTION.txt and run.json, in that order (run.json last). The orthophoto for offline use is a
+    step of its own after it (orthophoto_lines, download_orthophoto): the map reads its tiles from the
+    cache as they arrive and loads the rest online. A store that cannot be written fails the search
+    (SearchError "store_failed") and no run is kept; the view's columns that cannot be computed leave a
+    store without them and a warning ("view_columns_failed").
 
     run: the run folder of a tiled search (search_lines); otherwise a new one is made.
     """
@@ -2580,15 +2584,6 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         representatives = set(spot_groups.rep.tolist())
         results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
 
-    def on_lines(n: int, file: str):
-        progress.compute.update(n, file=file)
-
-    def saved():
-        """After the results' files: a tiled run is done (not resumed again), the message."""
-        if "search" in run:
-            _progress(run, "done")
-        emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
-
     ortho_cache = ortho_service = None
     if not p.no_html:
         source = plan.source
@@ -2596,60 +2591,48 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         # the run, earlier runs did too), falling back to the service for a tile not there
         ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
         ortho_service = _dated_ortho(source, created.year)
-    map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
-                ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
-    map_path = None
-    # The line files of a large run are written by processes of their own (saving.py: one per file
-    # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
-    children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
-                if len(results) >= saving.MIN_LINES else [])
-    if not children:
-        progress.compute.start("saving results", len(results), unit="line")
-        rn.save_results(run["path"], results, spot_groups, meta, on_lines)
-        progress.compute.finish()
-        saved()
-        if not p.no_html:
-            progress.compute.start("saving the map", len(results), unit="line")
-            map_path = mp.save_map(*map_args)
-            progress.compute.finish()
-    else:
-        heads = None if p.no_html else mp.map_heads(
-            plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance, p.group_by,
-            ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
-
-        def between():  # once the results' files are written, before the map's bar
-            rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
-            saved()
-        saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
-        if not p.no_html:
-            map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
-    # The store (linestore: lines.arrow, profiles.arrow) after today's files, with or without a map, its head
-    # data.js's; its block "store" in run.json (never in lines.geojson, written before it: linestore.export leaves
-    # it out), with the result view's columns (mapping.view_columns: spots, sectors, the top-level flag, the order
-    # inside a spot) and their head keys, which data.js never has. A store that cannot be written, or view columns
-    # that cannot be computed, never cost the run: it is kept without a store (as a run of before)
+    # The run's lines are kept once, in its store (linestore: lines.arrow, profiles.arrow; docs/line-volume/
+    # spec-store.md 1.2: no data.js, lines.js, lines.csv or lines.geojson since store wave 4: CSV and GeoJSON are
+    # made from the store by `findaline.py export` or a download), with the result view's columns
+    # (mapping.view_columns: spots, sectors, the top-level flag, the order inside a spot) and their head keys. Then
+    # map.html (not with --no-html), ATTRIBUTION.txt and run.json last, with its block "store": a folder without
+    # run.json is a run being saved (runs.old_runs skips it, runs.list_runs does not list it).
+    progress.compute.start("saving results", len(results), unit="line")
+    head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
+                       p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
     try:
-        head = mp.map_head(plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance,
-                           p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
         view, view_head = mp.view_columns(results, spot_groups, plan.center_xy)
+    except Exception as error:  # noqa: BLE001 - the lines are saved without the view's columns
+        # The run opens in today's result page; runs remove-old lists it as an old run (spec-store.md 2.2). A coded
+        # note: the exception's text only on the command line, it may hold paths
+        view, view_head = None, {}
+        emit("warning", messages.Note(f"The run is saved without the result view's columns (spots' sectors): "
+                                      f"{type(error).__name__}: {error}", "view_columns_failed"))
+    try:
         store = linestore.write(run["path"], results, {**head, **view_head}, view)
-        del view
-    except Exception as error:  # noqa: BLE001 - the run's own files are saved already
-        for name in linestore.FILES:
+    except Exception as error:
+        # No lines, no run: a run folder of its own goes (a tiled run keeps its tiles to be resumed)
+        for file in linestore.FILES:
             with contextlib.suppress(OSError):
-                os.remove(os.path.join(run["path"], name))
-        # A coded note (the page's text from the catalogue); the exception's text only on the command line: it
-        # may hold paths
-        emit("warning", messages.Note(f"The run is saved without its store (lines.arrow): "
-                                      f"{type(error).__name__}: {error}", "store_failed"))
-    else:
-        meta["store"] = store
-        path = os.path.join(run["path"], "run.json")
-        with open(path + linestore.PART, "w", encoding="utf-8") as f:  # whole, then in place of the one of before
-            json.dump(meta, f, ensure_ascii=False, indent=2)  # as runs.save_results writes it
-        os.replace(path + linestore.PART, path)
+                os.remove(os.path.join(run["path"], file))
+        if "search" not in run:
+            shutil.rmtree(run["path"], ignore_errors=True)
+        raise SearchError(f"The run could not be saved: its lines could not be written "
+                          f"({type(error).__name__}: {error})", "store_failed") from error
+    del view
+    meta["store"] = store
+    progress.compute.update(len(results))
+    progress.compute.finish()
+    map_path = None
+    if not p.no_html:
+        map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs,
+                               files=("map.html",))  # and the viewer installed
+    rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
+    if "search" in run:  # a tiled run is done: not resumed again
+        _progress(run, "done")
+    emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
     if plan.index_runs:
-        rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
+        rn.write_index(plan.paths.runs)
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
 

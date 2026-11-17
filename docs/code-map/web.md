@@ -6,7 +6,7 @@ pitfalls are in `.claude/rules/` (web-app, metrics).
 
 ## `web.py`
 
-`findaline.py web`: FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes,
+`findaline.py web` (`main(argv, open_path="/")`: the page the browser opens, `findaline.py view`'s `/#run=<id>`): FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes,
 `SECURITY_HEADERS` incl. CSP; `--public`: the public host, trusted proxy, sign-in with GitHub/Google/Microsoft
 (`/login/<provider>`, `/auth/<provider>`, `POST /logout`), the token of a change is the session's CSRF token, a
 sign-in page (`signin_page`, no script, nothing that changes state but signing out) with the demo runs for visitors
@@ -126,7 +126,7 @@ addresses; `purge` after `KEEP_DAYS` (90) in `Scheduler.housekeeping`; no viewer
 
 ## `jobs.py`
 
-The web app's job queue (`Jobs`, `jobs.sqlite` with the jobs and their owners (`user_id`), their area, country and
+The web app's job queue (`run_facts(path)`: what jobs.sqlite knows of each run for `findaline.py runs remove-old --dry-run`, read from a copy outside the data folder, never through `Jobs`, which sets the journal mode and migrates; `Jobs`, `jobs.sqlite` with the jobs and their owners (`user_id`), their area, country and
 outline (`area_km2`, `country`, `area_outline`: `note_area` in `run_phase`'s download phase for every user, its lookup
 outside the user's Nominatim quota, the outline from `area.outline_geojson`, simplified to about 50 m; `request_area`
 filled those of before in migrations 13 and 14; `Jobs.area`, `area_of_everyone`), the requests of the worker's

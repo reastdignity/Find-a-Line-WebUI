@@ -36,7 +36,7 @@ it; a group that cannot be read: its tiles one by one), each under `tile_lock` a
 outline; `Source.coverage_boxes`: the `offline` boxes and `bbox`, without `border_boxes`, which may hold a neighbour's
 land, what an area download clips its outline to; `rough_boxes` adds the border boxes) (`wms_version`: 1.3.0, or 1.1.1
 for a WMS taking EPSG:4326 in lon-lat order only (GURS); `wms_crs`: EPSG:4326, or EPSG:3857 for a WMS serving Web
-Mercator only (gis.natt.is), each tile's own Mercator box: `orthophoto._get_map`, `data.js`'s `ortho.wms_version` /
+Mercator only (gis.natt.is), each tile's own Mercator box: `orthophoto._get_map`, the store's head's (data.js's before store wave 4) `ortho.wms_version` /
 `ortho.wms_crs`, `viewer/src/layers.ts`); `vertical.py` `Geoid` (a geoid grid from PROJ's CDN downloaded once into
 `cache/geoid/<model>/` under a lock, checked against its sha256 and read by rasterio, bilinear on its points; never
 through PROJ: pyproj gives N = 0 without a word when it lacks the grid; `undulation` of a block on a lattice of

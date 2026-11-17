@@ -5,7 +5,7 @@ Six module fixtures (`clip_data` of test_patch, test_reach, test_device_page and
 test_public, `big_clip` of test_shell_c) are imported by name into other modules, and pytest builds a module
 fixture again in every module that uses it: the same search ran 19 times for 4 distinct commands. `data_copy`
 runs a command once into a store under the session's base temp folder and copies the data folder (cache/,
-runs/<id>/, work/, findaline_map.html; mtimes kept) into a new `tmp_path_factory.mktemp(name)` folder each time it
+runs/<id>/, work/; mtimes kept) into a new `tmp_path_factory.mktemp(name)` folder each time it
 is called. A new test module that wants a run of the clip calls it (or uses one of those fixtures), never a
 `findaline.py` of its own.
 
@@ -91,17 +91,21 @@ def _search(root: Path, key: str, args: List[str]) -> dict:
     return outcome
 
 
+DATA = os.path.join(REPO, "tests", "data")
+# The search of view_clip (the result view's clip run)
+VIEW_CLIP_ARGS = [
+    "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+    "--surface-file", os.path.join(DATA, "zabi_kon_nmpt.tif"), "--northing", "254608", "--easting", "553966",
+    "--radius", "150", "--model", "sag", "--end-zone", "5", "--anchor-lift", "2", "--same-line-square", "5", "--access",
+    "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never"]
+
+
 def view_clip(tmp_path_factory, name: str) -> Path:
     """The folder of a run of the clip for the result view (docs/line-volume/spec-view.md part B), in a copy of its
     data folder named `name`: the target rig (the sag model, the no-fall zone of 5 m, A-frames of 2 m) with the square
     rule (5 m) and the access mark, so its store holds the view's columns and the mark's: 7 934 lines in 164 spots
     (more than 5 000 thin lines with All, more than 100 spots in view, several spots under one finger)."""
-    data = os.path.join(REPO, "tests", "data")
-    folder = data_copy(tmp_path_factory, name, [
-        "--elevation-file", os.path.join(data, "zabi_kon_nmt.tif"),
-        "--surface-file", os.path.join(data, "zabi_kon_nmpt.tif"), "--northing", "254608", "--easting", "553966",
-        "--radius", "150", "--model", "sag", "--end-zone", "5", "--anchor-lift", "2", "--same-line-square", "5", "--access",
-        "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never"])
+    folder = data_copy(tmp_path_factory, name, VIEW_CLIP_ARGS)
     runs = folder / "runs"
     return next(runs / d for d in os.listdir(runs) if (runs / d / "run.json").is_file())
 
@@ -130,3 +134,30 @@ def data_copy(tmp_path_factory, name: str, args: Sequence[str]) -> Path:
     _log(root, f"copy {key} -> {folder.name} searched={searched} lock_wait={waited:.2f} s "
                f"copy={time.monotonic() - started:.2f} s")
     return folder
+
+
+def output_of(tmp_path_factory, args: Sequence[str]) -> str:
+    """The output (stdout and stderr) of the command `data_copy` ran for `args` (call it after data_copy), as
+    stored with its result: a test of what a search prints needs no findaline.py of its own."""
+    root = store_root(tmp_path_factory)
+    return json.loads((root / key_of([str(a) for a in args]) / "result.json").read_text("utf-8"))["output"]
+
+
+def export_text(folder, fmt: str = "csv") -> bytes:
+    """The CSV (or GeoJSON) of a run folder as `findaline.py export` makes it (linestore.export, into a scratch file
+    beside the run folder: never into it): since store wave 4 a run keeps no lines.csv, and this is its text."""
+    import linestore
+    folder = Path(folder)
+    out = folder.parent / f".{folder.name}.export.{fmt}"
+    try:
+        linestore.export(str(folder), fmt, str(out))
+        return out.read_bytes()
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def export_rows(folder) -> list:
+    """The rows of a run folder's CSV export as csv.DictReader reads them (the lines.csv of before store wave 4)."""
+    import csv
+    import io
+    return list(csv.DictReader(io.StringIO(export_text(folder).decode("utf-8-sig"), newline="")))

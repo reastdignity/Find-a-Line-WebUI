@@ -365,6 +365,31 @@ def _read_file(path: str) -> Tuple[pa.Table, Dict]:
         return reader.read_all(), meta
 
 
+def store_state(run_path: str) -> str:
+    """Whether a run has the store of today (docs/line-volume/spec-store.md 2.2, `findaline.py runs remove-old`):
+    "current" (lines.arrow of FORMAT with the result view's columns, VIEW, of their types), "old" (of a lower format
+    or without the view's columns: saved between store wave 2 and view B1), "missing" (no lines.arrow: saved before
+    the store, or a store that failed), "unreadable" (not an Arrow file of Find-a-Line), "newer" (made by a newer
+    Find-a-Line). Only the schema is read, so a store of any size costs nothing; the file is closed afterwards."""
+    path = os.path.join(run_path, LINES_FILE)
+    if not os.path.isfile(path):
+        return "missing"
+    try:
+        with pa.OSFile(path, "rb") as source:
+            schema = pa.ipc.open_file(source).schema
+        meta = json.loads((schema.metadata or {})[META_KEY].decode("utf-8"))
+        fmt = meta["format"]
+        if not isinstance(fmt, int):
+            return "unreadable"
+    except Exception:  # noqa: BLE001 - whatever it is, it is no store this code reads
+        return "unreadable"
+    if fmt > FORMAT:
+        return "newer"
+    if fmt < FORMAT or any(name not in schema.names or schema.field(name).type != kind for name, kind in VIEW):
+        return "old"
+    return "current"
+
+
 def _decoded(array: pa.ChunkedArray, decimals, negative_zero: List[int]) -> np.ndarray:
     array = array.combine_chunks()
     if decimals is None:
