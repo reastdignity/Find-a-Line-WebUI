@@ -58,6 +58,17 @@ Before calling a failure of it a regression, run it alone on a clean checkout of
 In the same evening's first full pytest `tests/test_web.py::test_search_panel_estimate_rate` (headless Edge) timed
 out once, with other sessions running under the test lock; alone it passed 4 of 4.
 
+## The 3D view's "Only valid lines" shows an empty scene in WebKit's screenshots
+
+`tools/ui_shots.py`'s page `view3d-valid` (the 3D view at `?level=full`, the tool "Only valid lines" clicked, then a
+wait for `data-reach="1"`) on the iPhone 13 profile (Playwright's WebKit on Windows) has no terrain and no line, only
+the anchors' handles: in both themes and in both whole-set runs of 2026-11-16 (the clip's run, `main` 2f019d6). The
+same page on the Pixel 7 and the desktop (Chromium) is drawn, and so are the iPhone's other twelve 3D pages
+(`view3d-full`, `view3d-trees`, `view3d-point` among them). In one of the two runs the pill "Checking valid lines…"
+was still shown although `data-reach` was already "1". Not looked into: either the reach overlay's pass leaves
+WebKit's canvas empty (a fault a real iPhone would show too), or WebKit's screenshot misses the frame drawn after
+it. The first check: the page on a real iPhone (`tools/device_page.py`).
+
 ## Five tests fail on macOS (arm64) on `main` itself
 
 Seen 2026-11-08 on a MacBook (Apple silicon, macOS 26.6.1; Python 3.15.2 from uv, numpy 2.5.4, numba 0.68.0,
