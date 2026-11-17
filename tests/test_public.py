@@ -1260,8 +1260,8 @@ def test_removing_searches(run_people, tmp_path):
     """A cancelled search is removed by its owner only (POST /api/jobs/<id>/remove: another user, an
     administrator, a visitor not signed in, one with only a share link, a pending or blocked account cannot); it
     leaves the owner's list, an administrator's keeps it marked; the audit log records job_remove; the row
-    stays, so it counts toward the daily quota and the usage as before. Deleting a run marks the job that saved
-    it removed too (its card went nowhere before: "done" with no run)."""
+    stays, so it counts toward the daily quota and the usage as before. Deleting a run takes the job that saved it
+    off the owner's list too (told at listing, run_gone; its card was a "done" with no run before)."""
     import audit
     from jobs import QuotaExceeded
     from settings import Limits
@@ -1302,7 +1302,8 @@ def test_removing_searches(run_people, tmp_path):
 
     assert a.delete(f"/api/runs/{RUN_A}").status_code == 200
     assert set(ids_of(a)) == {failed}
-    assert ids_of(admin)[saved]["removed_at"] and jobs.get(saved)["status"] == "done"
+    assert ids_of(admin)[saved]["run_gone"] and not ids_of(admin)[saved]["removed_at"]  # told, not stored
+    assert jobs.get(saved)["status"] == "done" and jobs.get(saved)["removed_at"] is None
     assert jobs.usage(ids["a"], limits)["usage"]["jobs_day"] == used
 
 
@@ -2067,10 +2068,12 @@ RIG = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass"
        "end_zone": 5.0, "anchor_lift": 0.0}  # the Basic form's starting rig
 
 
-def test_jobs_database_gets_removed_marks(tmp_path):
-    """jobs.sqlite of version 18 gets migration 19: the column removed_at, NULL for every job but a finished one
-    whose run is gone (no run.json in runs/: a run deleted before the mark existed), which is marked removed;
-    a job whose run is there, a cancelled, a failed one and one without a run stay; the rows all stay."""
+def test_jobs_database_gets_removed_column(tmp_path):
+    """jobs.sqlite of version 18 gets migration 19: the column removed_at, NULL for every job (nothing else is
+    written). A finished job whose run is gone (no run.json in runs/) is told at listing: the owner's list leaves
+    it out, everyone's marks it run_gone; its run folder away and back brings it back; a job whose run is there,
+    a cancelled, a failed one (its run_id as it may be) and one without a run are listed as they are."""
+    import shutil
     import sqlite3
 
     import cache
@@ -2090,21 +2093,19 @@ def test_jobs_database_gets_removed_marks(tmp_path):
     jobs = jb.Jobs(str(tmp_path))
     db = sqlite3.connect(tmp_path / "jobs.sqlite")
     assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 19
+    assert db.execute("SELECT COUNT(*) FROM jobs WHERE removed_at IS NOT NULL").fetchone()[0] == 0
     db.close()
-    assert {j["id"]: bool(j["removed_at"]) for j in jobs.all()} == {
-        "kept": False, "gone": True, "cancelled": False, "failed": False, "norun": False}
+    marks = lambda: {j["id"]: (bool(j["removed_at"]), j["run_gone"]) for j in jobs.all()}  # noqa: E731
+    assert marks() == {"kept": (False, False), "gone": (False, True), "cancelled": (False, False),
+                       "failed": (False, False), "norun": (False, False)}
     assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"}
 
-    # a data folder without runs/ (not made yet, or not mounted): nothing can be told gone, nothing is marked
-    bare = tmp_path / "bare"
-    bare.mkdir()
-    db = sqlite3.connect(bare / "jobs.sqlite")
-    cache.migrate(db, jb.MIGRATIONS[:18])
-    db.execute("INSERT INTO jobs (id, created, status, request, title, run_id, user_id) "
-               "VALUES ('done', '', 'done', '{}', 'Done', 'somewhere', 3)")
-    db.commit()
-    db.close()
-    assert [bool(j["removed_at"]) for j in jb.Jobs(str(bare)).all()] == [False]
+    # the run's folder away (moved, half copied) and back: its job leaves the owner's list and comes back
+    shutil.move(tmp_path / "runs" / "here", tmp_path / "aside")
+    assert {j["id"] for j in jobs.all(3)} == {"cancelled", "failed", "norun"} and marks()["kept"] == (False, True)
+    shutil.move(tmp_path / "aside", tmp_path / "runs" / "here")
+    assert {j["id"] for j in jobs.all(3)} == {"kept", "cancelled", "failed", "norun"} and marks()["kept"] == (False,
+                                                                                                         False)
 
 
 def test_jobs_database_gets_rigs(tmp_path):

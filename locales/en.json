@@ -568,6 +568,7 @@
   "ui.card.remove_yes": "Remove",
   "ui.card.keep": "Keep it",
   "ui.card.removed": "removed",
+  "ui.card.run_deleted": "run deleted",
   "ui.searched.title": "Area searched",
   "ui.searched.today": "{{area}} km² today",
   "ui.searched.total_one": "{{area}} km² in {{searches}} search",

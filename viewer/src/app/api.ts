@@ -88,7 +88,7 @@ export interface Job {
   finished: string | null;
   user_id?: number | null;  // the owner (an administrator sees every job)
   removed_at?: string | null;  // removed by its owner (jobs.sqlite removed_at): only an administrator's list has it
-}
+  run_gone?: boolean;  // finished, but its run is gone (deleted): only an administrator's list has it (Jobs.all)}
 
 export interface JobEvent {
   seq: number;

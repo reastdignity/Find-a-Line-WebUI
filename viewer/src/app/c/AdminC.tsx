@@ -148,7 +148,8 @@ export function AdminC({jobs}: {jobs: Job[]}) {
         const finished = ["done", "failed", "cancelled"].includes(j.status);
         return <li key={j.id} class="c-admin-row c-admin-job">
           <div class="c-admin-head"><b>{j.title}</b><StatusChip status={st}>{text}</StatusChip>
-            {j.removed_at && <span class="u-badge u-n c-admin-removed">{t("ui.card.removed")}</span>}</div>
+            {(j.removed_at || j.run_gone) && <span class="u-badge u-n c-admin-removed">
+              {t(j.removed_at ? "ui.card.removed" : "ui.card.run_deleted")}</span>}</div>
           <div class="u-small">{j.user_id === undefined ? "?" : names.get(j.user_id ?? -1) || "nobody"} · {at(j.created)}</div>
           {!finished && <div class="c-admin-tools">
             <Button kind="danger" onClick={() => api.cancel(j.id).catch(onError)}>Cancel</Button></div>}

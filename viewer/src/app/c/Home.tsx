@@ -34,13 +34,13 @@ export interface Card {
   created: string;
 }
 
-/** The jobs and the user's own runs as cards, newest first; no card for a job its owner removed (an
- *  administrator's list, and the local app's, still has those). */
+/** The jobs and the user's own runs as cards, newest first; no card for a job its owner removed or whose run is
+ *  gone (an administrator's list, and the local app's, still has those). */
 export function cardsOf(jobs: JobView[], runs: RunListed[], publicSite: boolean): Card[] {
   const own = runs.filter((r) => r.own || !publicSite);
   const byId = new Map(own.map((r) => [r.id, r]));
   const used = new Set<string>();
-  const cards: Card[] = jobs.filter((job) => !job.removed_at).map((job) => {
+  const cards: Card[] = jobs.filter((job) => !job.removed_at && !job.run_gone).map((job) => {
     const run = job.run_id ? byId.get(job.run_id) : undefined;
     if (run) used.add(run.id);
     return {key: "job:" + job.id, job, run, created: run?.created || job.created};

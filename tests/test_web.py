@@ -1144,6 +1144,25 @@ def test_remove_a_cancelled_search_locally(client, tmp_path):
     assert client.post("/api/jobs/nothing/remove", headers=headers).status_code == 404
 
 
+def test_run_deleted_by_hand_locally(client, tmp_path):
+    """The local app has no run deletion: a run is deleted in the runs folder. Its finished job is then listed with
+    run_gone (the page shows no card for it) at every listing after, not only once; the run put back, it is listed
+    as before. Nothing is stored for it."""
+    import shutil
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {"radius": 300}, "geometry": None}, "Saved")
+    run = tmp_path / "runs" / "2026-11-17_100000_Saved_0000000000000001"
+    run.mkdir(parents=True)
+    (run / "run.json").write_text("{}")
+    jobs.set(job, "done", run_id=run.name)
+    gone = lambda: {j["id"]: j["run_gone"] for j in client.get("/api/jobs").json()["jobs"]}[job]  # noqa: E731
+    assert gone() is False
+    shutil.move(run, tmp_path / "aside")  # deleted by hand (or moved away)
+    assert gone() is True and gone() is True and jobs.get(job)["removed_at"] is None
+    shutil.move(tmp_path / "aside", run)
+    assert gone() is False
+
+
 def test_sag_requests_keep_their_fall_zone(tmp_path):
     """jobs.sqlite of version 16 gets migration 17: a sag request without a fall zone (the form leaves out a
     value equal to the default) gets the 3 m it was made with, before the default became 6 m (2026-11-14), so

@@ -1759,6 +1759,7 @@ run({
       wait(() => !card("job", J.waiting), () => {
         fetch("/api/jobs").then((r) => r.json()).then((body) => {
           result.removed = body.jobs.filter((j) => j.removed_at).map((j) => j.id).sort();
+          result.runGone = body.jobs.filter((j) => j.run_gone).map((j) => j.id);
           result.left = [!!card("job", J.running), !!card("job", J.failed)];
           next();
         });
@@ -1837,12 +1838,12 @@ def test_shell_c_cancelled_search(tmp_path):
     assert r["ask"] == ["Remove “Cancelled while waiting” from your searches? It was cancelled, so it has no result "
                         "and no files.", "alertdialog", "Remove the search", "Keep it", ["Remove", "Keep it"]], r
     assert r["kept"] is True and r["askBackground"][0] != r["askBackground"][1], r
-    assert r["removed"] == sorted([ids["waiting"], ids["removed"], ids["deleted"]]), r
+    assert r["removed"] == sorted([ids["waiting"], ids["removed"]]) and r["runGone"] == [ids["deleted"]], r
     assert r["left"] == [True, True], r
     admin = {row[0]: row for row in r["admin"]}
     assert admin["Removed search"][1] == "cancelled" and admin["Removed search"][3] == "removed", r
     assert "u-cancelled" in admin["Removed search"][2] and admin["Cancelled while waiting"][3] == "removed", r
-    assert admin["Saved search"][3] == "removed" and admin["Failed search"][3] == "", r
+    assert admin["Saved search"][3] == "run deleted" and admin["Failed search"][3] == "", r
     assert admin["Cancelled while running"][3] == "" and "u-cancelled" in admin["Cancelled while running"][2], r
     assert "u-failed" in admin["Failed search"][2], r
     assert r["csp"] == [] and r_admin["csp"] == []
