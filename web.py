@@ -2297,7 +2297,10 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"outline and the country it lies in, its title and status (with the reason when it failed), and its "
          f"messages and progress. "
          f"Why: to run the search and show it to you. The messages are deleted {events} after the search ended; the "
-         f"search itself stays in your queue. Your totals of searched area are counted from these."),
+         f"search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+         f"marked removed with the time. A removed search still counts toward your searches of the day, the area "
+         f"searched and the site's statistics, and administrators can still see it. Your totals of searched area are "
+         f"counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
          "renewed or revoked."),
@@ -2316,7 +2319,7 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          "an administrator deletes it (ask the contact below to have yours deleted)."),
         ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
-        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
+        ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started, cancelled and removed, share links "
          f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
          f"their names or values), changes of your account's country, problem reports sent (not their "

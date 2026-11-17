@@ -1794,6 +1794,13 @@ def test_privacy_and_about_pages(run_people):
         "leash fall space, pretension, webbing stretch and weight, athlete mass); at most 10. Why: to fill your "
         "searches with them. Kept until you delete them.") + "</dd>" in text
     assert "rigs saved, changed and deleted (not their names or values)" in text
+    # a removed search (the user's approved wording, 2026-11-17)
+    assert web.html.escape(
+        "the search itself is kept: in your list until you remove it (a cancelled search) or delete its run, then "
+        "marked removed with the time. A removed search still counts toward your searches of the day, the area "
+        "searched and the site's statistics, and administrators can still see it.") in text
+    assert "searches started, cancelled and removed" in text
+    assert "stays in your queue" not in text and "searches started and cancelled" not in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
