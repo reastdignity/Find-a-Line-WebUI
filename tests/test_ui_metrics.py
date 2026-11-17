@@ -761,11 +761,23 @@ def test_headline_counts_with_failures():
     assert "1 states measured, 1 failed, 1 left out" in ui_metrics.pages_markdown(s)
 
 
+def test_exit_code(tmp_path):
+    """0 when every state was measured or left out and every pass finished; 1 when a state was not measured or a pass
+    did not finish (pages-run.json)."""
+    ok = [_state("a", "iphone", 1, 0), {"page": "c", "device": "iphone", "theme": "light", "left_out": "x"}]
+    (tmp_path / "pages-states.jsonl").write_text("".join(json.dumps(r) + "
+" for r in ok), encoding="utf-8")
+    assert ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"]) == 0
+    (tmp_path / "pages-run.json").write_text(json.dumps({"passes": [{"device": "iphone", "theme": "light",
+                                                                     "complete": False}]}), encoding="utf-8")
+    assert ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"]) == 1
+
+
 def test_summarise_again_from_the_log(tmp_path):
     """--summarise rebuilds pages.json and pages.md from pages-states.jsonl alone."""
     records = [_state("a", "iphone", 2, 10), {"page": "bad", "device": "iphone", "theme": "light", "error": "E"}]
     (tmp_path / "pages-states.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
-    ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"])
+    assert ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"]) == 1  # a state not measured
     expected = json.loads(json.dumps(ui_metrics.summarise(records)))
     assert json.loads((tmp_path / "pages.json").read_text(encoding="utf-8")) == expected
     assert "1 states measured, 1 failed" in (tmp_path / "pages.md").read_text(encoding="utf-8")

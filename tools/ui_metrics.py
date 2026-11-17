@@ -29,7 +29,9 @@ state as it ends; then pages.json, pages.md). A state whose wait timed out or wh
 is recorded as not measured, with its reason, and counts in no total; a state the device does not show (a click
 finds nothing) or the run lacks the feature of is recorded as left out, with its reason. Every control's and text's
 size is kept in the log, so `--summarise` with other `--controls`/`--text` bounds answers them without a new pass
-(pages-c<..>-t<..>.json/.md); the summary also gives the page families by the prefix of their names (FAMILIES):
+(pages-c<..>-t<..>.json/.md); the summary also gives the page families by the prefix of their names (FAMILIES).
+The exit code is 1 when a state was not measured or a pass did not finish (as tools/ui_shots.py's after a
+timeout or a failed step), else 0. Measured per state:
 - the visible, enabled controls (only an open modal dialog's when one is open) and the size of each one's target:
   its own box joined with the boxes of its absolutely positioned ::before and ::after (computed from their insets,
   sizes and the control's padding box; one positioned against another element, a transform or a clip is not seen),
@@ -1314,7 +1316,7 @@ def main(argv=None):
         result = static(REPO, args.chars, args.radius, args.with_demos)
         _write(args.out, "static", result, static_markdown(result))
         print(os.path.join(args.out, "static.md"))
-        return
+        return 0
     if args.summarise:
         with open(os.path.join(args.out, "pages-states.jsonl"), encoding="utf-8") as f:
             records = [json.loads(line) for line in f if line.strip()]
@@ -1329,9 +1331,21 @@ def main(argv=None):
         "pages-c" + "-".join(map(str, controls)) + "-t" + "-".join(map(str, text))
     _write(args.out, name, summary, pages_markdown(summary))
     print(os.path.join(args.out, name + ".md"))
+    return exit_code(records, args.out)
+
+
+def exit_code(records: list, out: str) -> int:
+    """1 when a state was not measured (timed out or failed) or a pass did not finish (pages-run.json), as
+    tools/ui_shots.py exits after a timeout or a failed step; else 0. No threshold is judged: a full count is 0."""
+    try:
+        with open(os.path.join(out, "pages-run.json"), encoding="utf-8") as f:
+            passes = json.load(f).get("passes", [])
+    except (OSError, ValueError):
+        passes = []
+    return 1 if any("error" in r for r in records) or any(not p.get("complete", True) for p in passes) else 0
 
 
 if __name__ == "__main__":
     from progress import utf8_output
     utf8_output()
-    main()
+    sys.exit(main())
