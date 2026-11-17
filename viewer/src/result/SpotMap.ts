@@ -66,6 +66,7 @@ export const CLOSE_MPP = 0.25;
 /** A square pressed under Auto zooms to at most this many metres per pixel, so that Auto lands on Spots. */
 export const SQUARE_MPP = 0.96;
 const SNAP = 0.25;
+const PANE = "spots";  // the canvas's pane on the map
 const REACH_MOUSE = 8, REACH_TOUCH = 20, TIE_MOUSE = 3, TIE_TOUCH = 8, CHOICES_MAX = 6;
 /** A press held this long within this many px opens "Lines from here" (Leaflet's own numbers of a tap held); a
  *  browser's own contextmenu within MENU_QUIET ms after it is the same press. */
@@ -190,7 +191,12 @@ export class SpotMap {
     this.lat = [reader(c.lat1), reader(c.lat2)];
     this.lon = [reader(c.lon1), reader(c.lon2)];
     this.over = c.over;
-    this.renderer = new Draw({padding: 0.3, onUpdate: () => this.full()});
+    // a pane of its own above Leaflet's overlays (the shore's and the coarser terrain's outlines stay under the lines)
+    // and below the markers
+    const pane = map.getPane(PANE) ?? map.createPane(PANE);
+    pane.style.zIndex = "450";
+    pane.style.pointerEvents = "none";
+    this.renderer = new Draw({pane: PANE, padding: 0.3, onUpdate: () => this.full()});
     this.anchorMarks.addTo(map);
     map.on("resize", this.refresh).on("click", this.onClick).on("contextmenu", this.onMenu);
     map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut).on("zoomend", this.afterZoom);

@@ -15,7 +15,7 @@
 .ui .v-best.v-off { opacity: .55; }
 .ui .v-select { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 28px; font-size: 13px; }
 
-.ui .v-foot { position: absolute; z-index: 800; left: 10px; right: 10px; bottom: calc(var(--v-covered, 0px) + 34px); display: flex;
+.ui .v-foot { position: absolute; z-index: 800; left: 10px; right: 10px; bottom: calc(var(--v-covered, 0px) + var(--v-corner, 34px)); display: flex;
   flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; }
 .ui .v-foot > * { pointer-events: auto; max-width: 100%; }
 .ui .v-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
