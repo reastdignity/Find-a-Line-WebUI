@@ -761,6 +761,44 @@ def test_headline_counts_with_failures():
     assert "1 states measured, 1 failed, 1 left out" in ui_metrics.pages_markdown(s)
 
 
+class _NoWebKit(_Fake):
+    """Playwright as far as shoot_all uses it, its WebKit not launching."""
+    def __init__(self):
+        super().__init__()
+        self.webkit = self
+
+    def launch(self):
+        raise RuntimeError("Executable doesn't exist at webkit\\nmore of the call log")
+
+
+def test_a_pass_that_stops_leaves_its_states_recorded():
+    """A pass whose browser does not launch: each of its states is recorded as not measured with the reason, the pass
+    as not complete; the summary's headline names it."""
+    passes, log = [], io.StringIO()
+    records = ui_metrics.measure_all(_NoWebKit(), {}, ["c-home", "c-new"], ["iphone"], ["light"], None, log,
+                                     {}, passes)
+    assert [(r["page"], r["error"]) for r in records] == [
+        (p, "not measured: the pass stopped: RuntimeError: Executable doesn't exist at webkit")
+        for p in ("c-home", "c-new")]
+    assert passes == [{"device": "iphone", "theme": "light", "seconds": 0, "saved": 0, "left_out": 0,
+                       "complete": False}]
+    s = ui_metrics.summarise(records, passes=passes)
+    assert "passes that did not finish: iphone light" in ui_metrics.pages_markdown(s)
+
+
+def test_summarise_skips_a_cut_last_line(tmp_path, capsys):
+    """A log whose last line was cut (a killed run) is summarised without it, with a warning; pages-run.json's
+    unfinished pass is named in the headline."""
+    good = json.dumps(_state("a", "iphone", 1, 0))
+    (tmp_path / "pages-states.jsonl").write_text(good + "\n" + good[:40], encoding="utf-8")
+    (tmp_path / "pages-run.json").write_text(json.dumps({"passes": [{"device": "iphone", "theme": "light",
+                                                                     "complete": False}]}), encoding="utf-8")
+    assert ui_metrics.main(["pages", "--out", str(tmp_path), "--summarise"]) == 1
+    assert "its last line is cut" in capsys.readouterr().out
+    md = (tmp_path / "pages.md").read_text(encoding="utf-8")
+    assert "1 states measured" in md and "passes that did not finish: iphone light" in md
+
+
 def test_exit_code(tmp_path):
     """0 when every state was measured or left out and every pass finished; 1 when a state was not measured or a pass
     did not finish (pages-run.json)."""

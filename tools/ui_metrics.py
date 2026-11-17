@@ -1000,17 +1000,34 @@ def measure_all(pw, site: dict, shown: list, devices: list, themes: list, axe_so
     of the screenshot) in contexts that bypass the CSP; each record also written to `log` as it ends. A page whose
     loading, steps or measuring raise, or whose wait timed out, is recorded as not measured and the pass goes on.
     `site`: ui_shots' dict (url, cookies, run, share, line, also, border). `dropped`: the pages the run lacks the
-    feature of (ui_shots.left_out_by_run: page -> reason), recorded as left out on every device and theme first."""
+    feature of (ui_shots.left_out_by_run: page -> reason), recorded as left out on every device and theme first. One
+    shoot_all per pass: when a pass stops (its browser's launch or its context fails), its remaining states are
+    recorded as not measured with the reason, the pass as not complete, and the next pass goes on."""
     import ui_shots
     records = []
     rows = _Logged(records, log)
+    times = {} if times is None else times
+    passes = [] if passes is None else passes
     for device in devices:
         for theme in themes:
             for name, reason in (dropped or {}).items():
                 rows.keep({"page": name, "device": device, "theme": theme, "left_out": reason})
-    ui_shots.shoot_all(pw, site, shown, devices, themes, None, False, {} if times is None else times, rows,
-                       [] if passes is None else passes,
-                       act=lambda page, name, device, theme: measure(page, axe_source), bypass_csp=True)
+    for device in devices:
+        for theme in themes:
+            first, had = len(records), len(passes)
+            try:
+                ui_shots.shoot_all(pw, site, shown, [device], [theme], None, False, times, rows, passes,
+                                   act=lambda page, name, device, theme: measure(page, axe_source), bypass_csp=True)
+            except Exception as error:
+                done = {r["page"] for r in records[first:]}
+                why = f"not measured: the pass stopped: {type(error).__name__}: {ui_shots.error_line(error)}"
+                for name in shown:
+                    if name not in done:
+                        rows.keep({"page": name, "device": device, "theme": theme, "error": why})
+                if len(passes) == had:
+                    passes.append({"device": device, "theme": theme, "seconds": 0, "saved": 0, "left_out": 0,
+                                   "complete": False})
+                passes[-1]["complete"] = False
     return records
 
 
@@ -1090,7 +1107,7 @@ def _axe_ok(r: dict) -> bool:
     return "axe" in r and "error" not in r["axe"]
 
 
-def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
+def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS, passes: list | None = None) -> dict:
     """Per device and theme the totals; the lists de-duplicated by signature over all states, most frequent first.
     The counts under `controls` and `text` are cut anew from the records' kept sizes (recut); records of earlier
     versions, without sizes, are read as they are (their "sideways": the scrolling elements) and only with the
@@ -1204,6 +1221,7 @@ def summarise(records: list, controls=CONTROL_BOUNDS, text=TEXT_BOUNDS) -> dict:
             "states_failed": sum(1 for r in records if "error" in r),
             "states_left_out": sum(1 for r in records if "left_out" in r),
             "left_out": _left_out(records),
+            "passes_not_finished": [f"{p['device']} {p['theme']}" for p in passes or [] if not p.get("complete", True)],
             "bounds": {"controls": list(controls), "text": list(text), "box_min": BOX_MIN}}
 
 
@@ -1216,8 +1234,10 @@ def pages_markdown(s: dict) -> str:
                   "axe violations: nodes (rules) crit / serious / moderate / minor", "axe incomplete: nodes",
                   "No axe result", "Errors"])
     out = ["# UI metrics: pages", "", f"{s['states']} states measured, {s.get('states_failed', 0)} failed, "
-           f"{s.get('states_left_out', 0)} left out; seconds in "
-           f"all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
+           f"{s.get('states_left_out', 0)} left out"
+           + (f"; passes that did not finish: {', '.join(s['passes_not_finished'])}"
+              if s.get("passes_not_finished") else "")
+           + f"; seconds in all {s['seconds_total']} (indicative: the shared lock, other sessions).", "",
            "| " + " | ".join(columns) + " |", "|" + " --- |" * len(columns)]
     for key, r in s["per_device_theme"].items():
         v = " / ".join(f"{r['axe_violations_nodes'][i]} ({r['axe_violations_rules'][i]})" for i in IMPACTS)
@@ -1318,14 +1338,13 @@ def main(argv=None):
         print(os.path.join(args.out, "static.md"))
         return 0
     if args.summarise:
-        with open(os.path.join(args.out, "pages-states.jsonl"), encoding="utf-8") as f:
-            records = [json.loads(line) for line in f if line.strip()]
+        records = read_log(os.path.join(args.out, "pages-states.jsonl"))
     else:
         records = run_pages(args.out, args.only, args.devices.split(","), args.dark, args.data_dir)
     number = lambda v: int(v) if float(v).is_integer() else float(v)  # noqa: E731
     controls = tuple(number(v) for v in args.controls.split(",") if v)
     text = tuple(number(v) for v in args.text.split(",") if v)
-    summary = summarise(records, controls, text)
+    summary = summarise(records, controls, text, _passes(args.out))
     # other bounds than the defaults: a summary of their own beside pages.json/.md
     name = "pages" if (controls, text) == (CONTROL_BOUNDS, TEXT_BOUNDS) else \
         "pages-c" + "-".join(map(str, controls)) + "-t" + "-".join(map(str, text))
@@ -1334,15 +1353,35 @@ def main(argv=None):
     return exit_code(records, args.out)
 
 
+def read_log(path: str) -> list:
+    """The records of a pages-states.jsonl; a cut last line (a run killed while writing it) is skipped with a
+    warning."""
+    with open(path, encoding="utf-8") as f:
+        lines = [line for line in f if line.strip()]
+    records = []
+    for k, line in enumerate(lines):
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            if k < len(lines) - 1:
+                raise
+            print(f"{path}: its last line is cut (a run that did not end); left out")
+    return records
+
+
+def _passes(out: str) -> list:
+    """The passes of pages-run.json ([] without it)."""
+    try:
+        with open(os.path.join(out, "pages-run.json"), encoding="utf-8") as f:
+            return json.load(f).get("passes", [])
+    except (OSError, ValueError):
+        return []
+
+
 def exit_code(records: list, out: str) -> int:
     """1 when a state was not measured (timed out or failed) or a pass did not finish (pages-run.json), as
     tools/ui_shots.py exits after a timeout or a failed step; else 0. No threshold is judged: a full count is 0."""
-    try:
-        with open(os.path.join(out, "pages-run.json"), encoding="utf-8") as f:
-            passes = json.load(f).get("passes", [])
-    except (OSError, ValueError):
-        passes = []
-    return 1 if any("error" in r for r in records) or any(not p.get("complete", True) for p in passes) else 0
+    return 1 if any("error" in r for r in records) or any(not p.get("complete", True) for p in _passes(out)) else 0
 
 
 if __name__ == "__main__":
