@@ -497,10 +497,10 @@ def test_a_partial_index_goes_to_the_next_base(tmp_path, mirror, http_server):
     assert layer.download_tile((1.0, *DATA_TILES[1]), str(tmp_path / "t.tif")).received > 0
     assert [r.path for r in http_server.requests("/second/")] == [
         f"/second/{MIRROR}/index.json", f"/second/{MIRROR}/{src.grid_tile_name(*DATA_TILES[1])}"]
-    with pytest.raises(RuntimeError, match="not on the server at 127.0.0.1 yet"):
+    with pytest.raises(RuntimeError, match="not of test/dtm/1m on the server at 127.0.0.1 yet"):
         mirrored_layer().download_tile((1.0, *DATA_TILES[1]), str(tmp_path / "u.tif"))
     # a tile beyond the keys of a partial index is not known to be outside the data either
-    with pytest.raises(RuntimeError, match="not on the server at 127.0.0.1 yet"):
+    with pytest.raises(RuntimeError, match="not of test/dtm/1m on the server at 127.0.0.1 yet"):
         mirrored_layer().download_tile((1.0, 300, 127), str(tmp_path / "v.tif"))
 
 
@@ -568,8 +568,9 @@ def test_averaged_tiles_over_http(tmp_path, mirror):
     the 1 m tiles."""
     layer = mirrored_layer(averaged=(2,))
     assert layer.resolution(2.0) == 2.0
-    with pytest.raises(RuntimeError, match=r"Test DTM \(mirrored\) tile .*: index.json is not on the server at "
-                                           r"127.0.0.1 \(HTTP 404\): this dataset or resolution is not published there"):
+    with pytest.raises(RuntimeError, match=r"Test DTM \(mirrored\) tile .*: index.json of test/dtm/2m is not on the "
+                                           r"server at 127.0.0.1 \(HTTP 404\): this dataset or resolution is not "
+                                           r"published there"):  # the averaged product named (F2)
         _download(layer, tmp_path / "none", res=2.0)
     assert mirror.asked() and all("/test/dtm/2m/" in p for p in mirror.asked())
     make_averaged(mirror.root)
@@ -1012,7 +1013,8 @@ def test_a_malformed_index(tmp_path, mirror, http_server, two_sources, no_mirror
     before, cache_dir = len(mirror.asked("index")), str(tmp_path / "cache")
     tile = (1.0, *DATA_TILES[0])
     layer = mirrored_layer()
-    with pytest.raises(RuntimeError, match=r"index.json at 127.0.0.1 cannot be read: .*also after taking the index"):
+    with pytest.raises(RuntimeError, match=r"index.json of test/dtm/1m at 127.0.0.1 cannot be read: .*also after "
+                                           r"taking the index"):
         layer._download_and_record(tile, cache_dir)
     path = layer.tile_path(cache_dir, tile)
     assert cache.state(cache_dir, path) is None and not os.path.exists(path)
@@ -1363,8 +1365,8 @@ def test_an_unlisted_dataset_is_unavailable(tmp_path, mirror, two_sources):
     lat, lon = CENTRE
     source, why = src.choose_source("auto", lat, lon, str(tmp_path), reach=True)
     assert source.id == "test_plain", why
-    assert why == ("the centre is in ZZ, but Test DTM (mirrored): not published on the data server at 127.0.0.1, "
-                   "and no local copy is set up")
+    assert why == ("the centre is in ZZ, but Test DTM (mirrored): test/dtm/1m is not published on the data server at "
+                   "127.0.0.1, and no local copy is set up")
     with pytest.raises(ValueError, match="not published on the data server at 127.0.0.1") as refused:
         src.choose_source("test_mirrored", lat, lon, str(tmp_path), reach=True)
     assert "does not answer" not in str(refused.value)
@@ -1395,8 +1397,9 @@ def test_a_busy_list_counts_as_listed(tmp_path, mirror, no_mirror_settings):
     assert mirrored_layer().reach() is None and no_mirror_settings == []
     os.remove(os.path.join(mirror.root, *MIRROR.split("/"), "index.json"))  # the dataset is not on the server
     layer, cache_dir = mirrored_layer(), str(tmp_path / "cache")
-    with pytest.raises(RuntimeError, match=r"index.json is not on the server at 127.0.0.1 \(HTTP 404\): this dataset "
-                                           r"or resolution is not published there, also after taking the index again"):
+    with pytest.raises(RuntimeError, match=r"index.json of test/dtm/1m is not on the server at 127.0.0.1 \(HTTP 404\): "
+                                           r"this dataset or resolution is not published there, also after taking the "
+                                           r"index again"):
         layer._download_and_record((1.0, *DATA_TILES[0]), cache_dir)
     path = layer.tile_path(cache_dir, (1.0, *DATA_TILES[0]))
     assert cache.state(cache_dir, path) is None and not os.path.exists(path)  # no file, no "missing" row
@@ -1426,8 +1429,8 @@ def test_the_probe_of_an_unlisted_dataset(tmp_path, mirror, two_sources, capsys)
     os.makedirs(folder)
     row = probe.probe_layer(two_sources, two_sources.nmt, "terrain", str(tmp_path / "cache"), folder, False)
     assert (row.index, row.read, row.failed) == (probe.NONE, probe.NONE, False)
-    assert row.notes == ["Test DTM (mirrored): not published on the data server at 127.0.0.1, and no local copy is "
-                         "set up"]
+    assert row.notes == ["Test DTM (mirrored): test/dtm/1m is not published on the data server at 127.0.0.1, and no "
+                         "local copy is set up"]
     tilebases._LISTS.clear()
     assert probe.run(str(tmp_path / "cache"), ["test_mirrored"]) == 0
     out = capsys.readouterr().out
@@ -1492,8 +1495,8 @@ def test_an_islet_on_a_server_that_publishes_madeira(tmp_path, http_server, monk
         monkeypatch.setattr(src.SOURCES[source].nmt.readers[src.SOURCES[source].nmt.native_res], "_unanswered", {})
     source, why = src.choose_source("auto", 33.075, -16.34, str(tmp_path), reach=True)
     assert source.id == "madeira"
-    assert why == ("the centre is in PT-30, but Porto Santo MDT 5 m (terrain): not published on the data server at "
-                   "127.0.0.1, and no local copy is set up")
+    assert why == ("the centre is in PT-30, but Porto Santo MDT 5 m (terrain): porto-santo/dtm/5m is not published on "
+                   "the data server at 127.0.0.1, and no local copy is set up")
     assert [r.path for r in http_server.log] == ["/v1/datasets.json"]
 
 
@@ -1544,5 +1547,34 @@ def test_what_the_public_site_shows(tmp_path, monkeypatch, offline, mirror, two_
         for seen in (text, info or ""):
             assert not re.search(r"[a-z]+://|/v1/|\?|@|secret|user:|:\d{2,5}\b", seen), (name, seen)
         assert "127.0.0.1" in text or "mirror.example.org" in text, (name, text)
+        assert "127.0.0.1/" not in text and ".org/" not in text, (name, text)  # nothing after the host
+    # A failure about one product names it by its folder in the mirror (F2): a dataset's folder, not part of an address
+    # (no scheme, host, port, /v1/ or query before or around it, which the checks above refuse)
+    assert all(MIRROR in failures[name][0] for name in ("a listed tile gone", "not published, named source"))
     assert set(failures) == {"start, named source", "download in the middle", "a listed tile gone",
                              "not published, named source", "a wrong setting"}
+
+
+def test_an_estimate_waits_as_a_start_check(tmp_path, mirror, monkeypatch, no_mirror_settings):
+    """F1: an estimate's index fetch takes the start check's manners, as when the start check fetched it before U50:
+    its timeouts, its attempts, and a 429 ends it at once; the upper bound after a failure. The longest it can wait
+    (tilebases.ESTIMATE_WAIT_MAX, from the constants) stays below the public quick lane's limit per task with a
+    margin, so a busy or hanging data server never kills a quick task (one process serves every visitor's)."""
+    import settings
+    grid = gd.make_grid(WIDE, 1.0, CRS, ORIGIN)
+    index = f"/v1/tiles/{MIRROR}/index.json"
+    timeouts = []
+    get = net._get
+    monkeypatch.setattr(net, "_get", lambda url, **kw: (timeouts.append(kw.get("timeout")), get(url, **kw))[1])
+    mirror.statuses[index] = 429
+    assert mirrored_layer().estimate(grid, str(tmp_path / "a"), None) == (5, 5, 5 * 2.0)
+    assert mirror.asked() == [index] and no_mirror_settings == [] and timeouts == [tilebases.REACH_TIMEOUT]
+    mirror.statuses[index] = 503
+    assert mirrored_layer().estimate(grid, str(tmp_path / "b"), None) == (5, 5, 5 * 2.0)
+    assert mirror.asked() == [index] * (1 + tilebases.REACH_ATTEMPTS)
+    assert no_mirror_settings == [attempt + 3 for attempt in range(tilebases.REACH_ATTEMPTS)]  # the 503's back-off
+    longest = (tilebases.REACH_ATTEMPTS * sum(tilebases.REACH_TIMEOUT)
+               + sum(1.5 * 2 ** (attempt + 3) for attempt in range(tilebases.REACH_ATTEMPTS)))  # net._sleep: 0.5-1.5 x
+    assert tilebases.ESTIMATE_WAIT_MAX == longest == 96
+    assert longest <= 0.85 * settings.PUBLIC["quick_seconds"]  # 96 s against 120 s: a margin of 24 s
+

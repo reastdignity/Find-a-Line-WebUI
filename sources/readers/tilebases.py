@@ -31,6 +31,12 @@ REACH_TIMEOUT = (10, 20)    # the start check (reach): seconds to connect, secon
 REACH_ATTEMPTS = 2          # the start check's attempts (net._get's retries)
 INDEX_SECONDS = 300         # how long a remote index is kept in memory (never stored)
 UNANSWERED_SECONDS = 60     # how long a start check that got no answer is remembered (for later start checks only)
+# The longest an estimate's index fetch (index_for_estimate) can wait for the answers it gets: every attempt's
+# connect and one read at their limits (a read is per chunk, so a server that trickles can take longer), and
+# net._sleep's longest pause after each attempt, the longer back-off of a 503 included (net._get pauses after its
+# last attempt too). Below the public quick lane's limit per task (settings.PUBLIC["quick_seconds"], 120 s): 96 s
+ESTIMATE_WAIT_MAX = (REACH_ATTEMPTS * sum(REACH_TIMEOUT)
+                     + sum(1.5 * 2 ** (attempt + 3) for attempt in range(REACH_ATTEMPTS)))
 HEAL_PAUSE = 2              # net._sleep's attempt before the index is taken again (2-6 s): a dataset being swapped
 
 
@@ -365,15 +371,15 @@ class TileBases(Reader):
                 response = net._get(f"{base}/index.json", timeout=timeout, binary_types=("json",), retries=retries,
                                     stop_on=stop_on)
                 if response is None:
-                    raise IndexMissing(f"index.json is not on the server at {_host_of(base)} (HTTP 404): this "
-                                       f"dataset or resolution is not published there")
+                    raise IndexMissing(f"index.json{self._of()} is not on the server at {_host_of(base)} (HTTP 404): "
+                                       f"this dataset or resolution is not published there")
                 try:
                     tiles, extent = _checked_index(json.loads(response.content))
                 except ValueError as e:  # not JSON (IndexUnreadable is a RuntimeError: below)
                     raise IndexUnreadable(f"not JSON ({str(e)[:80]})") from None
             except RuntimeError as e:
                 if isinstance(e, IndexUnreadable):
-                    why, e = str(e), IndexUnreadable(f"index.json at {_host_of(base)} cannot be read: {e}")
+                    why, e = str(e), IndexUnreadable(f"index.json{self._of()} at {_host_of(base)} cannot be read: {e}")
                     e.why = why
                 kept.index, kept.error = None, e
                 kept.generation += 1  # after the fetch: the threads that waited for it see that it moved
@@ -403,9 +409,9 @@ class TileBases(Reader):
                         f.write(response.content)
                     os.replace(tmp, path)
                     return Fetched.of(response, url)
-                problem = (f"the tile is not on the server at {_host_of(url)} (HTTP 404), though its index "
-                           "lists it" if response is None else
-                           f"the tile from {_host_of(url)} does not match the sha256 of its index")
+                problem = (f"the tile{self._of()} is not on the server at {_host_of(url)} (HTTP 404), though its "
+                           "index lists it" if response is None else
+                           f"the tile{self._of()} from {_host_of(url)} does not match the sha256 of its index")
             except (IndexMissing, IndexUnreadable) as e:  # as a mismatch: once more after the pause
                 problem, used = str(e), None
             except RuntimeError as e:  # net._get's attempts spent: said by the host alone (no path; U40)
@@ -428,16 +434,23 @@ class TileBases(Reader):
         index = kept.fresh() if kept is not None else None
         return index is not None and _listed(index[0], index[1], tile) is OUTSIDE
 
+    def _of(self) -> str:
+        """" of <product>" for a failure about one product: its folder in the mirror (slovakia/dmr5/2m: a dataset's
+        folder, no address), which tells the native and the averaged products apart; "" without one."""
+        return f" of {self.mirror}" if self.mirror else ""
+
     def index_for_estimate(self) -> bool:
         """The index of the first base, a remote one, for an estimate (GridTiles.estimate): the kept one, or fetched
         now (the start check keeps none since U50; an estimate used the start check's index before), then kept as
-        a download keeps it. False for a local folder first, or on any failure of the fetch: the estimate is then
+        a download keeps it. Fetched with the start check's manners (REACH_TIMEOUT, REACH_ATTEMPTS, a 429 ends it
+        at once), as when the start check fetched it: an estimate in the quick lane stays within its time limit
+        (ESTIMATE_WAIT_MAX). False for a local folder first, or on any failure of the fetch: the estimate is then
         the upper bound, never an error and never a reason to turn the source down."""
         bases = self.bases()
         if not bases or not _is_remote(bases[0]):
             return False
         try:
-            self._remote_index(bases[0])
+            self._remote_index(bases[0], timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS, stop_on=(429,))
         except RuntimeError:
             return False
         return True
@@ -476,7 +489,7 @@ class TileBases(Reader):
             if listed:  # the data server: its list of datasets
                 if self.mirror.strip("/") not in _published(origin):
                     self._unanswered.pop(base, None)
-                    return NotPublished(f"{self.description}: not published on the data server at "
+                    return NotPublished(f"{self.description}: {self.mirror} is not published on the data server at "
                                         f"{urlsplit(base).hostname}, and no local copy is set up")
             else:  # another remote base: its index
                 self._remote_index(base, timeout=REACH_TIMEOUT, retries=REACH_ATTEMPTS, stop_on=(429,))
@@ -521,5 +534,5 @@ class TileBases(Reader):
                 continue
             if fetched is not None:
                 return fetched
-            error = f"not on the server at {_host_of(base)} yet"
+            error = f"not{self._of()} on the server at {_host_of(base)} yet"
         raise RuntimeError(f"Could not download {self.description} tile {name}: {error or self.unavailable()}")
