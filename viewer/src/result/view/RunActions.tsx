@@ -4,7 +4,7 @@
 // the page can ask for it (mayExport); of a run without a store its lines.csv and lines.geojson, which
 // web.RUN_FILES serves).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
@@ -198,26 +198,34 @@ function save(url: string) {
  *  browser saves it; a failure is a red line under the rows, in a menu that opens again if it was closed. */
 function Export({model, compact}: RunActionsProps) {
   const id = model.runId;
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Format | null>(null);
   const [error, setError] = useState("");
+  // The menu as its button last drew it: a failure opens a closed one through the button's own toggle
+  const menu = useRef<{open: boolean; toggle(): void}>({open: false, toggle: () => undefined});
+  const opened = () => { if (!menu.current.open) menu.current.toggle(); };
   const press = (format: Format) => {
     if (busy) return;
     setBusy(format);
     setError("");
     api.exportRun(id, format).then((r) => { setBusy(null); save(r.url); },
-                                   (e) => { setBusy(null); setError(exportError(e)); setOpen(true); });
+                                   (e) => { setBusy(null); setError(exportError(e)); opened(); });
   };
-  const opened = (now: boolean) => { setOpen(now); if (!now) setError(""); };
   const waiting = busy ? t("ui.result.export_preparing_label") : undefined;
   const ring = <span class="r-spin r-spin-ic" />;
-  return <Popover label="Download" align="right" open={open} onOpen={opened}
-                  button={(isOpen, toggle) => compact
-                    ? busy ? <button type="button" class={isOpen ? "u-ib u-on" : "u-ib"} aria-label={waiting} title={waiting}
-                                     aria-expanded={isOpen} onClick={toggle}>{ring}</button>
-                      : <IconButton icon="download" label="Download" expanded={isOpen} onClick={toggle} />
-                    : busy ? <Button aria-expanded={isOpen} aria-label={waiting} onClick={toggle}>{ring}Download</Button>
-                      : <Button icon="download" aria-expanded={isOpen} onClick={toggle}>Download</Button>}>
+  const button = (isOpen: boolean, toggle: () => void) => {
+    menu.current = {open: isOpen, toggle};
+    if (!busy) {
+      return compact ? <IconButton icon="download" label="Download" expanded={isOpen} onClick={toggle} />
+        : <Button icon="download" aria-expanded={isOpen} onClick={toggle}>Download</Button>;
+    }
+    // the ring in the icon's place (IconButton draws an icon only)
+    return compact
+      ? <button type="button" class={isOpen ? "u-ib u-on" : "u-ib"} aria-label={waiting} title={waiting} aria-expanded={isOpen}
+                onClick={toggle}>{ring}</button>
+      : <Button aria-expanded={isOpen} aria-label={waiting} onClick={toggle}>{ring}Download</Button>;
+  };
+  // A closed menu takes its failure's line with it
+  return <Popover label="Download" align="right" onOpen={(now) => { if (!now) setError(""); }} button={button}>
     <div class="r-downloads">
       <b class="u-h4">Download the lines</b>
       {FORMATS.map(([format, name, what]) =>
