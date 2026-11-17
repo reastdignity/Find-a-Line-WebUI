@@ -4080,6 +4080,11 @@ holds 1 157 MB (working set) and the tree 1 070 MB of USS, against 663 and 583 M
 term for it: a term of 8 B × min(lines, `SECTOR_WARD_SPOTS`)² (at most 0.8 GB) would cover it (proposed, not
 changed).
 
+Many spots on small grids (heavy lane, indicative): BAH with the rule and `--group-distance 3` (43 127 lines, 19 209
+spots, 6.77 Mpx), main against the branch: the tree's peak 1 158 → 1 618 MiB RSS and 1 107 → 1 526 MiB USS, moved from
+`linestore.write` to `view_columns`. `memory_needed` gives 360 MiB (769 with the 0.4 GiB left out); main already passes
+it (the 19 209 representatives' profiles are not counted); with the proposed term 1 532 MiB, just above the USS.
+
 ### The input's row order (spec-store.md 1.10's open check)
 On KOB and BAH (above), the same lines in a random order and in the order of `by_spot`: the same groups and
 representatives, but `lines.csv` not byte for byte (KOB 2 and 4 rows, BAH 66 767 and 63 094; equal when sorted).
