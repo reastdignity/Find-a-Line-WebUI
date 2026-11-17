@@ -206,6 +206,12 @@ clip run made before: one in the folder, a failed removal retried at every start
 each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
 form's riggers get only the rigs they do not have yet, the problem report is added once
 
+The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
+spots under one press, the map's controls open, a phone's sheet lowered) open with the page's flag: `VIEWS` names the
+pages whose `findaline.view` `page_storage` sets (removed for every other page of the pass), each waits for
+`window.FINDALINE_VIEW` (`VIEW_READY`), and a run whose store has no column `spot` leaves them out (`NEEDS` "view":
+`store_has_view`); `tests/test_ui_shots_view.py`.
+
 ## `tools/shots_diff.py`
 
 Run by hand: two folders of screenshots (`tools/ui_shots.py`'s, before and after a change) compared file by file:
@@ -243,6 +249,11 @@ as the prediction, per block and each once; `tests/test_perf_window_reads.py`), 
 anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_lines`, both checked against
 `helpers.evaluate_line`: seconds, memory, numba's one-time costs, the representatives of three rules, an answer's
 size; what `search.reach_of_anchor`'s engine was chosen on; `tests/test_perf_reach.py`)
+
+`perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
+drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
+(the view: a filter, "Top level only", Best, a held level, "Lines from here"; today's page: a filter, the grouping
+distance); `tests/test_perf_run_load_view.py`.
 
 ## `tools/perf_country.py`
 

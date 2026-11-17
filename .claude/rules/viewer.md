@@ -37,6 +37,15 @@ catalogue), `browser-tests.md`.
   access grid runs without the mark: the estimate's note has the code `access_skipped` (`basic.ts` `ACCESS_SKIPPED` =
   `search.py`'s note) and the run's heads the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_heads`).
 
+- The result view (step 3b, beside today's page behind `findaline.view`; docs/code-map/viewer.md): `result/spots.ts`
+  reads the store's `spot`, `top`, `by_spot` as written (run-files.md: the order inside a spot is Python's); its
+  interface (`SpotView`, `SpotMap`, the slots of `view/SpotPanels.tsx`) is shared with the panels: add to it, never
+  rename. `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
+  a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
+  over the map carries `data-map-control`, and one that takes no press (the toast) has `pointer-events: none`. The
+  phone's sheet has no height at the first draw (`covered` counts its state's height until then), and Preact 11 runs
+  an unmounted frame's effect cleanups after the paint, before the next frame's effects.
+
 ## Pitfalls
 
 - **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over
