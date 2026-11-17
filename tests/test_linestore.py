@@ -232,8 +232,9 @@ def test_store_round_trip_of_the_clip(tmp_path, monkeypatch):
     assert len(back.profiles) == len(results) and back.profiles == {
         k: sh.profile_dict(p) for k, p in results.profiles.items()}
     text = (folder / "data.js").read_text(encoding="utf-8")
-    assert head == {k: v for k, v in json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";")).items()
-                    if k != "lines"}
+    assert set(linestore.VIEW_HEAD) <= set(head)  # the view's keys: in the store's head only (test_view_columns)
+    assert {k: v for k, v in head.items() if k not in linestore.VIEW_HEAD} == {
+        k: v for k, v in json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";")).items() if k != "lines"}
     for fmt, name in linestore.EXPORTS.items():
         linestore.export(str(folder), fmt, str(tmp_path / name))
         assert (tmp_path / name).read_bytes() == (folder / name).read_bytes(), name
@@ -319,7 +320,7 @@ def test_a_store_that_fails_never_costs_the_run(tmp_path, monkeypatch):
     """A store that cannot be written (here linestore.write raising) leaves the run saved as a run of before:
     its text files and map, run.json without "store", no lines.arrow or profiles.arrow (a half-written one
     removed), and a warning."""
-    def failing(run_path, lines, head):
+    def failing(run_path, lines, head, view=None):
         (tmp_path / "runs" / "clip" / linestore.LINES_FILE).write_bytes(b"half")
         raise MemoryError("no memory for the store")
     monkeypatch.setattr(linestore, "write", failing)
