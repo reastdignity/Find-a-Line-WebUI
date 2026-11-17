@@ -223,6 +223,7 @@ INTERACT_SCRIPT = _with_until("""
     out.walking = [root.dataset.walk, button.textContent];
     document.querySelector(".v3-speed").click();
     out.speed4 = document.querySelector(".v3-speed").textContent;
+    out.speed4Name = document.querySelector(".v3-speed").getAttribute("aria-label");
     button.click();
     out.stopped = [root.dataset.walk, button.textContent];
     done();
@@ -236,6 +237,7 @@ INTERACT_SCRIPT = _with_until("""
     out.walkHidden = document.querySelector(".v3-walk").classList.contains("v3-hidden");
     out.reducedNote = !document.querySelector(".v3-reduced").classList.contains("v3-hidden");
     out.speed = (document.querySelector(".v3-speed") || {}).textContent;
+    out.speedName = (document.querySelector(".v3-speed") || {getAttribute: () => null}).getAttribute("aria-label");
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
     out.edit = root.dataset.edit;
@@ -331,6 +333,8 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
     assert abs(leader["pinBottom"] - leader["tipY"]) <= 1.5 and leader["pinTop"] < leader["tipY"], leader  # the pin ends in its tip
     assert leader["opacity"].startswith("rgba(255, 255, 255, 0.65"), leader
     assert result["walkButton"] == 1 and result["speed"] == "×1"
+    # the speed's accessible name holds its shown text (axe's label-content-name-mismatch: report defect 15)
+    assert result["speedName"] == "Speed ×1" and result["speed4Name"] == "Speed ×4", result
     assert result["reduced"] is reduced, result
     assert result["walkHidden"] is reduced and result["reducedNote"] is reduced, result
     walking = ["0", "Walk"] if reduced else ["1", "Stop"]

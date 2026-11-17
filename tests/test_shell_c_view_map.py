@@ -928,6 +928,32 @@ def test_phone_on_its_side(site):
             browser.close()
 
 
+def test_focus_rings(site):
+    """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus) beside the shadow
+    each of them carries by itself (their own shadow replaced the ring: the design review's finding 16)."""
+    from playwright.sync_api import sync_playwright
+    shadow = "([selector]) => getComputedStyle(document.querySelector(selector)).boxShadow"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", PHONE)
+            assert _state(page)["auto"] is True
+            page.keyboard.press("Tab")  # the keyboard is in use: a focused control shows its ring
+            for selector in (".v-fold", ".v-levels button.v-now"):
+                page.evaluate("() => document.activeElement && document.activeElement.blur()")
+                own = page.evaluate(shadow, [selector])
+                focused = page.evaluate("([selector]) => { const e = document.querySelector(selector); e.focus(); "
+                                        "return [document.activeElement === e, e.matches(':focus-visible')]; }", [selector])
+                ring = page.evaluate(shadow, [selector])
+                assert focused == [True, True], selector
+                # the ring is a shadow of no offset and 3 px spread, drawn beside the control's own
+                assert own != "none" and "0px 0px 0px 3px" not in own and "0px 0px 0px 3px" in ring, (selector, own, ring)
+                assert ring.startswith(own) and len(ring) > len(own), (selector, own, ring)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
 def test_flag_old_run_and_blocked_storage(site):
     """Without the flag every run opens in today's page; `?view=b` opens the view and is remembered, `?view=today`
     ends it; a run without the view's columns opens today's page also with the flag, and the console says why;

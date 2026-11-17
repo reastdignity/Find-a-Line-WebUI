@@ -66,6 +66,10 @@
 .ui .v-fold { display: inline-flex; align-items: center; gap: 2px; min-height: 30px; padding: 0 6px 0 9px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; box-shadow: var(--shadow); cursor: pointer; }
 .ui .v-fold svg { width: 16px; height: 16px; transform: rotate(180deg); }
+/* the keyboard's focus on the boxes that carry a shadow of their own (the kit's ring is a shadow too, and theirs
+   would replace it): "Legend" and the level Auto chose */
+.ui .v-fold:focus-visible { box-shadow: var(--shadow), var(--focus); }
+.ui .v-levels button.v-now:focus-visible { box-shadow: inset 0 -2px 0 var(--accent), var(--focus); }
 .ui .v-fold.v-folded svg { transform: none; }
 .ui .v-help-button { display: inline-flex; }
 
@@ -87,8 +91,6 @@
 .ui .c-result-phone .v-map .leaflet-top { top: 108px; }
 /* a phone's message stands between the zoom buttons and the layers button, clear of both */
 .ui .c-result-phone .v-toast { top: 112px; left: 54px; right: 54px; transform: none; width: fit-content; max-width: none; margin: 0 auto; }
-
-.ui .v-placeholder { margin: 0; color: var(--muted); }
 
 /* The canvas (SpotMap.ts): it takes no pointer events (the map does: presses are found by distance); on the map no
    long-press menu or selection of the browser; the pointer over a line or a number a press would take */

@@ -88,7 +88,12 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 12px; background: var(--surface);
           border-top: 1px solid var(--line); }
 .v3-readout { display: flex; flex-wrap: wrap; gap: 4px 14px; font-weight: 600; }
-.v3-read.v3-trees { color: var(--trees); }
+/* The trees' readout as text: the line's orange (--trees) darkened towards the ink in the light theme (2.65:1 on
+   --surface alone, 4.96:1 so), the orange itself in the dark one (8.44:1) */
+#view3d { --v3-trees-text: color-mix(in srgb, var(--trees) 65%, var(--ink)); }
+@media (prefers-color-scheme: dark) { #view3d.ui:not([data-theme="light"]) { --v3-trees-text: var(--trees); } }
+#view3d.ui[data-theme="dark"] { --v3-trees-text: var(--trees); }
+.v3-read.v3-trees { color: var(--v3-trees-text); }
 .v3-read.v3-wait { color: var(--muted); font-weight: 400; }
 .v3-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .v3-field { display: flex; align-items: center; gap: 8px; }

@@ -465,7 +465,7 @@ def install_viewer(runs_dir: str):
 # from a server, a script from disk); maps written before 2026-11-04 load it by a tag before the viewer, which
 # the viewer still takes
 MAP_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
 <link rel="stylesheet" href="../{viewer}/viewer.css">
 </head><body><div id="map"></div>

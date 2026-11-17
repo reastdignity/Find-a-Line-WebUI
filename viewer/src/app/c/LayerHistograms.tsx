@@ -14,6 +14,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { binsOf, type CountryCube, type CountryHistogram, type DimensionKind } from "../api";
 import { t } from "../../i18n";
+import { TOUCH, useMedia } from "../../ui/components";
 import { short, type LayerMode } from "./cellsLayer";
 import { dimensions, topicsOf, type LayerState } from "./layerState";
 
@@ -141,6 +142,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
                                  onLength(lo: number, hi: number, extend: boolean): void;
                                  onLimit(dimension: string, value: number | null): void; onOpen(dimension: string | null): void}) {
   const edges = cube.edges;
+  const touch = useMedia(TOUCH);  // the wide notes say "tap" there, and no shift-click
   const mode: LayerMode = state.mode;
   const noun = mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
   const h = hist || emptyHistogram(cube);
@@ -215,7 +217,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
     if (d === "length") {
       return <Histogram key={d} {...props} bars={lengthBars} axis={edges.length.map(edgeText)}
                         onPick={(k, shift) => onLength(edges.length[k], edges.length[k + 1], shift)}>
-        {wide && <p class="u-small c-layer-note">{t("ui.layer.hist.length_note")}{mode === "spots" ? ` ${t("ui.layer.hist.spots_note")}` : ""}</p>}
+        {wide && <p class="u-small c-layer-note">{touch ? t("ui.layer.hist.length_note_touch") : t("ui.layer.hist.length_note")}{mode === "spots" ? ` ${t("ui.layer.hist.spots_note")}` : ""}</p>}
       </Histogram>;
     }
     return <Histogram key={d} {...props} bars={bars(d)} axis={axisOf(d)} onPick={pick(d)} />;
@@ -243,6 +245,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       <h2 class="c-layer-topic-name">{t(`ui.layer.topic.${topic.id}`)}</h2>
       <div class="c-layer-charts">{topic.charts.map(chart)}</div>
     </section>)}
-    <p class="u-small c-layer-note">{wide ? t("ui.layer.hist.dimensions_note") : t("ui.layer.hist.strip_note")}</p>
+    <p class="u-small c-layer-note">{!wide ? t("ui.layer.hist.strip_note")
+      : touch ? t("ui.layer.hist.dimensions_note_touch") : t("ui.layer.hist.dimensions_note")}</p>
   </div>;
 }

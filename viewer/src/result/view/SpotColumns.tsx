@@ -32,7 +32,7 @@ import type { Padding } from "../ResultMap";
 import { SpotMap } from "../SpotMap";
 import { createSpotView, viewOf, type SpotChoice, type SpotView } from "../spots";
 import { count } from "./common";
-import { useCornersAboveSheet } from "./corners";
+import { keepScaleAboveAttribution, useCornersAboveSheet } from "./corners";
 import { useRunCredits } from "./credits";
 import type { Area } from "./LineChooser";
 import { DEFAULT_LAYOUT, LIMITS, fitColumns, maxColumnWidth, type Column, type Layout } from "./layout";
@@ -304,6 +304,8 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
   useRunCredits(map, data, base, folder);
+  // the scale above the credits where they run under it (no sheet or card raises this map's corners: corners.ts)
+  useEffect(() => { if (map) keepScaleAboveAttribution(map.getContainer()); }, [map]);
   useFootClear(colRef, canvas, () => 0, () => [], [canvas, map]);
   // The map's size follows the panels at once (also where no frame is drawn, so no ResizeObserver reports)
   useLayoutEffect(() => { map?.invalidateSize(); },

@@ -2770,6 +2770,193 @@ DESKTOP = {"viewport": {"width": 1280, "height": 900}}
 SHOWN_JS = "(sel) => { const e = document.querySelector(sel); return e ? [e.textContent.trim(), e.getClientRects().length > 0] : null; }"
 
 
+HTML_EN = '<!doctype html>\n<html lang="en">'  # a page's first two lines
+
+
+def test_pages_say_their_language(tmp_path):
+    """Every page the app writes or serves names its language, English (report defect 11: the app, the 3D view, a
+    run's own map, the runs' list and the latest-run redirect had no lang): the templates, the pages runs.py writes,
+    and the app's page as served."""
+    import mapping
+    for name in ("APP_HTML", "COVERAGE_HTML", "VIEW3D_HTML", "SIGNIN_HTML", "PAGE_HTML"):
+        assert getattr(web, name).startswith(HTML_EN), name
+    assert mapping.MAP_HTML.startswith(HTML_EN)
+    import runs  # the runs' list and the latest-run redirect, written by runs.py
+    folder = tmp_path / "runs"
+    folder.mkdir()
+    runs.write_index(str(folder), viewer=False)
+    runs.write_latest_redirect(str(tmp_path / "latest.html"), str(folder / "x" / "map.html"))
+    for page in (folder / "index.html", tmp_path / "latest.html"):
+        assert page.read_text(encoding="utf-8").startswith(HTML_EN), page
+    app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
+    with TestClient(app, base_url=LOCAL) as client:
+        assert '<html lang="en">' in client.get("/").text
+
+
+# The controls whose own font rule loses to the base rule `.ui button, .ui input, ...` (ui.css): their computed font
+# with the base rule weakened to :where(.ui) in the CSSOM differs from the font the page shows
+SHRUNK_JS = """() => {
+  const controls = [...document.querySelectorAll('button, input, select, textarea')].filter((e) => e.getClientRects().length);
+  const font = (e) => { const s = getComputedStyle(e); return [s.fontSize, s.fontWeight, s.fontFamily].join(' '); };
+  const before = controls.map(font);
+  let found = null;
+  for (const sheet of document.styleSheets) {
+    const rules = sheet.cssRules;
+    for (let i = 0; i < rules.length && !found; i++) {
+      if ((rules[i].selectorText || '').replace(/\\s+/g, ' ') === '.ui button, .ui input, .ui select, .ui textarea') {
+        found = [sheet, i, rules[i].cssText];
+        sheet.deleteRule(i);
+        sheet.insertRule(found[2].replace(/^[^{]+/, ':where(.ui) button, :where(.ui) input, :where(.ui) select, :where(.ui) textarea '), i);
+      }
+    }
+    if (found) break;
+  }
+  const after = controls.map(font);
+  if (found) { found[0].deleteRule(found[1]); found[0].insertRule(found[2], found[1]); }
+  return {rule: !!found, shrunk: controls.map((e, i) => [e.className, before[i], after[i]]).filter(([, b, a]) => b !== a)};
+}"""
+# The boxes of the place map's scale and attribution: the scale is clear of the credits where they share a strip
+CORNERS_JS = """() => {
+  const map = document.querySelector('.n-map .leaflet-container') || document.querySelector('.leaflet-container');
+  const box = (sel) => { const r = map.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {scale: box('.leaflet-control-scale'), attribution: box('.leaflet-control-attribution')};
+}"""
+# Settled: the scale right above the credits where they run under its corner, else clear of them
+CORNERS_CLEAR = ("() => { const m = document.querySelector('.leaflet-container'); "
+                 "const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(), "
+                 "a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(); "
+                 "const under = a.left < s.right && s.left < a.right; "
+                 "return a.height > 0 && (under ? a.top - s.bottom >= 0 && a.top - s.bottom <= 10 "
+                 ": true); }")  # side by side: apart by themselves
+# The search map's scale line set to a width (px) or, with null, wide enough to reach under the credits by 40 px:
+# as a zoom changes it, with nothing else resizing; then [the scale's corner's style.bottom, the credits under the
+# scale, the gap between them]
+SCALE_WIDTH = """(px) => { const m = document.querySelector('.leaflet-container');
+  const a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect(), r = m.getBoundingClientRect();
+  m.querySelector('.leaflet-control-scale-line').style.width = (px === null ? Math.round(a.left - r.left + 40) : px) + 'px'; }"""
+SCALE_STATE = """() => { const m = document.querySelector('.leaflet-container');
+  const s = m.querySelector('.leaflet-control-scale').getBoundingClientRect(),
+    a = m.querySelector('.leaflet-control-attribution').getBoundingClientRect();
+  return [m.querySelector('.leaflet-bottom.leaflet-left').style.bottom, a.left < s.right && s.left < a.right,
+          Math.round(a.top - s.bottom)]; }"""
+CLEAR_BY_SCRIPT = ("() => [...document.querySelectorAll('.s-where button')]"
+                   ".find((b) => b.textContent.trim() === 'Clear the place').click()")  # a click of detail 0
+PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.map.getZoom() + by, {animate: false})"
+# Where the focus is after "Clear the place": [the place box's text field, a text field at all, the chosen mode, the
+# page's body, the button still shown]
+FOCUS_JS = """() => { const a = document.activeElement; return [a.matches('.s-placebox input'),
+  a.matches('input[type=text], input[type=search], textarea'), a.matches('.s-where [role=radio][aria-checked=true]'),
+  a === document.body, [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place')]; }"""
+WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), document.querySelector('.s-placebox input').placeholder,
+  [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place'),
+  document.querySelector('.s-bar').textContent, getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_search_form_words_and_corners_by_device(tmp_path):
+    """The search form on a desktop and on a phone (touch) in Playwright's Edge (report defects 2, 7 and 10): the
+    texts name a click and the Enter key on the desktop, a tap and no key on the phone; "Clear the place" shows only
+    with a place set (a centre, an OSM area's name), and after it is clicked the focus stays in the block: with a
+    mouse or the keyboard on the place box, on a touch screen on the chosen mode however it was pressed (a tap, a key,
+    a click of detail 0 as a screen reader's: no text field, no on-screen keyboard); on the desktop the scale is
+    raised once its line (as a zoom widens it) reaches under the credits and back once clear; the place map's scale right above its credits on the phone, where the two lines of credits
+    run under the scale's corner, also after a zoom out and in (the scale's width changes); the "Data coverage" button
+    at its own 13 px, and no control whose own font rule loses to the base rule."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for kind, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                page = _basic_page(tmp_path, port, browser, **context)
+                page.wait_for_function("() => /OpenTopoMap/.test(document.querySelector('.leaflet-control-attribution')"
+                                       "?.textContent)", timeout=WAIT)
+                r[f"{kind}_touch"] = page.evaluate("() => matchMedia('(pointer: coarse)').matches")
+                r[f"{kind}_empty"] = page.evaluate(WHERE_JS)
+                page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)  # the observer's frame after the credits came
+                r[f"{kind}_corners"] = page.evaluate(CORNERS_JS)
+                for name, by in (("out", -3), ("in", 3)):
+                    page.evaluate(PLACE_ZOOM, by)
+                    page.wait_for_function(CORNERS_CLEAR, timeout=WAIT)
+                    r[f"{kind}_zoom_{name}"] = page.evaluate(CORNERS_JS)
+                if kind == "desktop":  # one line of credits at the right, clear of the scale
+                    r["scale_clear"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, None)  # the scale reaches under the credits: raised above them
+                    page.wait_for_function("() => document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_wide"] = page.evaluate(SCALE_STATE)
+                    page.evaluate(SCALE_WIDTH, 60)  # clear again: back in its place
+                    page.wait_for_function("() => !document.querySelector('.leaflet-bottom.leaflet-left').style.bottom",
+                                           timeout=WAIT)
+                    r["scale_back"] = page.evaluate(SCALE_STATE)
+                r[f"{kind}_shrunk"] = page.evaluate(SHRUNK_JS)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                r[f"{kind}_point"] = page.evaluate(WHERE_JS)
+                # a mouse click on the desktop, a tap on the phone
+                (page.click if kind == "desktop" else page.tap)(BUTTON % "Clear the place")
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_cleared"] = page.evaluate(FOCUS_JS)
+                # by keyboard (no pointer: the event's detail 0)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                page.focus(BUTTON % "Clear the place")
+                page.keyboard.press("Enter")
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_keyboard"] = page.evaluate(FOCUS_JS)
+                # a click of detail 0 from a script (as a screen reader's activation comes in Chromium)
+                page.evaluate(POINT_JS)
+                page.wait_for_selector(".s-point .u-ic", timeout=WAIT)
+                page.evaluate(CLEAR_BY_SCRIPT)
+                page.wait_for_selector(".s-point .u-ic", state="detached", timeout=WAIT)
+                r[f"{kind}_script"] = page.evaluate(FOCUS_JS)
+                # an OSM area's name is a place too
+                page.click(".s-where [role=radio]:text-is('Area')")
+                page.click(".s-where [role=radio]:text-is('Named OSM area')")
+                r[f"{kind}_area_empty"] = page.evaluate(FOCUS_JS)[4]
+                page.fill(".s-where input[placeholder='e.g. Gozo']", "Gozo")
+                page.wait_for_selector(BUTTON % "Clear the place", timeout=WAIT)
+                page.focus(BUTTON % "Clear the place")
+                page.keyboard.press("Enter")
+                page.wait_for_selector(BUTTON % "Clear the place", state="detached", timeout=WAIT)
+                r[f"{kind}_area"] = [page.input_value(".s-where input[placeholder='e.g. Gozo']"), page.evaluate(FOCUS_JS)]
+                page.close()
+        finally:
+            browser.close()
+    assert r["desktop_touch"] is False and r["phone_touch"] is True, r
+    hint, placeholder, clear, bar, size = r["desktop_empty"]
+    assert (hint, placeholder, clear) == ("Click the map to set the centre of the search.", "Go to a place (Enter)", False)
+    assert "Select the centre of the search: click the map." in bar and size == "13px", r
+    hint, placeholder, clear, bar, size = r["phone_empty"]
+    assert (hint, placeholder, clear) == ("Tap the map to set the centre of the search.", "Go to a place", False)
+    assert "Select the centre of the search: tap the map." in bar and size == "13px", r
+    assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
+    assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
+    # [place box, a text field, the chosen mode, body, button shown]
+    assert r["desktop_cleared"] == [True, True, False, False, False], r  # a mouse: the place box
+    assert r["phone_cleared"] == [False, False, True, False, False], r  # a tap: the mode, no text field
+    # where the pointer is fine the place box; on a touch screen the mode whatever the click's detail
+    assert r["desktop_keyboard"] == r["desktop_script"] == [True, True, False, False, False], r
+    assert r["phone_keyboard"] == r["phone_script"] == [False, False, True, False, False], r
+    assert r["desktop_area_empty"] is False and r["desktop_area"] == ["", [True, True, False, False, False]], r
+    assert r["phone_area_empty"] is False and r["phone_area"] == ["", [False, False, True, False, False]], r
+    # the scale's corner observed (its width follows the zoom): raised right above the credits once it reaches under
+    # them, back in its place once clear of them again
+    assert r["scale_clear"][:2] == ["", False] and r["scale_back"][:2] == ["", False], r
+    bottom, under, gap = r["scale_wide"]
+    assert bottom.endswith("px") and under and 0 <= gap <= 10, r
+    # the phone's credits run under the scale's corner (else the check would hold by itself), and the scale is clear
+    scale, attribution = r["phone_corners"]["scale"], r["phone_corners"]["attribution"]
+    assert attribution[0] < scale[2] and attribution[3] - attribution[1] > 0, r
+    assert 0 <= attribution[1] - scale[3] <= 10, r  # right above the credits, not elsewhere on the map
+    for name in ("out", "in"):  # and after each zoom
+        found = r[f"phone_zoom_{name}"]
+        assert found["attribution"][0] < found["scale"][2] and 0 <= found["attribution"][1] - found["scale"][3] <= 10, r
+    for kind in ("desktop", "phone"):
+        assert r[f"{kind}_shrunk"]["rule"] and r[f"{kind}_shrunk"]["shrunk"] == [], r
+
+
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_basic_form_paths(tmp_path):
     """More of the Basic form in Playwright's Edge (each wait an event with a deadline): a refused start shows its

@@ -81,8 +81,8 @@ it may make itself. The mechanics of branches, tags and the test lock are in [wo
   reported to the user with its cause.
 
 ## 4. Reviews before any merge
-The steps after every hand-back: worker → scope reviewer, and for a build also the code reviewer → the session's
-review → merge. The two reviewers run in parallel. Each is a separate Opus agent that reads the output, never the
+The steps after every hand-back: worker → scope reviewer, for a build also the code reviewer, for a change of a
+screen also the design reviewer → the session's review → merge. The reviewers run in parallel. Each is a separate Opus agent that reads the output, never the
 worker's report. A requirement "not met" or a finding "fix before merge" goes back to the same worker first.
 - **Scope reviewer** (every task, builds, measurements and mock-ups): compares the contract, the brief, the
   specification and the user's words with the output itself (the branch's diff and files, a measurement's scripts
@@ -94,6 +94,12 @@ worker's report. A requirement "not met" or a finding "fix before merge" goes ba
   of every changed function to the test that runs it ("no test" named); tests that do not test (pass with the change
   reverted, fixed waits, loosened assertions); a one-line verdict. Its instructions: appendix B. The project has no
   coverage tool; adding one is a new dependency (libraries compared, the user decides).
+- **Design reviewer** (every change of a screen, of a text the user reads or of a style, and every mock-up; the
+  user's decision of 2026-11-17): reads docs/PRODUCT.md, docs/DESIGN.md, the task's user's words, the screenshots
+  before and after (desktop and both phones, light and dark) and the numbers of `tools/ui_metrics.py` and
+  `tools/ui_walks.py` before and after, never the worker's report, and writes `<agent>/design-review.md` with its
+  verdict ("conforms", "conforms with findings", "does not conform"). What it checks, what it writes and what it
+  must not do: [design-review.md](design-review.md).
 - **An independent reference** for the riskiest changes (a rule that drops results, a kernel): an agent writes its
   own reference from the brief's words before it reads the code, and compares results on a real search.
 - **The session's review:** read the core of the diff, re-derive two or three numbers from the raw outputs, run the
