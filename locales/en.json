@@ -561,7 +561,6 @@
   "ui.coverage.loading": "Loading the coverage…",
   "ui.coverage.failed": "The coverage could not be loaded.",
   "ui.card.cancelled": "cancelled",
-  "ui.card.cancelled_meta": "Cancelled",
   "ui.card.remove": "Remove…",
   "ui.card.remove_title": "Remove the search",
   "ui.card.remove_ask": "Remove “{{name}}” from your searches? It was cancelled, so it has no result and no files.",

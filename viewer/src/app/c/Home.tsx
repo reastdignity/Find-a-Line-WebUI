@@ -63,9 +63,8 @@ function stateOf(card: Card): CardState {
   const {job, run} = card;
   if (job && job.status !== "done") {
     const p = jobProgress(job);
-    if (p.state === "cancelled") {  // the user's own act: a quiet state, not a failure
-      return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: t("ui.card.cancelled_meta"),
-              fraction: null, step: ""};
+    if (p.state === "cancelled") {  // the user's own act: a quiet state, not a failure; the chip says it (no meta)
+      return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: "", fraction: null, step: ""};
     }
     if (p.state === "failed") {
       return {status: "failed", chip: "failed", unfinished: false, meta: jobError(job) || "Failed", fraction: null,
@@ -161,7 +160,7 @@ function SearchCard({card, runs, jobs, publicSite, highlight}:
 
   const body = <>
     <span class="c-card-name">{name}</span>
-    <span class="u-small c-card-meta">{st.meta}{!st.unfinished && ` · ${when(card.created)}`}</span>
+    <span class="u-small c-card-meta">{[st.meta, !st.unfinished && when(card.created)].filter(Boolean).join(" · ")}</span>
   </>;
   return <article ref={ref} class={`c-card${highlight ? " c-card-new" : ""}`} data-job={job?.id} data-run={run?.id}
                   data-status={st.status}>

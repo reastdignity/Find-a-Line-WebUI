@@ -1725,7 +1725,7 @@ const inside = (root, s) => (root.querySelector(s) || {}).textContent || "";
 run({
   home(next) { wait(() => card("job", J.waiting) && card("job", J.running) && card("job", J.failed), () => {
     const of = (id) => ({status: card("job", id).dataset.status, chip: text(`.c-card[data-job="${id}"] .u-st`),
-                         chipClass: chip(id).className, meta: text(`.c-card[data-job="${id}"] .c-card-meta`).split(" · ")[0],
+                         chipClass: chip(id).className, meta: text(`.c-card[data-job="${id}"] .c-card-meta`),
                          colour: getComputedStyle(chip(id)).color, background: getComputedStyle(chip(id)).backgroundColor});
     result.cards = {waiting: of(J.waiting), running: of(J.running), failed: of(J.failed)};
     result.gone = [!!card("job", J.removed), !!card("job", J.deleted)];
@@ -1805,7 +1805,10 @@ def test_shell_c_cancelled_search(tmp_path):
     card), which asks first in the panel's grey, not Delete…'s red (the focus on "Keep it", Escape keeps it) and
     removes the card; a removed search and one whose run was deleted (or is gone by hand) show no card;
     the admin page lists them all, the removed ones marked "removed" as text; no CSP violations."""
+    import re
+
     from jobs import Jobs
+    DATE = r"\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}"  # time.ts when(): "17 Nov 2026, 09:12"
     data = tmp_path / "data"
     (data / "runs").mkdir(parents=True)
     jobs = Jobs(str(data))
@@ -1833,13 +1836,14 @@ def test_shell_c_cancelled_search(tmp_path):
     r["admin"] = r_admin["admin"]
     for name in ("waiting", "running"):
         found = r["cards"][name]
-        assert found["status"] == "cancelled" and found["chip"] == "cancelled" and found["meta"] == "Cancelled", r
+        assert found["status"] == "cancelled" and found["chip"] == "cancelled", r
+        assert re.fullmatch(DATE, found["meta"]), r  # the chip says "cancelled" once: under the name the date only
         assert "u-cancelled" in found["chipClass"] and "u-failed" not in found["chipClass"], r
         assert (found["colour"], found["background"]) != (r["cards"]["failed"]["colour"],
                                                          r["cards"]["failed"]["background"]), r
     failed = r["cards"]["failed"]
     assert failed["status"] == "failed" and failed["chip"] == "failed" and "u-failed" in failed["chipClass"], r
-    assert failed["meta"] == "the server stopped", r
+    assert re.fullmatch("the server stopped · " + DATE, failed["meta"]), r
     assert r["gone"] == [False, False], r
     assert r["failedMenu"] == ["Edit & run again"], r
     assert r["othersMenu"] == ["cancelled", ["Edit & run again"]], r  # not own: no Remove…
