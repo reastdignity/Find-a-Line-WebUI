@@ -416,6 +416,13 @@ def test_selection_details_fan_and_table(site):
                 assert values == sorted(values, reverse=down), sort
                 assert [[r["row"], r["mark"]] for r in g["rows"]] == [[r["row"], r["label"]] for r in g["model"]]
                 assert len([h for h in g["heads"] if "▾" in h]) == 1
+            # the panel's rows stay while the map's numbers do not change: a small move of the map ("Favourites only"
+            # with the same lines passing is the model's unit: this page has no favourite, so it would pass no line)
+            same = [[r["row"], r["mark"]] for r in g["rows"]]
+            page.evaluate("() => window.FINDALINE_MAP.panBy([3, 0], {animate: false})")
+            page.evaluate("() => T.frames().then(() => T.frames())")
+            moved = page.evaluate("() => P.fan()")
+            assert moved["open"] and [[r["row"], r["mark"]] for r in moved["rows"]] == same
             # a row's height difference and direction as the page writes them
             row = g["model"][0]
             sign = "" if abs(row["dh"]) < 0.05 else "+" if row["dh"] > 0 else "−"
@@ -517,6 +524,22 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert page.evaluate("() => P.focus()") == ""
             page.evaluate("() => P.view().select(null)")
             page.wait_for_selector(".u-sheet-head .vl-count", timeout=WAIT)
+            # the map's legend opened on the phone does not lie on the sheet's head, and the keyboard's way from its
+            # button leads on into the sheet (nothing holds the focus)
+            page.wait_for_selector(".v-fold", timeout=WAIT)
+            if page.evaluate("() => document.querySelector('.v-fold').getAttribute('aria-expanded')") != "true":
+                page.tap(".v-fold")
+            page.wait_for_function("() => document.querySelector('.v-fold').getAttribute('aria-expanded') === 'true' && !!document.querySelector('.v-legend')", timeout=WAIT)
+            apart = page.evaluate("""() => { const l = document.querySelector('.v-legend').getBoundingClientRect(), s = document.querySelector('.u-sheet').getBoundingClientRect();
+                return l.bottom <= s.top + 1 || l.top >= s.bottom; }""")
+            assert apart
+            page.focus(".v-fold")
+            for _ in range(40):
+                page.keyboard.press("Tab")
+                if page.evaluate("() => !!document.activeElement.closest('.u-sheet')"):
+                    break
+            assert page.evaluate("() => !!document.activeElement.closest('.u-sheet')")
+            page.evaluate("() => { document.activeElement.blur(); window.TOUCHED = performance.now(); }")  # the next tap is its own
             # a number of the map tapped at the low start: the spot's head in the low sheet, whole; the body at its top
             first = _state(page, "view.setLevel('spots');")
             assert first["numbers"], first["free"]
