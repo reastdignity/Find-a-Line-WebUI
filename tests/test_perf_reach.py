@@ -246,3 +246,18 @@ def test_rows_of_the_store_and_of_lines_csv(clip, tmp_path, request):
     assert pr.longest_line(store) == pr.longest_line(text) and pr.longest_line(store)[:2] == (a1, a2)
     assert pr.busiest_anchor(store) == pr.busiest_anchor(text)
     assert {folder: tool_runs.snapshot(folder) for folder in (store, text)} == before
+
+
+def test_rows_of_a_relative_folder_and_a_failing_export(clip, tmp_path, monkeypatch):
+    """run_rows' child exports from the run's absolute folder (a relative --out or --data works as before the
+    child), and a child that fails says why: its stderr's last lines in the error."""
+    import tool_runs
+    _, data, meta, _, _ = clip
+    store = tool_runs.store_only(os.path.join(data, "runs", meta["id"]), str(tmp_path / "runs" / "r"))
+    monkeypatch.chdir(tmp_path)
+    assert pr.longest_row(os.path.join("runs", "r")) == pr.longest_row(store)
+    broken = tmp_path / "runs" / "broken"
+    broken.mkdir()
+    (broken / "lines.arrow").write_bytes(b"not a store")  # and no run.json
+    with pytest.raises(RuntimeError, match=r"(?s)the export of .*broken.* failed \(exit 1\):.*Error"):
+        pr.longest_row(os.path.join("runs", "broken"))

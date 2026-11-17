@@ -675,13 +675,18 @@ def run_rows(run_dir: str):
     named cases are. Nothing is written into the run's folder. The export runs in a child process (EXPORT_CHILD):
     its reading of the store, the grouping's numba code and save_results never enter this process, whose step 1
     (measure_case's PeakRss and seconds) then starts as it did when the clip's lines.csv was read with the csv
-    module only, comparable with the records made before."""
+    module only, comparable with the records made before. The child gets the run's absolute folder (it works in the
+    temporary folder); a child that fails raises a RuntimeError with the last lines of its stderr."""
     import csv
     if os.path.isfile(os.path.join(run_dir, "lines.arrow")):
         with tempfile.TemporaryDirectory(prefix="perf-reach-") as tmp:
             path = os.path.join(tmp, "lines.csv")
-            subprocess.run([sys.executable, "-c", EXPORT_CHILD, HERE, run_dir, path], check=True, cwd=tmp,
-                           capture_output=True, timeout=3600)
+            done = subprocess.run([sys.executable, "-c", EXPORT_CHILD, HERE, os.path.abspath(run_dir), path],
+                                  cwd=tmp, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  timeout=3600, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+            if done.returncode:
+                last = "\n".join((done.stderr or "").strip().splitlines()[-CHILD_LINES:])
+                raise RuntimeError(f"the export of {run_dir}'s store failed (exit {done.returncode}):\n{last}")
             with open(path, encoding="utf-8-sig", newline="") as f:
                 yield csv.DictReader(f), "store"
         return
@@ -689,6 +694,7 @@ def run_rows(run_dir: str):
         yield csv.DictReader(f), "lines.csv"
 
 
+CHILD_LINES = 8  # the last lines of a failed export's stderr in run_rows' error
 # run_rows' child: linestore.export of a run's store into a file (argv: the repository, the run, the file)
 EXPORT_CHILD = ("import sys; sys.path.insert(0, sys.argv[1]); import linestore; "
                 "linestore.export(sys.argv[2], 'csv', sys.argv[3])")
