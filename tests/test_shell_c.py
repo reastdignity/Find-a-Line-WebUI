@@ -243,7 +243,11 @@ run({
     const small = card("run", SMALL).querySelector(".c-thumb"), big = card("run", BIG).querySelector(".c-thumb");
     result.smallThumb = [small.dataset.thumb, Number(small.dataset.lines), small.querySelectorAll("path.c-thumb-line").length];
     result.bigThumb = [big.dataset.thumb, Number(big.dataset.lines), text(`.c-card[data-run="${BIG}"] .c-thumb-label`)];
-    result.bigLinesLoaded = !!(window.FINDALINE_LINES || {})[BIG];
+    // the files of each run the page asked for (resource timing, 404s too): BIG's lines never, SMALL's store's lines
+    const asked = (id) => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname)
+      .filter((p) => p.startsWith("/runs/" + encodeURIComponent(id) + "/")).map((p) => p.split("/").pop());
+    result.bigLinesLoaded = asked(BIG).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
+    result.smallLinesLoaded = asked(SMALL).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
     next();
   }); },
   newSearch(next) {
@@ -394,7 +398,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert set(r["cards"]) == {SMALL, BIG} and r["noWorker"] and r["example"] in (SMALL, BIG), r
     assert r["smallThumb"] == ["lines", SMALL_LINES, r["smallThumb"][2]] and r["smallThumb"][2] >= 1, r
     assert r["bigThumb"][:2] == ["outline", 0] and int(r["bigThumb"][2].split()[0].replace(",", "")) > 3000, r
-    assert not r["bigLinesLoaded"], r
+    assert r["bigLinesLoaded"] == [] and r["smallLinesLoaded"] == ["lines.arrow"], r
     assert r["newPage"] == ["#new", "The best lines here", True], r
     assert r["ready"][0] == "ready" and r["ready"][1] is False and r["ready"][2] >= 1, r
     assert r["started"][0] and r["started"][1] == "waiting", r
