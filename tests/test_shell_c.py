@@ -1257,7 +1257,9 @@ def test_shell_c_layout(data, tmp_path):
     assert rig["toggled"][0].startswith("1:1 scale") and rig["toggled"][1] == "Auto scale", r
     home = r["cardHome"]
     assert home["height"] == home["kept"] == home["aria"][1] == card["aria"][1] and 119 <= home["chart"] <= 121, r
-    assert home["height"] < 200, r  # the compact card's least height at 1400 × 900
+    # the compact card's least height at 1400 × 900: 235 px since the facts take a row of their own and the readout
+    # wraps (the user's "8 b"; under 200 px before)
+    assert home["height"] < 250, home
     assert r["cardUp"] == {"height": home["height"] + 16, "kept": home["height"] + 16}, r
     assert r["cardDrag"] == {"height": home["height"] + 56, "during": home["height"] + 16, "kept": home["height"] + 56}, r
     assert r["cardKey"] == {"left": 28, "kept": [28, 12]}, r
