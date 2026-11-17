@@ -96,7 +96,8 @@ type ChoiceAt = {choices: SpotChoice[]; at: {x: number; y: number}};
 const TOAST_MS = 3200;  // how long a message of the map stays
 
 /** The map of the view: base layers (with the run's orthophoto), zoom in quarter steps (half a step for one notch
- *  of the wheel), the layer control with the shore's and the coarser terrain's overlays, the scale, and the
+ *  of the wheel: measured in Edge on Windows, where Leaflet reads a notch as 50 px, 90 px per level give 0.5; 150
+ *  gave a quarter, Leaflet's own 60 three quarters), the layer control with the shore's and the coarser terrain's overlays, the scale, and the
  *  canvas (SpotMap) fitted to the run's lines. */
 function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["ortho"], frame: {
   padding(): Padding; free(): Padding; obstacles(): DOMRect[]; onChoose(choice: ChoiceAt): void; onToast(text: string): void;
@@ -110,7 +111,7 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
   useEffect(() => {
     const model = view.model, start = performance.now();
     const leaflet = L.map(ref.current!, {center: data.center, zoom: 15, maxZoom: data.max_zoom, zoomSnap: 0.25,
-                                         zoomDelta: 0.5, wheelPxPerZoomLevel: 150});
+                                         zoomDelta: 0.5, wheelPxPerZoomLevel: 90});
     (window as any).FINDALINE_MAP = leaflet;  // for tests and the browser console
     const layers = baseLayers(ortho ? ortho(data) : data.ortho, data.max_zoom);
     Object.values(layers)[0].addTo(leaflet);
@@ -358,6 +359,7 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
 }
 
 const PHONE_TOP = 104;  // px of a phone's map under its top bar and the switch
+const SHEET_PEEK = 132, SHEET_TOP = 64;  // the phone's sheet: its lowest height, and what it leaves free at the top
 
 function Phone({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
   useSpotView(view);
@@ -365,10 +367,13 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   const phoneRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
   /** The px of the map's bottom under the sheet (before the sheet has a height: half the map, its first state). */
   const covered = (): number => {
-    const box = colRef.current?.getBoundingClientRect();
-    const sheet = phoneRef.current?.querySelector(".u-sheet")?.getBoundingClientRect();
+    const box = colRef.current?.getBoundingClientRect(), sheet = phoneRef.current?.querySelector<HTMLElement>(".u-sheet");
     if (!box) return 0;
-    return sheet && sheet.height > 0 ? Math.max(0, Math.round(box.bottom - sheet.top)) : Math.round(box.height * 0.5);
+    // the sheet as drawn once it has taken its height; before that (the first fit of the map) the height its state
+    // will give it (ui/components.tsx Sheet: peek, half of the frame, or all but the top bar)
+    if (sheet && sheet.style.height) return Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top));
+    return Math.round(snap === "peek" ? Math.min(SHEET_PEEK, box.height) : snap === "half" ? Math.max(SHEET_PEEK, box.height * 0.5)
+      : box.height - SHEET_TOP);
   };
   const padding = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
@@ -409,7 +414,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
         {actions?.(true)}
       </div>
     </div>
-    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={132} top={64} header={panels.sheetHead(p)}>
+    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP} header={panels.sheetHead(p)}>
       {panels.hint({...p, place: "sheet"})}
       {panels.details(p)}
       {panels.list(p)}

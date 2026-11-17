@@ -171,10 +171,14 @@ function inPixels(view: SpotView, [left, top, right, bottom]: number[]): number 
                footAbove: foot.bottom <= sheet.top + 1, slots: [text("[data-slot=list]"), text("[data-slot=details]")], places: places(),
                covered: (document.querySelector(".v-map") as HTMLElement).style.getPropertyValue("--v-covered"),
                pill: text(".c-pill-name"), level: phone.view.level};
+  // the first view fits the run above the sheet; moved down by 150 px, a part of it lies under the sheet
+  const fitted = {above: phone.view.inView.m, spots: phone.view.counts.spots};
+  (window as any).FINDALINE_MAP.panBy([0, -150], {animate: false});
+  await sleep(50);
   // the spots in view against a count in the map's own pixels: above the sheet, and with the sheet's part too
   const size = (window as any).FINDALINE_MAP.getSize();
   out.phoneView = {above: phone.view.inView.m, pixels: inPixels(phone.view, [0, 0, size.x, size.y - (box.bottom - sheet.top)]),
-                   whole: inPixels(phone.view, [0, 0, size.x, size.y])};
+                   whole: inPixels(phone.view, [0, 0, size.x, size.y]), fitted};
   render(null, root);
   localStorage.removeItem("findaline.view");
   out.after = viewWanted();

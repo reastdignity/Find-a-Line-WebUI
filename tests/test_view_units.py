@@ -1202,4 +1202,5 @@ def test_frame_in_edge(tmp_path, run):
     assert abs(zoomed["m"] - zoomed["pixels"]) <= 1
     above = out["phoneView"]
     assert abs(above["above"] - above["pixels"]) <= 1 and above["whole"] > above["pixels"] > 0
+    assert above["fitted"]["above"] == above["fitted"]["spots"] == spots  # the first fit left no spot under the sheet
     assert test_web._violations(dom) == []
