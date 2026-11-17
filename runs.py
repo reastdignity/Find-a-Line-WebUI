@@ -2,24 +2,23 @@
 Saving every run (map, results, parameters) so earlier runs can be browsed.
 
 Layout:
-    runs/<id>/map.html       interactive map (the viewer, see mapping.save_map)
-    runs/<id>/data.js        its data: lines and profiles
-    runs/<id>/lines.js       its lines without profiles, for the "Other runs" of other maps
-    runs/<id>/lines.csv      every valid line with its group
-    runs/<id>/lines.geojson  the same as GeoJSON, with the public part of run.json
-    runs/<id>/run.json       parameters and summary
+    runs/<id>/lines.arrow     its lines, a row per line (linestore.py, the run's store)
+    runs/<id>/profiles.arrow  the saved profiles, a row per profile (the store)
+    runs/<id>/map.html        interactive map (the viewer, see mapping.save_map; not with --no-html)
+    runs/<id>/run.json        parameters and summary, with the block "store"; written last
     runs/<id>/ATTRIBUTION.txt  licences and notices of the data used (run.json "attribution")
+A run's lines.csv and lines.geojson are made from its store on request (`findaline.py export`, a
+download in the app: linestore.export through save_results), never kept in the run folder. Runs saved
+before store wave 4 (2026-11-17) also hold data.js, lines.js, lines.csv and lines.geojson (and
+earlier ones no store): `findaline.py runs remove-old` lists and removes them (old_runs).
 The id of a run is <date>_<time>_<place>_<random>: unique and not guessable (older runs
 have no random part and keep their ids).
-    runs/runs.js                       list of all runs, loaded by every map
+    runs/runs.js                       list of all runs, loaded by every map and the local app
     runs/_viewer/                      the viewer bundle shared by every map
-    runs/index.html                    table of all runs
-A page opened from disk cannot list a folder, so runs.js and index.html are
-rewritten after every run.
+runs.js is rewritten after every run (write_index).
 """
 
 import contextlib
-import html
 import json
 import math
 import os
@@ -27,7 +26,6 @@ import re
 import secrets
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
-from urllib.parse import quote
 
 import numpy as np
 import requests
@@ -377,7 +375,8 @@ RESULT_FILES = ("lines.csv", "lines.geojson", "ATTRIBUTION.txt", "run.json")  # 
 def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,
                  files: tuple = RESULT_FILES):
     """Write lines.csv, lines.geojson, ATTRIBUTION.txt and run.json for a run (`files`: only
-    those, in that order; the children of saving.py write the line files apart): the lines (a
+    those, in that order; the search writes only ATTRIBUTION.txt and run.json, linestore.export a
+    line file from the store): the lines (a
     helpers.LineTable) group by group (mapping.Groups).
 
     The line files are written together, LINES_CHUNK rows at a time, never all rows at once;
@@ -504,65 +503,17 @@ def _listed(run: Dict) -> Dict:
     return listed
 
 
-def write_index(runs_dir: str, viewer: bool = True):
-    """Rewrite runs.js (used by the maps) and index.html from the saved runs; viewer: install the
-    viewer (mapping.install_viewer) too, whose index.css the page needs (save_run's map did). One
-    process at a time (cache.runs_lock), so of two runs saved at once the later lists both."""
-    import mapping
-    if viewer:
-        mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
+def write_index(runs_dir: str):
+    """Rewrite runs.js (used by the maps and the local app) from the saved runs. One process at a
+    time (cache.runs_lock), so of two runs saved at once the later lists both."""
     with cache.runs_lock(runs_dir):
         _write_index(runs_dir)
 
 
 def _write_index(runs_dir: str):
-    import mapping
     runs = list_runs(runs_dir)
-    # Written whole, then moved over the old files: a map or the app never reads half a list
+    # Written whole, then moved over the old file: a map or the app never reads half a list
     with cache.replacing(os.path.join(runs_dir, "runs.js"), "w", encoding="utf-8") as f:
         f.write("window.FINDALINE_RUNS = ")
         json.dump([_listed(r) for r in runs], f, ensure_ascii=False)
         f.write(";\n")
-
-    def e(value):
-        return html.escape(str(value))
-
-    rows = []
-    for r in runs:
-        links = []
-        for label, file in (("map", "map.html"), ("CSV", "lines.csv"), ("GeoJSON", "lines.geojson")):
-            if os.path.exists(os.path.join(runs_dir, r["id"], file)):
-                links.append(f"<a href='{e(quote(r['id']))}/{file}'>{label}</a>")
-        rows.append(
-            f"<tr><td>{e(_local_time(r['created']))}</td><td>{e(r['name'])}</td>"
-            f"<td>{r['center']['lat']:.5f}, {r['center']['lon']:.5f}</td>"
-            f"<td>{e(params_summary(r))}</td>"
-            f"<td class='n'>{r['summary']['lines']}</td><td class='n'>{r['summary']['spots']}</td>"
-            f"<td>{' · '.join(links)}</td></tr>")
-
-    with cache.replacing(os.path.join(runs_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line runs</title>
-<link rel="stylesheet" href="{mapping.VIEWER_FOLDER}/index.css">
-</head>
-<body>
-<h1>Find-a-Line runs</h1>
-<p>{len(runs)} runs, newest first. Spots are groups of similar lines.</p>
-<table>
-<tr><th>Date</th><th>Place</th><th>Centre (lat, lon)</th><th>Parameters</th>
-<th>Lines</th><th>Spots</th><th>Files</th></tr>
-{chr(10).join(rows)}
-</table>
-</body></html>
-""")
-
-
-def write_latest_redirect(path: str, map_path: str):
-    """A page that opens the map of the latest run."""
-    target = os.path.relpath(map_path, os.path.dirname(os.path.abspath(path))).replace(os.sep, "/")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line - latest run</title>
-<meta http-equiv="refresh" content="0; url={html.escape(target)}"></head>
-<body><a href="{html.escape(target)}">Open the latest run</a></body></html>
-""")

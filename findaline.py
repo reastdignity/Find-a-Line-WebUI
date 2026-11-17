@@ -122,12 +122,13 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
     except search.SearchError as e:
         sys.exit(str(e))
 
-    html = options.html or os.path.join(paths.data, "findaline_map.html")
-    if result.map_path:
-        rn.write_latest_redirect(html, result.map_path)
-        print(f"Interactive map saved to {os.path.abspath(result.map_path)}")
-        print(f"Open {os.path.abspath(html)} in a web browser to see the latest run")
-    print(f"All runs: {os.path.abspath(os.path.join(paths.runs, 'index.html'))}")
+    # A run opens through the app (docs/line-volume/spec-store.md 1.2: no page of the latest run, no index.html
+    # since store wave 4); --html is accepted for one release (store U10) and only says so
+    # (a data folder given by --data-dir is named too: `view` would look in the default one)
+    view = f"findaline.py view {result.meta['id']}" + (f' --data-dir "{paths.data}"' if options.data_dir else "")
+    if options.html:
+        print(f"--html is no longer used: maps open through the app. View it: {view}")
+    print(f"View it: {view}")
     if not options.no_plot:
         mp.mapify(shown, plan.area)
 
