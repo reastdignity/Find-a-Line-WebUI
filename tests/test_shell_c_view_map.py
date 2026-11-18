@@ -114,6 +114,8 @@ window.T = {
       zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
       credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
+      // the map's message on a phone is the first line of the status line's box (the pilot's arrangement): a part of it
+      if (name === "toast" && e && e.closest(".v-status")) continue;
       if (r && r.width && r.height && getComputedStyle(e).visibility !== "hidden") out[name] = [r.left, r.top, r.right, r.bottom].map((v) => Math.round(v * 10) / 10); }
     return out; },
   // the line of a number on the map: B of a best spot, P of a pick, L of the fan, A of the selected line
@@ -690,10 +692,10 @@ CHIP = """() => { const holder = document.createElement("div");
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
 
-# A stand-in for the panels' hint on the map (the frame's slot beside the status line: on a phone its "?"), which the
-# frame's own placeholder panels leave empty
-HINT = """() => { const hint = document.querySelector(".v-hint-slot").appendChild(document.createElement("button"));
-  hint.type = "button"; hint.className = "u-hint"; hint.textContent = "?"; }"""
+# The panels' hint hidden by its ×: on a phone its button then stands on the map, in the row of buttons beside "Legend"
+# (the frame's slot), the worst case of the pilot's arrangement (2026-11-18)
+HINT = "() => document.querySelector('.vl-hint-x').click()"
+HINT_SHOWN = "() => !!document.querySelector('.v-hint-slot .vl-hint-open')"
 
 
 def _over_holds(page, selector: str, state: str) -> dict:
@@ -734,10 +736,12 @@ def _apart(page, state: str) -> dict:
 
 
 def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip on the map and a hint in the bar's row. At the sheet's low
-    stop and at half, no control of the map covers another (the status line, the legend, its fold, the "?", the
-    hint, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits, the
-    message, the top bar; the access mark's key, opened, lies above them as a panel) and each stands above
+    """A small phone (390 x 664) with the shore's chip on the map and the hint hidden (its button in the bar's row of
+    buttons: the pilot's worst case). At the sheet's low
+    stop and at half, no control of the map covers another (the status line, the legend, its fold, the key's "i", the
+    hint's button, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits,
+    the top bar; the message is the status line's first line, a part of its box; the access mark's key, opened,
+    lies above them as a panel) and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -755,6 +759,7 @@ def test_phone_controls_apart(site):
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
             page.evaluate(CHIP)
             page.evaluate(HINT)
+            page.wait_for_function(HINT_SHOWN, timeout=WAIT)
             seen = {}
             for stop in ("low", "half"):
                 if stop == "half":
@@ -782,7 +787,10 @@ def test_phone_controls_apart(site):
                                 return {lines: document.querySelectorAll(".v-lg-line").length, whole: text > 100 && by.clientWidth >= text,
                                         swatches: r.querySelectorAll(".v-lay").length, name: r.getAttribute("aria-label"), text: r.textContent,
                                         height: document.querySelector(".v-legend").getBoundingClientRect().height}; }""")
-                            assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 70, ramp
+                            # its two lines: the 44 px select of a touch screen (R2) with the ramp, then the pick's mark
+                            # (1:1) and the access marks, which wrap once at the pilot's 13 px (112 px measured
+                            # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
+                            assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
                             assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
                 # the access mark's key, opened by its "?": a panel above the controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
@@ -796,14 +804,19 @@ def test_phone_controls_apart(site):
                 page.wait_for_selector(".v-help", state="detached", timeout=WAIT)
                 # a tap on several spots: the map says so; the message covers no control
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
-                crowded = _crowded(page, True, 4)  # (at half this phone's map has no point 24 px from every control)
+                # (at half this phone's map has no point 24 px from every control; nearer than about 10 px to the
+                # credits' links the browser's touch adjustment gives the tap to a link)
+                crowded = _crowded(page, True, 12)
                 assert crowded and len(crowded["spots"]) > 1, stop
                 _tap(page, crowded["x"], crowded["y"])
                 page.wait_for_selector(".v-toast", timeout=WAIT)
                 page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
                 page.evaluate("() => T.frames()")
                 boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
-                assert "toast" in boxes and page.evaluate("() => document.querySelector('.v-toast').textContent") == WORDS["ui.view.map.crowded"]
+                # the message stands in the status line's box, its first line (the pilot's arrangement of 2026-11-18)
+                assert "status" in boxes and page.evaluate("() => [document.querySelector('.v-toast').textContent, "
+                                                           "document.querySelector('.v-status').firstElementChild.classList.contains('v-toast')]") == \
+                    [WORDS["ui.view.map.crowded"], True]
                 page.wait_for_selector(".v-toast", state="detached", timeout=WAIT)
             # at half this phone's map has no room for the legend (39 px under the chip): a press on "Legend" lowers the
             # sheet and unfolds the legend there; nothing covers another; raised again, the legend is folded by itself
@@ -890,6 +903,10 @@ def test_phone_on_its_side(site):
             first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
             assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
             page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
+            # no control covers another here either: the status line beside the row of buttons (MapBar's `inline`)
+            page.evaluate("() => T.frames()")
+            side = _apart(page, "on its side, low")
+            assert side["status"][1] >= side["zoom"][3] and abs(side["status"][3] - side["fold"][3]) <= 1, side
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
             page.evaluate("() => T.frames()")
@@ -905,10 +922,11 @@ def test_phone_on_its_side(site):
             assert _state(page)["selected"] == first["selected"]
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
-            # a press on the map closes it (a point of the map under no control and not under the panel)
+            # a press on the map closes it (a point of the map under no control and not under the panel, 12 px clear:
+            # nearer to the credits' links the browser's touch adjustment gives the tap to a link)
             at = page.evaluate("""() => { const b = T.box(), f = T.free(), boxes = T.controls().concat([document.querySelector(".v-over").getBoundingClientRect()]);
               for (let y = f[3] - 12; y > f[1] + 12; y -= 7) for (let x = f[2] - 12; x > f[0] + 12; x -= 11) { const vx = x + b.left, vy = y + b.top;
-                if (!boxes.some((c) => vx > c.left - 6 && vx < c.right + 6 && vy > c.top - 6 && vy < c.bottom + 6) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
+                if (!boxes.some((c) => vx > c.left - 12 && vx < c.right + 12 && vy > c.top - 12 && vy < c.bottom + 12) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
               return null; }""")
             assert at, "no point of the map is free of the controls"
             _tap(page, at["x"], at["y"])
@@ -930,8 +948,9 @@ def test_phone_on_its_side(site):
 
 
 def test_focus_rings(site):
-    """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus) beside the shadow
-    each of them carries by itself (their own shadow replaced the ring: the design review's finding 16)."""
+    """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus: 2 px of the accent
+    2 px off the control) beside the shadow "Legend" carries by itself (their own shadow replaced the ring: the design
+    review's finding 16); the level Auto chose is underlined by a drawn bar (the pilot's), not by a shadow."""
     from playwright.sync_api import sync_playwright
     shadow = "([selector]) => getComputedStyle(document.querySelector(selector)).boxShadow"
     with sync_playwright() as p:
@@ -947,9 +966,14 @@ def test_focus_rings(site):
                                         "return [document.activeElement === e, e.matches(':focus-visible')]; }", [selector])
                 ring = page.evaluate(shadow, [selector])
                 assert focused == [True, True], selector
-                # the ring is a shadow of no offset and 3 px spread, drawn beside the control's own
-                assert own != "none" and "0px 0px 0px 3px" not in own and "0px 0px 0px 3px" in ring, (selector, own, ring)
-                assert ring.startswith(own) and len(ring) > len(own), (selector, own, ring)
+                # the ring is a shadow of no offset: a gap of 2 px, then 4 px of the accent, drawn beside the control's own
+                assert "0px 0px 0px 4px" not in own and "0px 0px 0px 4px" in ring, (selector, own, ring)
+                if selector == ".v-fold":
+                    assert own != "none" and ring.startswith(own) and len(ring) > len(own), (selector, own, ring)
+                else:
+                    bar = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.v-levels button.v-now'), '::after'); "
+                                        "return [s.content, s.height, s.backgroundColor]; }")
+                    assert own == "none" and bar[0] == '""' and bar[1] == "2px", (own, bar)
             assert page.errors == []
         finally:
             browser.close()

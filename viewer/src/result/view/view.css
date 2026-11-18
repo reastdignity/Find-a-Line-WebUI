@@ -1,128 +1,221 @@
 /* The panels of the result view (SpotList, SpotDetails, FanPanel, SpotChooser, Hint, SpotSummary, ViewFilters):
    classes vl-*, under the kit's root class .ui (ui/tokens.css). The frame and the map's bar are B2's (v-*,
-   mapbar.css); today's pieces reused here keep their classes (r-*, result.css; ac-*, access.css). */
+   mapbar.css); today's pieces reused here keep their classes (r-*, result.css; ac-*, access.css).
+   The look is the pilot's mock-up (2026-11-18, "for now": docs/DESIGN.md "The pilot's look"): colours from the tokens
+   (the view's own neutrals: ui/tokens.css .ui .v-result), sizes from the scales (--fs-*, --r-*; spacing on the 4 px
+   grid as values), controls 24 px or more on a desktop and 44 px on a touch screen (R2). */
 
-/* ---- the list: head, blocks ---- */
-.ui .vl-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* ---- the frame's parts in the view (columns.css and sidepanel.css are today's page's too): the header and the
+   side panels on the ground, thin rules between parts, the rail's words in the text's font (R1) ---- */
+.ui .v-result .c-result-top { min-height: 57px; padding: 8px 16px; gap: 12px; background: var(--bg); border-bottom-color: var(--rule); }
+.ui .v-result .c-run-name { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
+.ui .v-result .c-col-side, .ui .v-result .c-rail { background: var(--bg); }
+.ui .v-result .c-col-left { border-right-color: var(--rule); }
+.ui .v-result .c-col-right { border-left-color: var(--rule); }
+.ui .v-result .c-rail:hover { background: var(--hover); }
+.ui .v-result .c-rail-text, .ui .v-result .c-rail-auto { font: 500 var(--fs-1) var(--font); letter-spacing: 0; text-transform: none; }
+.ui .v-result .u-split-tab { width: 24px; border-radius: var(--r-2); border-color: var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+.ui .v-result .c-col-head { padding: 16px 16px 12px; gap: 8px; border-bottom-color: var(--rule); }
+.ui .v-result .c-col-body { padding: 0; }
+.ui .v-result .c-col-dbody { padding: 16px; gap: 16px; }
+.ui .v-result .c-pick { color: var(--ink-2); }
+.ui .v-result .u-small { font-size: var(--fs-2); line-height: 18px; }
+.ui .v-result .u-h { font-size: var(--fs-5); line-height: 24px; }
+
+/* ---- the kit's controls in the view: 32 px on a desktop, 44 px on a touch screen; corners of 8 px (chips no longer
+   pills); a chip that is on in the soft accent ---- */
+.ui .v-result .u-btn { min-height: 32px; padding: 0 12px; border-color: var(--line); font-size: var(--fs-3); }
+.ui .v-result .u-btn:hover, .ui .v-result .u-btn.u-ghost:hover { background: var(--hover); }
+.ui .v-result .u-ib { width: 32px; height: 32px; border-color: var(--line); }
+.ui .v-result .u-ib:hover { background: var(--hover); }
+.ui .v-result .u-ib.u-plain { border-color: transparent; background: transparent; }
+.ui .v-result .u-ib.u-plain:hover { background: var(--hover); }
+.ui .v-result .u-chips { gap: 8px; }
+.ui .v-result .u-chip { min-height: 32px; padding: 0 12px; gap: 4px; border-radius: var(--r-2); border-color: var(--line); background: transparent;
+  color: var(--ink); font-size: var(--fs-2); font-weight: 500; }
+.ui .v-result .u-chip:hover { background: var(--hover); }
+.ui .v-result .u-chip.u-on, .ui .v-result .u-chip.u-on:hover { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-ink); }
+.ui .v-result .u-chip .u-ic { width: 16px; height: 16px; }
+/* a field (R8 "inset"): "Sort by", Best's select, the squares' "Colour by" */
+.ui .v-result .r-sort, .ui .v-result .v-select { min-height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-2);
+  background: var(--surface-2); color: var(--ink); font-size: var(--fs-3); }
+.ui .v-result .r-sort { max-width: 170px; }
+.ui .v-result .r-filters { gap: 8px; }
+.ui .v-result .r-editor { border-radius: var(--r-2); padding: 12px; gap: 12px; }
+.ui .v-result .r-why { border-radius: var(--r-2); }
+.ui .v-result .r-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* the access mark's key as the kit's "info" icon (access.tsx useAccessHelp's `icon`) */
+.ui .v-result .ac-info { width: 24px; height: 24px; border-radius: var(--r-2); color: var(--ink-2); }
+.ui .v-result .ac-info .u-ic { width: 16px; height: 16px; }
+@media (pointer: coarse) {
+  .ui .v-result .u-btn, .ui .v-result .u-chip, .ui .v-result .r-sort, .ui .v-result .v-select { min-height: 44px; }
+  .ui .v-result .u-chip { font-size: var(--fs-3); }
+  .ui .v-result .u-ib, .ui .v-result .ac-info { width: 44px; height: 44px; }
+}
+
+/* ---- the list: head, blocks parted by rules (no boxes) ---- */
+.ui .vl-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ui .vl-summary { gap: 8px; }
+.ui .vl-count { gap: 0 8px; }
 .ui .vl-top-text { margin: 0; }
-.ui .vl-block { border-top: 1px solid var(--line); padding: 8px 0 6px; }
+.ui .vl-block { border-top: 1px solid var(--rule); padding: 12px 0 8px; }
 .ui .vl-body > .vl-block:first-child, .ui .vl-body > .r-more + .vl-block { border-top: 0; }
-.ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; min-height: 30px; }
-.ui .vl-block-head h3 { margin: 0; font: 600 16px/1.2 var(--display); letter-spacing: .01em; }
-.ui .vl-more-best { min-height: 30px; padding: 0 10px; font-size: 13px; }
-.ui .vl-sort { display: inline-flex; align-items: center; gap: 6px; }
-.ui .vl-note { margin: 0; padding: 6px 8px; }
-@media (pointer: coarse) { .ui .vl-more-best { min-height: 40px; } }
+.ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; min-height: 40px; }
+.ui .vl-block-head h3 { margin: 0; font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; }
+.ui .vl-sort { display: inline-flex; align-items: center; gap: 8px; }
+.ui .vl-note { margin: 0; padding: 4px 16px; }
+/* the key of the tight mark under a list */
+.ui .vl-key { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 16px 0; color: var(--ink-2); }
+.ui .vl-key .vl-tight { height: 18px; }  /* the mark on the middle of the first line */
 
-/* ---- rows: a list item with one button (the row) and, later, sibling controls ---- */
-.ui .vl-rows { list-style: none; margin: 0; padding: 0; }
+/* ---- rows: a list item with one button (the row), its heads above it in the same grid ---- */
+.ui .vl-rows { list-style: none; margin: 0; padding: 0 8px; }
 .ui .vl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.ui .vl-main, .ui .vl-cols { display: grid; grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) minmax(0, .8fr);
-  column-gap: 4px; align-items: center; padding: 0 8px 0 5px; border-left: 3px solid transparent; }
-.ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc { grid-template-columns: 44px 12px repeat(3, minmax(0, 1fr)) 44px minmax(0, .6fr); }
+.ui .vl-main, .ui .vl-cols { display: grid; grid-template-columns: 40px 12px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, .8fr);
+  column-gap: 4px; align-items: center; padding: 0 8px 0 4px; border-left: 3px solid transparent; }
+.ui .vl-with-acc .vl-main, .ui .vl-cols.vl-with-acc {
+  grid-template-columns: 40px 12px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 48px minmax(0, .8fr); }
 /* positioned: the hidden names of its values (u-sr) stay inside the row */
-.ui .vl-main { position: relative; width: 100%; min-height: 38px; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 8px 8px 0;
-  background: none; color: inherit; font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: left;
-  cursor: pointer; }
-.ui .vl-main:hover { background: var(--surface-2); }
-.ui .vl-main:focus-visible { box-shadow: var(--focus); }
+.ui .vl-main { position: relative; width: 100%; min-height: 36px; border-top: 0; border-right: 0; border-bottom: 0;
+  border-radius: 0 var(--r-1) var(--r-1) 0; background: none; color: inherit; font: inherit; font-size: var(--fs-3);
+  font-variant-numeric: tabular-nums; text-align: left; cursor: pointer; }
+.ui .vl-main:hover { background: var(--hover); }
+.ui .vl-main:focus-visible { box-shadow: var(--focus-in); }  /* inside: the list clips what is outside a row */
 .ui .vl-sel > .vl-main { background: var(--accent-soft); border-left-color: var(--accent); }
-.ui .vl-cols { min-height: 26px; align-items: end; padding-bottom: 3px; font: 500 10.5px/1.1 var(--mono); letter-spacing: .05em;
-  text-transform: uppercase; color: var(--muted); }
+/* the column heads: sentence case in the text's font, the sorted one in the ink with the sort icon */
+.ui .vl-cols { margin: 0 8px; align-items: end; padding-bottom: 4px; font-size: var(--fs-1); line-height: 16px; font-weight: 500; color: var(--muted); }
 .ui .vl-cols > span:nth-child(n+3), .ui .vl-v { text-align: right; white-space: nowrap; }
-.ui .vl-cols > span:nth-child(n+3) { white-space: normal; }  /* a heading may take two lines ("Mean height ▾") */
+.ui .vl-cols > span:nth-child(n+3) { white-space: normal; }  /* a heading may take two lines ("Mean height") */
+.ui .vl-by { color: var(--ink); }
+.ui .vl-by .u-ic { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; stroke-width: 2.4; }
+.ui .vl-cols > .vl-cell-acc, .ui .vl-main > .vl-cell-acc { text-align: center; }
+.ui .vl-v { color: var(--value); }
+.ui .vl-num { font-size: var(--fs-2); color: var(--muted); }
+.ui .vl-n { color: var(--ink-2); }
+.ui .vl-sw { width: 12px; height: 4px; border-radius: var(--r-1); }
+.ui .vl-clr { display: inline-flex; justify-content: flex-end; align-items: center; gap: 4px; }
+/* the tight mark (common.tsx TightIcon): the kit's "alert" in the tight ink, in every row and the key */
+.ui .vl-tight { display: inline-flex; flex: none; width: 14px; height: 14px; color: var(--tight-ink); }
+.ui .vl-tight .u-ic { width: 100%; height: 100%; stroke-width: 2; }
 /* in a phone's sheet the blocks keep the sheet's own gutter */
 .ui .vl-list .vl-block-head, .ui .vl-list .vl-note, .ui .vl-list .vl-sec-head, .ui .vl-list .r-tight-key { padding-left: 0; padding-right: 0; }
-.ui .vl-list .vl-more { margin-left: 0; }
-.ui .vl-cols > .vl-cell-acc, .ui .vl-main > .vl-cell-acc { text-align: center; }
-.ui .vl-by { color: var(--ink); }
-.ui .vl-num { font: 500 12px var(--mono); color: var(--muted); }
-.ui .vl-n { color: var(--ink-2); }
-.ui .vl-sw { width: 10px; }
+.ui .vl-list .vl-rows { padding: 0; }
+.ui .vl-list .vl-cols { margin: 0; }
+.ui .vl-list .vl-more { margin-left: 0; margin-right: 0; }
 /* a pick: its name on a line of its own, above the same numbers as every row */
-.ui .vl-pick > .vl-main { row-gap: 1px; padding-block: 5px; }
-.ui .vl-pick .v-sh { grid-column: 1; grid-row: 1 / 3; }
-.ui .vl-pick .vl-sw { grid-column: 2; grid-row: 1 / 3; }
-.ui .vl-lab { grid-column: 3 / -1; grid-row: 1; color: var(--ink-2); font-size: 13px; line-height: 1.2; white-space: nowrap;
+.ui .vl-pick > .vl-main, .ui .vl-over > .vl-main { row-gap: 0; padding-block: 4px; }
+.ui .vl-pick .v-sh, .ui .vl-pick .vl-sw { grid-row: 1 / 3; }
+.ui .vl-pick .vl-sw { grid-column: 2; }
+.ui .vl-lab { grid-column: 3 / -1; grid-row: 1; color: var(--ink-2); font-size: var(--fs-2); line-height: 18px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .ui .vl-pick .vl-v, .ui .vl-pick .vl-cell-acc { grid-row: 2; }
-.ui .vl-door { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 7px;
-  background: none; color: var(--muted); font-size: 17px; cursor: pointer; }
-.ui .vl-door:hover { background: var(--line); color: var(--ink); }
-@media (pointer: coarse) { .ui .vl-main { min-height: 46px; } .ui .vl-door { width: 40px; height: 40px; } }
+/* a line over trees or buildings: the orange dash and the words on a second line under its values (R4.2) */
+.ui .vl-over .v-sh, .ui .vl-over .vl-num, .ui .vl-over .vl-sw { grid-row: 1 / 3; }
+.ui .vl-over-words { grid-column: 3 / -1; grid-row: 2; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); text-align: left; }
+.ui .vl-pick.vl-over .v-sh, .ui .vl-pick.vl-over .vl-sw { grid-row: 1 / 4; }
+.ui .vl-pick.vl-over .vl-over-words { grid-row: 3; }
+.ui .vl-door { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-2);
+  background: none; color: var(--muted); cursor: pointer; }
+.ui .vl-door:hover { background: var(--hover); color: var(--ink); }
+@media (pointer: coarse) { .ui .vl-main { min-height: 48px; } .ui .vl-door { width: 44px; height: 44px; } }
 
 /* the marks of the map in rows are the map's own (Shape.tsx, mapbar.css .v-sh) */
 .ui .vl-main .v-sh { display: block; }
 
 /* ---- the tree of sectors ---- */
-.ui .vl-sec { border-top: 1px solid var(--line); }
+.ui .vl-sec { border-top: 1px solid var(--rule); }
 .ui .vl-block-head + .vl-sec { border-top: 0; }
-.ui .vl-tree > .r-tight-key { padding-top: 6px; }
-.ui .vl-sec-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; padding: 6px 8px; }
-.ui .vl-toggle { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px; align-items: start; border: 0; background: none;
-  color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 2px 0; border-radius: 6px; }
-.ui .vl-toggle:focus-visible { box-shadow: var(--focus); }
-.ui .vl-caret { color: var(--muted); font-size: 12px; line-height: 20px; }
+.ui .vl-sec-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 16px; }
+.ui .vl-toggle { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 4px 0; border-radius: var(--r-1); }
+.ui .vl-caret { width: 16px; height: 16px; margin-top: 2px; color: var(--ink-2); }
 .ui .vl-sec-name { display: block; font-weight: 600; }
-.ui .vl-meta { display: block; font-size: 12.5px; color: var(--ink-2); }
-.ui .vl-meta2 { display: block; font-size: 12px; color: var(--muted); }
-.ui .vl-sec-map { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--surface); color: var(--ink-2); cursor: pointer; padding: 0; }
-.ui .vl-sec-map:hover { background: var(--surface-2); }
-.ui .vl-sec-map svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
-.ui .vl-more { margin: 4px 8px 8px; }
-@media (pointer: coarse) { .ui .vl-sec-map { width: 40px; height: 40px; } }
+.ui .vl-meta { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
+.ui .vl-meta2 { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--muted); }
+.ui .vl-sec-map { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--line);
+  border-radius: var(--r-2); background: var(--surface); color: var(--ink-2); cursor: pointer; padding: 0; }
+.ui .vl-sec-map:hover { background: var(--hover); }
+.ui .vl-sec-map .u-ic { width: 16px; height: 16px; }
+.ui .vl-more { margin: 8px 16px; }
+@media (pointer: coarse) { .ui .vl-sec-map { width: 44px; height: 44px; } }
 
 /* ---- details of the selected spot ---- */
-.ui .vl-details { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ui .vl-details { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .ui .vl-dhead { display: flex; align-items: center; gap: 8px; }
-.ui .vl-dhead h3 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: .01em; }
-.ui .vl-details .u-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.ui .vl-step { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
-.ui .vl-step .u-ib { width: 30px; height: 30px; }
-.ui .vl-stands { margin: 0; font-size: 13px; color: var(--ink-2); }
-.ui .vl-acts { display: flex; flex-direction: column; gap: 6px; }
-.ui .vl-phone .vl-acts { flex-direction: row; flex-wrap: wrap; }
-.ui .vl-phone .vl-acts .u-btn { flex: 1 1 auto; width: auto; }
-@media (pointer: coarse) { .ui .vl-step .u-ib { width: 40px; height: 40px; } }
-@media (max-width: 420px) { .ui .vl-details .u-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ui .vl-spot-title { flex: 1; min-width: 0; margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px;
+  font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
+.ui .vl-spot-count { font: 400 var(--fs-3)/20px var(--font); letter-spacing: 0; color: var(--muted); }
+.ui .vl-spot-title .ac-pair { gap: 4px; }
+/* the four values as tiles (R8 "inset"): the value above its label */
+.ui .vl-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ui .vl-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border-radius: var(--r-2); background: var(--surface-2); }
+.ui .vl-tile-v { display: flex; align-items: baseline; gap: 4px; font: 600 var(--fs-6)/28px var(--display); color: var(--value);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui .vl-tile-v small { font: 500 var(--fs-4)/20px var(--display); color: var(--ink-2); }
+.ui .vl-tile-l { font-size: var(--fs-2); line-height: 16px; color: var(--ink-2); }
+/* the clearance tile of a tight line: the warning colour, the tight mark beside the value, "Tight" under its label */
+.ui .vl-tile.vl-is-tight { background: var(--tight-bg); box-shadow: inset 0 0 0 1px var(--tight-edge); }
+.ui .vl-is-tight .vl-tight { width: 16px; height: 16px; align-self: center; }
+.ui .vl-tword { display: block; color: var(--tight-ink); font-weight: 600; }
+/* "Reaching the anchors": no box (R8), a row per anchor */
+.ui .vl-acc { display: flex; flex-direction: column; gap: 8px; }
+.ui .vl-acc-h { display: flex; align-items: center; gap: 4px; margin: 0; font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; }
+.ui .vl-acc-row { display: grid; grid-template-columns: 24px 20px minmax(0, 1fr); gap: 8px; align-items: center; }
+.ui .vl-acc-row .ac { vertical-align: 0; }
+.ui .vl-acc-a { font-weight: 600; color: var(--ink-2); }
+.ui .vl-step { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.ui .vl-stands { margin: 0; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
+/* "Lines from anchor A1 / A2" side by side */
+.ui .vl-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ui .vl-acts .u-btn { white-space: normal; padding: 4px 8px; line-height: 18px; }
+/* the facts: a table with a column per anchor, thin rules between the rows */
+.ui .vl-facts { width: 100%; border-collapse: collapse; font-size: var(--fs-2); line-height: 18px; font-variant-numeric: tabular-nums; }
+.ui .vl-facts th, .ui .vl-facts td { padding: 8px 8px 8px 0; border-top: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.ui .vl-facts thead th { border-top: 0; padding-top: 0; font-weight: 600; color: var(--ink); }
+.ui .vl-facts thead th + th { width: 30%; }
+.ui .vl-facts tbody th { font-weight: 400; color: var(--ink-2); padding-right: 12px; }
+.ui .vl-facts tbody th.vl-facts-group { padding-top: 16px; font-weight: 600; color: var(--ink); }
+.ui .vl-facts td { color: var(--value); overflow-wrap: anywhere; }
+.ui .vl-facts-note { display: block; font-size: var(--fs-1); line-height: 16px; color: var(--muted); }
 
 /* ---- "Lines from here" ---- */
 .ui .vl-fan { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.ui .vl-fan-sort .u-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-.ui .vl-fan-sort .u-seg button { font-size: 12.5px; padding: 0 5px; }
+.ui .vl-fan-title { flex: 1; min-width: 0; margin: 0; font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
+.ui .vl-fan-sort .u-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--r-2); background: var(--surface-2); }
+.ui .vl-fan-sort .u-seg button { min-height: 32px; padding: 0 4px; border-radius: var(--r-1); font-size: var(--fs-2); }
 .ui .vl-fan .vl-main, .ui .vl-fan .vl-cols { grid-template-columns: 40px minmax(0, .85fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
-  padding: 0 2px; border-left: 0; font-size: 12px; }
+  padding: 0 4px; border-left: 0; font-size: var(--fs-2); }
 .ui .vl-fan .vl-with-acc .vl-main, .ui .vl-fan .vl-cols.vl-with-acc {
-  grid-template-columns: 40px minmax(0, .85fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) 30px; }
-.ui .vl-fan .vl-main { border-radius: 6px; }
-.ui .vl-fan .vl-cols { font-size: 10px; letter-spacing: .04em; min-height: 20px; }
+  grid-template-columns: 40px minmax(0, .85fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) 32px; }
+.ui .vl-fan .vl-main { border-radius: var(--r-1); }
+.ui .vl-fan .vl-cols { margin: 0; font-size: var(--fs-1); min-height: 20px; }
 .ui .vl-fan .vl-cols > span { white-space: normal; text-align: right; }
 .ui .vl-fan .vl-cols > span:first-child { text-align: left; }
+.ui .vl-fan .vl-rows { padding: 0; }
+@media (pointer: coarse) { .ui .vl-fan-sort .u-seg button { min-height: 44px; } }
 
-/* ---- the table of spots under a press ---- */
-.ui .vl-choose { position: fixed; z-index: 1100; width: min(300px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
-  gap: 2px; }
+/* ---- the table of spots under a press (raised, over the map) ---- */
+.ui .vl-choose { position: fixed; z-index: 1100; width: min(320px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
+  gap: 4px; border: 0; border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow); }
 .ui .vl-choose-new { visibility: hidden; }  /* until it is measured and placed */
 .ui .vl-choose.vl-choose-dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 55vh;
   overflow-y: auto; }
-.ui .vl-choose-title { display: flex; align-items: center; margin: 0; padding: 0 0 2px 4px; color: var(--ink-2); }
-.ui .vl-choose .vl-main, .ui .vl-choose .vl-cols { grid-template-columns: 46px 12px repeat(3, minmax(0, 1fr)); padding: 0 4px; border-left: 0; }
-.ui .vl-choose .vl-main { border-radius: 6px; }
+.ui .vl-choose-title { display: flex; align-items: center; margin: 0; padding: 0 0 4px 4px; color: var(--ink-2); }
+.ui .vl-choose .vl-main, .ui .vl-choose .vl-cols { grid-template-columns: 40px 12px repeat(3, minmax(0, 1fr)); padding: 0 4px; border-left: 0; }
+.ui .vl-choose .vl-main { border-radius: var(--r-1); }
+.ui .vl-choose .vl-cols { margin: 0; }
+.ui .vl-choose .vl-rows { padding: 0; }
 
-/* ---- the hint ---- */
-.ui .vl-hint { display: inline-flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--line);
-  border-radius: 8px; padding: 1px 2px 1px 9px; font-size: 12.5px; color: var(--ink-2); box-shadow: var(--shadow); }
-.ui .vl-hint .r-note-x { width: 26px; height: 26px; }
-.ui .vl-hint-open { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
-  color: var(--ink-2); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); padding: 0; flex: none; }
-.ui .vl-hint-open:hover { background: var(--surface-2); }
-/* the keyboard's ring beside its own shadow (the kit's ring is a shadow too: theirs would replace it) */
-.ui .vl-hint-open:focus-visible { box-shadow: var(--shadow), var(--focus); }
-/* on a phone: the sheet's first line (the frame puts it into the sheet's head, above the head's row) */
-.ui .vl-hint.vl-hint-sheet { display: flex; justify-content: space-between; padding-left: 10px; box-shadow: none; background: var(--bg);
-  margin-bottom: 6px; }
-.ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ui .vl-sheet-row h3 { flex: 1; min-width: 0; margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: .01em; }
+/* ---- the hint: on a desktop a raised box over the map beside the status line (mapbar.css), on a phone the sheet's
+   first line, plain; its button on the map while it is hidden ---- */
+.ui .vl-hint { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
+.ui .v-result .vl-hint .vl-hint-x { width: 24px; height: 24px; }
+.ui .vl-hint-open { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; flex: none;
+  color: var(--ink-2); cursor: pointer; }
+.ui .vl-hint-open:hover { background: var(--hover); }
+.ui .vl-hint.vl-hint-sheet { display: flex; min-height: 44px; padding: 0; gap: 8px; border-radius: 0; background: none; box-shadow: none;
+  font-size: var(--fs-3); line-height: 20px; }
+.ui .vl-hint-sheet .vl-hint-text { flex: 1; min-width: 0; }
+.ui .vl-sheet-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; }
 .ui .vl-sheet-row .vl-count { flex: 1; min-width: 0; }
-@media (pointer: coarse) { .ui .vl-hint .r-note-x, .ui .vl-hint-open { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .ui .v-result .vl-hint .vl-hint-x, .ui .vl-hint-open { width: 44px; height: 44px; } }

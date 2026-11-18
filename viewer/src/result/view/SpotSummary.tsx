@@ -1,4 +1,4 @@
-// The head of a result in the result view (docs/line-volume/spec-view.md B.2 item 14, A.2): "624 spots · 36 296
+// The head of a result in the result view (docs/line-volume/spec-view.md B.2 item 14, A.2): "624 spots, 36 296
 // lines" of the lines that pass the filters (the view's counts; thousands with a no-break space), how many lines
 // the filters hide ("Top level only" among them), and in a run made with the square rule the second line "2 010 351
 // found. Why so many?" whose link opens today's box (ResultSummary's WhyBox: its "Show" boxes are filters like the
@@ -14,7 +14,8 @@ import { changePanels, panelState } from "./viewstate";
 export function SpotCount({view}: {view: SpotView}) {
   const c = view.counts;
   return <div class="r-summary-count vl-count">
-    <span class="u-h">{t("ui.result.spots", {count: c.spots, n: count(c.spots)})} · {t("ui.result.lines", {count: c.lines, n: count(c.lines)})}</span>
+    <span class="u-h">{t("ui.view.headline", {spots: t("ui.result.spots", {count: c.spots, n: count(c.spots)}),
+                                               lines: t("ui.result.lines", {count: c.lines, n: count(c.lines)})})}</span>
     {c.hidden > 0 && <span class="u-small">{t("ui.result.hidden", {n: count(c.hidden)})}</span>}
   </div>;
 }

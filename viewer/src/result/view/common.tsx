@@ -8,6 +8,7 @@ import { COLORS } from "../../style";
 import type { Line } from "../../types";
 import { t } from "../../i18n";
 import { clearanceText, isTight, tightKey } from "../../tight";
+import { ICONS } from "../../ui/icons";
 import "./result.css";
 import "../../profile.css";
 
@@ -47,9 +48,22 @@ export function Clearance({line: l, lift}: {line: Line; lift?: number | null}) {
   return <span class="r-clr">{isTight(l.clr) && <TightMark lift={lift} />}{clearanceText(l.clr)} m</span>;
 }
 
-/** The key line of the tight mark, under a list that holds a tight line. */
-export function TightKey({lift}: {lift?: number | null}) {
-  return <p class="u-small r-tight-key"><i class="r-tight" aria-hidden="true" />{tightKey(lift)}</p>;
+/** The kit's "alert" icon, drawn for the tight mark (decorative: its holder carries the name). */
+function AlertIcon() {
+  return <svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{__html: ICONS.alert}} />;
+}
+
+/** The result view's tight mark: the kit's "alert" icon in the tight ink (--tight-ink), its name "Tight", its title
+ *  (a mouse's tooltip) the key's words (an attribute: a row's text stays its values). */
+export function TightIcon({lift}: {lift?: number | null}) {
+  return <span class="vl-tight" role="img" aria-label={t("ui.tight.label")} title={tightKey(lift)}><AlertIcon /></span>;
+}
+
+/** The key line of the tight mark, under a list that holds a tight line; `drawn`: with the result view's mark
+ *  (TightIcon). */
+export function TightKey({lift, drawn}: {lift?: number | null; drawn?: boolean}) {
+  return <p class={drawn ? "u-small r-tight-key vl-key" : "u-small r-tight-key"}>
+    {drawn ? <span class="vl-tight" aria-hidden="true"><AlertIcon /></span> : <i class="r-tight" aria-hidden="true" />}{tightKey(lift)}</p>;
 }
 
 /** The first cells of a line's row (the list, the choice of spots on the map): its colour, length, height

@@ -10,7 +10,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "./i18n";
 import { ACCESS_CANNOT_TELL, ACCESS_EASY, ACCESS_HARD, type Line } from "./types";
-import { ACCESS_SIGNS } from "./ui/icons";
+import { ACCESS_SIGNS, Icon } from "./ui/icons";
 import "./access.css";
 
 /** The mark's values, the best first: the order of the legend and the key. */
@@ -84,7 +84,7 @@ let ids = 0;
 /** The "?" of the mark and the help it opens in place (a panel under the row that holds the button, not a bubble:
  *  the text is long, and its key shows the dots on the panel's own surface): `button` goes into the row, `panel`
  *  (null while closed) where the text should stand. Esc closes it while the focus is on the button. */
-export function useAccessHelp(label = t("ui.access.about")): {button: ComponentChildren; panel: ComponentChildren} {
+export function useAccessHelp(label = t("ui.access.about"), icon = false): {button: ComponentChildren; panel: ComponentChildren} {
   const [id] = useState(() => `ac-help-${++ids}`);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -98,9 +98,14 @@ export function useAccessHelp(label = t("ui.access.about")): {button: ComponentC
     document.addEventListener("keydown", key, true);
     return () => document.removeEventListener("keydown", key, true);
   }, [open]);
+  const toggle = (e: Event) => { e.stopPropagation(); setOpen(!open); };
   return {
-    button: <button type="button" class="u-hint ac-hint" aria-label={label} aria-expanded={open} aria-controls={id}
-                    onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>?</button>,
+    // `icon`: the kit's "info" icon in a button of the kit (the result view's, where "?" is the mark's "cannot tell")
+    button: icon
+      ? <button type="button" class="u-ib u-plain ac-hint ac-info" aria-label={label} title={label} aria-expanded={open} aria-controls={id}
+                onClick={toggle}><Icon name="info" /></button>
+      : <button type="button" class="u-hint ac-hint" aria-label={label} aria-expanded={open} aria-controls={id}
+                onClick={toggle}>?</button>,
     panel: open ? <div class="ac-help" id={id} role="note"><AccessKey /></div> : null,
   };
 }

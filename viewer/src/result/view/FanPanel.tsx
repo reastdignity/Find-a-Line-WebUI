@@ -16,9 +16,9 @@ import { AccessMark, accessState, accessWord } from "../../access";
 import { t } from "../../i18n";
 import type { Fan, FanRow, FanSort, SpotView } from "../spots";
 import { bearing, FAN_HERE } from "../viewgeom";
-import { count, cx, TightKey, TightMark } from "./common";
+import { count, cx, TightIcon, TightKey } from "./common";
 import { Shape } from "./Shape";
-import { metres, rowKeys, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
+import { Head, metres, rowKeys, tightRow, useHover, useViewPanels, Value, withAccess } from "./SpotList";
 import type { PanelProps } from "./SpotPanels";
 import { clearanceText } from "../../tight";
 
@@ -70,8 +70,8 @@ function FanLine({p, r, tab}: {p: PanelProps; r: FanRow; tab: boolean}) {
       {c.over[row] === 1 && <span class="u-sr">{t("ui.result.legend_over")} </span>}
       <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
       <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>
-      <Value name={t("ui.list.col.clear")} class="vl-clr">
-        {tightRow(view, row) && <TightMark lift={view.model.data.lift} />}{metres(Number(clearanceText(v.clr[row])), 1)}</Value>
+      <Value name={t("ui.view.col.clear")} class="vl-clr">
+        {tightRow(view, row) && <TightIcon lift={view.model.data.lift} />}{metres(Number(clearanceText(v.clr[row])), 1)}</Value>
       <Value name={t("ui.view.fan.sort.dh")}>{signedMetres(r.dh)}</Value>
       <Value name={t("ui.view.fan.sort.dir")}>{directionText(r.bearing)}</Value>
       {withAccess(view) && <span class="vl-cell-acc">{far === null ? <span class="ac-none" aria-hidden="true">–</span>
@@ -80,7 +80,7 @@ function FanLine({p, r, tab}: {p: PanelProps; r: FanRow; tab: boolean}) {
   </li>;
 }
 
-const HEADS: Record<FanSort, string> = {len: "ui.list.col.length", hmean: "ui.list.col.mean", clr: "ui.list.col.clear",
+const HEADS: Record<FanSort, string> = {len: "ui.list.col.length", hmean: "ui.list.col.mean", clr: "ui.view.col.clear",
                                         dh: "ui.view.fan.sort.dh", dir: "ui.view.fan.sort.dir"};
 
 /** The panel; `head` false: without its title and "Close" (a phone's sheet shows them in its head). */
@@ -104,12 +104,12 @@ export function FanPanel({head = true, ...p}: PanelProps & {head?: boolean}) {
                                     onClick={() => view.sortFan(k)}>{t(`ui.view.fan.sort.${k}`)}</button>)}
     </div></div>
     <div class={cx("vl-cols", acc && "vl-with-acc")} aria-hidden="true"><span />
-      {COLUMNS.map((k) => <span key={k} class={fan.sort === k ? "vl-by" : undefined}>{t(HEADS[k])}{fan.sort === k && " ▾"}</span>)}
+      {COLUMNS.map((k) => <Head key={k} by={fan.sort === k} text={t(HEADS[k])} />)}
       {acc && <span class="vl-cell-acc">{t("ui.view.fan.far_end")}</span>}
     </div>
     <ul class={cx("vl-rows", acc && "vl-with-acc")} aria-label={t("ui.view.fan.title")} onKeyDown={rowKeys}>
       {fan.rows.map((r, k) => <FanLine key={r.row} p={p} r={r} tab={k === 0} />)}
     </ul>
-    {fan.rows.some((r) => tightRow(view, r.row)) && <TightKey lift={view.model.data.lift} />}
+    {fan.rows.some((r) => tightRow(view, r.row)) && <TightKey lift={view.model.data.lift} drawn />}
   </div>;
 }

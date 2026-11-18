@@ -3,10 +3,12 @@
 // what is drawn (with "Held by you." and "Back to Auto" while a level is held; marked when the lines are too many
 // to draw), beside it the frame's hint, and the legend: exactly the shapes and colours on the map now (SpotMap's
 // legend()), at Area the squares' value (a select) and its five classes, and in a run with the access mark the
-// three marks with their "?". On a phone the legend is two lines of short labels with a fold (not kept: unfolded
-// while the sheet is low, folded while it is at half or higher, see MapBar), and the access mark's key opens as a
-// panel above the map's controls. The bar's boxes carry `data-map-control`: the canvas places no number under them. Styles in
-// mapbar.css (classes v-*).
+// three marks with the "i" of their key. On a phone (the pilot's arrangement of 2026-11-18, docs/DESIGN.md) the foot
+// stands from the bottom up at the left beside the scale: the row of "Legend", the key's "i" and the hint's button,
+// the legend (two lines of short labels; not kept: unfolded while the sheet is low, folded while it is at half or
+// higher, see MapBar), then the status line, whose box holds the map's message as its first line while it lasts; the
+// access mark's key opens as a panel above the map's controls. The bar's boxes carry `data-map-control`: the canvas
+// places no number under them. Styles in mapbar.css (classes v-*).
 
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -122,12 +124,15 @@ export interface MapBarProps {
   sheet?: Snap;
   /** A phone: move the sheet to a stop (a press on "Legend" where the legend has no room lowers the sheet). */
   onSheet?(snap: Snap): void;
+  /** A phone: the map's message (after a crowded tap), the first line of the status line's box while it lasts. */
+  message?: string;
 }
 
 const LEGEND_LINE = 24;  // px: the least room an unfolded legend is shown in (one line of it)
+const GAP = 8;  // px between the foot's boxes (R7)
 
 /** The bar's two parts over the map. */
-export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
+export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarProps) {
   const pressed = view.auto ? "auto" : view.level, status = statusOf(view), area = view.level === "area";
   const [, setTick] = useState(0);
   useEffect(() => map?.subscribe(() => setTick((n) => n + 1)), [map]);
@@ -173,16 +178,20 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
     return () => { document.removeEventListener("keydown", onKey, true); column.removeEventListener("pointerdown", onPress, true); };
   }, [asPanel, sheet]);
   // Where a phone's panels opened by the person stand (the legend as a panel, the access mark's key): from above the
-  // status line's row up to the switch at most, px of the map's column
+  // status line up to the switch at most, px of the map's column
   const [over, setOver] = useState<{bottom: number; max: number} | null>(null);
-  // A phone's foot where the status line's row would still reach one of those controls (a low phone with the sheet
-  // at half: 39 px are left under the shore's chip on a screen of 390 x 664): the foot then stands beside the scale
-  // instead of above it, its row's lines from the bottom with the buttons at the right (`aside`: its place, for
-  // the state `key` it was measured in; any other state is measured again in the foot's own place first)
-  const [aside, setAside] = useState<{key: string; left: number; bottom: number} | null>(null);
-  const [frame, setFrame] = useState("");  // the measures of the map's column the foot's place depends on
-  const key = `${sheet}|${status.text}|${view.auto}|${asked}|${frame}`;
-  const beside = !wide && aside !== null && aside.key === key ? aside : null;
+  // A phone's foot (the pilot's arrangement of 2026-11-18, for every phone height): from the bottom up the row of
+  // buttons (Legend, the access mark's key, the hint's button) at the left beside the scale (which stands at the
+  // right: SpotColumns.tsx), the legend, then the status line, whose box also holds the map's message
+  const [frame, setFrame] = useState("");  // the measures of the map's column the legend's room depends on
+  // Where that column of boxes would still reach a control of the map's top (a phone on its side: 243 px of map
+  // above the low sheet, the top's rows end at 164), the status line stands beside the row of buttons instead,
+  // the foot ending left of the scale (`inline`: its right edge, px from the column's right, for the state `key` it
+  // was measured in; any other state is measured again in the column first). Today's page had the same kind of
+  // fallback (the foot beside the scale).
+  const [inline, setInline] = useState<{key: string; right: number} | null>(null);
+  const key = `${sheet}|${status.text}|${message ?? ""}|${view.auto}|${asked}|${frame}`;
+  const row = !wide && inline !== null && inline.key === key ? inline : null;
   useLayoutEffect(() => {
     const el = foot.current, column = el?.parentElement;
     if (wide || !el || !column) return;
@@ -192,27 +201,26 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
     if (drawn) natural.current = drawn.scrollHeight + 2;
     const tops = rects(column, ".leaflet-top .leaflet-control, .v-switch > *");
     const floor = Math.max(col.top, ...tops.map((r) => r.bottom));
-    const mine = rects(el, ".v-row > :not(.v-hint-slot), .v-hint-slot > *, .v-help");
     const measured = [Math.round(floor - col.top), Math.round(col.width), Math.round(col.height), column.style.getPropertyValue("--v-covered"),
-                      column.style.getPropertyValue("--v-corner"), mine.length].join();
+                      column.style.getPropertyValue("--v-corner")].join();
     if (measured !== frame) { setFrame(measured); return; }  // drawn again for this frame, then measured
-    // from those controls (4 px clear) down to the foot's other boxes (the status line's row, 6 px above the legend)
-    const others = box.height - (drawn ? drawn.offsetHeight + 6 : 0);
-    const next = Math.floor(box.bottom - others - 6 - floor - 4);
+    // from those controls (4 px clear) down to the foot's other boxes (the status line, the row of buttons)
+    const others = box.height - (drawn ? drawn.offsetHeight + GAP : 0);
+    const next = Math.floor(box.bottom - others - GAP - floor - 4);
     if (next !== room) setRoom(next);
-    const row = el.querySelector(".v-row")?.getBoundingClientRect(), ceiling = column.querySelector(".v-switch")?.getBoundingClientRect().top ?? col.top;
-    if (row) {
-      const at = {bottom: Math.round(col.bottom - row.top) + 6, max: Math.max(60, Math.floor(row.top - 6 - ceiling))};
+    const status = el.querySelector(".v-status")?.getBoundingClientRect(), ceiling = column.querySelector(".v-switch")?.getBoundingClientRect().top ?? col.top;
+    if (status) {
+      const at = {bottom: Math.round(col.bottom - status.top) + GAP, max: Math.max(60, Math.floor(status.top - GAP - ceiling))};
       if (!over || over.bottom !== at.bottom || over.max !== at.max) setOver(at);
     }
-    if (beside || !mine.some((b) => tops.some((c) => b.left < c.right + 4 && b.right > c.left - 4 && b.top < c.bottom + 4 && b.bottom > c.top - 4))) return;
-    // right of what stands in the map's bottom left corner (the scale), above what reaches further right (the credits)
-    const left = Math.max(col.left, ...rects(column, ".leaflet-bottom.leaflet-left > *").map((r) => r.right)) + 6;
-    const covered = parseFloat(column.style.getPropertyValue("--v-covered")) || 0;
-    const top = Math.min(col.bottom - covered, ...rects(column, ".leaflet-bottom > *").filter((r) => r.right > left).map((r) => r.top));
-    setAside({key, left: Math.round(left - col.left), bottom: Math.round(col.bottom - top) + 6});
+    if (row) return;
+    const mine = rects(el, ".v-status, .v-legend, .v-buttons > :not(.v-hint-slot), .v-hint-slot > *");
+    if (!mine.some((b) => tops.some((c) => b.left < c.right + 4 && b.right > c.left - 4 && b.top < c.bottom + 4 && b.bottom > c.top - 4))) return;
+    // left of what stands in the map's bottom right corner above the credits (the scale)
+    const scale = rects(column, ".leaflet-bottom.leaflet-right .leaflet-control-scale")[0];
+    setInline({key, right: scale ? Math.round(col.right - scale.left) + GAP : GAP});
   });
-  const help = useAccessHelp();
+  const help = useAccessHelp(undefined, true);
   const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && (wide || !folded);
   const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
@@ -222,6 +230,15 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
     {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}
   </div>;
   const helpBox = access && help.panel && <div class="v-help" data-map-control>{help.panel}</div>;
+  // the status line; on a phone the map's message is its first line while it lasts (one box for the map's words)
+  const statusBox = <div class={cx("v-status", status.refused && "v-refused")} role="status" data-map-control>
+    {message && <span class="v-toast v-msg">{message}</span>}
+    <span class="v-status-text">{status.text}</span>
+    {!view.auto && <>
+      <span class="u-small">{t("ui.view.map.held")}</span>
+      <button type="button" class="r-link v-back-auto" onClick={() => view.setLevel("auto")}>{t("ui.view.map.back_auto")}</button>
+    </>}
+  </div>;
   return <>
     <div class="v-switch">
       <div class="u-seg v-levels" role="group" aria-label={t("ui.view.map.levels")} title={t("ui.view.map.levels_help")}
@@ -238,24 +255,19 @@ export function MapBar({view, map, wide, hint, sheet, onSheet}: MapBarProps) {
         </select>
       </label>
     </div>
-    <div class={cx("v-foot", !wide && "v-foot-phone", sheet === "full" && "v-foot-off", beside && "v-foot-beside")} ref={foot}
-         style={beside ? {left: `${beside.left}px`, bottom: `${beside.bottom}px`} : undefined}>
+    <div class={cx("v-foot", !wide && "v-foot-phone", sheet === "full" && "v-foot-off", row && "v-foot-inline")} ref={foot}
+         style={row ? {right: `${row.right}px`} : undefined}>
       {wide && helpBox}
-      <div class="v-row">
-        <div class={cx("v-status", status.refused && "v-refused")} role="status" data-map-control>
-          <span class="v-status-text">{status.text}</span>
-          {!view.auto && <>
-            <span class="u-small">{t("ui.view.map.held")}</span>
-            <button type="button" class="r-link v-back-auto" onClick={() => view.setLevel("auto")}>{t("ui.view.map.back_auto")}</button>
-          </>}
-        </div>
-        {!wide && <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
-                          title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
-                          onClick={pressLegend}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>}
-        {!wide && access && <span class="v-help-button" data-map-control>{help.button}</span>}
+      {wide ? <div class="v-row">{statusBox}{hint}</div> : statusBox}
+      {!wide && !asPanel && legendBox}
+      {!wide && <div class="v-row v-buttons">
+        <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
+                title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
+                onClick={pressLegend}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>
+        {access && <span class="v-help-button" data-map-control>{help.button}</span>}
         {hint}
-      </div>
-      {!asPanel && legendBox}
+      </div>}
+      {wide && legendBox}
     </div>
     {!wide && over && sheet !== "full" && (helpBox || (asPanel && legendBox)) &&
       <div class="v-over" style={{bottom: `${over.bottom}px`, maxHeight: `${over.max}px`}}>

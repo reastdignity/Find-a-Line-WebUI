@@ -19,7 +19,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Button, IconButton, Sheet, type Snap } from "../../ui/components";
 import { SidePanel, useWidthOf } from "../../ui/SidePanel";
-import type { IconName } from "../../ui/icons";
+import { ICONS, type IconName } from "../../ui/icons";
 import { baseLayers } from "../../baselayers";
 import { addShore } from "../../shoreLayer";
 import { addCoarser } from "../../coarserLayer";
@@ -111,15 +111,20 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
   useEffect(() => {
     const model = view.model, start = performance.now();
     const leaflet = L.map(ref.current!, {center: data.center, zoom: 15, maxZoom: data.max_zoom, zoomSnap: 0.25,
-                                         zoomDelta: 0.5, wheelPxPerZoomLevel: 90});
+                                         zoomDelta: 0.5, wheelPxPerZoomLevel: 90, zoomControl: false});
     (window as any).FINDALINE_MAP = leaflet;  // for tests and the browser console
+    // the zoom buttons with the kit's icons, not the characters "+" and "−" (R9); first in the top left corner, as
+    // Leaflet's own (static markup: the CSP allows it)
+    const icon = (name: "plus" | "minus") => `<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+    L.control.zoom({zoomInText: icon("plus"), zoomOutText: icon("minus")}).addTo(leaflet);
     const layers = baseLayers(ortho ? ortho(data) : data.ortho, data.max_zoom);
     Object.values(layers)[0].addTo(leaflet);
     const overlays: Record<string, L.Layer> = {};
     addShore(leaflet, data.shore, overlays);  // the uncertain shore: its overlay, its metres in view
     model.setCoarserFit(addCoarser(leaflet, data.terrain_sources, overlays)?.fit ?? null);
     L.control.layers(layers, Object.keys(overlays).length ? overlays : undefined, {position: "topright"}).addTo(leaflet);
-    L.control.scale({position: "bottomleft"}).addTo(leaflet);
+    // on a phone at the right, above the credits: the bar's foot stands beside it at the left (MapBar)
+    L.control.scale({position: frame.phone ? "bottomright" : "bottomleft"}).addTo(leaflet);
     let made: SpotMap | null = null, drawn = false;
     const spotMap = new SpotMap(leaflet, view, {
       onChoose: (choices, at) => {
@@ -269,7 +274,7 @@ function useFootClear(col: {current: HTMLElement | null}, canvas: SpotMap | null
         if (r.width && r.height && r.left < box.left + box.width * 0.6 && r.bottom > floor - 200) top = Math.min(top, r.top);
       });
       el.style.setProperty("--v-covered", `${under}px`);
-      el.style.setProperty("--v-corner", `${Math.max(8, Math.round(floor - top) + 6)}px`);
+      el.style.setProperty("--v-corner", `${Math.max(8, Math.round(floor - top) + 8)}px`);
       onPlace?.(`${under},${Math.round(floor - top)}`);
     };
     const update = () => {
@@ -361,7 +366,7 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
   </div>;
 }
 
-const PHONE_TOP = 104;  // px of a phone's map under its top bar and the switch
+const PHONE_TOP = 116;  // px of a phone's map under its top bar and the switch (8 + 44 + 8 + 52, and 4)
 const SHEET_PEEK = 132, SHEET_TOP = 64;  // the phone's sheet: its lowest height, and what it leaves free at the top
 
 function Phone({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
@@ -408,9 +413,9 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
-      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap}
+      {/* the map's message: the first line of the status line's box while it lasts (the pilot's arrangement) */}
+      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap} message={toast}
               hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
-      {toast && <div class="v-toast" role="status">{toast}</div>}
     </div>
     <div class="c-phone-top">
       <div class={back ? "c-pill" : "c-pill c-pill-alone"}>
