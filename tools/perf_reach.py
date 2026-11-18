@@ -18,12 +18,15 @@ Engines (`reach`):
          helpers.evaluate_line / max_safe_elevation / sag.EnvelopeTable (identical results, see `check`)
   numba  linesearch.evaluate_lines, the search's kernel, on the pairs (fixed anchor, sample)
 
-    uv run tools/perf_reach.py measure --out <scratch> --data <data folder> --case poland-1m --case poland-2m
+    uv run tools/perf_reach.py measure --out <scratch> --data <data folder> [--reference-dir <folder>] --case poland-1m
     uv run tools/perf_reach.py numba-cost --out <scratch>
     uv run tools/perf_reach.py report --out <scratch>
 
 `measure` writes <out>/results-<case>.json (a case's step 1, the engines per lattice step, the equality with
 helpers.evaluate_line, the representatives of a fixed point, the answer sizes) and prints the tables. Each case
+A named case's run (CASES) is looked for in <data>/runs/, then in the reference folder (--reference-dir, default
+<data>/local/reference-runs: the runs kept there since the old runs left the data folder's runs/, 2026-11-18;
+read only); `find_run` says where it was looked for when neither holds it. Each case
 works in <out>/<case>/ with a data folder whose cache is a link to the real one (nothing is written to the real
 runs/); the process runs offline (a dead HTTP proxy) unless --online. Remove a case's folder with its links
 first (a junction: os.rmdir("<out>/<case>/data/cache"), never rmtree through it).
@@ -64,7 +67,7 @@ BORDER_M = 1.0
 OTHER_POINTS = 3              # steep points beside the line's two anchors
 CASES = {
     "clip": {"kind": "clip"},
-    # the real runs of the data folder, each its longest line (their lines.csv: saved before the store, which a run
+    # the real runs of the data folder (or its reference folder: find_run), each its longest line (their lines.csv: saved before the store, which a run
     # holds since 2026-11-15, they never get one; a run with a store is read from it, see run_rows): 1 m, 2 m (the Gozo coast: sea and cliffs;
     # the 2 m Polish run of 2026-10-23 is older than the grid alignment and is not reproduced by today's code), 1 m with sag
     "poland-1m": {"run": "2026-10-25_085353_Kobylanka-Borynia"},
@@ -752,8 +755,24 @@ def offline_env() -> Dict:
     return {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
 
 
-def load_case(name: str, out: str, real_data: Optional[str]):
-    """(run.json, data folder, the line's anchors, side_m or None, the line's length, the run's folder)."""
+REFERENCE_DIR = os.path.join("local", "reference-runs")  # the reference folder of a data folder (find_run)
+
+
+def find_run(run: str, real_data: str, reference: Optional[str] = None) -> str:
+    """The folder of a named case's run: <real_data>/runs/<run> when it has a run.json, else <reference>/<run>
+    (reference: --reference-dir, default <real_data>/local/reference-runs); SystemExit naming both places when
+    neither holds it."""
+    reference = reference or os.path.join(real_data, REFERENCE_DIR)
+    places = [os.path.join(real_data, "runs", run), os.path.join(reference, run)]
+    for folder in places:
+        if os.path.isfile(os.path.join(folder, "run.json")):
+            return folder
+    raise SystemExit(f"the run {run} is in neither {places[0]} nor {places[1]} (give --reference-dir)")
+
+
+def load_case(name: str, out: str, real_data: Optional[str], reference: Optional[str] = None):
+    """(run.json, data folder, the line's anchors, side_m or None, the line's length, the run's folder);
+    reference: find_run's reference folder."""
     spec = CASES[name]
     data = case_data_folder(out, name, real_data if spec.get("run") else None)
     if spec.get("kind") == "clip":
@@ -762,7 +781,7 @@ def load_case(name: str, out: str, real_data: Optional[str]):
         return meta, data, a1, a2, CLIP_SIDE_M, length, os.path.join(data, "runs", meta["id"])
     if not real_data:
         raise SystemExit("--data (the real data folder) is needed for " + name)
-    run_dir = os.path.join(real_data, "runs", spec["run"])
+    run_dir = find_run(spec["run"], real_data, reference)
     with open(os.path.join(run_dir, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     a1, a2, length = longest_line(run_dir)
@@ -770,10 +789,10 @@ def load_case(name: str, out: str, real_data: Optional[str]):
 
 
 def measure_case(name: str, out: str, real_data: Optional[str], reps: int = 3, obstacles: str = "rule",
-                 skip_numpy_at_1: bool = False) -> Dict:
+                 skip_numpy_at_1: bool = False, reference: Optional[str] = None) -> Dict:
     """Everything the report needs of one case (see the module's docstring)."""
     import numba
-    meta, data, a1, a2, side_m, line_m, run_dir = load_case(name, out, real_data)
+    meta, data, a1, a2, side_m, line_m, run_dir = load_case(name, out, real_data, reference)
     result = {"case": name, "run": meta["id"], "lines_read": lines_read(run_dir), "model": meta["params"]["model"],
               "nmpt": meta["params"]["nmpt"],
               "resolution": meta["params"]["resolution"], "line_m": line_m, "obstacles": obstacles,
@@ -1017,6 +1036,8 @@ def main(argv: Optional[Sequence[str]] = None):
     parser.add_argument("command", choices=("measure", "numba-cost", "report"))
     parser.add_argument("--out", required=True, help="scratch folder for the cases' folders and results")
     parser.add_argument("--data", help="the real data folder (runs/ read, cache/ linked)")
+    parser.add_argument("--reference-dir", help="where a named case's run is looked for after <data>/runs/ "
+                        "(default: <data>/local/reference-runs)")
     parser.add_argument("--case", action="append", choices=sorted(CASES), default=[])
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--obstacles", choices=("run", "rule", "none"), default="rule",
@@ -1043,7 +1064,8 @@ def main(argv: Optional[Sequence[str]] = None):
     else:
         for name in args.case or ["clip"]:
             print(f"--- {name}", flush=True)
-            result = measure_case(name, args.out, args.data, args.reps, args.obstacles, args.skip_numpy_at_1)
+            result = measure_case(name, args.out, args.data, args.reps, args.obstacles, args.skip_numpy_at_1,
+                                  args.reference_dir)
             with open(os.path.join(args.out, f"results-{name}.json"), "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=1)
             print(tables([result]), flush=True)

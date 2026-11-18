@@ -261,3 +261,24 @@ def test_rows_of_a_relative_folder_and_a_failing_export(clip, tmp_path, monkeypa
     (broken / "lines.arrow").write_bytes(b"not a store")  # and no run.json
     with pytest.raises(RuntimeError, match=r"(?s)the export of .*broken.* failed \(exit 1\):.*Error"):
         pr.longest_row(os.path.join("runs", "broken"))
+
+
+def test_a_named_cases_run_in_runs_or_the_reference_folder(tmp_path):
+    """find_run: a named case's run in the data folder's runs/ first, then in the reference folder (the default
+    <data>/local/reference-runs, or one named); neither: the message names both places."""
+    run = pr.CASES["poland-1m"]["run"]
+    data, other = tmp_path / "data", tmp_path / "elsewhere"
+    with pytest.raises(SystemExit) as refused:
+        pr.find_run(run, str(data))
+    message = str(refused.value)
+    assert str(data / "runs" / run) in message and str(data / "local" / "reference-runs" / run) in message
+    for folder in (data / "local" / "reference-runs" / run, other / run):
+        folder.mkdir(parents=True)
+        (folder / "run.json").write_text("{}", encoding="utf-8")
+    assert pr.find_run(run, str(data)) == str(data / "local" / "reference-runs" / run)
+    assert pr.find_run(run, str(data), str(other)) == str(other / run)
+    (data / "runs" / run).mkdir(parents=True)
+    (data / "runs" / run / "run.json").write_text("{}", encoding="utf-8")
+    assert pr.find_run(run, str(data), str(other)) == str(data / "runs" / run)  # runs/ first
+    with pytest.raises(SystemExit, match="reference-dir"):
+        pr.find_run("2026-01-01_000000_none", str(data), str(other))

@@ -305,7 +305,8 @@ anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_li
 `helpers.evaluate_line`: seconds, memory, numba's one-time costs, the representatives of three rules, an answer's
 size; what `search.reach_of_anchor`'s engine was chosen on; a run's lines through `run_rows`: the CSV export of its
 store into a temporary folder by a child process (the measuring process stays as before step 1), or the lines.csv
-of a run saved before the store (its three named cases), the results' `lines_read`; `tests/test_perf_reach.py`)
+of a run saved before the store (its three named cases, `find_run`: in `<data>/runs/`, then in
+`--reference-dir`, default `<data>/local/reference-runs`), the results' `lines_read`; `tests/test_perf_reach.py`)
 
 `perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
 drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
