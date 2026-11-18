@@ -324,8 +324,9 @@ Two parts:
   today's number, how it is checked and the options not picked.
 
 What the app is for and for whom: [PRODUCT.md](PRODUCT.md). The new look itself (colours beyond the kept anchors,
-the body font, shapes, the containers' look, the label style) is not settled here: it is settled on the pilot's
-mock-up.
+the body font, shapes, the containers' look, the label style) was settled on the pilot's mock-up, for now: part 2's
+last section, "The pilot's look", with where each choice lives (the accent there replaces the header's blue for the
+whole app).
 
 **Sources of the numbers** (the baseline of 2026-11-16), marked in brackets:
 - **[S]** the source counts of `tools/ui_metrics.py static` over `viewer/src` and `locales/en.json` (21 CSS files,
@@ -808,30 +809,76 @@ their `--out` and data folders.
   before the session's review and the user's word).
 - Not picked: b. screenshots and the design reviewer only; c. a, plus a check that fails on a number that got worse.
 
-### Waiting for the pilot's mock-up
+### The pilot's look (accepted 2026-11-18, for now)
 
-The parts of the look the user left open are settled on the pilot screen's mock-up, then written here.
+The pilot screen is the result view (`?view=b`). Its mock-up (`local/ux-design-2026-11-16/pilot/`, version 2) was
+accepted on 2026-11-18 with the user's words "for now lets go with recomended - make sure that it is easy to change if
+required" and "ok" for version 2. Every choice below is "for now". Each one lives in one named place: a token of
+`viewer/src/ui/tokens.css`, one CSS rule, or one key of `locales/en.json`. A change of mind is an edit there.
+
+| Choice (the user's question: answer) | Where it lives | Picked | Not picked | How to switch |
+| --- | --- | --- | --- | --- |
+| 1. The accent, whole app (Q1: a) | `--accent` in the three theme blocks of `ui/tokens.css`; `--accent-ink`, `--accent-soft`, `--on-accent` beside it | #14676f light, #62c3cc dark (D1's teal moved bluer, apart from "done" and "easy access") | D1's #176c69 | One value per theme block; `test_view_tokens` checks the contrast |
+| 2. The selected row (Q2: a) | `.ui .vl-sel > .vl-main` (`view.css`) | The soft accent with a 3 px accent edge | D1's solid teal with white text | Not one line: the background `var(--accent)`, the row's text and `--value` in `var(--on-accent)`, white rings on the access dots (they fall to 1.8:1 on solid teal), the tight mark's colour |
+| 3. Column heads (Q3: a) | `.ui .vl-cols` (`view.css`) | Sentence case, text font, 12 px | Upper case monospace (today's) | One line: `font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em` in that rule (on the desktop "CLEARANCE ANCHORS LINES" then touch) |
+| 4. The values' colour (Q4: a) | `--value` in the view's root block (`.ui .v-result`, `ui/tokens.css`) | The ink | The accent | One line: `--value: var(--accent)` |
+| 5. The tight tile (Q5: b) | Colours `--tight-bg`, `--tight-edge`, `--tight-ink` (three theme blocks); the word: key `ui.view.tile.tight` and rule `.ui .vl-tword` | Amber fill, 1 px edge, the alert icon beside the value, "Tight" as a second label line; no banner | The colour and icon only (5 a); the word beside the value (no room: 65 px inside the tile, the value with its icon takes 61 px) | Without the word: `display: none` in `.ui .vl-tword` |
+| 6a. Chips' corners (Q6: yes) | `.ui .v-result .u-chip` (`view.css`) | 8 px (`--r-2`) | Pills (`--r-full`) | One line: `border-radius: var(--r-full)` |
+| 6b. Tiles on the phone (Q6: yes) | `.ui .vl-tiles` (`view.css`) | Four across | 2 × 2 | One rule: `@media (max-width: 420px) { .ui .vl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }` |
+| 6c. "Lines from anchor A1 / A2" (Q6: yes) | `.ui .vl-acts` (`view.css`) | Side by side, on the desktop too | One above the other | One line: `grid-template-columns: 1fr` |
+| 6d. Words without "·" (Q6: yes) | Keys `ui.view.headline`, `ui.view.sector`, `ui.view.sector_spots_*`, `ui.view.sector_lines_*`, `ui.view.spot`, `ui.view.spot_lines_*`, `ui.view.col.clear`, `ui.view.tile.*`, `ui.view.fact.*`, `ui.view.anchor_short` | "606 spots, 37 162 lines", "Sector 1, south-east", "Spot 1.1" with "104 lines" beside it, "Clearance", the facts as a table under A1 and A2 | Today's strings with "·" | Each key's text (the facts' table: `SpotDetails.tsx` `Facts`) |
+| 7. Over trees in words (Q7: yes; R4.2) | Key `ui.view.over_words`; rule `.ui .vl-over-words` | The orange dash and "Over trees or buildings" on a second line, in "Best in view", "Start here" and the tree | For screen readers only (today's) | One rule: the `u-sr` look in `.vl-over-words` (screen readers keep the words) |
+| 8. A selected over-trees line's tile | Key `ui.view.tile.clear_terrain` | "Clearance of terrain" (the store's `clr` is the clearance above the terrain; over the trees it is a fact below) | Today's "clear of terrain" | The key's text |
+| 9. The phone at 390 × 664 (version 2: ok) | `mapbar.css` (its phone section and the foot's rules); `MapBar.tsx` (the foot's order); `SpotColumns.tsx` (the scale at the bottom right) | Under the switch one row of the zoom (across), the shore's chip, the layers; the foot from the bottom up at the left beside the scale: the row "Legend", the key's "i", the hint's button; the legend; the status line. The sheet's stops unchanged | Moving the half stop down; today's foot above the scale | Not one line: the foot's order in `MapBar`, the scale's corner, the rules of that section |
+| 10. The map's message on a phone (version 2: ok) | `SpotColumns.tsx` Phone (`message` to `MapBar`); rule `.ui .v-status .v-msg` | The status line's first line while it lasts | A box of its own | Two lines: the `.v-toast` box in the map's column again, the prop dropped |
+| 11. The view's neutrals | The view's root block `.ui .v-result` (light, and two dark blocks) in `ui/tokens.css` | Ground #f2f5f5 / #121a1b, raised #ffffff / #1a2425, inset #e5ebeb / #222d2e; hover, ink, ink-2, muted, rule, line, shadow | D2's beige ground, D3's dark side panels | The block's values |
+| 12. What lies over the map ("raised") | One rule at the top of `mapbar.css` (its selector list) | The view's surface and shadow, no edge, 8 px corners | Today's 1 px edge | That rule |
+| 13. The keyboard's ring | `--focus` (and `--focus-in` inside a list's row) in `ui/tokens.css` | 2 px of the accent 2 px off the control (a shadow: the kit draws its ring as one) | Today's 3 px of the accent at 45 % | The token |
+| 14. Help and the hint as icons (R9) | `access.tsx` `useAccessHelp(label, icon)`; `Hint.tsx` `HintOpen` | The kit's "info" icon for the access mark's key; the kit's "rope" icon for the hidden hint | A "?" character (three meanings beside the mark's own "?") | The `icon` argument; the icon's name |
+
+Not exactly the mock-up, and why: the map is the real one (its marks drawn on a canvas, their text at 12 px); the
+pictures' run is the Żabi Koń clip of `tools/ui_shots.py`, which has no line over trees (the tool's step
+`VIEW_TREES` marks two so) and no access mark; the focus ring is a shadow (2 px gap, 2 px ring) where the mock-up
+drew an outline. The pass's notes and numbers: `local/ux-design-2026-11-16/pilot-code/`.
 
 #### Colours beyond the anchors
 
-Settled on the pilot's mock-up.
+For now: one accent for the whole app, a deep blue-green (choice 1), with an ink of its own for text on its soft
+fill (`--accent-ink`); the result view's neutrals, slightly cool (choice 11); the tight tile's amber, apart from the
+access mark's orange, the over-trees orange and the favourite's yellow (choice 5). Kept: the lines' colours, "done",
+the access mark's, the highline layer's ramp. Values in the accent only for what can be pressed, the selection and
+links (choice 4). Every text pair of the view 4.5:1 or more in both themes (`tests/test_viewer.py::test_view_tokens`).
 
 #### Body font
 
-Settled on the pilot's mock-up (the type scale's steps from 13 px up: R5).
+For now: the system's font (`--font`) for text at 14 px; Barlow Condensed (`--display`) for titles (20 px), section
+heads (16 px) and the tiles' values (24 px). One bold size per level.
 
 #### Corner and edge shapes
 
-Settled on the pilot's mock-up (the number of radius steps: R6).
+For now: 3 px for what lies inside a control (the levels' buttons, a row's corner, swatches), 8 px for controls,
+tiles, chips and the boxes over the map, 20 px for the phone's sheet, full for the phone's title pill, round for dots
+(`--r-1` to `--r-4`, `--r-full`, `--r-round`); 14 px stays a step for today's panels and cards. Raised boxes have no
+edge (their shadow only); a control has a 1 px edge (`--line`); thin rules (`--rule`) part a panel's blocks.
 
 #### Spacing values
 
-Settled on the pilot's mock-up (the number of steps: R7).
+For now: 4, 8, 12, 16 and 24 px, written as values on the 4 px grid (not tokens); 8 px between the boxes over the map.
 
 #### The containers' look
 
-Settled on the pilot's mock-up (the levels: R8).
+For now (R8's three levels): ground, the side panels and the header, their blocks parted by thin rules; raised, what
+lies over the map and the phone's sheet (choice 12); inset, the tiles and the fields. No box around one sentence: the
+phone's hint is a plain line; "Reaching the anchors" has no grey box.
 
 #### The label style
 
-Settled on the pilot's mock-up.
+For now: sentence case in the text's font (choice 3), no capitals, no monospace in the view; a tile's label under its
+value; column heads 12 px, other labels 13 px in the second ink.
+
+#### The type, radius and spacing values (R5 to R7)
+
+The mock-up moved no value: it uses 12, 13, 14, 16, 20 and 24 px of R5 (30 stays a step), 3, 8 and 20 px of R6 (14
+stays), and 4 to 24 px of R7. The steps are tokens in `ui/tokens.css` (`--fs-1` to `--fs-7`, `--r-1` to `--r-4`): a
+step moves in one line there. `tools/ui_metrics.py static` counts a size written as a token as "unresolved" (the
+rendered pass measures it).

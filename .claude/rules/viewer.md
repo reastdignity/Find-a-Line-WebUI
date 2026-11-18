@@ -47,8 +47,11 @@ catalogue), `browser-tests.md`.
   and keep in the browser only the sort and the hint (`viewstate.ts`; "Top level only" is on at every start).
   `SpotMap.ts` draws from the columns (no Leaflet layer per line) and the legend lists `legend()`'s shapes;
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
-  over the map carries `data-map-control`, and one that takes no press (the toast, the bar's row beside the status
-  line) has `pointer-events: none`. No control may cover another at any stop of a phone's sheet
+  over the map carries `data-map-control`, and one that takes no press (a desktop's toast, the bar's rows) has
+  `pointer-events: none`; on a phone the map's message is the status line's first line (`MapBar` `message`). The
+  view's look lives in tokens (`ui/tokens.css`: the accent, `.ui .v-result`'s neutrals, `--fs-*`, `--r-*`) and single
+  rules, each listed in docs/DESIGN.md "The pilot's look": change a choice there, not by a copy of its value. No
+  control may cover another at any stop of a phone's sheet
   (`tests/test_shell_c_view_map.py::test_phone_controls_apart` names them by their own classes: add a new one there);
   Leaflet's own controls lie above the bar (`.v-map > .c-leaflet` makes no stacking context). The
   phone's sheet has no height at the first draw (`covered` counts its state's height until then), and Preact 11 runs
