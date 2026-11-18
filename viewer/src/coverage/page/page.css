@@ -154,6 +154,7 @@ body.cov-body { background: #f3f5f2; }
 .cov-table tbody tr:last-child > * { border-bottom: 0; }
 .cov-table td .cov-sw { margin-right: 8px; }
 .cov-row-on > * { background: var(--accent-soft); }
+.cov .cov-row-on .cov-muted { color: var(--ink-2); }  /* on the fill --muted is under 4.5:1 (3.79 dark) */
 @media (max-width: 699px) {
   .cov-table, .cov-table tbody, .cov-table tr, .cov-table th, .cov-table td { display: block; }
   .cov-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

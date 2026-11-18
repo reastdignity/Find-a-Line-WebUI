@@ -90,7 +90,8 @@ catalogue), `browser-tests.md`.
   font rule needs two classes (`.n-coverage .n-coverage-btn`), or the control is drawn at its parent's size.
 - **Touch texts**: a text that names a click or a key has a `<key>_touch` twin in the catalogue, chosen by
   `ui/components.tsx` `TOUCH` (`(pointer: coarse)`; code without Preact asks `matchMedia` itself). Secondary text and
-  placeholders use `--muted`, which holds 4.5:1 on every light and dark surface (`test_secondary_text_contrast`).
+  placeholders use `--muted`, which holds 4.5:1 on every light and dark surface (`test_secondary_text_contrast`), but
+  not on the selected fill `--accent-soft`: secondary text on it takes `--ink-2` (one rule per place).
 - **The map's corners** (`result/view/corners.ts`): the scale goes above the credits wherever they run under it,
   re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or
   card).

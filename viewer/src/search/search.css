@@ -17,6 +17,7 @@
 .ui .s-placebox-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; cursor: pointer; min-width: 0; }
 .ui .s-placebox-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .s-placebox-list li.u-on, .ui .s-placebox-list li:hover { background: var(--accent-soft); }
+.ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }  /* --muted: under 4.5:1 on the fill */
 .ui .s-hint { margin: 0; font-size: 12.5px; color: var(--muted); }
 .ui .s-point { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .ui .s-point .u-ic { width: 15px; height: 15px; color: var(--accent); }
