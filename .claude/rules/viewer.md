@@ -20,10 +20,11 @@ catalogue), `browser-tests.md`.
   favourite saved in one shows in the other; the address's `&also=` lines (`page.ts`, `app/c/ResultPage.tsx`
   `view3dOf`, the model's `alsoOf`) are such keys.
 
-- The page keeps a run's lines as columns (`types.ts` `lineColumns`, store wave 1): a new value of a line goes into
-  `ROW_FIELDS` or `EXTRA_FIELDS` (with the scale map_rows' decimals give), `lineAt` and `LineCursor` beside `toLine`
-  (`tests/test_viewer.py::test_columns_give_the_rows_values` compares every value with toLine's), and a store's
-  column into `storedColumns` (run-files.md: the store's reader and `linestore`'s schema); the result's
+- The page keeps a run's lines as columns (`types.ts` `storedColumns`): a new value of a line goes into
+  `ROW_FIELDS` or `EXTRA_FIELDS` (with the scale of its decimals), `lineAt` and `LineCursor`, the tests' row reader
+  `viewer/test/rows.ts` (`toLine`, `lineColumns`: `tests/test_viewer.py::test_columns_give_the_rows_values`), and
+  `storedColumns` (run-files.md: the store's reader and `linestore`'s schema); the Node units bundle
+  `test/types_rows.ts` or `test/model_rows.ts` (src with the rows' reader) for made-up runs; the result's
   page makes a Line only through `ResultModel.lineAt`, so code that goes through every line reads the columns
   (`forEachLine`, a `LineCursor`), never `rep`/`members` of every spot (each makes Lines).
 
@@ -60,10 +61,10 @@ catalogue), `browser-tests.md`.
   `map/served.ts`, which stays the entry's first import; hidden by `map/notice.css` in the head's viewer.css) before
   the notice is parsed: no frame shows it over http(s), even when a later module throws; from disk it
   loads nothing. Its sentence is `ui.map.disk_notice`, filled by Python (`mapping.map_page`); the page shows it without
-  the bundle too (`tests/test_disk_notice.py`). Old map.html files (no notice) still open from disk as below.
-- **The viewer** works from `file://`: no `fetch`, so a run's data is a script (`data.js`, downloaded only over
-  http(s); a run with a store over http(s) its `lines.arrow`/`profiles.arrow` as bytes, `result/load.ts`) and the
-  list of runs too (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never
+  the bundle too (`tests/test_disk_notice.py`). A map.html written before (no notice) gets the same notice from the
+  bundle from disk (`map/main.tsx` `diskNotice`: no run is read from disk since store wave 4's item 5).
+- **The viewer** reads a run over http(s) only, its `lines.arrow`/`profiles.arrow` as bytes (`result/load.ts`), and
+  the list of runs as a script (`runs.js`); a download with progress is an XMLHttpRequest (`download.ts`), never
   a fetch's streamed body: headless Edge's `--dump-dom` runs its virtual time ahead of a stream (with no timer left it
   jumps to the budget's end, and 16 tests saw no run), while it waits for an XHR as for a script; everything it needs
   (Leaflet, its CSS and marker images) is in the bundle, no CDN. The app serves it with `style-src 'self'`: no

@@ -7,21 +7,21 @@ and the pitfalls are in `.claude/rules/` (viewer, view3d, browser-tests, coverag
 ## `viewer/`
 
 The result viewer (TypeScript, Preact, Leaflet; `src/`: `map/main.tsx` a run's `map.html` (bundle `viewer.js`: the
-app's result view, `result/view/ResultColumns.tsx`, loading the run's store or data.js itself (`loadRunFrom`; a
-map.html written before 2026-11-04 loads data.js by a tag first, which it still takes), `#line=` in its hash, the way
-back to the app, none on a share link; the disk notice (store wave 4: `mapping.MAP_HTML`'s `#disk-notice`, `NOTICE`,
+app's result view, `result/view/ResultColumns.tsx`, loading the run's store itself over http(s) (`loadRunFrom("./")`),
+`#line=` in its hash, the way back to the app, none on a share link; the disk notice (store wave 4: `mapping.MAP_HTML`'s `#disk-notice`, `NOTICE`,
 `map/notice.css`): over http(s) the page is marked `fal-served` by `map/served.ts` (the entry's first import, so a
 later module that throws leaves the mark) before the notice is parsed, which hides it, and it is
 removed once parsed; from disk a page with the notice shows it (the run's name, `ui.map.disk_notice`, `findaline.py
-view <id>`) in the stored theme and loads nothing, one without it (written before) loads its data.js as a script and
-goes back to `../index.html`, until the reader of data.js ends; the old map with popups and panels was removed on
-2026-10-30), `types.ts` the run data's types and a run's lines as columns (`lineColumns` from data.js's or lines.js's rows: a
-`NumberColumn` per value, the grouping's values as `Float64Array`, the others as the narrowest integers that give back
-the very double (null, NaN and -0 kept), else doubles; `lineAt` a Line of a row, `LineCursor` its values without one;
-`toLine` the reader of one row they must equal: tests/test_viewer.py `test_columns_give_the_rows_values`;
-`storedColumns` the same columns over a store's own arrays, `NumberColumn.stored` with Arrow's validity bits instead of
-codes, a missing value null or NaN as data.js shows it (`NULL_WHEN_MISSING`); `LineColumns.profiles` a `ProfileSource`;
-`RunInfo.store` run.json's block `store`),
+view <id>`) in the stored theme and loads nothing, one without it (written before) gets the same notice built by the
+bundle (`diskNotice`: the id from the folder, the name from `../runs.js` or the title; store wave 4's item 5: no run
+is read from disk); the old map with popups and panels was removed on 2026-10-30), `types.ts` the run data's types and
+a run's lines as columns (`storedColumns` over a store's own arrays: a `NumberColumn` per value, `NumberColumn.stored`
+with Arrow's validity bits, a missing value null or NaN as data.js showed it (`NULL_WHEN_MISSING`); `lineAt` a Line of
+a row, `LineCursor` its values without one, `emptyColumns` the model's cursors' start; `LineColumns.profiles` a
+`ProfileSource`; `RunInfo.store` run.json's block `store`), `test/rows.ts` the rows of data.js and lines.js as the page
+read them before item 5, for the tests only (`toLine`, `lineColumns` with `ColumnBuilder`: the narrowest integers that
+give back the very double, else doubles; `runData`; tests/test_viewer.py `test_columns_give_the_rows_values`), which
+the Node units bundle through `test/types_rows.ts` and `test/model_rows.ts` (its `ResultModel` reads made-up rows),
 `grouping.ts` the grouping (`groupIndices` on typed arrays, `groupLines` over objects: the 3D view's fan, the tests),
 `filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
 options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept),
@@ -62,31 +62,25 @@ and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's);
 privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
 (`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
 (`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
-`loadRun`/`loadRunFrom` its `data.js`: over http(s) downloaded by `download.ts` (XMLHttpRequest: its progress counts
-the decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops
-Content-Length; the 3D view's patch too) and read by `parseRunScript` (JSON.parse, about 30 % faster than the script),
-a file it refuses (NaN, Infinity) and every load from disk as a script; then `columnsOf` reads the rows into columns
-and drops them (`RunData.columns`; store wave 1, docs/performance.md "Columns in the page"); a body that arrives
-empty although its bytes came (Chromium's longest string, about 537 M characters) fails as `TooLarge`, whose message
-`ui.result.too_large` the page shows, and is never tried as a script (that crashed the tab); `LoadProgress` to
-`RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`),
-over http(s) a run whose entry in runs.js holds run.json's block `store` (`storeOf`: the page's list, else
-`../runs.js` beside the run's folder, loaded once; a run it does not name and a share link get `STORE_PROBE`: the store's files asked for directly, a 404 or a file not fetched reads data.js) is read from its
-store instead (store wave 2,
-docs/line-volume/spec-store.md 1.2): `lines.arrow` and `profiles.arrow` downloaded together as bytes, `readStore`
+`loadRun`/`loadRunFrom` a run by its folder (store wave 4's item 5: its store only, over http(s); no data.js, no
+script tag): `lines.arrow` and `profiles.arrow` downloaded by `download.ts` (XMLHttpRequest: its progress counts the
+decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops Content-Length;
+the 3D view's patch too); `LoadProgress` to `RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the
+model after a paint, `paint.ts nextPaint`); the store named by the run's entry in runs.js (`storeOf`: the page's list,
+else `../runs.js` beside the run's folder, loaded once; a run it does not name or names without the block, and a share
+link, get `STORE_PROBE`: the store's files asked for directly; docs/line-volume/spec-store.md 1.2): `readStore`
 (apache-arrow `RecordBatchReader`: one record batch; the head from the schema's metadata `findaline`, `parseLoose` for
 its NaN; the columns views of the downloaded bytes, int64/uint64 ones copied into doubles; a higher `format` than
-`STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a store's file answering 404 falls back to data.js;
-another failure is `StoreFailed`, `ui.result.store_failed` on map.html; a null body `TooLarge`), `storedProfiles` a
-profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its `lines.arrow` (or its
-lines.js: no store, or the file missing), `loadRunLines` a mini map's (`app/c/Thumb.tsx`) the same way, and a run the
-list does not name by its `lines.arrow` asked for directly (`STORE_PROBE`'s rule: a 404 or a file not fetched reads
-lines.js, a newer format is refused); a run read from its store carries `RunData.fromStore` (not one whose
-store answered 404), by which `view/RunActions.tsx` `mayExport` (with `api.canChange`: the page has the token,
+`STORE_FORMAT` refused as `NewerStore`, `ui.result.newer_store`; a file not fetched (a 404: a run without a store)
+or not readable is `StoreFailed`, `ui.result.store_failed`; a null body `TooLarge`, `ui.result.too_large`),
+`storedProfiles` a profile made when it is asked for; `loadOtherRun` Compare's other run (`RunActions`) from its
+`lines.arrow` alone, `loadRunLines` a mini map's (`app/c/Thumb.tsx`) the same way, and a run the list does not name by
+its `lines.arrow` asked for directly (`STORE_PROBE`'s rule); a run read from its store carries `RunData.fromStore`, by
+which `view/RunActions.tsx` `mayExport` (with `api.canChange`: the page has the token,
 the app's page, never a map.html) gives Download's two rows that ask the worker for the file (`Export`:
 `api.exportRun`, "Preparing the file…" in the pressed row, the ring on the button while the menu is closed, the
 browser saves the answered address, this run's export only, by a link's click, a failure one red line by the answer's code; the wait and the line kept per run id outside the component, so a layout switch or a run change keeps them); a run with
-a store has no Download where the page may not ask, a run without one keeps its two links; `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
+a store has no Download where the page may not ask; `orthoForApp` its orthophoto's cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows,
 selection, next/previous spot, favourites, on columns: the runs shown are `Table`s of `types.ts` `LineColumns` (this
 run's from index 0, each other run's from its own `start`, never given twice), a line is its index; the filters
 (`filters.passes` through a `LineCursor`), the ranges (one pass, `filters.Ranger`), the counts and the grouping
@@ -177,7 +171,7 @@ countries' outlines below `OUTLINE_MPP`; the view and every filter in the hash (
 `initial`; demo `?ui=kit-layer`: `ui/Gallery.tsx` `KitLayer`, two canned v2 cubes, `?pick=border` a cut cell);
 `FavouritesPage.tsx` the favourites in folders, drag and drop with Pragmatic drag and drop; `Thumb.tsx` Home's mini
 maps: an SVG of the run's area and lines over OpenTopoMap's tiles, a few loaded at a time when the card comes into
-view, the lines from the run's `lines.arrow` (`load.ts` `loadRunLines`; lines.js for a run listed without a store), a
+view, the lines from the run's `lines.arrow` (`load.ts` `loadRunLines`), a
 run of more than `MAX_LINES` lines its box and count only, a failure the card's placeholder),
 `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
 (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,

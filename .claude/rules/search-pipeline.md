@@ -161,7 +161,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
   `lines.geojson` up to its `"findaline"` part, both made by `findaline.py export` (a run keeps no text file since
   store wave 4; the run's id and time differ). A tiled area only with a fixed `--tile-size`: the tiles follow the
-  free memory, which moves lines between tiles and reorders `data.js`. The web worker runs each phase in a daemonic
+  free memory, which moves lines between tiles and reorders the run's lines. The web worker runs each phase in a daemonic
   process, which may not start a process pool: speed a step up inside its process (numpy, numba `prange`, GDAL's
   threads). A country band is compared with its own base commit, on the same day, one run after the other, on a band's
   whole wall: one ended by a single tile moves by about a minute between runs of equal code (Slovakia's L band 16.6
