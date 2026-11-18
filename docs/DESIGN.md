@@ -1,6 +1,6 @@
 ---
 version: alpha
-name: Find-a-Line, the interface as built (main 2f019d6)
+name: Find-a-Line, the interface as built (main 2f019d6; the accent family of the pilot, 2026-11-18)
 description: >-
   Today's tokens of viewer/src/ui/tokens.css and the kit of viewer/src/ui/ui.css, as the code has them, not a
   target. The rules the user picked on 2026-11-17 are in the last section. A "-dark" name is the dark theme's value of the
@@ -13,8 +13,9 @@ colors:
   ink-2: "#45524b"
   muted: "#6c7a73"
   line: "#d2dad4"
-  accent: "#2350c8"
-  accent-soft: "#e1e8fa"
+  accent: "#14676f"
+  accent-ink: "#0f5a61"
+  accent-soft: "#dfeeee"
   on-accent: "#ffffff"
   ok: "#1d7a47"
   ok-soft: "#e0f1e6"
@@ -57,9 +58,10 @@ colors:
   ink-2-dark: "#b1bcb6"
   muted-dark: "#85928b"
   line-dark: "#2c3631"
-  accent-dark: "#86a4ff"
-  accent-soft-dark: "#1f2a48"
-  on-accent-dark: "#0a1020"
+  accent-dark: "#62c3cc"
+  accent-ink-dark: "#7fd0d8"
+  accent-soft-dark: "#173a3d"
+  on-accent-dark: "#06201f"
   ok-dark: "#62c78e"
   ok-soft-dark: "#163023"
   warn-dark: "#e6a94f"
@@ -541,6 +543,8 @@ longest 39). 25 page files hold English texts in the code and do not use the cat
   logo from the tokens (`--clear` `#e10fd6`, `--trees` `#ef8300`, `--fav` `#f0c400`).
 - **Copies of the tokens**: the coverage map's palette (`coverage/palette.ts`), `coverage/page/page.css` and
   `app/coverageLayer.css` repeat token values as literals (`#17201c`, `#2350c8`, `#6c7a73`, `#d2dad4`, `#e9eee9`, `#f3f5f2`, `#0e1311`).
+  Since the pilot (2026-11-18) the accent has no copy there: `coverageLayer.css` takes `var(--accent)` alone (the layer
+  is drawn only under `.ui`); `docs/3d-view.html` keeps its own copies, bound by a test (choice 1 below).
 - **The profile chart**: 17 colour literals in `Profile.tsx`, not themed (hence the dark theme's 2.26:1 label).
 - **One shadow token, 25 shadow values** (above), and the segment, the splitter's tab and the sheet each with a
   literal shadow of its own.
@@ -814,15 +818,17 @@ their `--out` and data folders.
 The pilot screen is the result view (`?view=b`). Its mock-up (`local/ux-design-2026-11-16/pilot/`, version 2) was
 accepted on 2026-11-18 with the user's words "for now lets go with recomended - make sure that it is easy to change if
 required" and "ok" for version 2. Every choice below is "for now". Each one lives in one named place: a token of
-`viewer/src/ui/tokens.css`, one CSS rule, or one key of `locales/en.json`. A change of mind is an edit there.
+`viewer/src/ui/tokens.css`, one CSS rule, or one key of `locales/en.json`, and a change of mind is an edit there; where
+a switch needs more (a copy outside the bundle, a test that pins a value, the canvas), the last column says so ("Not one
+line"). Each switch was tried on the branch (edited, searched for what did not follow, reverted).
 
 | Choice (the user's question: answer) | Where it lives | Picked | Not picked | How to switch |
 | --- | --- | --- | --- | --- |
-| 1. The accent, whole app (Q1: a) | `--accent` in the three theme blocks of `ui/tokens.css`; `--accent-ink`, `--accent-soft`, `--on-accent` beside it | #14676f light, #62c3cc dark (D1's teal moved bluer, apart from "done" and "easy access") | D1's #176c69 | One value per theme block; `test_view_tokens` checks the contrast |
+| 1. The accent, whole app (Q1: a) | `--accent` in the three theme blocks of `ui/tokens.css`; `--accent-ink`, `--accent-soft`, `--on-accent` beside it | #14676f light, #62c3cc dark (D1's teal moved bluer, apart from "done" and "easy access") | D1's #176c69 | Not one line: four values per theme block (`--accent-ink` has no blue predecessor: it needs a value of its own); the same `--accent` and `--accent-soft` in the three blocks of `docs/3d-view.html` (a page without the bundle; `test_viewer.py::test_3d_view_doc_accent_in_step` fails until they agree); a `viewer/dist` build. `test_view_tokens` checks the contrast. Not the accent, and left as it is: `Profile.tsx`'s `#2350c8`, the profile's no-fall zone (a chart's data colour: "Where the code disagrees with itself", the profile chart) |
 | 2. The selected row (Q2: a) | `.ui .vl-sel > .vl-main` (`view.css`) | The soft accent with a 3 px accent edge | D1's solid teal with white text | Not one line: the background `var(--accent)`, the row's text and `--value` in `var(--on-accent)`, white rings on the access dots (they fall to 1.8:1 on solid teal), the tight mark's colour |
 | 3. Column heads (Q3: a) | `.ui .vl-cols` (`view.css`) | Sentence case, text font, 12 px | Upper case monospace (today's) | One line: `font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em` in that rule (on the desktop "CLEARANCE ANCHORS LINES" then touch) |
 | 4. The values' colour (Q4: a) | `--value` in the view's root block (`.ui .v-result`, `ui/tokens.css`) | The ink | The accent | One line: `--value: var(--accent)` |
-| 5. The tight tile (Q5: b) | Colours `--tight-bg`, `--tight-edge`, `--tight-ink` (three theme blocks); the word: key `ui.view.tile.tight` and rule `.ui .vl-tword` | Amber fill, 1 px edge, the alert icon beside the value, "Tight" as a second label line; no banner | The colour and icon only (5 a); the word beside the value (no room: 65 px inside the tile, the value with its icon takes 61 px) | Without the word: `display: none` in `.ui .vl-tword` |
+| 5. The tight tile (Q5: b) | Colours `--tight-bg`, `--tight-edge`, `--tight-ink` (three theme blocks); the word: key `ui.view.tile.tight` and rule `.ui .vl-tword` | Amber fill, 1 px edge, the alert icon beside the value, "Tight" as a second label line; no banner | The colour and icon only (5 a); the word beside the value (no room: 65 px inside the tile, the value with its icon takes 61 px) | Without the word: `display: none` in `.ui .vl-tword`. The colours: the three tokens; `test_shell_c_view_list.py::test_tight_tile_and_over_trees_words` pins the fill and the word's colour as rgb (`--tight-bg`, `--tight-ink`): it changes with them |
 | 6a. Chips' corners (Q6: yes) | `.ui .v-result .u-chip` (`view.css`) | 8 px (`--r-2`) | Pills (`--r-full`) | One line: `border-radius: var(--r-full)` |
 | 6b. Tiles on the phone (Q6: yes) | `.ui .vl-tiles` (`view.css`) | Four across | 2 × 2 | One rule: `@media (max-width: 420px) { .ui .vl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }` |
 | 6c. "Lines from anchor A1 / A2" (Q6: yes) | `.ui .vl-acts` (`view.css`) | Side by side, on the desktop too | One above the other | One line: `grid-template-columns: 1fr` |
@@ -831,9 +837,9 @@ required" and "ok" for version 2. Every choice below is "for now". Each one live
 | 8. A selected over-trees line's tile | Key `ui.view.tile.clear_terrain` | "Clearance of terrain" (the store's `clr` is the clearance above the terrain; over the trees it is a fact below) | Today's "clear of terrain" | The key's text |
 | 9. The phone at 390 × 664 (version 2: ok) | `mapbar.css` (its phone section and the foot's rules); `MapBar.tsx` (the foot's order); `SpotColumns.tsx` (the scale at the bottom right) | Under the switch one row of the zoom (across), the shore's chip, the layers; the foot from the bottom up at the left beside the scale: the row "Legend", the key's "i", the hint's button; the legend; the status line. The sheet's stops unchanged | Moving the half stop down; today's foot above the scale | Not one line: the foot's order in `MapBar`, the scale's corner, the rules of that section |
 | 10. The map's message on a phone (version 2: ok) | `SpotColumns.tsx` Phone (`message` to `MapBar`); rule `.ui .v-status .v-msg` | The status line's first line while it lasts | A box of its own | Two lines: the `.v-toast` box in the map's column again, the prop dropped |
-| 11. The view's neutrals | The view's root block `.ui .v-result` (light, and two dark blocks) in `ui/tokens.css` | Ground #f2f5f5 / #121a1b, raised #ffffff / #1a2425, inset #e5ebeb / #222d2e; hover, ink, ink-2, muted, rule, line, shadow | D2's beige ground, D3's dark side panels | The block's values |
-| 12. What lies over the map ("raised") | One rule at the top of `mapbar.css` (its selector list) | The view's surface and shadow, no edge, 8 px corners | Today's 1 px edge | That rule |
-| 13. The keyboard's ring | `--focus` (and `--focus-in` inside a list's row) in `ui/tokens.css` | 2 px of the accent 2 px off the control (a shadow: the kit draws its ring as one) | Today's 3 px of the accent at 45 % | The token |
+| 11. The view's neutrals | The view's root block `.ui .v-result` (light, and two dark blocks) in `ui/tokens.css` | Ground #f2f5f5 / #121a1b, raised #ffffff / #1a2425, inset #e5ebeb / #222d2e; hover, ink, ink-2, muted, rule, line, shadow | D2's beige ground, D3's dark side panels | In the view: the block's values. The same neutrals app-wide: not one line. The view splits the app's `--line` in two (`--rule` for thin rules, `--line` for a control's edge), and the app uses `--line` for both (about 100 uses in 16 CSS files outside the view), so the view's darker `--line` app-wide darkens every divider unless each moves to `--rule`; `--hover`, `--value` and the view's `--shadow` exist only in the view (the app's hover is `--surface-2`); literal copies of today's neutrals would not follow: `coverage/palette.ts`, `coverage/page/page.css`, the fallbacks in `app/c/cellsLayer.ts` and `app/coverageLayer.css`, `docs/3d-view.html` |
+| 12. What lies over the map ("raised") | One rule at the top of `mapbar.css` (its selector list, the table of spots `.vl-choose` too) | The view's surface and shadow, no edge, 8 px corners | Today's 1 px edge | That rule. The phone's sheet is the kit's (`ui.css` `.u-sheet`: the same surface, its own upward shadow, as it rises from the bottom edge): a switch of the raised look leaves it, or adds `.ui .v-result .u-sheet` to the list with its own corners kept |
+| 13. The keyboard's ring | `--focus` (and `--focus-in` inside a list's row and in the zoom buttons, which their bar clips) in `ui/tokens.css`; `--focus` declared again in the view's block (the same line: its gap is then the view's surface) | 2 px of the accent 2 px off the control (a shadow: the kit draws its ring as one) | Today's 3 px of the accent at 45 % | The token and its line in the view's block; `docs/3d-view.html`'s outline (bound by the same test as its accent) |
 | 14. Help and the hint as icons (R9) | `access.tsx` `useAccessHelp(label, icon)`; `Hint.tsx` `HintOpen` | The kit's "info" icon for the access mark's key; the kit's "rope" icon for the hidden hint | A "?" character (three meanings beside the mark's own "?") | The `icon` argument; the icon's name |
 
 Not exactly the mock-up, and why: the map is the real one (its marks drawn on a canvas, their text at 12 px); the
@@ -880,5 +886,7 @@ value; column heads 12 px, other labels 13 px in the second ink.
 
 The mock-up moved no value: it uses 12, 13, 14, 16, 20 and 24 px of R5 (30 stays a step), 3, 8 and 20 px of R6 (14
 stays), and 4 to 24 px of R7. The steps are tokens in `ui/tokens.css` (`--fs-1` to `--fs-7`, `--r-1` to `--r-4`): a
-step moves in one line there. `tools/ui_metrics.py static` counts a size written as a token as "unresolved" (the
+step moves in one line there, the kit's buttons and fields (`.u-btn`, `.u-ib`, `.u-input`) and the legend's marks (`.v-sh text`) with it. Not
+with it: the canvas's text on the map (`SpotMap.ts` `TEXT_PX`, the value of `--fs-1`: the canvas reads no token), and
+`test_viewer.py::test_view_tokens`, which pins the steps' values (`--fs-1` to `--fs-7`, `--r-1` to `--r-4`). `tools/ui_metrics.py static` counts a size written as a token as "unresolved" (the
 rendered pass measures it).
