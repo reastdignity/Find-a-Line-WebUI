@@ -112,7 +112,8 @@ window.T = {
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
       zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
-      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *"}, out = {};
+      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *",
+      back: ".v-status .v-back-auto"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
       // the map's message on a phone is the first line of the status line's box (the pilot's arrangement): a part of it
       if (name === "toast" && e && e.closest(".v-status")) continue;
@@ -728,10 +729,14 @@ def _apart(page, state: str) -> dict:
         if boxes[a][3] > sheet + 0.5:
             wrong.append((a, boxes[a], "under the sheet", sheet))
         for b in names[k + 1:]:
+            if (a, b) == ("back", "status"):  # "Back to Auto" is a part of the status line's sentence: its target (44 px
+                continue                      # on a touch screen) reaches past the box, and no other control may lie there
             p, q = boxes[a], boxes[b]
             if min(p[2], q[2]) - max(p[0], q[0]) > 0.5 and min(p[3], q[3]) - max(p[1], q[1]) > 0.5:
                 wrong.append((a, p, b, q))
     assert not wrong, (state, wrong)
+    # every caller is a touch screen: "Back to Auto", where the status line has it, is a finger's 44 px target
+    assert "back" not in boxes or boxes["back"][3] - boxes["back"][1] >= 43.5, (state, boxes["back"])
     return boxes
 
 
@@ -800,8 +805,14 @@ def test_phone_controls_apart(site):
                 _apart(page, f"{stop}, the access mark's key open")
                 key = _over_holds(page, ".v-over > .v-help", f"{stop}, the access mark's key")
                 assert key["box"][3] - key["box"][1] > 40, key
+                # its "i" says it is open, in words and in the kit's on-state (the soft accent)
+                look = "() => { const b = document.querySelector('.v-help-button button'), s = getComputedStyle(b); return [b.getAttribute('aria-expanded'), s.backgroundColor]; }"
+                soft = page.evaluate("() => { const e = document.createElement('i'); e.style.background = 'var(--accent-soft)'; document.querySelector('.v-result').append(e); "
+                                     "const c = getComputedStyle(e).backgroundColor; e.remove(); return c; }")
+                assert page.evaluate(look) == ["true", soft], (page.evaluate(look), soft)
                 _tap_on(page, ".v-help-button button")
                 page.wait_for_selector(".v-help", state="detached", timeout=WAIT)
+                assert page.evaluate(look)[0] == "false" and page.evaluate(look)[1] != soft
                 # a tap on several spots: the map says so; the message covers no control
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
                 # (at half this phone's map has no point 24 px from every control; nearer than about 10 px to the
@@ -948,6 +959,32 @@ def test_phone_on_its_side(site):
             browser.close()
 
 
+TABLET = {**PHONE, "viewport": {"width": 1180, "height": 820}, "device_scale_factor": 2}  # on its side: the columns, a finger
+
+
+def test_tablet_controls_apart(site):
+    """A tablet on its side (1180 x 820: the desktop's columns with a finger's 44 px controls): no control of the map
+    covers another at Area and at Spots (the switch is 52 px high there: Leaflet's zoom and layers stand under it)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", TABLET)
+            for level in ("area", "spots"):
+                _state(page, "map.fitArea({top: 70, right: 10, bottom: 80, left: 10}); "
+                             f"view.setTopOnly(true); view.setBest(10); view.setLevel('{level}');")
+                page.evaluate("() => T.frames()")
+                boxes = _apart(page, f"a tablet, {level}")
+                assert boxes["zoom"][1] >= boxes["levels"][3] + 8 - 0.5, boxes
+            # the credits and the scale at R1's floor for them, 10 px (Leaflet's own 0.75rem: 9.75 px)
+            sizes = page.evaluate("() => ['.v-map .leaflet-control-attribution', '.v-map .leaflet-control-scale-line']"
+                                  ".map((s) => parseFloat(getComputedStyle(document.querySelector(s)).fontSize))")
+            assert min(sizes) >= 10, sizes
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
 def test_focus_rings(site):
     """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus: 2 px of the accent
     2 px off the control) beside the shadow "Legend" carries by itself (their own shadow replaced the ring: the design
@@ -975,6 +1012,13 @@ def test_focus_rings(site):
                     bar = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.v-levels button.v-now'), '::after'); "
                                         "return [s.content, s.height, s.backgroundColor]; }")
                     assert own == "none" and bar[0] == '""' and bar[1] == "2px", (own, bar)
+            # the zoom buttons: their bar clips them to its corners, so the ring is drawn inside the button (the design
+            # review's S1: the outer ring was cut away whole)
+            for selector in (".v-map .leaflet-control-zoom-in", ".v-map .leaflet-control-zoom-out"):
+                focused = page.evaluate("([selector]) => { const e = document.querySelector(selector); e.focus(); "
+                                        "return [document.activeElement === e, e.matches(':focus-visible')]; }", [selector])
+                ring = page.evaluate(shadow, [selector])
+                assert focused == [True, True] and "inset" in ring and "0px 0px 0px 2px" in ring, (selector, ring)
             assert page.errors == []
         finally:
             browser.close()

@@ -7,7 +7,7 @@
 /* What lies over the map (R8 "raised"): one look, the view's --surface with its shadow, no edge */
 .ui .v-levels, .ui .v-best, .ui .v-status, .ui .v-legend, .ui .v-help, .ui .v-fold, .ui .vl-hint, .ui .vl-hint-open,
 .ui .v-result .v-help-button .ac-info.u-plain, .ui .v-result .v-map .leaflet-bar, .ui .v-result .v-map .leaflet-control-layers,
-.ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill {
+.ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill, .ui .vl-choose {
   background: var(--surface); border: 0; border-radius: var(--r-2); box-shadow: var(--shadow); }
 /* the keyboard's ring beside their own shadow (the kit's ring is a shadow too: theirs would replace it) */
 .ui .v-fold:focus-visible, .ui .vl-hint-open:focus-visible, .ui .v-help-button .ac-info:focus-visible,
@@ -63,7 +63,7 @@
 /* the marks of the map 1:1 (40 x 24 px, their text at 12 px: R1): the map's own paper and ink in both themes */
 .ui .v-sh { width: 40px; height: 24px; flex: none; }
 .ui .v-sh path { fill: #fff; stroke: #1b2530; stroke-width: 1.6; }
-.ui .v-sh text { fill: #1b2530; font: 600 12px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+.ui .v-sh text { fill: #1b2530; font: 600 var(--fs-1) system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
 .ui .v-help { padding: 8px 12px; max-width: min(420px, 100%); max-height: 40vh; overflow-y: auto; font-size: var(--fs-2); }
 .ui .v-legend-phone { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 4px; padding: 8px 12px; max-width: 100%;
   overflow-y: auto; overscroll-behavior: contain; }
@@ -111,10 +111,14 @@
 .ui .v-map .leaflet-left .leaflet-control { margin-left: 8px; }
 .ui .v-map .leaflet-right .leaflet-control { margin-right: 8px; }
 .ui .v-map .leaflet-bottom .leaflet-control-scale { margin-bottom: 8px; }
+/* the credits and the scale at R1's floor for them (Leaflet's 0.75rem is 9.75 px under the app's 13 px root) */
+.ui .v-result .v-map .leaflet-control-attribution, .ui .v-result .v-map .leaflet-control-scale { font-size: 10px; }
 .ui .v-result .v-map .leaflet-bar { overflow: hidden; }
 .ui .v-result .v-map .leaflet-bar a { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
   border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); }
 .ui .v-result .v-map .leaflet-bar a:last-child { border-bottom: 0; }
+/* the bar clips its buttons to its corners: the keyboard's ring inside the button (the rows' inset ring) */
+.ui .v-result .v-map .leaflet-bar a:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-2); }
 .ui .v-result .v-map .leaflet-bar a .u-ic { width: 16px; height: 16px; }
 /* the layers' list opened: its rows 24 px (44 on a touch screen), their words 13 px (R1, R2) */
 .ui .v-result .v-map .leaflet-control-layers-list { font-size: var(--fs-2); }
@@ -146,6 +150,9 @@
 .ui .v-result.c-result-phone .u-sheet-body { gap: 12px; }
 @media (pointer: coarse) {
   .ui .v-levels button { min-height: 44px; padding: 0 8px; }
+  .ui .v-map .leaflet-top { top: 60px; }  /* the switch 52 px high (8 + 52): Leaflet's controls 8 px under it (a phone's: 112 px) */
+  /* "Back to Auto" in the status line's sentence: a finger's 44 px target, the sentence's look unchanged */
+  .ui .v-status .v-back-auto { padding-block: 12px; margin-block: -12px; }
   .ui .v-result .v-map .leaflet-bar a { width: 44px; height: 44px; }
   .ui .v-result .u-shore-chip { min-height: 44px; }
   .ui .v-result .v-map .leaflet-control-layers-list label { min-height: 44px; }

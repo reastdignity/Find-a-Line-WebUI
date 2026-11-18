@@ -46,6 +46,8 @@
 .ui .v-result .r-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
 /* the access mark's key as the kit's "info" icon (access.tsx useAccessHelp's `icon`) */
 .ui .v-result .ac-info { width: 24px; height: 24px; border-radius: var(--r-2); color: var(--ink-2); }
+/* the key opened: the kit's on-state, as the other toggles (also over the raised look on the map) */
+.ui .v-result .ac-hint.ac-info.u-plain[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .ui .v-result .ac-info .u-ic { width: 16px; height: 16px; }
 @media (pointer: coarse) {
   .ui .v-result .u-btn, .ui .v-result .u-chip, .ui .v-result .r-sort, .ui .v-result .v-select { min-height: 44px; }
@@ -196,7 +198,7 @@
 
 /* ---- the table of spots under a press (raised, over the map) ---- */
 .ui .vl-choose { position: fixed; z-index: 1100; width: min(320px, calc(100vw - 24px)); padding: 8px; display: flex; flex-direction: column;
-  gap: 4px; border: 0; border-radius: var(--r-2); background: var(--surface); box-shadow: var(--shadow); }
+  gap: 4px; }  /* raised: the one rule at the top of mapbar.css */
 .ui .vl-choose-new { visibility: hidden; }  /* until it is measured and placed */
 .ui .vl-choose.vl-choose-dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto; max-height: 55vh;
   overflow-y: auto; }
