@@ -86,7 +86,8 @@ def is_live(state: Optional[Dict]) -> bool:
 
 
 class Box(Checkbox):
-    """A checkbox that looks like one; up and down go through the list, past the rows that cannot be ticked."""
+    """A checkbox that looks like one; up and down go through the list (every row can be ticked, a finished one
+    too since 2026-11-18)."""
     BINDINGS = [Binding("up", "app.previous_row", show=False), Binding("down", "app.next_row", show=False)]
 
     def render(self) -> Content:

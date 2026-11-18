@@ -365,7 +365,8 @@ def crs_length(crs, metres: float) -> float:
     latitude; a square of that many degrees is narrower in longitude away from the equator, never wider). The
     groups of download_layers are given in metres and laid on the layers' own grids: 3DEP's 1/3 arc-second DEM is
     on EPSG:4269, where 100 000 "metres" taken as degrees put every block of a state into one group (Utah's
-    2 385 blocks: one task, 12.7 GB held, nothing written for 25 min; 2026-11-18)."""
+    2 385 blocks: one task, 12.7 GB held, nothing written for 25 min; 2026-11-18). A projected CRS is taken to
+    be in metres, as every grouped layer of the catalogue is: one in feet would get groups 3.28 times smaller."""
     return metres / METRES_PER_DEGREE if rio.crs.CRS.from_user_input(crs).is_geographic else metres
 
 
