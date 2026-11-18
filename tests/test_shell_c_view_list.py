@@ -410,6 +410,44 @@ def test_selection_follows_best_in_view(site):
             browser.close()
 
 
+def test_press_in_the_tree_keeps_its_row(site):
+    """A desktop at 1280 x 640: a press on a tree row whose spot also has a "Best in view" row, by a click and by Enter,
+    keeps the pressed row in the list's box with the focus on it (the code review's F1 of 2026-11-18: the list scrolled
+    to the Best row, the pressed and focused row out of view). Only a selection that comes from elsewhere (the map,
+    the table of spots) goes to the Best row: test_selection_follows_best_in_view."""
+    from playwright.sync_api import sync_playwright
+    far = """() => { const v = P.view(); let best = null, gap = -1;
+      for (const s of Array.from(v.inView.best)) { const a = document.querySelector('#vl-top-' + s), b = document.querySelector('#vl-row-' + s);
+        if (!a || !b) continue; const d = b.getBoundingClientRect().top - a.getBoundingClientRect().top; if (d > gap) { gap = d; best = s; } }
+      return [best, gap, document.querySelector('.vl-body').clientHeight]; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for how in ("click", "Enter"):
+                page = _open(browser, f"{site}#run={BIG}", {**DESKTOP, "viewport": {"width": 1280, "height": 640}}, script=PANELS)
+                page.wait_for_selector(".vl-topblock .vl-main", timeout=WAIT)
+                page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
+                spot, gap, box = page.evaluate(far)
+                assert spot is not None and gap > box, (spot, gap, box)  # the two rows never in the box together
+                row = f"#vl-row-{spot} .vl-main"
+                page.evaluate(f"() => document.querySelector('{row}').scrollIntoView({{block: 'end'}})")
+                page.evaluate(FRAMES)
+                if how == "click":
+                    page.click(row)
+                else:
+                    page.focus(row)
+                    page.keyboard.press("Enter")
+                page.wait_for_selector(".vl-details", timeout=WAIT)
+                page.evaluate(FRAMES)
+                after = page.evaluate(f"""() => {{ const body = document.querySelector('.vl-body'), b = document.querySelector('{row}');
+                    return [P.inBox(b, body), document.activeElement === b, P.view().selected?.spot]; }}""")
+                assert after == [True, True, spot], (how, after)
+                assert page.errors == []
+                page.close()
+        finally:
+            browser.close()
+
+
 def test_selection_details_fan_and_table(site):
     """A desktop. A press on a number selects: the details ("Spot 7.1" and "N lines", the four values, the stepper by
     mean height, "Stands for"), the rows pressed, the sector opened and paged with the row in the list's box; the

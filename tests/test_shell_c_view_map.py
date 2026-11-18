@@ -11,6 +11,7 @@ view's columns, storage blocked. Every wait is an event with a deadline (one exc
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -960,7 +961,10 @@ def test_phone_on_its_side(site):
             page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
             page.wait_for_function(closed, timeout=WAIT)
             page.evaluate("() => T.frames()")
-            _apart(page, "on its side, half, Auto")
+            half = _apart(page, "on its side, half, Auto")
+            # MapBar's `inline`: in that low a map the status line stands beside the row of buttons, their bottoms level
+            assert page.evaluate("() => !!document.querySelector('.v-foot.v-foot-inline')"), half
+            assert half["status"][0] >= half["help"][2] and abs(half["status"][3] - half["fold"][3]) <= 1, half
             _state(page, "view.setLevel('area');")
             page.evaluate("() => T.frames()")
             _apart(page, "on its side, half, Area held", known=(("back", "chip"), ("chip", "status")))
@@ -998,6 +1002,61 @@ def test_tablet_controls_apart(site):
             sizes = page.evaluate("() => ['.v-map .leaflet-control-attribution', '.v-map .leaflet-control-scale-line']"
                                   ".map((s) => parseFloat(getComputedStyle(document.querySelector(s)).fontSize))")
             assert min(sizes) >= 10, sizes
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+PIXEL = {"viewport": {"width": 412, "height": 839}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True}
+
+
+def test_legend_unfolds_in_place_at_half(site):
+    """The Pixel 7 (412 x 839) with the sheet at half, under Auto: the legend, folded by itself at half, fits whole in
+    the room there, so a press on "Legend" unfolds it in place, not as a panel, and the sheet stays at half (Q1's rule
+    lowers the sheet only where the whole legend does not fit: the q1 table's Pixel cells); nothing covers another."""
+    from playwright.sync_api import sync_playwright
+    legend = ("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend'), "
+              "!!document.querySelector('.v-over > .v-legend')]")
+    # the sheet's top once it rests (the same in three frames running: its move takes 0.22 s)
+    sheet = """() => new Promise((ok) => { let last = null, same = 0; const f = () => {
+      const top = Math.round(document.querySelector('.u-sheet').getBoundingClientRect().top);
+      same = top === last ? same + 1 : 0; last = top; if (same >= 2) ok(top); else requestAnimationFrame(f); }; f(); })"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", PIXEL)
+            _state(page, "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10}); "
+                         "view.setTopOnly(true); view.setBest(10); view.setLevel('auto');")
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            page.wait_for_function(f"() => JSON.stringify(({legend})()) === '[\"false\",false,false]'", timeout=WAIT)
+            at = page.evaluate(sheet)
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(f"() => JSON.stringify(({legend})()) === '[\"true\",true,false]'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            whole = page.evaluate("() => { const e = document.querySelector('.v-legend'); return e.scrollHeight <= e.clientHeight + 1; }")
+            assert page.evaluate(sheet) == at and whole, (at, page.evaluate(sheet), whole)
+            _apart(page, "the Pixel at half, the legend unfolded")
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_flash_takes_the_map_accent(site):
+    """In the dark theme the crowded tap's flash (SpotMap's accent) is --accent-map, the light theme's accent, while the
+    page's own accent is the dark one: the map's tiles stay light (the planner's decision of 2026-11-18)."""
+    from playwright.sync_api import sync_playwright
+    with open(os.path.join(REPO, "viewer", "src", "ui", "tokens.css"), encoding="utf-8") as f:
+        accents = re.findall(r"--accent:\s*(#[0-9a-fA-F]{6})", f.read())  # the light block's, then the dark blocks'
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", {**DESKTOP, "color_scheme": "dark"})
+            got = page.evaluate("() => [window.FINDALINE_VIEW.map.accent(), "
+                                "getComputedStyle(window.FINDALINE_MAP.getContainer()).getPropertyValue('--accent').trim()]")
+            assert got == [accents[0], accents[1]] and accents[0] != accents[1], (got, accents)
             assert page.errors == []
         finally:
             browser.close()

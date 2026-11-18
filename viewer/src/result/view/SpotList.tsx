@@ -235,6 +235,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
   const on = !!sel && sel.spot === spot && (!pick || sel.row === row);
   const press = () => {
     if (on) { view.select(null); return; }
+    panelState(view).pressed = {id, spot};  // the list keeps this row in view (SpotList's follow)
     view.select(spot, pick ? row : undefined);
     const now = view.selected;
     if (now) map?.reveal(now.row, padding());  // a list's selection may move the map
@@ -442,9 +443,12 @@ export function SpotList(p: PanelProps) {
       if (body && ui.scrollNew) body.scrollTop = 0;
       return;
     }
-    // the spot's row in "Best in view" where it has one there (that block and its head stay in view: the planner's
-    // decision of 2026-11-18, main's outcome and the mock-up's), else its row in the tree
-    const row = root.current.querySelector<HTMLElement>(`#vl-top-${ui.followed}`)
+    // a selection made by pressing a row keeps that row in view (it moves nothing where the row is in view); any other
+    // (the map, a key on the map, the table of spots) goes to the spot's row in "Best in view" where it has one there
+    // (that block and its head stay in view), else to its row in the tree: the planner's decisions of 2026-11-18
+    const pressed = ui.pressed && ui.pressed.spot === ui.followed ? ui.pressed.id : null;
+    const row = (pressed ? root.current.querySelector<HTMLElement>(`#${pressed}`) : null)
+      ?? root.current.querySelector<HTMLElement>(`#vl-top-${ui.followed}`)
       ?? root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
   });
