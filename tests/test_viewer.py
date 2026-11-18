@@ -3424,9 +3424,15 @@ def test_view_tokens():
     text the view draws reads at 4.5:1 or more on the surfaces it stands on, in both themes (R3), and the graphics a
     person must see at 3:1 (WCAG 1.4.11): the selected row's edge, the tight tile's edge against a tile."""
     blocks = _css_blocks(TOKENS_CSS)
-    family = ("--accent", "--accent-ink", "--accent-soft", "--on-accent", "--tight-bg", "--tight-edge", "--tight-ink")
+    family = ("--accent", "--accent-ink", "--accent-soft", "--on-accent", "--tight-bg", "--tight-edge", "--tight-ink",
+              "--accent-map", "--status-run")
     for name, block in [(".ui", blocks[".ui"])] + [("dark", d) for d in _dark_blocks(blocks)]:
         assert all(n in block for n in family), (name, [n for n in family if n not in block])
+        # what is drawn on the map's tiles in the accent takes the light theme's in every theme: the tiles stay light
+        assert block["--accent-map"] == blocks[".ui"]["--accent"], name
+    # the running status: its own fill (the user's c of 2026-11-18), its ink the accent's
+    for theme, tokens in _themes().items():
+        assert contrast(tokens["--accent-ink"], tokens["--status-run"]) >= 4.5, theme
     light = blocks[".ui"]
     # the ring declared again in the view's block: its 2 px gap is then the view's own --surface (a var() inside a
     # custom property is resolved where it is declared)
