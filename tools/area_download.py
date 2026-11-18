@@ -706,7 +706,8 @@ def _take_turn(area: Area, queue: FileLock, ticket: Tuple[float, str], log, sett
         try:
             queue.acquire(blocking=False)
             if _ahead(area, ticket) is None:
-                state.update(stage="listing", message="")
+                # no memory of the pass before either: biggest_running would count it as a running pass's
+                state.update(stage="listing", message="", memory_gb=0.0)
                 del state["queued_at"]
                 write_state(area.state_dir, area.name, state)
                 return True

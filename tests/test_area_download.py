@@ -719,7 +719,11 @@ def test_a_queue_downloads_one_area_at_a_time_in_the_order_of_their_start(tmp_pa
     tickets' order; the waiting ones say "queued", the one whose turn it is does not (its pass writes no state
     here: the supervisor's own "listing" stands, and the others wait for the lock, not for that state)."""
     areas = _queued(tmp_path, monkeypatch, ["texas", "ohio", "maine"])
-    codes, seen, started = {}, set(), time.monotonic()
+    # a state that says "queued" counts for an hour: an area that kept saying so with its turn or after its pass
+    # would hold the next one back for good, and the test would fail at its limit instead of passing 30 s late
+    monkeypatch.setattr(ad, "RUNNING_STATE_S", 3600)
+    ad.write_state(areas[0].state_dir, "texas", {"name": "texas", "stage": "stopped", "memory_gb": 6.5})
+    codes, seen = {}, set()
     threads = [_supervised(area, _queue_pass(tmp_path, area.name), codes, settle_seconds=1.0)
                for area in reversed(areas)]
 
@@ -732,11 +736,10 @@ def test_a_queue_downloads_one_area_at_a_time_in_the_order_of_their_start(tmp_pa
     assert _order(tmp_path) == [
         "texas 1 starts", "texas 1 ends", "ohio 1 starts", "ohio 1 ends", "maine 1 starts", "maine 1 ends"]
     assert {("ohio", "queued"), ("maine", "queued"), ("texas", "listing"), ("maine", "listing")} <= seen
-    assert "queued_at" not in ad.read_state(areas[0].state_dir, "texas")
+    texas = ad.read_state(areas[0].state_dir, "texas")
+    assert "queued_at" not in texas and texas["memory_gb"] == 0.0   # the pass before's memory is not this one's
     assert "waiting for its turn among the downloads of the queue usa" in open(
         areas[2].file(".log"), encoding="utf-8").read()
-    # three passes of 0.4 s and one settle: a finished area's state never holds the next one back
-    assert time.monotonic() - started < ad.RUNNING_STATE_S / 2
 
 
 def test_the_turn_is_given_up_while_an_area_waits_for_its_next_pass(tmp_path, monkeypatch):
