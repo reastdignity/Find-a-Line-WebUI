@@ -1,20 +1,17 @@
 // The mini maps of C's cards: an SVG (no Leaflet) with the run's area, or its box, and its lines in
 // the map's colours (style.ts). Loaded when the card comes into view, a few at a time; a run with
 // more than MAX_LINES lines shows its box and the count only (its lines would be large). The lines
-// come from the run's store (lines.arrow, never profiles.arrow: result/load.ts loadRunLines) when the
-// list of runs (runs.js) gives it one, or asked for directly when the list does not name the run;
-// from its lines.js for a run listed without a store and where the store's file is missing (404),
-// while runs keep it. A store that cannot be read, or of a newer format, fails as a lines.js that
-// cannot be loaded: the card's placeholder. A search still running shows the area of its request (a
-// circle or the drawn areas) when it has one.
+// come from the run's store (lines.arrow, never profiles.arrow: result/load.ts loadRunLines), its entry
+// in the list of runs (runs.js), or asked for directly when the list does not name the run. A store
+// that cannot be fetched or read, or of a newer format, shows the card's placeholder. A search still
+// running shows the area of its request (a circle or the drawn areas) when it has one.
 
 import type { Geometry, GeoJSON, Position } from "geojson";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Icon } from "../../ui/icons";
 import { COLORS } from "../../style";
-import { loadLines } from "../../others";
 import { loadRunLines, loadRunList } from "../../result/load";
-import type { RunData, RunLines } from "../../types";
+import type { RunData } from "../../types";
 import { api } from "../api";
 
 export const MAX_LINES = 3000;  // more: the outline and "N lines", without loading its lines
@@ -78,10 +75,9 @@ function circle(lat: number, lon: number, radius: number): Position[] {
 const box = (b: number[]): Position[] => [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]];
 const count = (n: number) => n.toLocaleString("en-GB") + (n === 1 ? " line" : " lines");
 
-/** The drawn lines of a run, in their order: from its store's columns (RunData) or its lines.js's rows (RunLines),
- *  each anchor as [lon, lat]; copied out, so the shape keeps none of the store's buffers. */
-export function thumbLines(loaded: RunData | RunLines): Shape["lines"] {
-  if (!("columns" in loaded)) return loaded.lines.map((d) => ({a: [d[1], d[0]], b: [d[3], d[2]], over: d[13]}));
+/** The drawn lines of a run, in their order, from its store's columns, each anchor as [lon, lat]; copied out, so
+ *  the shape keeps none of the store's buffers. */
+export function thumbLines(loaded: RunData): Shape["lines"] {
   const c = loaded.columns, out: Shape["lines"] = [];
   for (let i = 0; i < c.length; i++) {
     out.push({a: [c.lon1.at(i) as number, c.lat1.at(i) as number], b: [c.lon2.at(i) as number, c.lat2.at(i) as number],
@@ -96,7 +92,7 @@ async function runShape(id: string, lines: number): Promise<Shape> {
     return {rings: listed?.bbox ? [box(listed.bbox)] : [], lines: [], mode: listed?.bbox ? "outline" : "placeholder",
             label: count(lines)};
   }
-  const loaded = await loadRunLines(id, listed, "/runs/", loadLines);
+  const loaded = await loadRunLines(id, listed, "/runs/");
   const drawn = thumbLines(loaded);
   return {rings: ringsOf(loaded.area), lines: drawn, mode: "lines", label: drawn.length ? "" : "no lines"};
 }

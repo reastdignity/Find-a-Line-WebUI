@@ -2,7 +2,6 @@
 Converting results to GPS coordinates and displaying them on maps.
 """
 
-import contextlib
 import dataclasses
 import html
 import json
@@ -17,9 +16,9 @@ from pyproj import Transformer
 
 import cache
 from grid import Grid
-from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
+from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable
 from progress import progress
-from runs import ACCESS, STANDS_FOR, column_texts, round_floats
+from runs import ACCESS, STANDS_FOR, round_floats
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
@@ -484,47 +483,6 @@ MAP_HTML = """<!doctype html>
 """
 
 
-LINES_CHUNK = 1_000  # lines written between two progress updates (their texts held meanwhile)
-
-
-def _script_head(target: str, value: Dict) -> str:
-    """The start of a script that assigns value (pages opened from disk cannot fetch JSON) with
-    its last key "lines" still open: the text of json.dump of the whole value up to its first line."""
-    assert list(value)[-1] == "lines"
-    head = json.JSONEncoder(separators=(",", ":")).encode({k: v for k, v in value.items() if k != "lines"})
-    return f"{target} = {head[:-1]},\"lines\":["
-
-
-def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
-    """The JSON texts of the rows of lines.js of lines start..stop (viewer/src/types.ts, toLine),
-    without the profile that data.js adds as its last value (with the END_VALUES, the access mark's
-    runs.ACCESS and then the count of the square rule, runs.STANDS_FOR, before it when the lines have
-    them: map_heads' "ends"). The same
-    text as json.dumps of the
-    row as a list of Python values (round() of each, rounded() for those that may be missing),
-    built column by column. Values used for grouping are not rounded, so the browser groups
-    exactly like group_lines()."""
-    c = {name: column[start:stop] for name, column in lines.columns.items()}
-    text = lambda values, digits=None, empty_nan=False: column_texts(values, digits, empty_nan)[1]
-    columns = [text(c["anchor1"][:, 0], 7), text(c["anchor1"][:, 1], 7), text(c["anchor2"][:, 0], 7),
-               text(c["anchor2"][:, 1], 7), text(c["a1_xy"][:, 0]), text(c["a1_xy"][:, 1]), text(c["a2_xy"][:, 0]),
-               text(c["a2_xy"][:, 1]), text(c["length"]), text(c["clearance"]), text(c["clearance_nmpt"], 2, True),
-               text(c["elev_a1"], 2), text(c["elev_a2"], 2), text(c["over_obstacles"]), text(c["water_m"], 1),
-               text(c["filled_m"], 1), text(c["height_max"]), text(c["height_mean"], 2), text(c["high_pct"], 1),
-               text(c["angle1"], 1), text(c["angle2"], 1), text(c["prom1"], 1, True), text(c["prom2"], 1, True),
-               text(c["drop1"], 1, True), text(c["drop2"], 1, True)]
-    if END_VALUES[0] in c:  # with an end zone or A-frames: the heads' "ends", before the profile
-        columns += [text(c[name], 2) for name in END_VALUES]
-    if ACCESS[0] in c:  # the access mark (--access): each anchor's answer, after the A-frame heights
-        columns += [text(c[name]) for name in ACCESS]
-    if STANDS_FOR in c:  # the square rule: the found lines each line stands for, the last value before the profile
-        columns.append(text(c[STANDS_FOR]))
-    return list(map(",".join, zip(*columns))) if stop > start else []
-
-
-MAP_FILES = ("data.js", "lines.js")  # the scripts of a map (write_map_scripts); save_map adds map.html
-
-
 def map_page(run: Dict) -> str:
     """The text of a run's map.html (MAP_HTML): its name, its id in the disk notice's command and the notice's
     sentence from the message catalogue (locales/en.json `ui.map.disk_notice`), each escaped for HTML."""
@@ -533,42 +491,23 @@ def map_page(run: Dict) -> str:
                            run=html.escape(str(run["id"])), notice=html.escape(messages.text("ui.map.disk_notice")))
 
 
-def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, crs: str,
-             group_distance: float = 20, group_by: str = "clearance", ortho_cache: Optional[str] = None,
-             ortho_service=None, model: str = "formula", rigging: Optional[Rigging] = None,
-             on_lines=lambda n, file: None, high_above: float = HIGH_ABOVE,
-             files: tuple = MAP_FILES + ("map.html",)) -> str:
-    """Save the interactive map of a run: map.html, data.js and lines.js in its folder.
-
-    The map is the viewer (viewer/src, TypeScript), the same bundle for every run in
-    runs/_viewer; data.js holds the run's lines with their profiles
-    (window.FINDALINE_RUN, read by viewer/src/types.ts), lines.js the same lines
-    without profiles, which other maps load to show this run with theirs
-    (window.FINDALINE_LINES[id]). Lines are grouped in the
-    browser like group_lines. Orthophoto tiles are read from ortho_cache (a
-    {z}/{x}/{y}.jpg folder) when present there, and from the WMS of ortho_service
-    (a sources.OrthoService) otherwise. Both scripts are written together, LINES_CHUNK
-    lines at a time, never all rows at once (write_map_scripts); on_lines(n, file) reports
-    progress after each chunk. `files`: only those of the three (a search since store wave 4
-    writes map.html only, its lines in the store); map.html (map_page: with the disk notice)
-    also installs the viewer. Returns the path of map.html.
-    """
+def save_map(run_path: str, runs_dir: str, run: Dict) -> str:
+    """Save the interactive map of a run, its map.html (map_page: with the disk notice), and install the viewer (the
+    same bundle for every run in runs/_viewer), which reads the run's store over http(s) (viewer/src/result/load.ts;
+    the head of the store is map_head's). Returns the path of map.html. Since store wave 4 a run keeps no data.js or
+    lines.js (tests/old_scripts.py keeps a frozen copy of their writers for the tests)."""
     path = os.path.join(run_path, "map.html")
-    if "map.html" in files:
-        install_viewer(runs_dir)
-    scripts = tuple(name for name in MAP_FILES if name in files)
-    if scripts:
-        heads = map_heads(area, path, run, crs, group_distance, group_by, ortho_cache, ortho_service, model,
-                          rigging, high_above)
-        write_map_scripts(lines, run_path, heads, on_lines, scripts)
-    if "map.html" in files:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(map_page(run))
+    install_viewer(runs_dir)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(map_page(run))
     return path
 
 
 def _ends(run: Dict) -> Dict:
-    """The keys of a run's end zone, A-frames, access mark and square rule in the heads (map_heads)."""
+    """The keys of a run's end zone, A-frames, access mark and square rule in its head (map_head): "end_zone" and
+    "lift" each only when set, then "ends", the names of the line values after the drop below anchor 2 (helpers.
+    END_VALUES: the A-frame heights each line needs; runs.ACCESS: each anchor's answer; runs.STANDS_FOR last, with
+    "square" and "found" of the square rule); "access_skipped" of a mark asked but left out."""
     params = run.get("params") or {}
     ends = {key: params[name] for key, name in (("end_zone", "end_zone"), ("lift", "anchor_lift"))
             if params.get(name)}
@@ -587,8 +526,8 @@ def _ends(run: Dict) -> Dict:
 def map_head(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
              ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
              rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Dict:
-    """The head of data.js (map_heads) as a dict, without its "lines": also the head of the run's
-    store (linestore.write, the schema's metadata), which the search writes with or without a map."""
+    """The head of a run's store (linestore.write, the schema's metadata; data.js's head before store wave 4), which
+    the search writes with or without a map."""
     ends = _ends(run)
     data = {
         "run": {"id": run["id"], "name": run["name"], "created": run["created"],
@@ -607,59 +546,3 @@ def map_head(area, path: str, run: Dict, crs: str, group_distance: float = 20, g
     if run.get("terrain_sources"):  # where the area's terrain came from (sources.filling.terrain_origins), when known
         data["terrain_sources"] = run["terrain_sources"]
     return data
-
-
-def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
-              ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
-              rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Tuple[str, str]:
-    """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
-    which the orthophoto cache's URL is relative to): everything before the lines. The run's end
-    zone and A-frames (run.json's params "end_zone", "anchor_lift") go into both heads as
-    "end_zone" and "lift", each only when set (a run without them: the heads of before), and then
-    "ends": the names of the values its rows hold after the drop below anchor 2 and before the
-    profile (helpers.END_VALUES: the A-frame heights each line needs, map_rows). A run made with the
-    access mark (run.json's params "access") has runs.ACCESS in "ends" after them (each anchor's answer,
-    0 hard access, 1 cannot tell, 2 can walk), with no key of its own. A run made with the
-    square rule (run.json's params "same_line_side", summary "found") has "square" (the side of its
-    anchor squares, m) and "found" (the lines found, which its lines stand for) in both heads, and
-    runs.STANDS_FOR as the last name of "ends": each line's count. data.js's head is map_head's."""
-    data = {**map_head(area, path, run, crs, group_distance, group_by, ortho_cache, ortho_service, model, rigging,
-                       high_above), "lines": None}
-    ends = _ends(run)
-    target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
-    return (_script_head("window.FINDALINE_RUN", data),
-            _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], **ends,
-                                  "lines": None}))
-
-
-def write_map_scripts(lines: LineTable, run_path: str, heads: Tuple[str, str], on_lines=lambda n, file: None,
-                      files: tuple = MAP_FILES):
-    """data.js and lines.js (`files`: only one of them) of a run: their heads (map_heads), then
-    the lines LINES_CHUNK at a time (map_rows; data.js with each line's profile, or null)."""
-    encoder = json.JSONEncoder(separators=(",", ":"))
-    want_full, want_short = "data.js" in files, "lines.js" in files
-    label = ", ".join(name for name in MAP_FILES if name in files)
-    with contextlib.ExitStack() as stack:
-        full = short = None
-        if want_full:
-            full = stack.enter_context(open(os.path.join(run_path, "data.js"), "w", encoding="utf-8"))
-            full.write(heads[0])
-        if want_short:
-            short = stack.enter_context(open(os.path.join(run_path, "lines.js"), "w", encoding="utf-8"))
-            short.write(heads[1])
-        for start in range(0, len(lines), LINES_CHUNK):
-            stop = min(start + LINES_CHUNK, len(lines))
-            separator = "," if start else ""
-            rows = map_rows(lines, start, stop)
-            profiles = lines.profiles
-            if full is not None:
-                full.write(separator + ",".join(
-                    f"[{row},{encoder.encode(profile_dict(profiles[k])) if k in profiles else 'null'}]"
-                    for k, row in enumerate(rows, start)))
-            if short is not None:
-                short.write(separator + ",".join(f"[{row}]" for row in rows))
-            on_lines(stop - start, label)
-        if full is not None:
-            full.write("]};\n")
-        if short is not None:
-            short.write("]};\n")

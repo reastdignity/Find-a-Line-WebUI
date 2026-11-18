@@ -63,7 +63,7 @@ export interface ResultColumnsProps {
   view3dOf?(model: ResultModel, line: Line): string;
   /** Buttons before the run's actions (e.g. "Edit & run again"); `compact` on phones (icons only). */
   actions?(compact: boolean): ComponentChildren;
-  /** The run's data when the caller has it (a run's map.html: its data.js); else loaded from `base`. */
+  /** The run's data when the caller has it (a run's map.html: its store); else loaded from `base`. */
   data?: RunData;
   /** The folder of the runs' folders (default "/runs/") and of this run's files (RunActionsProps). */
   base?: string;

@@ -1033,12 +1033,10 @@ def _clip_run(tmp_path, monkeypatch, *extra) -> str:
 
 
 def _lines_of(tmp_path, run_id):
-    """The rows of a run's lines as its data.js held them (since store wave 4 made from its store: old_runs)."""
-    import old_runs
-    folder = tmp_path / "runs" / run_id
-    if (folder / "data.js").is_file():  # an old run
-        return json.loads((folder / "data.js").read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";"))["lines"]
-    return old_runs.data_js(folder)["lines"]
+    """The rows of a run's lines as its data.js held them before store wave 4, made from its store
+    (tests/old_scripts.py): row[:4] the anchors, [8] the length, [-1] the profile."""
+    import old_scripts
+    return old_scripts.data_js(tmp_path / "runs" / run_id)["lines"]
 
 
 def test_profile_on_demand(tmp_path, monkeypatch):
@@ -1467,16 +1465,15 @@ def test_app_reads_area_files(tmp_path):
 XSS_NAME = "<img src=x onerror=window.XSS=1>"
 
 # Between data.js and the viewer: credits as a run records them, one with markup in its texts
-CREDITS_STUB = """
-window.FINDALINE_RUN.attribution = [
-  {data: "FABDEM V1-2", attribution: "FABDEM V1-2 © University of Bristol", licence: "CC BY-NC-SA 4.0",
-   url: "https://creativecommons.org/licenses/by-nc-sa/4.0/", notice: ""},
-  {data: "Bad", attribution: "<img src=x onerror=window.XSS=1>", licence: "<b>x</b>",
-   url: "javascript:window.XSS=2", notice: ""}];
-window.FINDALINE_RUN.ortho = {name: "Ortho test", url: null, layer: "", cache: null,
-  attribution: "<img src=x onerror=window.XSS=3> © Test", attribution_url: "https://example.invalid/terms",
-  base: {url: "https://example.invalid/{z}/{x}/{y}.jpg", max_zoom: 18}};
-"""
+CREDITS_HEAD = {
+    "attribution": [
+        {"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol", "licence": "CC BY-NC-SA 4.0",
+         "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/", "notice": ""},
+        {"data": "Bad", "attribution": "<img src=x onerror=window.XSS=1>", "licence": "<b>x</b>",
+         "url": "javascript:window.XSS=2", "notice": ""}],
+    "ortho": {"name": "Ortho test", "url": None, "layer": "", "cache": None,
+              "attribution": "<img src=x onerror=window.XSS=3> © Test", "attribution_url": "https://example.invalid/terms",
+              "base": {"url": "https://example.invalid/{z}/{x}/{y}.jpg", "max_zoom": 18}}}
 
 # The steps of a test of a run's map.html (the result view of the app, result/view/ResultColumns): each step
 # runs when its page shows what it waits for; the result (or where it stopped) goes into <pre id="result">
@@ -1576,15 +1573,8 @@ run({
     }); });
   },
   downloads(next) {
-    button("Download").click();
-    later(() => {
-      const links = $$(".r-downloads a").map((a) => a.getAttribute("href"));
-      Promise.all(links.map((href) => fetch(href).then((r) => r.status))).then((statuses) => {
-        result.downloads = links.map((href, k) => href + " " + statuses[k]);
-        button("Download").click();
-        next();
-      });
-    });
+    result.download = !!button("Download");  // a run's map.html has no token: no Download (RunActions mayExport)
+    next();
   },
   compare(next) {
     button("Compare").click();
@@ -1620,24 +1610,45 @@ run({
 """
 
 
-def _map_page(folder, name: str, script: str, before_data: str = "", after_data: str = "") -> str:
-    """A copy of the run's map.html with test scripts (`before_data` first in its head, `after_data` between
-    data.js and the viewer, `script` at the end); its file name. data.js is loaded by a tag before the viewer,
-    as a map.html written before 2026-11-04 does (the viewer takes its window.FINDALINE_RUN), so `after_data`
-    can change the data; test_run_map_loads_its_data has the viewer load it. A page that loads data.js by a tag is
-    an old run's: a run saved since store wave 4 is made one first (tests/old_runs.py "with_text": its data.js,
-    lines.js and the text files its Download links fetch, as the run of before held them)."""
-    import old_runs
-    if not (folder / "data.js").is_file():
-        old_runs.make_old(folder, "with_text")
+def store_with(folder, head: dict | None = None, first: dict | None = None):
+    """The run's lines.arrow with the keys `head` set in its head and the first line's values `first` ({the store's
+    column: the value}, scaled by the column's decimals) set: what a test once changed in data.js before the page read
+    it. run.json's block "store" is kept (the page checks no digest)."""
+    import pyarrow as pa
+    import linestore
+    path = str(folder / linestore.LINES_FILE)
+    with pa.OSFile(path, "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    meta = json.loads(table.schema.metadata[linestore.META_KEY])
+    meta["head"].update(head or {})
+    for name, value in (first or {}).items():
+        k = table.schema.get_field_index(name)
+        field = table.schema.field(k)
+        decimals = (field.metadata or {}).get(b"decimals")
+        values = table.column(k).to_pylist()
+        values[0] = round(value * 10 ** int(decimals)) if decimals else value
+        try:
+            array = pa.array(values, type=field.type)
+        except (OverflowError, pa.ArrowInvalid):  # beyond the column's narrow integers: int32, as the store widens
+            field = field.with_type(pa.int32())
+            array = pa.array(values, type=field.type)
+        table = table.set_column(k, field, array)
+    linestore._write_file(path, table.replace_schema_metadata(
+        {linestore.META_KEY: json.dumps(meta, ensure_ascii=False).encode("utf-8")}))
+
+
+def _map_page(folder, name: str, script: str, before_data: str = "", head: dict | None = None,
+              first: dict | None = None) -> str:
+    """A copy of the run's map.html with test scripts (`before_data` first in its head, `script` at the end); its file
+    name. The page reads the run's store over http; `head` and `first` change the store first (store_with)."""
+    if head or first:
+        store_with(folder, head, first)
     page = (folder / "map.html").read_text(encoding="utf-8")
     assert "<style" not in page and " style=" not in page and 'src="data.js"' not in page
-    for suffix, content in (("before", before_data), ("after", after_data), ("test", script)):
+    for suffix, content in (("before", before_data), ("test", script)):
         (folder / f"{name}_{suffix}.js").write_text(content, encoding="utf-8")
     (folder / f"{name}.html").write_text(
         page.replace("<head>", f'<head><script src="{name}_before.js"></script>')
-            .replace('<script src="../runs.js"></script>',
-                     f'<script src="data.js"></script><script src="{name}_after.js"></script><script src="../runs.js"></script>')
             .replace("</body>", f'<script src="{name}_test.js"></script></body>'), encoding="utf-8")
     return f"{name}.html"
 
@@ -1655,8 +1666,8 @@ def test_run_map(tmp_path, monkeypatch):
     """A run's map.html served by the app shows the app's result view (C's columns): the way back to the app, the
     credits of its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the
     filters named and opened, a row selects its line (the details' column, the profile in its card over the bottom
-    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, the downloads
-    beside it, another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
+    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, no
+    Download (a map.html has no token), another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
     data credits are not folded while no card is shown; without ESRI_API_KEY no satellite layer."""
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
@@ -1666,7 +1677,7 @@ def test_run_map(tmp_path, monkeypatch):
     folder = tmp_path / "runs" / run_id
     assert (folder / "ATTRIBUTION.txt").exists()
     filters = 'localStorage.setItem("findaline.filters", \'{"lenMin": 100000}\');'
-    page = _map_page(folder, "map_test", MAP_SCRIPT, before_data=CSP_STUB + filters, after_data=CREDITS_STUB)
+    page = _map_page(folder, "map_test", MAP_SCRIPT, before_data=CSP_STUB + filters, head=CREDITS_HEAD)
     line = ",".join(str(v) for v in row[:4])
     dom = _edge_page(tmp_path, f"runs/{run_id}/{page}#line={line}", start_scheduler=True, size="1280,800")
     r = _result_in(dom)
@@ -1689,7 +1700,7 @@ def test_run_map(tmp_path, monkeypatch):
     assert r["card"] == {"insets": [12, 12, 12], "inDetails": False, "attributionAbove": True}, r
     assert r["creditsWithCard"]["button"] != "none" and r["creditsWithCard"]["credits"] == "none", r
     assert r["favouritesOn"] and r["favourite"], r
-    assert sorted(r["downloads"]) == ["lines.csv 200", "lines.geojson 200"], r
+    assert r["download"] is False, r
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], r
     assert r["otherLines"] > 0 and r["xss"] is None and r["imgs"] == 0, r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
@@ -1751,7 +1762,7 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
     monkeypatch.setenv("ESRI_API_KEY", key)
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
-    page = _map_page(folder, "phone_test", PHONE_CREDITS_SCRIPT, before_data=CSP_STUB, after_data=CREDITS_STUB)
+    page = _map_page(folder, "phone_test", PHONE_CREDITS_SCRIPT, before_data=CSP_STUB, head=CREDITS_HEAD)
     dom = _edge_page(tmp_path, f"runs/{run_id}/{page}", size="500,900")
     r = _result_in(dom)
     assert "timeout" not in r and r.get("at") == "end", r
@@ -1776,65 +1787,8 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
                 assert key.encode() not in f.read(), name
 
 
-# A map opened from disk: no server, so no profiles, measuring or favourites; the other runs from ../runs.js
-DISK_SCRIPT = MAP_HELPERS + """
-run({
-  loaded(next) { wait(() => rows().length && model() && $(".u-credits"), () => {  // the credits come with the map
-    result.spots = model().shown.spots;
-    result.back = backs();
-    result.measure = !!button("Measure");
-    result.favouritesOn = model().favouritesOn;
-    result.canCompute = model().canCompute;
-    result.credits = credits().links;
-    next();
-  }); },
-  select(next) {
-    rows()[0].click();
-    wait(() => $(".c-col-details .r-dtitle") && $(".r-card .fal-profile-title"), () => {
-      result.profile = text(".r-card .fal-profile-title");
-      result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
-      next();
-    });
-  },
-  compare(next) {
-    button("Compare").click();
-    wait(() => $(".r-other input"), () => {
-      $(".r-other input").click();
-      wait(() => model().others.size === 1, () => { result.otherLines = [...model().others.values()][0].count; next(); });
-    });
-  },
-});
-"""
-
-
-@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_run_map_from_disk(tmp_path, monkeypatch):
-    """A run's map.html opened from disk (file://): the way back is the list of runs beside it, no measuring or
-    favourites (no server), the saved profile of a line, its hash, and another run compared from its lines.js. Old
-    runs (saved before store wave 4, tests/old_runs.py) open so from disk until item 5 ends the reader of data.js."""
-    import subprocess
-
-    import old_runs
-    run_id = _clip_run(tmp_path, monkeypatch)
-    other = _clip_run(tmp_path, monkeypatch, "--easting", "554066")
-    old_runs.make_old(tmp_path / "runs" / other, "with_text")
-    folder = tmp_path / "runs" / run_id
-    page = _map_page(folder, "disk_test", DISK_SCRIPT, before_data=INTROS_SEEN, after_data=CREDITS_STUB)
-    dom = subprocess.run(
-        [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-         "--window-size=1280,800", "--allow-file-access-from-files", "--virtual-time-budget=60000", "--dump-dom",
-         (folder / page).as_uri()], capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
-    r = _result_in(dom)
-    assert "timeout" not in r and r["at"] == "end", r
-    assert r["spots"] > 0 and r["back"] == ["All runs"], r
-    assert not r["measure"] and not r["favouritesOn"] and not r["canCompute"], r
-    assert "ATTRIBUTION.txt" in r["credits"], r
-    assert r["profile"].startswith("Profile: ") and r["hash"], r
-    assert r["otherLines"] > 0, r
-
-
-# On a map.html as written (the viewer loads data.js itself): the loading's texts the page showed, then the run's
-# lines and how data.js was read (the User Timing measures of result/load.ts)
+# On a map.html as written (the viewer loads the run's store itself): the loading's texts the page showed, then the
+# run's lines and how the store was read (the User Timing measures of result/load.ts), or the error it showed
 LOAD_SCRIPT = MAP_HELPERS + """
 const seen = [];
 const note = () => {
@@ -1842,14 +1796,16 @@ const note = () => {
   if (label && seen[seen.length - 1] !== label) seen.push(label);
   result.seen = seen;  // also in a timeout's result
   result.errors = [text(".c-result-wait .c-error")].filter(Boolean);
+  result.asked = performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname.split("/").pop())
+    .filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f));
 };
 new MutationObserver(note).observe(document.body, {childList: true, subtree: true, characterData: true});
 note();
 step = "loading";
-wait(() => model() && rows().length > 0, () => {
+wait(() => (model() && rows().length > 0) || result.errors.length, () => {
   step = "end";
-  result.seen = seen;
-  result.lines = model().count;
+  note();
+  result.lines = model() ? model().count : null;
   result.measures = performance.getEntriesByType("measure").filter((m) => m.name.startsWith("fal:run:"))
     .map((m) => [m.name, m.detail]);
   show();
@@ -1858,32 +1814,20 @@ wait(() => model() && rows().length > 0, () => {
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_run_map_loads_its_data(tmp_path, monkeypatch):
-    """A run's map.html as written loads its data.js itself: from the app fetched with its bytes counted and read
-    by JSON.parse, the loading's phases shown; a data.js with NaN (which JSON.parse refuses) loaded as a script
-    instead; from disk as a script; a missing data.js named. Each shows every line; no CSP violations."""
+def test_run_map_loads_its_store(tmp_path, monkeypatch):
+    """A run's map.html as written loads its store itself (store wave 4's item 5: no data.js): its two files fetched
+    with their bytes counted, the loading's phases shown, every line; a run without a store (its files gone) shows
+    ui.result.store_failed's words and asks for no data.js or lines.js; no CSP violations."""
     import shutil
-    import subprocess
+    import linestore
     run_id = _clip_run(tmp_path, monkeypatch)
     folder = tmp_path / "runs" / run_id
-    rows = len(_lines_of(tmp_path, run_id))
-    import old_runs  # since store wave 4 an old run's (saved before the store: tests/old_runs.py) until item 5
-    old_runs.make_old(folder, "with_text")
-    import runs as rn  # data.js is what this test loads: the run as one without a store (a store is read instead)
-    meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
-    meta.pop("store", None)
-    (folder / "run.json").write_text(json.dumps(meta), encoding="utf-8")
-    for name in ("lines.arrow", "profiles.arrow"):  # and its files: the copies below are not in runs.js, and a run
-        (folder / name).unlink()                   # outside the list asks for its store's files (load.ts storeOf)
-    rn.write_index(str(tmp_path / "runs"))
-    nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
-    shutil.copytree(folder, nan)
+    rows = json.loads((folder / "run.json").read_text(encoding="utf-8"))["store"]["lines"]
+    missing = tmp_path / "runs" / (run_id + "-missing")  # not in runs.js: its store asked for directly (STORE_PROBE)
     shutil.copytree(folder, missing)
-    text = (nan / "data.js").read_text(encoding="utf-8")
-    (nan / "data.js").write_text(text.replace("window.FINDALINE_RUN = {", 'window.FINDALINE_RUN = {"probe":NaN,', 1),
-                                 encoding="utf-8")
-    (missing / "data.js").unlink()
-    for where in (folder, nan, missing):
+    for name in linestore.FILES:
+        (missing / name).unlink()
+    for where in (folder, missing):
         page = (where / "map.html").read_text(encoding="utf-8")
         assert 'src="data.js"' not in page
         (where / "load_stub.js").write_text(CSP_STUB, encoding="utf-8")
@@ -1891,37 +1835,25 @@ def test_run_map_loads_its_data(tmp_path, monkeypatch):
         (where / "load.html").write_text(page.replace("<head>", '<head><script src="load_stub.js"></script>')
                                          .replace("</body>", '<script src="load_test.js"></script></body>'), encoding="utf-8")
 
-    def measures(r):
-        return {name: detail for name, detail in r["measures"]}
-
     dom = _edge_page(tmp_path, f"runs/{run_id}/load.html", size="1280,800")
     r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
+    assert r.get("at") == "end" and r["lines"] == rows and r["errors"] == [], r
     assert any(label.startswith("Downloading the run… ") and " of " in label for label in r["seen"]), r
     assert "Reading the lines…" in r["seen"] and "Grouping the lines…" in r["seen"], r
-    found = measures(r)
-    assert found["fal:run:parse"] == {"json": True} and "fal:run:script" not in found, r
-    assert found["fal:run:download"]["bytes"] == (folder / "data.js").stat().st_size, r
+    found = {name: detail for name, detail in r["measures"]}
+    sizes = sum((folder / name).stat().st_size for name in linestore.FILES)
+    assert found["fal:run:download"] == {"bytes": sizes, "store": True} and "fal:run:script" not in found, r
+    assert sorted(r["asked"]) == ["lines.arrow", "profiles.arrow"], r
     assert _violations(dom) == []
 
-    dom = _edge_page(tmp_path, f"runs/{nan.name}/load.html", size="1280,800", profile="edge-nan")
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    dom = _edge_page(tmp_path, f"runs/{missing.name}/load.html", size="1280,800", profile="edge-missing")
     r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
-    found = measures(r)
-    assert found["fal:run:parse"] == {"json": False} and "fal:run:script" in found, r
+    assert r.get("at") == "end" and r["lines"] is None and r["errors"] == [words], r
+    assert sorted(r["asked"]) == ["lines.arrow", "profiles.arrow"], r  # the probe's two 404s, nothing else
     assert _violations(dom) == []
 
-    r = _result_in(_edge_page(tmp_path, f"runs/{missing.name}/load.html", size="1280,800", profile="edge-missing"))
-    assert r.get("timeout") and r["errors"] == ["The run's data (data.js) could not be loaded."], r
-
-    dom = subprocess.run(
-        [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge-disk'}", "--no-first-run",
-         "--window-size=1280,800", "--allow-file-access-from-files", "--virtual-time-budget=60000", "--dump-dom",
-         (folder / "load.html").as_uri()], capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
-    r = _result_in(dom)
-    assert r.get("at") == "end" and r["lines"] == rows, r
-    found = measures(r)
-    assert "fal:run:script" in found and "fal:run:download" not in found, r
 
 FAVOURITES_TAB_SCRIPT = """
 (function () {

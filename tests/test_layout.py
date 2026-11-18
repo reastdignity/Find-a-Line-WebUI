@@ -212,7 +212,7 @@ console.log(JSON.stringify({
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
-from test_viewer import clip_data  # noqa: E402,F401  (a run of the Żabi Koń clip, the fixture)
+from test_viewer import clip_data, clip_folder  # noqa: E402,F401  (a run of the Żabi Koń clip, the fixtures)
 
 
 def _playwright() -> bool:
@@ -221,7 +221,7 @@ def _playwright() -> bool:
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
-def test_profile_card_in_edge(tmp_path, clip_data):
+def test_profile_card_in_edge(tmp_path, clip_data, clip_folder):
     """result/view/ProfileCard in headless Edge on a test page of a run served by the app (its CSP), over a Leaflet
     map in a box of 1000 × 700 px: the top edge's keys and pointer change the card's height and the chart follows,
     Home/End go to its limits (the chart keeps 120 px), the side edges move one inset each (a double click resets
@@ -232,7 +232,9 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     run_id = data["run"]["id"]
     folder = tmp_path / "runs" / run_id
     folder.mkdir(parents=True)
-    (folder / "data.js").write_text(f"window.FINDALINE_RUN = {text};\n", encoding="utf-8")
+    import linestore
+    for name in linestore.FILES:  # the run's store: not in a list of runs, so loadRun asks for its files directly
+        shutil.copyfile(clip_folder / name, folder / name)
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/profilecard_page.tsx'], "
                                   "bundle: true, format: 'iife', target: 'es2020', "
                                   "loader: {'.png': 'dataurl', '.svg': 'text', '.woff2': 'file'}, "

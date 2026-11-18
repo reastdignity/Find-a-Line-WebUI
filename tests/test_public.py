@@ -692,8 +692,7 @@ def clip_run(tmp_path_factory):
 
 
 def copy_run(clip_run, data_dir, run_id: str, name: str):
-    """The clip's run as another run of a data folder (its id and name changed; its id in its store's head too, and
-    in data.js and lines.js of an old run, tests/old_runs.py, as the page reads either)."""
+    """The clip's run as another run of a data folder (its id and name changed; its id in its store's head too)."""
     import hashlib
     import shutil
     import pyarrow as pa
@@ -702,9 +701,6 @@ def copy_run(clip_run, data_dir, run_id: str, name: str):
     shutil.copytree(clip_run, folder)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta.update(id=run_id, name=name)
-    for script in ("data.js", "lines.js"):  # an old run's (saved before store wave 4)
-        if (folder / script).is_file():
-            (folder / script).write_text((folder / script).read_text("utf-8").replace(clip_run.name, run_id), "utf-8")
     if meta.get("store"):
         path = folder / linestore.LINES_FILE
         with pa.OSFile(str(path), "rb") as f:
@@ -725,12 +721,10 @@ RUN_A, RUN_B, RUN_OLD = "2026-10-01_100000_A_00000000000000aa", "2026-10-01_1000
 def run_people(tmp_path, clip_run, settings, account_settings, providers):
     """A public app over a data folder with a run of A, one of B and one from before the public mode
     (no row: given to the first administrator when the app starts), with a client per person. The runs hold every
-    file of web.RUN_FILES: runs of before store wave 4 (tests/old_runs.py "with_text"), which the site serves until
-    item 5 ends their reader."""
-    import old_runs
+    file of web.RUN_FILES (a run's files since store wave 4)."""
     from jobs import Jobs
     for run_id, name in ((RUN_A, "A's run"), (RUN_B, "B's run"), (RUN_OLD, "Old run")):
-        old_runs.make_old(copy_run(clip_run, tmp_path, run_id, name), "with_text")
+        copy_run(clip_run, tmp_path, run_id, name)
     (tmp_path / "runs" / RUN_A / "progress.json").write_text("{}")
     (tmp_path / "runs" / RUN_A / "tiles").mkdir()
     (tmp_path / "runs" / RUN_A / "tiles" / "0.pkl.gz").write_bytes(b"x")
@@ -777,10 +771,14 @@ def test_run_files_behind_access_control(run_people, tmp_path):
     assert run_people["anonymous"].get("/runs/_viewer/viewer.js").status_code == 200
     assert a.get("/runs/_viewer/../jobs.sqlite").status_code == 404
 
-    whole = a.get(f"/runs/{RUN_A}/lines.csv")
-    part = a.get(f"/runs/{RUN_A}/lines.csv", headers={"range": "bytes=0-9"})
+    whole = a.get(f"/runs/{RUN_A}/lines.arrow")
+    part = a.get(f"/runs/{RUN_A}/lines.arrow", headers={"range": "bytes=0-9"})
     assert part.status_code == 206 and part.content == whole.content[:10]
-    assert a.get(f"/runs/{RUN_A}/lines.csv", headers={"if-none-match": whole.headers["etag"]}).status_code == 304
+    assert a.get(f"/runs/{RUN_A}/lines.arrow", headers={"if-none-match": whole.headers["etag"]}).status_code == 304
+    # the files of runs of before store wave 4 are no run's files since its item 5, even where one is left
+    (tmp_path / "runs" / RUN_A / "data.js").write_text("window.FINDALINE_RUN = {};", "utf-8")
+    for name in ("data.js", "lines.js", "lines.csv", "lines.geojson"):
+        assert name not in web.RUN_FILES and a.get(f"/runs/{RUN_A}/{name}").status_code == 404, name
 
     listed = a.get("/runs/runs.js")
     assert listed.status_code == 200 and listed.headers["content-type"].startswith("text/javascript")
@@ -810,11 +808,11 @@ def test_run_file_path_tricks(run_people, tmp_path):
     for path in tricks:
         assert a.get(path).status_code == 404, path
     try:
-        os.symlink(tmp_path / "secret.txt", tmp_path / "runs" / RUN_A / "lines.geojson.tmp")
-        os.replace(tmp_path / "runs" / RUN_A / "lines.geojson.tmp", tmp_path / "runs" / RUN_A / "lines.geojson")
+        os.symlink(tmp_path / "secret.txt", tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt.tmp")
+        os.replace(tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt.tmp", tmp_path / "runs" / RUN_A / "ATTRIBUTION.txt")
     except OSError:  # Windows without the privilege of symbolic links
         pytest.skip("no symbolic links here")
-    answer = a.get(f"/runs/{RUN_A}/lines.geojson")
+    answer = a.get(f"/runs/{RUN_A}/ATTRIBUTION.txt")  # a name the site serves
     assert answer.status_code == 404 and "secret" not in answer.text
 
 
@@ -2935,31 +2933,37 @@ def test_odd_input_is_no_server_error(tmp_path, settings, account_settings, prov
     with TestClient(web.create_app(str(tmp_path / "local"), token=TOKEN, start_scheduler=False),
                     base_url="http://testserver") as local:
         assert local.get("/").status_code == 400
-    assert a.get(f"/runs/{RUN_A}/data.js").status_code == 200
-    assert a.get(f"/runs//{RUN_A}/data.js").status_code == 404
+    assert a.get(f"/runs/{RUN_A}/lines.arrow").status_code == 200
+    assert a.get(f"/runs//{RUN_A}/lines.arrow").status_code == 404
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     anonymous = run_people["anonymous"]
-    assert anonymous.get(f"/s/{token}/data.js").status_code == 200
-    assert anonymous.get(f"/s//{token}/data.js").status_code == 404
+    assert anonymous.get(f"/s/{token}/lines.arrow").status_code == 200
+    assert anonymous.get(f"/s//{token}/lines.arrow").status_code == 404
 
 
-def test_run_scripts_carry_their_size(run_people):
-    """A run's data.js, also by its share link, carries its size before compression (web.SIZE_HEADER: nginx
-    gzips it on the fly and drops Content-Length, the page's progress bar counts against it); map.html none."""
+def test_run_store_carries_its_size(run_people):
+    """A run's store, also by its share link, carries its size before compression (web.SIZE_HEADER: nginx gzips it on
+    the fly and drops Content-Length, the page's progress bar counts against it): web.SIZED_FILES are the store's two
+    files alone since store wave 4's item 5; map.html none."""
     a, anonymous = run_people["a"], run_people["anonymous"]
+    assert web.SIZED_FILES == ("lines.arrow", "profiles.arrow")
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
-    for client, path in ((a, f"/runs/{RUN_A}/data.js"), (anonymous, f"/s/{token}/data.js")):
-        answer = client.get(path)
-        assert answer.status_code == 200 and answer.headers[web.SIZE_HEADER] == str(len(answer.content)), path
+    for name in web.SIZED_FILES:
+        for client, path in ((a, f"/runs/{RUN_A}/{name}"), (anonymous, f"/s/{token}/{name}")):
+            answer = client.get(path)
+            assert answer.status_code == 200 and answer.headers[web.SIZE_HEADER] == str(len(answer.content)), path
     assert web.SIZE_HEADER not in a.get(f"/runs/{RUN_A}/map.html").headers
 
 
 def test_run_store_for_its_owner(run_people, tmp_path):
     """A run's store (lines.arrow, profiles.arrow) goes to its owner (and by the owner's share link) as a run's
     other files, with its media type and its size before compression (web.SIZE_HEADER); to no one else. A run
-    of before, without a store, answers 404 for it and opens as before (its data.js; listed with its lines)."""
+    of before, without a store, answers 404 for it and for its data.js (store wave 4's item 5: no reader of it), and is
+    listed without lines (has_lines: lines.arrow alone)."""
     a, b, anonymous = run_people["a"], run_people["b"], run_people["anonymous"]
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    import old_scripts
+    old_scripts.write_scripts(tmp_path / "runs" / RUN_B)  # what a run of before held
     for name in ("lines.arrow", "profiles.arrow"):
         stored = (tmp_path / "runs" / RUN_A / name).read_bytes()
         for client, path in ((a, f"/runs/{RUN_A}/{name}"), (anonymous, f"/s/{token}/{name}")):
@@ -2971,9 +2975,9 @@ def test_run_store_for_its_owner(run_people, tmp_path):
             assert run_people[who].get(f"/runs/{RUN_A}/{name}").status_code == 404, (who, name)
         os.remove(tmp_path / "runs" / RUN_B / name)
         assert b.get(f"/runs/{RUN_B}/{name}").status_code == 404
-    assert b.get(f"/runs/{RUN_B}/data.js").status_code == 200
+    assert b.get(f"/runs/{RUN_B}/data.js").status_code == 404 and (tmp_path / "runs" / RUN_B / "data.js").is_file()
     import runs as rn
-    assert {r["id"]: r["has_lines"] for r in rn.list_runs(str(tmp_path / "runs"))}[RUN_B] is True  # its lines.js
+    assert {r["id"]: r["has_lines"] for r in rn.list_runs(str(tmp_path / "runs"))}[RUN_B] is False  # no lines.arrow
 
 
 def test_referrer_is_the_origin_only(run_people):
@@ -2993,7 +2997,7 @@ def test_cache_control(run_people, tmp_path):
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     expected = [(a, "/", "no-store"), (anonymous, "/", "no-cache"), (a, "/api/jobs", "no-store"),
                 (anonymous, "/api/jobs", "no-store"), (a, "/runs/runs.js", "no-store"),
-                (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/data.js", "private, no-cache"),
+                (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/lines.arrow", "private, no-cache"),
                 (anonymous, f"/s/{token}/map.html", "private, no-cache"), (anonymous, "/s/runs.js", "no-cache"),
                 (anonymous, "/runs/_viewer/viewer.js", "no-cache"), (anonymous, "/app/app.js", "no-cache"),
                 (anonymous, "/privacy", "no-cache"), (a, "/view3d", "no-store")]
@@ -4169,7 +4173,7 @@ def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
     from settings import Limits
     a, b, admin, anonymous = run_people["a"], run_people["b"], run_people["admin"], run_people["anonymous"]
     jobs, ids = run_people["jobs"], run_people["ids"]
-    csv = (tmp_path / "runs" / RUN_A / "lines.csv").read_bytes()
+    csv = exported(tmp_path / "runs" / RUN_A, "csv", tmp_path / "expected")
     token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
     for who, code in (("anonymous", 401), ("pending", 403), ("blocked", 403), ("b", 404)):
         assert run_people[who].post(f"/api/runs/{RUN_A}/export", json={"format": "csv"}).status_code == code, who
@@ -4200,7 +4204,7 @@ def test_exports_of_the_public_site(run_people, tmp_path, monkeypatch):
         by_admin = admin.post(f"/api/runs/{RUN_A}/export", json={"format": "geojson"}).json()["url"]
         assert admin.get(by_admin).content == exported(tmp_path / "runs" / RUN_A, "geojson", tmp_path)
         demo = a.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).json()["url"]  # a demo run of B's
-        assert a.get(demo).content == (tmp_path / "runs" / RUN_B / "lines.csv").read_bytes()
+        assert a.get(demo).content == exported(tmp_path / "runs" / RUN_B, "csv", tmp_path / "expected")
         assert anonymous.post(f"/api/runs/{RUN_B}/export", json={"format": "csv"}).status_code == 401
     events = [e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "run_export"]
     assert [(e["user_id"], e["target"], e["detail"]) for e in events] == [

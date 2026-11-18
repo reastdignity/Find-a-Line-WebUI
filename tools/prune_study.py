@@ -175,7 +175,8 @@ for _k in ("1", "2"):
                         f"anchor{_k}_prominence_m": "prom" + _k, f"anchor{_k}_drop_m": "drop" + _k})
 INT_COLUMNS = ("group", "group_size")
 BOOL_COLUMNS = ("representative", "over_obstacles")
-# A row of lines.js (mapping.map_rows): the positions of the values the grouping reads, unrounded
+# A row of lines.js (mapping.map_rows of before store wave 4's item 5, tests/old_scripts.py): the positions of the
+# values the grouping reads, unrounded
 JS_COLUMNS = {4: "x1", 5: "y1", 6: "x2", 7: "y2", 8: "length", 9: "clearance", 16: "height_max"}
 # A capture's lines.npz (tools/truth_study.py save_lines): its names that differ from the table's
 CAPTURE_COLUMNS = {"over": "over_obstacles", "rep": "representative"}

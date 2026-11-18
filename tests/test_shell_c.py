@@ -107,46 +107,24 @@ def _write_store(folder, lines, profiles, meta) -> dict:
 
 
 def drop_store(data_dir, run_id: str):
-    """The run as one saved before the store (2026-11-15) or whose store failed: no "store" in run.json, so the
-    page reads its data.js (the files stay: a store without the block is never read); runs.js written again. A run
-    saved since store wave 4 gets the files of a run of before first (tests/old_runs.py: data.js, lines.js,
-    lines.csv, lines.geojson)."""
+    """The run as one saved before the store (2026-11-15), as old runs are until `findaline.py runs remove-old`
+    removes them: no lines.arrow, profiles.arrow or run.json's block "store" (tests/old_runs.py); runs.js written
+    again. The page reads no other file of a run since store wave 4's item 5: such a run shows that it could not be
+    loaded."""
     import old_runs
     runs = os.path.join(str(data_dir), "runs")
-    if not os.path.isfile(os.path.join(runs, run_id, "data.js")):
-        old_runs.write_scripts(os.path.join(runs, run_id))
-        old_runs.write_text(os.path.join(runs, run_id))
-    path = os.path.join(runs, run_id, "run.json")
-    with open(path, encoding="utf-8") as f:
-        meta = json.load(f)
-    meta.pop("store", None)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f)
+    old_runs.drop_store(os.path.join(runs, run_id))
     rn.write_index(runs)
 
 
 def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMALL, name: str = "Small run") -> str:
     """A copy of a run with its first `lines` lines only (SMALL): its store when the run has one (the rows and their
-    profiles cut, the head's run renamed), and its data.js and lines.js when it has them (an old run, saved before
-    store wave 4); runs.js written again."""
+    profiles cut, the head's run renamed); runs.js written again."""
     runs = os.path.join(str(data_dir), "runs")
     src, dst = os.path.join(runs, run_id), os.path.join(runs, small)
     shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("data.js", "lines.js", "*.arrow"))
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("*.arrow"))
     renamed = {"id": small, "name": name, "created": "2026-10-28T12:00:00"}
-    if os.path.isfile(os.path.join(src, "data.js")):
-        with open(os.path.join(src, "data.js"), encoding="utf-8") as f:
-            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-        data["lines"] = data["lines"][:lines]
-        data["run"].update(renamed)
-        with open(os.path.join(dst, "data.js"), "w", encoding="utf-8") as f:
-            f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
-    if os.path.isfile(os.path.join(src, "lines.js")):
-        with open(os.path.join(src, "lines.js"), encoding="utf-8") as f:
-            body = json.loads(f.read().partition("] = ")[2].rstrip().rstrip(";"))
-        body["lines"] = body["lines"][:lines]
-        with open(os.path.join(dst, "lines.js"), "w", encoding="utf-8") as f:
-            f.write(f'(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})["{small}"] = {json.dumps(body)};\n')
     with open(os.path.join(dst, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     meta.update(id=small, name=name, created="2026-10-28T12:00:00")
@@ -209,8 +187,8 @@ def big_clip(tmp_path_factory):
 
 
 def copy_clip(clip, data_dir, run_id: str, name: str):
-    """copy_run (the store's head under the new id, and an old run's data.js and lines.js), the viewer installed for
-    its map.html (as save_run's map does) and runs.js written."""
+    """copy_run (the store's head under the new id), the viewer installed for its map.html (as save_run's map does)
+    and runs.js written."""
     import mapping
     folder = copy_run(clip, data_dir, run_id, name)
     mapping.install_viewer(str(data_dir / "runs"))
@@ -516,15 +494,10 @@ def test_shell_c_phone(data, tmp_path):
 
 
 def first_line(data_dir, run_id: str) -> str:
-    """The link of the run's first line (keys.ts lineCoords: its anchors joined): of its store (the int32 of 1e-7
-    degree: the doubles of data.js's 7-decimal text), or of an old run's data.js."""
+    """The link of the run's first line (keys.ts lineCoords: its anchors joined) from its store (the int32 of 1e-7
+    degree: the doubles of data.js's 7-decimal text before store wave 4)."""
     import linestore
     folder = os.path.join(str(data_dir), "runs", run_id)
-    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)) or \
-            "store" not in json.load(open(os.path.join(folder, "run.json"), encoding="utf-8")):
-        with open(os.path.join(folder, "data.js"), encoding="utf-8") as f:
-            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-        return ",".join(str(v) for v in data["lines"][0][:4])
     lines, _ = linestore.read(folder, profiles=False)
     return ",".join(str(v) for v in [*lines.columns["anchor1"][0].tolist(), *lines.columns["anchor2"][0].tolist()])
 
@@ -613,8 +586,8 @@ def test_shell_c_link_outside_the_run(data, tmp_path):
     assert r["csp"] == []
 
 
-# Chromium hands the text of an XHR over its longest string (about 537 M characters) as "" with no error: data.js
-# answered so here (the real download goes on, its bytes counted), and every script loading a data.js recorded
+# A body the browser cannot hold: the XHR's response of lines.arrow null although its bytes came (an ArrayBuffer the
+# browser could not allocate; result/load.ts TooLarge), and every script loading a data.js recorded (none may come)
 TOO_LARGE_STUBS = C_STUBS + r"""
 window.DATA_SCRIPTS = [];
 new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => {
@@ -622,16 +595,16 @@ new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n
 }))).observe(document.documentElement, {childList: true, subtree: true});
 const realOpen = XMLHttpRequest.prototype.open;
 const realResponse = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "response");
-XMLHttpRequest.prototype.open = function (method, url) { this.dataJs = /data\.js$/.test(String(url)); return realOpen.apply(this, arguments); };
+XMLHttpRequest.prototype.open = function (method, url) { this.lines = /lines\.arrow$/.test(String(url)); return realOpen.apply(this, arguments); };
 Object.defineProperty(XMLHttpRequest.prototype, "response",
-                      {configurable: true, get() { return this.dataJs ? "" : realResponse.get.call(this); }});
+                      {configurable: true, get() { return this.lines ? null : realResponse.get.call(this); }});
 """
 
 TOO_LARGE_SCRIPT = """
 run({
-  // the text shown after the download's measure (load.ts: the check comes right after it; a script would be added
-  // before the load fails), and the error announced (role="alert")
-  shown(next) { wait(() => text(".c-result-wait .c-error") && performance.getEntriesByName("fal:run:download").length, () => {
+  // the text shown after the download's measure is due (load.ts: the check comes right after the download), and the
+  // error announced (role="alert")
+  shown(next) { wait(() => text(".c-result-wait .c-error"), () => {
     result.text = text(".c-result-wait .c-error");
     result.alert = ($(".c-result-wait .c-error") || {getAttribute: () => null}).getAttribute("role");
     result.scripts = DATA_SCRIPTS.slice();
@@ -644,13 +617,12 @@ run({
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_too_large(data, tmp_path):
-    """A run whose data.js arrives as an empty text over http (Chromium's string limit; result/load.ts TooLarge):
+    """A run whose store's body the browser cannot hold over http (a null ArrayBuffer; result/load.ts TooLarge):
     the app's result page and the run's map.html show "This result is too large for this browser." and load no
-    data.js by a script (which crashed the tab); no CSP violations."""
+    data.js; no CSP violations."""
     import mapping
     with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
         words = json.load(f)["ui.result.too_large"]
-    drop_store(data, SMALL)  # data.js is the file read (a run with a store reads no text)
     page = stub_page(data, "ctoolarge", TOO_LARGE_SCRIPT, TOO_LARGE_STUBS)
     folder = data / "runs" / SMALL  # its own map.html, the stubs first
     mapping.install_viewer(str(data / "runs"))
@@ -669,7 +641,7 @@ def test_shell_c_too_large(data, tmp_path):
         assert r["csp"] == []
 
 
-OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (data.js)
+OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (an old run)
 RUN_DATA = ("lines.arrow", "profiles.arrow", "data.js", "lines.js")  # the files of a run's lines
 
 # The files of a run the page asked for (its resource timing), the lines and spots shown, the downloads' measures
@@ -692,8 +664,8 @@ run({
     location.hash = "#run=" + OLD;
     next();
   }); },
-  old(next) { wait(() => model() && model().runId === OLD && $(".c-col-list .r-rows .r-row") && credited(), () => {
-    result.old = shown(OLD);
+  old(next) { wait(() => text(".c-result-wait .c-error"), () => {
+    result.old = {files: files(OLD), text: text(".c-result-wait .c-error"), model: !!(model() && model().runId === OLD)};
     next();
   }); },
 });
@@ -707,17 +679,15 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_store_or_data_js(data, tmp_path):
+def test_shell_c_store_or_none(data, tmp_path):
     """Which file a run is read from over http (result/load.ts storeOf): a run with a store (run.json's block
-    "store" in runs.js) from lines.arrow and profiles.arrow, its data.js never asked for, in the app and in its own
-    map.html; a run without one from data.js, no store file asked for; both show the same lines, spots and first
-    line, and the store's head (the credits); no CSP violations. OLD's data.js is made from the store
-    (tests/old_runs.py); the store's fidelity to the search is held by test_linestore's
-    test_store_round_trip_of_the_clip, test_store_round_trip and test_units.py::test_saved_text_as_before."""
+    "store" in runs.js) from lines.arrow and profiles.arrow, in the app and in its own map.html, the same lines,
+    spots, first line and the store's head (the credits); a run without one (an old run until `runs remove-old`
+    removes it) asks for its store's files directly and shows that its data could not be loaded
+    (ui.result.store_failed), no data.js or lines.js asked for (store wave 4's item 5); no CSP violations."""
     small_copy(data, BIG, small=OLD)
     drop_store(data, OLD)
     add_credits(data, SMALL)
-    add_credits(data, OLD)
     page = stub_page(data, "cwhich", WHICH_FILE_SCRIPT % {"small": SMALL, "old": OLD})
     folder = data / "runs" / SMALL  # its own map.html with the test after it
     mapping_html = (folder / "map.html").read_text(encoding="utf-8")
@@ -738,11 +708,13 @@ def test_shell_c_store_or_data_js(data, tmp_path):
     for got in (store, map_):
         assert sorted(f for f in got["files"] if f in RUN_DATA) == ["lines.arrow", "profiles.arrow"], got
         assert got["downloads"] == [True], got
-    assert [f for f in old["files"] if f in RUN_DATA] == ["data.js"], old
-    assert old["downloads"] == [True, False], old  # the store's download, then data.js's
-    assert store["lines"] == old["lines"] == map_["lines"] == SMALL_LINES
-    assert store["spots"] == old["spots"] == map_["spots"] and store["first"] == old["first"] == map_["first"]
-    for got in (store, old, map_):
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert {**old, "files": sorted(old["files"])} == {"files": ["lines.arrow", "profiles.arrow"], "text": words,
+                                                       "model": False}, old
+    assert store["lines"] == map_["lines"] == SMALL_LINES
+    assert store["spots"] == map_["spots"] and store["first"] == map_["first"]
+    for got in (store, map_):
         assert "FABDEM V1-2 © University of Bristol" in got["credits"], got
 
 
@@ -753,13 +725,13 @@ const SMALL = "%(small)s", COMPARED = "%(compared)s", OLD = "%(old)s";
 run({
   open(next) { wait(() => model() && model().runId === SMALL && $(".c-col-list .r-rows .r-row"), () => {
     button("Compare").click();
-    wait(() => $$(".r-other").length >= 2, () => {
+    wait(() => $$(".r-other").length >= 1, () => {
       result.listed = $$(".r-other").map((o) => o.textContent.split(" · ")[0]);
-      $$(".r-other").filter((o) => /Compared run|Old run/.test(o.textContent)).forEach((o) => o.querySelector("input").click());
+      $$(".r-other").filter((o) => /Compared run/.test(o.textContent)).forEach((o) => o.querySelector("input").click());
       next();
     });
   }); },
-  shown(next) { wait(() => model().others.size === 2 && !$$(".r-other").some((o) => /loading/.test(o.textContent)), () => {
+  shown(next) { wait(() => model().others.size === 1 && !$$(".r-other").some((o) => /loading/.test(o.textContent)), () => {
     result.others = Object.fromEntries([...model().others.values()].map((o) => [o.info.id, o.count]));
     result.files = {compared: files(COMPARED), old: files(OLD), small: files(SMALL)};
     result.total = model().total;
@@ -772,10 +744,11 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_compare_store_and_lines_js(data, tmp_path):
+def test_shell_c_compare_from_the_store(data, tmp_path):
     """Compare in the app's result (RunActions, the page's own path): another run with a store is read from its
-    lines.arrow (no profiles.arrow, no lines.js), one without a store from its lines.js; both shown with this run,
-    every line of each, grouped together; no CSP violations."""
+    lines.arrow (no profiles.arrow, no lines.js), shown with this run, every line of it, grouped together; a run
+    without a store (has_lines false: no lines.arrow) is not offered, nothing of it asked for (store wave 4's item 5);
+    no CSP violations."""
     small_copy(data, BIG, small=COMPARED, name="Compared run")
     small_copy(data, BIG, small=OLD, name="Old run")
     drop_store(data, OLD)
@@ -783,12 +756,12 @@ def test_shell_c_compare_store_and_lines_js(data, tmp_path):
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-compare")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert {"Compared run", "Old run"} <= set(r["listed"]), r
-    assert r["others"] == {COMPARED: SMALL_LINES, OLD: SMALL_LINES}, r
+    assert "Compared run" in r["listed"] and "Old run" not in r["listed"], r
+    assert r["others"] == {COMPARED: SMALL_LINES}, r
     assert [f for f in r["files"]["compared"] if f in RUN_DATA] == ["lines.arrow"], r
-    assert [f for f in r["files"]["old"] if f in RUN_DATA] == ["lines.js"], r
+    assert r["files"]["old"] == [], r
     assert sorted(f for f in r["files"]["small"] if f in RUN_DATA) == ["lines.arrow", "profiles.arrow"], r
-    assert r["total"] == 3 * SMALL_LINES and r["mixed"], r
+    assert r["total"] == 2 * SMALL_LINES and r["mixed"], r
     assert r["csp"] == []
 
 
@@ -842,19 +815,11 @@ def test_shell_c_map_says_why_a_store_failed(data, tmp_path):
 
 
 def add_credits(data_dir, run_id: str):
-    """The run's store's head (and an old run's data.js) with the credits of a source (a run of an elevation file
-    has none)."""
+    """The run's store's head with the credits of a source (a run of an elevation file has none)."""
     folder = os.path.join(str(data_dir), "runs", run_id)
-    path = os.path.join(folder, "data.js")
-    credits = [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
-                "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/", "notice": ""}]
-    data = {"attribution": credits}
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-        data["attribution"] = credits
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
+    data = {"attribution": [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
+                             "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+                             "notice": ""}]}
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     if meta.get("store"):

@@ -1,15 +1,14 @@
 // The actions of a run: Measure (two points on the map; the profile opens in ProfileDock), Compare
 // (other runs nearby shown with this one), Share (the public site: a link shown once) and Download
-// (the run's lines as CSV and GeoJSON: of a run read from its store made by the worker for each download, where
-// the page can ask for it (mayExport); of a run without a store its lines.csv and lines.geojson, which
-// web.RUN_FILES serves).
+// (the run's lines as CSV and GeoJSON, made by the worker from the run's store for each download, where the page can
+// ask for it: mayExport; no run keeps the files since store wave 4).
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
-import { listOthers, loadLines, NEARBY_KM, colorOf } from "../../others";
+import { listOthers, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunData, RunInfo } from "../../types";
 import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
@@ -93,9 +92,9 @@ function Compare({model, view, compact, base = "/runs/"}: RunActionsProps) {
   const toggle = (item: OtherItem) => {
     if (item.status === "on" || item.status === "loading") { model.removeRun(item.run.id); change(item, "off"); return; }
     change(item, "loading");
-    // its store when it has one (lines.arrow), else its lines.js (load.ts loadOtherRun)
-    loadOtherRun(item.run, base, loadLines).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
-                                                 () => change(item, "error"));
+    // its store's lines.arrow (load.ts loadOtherRun)
+    loadOtherRun(item.run, base).then((lines) => { model.addRun(item.run, lines); change(item, "on"); },
+                                      () => change(item, "error"));
   };
   const row = (item: OtherItem) => <label class="r-check r-other" key={item.run.id} title={item.run.description}>
     <input type="checkbox" checked={item.status === "on" || item.status === "loading"} onChange={() => toggle(item)} />
@@ -287,23 +286,10 @@ function Export({model, compact}: RunActionsProps) {
   </Popover>;
 }
 
-/** Download: the lines of the run as CSV and GeoJSON. A run read from its store: made for each download where the
- *  page may ask (Export), no button elsewhere; a run without a store: its two kept files. */
+/** Download: the lines of the run as CSV and GeoJSON, made for each download where the page may ask (Export); no
+ *  button elsewhere (a run's map.html, a share link). */
 function Download(props: RunActionsProps) {
-  const {model, compact, base, folder} = props;
-  if (model.data.fromStore) return mayExport(model.data) ? <Export {...props} /> : null;
-  const id = model.runId, files = runFolder(id, base, folder);
-  return <Popover label="Download" align="right"
-                  button={(open, toggle) => compact ? <IconButton icon="download" label="Download" expanded={open} onClick={toggle} />
-                    : <Button icon="download" aria-expanded={open} onClick={toggle}>Download</Button>}>
-    <div class="r-downloads">
-      <b class="u-h4">Download the lines</b>
-      <a class="u-btn" href={files + "lines.csv"} download={`${id}.csv`}><Icon name="download" />
-        CSV <span class="u-small">table, every line</span></a>
-      <a class="u-btn" href={files + "lines.geojson"} download={`${id}.geojson`}><Icon name="download" />
-        GeoJSON <span class="u-small">for GIS and map apps</span></a>
-    </div>
-  </Popover>;
+  return mayExport(props.model.data) ? <Export {...props} /> : null;
 }
 
 export function RunActions(props: RunActionsProps) {

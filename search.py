@@ -2622,8 +2622,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         progress.compute.finish()
         map_path = None
         if not p.no_html:
-            map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs,
-                                   files=("map.html",))  # and the viewer installed
+            map_path = mp.save_map(run["path"], plan.paths.runs, meta)  # and the viewer installed
         rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
     except Exception as error:
         _not_saved(run, own)
@@ -2872,7 +2871,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "surface": bool(plan.nmpt),
         # the run's grouping distance: the page groups the lines from a clicked point into spots as the result does
         "group_distance": p.get("group_distance") or plan.group_distance,
-        # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
+        # as the run's store's head (mapping.map_head), its cache seen from the run's map.html
         "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
                                 os.path.join(paths.runs, meta["id"], "map.html")),
         "attribution": meta.get("attribution", []),

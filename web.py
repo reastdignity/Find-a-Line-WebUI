@@ -549,14 +549,14 @@ WELCOME_COOKIE = "__Host-findaline-welcome"  # set by a sign-in for 10 minutes: 
 WELCOME_SECONDS = 600
 # The files of a run the public site serves (what mapping.save_map, runs.save_results and the store,
 # linestore.write, write, without run.json: its parameters and data files are the owner's); never
-# progress.json, tiles or other files
-RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "lines.arrow",
-             "profiles.arrow")
+# progress.json, tiles or other files. Since store wave 4's item 5 no data.js, lines.js or kept text file (old runs
+# are removed by `findaline.py runs remove-old`; an export lives in work/exports/)
+RUN_FILES = ("map.html", "ATTRIBUTION.txt", "lines.arrow", "profiles.arrow")
 VIEWER = "_viewer"  # mapping.VIEWER_FOLDER: the viewer bundle, the same for everyone
-# A run's scripts and its store carry their size before compression: nginx gzips them on the fly and drops
-# Content-Length, and the page's progress bar counts the bytes it reads (viewer/src/download.ts SIZE_HEADER)
+# A run's store carries its size before compression: nginx gzips it on the fly and drops Content-Length, and the
+# page's progress bar counts the bytes it reads (viewer/src/download.ts SIZE_HEADER)
 SIZE_HEADER = "X-Findaline-Bytes"
-SIZED_FILES = ("data.js", "lines.js", "lines.arrow", "profiles.arrow")
+SIZED_FILES = ("lines.arrow", "profiles.arrow")
 # A run id, a share token (token_urlsafe: may start with - or _), a file name: no leading dot (no ".."), no "/"
 SAFE_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 # An export waiting for its download (jobs.quick_export): <token>.<extension>, the token of jobs.EXPORT_TOKEN_BYTES

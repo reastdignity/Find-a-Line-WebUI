@@ -47,7 +47,7 @@ def bundle(tmp_path_factory):
     folder = tmp_path_factory.mktemp("list-bundle")
     src = os.path.join(VIEWER, "src").replace("\\", "/")
     entry = folder / "entry.ts"
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export * from "{src}/result/spots";\nexport {{ NO_FILTERS }} from "{src}/filters";\n'
                      f'export * from "{src}/result/view/viewstate";\n'
                      f'export {{ chooserRows, CHOICES, place }} from "{src}/result/view/SpotChooser";\n'

@@ -471,13 +471,9 @@ def test_run_whose_mark_was_left_out(tmp_path, plain_clip):
     stands (a desktop: the list's head, under the colours' legend; a phone: above the filters, also while nothing is
     selected), and nothing else of the mark: no "?", no column, no block, no marks on the map."""
     from playwright.sync_api import sync_playwright
-    from test_shell_c import drop_store
+    from test_web import store_with
     folder, page_path = _data(tmp_path, plain_clip)
-    drop_store(folder, SMALL)  # the page reads the head from data.js
-    script = folder / "runs" / SMALL / "data.js"
-    text = script.read_text("utf-8")
-    assert text.count('"crs":') == 1
-    script.write_text(text.replace('"crs":', '"access_skipped": "memory", "crs":'), "utf-8")
+    store_with(folder / "runs" / SMALL, head={"access_skipped": "memory"})  # the store's head the page reads
     state = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
         const lines = $$('.r-acc-skipped').filter((e) => e.getClientRects().length), line = lines[0];
         const filters = $('.r-filters'), colours = $$('.r-legend').filter((e) => e.getClientRects().length)[0];

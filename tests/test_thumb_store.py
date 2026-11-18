@@ -1,12 +1,12 @@
 """Home's mini maps read a run's store (store wave 4, item 3; docs/line-volume/spec-store.md 1.9 row 4): a run with a
 store and at most Thumb.MAX_LINES lines draws its lines from its lines.arrow (never profiles.arrow), the same picture
-as from its lines.js; a run listed without a store reads its lines.js as before; a run the list of runs does not name
-asks for its lines.arrow directly (result/load.ts loadRunLines, as storeOf's STORE_PROBE); a store that fails (both
-files missing, a fetch error, a file that is no store, a newer format) shows the card's placeholder as a lines.js
-that failed, and a newer store never reads lines.js; a run of more lines asks for none. In headless Edge on the local
-app with the Żabi Koń clip's run (1 048 lines, its store and lines.js both written by save_run; no line too close to
-trees or buildings without a surface model) and the first lines of the big clip's (surface model: both kinds); on
-the public site the page's list of runs gives the store and RunFiles serves lines.arrow to the run's owner only."""
+whether the list of runs names its store, names it without the block, or does not name the run (result/load.ts
+loadRunLines: STORE_PROBE); a store that fails (a missing file, a run without a store, a fetch error, a file that is no
+store, a newer format) shows the card's placeholder and asks for nothing else (since item 5 no lines.js); a run of
+more lines asks for none. In headless Edge on the local app with the Żabi Koń clip's run (1 048 lines; no line too
+close to trees or buildings without a surface model) and the first lines of the big clip's (surface model: both kinds
+of line, each its own path); on the public site the page's list of runs gives the store and RunFiles serves
+lines.arrow to the run's owner only."""
 
 import json
 import os
@@ -34,20 +34,19 @@ def run_id(name: str) -> str:
 
 
 STORED = run_id("Stored")        # the clip's run as saved: its store listed in runs.js
-SCRIPT = run_id("Script")        # the same run listed without its store block: lines.js
-MISSING = run_id("Missing")      # listed with a store whose lines.arrow is gone (404): lines.js, while runs keep it
-GONE = run_id("Gone")            # listed with a store, lines.arrow and lines.js both gone: the placeholder
+NOBLOCK = run_id("Noblock")      # the same run listed without its store block: its store asked for directly
+UNLISTED = run_id("Unlisted")    # left out of the page's list (saved since it was read): its store asked for
+MISSING = run_id("Missing")      # listed with a store whose lines.arrow is gone (404)
+OLD = run_id("Old")              # a run of before (no store, no block: tests/old_runs.py), until runs remove-old
 BROKEN = run_id("Broken")        # listed with a store whose lines.arrow is no Arrow file
 NEWER = run_id("Newer")          # listed with a store of a newer format (run.json's block)
 FAILING = run_id("Failing")      # listed with a store whose download fails (a network error)
-UNLISTED = run_id("Unlisted")    # left out of the page's list (saved since it was read): its store asked for
-UNLISTED_OLD = run_id("Unold")   # left out of the list, without a store: lines.arrow's 404, then lines.js
 UNLISTED_NEW = run_id("Unnew")   # left out of the list, its lines.arrow of a newer format (the file's metadata)
-UNLISTED_FAIL = run_id("Unfail")  # left out of the list, its lines.arrow not fetched: lines.js
+UNLISTED_FAIL = run_id("Unfail")  # left out of the list, its lines.arrow not fetched
 LARGE = run_id("Large")          # more lines than a mini map draws (MAX_LINES): no request for its lines
-DRAWN = (STORED, SCRIPT, MISSING, UNLISTED, UNLISTED_OLD, UNLISTED_FAIL)
-FAILED = (GONE, BROKEN, NEWER, FAILING, UNLISTED_NEW)
-HIDDEN = (UNLISTED, UNLISTED_OLD, UNLISTED_NEW, UNLISTED_FAIL)
+DRAWN = (STORED, NOBLOCK, UNLISTED)
+FAILED = (MISSING, OLD, BROKEN, NEWER, FAILING, UNLISTED_NEW, UNLISTED_FAIL)
+HIDDEN = (UNLISTED, UNLISTED_NEW, UNLISTED_FAIL)
 NOT_FETCHED = (FAILING, UNLISTED_FAIL)
 MAX_LINES = 3000  # viewer/src/app/c/Thumb.tsx
 
@@ -83,6 +82,9 @@ run({
       const t = thumbOf(id), svg = t.querySelector(":scope > svg");
       return [id, {thumb: t.dataset.thumb, lines: t.dataset.lines === undefined ? null : Number(t.dataset.lines),
                    svg: svg ? svg.outerHTML : null, paths: svg ? svg.querySelectorAll("path.c-thumb-line").length : 0,
+                   // each path's stroke and its lines (one "M" a line)
+                   strokes: svg ? [...svg.querySelectorAll("path.c-thumb-line")]
+                     .map((p) => [p.getAttribute("stroke"), (p.getAttribute("d").match(/M/g) || []).length]) : [],
                    label: (t.querySelector(".c-thumb-label") || {}).textContent || "",
                    icon: !!t.querySelector(".c-thumb-empty svg"), files: filesOf(id)}];
     }));
@@ -118,25 +120,18 @@ def _edit_meta(folder, change):
 
 @pytest.fixture
 def thumb_data(tmp_path, clip_run):
-    """A local data folder with the clip's run (saved since store wave 4: its store, no lines.js) as every case
-    above; the cases that read a lines.js get the one a run of before held (tests/old_runs.py)."""
+    """A local data folder with the clip's run (saved since store wave 4: its store and no text file) as every case
+    above."""
     import linestore
-    import old_runs
     data = tmp_path / "data"
     runs = data / "runs"
     for k, name in enumerate(DRAWN + FAILED + (LARGE,)):
         copy_clip(clip_run, data, name, f"Run {k}")
         _edit_meta(runs / name, lambda m, k=k: m.update(created=f"2026-10-20T12:{k:02d}:00"))
     assert json.loads((runs / STORED / "run.json").read_text("utf-8"))["store"]["lines"] <= MAX_LINES
-    assert not (runs / STORED / "lines.js").exists()
-    for name in (MISSING, UNLISTED_FAIL):  # runs saved between view B1 and store wave 4: a store and lines.js
-        old_runs.write_scripts(runs / name, ("lines.js",))
-    drop_store(data, SCRIPT)  # a run of before: its lines.js, no store
-    drop_store(data, UNLISTED_OLD)
-    for name in linestore.FILES:
-        (runs / UNLISTED_OLD / name).unlink()
+    _edit_meta(runs / NOBLOCK, lambda m: m.pop("store"))
+    drop_store(data, OLD)
     (runs / MISSING / linestore.LINES_FILE).unlink()
-    (runs / GONE / linestore.LINES_FILE).unlink()  # and no lines.js: a run saved since store wave 4
     (runs / BROKEN / linestore.LINES_FILE).write_bytes(b"not an Arrow file " * 100)
     _edit_meta(runs / NEWER, lambda m: m["store"].update(format=m["store"]["format"] + 1))
     _newer_file(runs / UNLISTED_NEW)
@@ -148,7 +143,7 @@ def thumb_data(tmp_path, clip_run):
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_thumbnails_from_the_store(thumb_data, tmp_path):
     """Each case's mini map, the files its run's folder was asked for (resource timing: 404s too) and the picture:
-    the store's and lines.js's SVG the same, element for element; no CSP violation, no unhandled rejection."""
+    the same SVG, element for element, however the store is found; no CSP violation, no unhandled rejection."""
     import linestore
     runs = list(DRAWN + FAILED + (LARGE,))
     stubs = THUMB_STUBS % {"hidden": json.dumps(list(HIDDEN)), "not_fetched": json.dumps(list(NOT_FETCHED))}
@@ -161,28 +156,23 @@ def test_thumbnails_from_the_store(thumb_data, tmp_path):
     cards = r["cards"]
     lines = json.loads((thumb_data / "runs" / STORED / "run.json").read_text("utf-8"))["store"]["lines"]
     data_of = lambda name: [f for f in cards[name]["files"] if f in RUN_DATA]  # noqa: E731
-    # 1. the store's lines.arrow alone; lines.js for a run listed without a store; nothing for a large run
-    assert data_of(STORED) == ["lines.arrow"], cards[STORED]
-    assert data_of(SCRIPT) == ["lines.js"], cards[SCRIPT]
-    assert data_of(UNLISTED) == ["lines.arrow"], cards[UNLISTED]
-    assert data_of(UNLISTED_OLD) == ["lines.arrow", "lines.js"], cards[UNLISTED_OLD]  # the probe's 404 first
-    assert data_of(MISSING) == ["lines.arrow", "lines.js"], cards[MISSING]  # lines.js while runs keep it
-    assert data_of(UNLISTED_FAIL) == ["lines.js"], cards[UNLISTED_FAIL]  # its lines.arrow not fetched
+    # 1. the store's lines.arrow alone, however the store is found; nothing for a large run
     for name in DRAWN:
+        assert data_of(name) == ["lines.arrow"], (name, cards[name])
         assert cards[name]["thumb"] == "lines" and cards[name]["lines"] == lines and cards[name]["paths"] >= 1, \
             (name, cards[name])
     assert cards[LARGE]["thumb"] == "outline" and data_of(LARGE) == [], cards[LARGE]
     assert cards[LARGE]["label"] == f"{MAX_LINES + 1:,} lines", cards[LARGE]
-    # 2. the same picture from the store as from lines.js: the tiles, the area and the lines, in the same order
+    # 2. the same picture: the tiles, the area and the lines, in the same order
     assert cards[STORED]["svg"] and cards[STORED]["svg"].count("<path") >= 2, cards[STORED]
+    assert sum(count for _, count in cards[STORED]["strokes"]) == lines, cards[STORED]["strokes"]
     for name in DRAWN[1:]:
         assert cards[name]["svg"] == cards[STORED]["svg"], name
-    # 3. a store that fails: the placeholder as a lines.js that fails, never a blank card; a newer one reads no lines.js
-    assert data_of(GONE) == ["lines.arrow", "lines.js"], cards[GONE]
-    assert data_of(BROKEN) == ["lines.arrow"], cards[BROKEN]
-    assert data_of(NEWER) == [], cards[NEWER]  # refused by run.json's block before any download
-    assert data_of(UNLISTED_NEW) == ["lines.arrow"], cards[UNLISTED_NEW]
-    assert data_of(FAILING) == [], cards[FAILING]
+    # 3. a store that fails: the placeholder, never a blank card, and no other file asked for (no lines.js)
+    for name in (MISSING, OLD, BROKEN, UNLISTED_NEW):
+        assert data_of(name) == ["lines.arrow"], (name, cards[name])
+    for name in (NEWER, FAILING, UNLISTED_FAIL):  # refused by run.json's block before any download; not fetched
+        assert data_of(name) == [], (name, cards[name])
     assert sorted(r["notFetched"]) == sorted(f"/runs/{name}/{linestore.LINES_FILE}" for name in NOT_FETCHED), r
     for name in FAILED:
         assert cards[name]["thumb"] == "failed" and cards[name]["svg"] is None and cards[name]["icon"], \
@@ -192,14 +182,13 @@ def test_thumbnails_from_the_store(thumb_data, tmp_path):
     assert not any("profiles.arrow" in cards[name]["files"] for name in runs), cards
 
 
-OVER_STORED = run_id("Overstored")  # the big clip's first lines, both kinds (over and clean): from its store
-OVER_SCRIPT = run_id("Overscript")  # the same lines listed without a store: from lines.js
+OVER = run_id("Over")  # the big clip's first lines, both kinds (over and clean)
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
-    """The two kinds of line (`over` from the store's column, lines.js's row[13]) drawn as two paths, the store's
-    picture the same as lines.js's: the big clip's (surface model) first lines up to both kinds, at most MAX_LINES."""
+    """The two kinds of line (the store's column `over`) drawn as two paths, each of as many lines as the store holds
+    of its kind (linestore.read): the big clip's (surface model) first lines up to both kinds, at most MAX_LINES."""
     import linestore
     over = linestore.read(str(big_clip), profiles=False)[0].columns["over_obstacles"].astype(bool).tolist()
     first = next(i for i, value in enumerate(over) if value != over[0])
@@ -208,21 +197,19 @@ def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
     data = tmp_path / "data"
     big = run_id("Bigclip")
     copy_clip(big_clip, data, big, "Big run")
-    for name in (OVER_STORED, OVER_SCRIPT):
-        small_copy(data, big, lines=n, small=name, name=name)
-    drop_store(data, OVER_SCRIPT)
+    small_copy(data, big, lines=n, small=OVER, name=OVER)
     stubs = THUMB_STUBS % {"hidden": "[]", "not_fetched": "[]"}
-    page = stub_page(data, "cthumb", THUMB_SCRIPT % {"runs": json.dumps([OVER_STORED, OVER_SCRIPT]),
+    page = stub_page(data, "cthumb", THUMB_SCRIPT % {"runs": json.dumps([OVER]),
                                                      "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-over", size="1280,2000")
     assert "timeout" not in r and "error" not in r and "rejection" not in r, json.dumps(r)[:3000]
     assert r["csp"] == []
-    stored, script = r["cards"][OVER_STORED], r["cards"][OVER_SCRIPT]
-    assert [f for f in stored["files"] if f in RUN_DATA] == ["lines.arrow"], stored
-    assert [f for f in script["files"] if f in RUN_DATA] == ["lines.js"], script
-    assert stored["thumb"] == "lines" and stored["lines"] == n and stored["paths"] == 2, stored
-    assert stored["svg"] == script["svg"]
+    card = r["cards"][OVER]
+    assert [f for f in card["files"] if f in RUN_DATA] == ["lines.arrow"], card
+    assert card["thumb"] == "lines" and card["lines"] == n and card["paths"] == 2, card
+    assert sorted(count for _, count in card["strokes"]) == sorted([sum(over[:n]), n - sum(over[:n])]), card
+    assert len({stroke for stroke, _ in card["strokes"]}) == 2, card
 
 
 def test_public_runs_list_gives_the_store(run_people):
