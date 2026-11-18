@@ -1093,6 +1093,11 @@ def test_pick_row_kept_in_the_legend(site):
 
 
 LANDSCAPES = ((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
+# A run's long data credits (this run has none; the ui_shots clip's run to 8 lines in the columns): credits.ts's own
+# markup (layers.ts creditsHtml with its "Data credits" button) put into the map's attribution
+LONG_CREDITS = """() => { const words = 'Source: Glowny Urzad Geodezji i Kartografii, the numerical terrain model (CC BY 4.0) | FABDEM V1-2 (CC BY-NC-SA 4.0) | ';
+  window.FINDALINE_MAP.attributionControl.addAttribution('<button type="button" class="u-credits-toggle" aria-expanded="false">Data credits</button>'
+    + '<span class="u-credits">Data: ' + words.repeat(6) + 'Processed by the app. Notices</span>'); }"""
 
 
 def test_landscape_phone_columns_fold_the_legend(site):
@@ -1101,7 +1106,10 @@ def test_landscape_phone_columns_fold_the_legend(site):
     behind "Legend" (the phone's logic, the user's decision of 2026-11-18), and the zoom's + and − stand side by side
     as on a phone (the planner's: in a column of 88 px it lay under the status line and the hint, as on main); a
     finger's tap at each level button's middle presses that button (the status line covered them before); "Legend"
-    opens the legend; no control covers another."""
+    opens the legend; no control covers another. With a run's long data credits too (a stand-in of 8 lines' length:
+    the design review's D1, where the status line lay on the switch): they fold behind "Data credits", as on a phone,
+    and all of the above holds (the window turned from a wide one first, as a phone is: the foot's choice counts the
+    credits unfolded, so folding them does not undo it)."""
     from playwright.sync_api import sync_playwright
     hit = """([k]) => { const b = document.querySelector(`.v-levels button[data-level="${k}"]`), r = b.getBoundingClientRect(),
       x = r.left + r.width / 2, y = r.top + r.height / 2, e = document.elementFromPoint(x, y); return {x, y, hit: !!e && b.contains(e)}; }"""
@@ -1109,16 +1117,24 @@ def test_landscape_phone_columns_fold_the_legend(site):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            for w, h in LANDSCAPES:
-                for level in ("auto", "area"):
-                    state = f"{w} x {h}, {level}"
+            for (w, h), level, long in [(size, level, long) for size in LANDSCAPES for level in ("auto", "area") for long in (False, True)]:
+                    state = f"{w} x {h}, {level}{', long credits' if long else ''}"
                     page = _open(browser, f"{site}#run={BIG}", {**PHONE, "viewport": {"width": w, "height": h}})
+                    if long:
+                        page.evaluate(LONG_CREDITS)
+                        page.set_viewport_size({"width": 1400, "height": 900})  # a phone turned: the credits drawn whole first
+                        page.evaluate("() => T.frames()")
+                        page.set_viewport_size({"width": w, "height": h})
                     _state(page, "map.fitArea({top: 70, right: 10, bottom: 80, left: 10}); "
                                  f"view.setTopOnly(true); view.setBest(10); view.setLevel('{level}');")
                     page.evaluate("() => T.frames()")
                     fold = page.evaluate("() => [!!document.querySelector('.c-result-phone'), !!document.querySelector('.v-legend'), "
                                          "document.querySelector('.v-fold')?.getAttribute('aria-expanded') ?? null]")
                     assert fold == [False, False, "false"], (state, fold)  # the columns, the legend folded behind its button
+                    if long:  # the credits folded behind their button, as on a phone
+                        credits = page.evaluate("() => { const t = document.querySelector('.v-map .u-credits-toggle'), c = document.querySelector('.v-map .u-credits'); "
+                                                "return [!!document.querySelector('.v-map.v-compact'), getComputedStyle(t).display !== 'none', getComputedStyle(c).display === 'none']; }")
+                        assert credits == [True, True, True], (state, credits)
                     boxes = _apart(page, state)
                     assert boxes["zoom"][2] - boxes["zoom"][0] > boxes["zoom"][3] - boxes["zoom"][1], (state, boxes["zoom"])  # across
                     for k in ("auto", "area", "spots", "lines"):

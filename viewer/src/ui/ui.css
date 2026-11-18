@@ -296,4 +296,9 @@
   .ui .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
   .ui .u-credits:not(.u-open) { display: none; }
 }
+/* the same in the result view's columns while their foot is a phone's (MapBar's .v-compact: a window too short for
+   the legend; the planner's decision of 2026-11-18) */
+.ui .v-map.v-compact .u-credits-toggle { display: inline; }
+.ui .v-map.v-compact .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
+.ui .v-map.v-compact .u-credits:not(.u-open) { display: none; }
 .ui .leaflet-tooltip { background: var(--surface); color: var(--ink); border-color: var(--line); }

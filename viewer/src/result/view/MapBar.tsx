@@ -155,6 +155,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
   // legend behind "Legend", the key's "i" beside it (the user's decision of 2026-11-18). `roomWide`: the legend's room
   // in the columns' own arrangement (without the row of buttons); a window where it fits keeps the columns' foot.
   const [roomWide, setRoomWide] = useState(Infinity);
+  const credits = useRef(0);  // the columns' credits as last drawn unfolded (the compact foot folds them: ui.css)
   const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
   const asked = choice && choice.at === sheet ? choice.folded : null, high = sheet === "half" || sheet === "full";
   // the sheet changed its stop: the person's choice was for the one before (one made for this stop stays)
@@ -228,10 +229,14 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     const next = Math.floor(box.bottom - others - GAP - floor - 4);
     if (next !== room) setRoom(next);
     if (wide) {  // the room the legend would have in the columns' own arrangement: above the foot's bottom, its status row
-      // the zoom counted stacked, as the columns draw it, also while it stands across: the choice must not undo itself
+      // the zoom counted stacked and the credits unfolded, as the columns draw them, also while the compact foot lays the
+      // zoom across and folds the credits (which lowers the foot as much): the choice must not undo itself
       const line = el.querySelector(".v-row:not(.v-buttons)")?.getBoundingClientRect(), zoom = column.querySelector(".leaflet-control-zoom");
       const stacked = zoom ? zoom.getBoundingClientRect().top + Array.from(zoom.children, (a) => a.getBoundingClientRect().height).reduce((h, v) => h + v, 0) : 0;
-      const plain = Math.floor(box.bottom - (line ? line.height : 0) - GAP - Math.max(floor, stacked) - 4);
+      const shown = column.querySelector(".leaflet-bottom .leaflet-control-attribution")?.getBoundingClientRect().height ?? 0;
+      if (!compact) credits.current = shown;
+      const lowered = compact ? Math.max(0, credits.current - shown) : 0;
+      const plain = Math.floor(box.bottom - lowered - (line ? line.height : 0) - GAP - Math.max(floor, stacked) - 4);
       if (plain !== roomWide) setRoomWide(plain);
     }
     // a press on "Legend" above the low stop: the legend just drawn unfolded stays where it fits whole, else the sheet
