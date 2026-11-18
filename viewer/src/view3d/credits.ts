@@ -20,7 +20,7 @@ function isCredit(c: unknown): c is Credit {
   return !!v && typeof v === "object" && typeof v.attribution === "string" && typeof v.licence === "string";
 }
 
-/** The data credits of the meta's `attribution` (data.js's), null when it holds none. */
+/** The data credits of the meta's `attribution` (the run head's), null when it holds none. */
 export function dataCredits(attribution: unknown, runId: string): string | null {
   const credits = Array.isArray(attribution) ? attribution.filter(isCredit) : [];
   return credits.length ? creditsHtml(credits.map((c) => ({...c, url: typeof c.url === "string" ? c.url : ""})),

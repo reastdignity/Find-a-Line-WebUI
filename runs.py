@@ -496,8 +496,7 @@ def _bbox(run: Dict) -> Optional[List[float]]:
 
 def _listed(run: Dict) -> Dict:
     """A run as runs.js lists it: without the data files, their credits, the area outline and its
-    terrain (in the run's data.js and lines.js), its shore and where its terrain came from (data.js), with
-    its box."""
+    terrain, its shore and where its terrain came from (all in the run's head: its store), with its box."""
     listed = {k: v for k, v in without_paths(run).items()
               if k not in ("data", "area", "attribution", "terrain", "shore", "terrain_sources")}
     listed["bbox"] = _bbox(run)

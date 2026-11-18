@@ -423,7 +423,7 @@ def _relative_url(folder: str, html_path: str) -> str:
 
 
 def ortho_entry(ortho_service, ortho_cache: Optional[str], html_path: str) -> Optional[Dict]:
-    """The `ortho` entry of a run's data.js (also the 3D view's patch, search.patch_of_line): the
+    """The `ortho` entry of a run's head (map_head; also the 3D view's patch, search.patch_of_line): the
     orthophoto service (a sources.OrthoService, None: no entry) and its cache folder as seen from
     the run's map.html."""
     if ortho_service is None:
@@ -464,8 +464,8 @@ def install_viewer(runs_dir: str):
 # disk (file://) it loads nothing: the disk notice (the element DISK_NOTICE) names the run and the command that opens
 # it through the app (docs/line-volume/spec-store.md 1.2), and shows without the viewer too. It stands after the
 # viewer's script, so that over http the viewer, run first, hides it before it is parsed: no frame shows it there.
-# Maps written before store wave 4 have no notice: from disk they load their data.js as before (until the reader of
-# data.js ends), and those of before 2026-11-04 load it by a tag before the viewer, which the viewer still takes
+# Maps written before store wave 4 have no notice: from disk the viewer builds the same one (its main.tsx diskNotice:
+# no run is read from disk since store wave 4's item 5)
 DISK_NOTICE = "disk-notice"  # viewer/src/map/main.tsx NOTICE
 MAP_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

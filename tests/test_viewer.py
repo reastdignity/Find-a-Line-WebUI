@@ -1303,7 +1303,8 @@ def _store_bundle(tmp_path):
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ passes, range, dh, lowerAnchor, upperAnchor, wallAngle, prominence, drop }} '
                      f'from "{src}/filters";\n'
-                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, NewerStore, '
+                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, loadRunLines, '
+                     f'NewerStore, '
                      f'StoreFailed, TooLarge, STORE_FORMAT }} '
                      f'from "{src}/result/load";\n', encoding="utf-8")
     bundle = tmp_path / "store.cjs"
@@ -1650,10 +1651,14 @@ const info = (id, store) => ({id, name: id, created: "", description: "", ...(st
 // "older" with a newer format
 window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, id === "wide" ? null : block))
   .concat([info("older", {...block, format: m.STORE_FORMAT + 1})]);
+// the console's warnings (StoreFailed's detail: load.ts writes it once for every failed load)
+const warned = [];
+console.warn = (...args) => warned.push(args.join(" "));
 const outcome = async (f) => {
   asked.splice(0);
-  try { const d = await f(); return {ok: d.columns.length, asked: asked.splice(0)}; }
-  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0)}; }
+  warned.splice(0);
+  try { const d = await f(); return {ok: d.columns.length, asked: asked.splice(0), warned: warned.splice(0)}; }
+  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0), warned: warned.splice(0)}; }
 };
 (async () => {
   const out = {};
@@ -1662,6 +1667,7 @@ const outcome = async (f) => {
   gone.add("lines.arrow");
   out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: no data.js
   out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/"));
+  out.thumbGone = await outcome(() => m.loadRunLines("square", undefined, "/runs/"));  // a mini map's, unlisted
   gone.clear();
   gone.add("profiles.arrow");
   out.profilesGone = await outcome(() => m.loadRun("both"));
@@ -1684,14 +1690,27 @@ def test_store_failures_and_fallbacks(tmp_path, store_cases):
     profiles.arrow only, and so does a run listed without the block; a missing lines.arrow or profiles.arrow (404) is
     a StoreFailed (Compare's too) with no other file asked for (store wave 4's item 5: no data.js, no lines.js); a 200
     with a null response (the browser could not allocate the body) is TooLarge with its text; a server error is a
-    StoreFailed; a newer format is refused without any download."""
+    StoreFailed; a newer format is refused without any download. A StoreFailed (a run's own, Compare's, a mini map's:
+    loadRunLines) shows the catalogue's words and writes its detail to the console once."""
     cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
     cases["older"] = cases["plain"]
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps(cases), encoding="utf-8")
     out = _run_node(tmp_path, _store_bundle(tmp_path), LOAD_PATHS_SCRIPT, cases_path)
-    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"]}
-    assert out["withoutBlock"] == {"ok": 3000, "asked": ["/runs/wide/lines.arrow", "/runs/wide/profiles.arrow"]}
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"], "warned": []}
+    assert out["withoutBlock"] == {"ok": 3000, "asked": ["/runs/wide/lines.arrow", "/runs/wide/profiles.arrow"],
+                                   "warned": []}
+    # every failed store load writes its detail to the console once (load.ts StoreFailed): the run's own, Compare's,
+    # a mini map's; the page shows the catalogue's words (the message)
+    for name, run, why in (("linesGone", "square", "404"), ("compareGone", "square", "404"),
+                           ("thumbGone", "square", "404"), ("profilesGone", "both", "404"),
+                           ("serverError", "nosurface", "500")):
+        assert out[name]["warned"] == [f"could not load the store of the run {run} ({why})"], (name, out[name])
+        assert out[name]["message"] == words, (name, out[name])
+    assert out["thumbGone"]["error"] == "StoreFailed" and out["thumbGone"]["asked"] == ["/runs/square/lines.arrow"]
+    assert out["nullBody"]["warned"] == [] and out["newer"]["warned"] == []
     assert out["linesGone"]["error"] == "StoreFailed", out
     assert out["linesGone"]["asked"] == ["/runs/square/lines.arrow", "/runs/square/profiles.arrow"], out
     assert out["compareGone"]["error"] == "StoreFailed" and out["compareGone"]["asked"] == ["/runs/square/lines.arrow"]
@@ -1704,7 +1723,7 @@ def test_store_failures_and_fallbacks(tmp_path, store_cases):
     assert out["nullBody"]["asked"] == ["/runs/plain/lines.arrow", "/runs/plain/profiles.arrow"], out
     assert out["serverError"]["error"] == "StoreFailed", out
     assert out["serverError"]["asked"] == ["/runs/nosurface/lines.arrow", "/runs/nosurface/profiles.arrow"], out
-    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": []}
+    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": [], "warned": []}
 
 
 COMPARE_GROUPS_SCRIPT = r"""

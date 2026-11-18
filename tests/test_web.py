@@ -1710,7 +1710,8 @@ def test_run_map(tmp_path, monkeypatch):
     assert _violations(dom) == []
     # no runs/index.html since store wave 4 (the app lists the runs); runs.js lists both, the name as JSON
     assert not (tmp_path / "runs" / "index.html").exists()
-    assert os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
+    # nor its stylesheet since store wave 4's item 5 (runs/index.html went with deploy 1)
+    assert not os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
     listed = (tmp_path / "runs" / "runs.js").read_text(encoding="utf-8")
     assert other in listed and json.dumps(XSS_NAME, ensure_ascii=False) in listed
 

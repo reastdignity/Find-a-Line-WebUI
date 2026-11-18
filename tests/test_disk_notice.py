@@ -151,20 +151,34 @@ def test_disk_notice_from_disk(disk_data, tmp_path):
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_an_old_page_from_disk_shows_the_notice(disk_data, tmp_path):
     """A map.html written before store wave 4 (no notice: BASE_MAP_HTML), opened from disk, shows the same notice
-    built by the bundle and loads nothing: the run's id from its folder, its name from the list of runs (../runs.js)
-    when it names the run, else from the page's title; its data.js (left beside it) never asked for."""
+    built by the bundle and loads nothing: the run's id from its folder (in the command too), its name from the list
+    of runs (../runs.js) when it names the run (here another name than the page's title), else from the page's title
+    (a copy runs.js does not name; a runs folder without runs.js); its data.js (left beside it) never asked for."""
     import shutil
     import old_runs
     import old_scripts
+    import runs as rn
+    listed_name = "Renamed in the list"  # runs.js's name, not the title's
     folder = disk_data / "runs" / RUN
     old_scripts.write_scripts(folder)  # what such a run held
-    old_runs.old_map(folder)
-    assert mapping.DISK_NOTICE not in (folder / "map.html").read_text("utf-8")
-    unlisted = disk_data / "runs" / (RUN + "x")  # a copy runs.js does not name: its name from the title
+    old_runs.old_map(folder)  # its title: NAME
+    page_text = (folder / "map.html").read_text("utf-8")
+    assert mapping.DISK_NOTICE not in page_text and listed_name not in page_text
+    meta = json.loads((folder / "run.json").read_text("utf-8"))
+    meta["name"] = listed_name
+    (folder / "run.json").write_text(json.dumps(meta), "utf-8")
+    unlisted = disk_data / "runs" / (RUN + "x")  # a copy runs.js does not name
     shutil.copytree(folder, unlisted)
-    for where, profile in ((folder, "edge-old"), (unlisted, "edge-unlisted")):
+    rn.write_index(str(disk_data / "runs"))
+    text = (disk_data / "runs" / "runs.js").read_text("utf-8")
+    assert listed_name in text and unlisted.name not in text
+    alone = tmp_path / "alone" / "runs"  # a runs folder without runs.js
+    shutil.copytree(disk_data / "runs" / mapping.VIEWER_FOLDER, alone / mapping.VIEWER_FOLDER)
+    shutil.copytree(folder, alone / RUN)
+    for where, profile, name in ((folder, "edge-old", listed_name), (unlisted, "edge-unlisted", NAME),
+                                 (alone / RUN, "edge-alone", NAME)):
         page = _page_with(where, "old", INTROS_SEEN + RECORDER, DISK_END)
-        _shown_from_disk(_result_in(_edge_file(where / page, tmp_path / profile)), where.name, NAME)
+        _shown_from_disk(_result_in(_edge_file(where / page, tmp_path / profile)), where.name, name)
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")

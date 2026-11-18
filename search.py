@@ -2864,7 +2864,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "width": int(heights.shape[1]), "height": int(heights.shape[0]), "step": step, "res": sampled, "crs": plan.crs,
         "left": s_left, "top": s_top, "base_dm": base_dm, "anchors": anchors, "affine": [float(v) for v in affine],
         "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
-        # the formula model's constants as data.js writes them (mapping.map_heads), for the page's profile chart
+        # the formula model's constants as the run's head names them (mapping.map_head), for the page's profile chart
         "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
         **_end_keys(plan.end_zone, plan.lift),
         # the run has a surface model: the page may ask the block of trees and buildings (part "canopy")
@@ -2885,7 +2885,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
 
 
 def _end_keys(end_zone: float, lift: float) -> Dict[str, float]:
-    """The end zone and the A-frames as the heads of data.js and the patch meta name them (mapping.map_heads):
+    """The end zone and the A-frames as the run's head and the patch meta name them (mapping.map_head, _ends):
     "end_zone" and "lift", each only when not 0 (runs without them: the keys of before)."""
     return {**({"end_zone": end_zone} if end_zone else {}), **({"lift": lift} if lift else {})}
 

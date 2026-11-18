@@ -329,7 +329,7 @@ def profile_problem(folder: str, points: List[float], admin: bool = False,
     return None
 
 
-# A favourite line: its anchors as the run's data.js holds them and the map joins them
+# A favourite line: its anchors as the run's store holds them (data.js's 7 decimals before) and the map joins them
 # (viewer/src/keys.ts lineCoords: JavaScript's numbers, so 1e-7 may be spelled so)
 _NUMBER = r"-?\d{1,3}(?:\.\d{1,15})?(?:e-\d{1,2})?"
 LINE_KEY = re.compile(rf"{_NUMBER}(?:,{_NUMBER}){{3}}")

@@ -51,13 +51,15 @@ export class TooLarge extends Error {
 }
 
 /** A run's store that could not be downloaded (a 404 among them: a run without a store) or read: its message the
- *  catalogue's words the page shows (ui.result.store_failed), `detail` what went wrong for the console. */
+ *  catalogue's words the page shows (ui.result.store_failed), `detail` what went wrong, written to the console once
+ *  here for every failed load (a run's own, Compare's other run, a mini map), so no caller needs to. */
 export class StoreFailed extends Error {
   readonly detail: string;
   constructor(key: string, why: string) {
     super(t("ui.result.store_failed"));
     this.name = "StoreFailed";
     this.detail = `could not load the store of the run ${key} (${why})`;
+    console.warn(this.detail);
   }
 }
 

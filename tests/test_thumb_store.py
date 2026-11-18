@@ -212,6 +212,47 @@ def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
     assert len({stroke for stroke, _ in card["strokes"]}) == 2, card
 
 
+THUMB_LINES_SCRIPT = r"""
+const fs = require("fs");
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+const drawn = m.thumbLines(m.readStore(bytes(process.argv[2] + "/lines.arrow"), null));
+console.log(JSON.stringify(drawn.map((l) => [l.a[0], l.a[1], l.b[0], l.b[1], l.over])));
+"""
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(REPO, "viewer", "node_modules", "esbuild")),
+                    reason="needs Node and `npm install` in viewer/")
+def test_thumb_lines_are_the_stores_anchors(tmp_path, big_clip):
+    """Thumb.tsx thumbLines on the page's reading of a store (result/load.ts readStore) gives every line, in the
+    store's order, its anchors as [lon, lat] and its kind (`over`) exactly as Python's reading of the store gives them
+    (linestore.read: the independent reference of the mini map's geometry, as test_store_gives_the_rows_values')."""
+    import subprocess
+    import linestore
+    viewer = os.path.join(REPO, "viewer")
+    src = os.path.join(viewer, "src").replace("\\", "/")
+    entry = tmp_path / "thumb_entry.ts"
+    entry.write_text(f'export {{ thumbLines }} from "{src}/app/c/Thumb";\n'
+                     f'export {{ readStore }} from "{src}/result/load";\n', encoding="utf-8")
+    bundle = tmp_path / "thumb.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', "
+                                  "loader: {'.css': 'empty', '.png': 'empty', '.svg': 'text'}, "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=viewer, check=True)
+    script = tmp_path / "thumb-test.cjs"
+    script.write_text("globalThis.document = {querySelector: () => null};  // app/api.ts reads the page's token\n"
+                      f"const m = require({json.dumps(str(bundle))});\n{THUMB_LINES_SCRIPT}", encoding="utf-8")
+    result = subprocess.run(["node", str(script), str(big_clip)], capture_output=True, text=True, encoding="utf-8",
+                            timeout=300)
+    assert result.returncode == 0, result.stderr
+    drawn = json.loads(result.stdout)
+    lines, _ = linestore.read(str(big_clip), profiles=False)
+    a1, a2, over = lines.columns["anchor1"], lines.columns["anchor2"], lines.columns["over_obstacles"]
+    expected = [[float(a1[i, 1]), float(a1[i, 0]), float(a2[i, 1]), float(a2[i, 0]), bool(over[i])]
+                for i in range(len(lines))]
+    assert len(drawn) == len(expected) > 1000 and {row[4] for row in expected} == {True, False}
+    assert drawn == expected
+
+
 def test_public_runs_list_gives_the_store(run_people):
     """On the public site a user's list of runs (/runs/runs.js, what Thumb looks a run up in) carries the run's
     store block, and its lines.arrow (web.RUN_FILES) is served to its owner only: the mini map's one request."""
