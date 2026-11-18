@@ -139,24 +139,30 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
   // A phone's legend (the user's decision of 2026-11-17): by itself it is unfolded while the sheet is low and folded
   // while the sheet is at half or higher, and folded too while, unfolded, it would reach the map's own controls at
   // the top (the zoom buttons, the shore's chip, the switch). A person's fold or unfold (`choice`) holds until the
-  // sheet next changes its stop; an unfold of theirs with too little room shows the legend in the room there is
-  // (it scrolls inside); with less than a line of room at a stop above the low one, their press on "Legend" lowers
-  // the sheet to its low stop and unfolds the legend there (the planner's decision of 2026-11-17: the person asked
-  // to see the legend, and the map's room is what it needs): no control covers another, the button is never off.
+  // sheet next changes its stop; at the low stop an unfold of theirs with too little room shows the legend in the room
+  // there is (it scrolls inside); at a stop above the low one, where the whole legend does not fit, their press on
+  // "Legend" lowers the sheet to its low stop and unfolds the legend there (the planner's decisions of 2026-11-17 and
+  // 2026-11-18, the pilot's "unfolded at the low stop only, as today": the person asked to see the legend, and the
+  // map's room is what it needs): no control covers another, the button is never off. Whether it fits is measured on
+  // the legend drawn unfolded before the frame is painted (`check`: its height depends on the level and the marks).
   // Where even the low stop has less than a line of room (a phone on its side: under about 400 px of height), their
   // press opens the legend as a panel above the map's other controls, as an opened layers list lies above the bar
   // (`asPanel`; it scrolls inside the map's height): closed by the same button, by Esc and by a press on the map.
-  const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean} | null>(null);
+  const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean; check?: boolean} | null>(null);
   const [room, setRoom] = useState(Infinity);  // px the legend may take between the top controls and the status line
   const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
   const asked = choice && choice.at === sheet ? choice.folded : null, high = sheet === "half" || sheet === "full";
   // the sheet changed its stop: the person's choice was for the one before (one made for this stop stays)
   useEffect(() => setChoice((made) => made && made.at === sheet ? made : null), [sheet]);
+  const lower = () => {
+    setChoice({at: "peek", folded: false});
+    onSheet?.("peek");
+  };
   const pressLegend = () => {
-    if (folded && room < LEGEND_LINE && sheet !== undefined && sheet !== "peek" && onSheet) {
-      setChoice({at: "peek", folded: false});
-      onSheet("peek");
-    } else setChoice({at: sheet, folded: !folded});
+    const above = sheet !== undefined && sheet !== "peek" && !!onSheet;
+    if (folded && above && room < LEGEND_LINE) lower();  // not even a line of room: not drawn here at all
+    else if (folded && above) setChoice({at: sheet, folded: false, check: true});  // drawn, measured, then kept or lowered
+    else setChoice({at: sheet, folded: !folded});
   };
   const asPanel = !wide && asked === false && room < LEGEND_LINE && !high;
   const folded = !wide && (asked === null ? high || room < natural.current : asked || (room < LEGEND_LINE && !asPanel));
@@ -208,6 +214,12 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     const others = box.height - (drawn ? drawn.offsetHeight + GAP : 0);
     const next = Math.floor(box.bottom - others - GAP - floor - 4);
     if (next !== room) setRoom(next);
+    // a press on "Legend" above the low stop: the legend just drawn unfolded stays where it fits whole, else the sheet
+    // goes to its low stop and the legend unfolds there (this runs before the frame is painted)
+    if (choice?.check && choice.at === sheet && drawn) {
+      if (drawn.scrollHeight + 2 > next) { lower(); return; }
+      setChoice({at: choice.at, folded: false});
+    }
     const status = el.querySelector(".v-status")?.getBoundingClientRect(), ceiling = column.querySelector(".v-switch")?.getBoundingClientRect().top ?? col.top;
     if (status) {
       const at = {bottom: Math.round(col.bottom - status.top) + GAP, max: Math.max(60, Math.floor(status.top - GAP - ceiling))};

@@ -818,8 +818,9 @@ def test_phone_controls_apart(site):
                                                            "document.querySelector('.v-status').firstElementChild.classList.contains('v-toast')]") == \
                     [WORDS["ui.view.map.crowded"], True]
                 page.wait_for_selector(".v-toast", state="detached", timeout=WAIT)
-            # at half this phone's map has no room for the legend (39 px under the chip): a press on "Legend" lowers the
-            # sheet and unfolds the legend there; nothing covers another; raised again, the legend is folded by itself
+            # at half this phone's map has no room for the whole legend (41 px under the zoom row, the legend's two lines
+            # need about 70): a press on "Legend" lowers the sheet and unfolds the legend there; nothing covers another;
+            # raised again, the legend is folded by itself
             _state(page, fit + "view.setLevel('spots');")
             assert page.evaluate("() => document.querySelector('.v-fold').disabled") is False and page.evaluate(legend) == ["false", False]
             _tap_on(page, ".v-fold")
