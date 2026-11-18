@@ -6,7 +6,7 @@ pitfalls are in `.claude/rules/` (web-app, metrics).
 
 ## `web.py`
 
-`findaline.py web`: FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes,
+`findaline.py web` (`main(argv, open_path="/")`: the page the browser opens, `findaline.py view`'s `/#run=<id>`): FastAPI on 127.0.0.1 (`TrustedHostMiddleware`, Origin and session token for changes,
 `SECURITY_HEADERS` incl. CSP; `--public`: the public host, trusted proxy, sign-in with GitHub/Google/Microsoft
 (`/login/<provider>`, `/auth/<provider>`, `POST /logout`), the token of a change is the session's CSRF token, a
 sign-in page (`signin_page`, no script, nothing that changes state but signing out) with the demo runs for visitors
@@ -126,7 +126,7 @@ addresses; `purge` after `KEEP_DAYS` (90) in `Scheduler.housekeeping`; no viewer
 
 ## `jobs.py`
 
-The web app's job queue (`Jobs`, `jobs.sqlite` with the jobs and their owners (`user_id`), their area, country and
+The web app's job queue (`run_facts(path)`: what jobs.sqlite knows of each run for `findaline.py runs remove-old --dry-run`, read from a copy outside the data folder (checked, made again up to `FACTS_TRIES` times; None when unreadable), never through `Jobs`, which sets the journal mode and migrates; `Jobs`, `jobs.sqlite` with the jobs and their owners (`user_id`), their area, country and
 outline (`area_km2`, `country`, `area_outline`: `note_area` in `run_phase`'s download phase for every user, its lookup
 outside the user's Nominatim quota, the outline from `area.outline_geojson`, simplified to about 50 m; `request_area`
 filled those of before in migrations 13 and 14; `Jobs.area`, `area_of_everyone`), the requests of the worker's
@@ -145,7 +145,7 @@ their run, the local user's (NULL) given to the first administrator by `adopt_ru
 migration 18: `rigs`, `add_rig`, `change_rig`, `delete_rig`; `RIGS_MAX`, `RIG_NAME_MAX`, `rig_name` stores a name
 composed (NFC), `rig_key` compares it once per user casefolded; the local user's given by `adopt_runs` while the administrator holds fewer than `RIGS_MAX` and none of
 the name), the removed searches (migration 19: `jobs.removed_at`, written by `remove` for a cancelled job, its owner's
-`POST /api/jobs/<id>/remove`, audit `job_remove`, and by `delete_run` for the jobs of a deleted run; `all(user_id)`
+`POST /api/jobs/<id>/remove`, audit `job_remove`, and by `delete_run` for the jobs of a deleted run (`delete_run`: the folder renamed to `runs/_removing-<id>` first, under the runs lock, then `forget_run`, the rows, then the folder deleted; a folder left is returned); `all(user_id)`
 leaves them out and those whose run.json is gone, told at every listing as `run_gone`; everyone's list keeps both, and
 `/api/jobs` gives each job `own` by `own_job`'s rule; the rows stay, so quotas, usage, area and metrics count them),
 the users' problem reports (table

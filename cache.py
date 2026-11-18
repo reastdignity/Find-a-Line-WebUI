@@ -110,7 +110,7 @@ RUNS_LOCK_SECONDS = 300   # how long a process waits for it (it holds it for a l
 
 def runs_lock(runs_dir: str):
     """The lock of the files all runs share in the runs folder (runs/_viewer by mapping.install_viewer,
-    runs.js and index.html by runs.write_index): one process at a time. Two compute slots saving their
+    runs.js by runs.write_index, a run's removal by runs.park_run): one process at a time. Two compute slots saving their
     runs at once both found the viewer's files missing or unread and moved their copies over them
     together, which Windows refuses while the other process has the file open (PermissionError: the
     job failed); and each wrote runs.js from its own listing, so the later could leave out the run of

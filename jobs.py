@@ -42,6 +42,7 @@ import signal
 import socket
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -433,6 +434,69 @@ USAGE = {"km2": "km² of search areas", "mpx": "Mpx of search areas (km² / reso
 def _in(values: Iterable) -> str:
     """Placeholders for an SQL IN (...) of these values."""
     return "(" + ", ".join("?" * len(tuple(values))) + ")"
+
+
+FACTS_TRIES = 3  # copies of jobs.sqlite run_facts reads at most before it gives up
+
+
+def run_facts(path: str) -> Optional[Dict[str, Dict]]:
+    """What a database `path` (a data folder's jobs.sqlite) knows of each run, for `findaline.py runs remove-old`,
+    whose dry run writes nothing in the data folder: never through Jobs (its open sets the journal mode and
+    migrates), and not even a read-only connection to the file itself (one with `mode=ro` left the -wal and -shm
+    files beside the database: tests/test_remove_old.py showed it), but a copy of the database and its -wal (what the
+    app wrote and SQLite has not checkpointed yet; a -wal that vanishes meanwhile is no -wal) in a temporary folder
+    elsewhere, removed on every path. The two files are copied one after the other while the app may write, so a
+    copy is checked (`PRAGMA quick_check`) and made again on a failure, FACTS_TRIES times at most; None when no copy
+    could be read (the caller lists the runs without these facts). {run id: {"user_id", "shared", "demo",
+    "favourites": favourite lines in it (anyone's), "searches": finished searches that saved it not yet removed}}; a
+    table or column an older database lacks reads as nothing; {} without a database. The list of runs to delete never
+    comes from here (the folders decide), only these columns of the listing."""
+    if not os.path.isfile(path):
+        return {}
+    for _ in range(FACTS_TRIES):
+        folder = tempfile.mkdtemp(prefix="findaline-facts-")
+        try:
+            copy = os.path.join(folder, "jobs.sqlite")
+            shutil.copyfile(path, copy)
+            try:
+                shutil.copyfile(path + "-wal", copy + "-wal")
+            except FileNotFoundError:  # no -wal, or the app's last connection closed meanwhile
+                pass
+            db = sqlite3.connect(copy, timeout=60)
+            try:
+                if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    continue
+                return _facts_of(db)
+            finally:
+                db.close()
+        except (OSError, sqlite3.DatabaseError):
+            continue
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+    return None
+
+
+def _facts_of(db: sqlite3.Connection) -> Dict[str, Dict]:
+    """run_facts' reading of a copy of jobs.sqlite."""
+    facts: Dict[str, Dict] = {}
+
+    def fact(run_id: str) -> Dict:
+        return facts.setdefault(run_id, {"user_id": None, "shared": False, "demo": False, "favourites": 0,
+                                         "searches": 0})
+
+    def rows(query: str) -> list:
+        try:
+            return db.execute(query).fetchall()
+        except sqlite3.OperationalError:  # no such table or column (an older schema)
+            return []
+    for run_id, user_id, visibility, share_hash in rows("SELECT run_id, user_id, visibility, share_hash FROM runs"):
+        fact(run_id).update(user_id=user_id, shared=share_hash is not None, demo=visibility == "demo")
+    for run_id, count in rows("SELECT run_id, COUNT(*) FROM favourites GROUP BY run_id"):
+        fact(run_id)["favourites"] = count
+    for run_id, count in rows("SELECT run_id, COUNT(*) FROM jobs WHERE status = 'done' AND run_id IS NOT NULL "
+                              "AND removed_at IS NULL GROUP BY run_id"):
+        fact(run_id)["searches"] = count
+    return facts
 
 
 class Jobs:
@@ -924,15 +988,61 @@ class Jobs:
         with self._db() as db:
             return bool(db.execute("UPDATE runs SET visibility = ? WHERE run_id = ?", (visibility, run_id)).rowcount)
 
-    def delete_run(self, run_id: str, runs_dir: str):
-        """Delete a run: its folder, then its row (its share link and demo flag go with it) and the
-        favourite lines of everyone in it; the jobs that saved it are marked removed with the time (the privacy
-        page says so: their rows stay and count as before; Jobs.all would leave them out of their owner's list
-        anyway, a run gone). A folder that cannot be deleted raises OSError and keeps its row (or adopt_runs would
-        give it away)."""
-        folder = os.path.join(runs_dir, run_id)
-        if os.path.isdir(folder):
-            shutil.rmtree(folder)
+    def delete_run(self, run_id: str, runs_dir: str) -> Optional[str]:
+        """Delete a run: its folder renamed first, under cache.runs_lock, to runs/_removing-<id> (runs.park_run: one
+        rename, so a rename that fails, a file of the run held open on Windows, raises OSError and changes nothing,
+        the row kept or adopt_runs would give a half folder away); then its row (its share link and demo flag go
+        with it) and the favourite lines of everyone in it, the jobs that saved it marked removed with the time
+        (forget_run; if that fails, the folder is renamed back and the error raised); then the renamed folder deleted
+        outside the lock (runs.finish_removal). A renamed folder that cannot be deleted now stays as
+        _removing-<id>, no run any more, which `findaline.py runs remove-old --yes` deletes later: its path is
+        returned then (else None), the run being deleted."""
+        import runs as rn
+        with cache.runs_lock(runs_dir):
+            parked = rn.park_run(runs_dir, run_id)
+            try:
+                self.forget_run(run_id)
+            except BaseException:
+                if parked:
+                    os.rename(parked, os.path.join(runs_dir, run_id))
+                raise
+        try:
+            rn.finish_removal(parked)
+        except OSError:
+            return parked
+        return None
+
+    def finish_removals(self, runs_dir: str, names: Optional[Iterable[str]] = None,
+                        min_age: float = 0.0) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """Finish the removals that stopped after their rename (runs/_removing-<id>, runs.park_run: a kill, a restart
+        of the web in the middle of a Delete, a file held open): for each such folder (of `names` only, when given;
+        parked at least `min_age` seconds ago) its rows go too (forget_run, under cache.runs_lock, only while no
+        runs/<id> exists: a run of the same id that came back keeps its rows), then the folder. `findaline.py runs
+        remove-old --yes` and the worker's housekeeping call it. Returns (the names finished, [(name, error)])."""
+        import runs as rn
+        finished, left = [], []
+        if not os.path.isdir(runs_dir):
+            return finished, left
+        for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+            if not entry.name.startswith(rn.REMOVING) or (names is not None and entry.name not in names):
+                continue
+            try:
+                if min_age and time.time() - entry.stat(follow_symlinks=False).st_mtime < min_age:
+                    continue
+                run_id = entry.name[len(rn.REMOVING):]
+                with cache.runs_lock(runs_dir):
+                    if not os.path.lexists(os.path.join(runs_dir, run_id)):
+                        self.forget_run(run_id)
+                rn.finish_removal(entry.path)
+                finished.append(entry.name)
+            except Exception as error:  # noqa: BLE001 - reported, the others go on
+                left.append((entry.name, f"{type(error).__name__}: {error}"))
+        return finished, left
+
+    def forget_run(self, run_id: str):
+        """The database's part of deleting a run (delete_run): its row, everyone's favourite lines in it, the jobs
+        that saved it marked removed (the privacy page says so: their rows stay and count as before; Jobs.all would
+        leave them out of their owner's list anyway, a run gone)."""
         with self._db() as db:
             db.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
             db.execute("DELETE FROM favourites WHERE run_id = ?", (run_id,))
@@ -1636,7 +1746,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
                     params = params.model_copy(update={"tile_size": json.load(f)})
         plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
-        plan.index_runs = not public  # runs.js and index.html of the runs folder: read locally only
+        plan.index_runs = not public  # runs.js of the runs folder: read locally only
         if safeguards is not None:  # the server's switch, also for a user without limits (its memory budget)
             plan.early_stop = safeguards.lines_early_stop
         if phase == "download":
@@ -2119,6 +2229,12 @@ class Scheduler:
         data = self.jobs.data_dir
         removed = dict.fromkeys(("parts", "events", "quick", "usage", "audit", "work"), 0)
         removed["work"] = remove_old_exports(data)  # first: the cache's walk below may take minutes
+        # Run folders whose removal stopped after their rename (a restart of the web in the middle of a Delete): their
+        # rows and bytes go after an hour (the web's own Delete finishes a fresh one itself)
+        import runs as rn
+        _, left = self.jobs.finish_removals(os.path.join(data, "runs"), min_age=rn.REMOVING_AGE)
+        for name, error in left:
+            print(f"housekeeping: {name} not removed yet: {error}", file=sys.stderr)
         removed["parts"] = cache.remove_stale_parts(os.path.join(data, "cache"))
         write_cache_sizes(data)
         import audit

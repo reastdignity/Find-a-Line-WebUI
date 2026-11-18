@@ -68,13 +68,14 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   quick lane's reserve of `slot_memory` and the refusals of lines, and README's `GRID_MPX_MAX` row and
   `settings.Limits.grid_mpx_max`'s description name its value.
 - The memory of the lines (`search.LINE_BYTES`) is the largest per-line peak of a search's process tree with a margin,
-  counted as the processes' unique sets (USS) plus saving's hand-over files once (its children map the same files, so
-  their working sets summed count those pages once per child; a container once: inferred): docs/performance.md "The
-  memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line with it, so 900 B; the
-  peak at step 5's children; measured with `tools/perf_slot_memory.py --cores 7 --memory <a slot's bytes> --uss`, full
-  searches of 0.7-3.5 million lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per
+  counted as the processes' unique sets summed (`tools/perf_slot_memory.py`'s `peak_tree_uss_mb`; until store wave 4
+  saving's children shared hand-over files, added once: `uss_plus_handover_mb`, which records made before carry):
+  docs/performance.md "The memory constant" (2026-11-15: 440 B a line without the square rule, 649-762 B a kept line
+  with it, so 900 B, the peak then at step 5's children; without them it can only be lower: kept until measured again;
+  measured with `tools/perf_slot_memory.py --cores 7 --memory <a slot's bytes> --uss`, full searches of 0.7-3.5
+  million lines; Windows, a tiled join not measured again). A change of what steps 3-5 hold per
   line (`find_valid_lines`' parts, `search.line_coordinates`, `mapping.group_lines`, the profiles, `LineTable.join`,
-  `saving.hand_over`, the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
+  the store) is measured again that way, and `tools/perf_country.py`'s copy follows the constant.
   `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the profile points:
   a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change both together.
 - `memory_needed`'s sectors' term (`WARD_SPOT_BYTES` x min(lines, `mapping.SECTOR_WARD_SPOTS`)²) follows
@@ -94,7 +95,7 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   `tests/test_sample_estimate.py`), with the square rule its squares and the keys seen from their first square (the
   lines kept, as the limits count them), and its result never depends on the number of threads.
 - The square rule (`--same-line-square`, `samelines.py`; off by default): with it off no file of a run, no tile file
-  and no hash changes by a byte (`tests/test_same_lines.py` pins `lines.csv` of two clip searches); with it on, the
+  and no hash changes by a byte (`tests/test_same_lines.py` pins the CSV export of two clip searches); with it on, the
   order of a pair's lines must stay total and the same for every part, tile and thread ("first of a key" and "sum of
   a key" are all the reducer and `reduce_table` do), a tile's reducer takes only the lines of its core
   (`line_coordinates`' test), and the limits count kept lines (`_early_check` through the reducer's check,
@@ -158,8 +159,8 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
 - Speed or memory changes: measure before and after with the tools of docs/performance.md (`tools/perf_profile.py`,
   also `--cores N` like the worker's container and `--tracemalloc`; `tools/perf_slot_memory.py` for
   `search.LINE_BYTES`), one search at a time, and show that the results are the same: `lines.csv` whole,
-  `lines.geojson` up to its `"findaline"` part, `lines.js` and `data.js` from their `"lines":[` (the run's id and time
-  differ; `lines.js` names its run before that). A tiled area only with a fixed `--tile-size`: the tiles follow the
+  `lines.geojson` up to its `"findaline"` part, both made by `findaline.py export` (a run keeps no text file since
+  store wave 4; the run's id and time differ). A tiled area only with a fixed `--tile-size`: the tiles follow the
   free memory, which moves lines between tiles and reorders `data.js`. The web worker runs each phase in a daemonic
   process, which may not start a process pool: speed a step up inside its process (numpy, numba `prange`, GDAL's
   threads). A country band is compared with its own base commit, on the same day, one run after the other, on a band's

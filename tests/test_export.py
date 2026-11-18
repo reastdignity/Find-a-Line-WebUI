@@ -78,6 +78,7 @@ def quick_lane(data_dir, monkeypatch, public: bool = False, limits=None, worker:
 def exported(folder, fmt: str, tmp_path) -> bytes:
     """What linestore.export makes of a run folder now (its run.json as it is)."""
     import linestore
+    tmp_path.mkdir(parents=True, exist_ok=True)
     out = tmp_path / f"expected.{fmt}"
     linestore.export(str(folder), fmt, str(out))
     return out.read_bytes()
@@ -91,23 +92,27 @@ def exports_of(data_dir) -> list:
 # --- The command line ---
 
 def test_export_command(clip_store, tmp_path, monkeypatch, capsys):
-    """`findaline.py export RUN --format csv|geojson [--out PATH]`: the run's own lines.csv / lines.geojson byte
-    for byte, from the store; RUN a run id of --data-dir or a run folder; by default <run id>.<format> in the
-    current folder; nothing written into the run folder."""
+    """`findaline.py export RUN --format csv|geojson [--out PATH]`: linestore.export's text of the run's store byte
+    for byte (the run's own lines.csv / lines.geojson before store wave 4: test_linestore keeps that equality); RUN a
+    run id of --data-dir or a run folder; by default <run id>.<format> in the
+    current folder; nothing written into the run folder.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     import findaline
     data, run_id, folder = copy_data(clip_store, tmp_path)
+    expected = {fmt: exported(folder, fmt, tmp_path / "expected") for fmt in ("csv", "geojson")}
     before = sorted(os.listdir(folder))
     here = tmp_path / "here"
     here.mkdir()
     monkeypatch.chdir(here)
     assert findaline.export_main([run_id, "--format", "csv", "--data-dir", str(data)]) == 0
-    assert (here / f"{run_id}.csv").read_bytes() == (folder / "lines.csv").read_bytes()
+    assert (here / f"{run_id}.csv").read_bytes() == expected["csv"]
     assert findaline.export_main([str(folder), "--format", "geojson"]) == 0  # a run folder
-    assert (here / f"{run_id}.geojson").read_bytes() == (folder / "lines.geojson").read_bytes()
+    assert (here / f"{run_id}.geojson").read_bytes() == expected["geojson"]
     out = tmp_path / "elsewhere" / "mine.csv"
     out.parent.mkdir()
     assert findaline.export_main([run_id, "--format", "csv", "--out", str(out), "--data-dir", str(data)]) == 0
-    assert out.read_bytes() == (folder / "lines.csv").read_bytes() and os.listdir(out.parent) == ["mine.csv"]
+    assert out.read_bytes() == expected["csv"] and os.listdir(out.parent) == ["mine.csv"]
     assert sorted(os.listdir(folder)) == before  # nothing in the run folder
     assert sorted(os.listdir(here)) == [f"{run_id}.csv", f"{run_id}.geojson"]  # no temporary folder left
     assert str(out) in capsys.readouterr().out
@@ -135,10 +140,13 @@ def test_export_command_refuses(clip_store, tmp_path, monkeypatch):
 def test_export_command_refuses_its_output(clip_store, tmp_path, monkeypatch):
     """An --out that names a folder, a folder that does not exist, or a place in the run folder (also the default
     name when the current folder is the run folder) is refused with a message and exit status 1 before any work
-    (linestore.export is never called), and nothing is written; an existing file is overwritten."""
+    (linestore.export is never called), and nothing is written; an existing file is overwritten.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     import findaline
     import linestore
     data, run_id, folder = copy_data(clip_store, tmp_path)
+    expected = exported(folder, "csv", tmp_path / "expected")
     before = sorted(os.listdir(folder))
     calls = []
     real_export = linestore.export
@@ -159,27 +167,33 @@ def test_export_command_refuses_its_output(clip_store, tmp_path, monkeypatch):
     assert calls == [] and sorted(os.listdir(folder)) == before and os.listdir(tmp_path / "a-folder") == []
     old = tmp_path / "old.csv"
     old.write_text("old")
-    assert findaline.export_main(args("--out", str(old))) == 0 and old.read_bytes() == (folder / "lines.csv").read_bytes()
+    assert findaline.export_main(args("--out", str(old))) == 0 and old.read_bytes() == expected
     help_text = subprocess.run([sys.executable, os.path.join(REPO, "findaline.py"), "export", "--help"],
                                capture_output=True, text=True, timeout=300).stdout
     assert "existing file is overwritten" in " ".join(help_text.split())
 
 
-def test_regression_needs_lines_csv_and_takes_the_export(clip_store, tmp_path):
-    """tests/regression.py: check_export gives the CSV the export makes (the bytes of lines.csv) and no problem;
-    a run without lines.csv is a problem until store wave 4 (every search still writes it), as is one whose
-    lines.csv differs from the export."""
+def test_regression_takes_the_export(clip_store, tmp_path):
+    """tests/regression.py: check_export gives the CSV the export makes and no problem (since store wave 4 a run
+    keeps no lines.csv to compare it with), nothing written into or beside the run folder; measure's checksum and
+    counts are the export's; a run without a store is a problem and has no checksum.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
+    import hashlib
     import regression
     data, run_id, folder = copy_data(clip_store, tmp_path)
+    before = sorted(os.listdir(folder.parent))
     table, problems = regression.check_export(str(folder))
-    assert table == (folder / "lines.csv").read_bytes() and problems == []
-    (folder / "lines.csv").write_bytes(table.replace(b"\r\n", b"\n", 1))
-    assert regression.check_export(str(folder))[1] == ["the CSV exported from the store differs from lines.csv"]
-    os.remove(folder / "lines.csv")
-    table, problems = regression.check_export(str(folder))
-    assert table is not None and problems == ["the run wrote no lines.csv"]
+    assert table == exported(folder, "csv", tmp_path / "expected") and problems == []
+    assert sorted(os.listdir(folder.parent)) == before
     found = regression.measure("", str(data / "runs"))
-    assert found["csv_sha256"] and found["store_problems"] == ["the run wrote no lines.csv"]
+    assert found["csv_sha256"] == hashlib.sha256(table).hexdigest() and found["store_problems"] == []
+    assert found["lines"] == json.loads((folder / "run.json").read_text("utf-8"))["summary"]["lines"]
+    assert found.pop("table") == table
+    os.remove(folder / "lines.arrow")
+    assert regression.check_export(str(folder)) == (None, ["the run has no store (lines.arrow)"])
+    found = regression.measure("", str(data / "runs"))
+    assert "csv_sha256" not in found and found["store_problems"] == ["the run has no store (lines.arrow)"]
 
 
 # --- The worker's quick kind "export" ---
@@ -190,7 +204,9 @@ def test_quick_export_writes_once_and_cleans_up(clip_store, tmp_path, monkeypatc
     EXPORT_KEEP_SECONDS go at the worker's start and before each export, younger ones stay; below the
     server's free_disk_gb_min once the file is written (LANE_LIMITS, whatever the task's limits; the file's size
     estimated from the store's lines) it refuses with export_disk_full, for a run without a store with
-    export_failed."""
+    export_failed.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     from jobs import QuotaExceeded
     from messages import UserError
     data, run_id, folder = copy_data(clip_store, tmp_path)
@@ -200,9 +216,9 @@ def test_quick_export_writes_once_and_cleans_up(clip_store, tmp_path, monkeypatc
     exports = os.path.join(str(data), *jb.EXPORTS)
     assert exports_of(data) == sorted(f"{run_id}-{name}" for name in names)
     with open(os.path.join(exports, f"{run_id}-{names[0]}"), "rb") as f:
-        assert f.read() == (folder / "lines.csv").read_bytes()
+        assert f.read() == exported(folder, "csv", tmp_path / "expected")
     with open(os.path.join(exports, f"{run_id}-{names[1]}"), "rb") as f:
-        assert f.read() == (folder / "lines.geojson").read_bytes()
+        assert f.read() == exported(folder, "geojson", tmp_path / "expected")
 
     old = time.time() - jb.EXPORT_KEEP_SECONDS - 60
     for name in ("stale.csv", "taken.sending"):
@@ -225,8 +241,8 @@ def test_quick_export_writes_once_and_cleans_up(clip_store, tmp_path, monkeypatc
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     lines = meta["store"]["lines"]
     assert all(jb.export_bytes(str(folder), fmt) == lines * jb.EXPORT_LINE_BYTES[fmt] > 0 for fmt in ("csv", "geojson"))
-    assert all(jb.EXPORT_LINE_BYTES[fmt] * lines >= (folder / kept).stat().st_size
-               for fmt, kept in (("csv", "lines.csv"), ("geojson", "lines.geojson")))  # an upper bound here too
+    assert all(jb.EXPORT_LINE_BYTES[fmt] * lines >= len(exported(folder, fmt, tmp_path / "expected"))
+               for fmt in ("csv", "geojson"))  # an upper bound here too
     free = 50e9  # the disk as the guard sees it
     monkeypatch.setattr(jb.shutil, "disk_usage", lambda path: shutil._ntuple_diskusage(100e9, 50e9, free))
     size = jb.export_bytes(str(folder), "geojson")
@@ -331,7 +347,9 @@ def test_export_routes_of_the_local_app(clip_store, tmp_path, monkeypatch):
     as an attachment named after the run (its name, else its id), with its media type, once: the file is
     deleted and a second request answers 404; a Range request gets the whole file. 503 without a worker; the
     format checked; a run without a store refused (409 export_failed) before the lane is asked; other names
-    and other runs' exports answer 404 and leave the file."""
+    and other runs' exports answer 404 and leave the file.
+    (Compared with linestore.export itself: the bytes are held by test_linestore's clip, the search's own text in
+    memory, test_store_round_trip, test_saved_text_as_before and the regression checksums.)"""
     data, run_id, folder = copy_data(clip_store, tmp_path)
     meta = json.loads((folder / "run.json").read_text("utf-8"))
     meta["name"] = 'Żabi "Koń"/1'
@@ -345,10 +363,7 @@ def test_export_routes_of_the_local_app(clip_store, tmp_path, monkeypatch):
         assert post("no-such-run", {"format": "csv"}).status_code == 404
         assert client.post(f"/api/runs/{run_id}/export", json={"format": "csv"}).status_code == 403  # no token
         with quick_lane(data, monkeypatch):
-            for fmt, kept, media in (("csv", "lines.csv", "text/csv; charset=utf-8"),
-                                     ("geojson", "lines.geojson", "application/geo+json")):
-                if fmt == "csv":  # lines.geojson's "findaline" part names the run: here renamed (run.json)
-                    assert exported(folder, fmt, tmp_path) == (folder / kept).read_bytes()
+            for fmt, media in (("csv", "text/csv; charset=utf-8"), ("geojson", "application/geo+json")):
                 answer = post(run_id, {"format": fmt})
                 assert answer.status_code == 200, answer.text
                 url = answer.json()["url"]

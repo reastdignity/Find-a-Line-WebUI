@@ -3,7 +3,6 @@ paths:
   - "mapping.py"
   - "grouping.py"
   - "runs.py"
-  - "saving.py"
   - "linestore.py"
   - "hypsometry.py"
   - "viewer/src/types.ts"
@@ -31,8 +30,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   the same cells, candidates and float64 tests (`dx*dx + dy*dy <= d2`, x first) as `grouping.ts`;
   `tests/test_units.py::test_grouping_as_before` keeps the dict version of 792efad as the reference,
   `test_grouping_matches_python` compares Python with the browser.
-- The run data written by `mapping.save_map` (`data.js`, `lines.js`; `ortho.wms_version` only when not 1.3.0,
-  `ortho.wms_crs` only when not EPSG:4326), the list in `runs.write_index` (`runs.js`) and their types in
+- The run data of the runs saved before store wave 4 (`data.js`, `lines.js`: `mapping.write_map_scripts`, which
+  only `tests/old_runs.py` calls since, until wave 4's item 5; `ortho.wms_version` only when not 1.3.0, `ortho.wms_crs`
+  only when not EPSG:4326, also in the store's head), the list in `runs.write_index` (`runs.js`) and their types in
   `viewer/src/types.ts`. The run's `terrain` (`hypsometry.statistics`) is in run.json (and the `"findaline"` part of
   lines.geojson) and the heads of data.js and lines.js (`Terrain`, `RunData.terrain`, `RunLines.terrain`); runs saved
   before 2026-11-03 have none, and their lines pass the percentile filters (the line details say "percentile not
@@ -53,30 +53,29 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   `tests/test_units.py::test_saved_text_as_before` keeps that old code as the reference. A new column goes into that
   reference too. The rows are ordered part by part (`runs.rep_positions`, `runs.row_order(groups, lo, hi, at)`: the
   old stable order, each representative first, then the other members in their order;
-  `tests/test_units.py::_old_row_order` keeps the old lexsort as the reference). The children of `saving.py` write the
-  same text from the memory-mapped copies of the columns and the profiles' batches (`hand_over`/`load`: `.tolist()` of
-  a memmap gives the same Python values; run.json's values and the scripts' heads go through JSON, which keeps every
-  float, int, null and NaN as it was): `test_saved_by_children_as_in_process` (50 000 synthetic lines, the hard
-  floats, a batch's profiles and dict profiles) and `tests/test_offline.py::test_run_saved_by_children_as_in_process`
-  (the Żabi Koń clip through `save_run`) compare the files byte for byte with one process's; a new column or a new
-  kind of profile value goes into those too.
+  `tests/test_units.py::_old_row_order` keeps the old lexsort as the reference). Since store wave 4 a run keeps no
+  text file: `lines.csv`/`lines.geojson` are this text made by `linestore.export` (the command `export`, a download).
 - The store (`linestore.py`, `lines.arrow`/`profiles.arrow`, docs/line-volume/spec-store.md 1.3) is the one schema
   of a run's lines: `linestore.COLUMNS` keeps each value at `mapping.map_rows`' decimals (the field's `decimals`; the
   grouping's values float64 unrounded) and the rows that round to -0.0 in `negative_zero`, so `linestore.export`
-  writes the run's `lines.csv`/`lines.geojson` byte for byte (`tests/test_linestore.py`; `tests/regression.py` checks
-  export = `lines.csv` on every entry until the text files end). A new column of the lines goes into `COLUMNS` and that
+  writes what the run's `lines.csv`/`lines.geojson` held before store wave 4 byte for byte (`tests/test_linestore.py`;
+  `tests/regression.py` checked export = `lines.csv` on every entry until wave 4 and pins the export's sha256). A new column of the lines goes into `COLUMNS` and that
   test too; a change of `map_rows`' decimals changes the store's. `lines.csv` prints `water_m`/`filled_m` unrounded:
   the export matches only while the search keeps them at 0.1 m (`covered_metres`). A column no integer holds exactly
-  is float64 of round(value, decimals) without `decimals` (the reader takes both). `save_run` writes the store after the text files and adds
-  run.json's block `store` then (never in `lines.geojson`: `export` leaves it out); a store that fails leaves the run
-  without one. `has_lines`: `lines.arrow` or `lines.js`. The head is `mapping.map_head`'s. Its media type
+  is float64 of round(value, decimals) without `decimals` (the reader takes both). `save_run` writes the store first,
+  then `map.html`, `ATTRIBUTION.txt` and `run.json` last with its block `store` (never in the export's `lines.geojson`:
+  `export` leaves it out): a folder without run.json is a run being saved. Anything failing between the folder and run.json
+  fails the search (`run_not_saved`, no run kept; a tiled run keeps its work state); view columns that fail leave a
+  store without them and run.json's `view_columns_failed`. run.json is written whole (`cache.replacing`).
+  `has_lines`: `lines.arrow` or (old runs, until item 5) `lines.js`. The head is `mapping.map_head`'s. Its media type
   `linestore.MEDIA_TYPE` = `web.py`'s `mimetypes` entry.
 - The page's reader of the store (`result/load.ts` `readStore`, `storedProfiles`, `STORE_FORMAT`; `types.ts`
   `storedColumns`, `NULL_WHEN_MISSING`: data.js's null for clrN, prom, drop, NaN for the others) and
   `linestore.COLUMNS`/`profiles_table`/`FORMAT`: a new column, type, null rule or format goes into both
   (`tests/test_viewer.py::test_store_gives_the_rows_values` compares every value with data.js's); the page reads a store
   only when run.json's block `store` is in runs.js (`storeOf`) for a listed run, so `runs._listed` keeps that block (a run the list does not name and a share link ask for the store's files directly, `STORE_PROBE`: a 404 or a file not fetched reads data.js); a store's file
-  missing (404) falls back to data.js and lines.js, which runs keep until store wave 4.
+  missing (404) falls back to data.js and lines.js, which old runs keep until they are removed (`findaline.py runs
+  remove-old`) and item 5 ends the reader.
 - The result view's columns (view B1, docs/line-volume/spec-view.md B.3) and the page's reader of them (step 3b:
   `result/load.ts` `viewColumns`, `types.ts` `ViewColumns`/`hasView`, the gate `result/spots.ts` `viewOf`):
   `mapping.view_columns`' `by_spot` (inside a spot by mean height as stored, clearance, length, then the
@@ -110,6 +109,15 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   mark asked but left out (the area too wide: `search._check_access`) makes the run of a search without the option
   plus `"access_skipped": "memory"` in run.json and every head (`mapping._ends`: data.js, lines.js, the store's) =
   `types.ts` `RunHead.access_skipped`.
+- An old run (docs/line-volume/spec-store.md 2.2) is what `runs.run_state` does not call "current" (no
+  lines.arrow of `FORMAT` with `VIEW`'s columns, but for run.json's `runs.VIEW_FAILED`: today's run whose view
+  columns failed): `runs.old_runs` sorts the runs of `findaline.py runs remove-old` by it, so a new `FORMAT` or view
+  column makes every run of before old (removed on the user's word, never converted). A read error is never "old"
+  (`linestore.store_state` "cannot_read": skipped). A removal renames the folder first (`runs.park_run` to
+  `_removing-<id>` under the runs lock, then the rows, then `runs.finish_removal` outside it): `Jobs.delete_run` and
+  `runs_main` alike. The dry run writes nothing in the data folder (`jobs.run_facts` reads a checked copy).
+  `tests/old_runs.py` makes the runs of before for the tests (today's writers; their map.html is BASE's
+  `MAP_HTML`, without the disk notice) until item 5.
 - The uncertain shore: `sources.filling.shore_segments`' dict is run.json's and data.js's `shore`
   (`mapping.map_heads`, not lines.js; `runs._listed` leaves it out) and `Shore`/`ShoreSegment` of
   `viewer/src/types.ts` (`shore.ts`, `shoreLayer.ts`); runs saved before 2026-11-05 have none and show no layer. The
@@ -123,9 +131,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   before; not lines.js; `runs._listed` leaves it out), and `TerrainSources` of `viewer/src/types.ts`; its land takes
   the statistics' rule (`water_with_data`) after the gap filling, so `land_km2` less the neighbours' and fallbacks'
   km² is the run's `terrain.km2` (the source's own land, counted before the filling).
-- Favourite lines are known by the anchors of their rows in `data.js`/`lines.js` joined (`keys.lineCoords`, also the
-  `#line=` of a map's link): a change of how `mapping.save_map` rounds the anchors loses everyone's favourites (decide
-  their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`
+- Favourite lines are known by their anchors joined (`keys.lineCoords`, also the `#line=` of a map's link): the
+  store's int32 of 1e-7 degree, the same doubles as the 7 decimals of an old run's `data.js`/`lines.js`: a change of
+  how the store keeps the anchors loses everyone's favourites (decide their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`
   (`lift_needed`/`lift_no_zone` optional: null on a run without the options) (`favourites.favouriteData` /
   `favouriteLine`): a new field of `Line` that the app's tab should show goes into all three. The derived
   `pct1`/`pct2` (the anchors' percentile ranks, from the run's terrain when it is loaded: `toLine`, `measuredLine`)

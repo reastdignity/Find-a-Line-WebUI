@@ -517,9 +517,12 @@ def test_store_run_on_its_own_map_has_no_download(tmp_path, clip):
 def test_store_that_answers_404_keeps_the_two_links(tmp_path, clip):
     """A run whose store's file is missing (lines.arrow answers 404) is read from its data.js (result/load.ts
     fromServer), so the app's page shows the two links to its kept files, not the rows that ask the server for a
-    file made from the store; no export request."""
+    file made from the store; no export request. The run is one saved before store wave 4 with its store
+    (tests/old_runs.py "with_text": data.js and the kept files beside the store), whose reader item 5 ends."""
     from playwright.sync_api import sync_playwright
+    import old_runs
     folder, page_path = _data(tmp_path, clip)
+    old_runs.make_old(folder / "runs" / SMALL, "with_text")
     missing = []
 
     def routes(page):

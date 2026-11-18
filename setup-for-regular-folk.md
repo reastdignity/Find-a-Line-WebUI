@@ -55,19 +55,25 @@ uv downloads the right Python version and the libraries into a `.venv` folder in
 4. The first search in a new place downloads the elevation data (in Poland map sheets of about 2.3 × 2.3 km and 20–40 MB each, about 150 MB for the default 1 km radius) and aerial photos around the lines it finds, so it can take 10–20 minutes. Searching the same area again is much faster, because everything downloaded is kept in the `cache` folder.
 5. If a search would take very long, the script tells you how long and asks `Continue? [y/N]`. Type `y` and press Enter to go on, or just Enter to stop.
 
-When it is done, the coordinates of the spots it found are printed (one line per spot; similar lines are grouped together), and a simple map opens in a separate window. Close that window to finish.
+When it is done, the coordinates of the spots it found are printed (one line per spot; similar lines are grouped together), and a simple map opens in a separate window. Close that window to finish. The last line names the command that opens the result, for example `View it: findaline.py view 2026-11-17_101500_Zabi-Kon_...`.
 
 ## 5. Look at the results
-Open the `Find-a-Line-WebUI` folder (in File Explorer or Finder) and double-click **`findaline_map.html`**. It opens the map of your latest search in your web browser:
+In the same terminal, run
+
+```
+uv run findaline.py view
+```
+
+It starts Find-a-Line in your web browser and opens your latest search (`uv run findaline.py view <id of the search>` opens another one: the id is the search's folder name in `runs`, which the search's last line names too). Keep the terminal open while you look; close it, or press Ctrl+C, to stop. A search's `map.html` no longer opens by a double-click: it only says to run this command.
 
 - **Pink lines** have enough clearance over the terrain and over the trees; **orange lines** clear the terrain but pass too close to trees or buildings.
 - The **list on the right** (on a phone: slide the sheet at the bottom up) shows the spots, the clearest first. The chips above it filter the lines (length, clearance, height); *More filters* has the rest, and the grouping of similar lines.
 - **Click a line** (or its row) to see its length, the coordinates and heights of both anchors, and the clearance, under its row; ‹ › go to the previous and next spot. A click beside the lines, Esc or × closes it.
 - At the same time, a **terrain profile** of the line opens at the bottom: the ground, the trees, the safety limit and how much the webbing sags. Move the mouse over the profile to see the values at that point, where it is on the map, and how the webbing sags with someone standing there. You can change the tension, webbing and weight below the profile.
-- In the **top-right corner** of the map switch the background to **Orthophoto** to see aerial photos (you can zoom in very close to check the rocks and trees). The photos around the found lines also work without internet.
-- The **arrow in the top-left corner** goes back to the list of all your searches.
+- In the **top-right corner** of the map switch the background to **Orthophoto** to see aerial photos (you can zoom in very close to check the rocks and trees). The photos around the found lines also work without internet, while Find-a-Line runs on your computer.
+- The **arrow in the top-left corner** goes back to the list of all your searches (Home).
 
-Every search is kept in the `runs` folder. Open `runs/index.html` for a list of all searches with links to their maps and results; the `lines.csv` file of a search opens in Excel or any spreadsheet program.
+Every search is kept in the `runs` folder, and Home lists them all. To open the lines of a search in Excel or any spreadsheet program, use *Download* → *CSV* on its result, or run `uv run findaline.py export <id of the search> --format csv`, which writes `<id of the search>.csv` in the current folder.
 
 ## Searching in the browser instead
 Instead of typing commands, you can use Find-a-Line as a page in your web browser:

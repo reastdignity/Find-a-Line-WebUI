@@ -49,17 +49,17 @@ is asked of the coordinator, not decided alone. The coordinator updates this fil
   | `width`, `height` | samples in a row, rows |
   | `step` | 1 or 2 |
   | `res` | metres between samples (the run's resolution × step) |
-  | `crs` | the run's CRS as data.js writes it |
+  | `crs` | the run's CRS as its store's head (data.js before store wave 4) holds it |
   | `left`, `top` | the outer edges of the sampled grid in the run's CRS: sample (row i, column j) has its centre at `x = left + (j + 0.5)·res`, `y = top − (i + 0.5)·res` |
   | `base_dm` | integer decimetres the values are relative to |
-  | `anchors` | `[{"x", "y", "h"}, {…}]`: the line's anchor pixels in grid metres (pixel centres, as data.js `x1…y2`) and the DEM's height there in metres (2 decimals, as `e1`/`e2`) |
+  | `anchors` | `[{"x", "y", "h"}, {…}]`: the line's anchor pixels in grid metres (pixel centres, as the store's `x1…y2`) and the DEM's height there in metres (2 decimals, as `e1`/`e2`) |
   | `affine` | `[a0, a1, a2, b0, b1, b2]`: `lon = a0 + a1·x + a2·y`, `lat = b0 + b1·x + b2·y` (x, y grid metres), least squares over a 5 × 5 lattice of the patch |
-  | `rigging`, `model` | the run's, as data.js |
-  | `slope`, `leash_fall` | the formula model's constants as data.js has them (round 2: the page's profile chart) |
+  | `rigging`, `model` | the run's, as its store's head |
+  | `slope`, `leash_fall` | the formula model's constants as the store's head has them (round 2: the page's profile chart) |
   | `surface` | true when the run has a surface model (round 2: the page may ask `part=canopy`) |
   | `group_distance` | the run's grouping distance in metres (round 2: the lines from a point grouped as the result's spots) |
-  | `ortho` | the run's `ortho` entry exactly as `mapping.save_map` writes it into data.js (`null` without one) |
-  | `attribution` | the run's data credits as data.js `attribution` |
+  | `ortho` | the run's `ortho` entry exactly as `mapping.ortho_entry` writes it into the store's head (`null` without one) |
+  | `attribution` | the run's data credits as the store's head `attribution` |
   | `sha256` | hex sha256 of the deflated heights |
 
 - **In the quick table** the answer is `{"meta": {...}, "heights": "<base64url, no padding>"}`; `Redact` must leave
@@ -613,7 +613,7 @@ gis.natt.is serves Web Mercator only, and answers PNG when JPEG is asked). The 3
 - The ring: `ringmath.ts` `overlaySpecs` gives a WMS's `version` and `crs`, which 3d-tiles-renderer's
   `WMSTilesOverlay` takes (its `WMSImageSource` writes SRS or CRS and the axis order of each). A PNG answer's
   transparent parts show the ring's own colour there (the library composes the overlays; the far field only).
-- `mapping.ortho_entry` (data.js and the patch's meta) writes both options as `save_map` does since 07207a6;
+- `mapping.ortho_entry` (the store's head, data.js's before store wave 4, and the patch's meta) writes both options since 07207a6;
   `RING_ORIGINS` 21 → 27 (Svalbard's npolar, Iceland, Brandenburg, Schleswig-Holstein, Queensland, Slovenia).
 
 ## The iPhone test (2026-11-03)

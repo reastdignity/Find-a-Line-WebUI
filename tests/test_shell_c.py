@@ -108,8 +108,14 @@ def _write_store(folder, lines, profiles, meta) -> dict:
 
 def drop_store(data_dir, run_id: str):
     """The run as one saved before the store (2026-11-15) or whose store failed: no "store" in run.json, so the
-    page reads its data.js (the files stay: a store without the block is never read); runs.js written again."""
+    page reads its data.js (the files stay: a store without the block is never read); runs.js written again. A run
+    saved since store wave 4 gets the files of a run of before first (tests/old_runs.py: data.js, lines.js,
+    lines.csv, lines.geojson)."""
+    import old_runs
     runs = os.path.join(str(data_dir), "runs")
+    if not os.path.isfile(os.path.join(runs, run_id, "data.js")):
+        old_runs.write_scripts(os.path.join(runs, run_id))
+        old_runs.write_text(os.path.join(runs, run_id))
     path = os.path.join(runs, run_id, "run.json")
     with open(path, encoding="utf-8") as f:
         meta = json.load(f)
@@ -120,23 +126,27 @@ def drop_store(data_dir, run_id: str):
 
 
 def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMALL, name: str = "Small run") -> str:
-    """A copy of a run with its first `lines` lines only (SMALL): its data.js and lines.js, and its store when the
-    run has one (the rows and their profiles cut, the head's run renamed); runs.js written again."""
+    """A copy of a run with its first `lines` lines only (SMALL): its store when the run has one (the rows and their
+    profiles cut, the head's run renamed), and its data.js and lines.js when it has them (an old run, saved before
+    store wave 4); runs.js written again."""
     runs = os.path.join(str(data_dir), "runs")
     src, dst = os.path.join(runs, run_id), os.path.join(runs, small)
     shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns("data.js", "lines.js", "*.arrow"))
-    with open(os.path.join(src, "data.js"), encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    data["lines"] = data["lines"][:lines]
-    data["run"].update(id=small, name=name, created="2026-10-28T12:00:00")
-    with open(os.path.join(dst, "data.js"), "w", encoding="utf-8") as f:
-        f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
-    with open(os.path.join(src, "lines.js"), encoding="utf-8") as f:
-        body = json.loads(f.read().partition("] = ")[2].rstrip().rstrip(";"))
-    body["lines"] = body["lines"][:lines]
-    with open(os.path.join(dst, "lines.js"), "w", encoding="utf-8") as f:
-        f.write(f'(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})["{small}"] = {json.dumps(body)};\n')
+    renamed = {"id": small, "name": name, "created": "2026-10-28T12:00:00"}
+    if os.path.isfile(os.path.join(src, "data.js")):
+        with open(os.path.join(src, "data.js"), encoding="utf-8") as f:
+            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
+        data["lines"] = data["lines"][:lines]
+        data["run"].update(renamed)
+        with open(os.path.join(dst, "data.js"), "w", encoding="utf-8") as f:
+            f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
+    if os.path.isfile(os.path.join(src, "lines.js")):
+        with open(os.path.join(src, "lines.js"), encoding="utf-8") as f:
+            body = json.loads(f.read().partition("] = ")[2].rstrip().rstrip(";"))
+        body["lines"] = body["lines"][:lines]
+        with open(os.path.join(dst, "lines.js"), "w", encoding="utf-8") as f:
+            f.write(f'(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})["{small}"] = {json.dumps(body)};\n')
     with open(os.path.join(dst, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     meta.update(id=small, name=name, created="2026-10-28T12:00:00")
@@ -144,7 +154,7 @@ def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMA
     if meta.get("store"):
         import pyarrow.compute as pc
         (rows, profiles), store_meta = _store_files(src)
-        store_meta["head"]["run"].update(data["run"])
+        store_meta["head"]["run"].update(renamed)
         store_meta["negative_zero"] = {k: [r for r in v if r < lines] for k, v in store_meta["negative_zero"].items()}
         meta["store"] = _write_store(dst, rows.slice(0, lines),
                                      profiles.filter(pc.less(profiles.column("row"), lines)), store_meta)
@@ -199,20 +209,25 @@ def big_clip(tmp_path_factory):
 
 
 def copy_clip(clip, data_dir, run_id: str, name: str):
-    """copy_run (data.js and the store's head under the new id), and its lines.js under the new id too."""
+    """copy_run (the store's head under the new id, and an old run's data.js and lines.js), the viewer installed for
+    its map.html (as save_run's map does) and runs.js written."""
+    import mapping
     folder = copy_run(clip, data_dir, run_id, name)
-    lines = (folder / "lines.js").read_text("utf-8").replace(clip.name, run_id)
-    (folder / "lines.js").write_text(lines, "utf-8")
+    mapping.install_viewer(str(data_dir / "runs"))
     rn.write_index(str(data_dir / "runs"))
     return folder
 
 
 @pytest.fixture
 def data(tmp_path, big_clip):
-    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL)."""
+    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL). SMALL
+    also has its lines.js as runs saved before store wave 4 do (tests/old_runs.py): Home's mini map reads it
+    (Thumb.tsx) until store wave 4's item 3 reads the store."""
+    import old_runs
     folder = tmp_path / "data"
     copy_clip(big_clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
+    old_runs.write_scripts(folder / "runs" / SMALL, ("lines.js",))
     return folder
 
 
@@ -500,10 +515,17 @@ def test_shell_c_phone(data, tmp_path):
 
 
 def first_line(data_dir, run_id: str) -> str:
-    """The link of the run's first line in data.js (keys.ts lineCoords: its anchors joined)."""
-    with open(os.path.join(str(data_dir), "runs", run_id, "data.js"), encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    return ",".join(str(v) for v in data["lines"][0][:4])
+    """The link of the run's first line (keys.ts lineCoords: its anchors joined): of its store (the int32 of 1e-7
+    degree: the doubles of data.js's 7-decimal text), or of an old run's data.js."""
+    import linestore
+    folder = os.path.join(str(data_dir), "runs", run_id)
+    if not os.path.isfile(os.path.join(folder, linestore.LINES_FILE)) or \
+            "store" not in json.load(open(os.path.join(folder, "run.json"), encoding="utf-8")):
+        with open(os.path.join(folder, "data.js"), encoding="utf-8") as f:
+            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
+        return ",".join(str(v) for v in data["lines"][0][:4])
+    lines, _ = linestore.read(folder, profiles=False)
+    return ",".join(str(v) for v in [*lines.columns["anchor1"][0].tolist(), *lines.columns["anchor2"][0].tolist()])
 
 
 PHONE_LINK_SCRIPT = """
@@ -817,16 +839,19 @@ def test_shell_c_map_says_why_a_store_failed(data, tmp_path):
 
 
 def add_credits(data_dir, run_id: str):
-    """The run's data.js and its store's head with the credits of a source (a run of an elevation file has none)."""
+    """The run's store's head (and an old run's data.js) with the credits of a source (a run of an elevation file
+    has none)."""
     folder = os.path.join(str(data_dir), "runs", run_id)
     path = os.path.join(folder, "data.js")
-    with open(path, encoding="utf-8") as f:
-        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
-    data["attribution"] = [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
-                            "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-                            "notice": ""}]
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
+    credits = [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
+                "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/", "notice": ""}]
+    data = {"attribution": credits}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
+        data["attribution"] = credits
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
     with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
         meta = json.load(f)
     if meta.get("store"):

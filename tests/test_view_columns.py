@@ -17,6 +17,7 @@ import pyarrow as pa
 import pytest
 from scipy.cluster.hierarchy import fcluster, linkage
 
+import clip_runs
 import helpers as sh
 import linestore
 import mapping as mp
@@ -433,8 +434,12 @@ SQUARE = [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580], [19.7522,
 def test_every_new_run_has_the_view_columns(tmp_path):
     """search.save_run writes the view's columns and head keys for every new run: a circle with every profile
     and a surface model, the square rule on, the access mark on, a tiled area; each equals view_columns of the
-    lines read back from the store (its values as stored), and the export is the run's lines.csv byte for byte.
-    A tiled area and one grid with equal lines: the same columns."""
+    lines read back from the store (its values as stored), and the run keeps no text file (store wave 4; the
+    export equals what the search wrote from its own lines: test_linestore's clip). A tiled area and one grid with
+    equal lines: the same CSV export and the same columns.
+    (Its searches run in a process of their own, so no in-memory reference: the export's bytes of runs with the
+    options are held by test_store_round_trip (ends, square, access), test_access_search's
+    test_files_with_the_option_and_without and the regression checksums of R14, R16, R65, R83.)"""
     area = tmp_path / "square.geojson"
     area.write_text(json.dumps({"type": "Feature", "properties": {},
                                 "geometry": {"type": "Polygon", "coordinates": SQUARE}}))
@@ -450,12 +455,11 @@ def test_every_new_run_has_the_view_columns(tmp_path):
         assert all(np.array_equal(stored[k], again[k]) for k in stored) and head == again_head, name
         assert meta["store"]["format"] == 1 and meta["store"]["lines"] == len(stored["spot"]) > 0, name
         assert len(head["sectors"]) == min(10, meta["summary"]["spots"]), name
-        linestore.export(str(folder), "csv", str(tmp_path / f"{name}.csv"))
-        assert (tmp_path / f"{name}.csv").read_bytes() == (folder / "lines.csv").read_bytes(), name
-        seen[name] = (_by_line(folder, stored), head, (folder / "lines.csv").read_bytes(), output, meta)
+        assert not {"lines.csv", "lines.geojson", "data.js", "lines.js"} & set(os.listdir(folder)), name
+        seen[name] = (_by_line(folder, stored), head, clip_runs.export_text(folder), output, meta)
     assert seen["circle"][4]["summary"]["profiles"] == "all"
     assert "same_line_side" in seen["square"][4]["params"] and seen["access"][4]["params"].get("access")
-    # The tiles' table holds the lines in another row order (data.js's and the store's): the same lines (lines.csv),
+    # The tiles' table holds the lines in another row order (the store's): the same lines (the CSV export),
     # each with the same spot and top, and by_spot the same lines in the same order
     assert "tiles)" in seen["tiled"][3] and seen["one"][2] == seen["tiled"][2]
     assert seen["one"][0] == seen["tiled"][0] and seen["one"][1] == seen["tiled"][1]
@@ -463,7 +467,7 @@ def test_every_new_run_has_the_view_columns(tmp_path):
 
 @pytest.mark.parametrize("cap", [0, 12], ids=["exact", "above-the-cap"])
 def test_the_same_columns_on_1_and_8_threads(tmp_path, cap):
-    """The clip's search on 1 and 8 threads of the line search: the same lines.csv and the same view columns;
+    """The clip's search on 1 and 8 threads of the line search: the same CSV export and the same view columns;
     also with mapping.SECTOR_WARD_SPOTS at 12 in the search's process and spots of 5 m (sectors of 12 spots taken
     evenly, every spot to the nearest)."""
     out = {}
@@ -472,7 +476,7 @@ def test_the_same_columns_on_1_and_8_threads(tmp_path, cap):
         folder, _ = _folder_search(tmp_path, f"t{threads}", *CLIP, *SURFACE, "--radius", "290", "--threads",
                                    str(threads), *more, cap=cap)
         stored, head, again, again_head, meta = _stored_view(folder)
-        out[threads] = (stored, head, (folder / "lines.csv").read_bytes())
+        out[threads] = (stored, head, clip_runs.export_text(folder))
         assert meta["summary"]["spots"] > (cap or 10)
         if cap:  # the sample path was taken in the search's process: its head is the capped one, not exact Ward's
             assert head != again_head
@@ -489,18 +493,23 @@ def test_the_same_columns_on_1_and_8_threads(tmp_path, cap):
 
 
 def test_view_columns_that_fail_never_cost_the_run(tmp_path, monkeypatch):
-    """view_columns raising (here a MemoryError) leaves the run saved as when its store fails: the text files and
-    the map, run.json without "store", no lines.arrow, a coded warning."""
+    """view_columns raising (here a MemoryError) leaves the run saved with a store without the view's columns
+    (store wave 4, the planner's Q1b: it opens in today's page; run.json's view_columns_failed makes it a run of
+    today, which runs remove-old keeps), its map, run.json with "store", and a coded warning (view_columns_failed)
+    naming the error on the command line."""
     def failing(lines, groups, centre):
         raise MemoryError("no memory for the view")
     monkeypatch.setattr(mp, "view_columns", failing)
     folder, results, events = _clip_run(tmp_path, monkeypatch, os.path.join(DATA, "zabi_kon_nmt.tif"), radius=150)
-    assert sorted(os.listdir(folder)) == ["ATTRIBUTION.txt", "data.js", "lines.csv", "lines.geojson", "lines.js",
-                                          "map.html", "run.json"]
+    assert sorted(os.listdir(folder)) == ["ATTRIBUTION.txt", "lines.arrow", "map.html", "profiles.arrow", "run.json"]
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
-    assert "store" not in meta and meta["summary"]["lines"] == len(results) > 0
-    assert ("warning", "The run is saved without its store (lines.arrow): MemoryError: no memory for the view") \
-        in events
+    assert meta["store"]["lines"] == meta["summary"]["lines"] == len(results) > 0
+    stored, head = linestore.read(str(folder), profiles=False)
+    assert not set(mp.VIEW_COLUMNS) & set(stored.columns) and not set(linestore.VIEW_HEAD) & set(head)
+    assert linestore.store_state(str(folder)) == "no_view" and meta[rn.VIEW_FAILED] is True
+    assert rn.run_state(str(folder))[0] == "current"  # a run of today: runs remove-old keeps it (the planner's Q1b)
+    assert ("warning", "The run is saved without the result view's columns (spots' sectors): MemoryError: no memory "
+                       "for the view") in events
 
 
 # ---------------------------------------------------------------------------------------------

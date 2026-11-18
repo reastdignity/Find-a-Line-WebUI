@@ -2,24 +2,23 @@
 Saving every run (map, results, parameters) so earlier runs can be browsed.
 
 Layout:
-    runs/<id>/map.html       interactive map (the viewer, see mapping.save_map)
-    runs/<id>/data.js        its data: lines and profiles
-    runs/<id>/lines.js       its lines without profiles, for the "Other runs" of other maps
-    runs/<id>/lines.csv      every valid line with its group
-    runs/<id>/lines.geojson  the same as GeoJSON, with the public part of run.json
-    runs/<id>/run.json       parameters and summary
+    runs/<id>/lines.arrow     its lines, a row per line (linestore.py, the run's store)
+    runs/<id>/profiles.arrow  the saved profiles, a row per profile (the store)
+    runs/<id>/map.html        interactive map (the viewer, see mapping.save_map; not with --no-html)
+    runs/<id>/run.json        parameters and summary, with the block "store"; written last
     runs/<id>/ATTRIBUTION.txt  licences and notices of the data used (run.json "attribution")
+A run's lines.csv and lines.geojson are made from its store on request (`findaline.py export`, a
+download in the app: linestore.export through save_results), never kept in the run folder. Runs saved
+before store wave 4 (2026-11-17) also hold data.js, lines.js, lines.csv and lines.geojson (and
+earlier ones no store): `findaline.py runs remove-old` lists and removes them (old_runs).
 The id of a run is <date>_<time>_<place>_<random>: unique and not guessable (older runs
 have no random part and keep their ids).
-    runs/runs.js                       list of all runs, loaded by every map
+    runs/runs.js                       list of all runs, loaded by every map and the local app
     runs/_viewer/                      the viewer bundle shared by every map
-    runs/index.html                    table of all runs
-A page opened from disk cannot list a folder, so runs.js and index.html are
-rewritten after every run.
+runs.js is rewritten after every run (write_index).
 """
 
 import contextlib
-import html
 import json
 import math
 import os
@@ -27,7 +26,6 @@ import re
 import secrets
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
-from urllib.parse import quote
 
 import numpy as np
 import requests
@@ -377,7 +375,8 @@ RESULT_FILES = ("lines.csv", "lines.geojson", "ATTRIBUTION.txt", "run.json")  # 
 def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,
                  files: tuple = RESULT_FILES):
     """Write lines.csv, lines.geojson, ATTRIBUTION.txt and run.json for a run (`files`: only
-    those, in that order; the children of saving.py write the line files apart): the lines (a
+    those, in that order; the search writes only ATTRIBUTION.txt and run.json, linestore.export a
+    line file from the store): the lines (a
     helpers.LineTable) group by group (mapping.Groups).
 
     The line files are written together, LINES_CHUNK rows at a time, never all rows at once;
@@ -411,8 +410,8 @@ def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, fi
     if "ATTRIBUTION.txt" in files:
         with open(os.path.join(run_path, "ATTRIBUTION.txt"), "w", encoding="utf-8") as f:
             f.write(attribution_text(meta))
-    if "run.json" in files:
-        with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
+    if "run.json" in files:  # whole or not at all (cache.replacing): since store wave 4 it marks a run saved
+        with cache.replacing(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
         on_lines(0, "run.json")
 
@@ -430,6 +429,8 @@ def list_runs(runs_dir: str, only: Optional[Iterable[str]] = None) -> List[Dict]
     runs = []
     if os.path.isdir(runs_dir):
         for run_id in os.listdir(runs_dir) if only is None else set(only):
+            if run_id.startswith((".", "_")):  # no run: the viewer, the lock, a folder being removed (park_run)
+                continue
             path = os.path.join(runs_dir, run_id, "run.json")
             if os.path.isfile(path):
                 with open(path, encoding="utf-8") as f:
@@ -504,65 +505,128 @@ def _listed(run: Dict) -> Dict:
     return listed
 
 
-def write_index(runs_dir: str, viewer: bool = True):
-    """Rewrite runs.js (used by the maps) and index.html from the saved runs; viewer: install the
-    viewer (mapping.install_viewer) too, whose index.css the page needs (save_run's map did). One
-    process at a time (cache.runs_lock), so of two runs saved at once the later lists both."""
-    import mapping
-    if viewer:
-        mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
+RUNNING = "a tiled search still running"
+BEING_SAVED = "being saved: no run.json"
+NEWER = "made by a newer Find-a-Line"
+UNREADABLE_META = "its run.json cannot be read"
+CANNOT_READ = "cannot read now"
+REMOVING = "_removing-"  # a run folder renamed for its removal (park_run): no run any more, its bytes still there
+REMOVING_AGE = 3600  # s: the worker's housekeeping finishes a parked folder this old (a removal stopped meanwhile)
+VIEW_FAILED = "view_columns_failed"  # run.json's key: the run's view columns failed at saving (a current run)
+
+
+def old_runs(runs_dir: str) -> Dict[str, list]:
+    """The runs of a runs folder sorted for `findaline.py runs remove-old` (docs/line-volume/spec-store.md 2.2): "old"
+    (a dict per run: id, created, lines, bytes, unreadable) are the folders with run.json and no store of today
+    (linestore.store_state: missing, old or unreadable, the last marked "unreadable"; a store of today's format
+    without the view's columns is old unless run.json says its view columns failed at saving, VIEW_FAILED: such a run
+    was saved by today's code and opens in today's page); "current" the ids of the runs with today's store;
+    "skipped" (id, reason): a folder without run.json (being saved: save_run writes it last), a tiled search whose
+    progress.json says "running", a store of a newer Find-a-Line, a run.json that cannot be read, a store that cannot
+    be read now (a file held, a disk error: never taken for a broken one); "removing" the names of folders a removal
+    left behind (REMOVING: renamed, not deleted yet). Folders starting with "." or "_" (the viewer, the lock) are no
+    runs. Reads only: the caller holds cache.runs_lock. linestore (pyarrow) is imported here, never by importing runs
+    (the web process imports runs)."""
+    found = {"old": [], "current": [], "skipped": [], "removing": []}
+    if not os.path.isdir(runs_dir):
+        return found
+    for entry in sorted(os.scandir(runs_dir), key=lambda e: e.name):
+        if entry.name.startswith(REMOVING) and entry.is_dir(follow_symlinks=False):
+            found["removing"].append(entry.name)
+            continue
+        if not entry.is_dir() or entry.name.startswith((".", "_")):
+            continue
+        state, meta = run_state(entry.path)
+        if state == "current":
+            found["current"].append(entry.name)
+        elif state in ("old", "unreadable"):
+            found["old"].append({"id": entry.name, "created": cache.utc_iso(meta.get("created")) or "",
+                                 "lines": int((meta.get("summary") or {}).get("lines") or 0),
+                                 "bytes": folder_bytes(entry.path), "unreadable": state == "unreadable"})
+        else:
+            found["skipped"].append((entry.name, state))
+    return found
+
+
+def run_state(folder: str) -> tuple:
+    """(state, run.json) of a run folder for old_runs: "current", "old", "unreadable" (a store that is no Arrow file
+    of ours: old too), or the reason it is skipped (BEING_SAVED, RUNNING, UNREADABLE_META, NEWER, CANNOT_READ); the
+    run.json read ({} without one). Also the recheck of a run right before its removal (findaline.py runs_main)."""
+    import linestore
+    meta_path = os.path.join(folder, "run.json")
+    if not os.path.isfile(meta_path):
+        return BEING_SAVED, {}
+    try:
+        with open(os.path.join(folder, "progress.json"), encoding="utf-8") as f:
+            running = json.load(f).get("status") == "running"
+    except (OSError, ValueError, AttributeError):
+        running = False
+    if running:
+        return RUNNING, {}
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        int((meta.get("summary") or {}).get("lines") or 0)
+    except OSError:
+        return CANNOT_READ, {}
+    except (ValueError, TypeError, AttributeError):
+        return UNREADABLE_META, {}
+    state = linestore.store_state(folder)
+    if state == "no_view":
+        state = "current" if meta.get(VIEW_FAILED) else "old"
+    elif state == "missing":
+        state = "old"
+    return {"current": "current", "old": "old", "unreadable": "unreadable", "newer": NEWER,
+            "cannot_read": CANNOT_READ}[state], meta
+
+
+def park_run(runs_dir: str, run_id: str) -> Optional[str]:
+    """Rename a run's folder to REMOVING + its id, the first step of its removal (Jobs.delete_run, findaline.py
+    runs remove-old), under cache.runs_lock (the caller's): one rename on the same volume, so a rename that fails (a
+    file of the run held open on Windows) raises OSError and changes nothing, and a removal stopped later leaves no
+    half run: the renamed folder is no run (list_runs, adopt_runs, old_runs skip "_"), and the next remove-old
+    finishes it (Jobs.finish_removals, also the worker's housekeeping after REMOVING_AGE). The renamed folder's
+    time is set to now (its age: how long ago it was parked). Returns the renamed folder's path, None when the run
+    has no folder."""
+    folder = os.path.join(runs_dir, run_id)
+    if not os.path.isdir(folder):
+        return None
+    parked = os.path.join(runs_dir, REMOVING + run_id)
+    if os.path.lexists(parked):  # a removal of the same id stopped before: finished first
+        finish_removal(parked)
+    os.rename(folder, parked)
+    if not (os.path.islink(parked) or (hasattr(os.path, "isjunction") and os.path.isjunction(parked))):
+        with contextlib.suppress(OSError):  # a link's own time cannot be set everywhere: left as it is
+            os.utime(parked)
+    return parked
+
+
+def finish_removal(parked: Optional[str]):
+    """Delete a folder park_run renamed (raises OSError when a file in it cannot be deleted now: the folder stays,
+    with what is left, for the next remove-old). A symbolic link or junction is removed itself, never followed."""
+    if not parked or not os.path.lexists(parked):
+        return
+    if os.path.islink(parked) or (hasattr(os.path, "isjunction") and os.path.isjunction(parked)):
+        if os.name == "nt":  # a link to a folder (a symbolic link or a junction) is removed as a folder there
+            os.rmdir(parked)
+        else:
+            os.unlink(parked)
+        return
+    import shutil
+    shutil.rmtree(parked)
+
+
+def write_index(runs_dir: str):
+    """Rewrite runs.js (used by the maps and the local app) from the saved runs. One process at a
+    time (cache.runs_lock), so of two runs saved at once the later lists both."""
     with cache.runs_lock(runs_dir):
         _write_index(runs_dir)
 
 
 def _write_index(runs_dir: str):
-    import mapping
     runs = list_runs(runs_dir)
-    # Written whole, then moved over the old files: a map or the app never reads half a list
+    # Written whole, then moved over the old file: a map or the app never reads half a list
     with cache.replacing(os.path.join(runs_dir, "runs.js"), "w", encoding="utf-8") as f:
         f.write("window.FINDALINE_RUNS = ")
         json.dump([_listed(r) for r in runs], f, ensure_ascii=False)
         f.write(";\n")
-
-    def e(value):
-        return html.escape(str(value))
-
-    rows = []
-    for r in runs:
-        links = []
-        for label, file in (("map", "map.html"), ("CSV", "lines.csv"), ("GeoJSON", "lines.geojson")):
-            if os.path.exists(os.path.join(runs_dir, r["id"], file)):
-                links.append(f"<a href='{e(quote(r['id']))}/{file}'>{label}</a>")
-        rows.append(
-            f"<tr><td>{e(_local_time(r['created']))}</td><td>{e(r['name'])}</td>"
-            f"<td>{r['center']['lat']:.5f}, {r['center']['lon']:.5f}</td>"
-            f"<td>{e(params_summary(r))}</td>"
-            f"<td class='n'>{r['summary']['lines']}</td><td class='n'>{r['summary']['spots']}</td>"
-            f"<td>{' · '.join(links)}</td></tr>")
-
-    with cache.replacing(os.path.join(runs_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line runs</title>
-<link rel="stylesheet" href="{mapping.VIEWER_FOLDER}/index.css">
-</head>
-<body>
-<h1>Find-a-Line runs</h1>
-<p>{len(runs)} runs, newest first. Spots are groups of similar lines.</p>
-<table>
-<tr><th>Date</th><th>Place</th><th>Centre (lat, lon)</th><th>Parameters</th>
-<th>Lines</th><th>Spots</th><th>Files</th></tr>
-{chr(10).join(rows)}
-</table>
-</body></html>
-""")
-
-
-def write_latest_redirect(path: str, map_path: str):
-    """A page that opens the map of the latest run."""
-    target = os.path.relpath(map_path, os.path.dirname(os.path.abspath(path))).replace(os.sep, "/")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Find-a-Line - latest run</title>
-<meta http-equiv="refresh" content="0; url={html.escape(target)}"></head>
-<body><a href="{html.escape(target)}">Open the latest run</a></body></html>
-""")
