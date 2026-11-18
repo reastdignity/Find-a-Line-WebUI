@@ -391,9 +391,66 @@ def test_links_of_the_tile_folders(settings):
         os.path.join("poland", "nmt"), os.path.join("poland", "nmpt")]
 
 
-def test_a_source_without_a_surface_model_has_one_link(settings):
-    needed, _ = ar.links_of(_row(ar.rows_of(settings), "utah"), _nas(settings))
-    assert [link.target.replace("\\", "/").rsplit("/", 2)[1:] for link in needed] == [["usa", "3dep-1m"]]
+def _linked(needed, target):
+    return [os.path.relpath(link.target, target.tiles).replace("\\", "/") for link in needed]
+
+
+def test_a_source_without_a_surface_model_has_one_link_of_its_own(settings):
+    """... and its stand-in's: a pass of a state downloads the 10 m tiles too (Source.instead_without_data), and
+    they belong on the share with the others."""
+    needed, problem = ar.links_of(_row(ar.rows_of(settings), "utah"), _nas(settings))
+    assert problem is None and _linked(needed, _nas(settings)) == ["usa/3dep-1m", "usa/3dep-13/live"]
+    assert ar.layer_folders("usa") == ["usa/3dep-1m"] and ar.stand_in_folders("usa") == ["usa/3dep-13/live"]
+
+
+def test_the_stand_ins_folders_of_other_sources(settings):
+    """Alaska's IfSAR; Ontario's stand-in `canada` (two models); none for a source without a stand-in; a stand-in
+    never repeats a folder of the source's own."""
+    rows = ar.rows_of(settings)
+    assert ar.stand_in_folders("alaska") == ["usa/ifsar-5m"]
+    needed, _ = ar.links_of(_row(rows, "united-states-alaska"), _nas(settings))
+    assert _linked(needed, _nas(settings)) == ["usa/3dep-1m", "usa/ifsar-5m"]
+    assert ar.stand_in_folders("ontario") == ["canada/hrdem-1m-dtm/live", "canada/hrdem-1m-dsm/live"]
+    assert ar.stand_in_folders("geoportal") == [] and ar.stand_in_folders("canada") == []
+    for source in ("usa", "alaska", "ontario"):
+        assert not set(ar.stand_in_folders(source)) & set(ar.layer_folders(source))
+
+
+def test_a_stand_ins_folder_follows_the_rule_of_the_sources_own(settings, monkeypatch):
+    """An empty folder gives way to its link; one with tiles on this disk stops the row, and every other row of
+    the source with it (all the states share the folder: left there, each later state would fill this disk without
+    a word); a link to another folder stops it too."""
+    target = _nas(settings)
+    rows = ar.rows_of(settings)
+    utah, nevada = _row(rows, "utah"), _row(rows, "united-states-nevada")
+    assert ar.link_folders("usa") == ["usa/3dep-1m", "usa/3dep-13/live"]
+    local = os.path.join(target.data_dir, "cache", "usa", "3dep-13", "live")
+    os.makedirs(local)
+    needed, problem = ar.links_of(utah, target)
+    assert problem is None and _linked(needed, target) == ["usa/3dep-1m", "usa/3dep-13/live"]
+    assert not os.path.lexists(local)      # the empty folder removed for its link
+    os.makedirs(local)
+    open(os.path.join(local, "n38w110.tif"), "wb").close()
+    share = os.path.join(target.tiles, "usa", "3dep-13", "live")
+    for row in (utah, nevada):
+        assert ar.links_of(row, target) == ([], (
+            f"{local} holds tiles on this disk (those of usgs10m, which a download of usa fetches too): stop any "
+            f"download that writes there, move them to {share}, then start again"))
+    assert os.listdir(local) == ["n38w110.tif"]
+    os.remove(os.path.join(local, "n38w110.tif"))
+    os.rmdir(local)
+    monkeypatch.setattr(os.path, "islink", lambda path: path == local)
+    monkeypatch.setattr(os, "readlink", lambda path: r"\\other\share\usa\3dep-13\live")
+    assert ar.links_of(utah, target) == ([], (
+        f"{local} links to another folder (those of usgs10m, which a download of usa fetches too), not to {share}"))
+    # the source's own folder: the same message without the stand-in's part
+    monkeypatch.undo()
+    own = os.path.join(target.data_dir, "cache", "usa", "3dep-1m")
+    os.makedirs(own)
+    open(os.path.join(own, "x.tif"), "wb").close()
+    assert ar.links_of(utah, target) == ([], (
+        f"{own} holds tiles on this disk: stop any download that writes there, move them to "
+        f"{os.path.join(target.tiles, 'usa', '3dep-1m')}, then start again"))
 
 
 def test_links_that_are_there_are_kept(settings, monkeypatch):

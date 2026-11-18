@@ -38,7 +38,8 @@ The settings, a JSON file outside the repository (it may name a contact and a sh
 
 `max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
 unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
-its tile folders on the share: SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
+its tile folders on the share (the source's own and its stand-in's, `link_folders`): SQLite's WAL does not work
+over one. The tile folders are symbolic links, made when a
 download starts: Windows lets only an administrator make them while Developer Mode is off, so there they take one UAC
 window per start.
 """
@@ -454,21 +455,51 @@ def layer_folders(source_id: str) -> List[str]:
     return [layer.folder for layer in (source.nmt, source.nmpt) if layer is not None]
 
 
+def stand_in_folders(source_id: str) -> List[str]:
+    """The tile folders of the source's stand-in (Source.instead_without_data, which a download fetches too:
+    area_download.plans_of), those that are not the source's own: `usa/3dep-13/live` for `usa`, `usa/ifsar-5m` for
+    `alaska`; [] without a stand-in."""
+    import sources as src
+    stand_in = src.SOURCES[source_id].instead_without_data
+    if not stand_in or stand_in == source_id:
+        return []
+    own = layer_folders(source_id)
+    return [folder for folder in layer_folders(stand_in) if folder not in own]
+
+
+def link_folders(source_id: str) -> List[str]:
+    """The tile folders a download of the source fills, relative to a cache: its own and its stand-in's. With a
+    target on a share every one of them is a link to the share (links_of)."""
+    return layer_folders(source_id) + stand_in_folders(source_id)
+
+
 def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
-    """The links a download to this target still needs, and why it cannot start, if so."""
+    """The links a download to this target still needs, and why it cannot start, if so: the folders of the
+    source's own layers and of its stand-in (link_folders), by one rule: a folder that holds tiles on this disk,
+    or links elsewhere, stops the row. A stand-in's folder left on this disk "when it holds tiles" would keep
+    every later row of the source there without a word (all the states share `usa/3dep-13/live`; the code review
+    of 2026-11-18): the tiles are moved to the share by hand, then the row starts. The message says whose tiles
+    they are and where they go: a row may be stopped by a folder of a source the user never ticked."""
     if target.tiles is None:
         return [], None
+    import sources as src
     needed = []
-    for folder in layer_folders(row.source):
+    cache_dir = os.path.join(target.data_dir, "cache")
+    stand_in = stand_in_folders(row.source)
+    for folder in link_folders(row.source):
         parts = folder.split("/")
-        cache_dir = os.path.join(target.data_dir, "cache")
         link = Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
+        whose = ""
+        if folder in stand_in:
+            whose = (f" (those of {src.SOURCES[row.source].instead_without_data}, which a download of {row.source} "
+                     "fetches too)")
         if os.path.islink(link.path):
             if _plain(os.readlink(link.path)) != _plain(link.target):
-                return [], f"{link.path} links to another folder"
+                return [], f"{link.path} links to another folder{whose}, not to {link.target}"
         elif os.path.lexists(link.path):
             if os.listdir(link.path):
-                return [], f"{link.path} holds tiles on this disk"
+                return [], (f"{link.path} holds tiles on this disk{whose}: stop any download that writes there, move "
+                            f"them to {link.target}, then start again")
             os.rmdir(link.path)
             needed.append(link)
         else:
