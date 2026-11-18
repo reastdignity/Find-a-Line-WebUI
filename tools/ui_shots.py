@@ -324,8 +324,8 @@ PAGES = {
     "c-view-trees": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_TREES % "true",
                                          VIEW_SELECTED]),
     "c-view-trees-list": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1,
-                                              "js:" + VIEW_TREES % "false", "wait:document.querySelector('.vl-tree .vl-over')",
-                                              "js:document.querySelector('.vl-tree .vl-over')?.scrollIntoView({block: 'center'})"]),
+                                              "js:" + VIEW_TREES % "false",
+                                              "js:" + VIEW_DO % "document.getElementById('vl-row-' + view.order[0])?.scrollIntoView({block: 'center'})"]),
     # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
     # opened (scrolling inside the box); a desktop shows the box, always open
     "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
