@@ -128,7 +128,7 @@
 .ui .vl-sec-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 16px; }
 .ui .vl-toggle { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start; border: 0; background: none;
   color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 4px 0; border-radius: var(--r-1); }
-.ui .vl-caret { width: 16px; height: 16px; margin-top: 2px; color: var(--ink-2); }
+.ui .vl-caret { width: 16px; height: 16px; margin-top: 2px; color: var(--ink-2); }  /* off R7: the 16 px icon on the middle of a 20 px line */
 .ui .vl-sec-name { display: block; font-weight: 600; }
 .ui .vl-meta { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); }
 .ui .vl-meta2 { display: block; font-size: var(--fs-2); line-height: 18px; color: var(--muted); }
