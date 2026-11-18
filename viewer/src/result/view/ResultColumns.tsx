@@ -65,7 +65,7 @@ export interface ResultColumnsProps {
   actions?(compact: boolean): ComponentChildren;
   /** The run's data when the caller has it (a run's map.html: its store); else loaded from `base`. */
   data?: RunData;
-  /** The folder of the runs' folders (default "/runs/") and of this run's files (RunActionsProps). */
+  /** The folder of the runs' folders (default "/runs/") and of this run's files (credits.ts `runFolder`). */
   base?: string;
   folder?: string;
   /** The run's actions that can work here (default all). */

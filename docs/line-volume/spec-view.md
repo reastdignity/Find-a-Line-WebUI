@@ -293,11 +293,13 @@ and its phone frames). Every count below is of the lines that pass the filters.
 **As built in the UX pilot (2026-11-18)** (branch ux-pilot-view; docs/DESIGN.md "The pilot's look"):
 - A press on "Legend" at half lowers the sheet whenever the whole legend does not fit at that stop.
 - A phone held sideways in the phone layout: the zoom and the layers stand in the level switch's row.
-- Landscape touch screens in the desktop layout: the legend folds behind "Legend" when the foot's column would reach
-  the top controls.
+- The desktop layout in any window too short for its legend (a phone held sideways, a short desktop window; a finger's
+  or a mouse's): the legend folds behind "Legend" when the foot's column would reach the top controls, and the zoom's
+  + and − stand across.
 - The legend lists "P1 pick" whenever "Start here" has a pick in view, drawn or not: a stated exception to item 8's
   "exactly the shapes on the map now", because the pick's line is on the map even when its diamond is left out.
-- The list's follow on a selection: the "Best in view" row when the spot has one there, else the tree's row.
+- The list's follow on a selection from the map or the table of spots: the "Best in view" row when the spot has one
+  there, else the tree's row; a selection made by pressing a row keeps that row in view.
 
 **What the app needs that the mock-up does not have** (the mock-up says "Fake" or "Not here"): loading the run (G-06
 a: `spec-store.md`; the load progress of `RunLoading.tsx` stays); the map's real projection (in-view and squares in
