@@ -385,6 +385,31 @@ def test_tight_tile_and_over_trees_words(site):
             browser.close()
 
 
+def test_selection_follows_best_in_view(site):
+    """A desktop: a spot selected from the map's side that has a row in "Best in view" is followed to that row, and the
+    block's head ("Best in view: N of M", "Show 30") and its column heads stay in the list's box (the planner's decision
+    of 2026-11-18: main's outcome, the mock-up's look; the list scrolled to the spot's row in the tree before, and its
+    taller head went out of view). A spot without a row there is followed to its tree's row: the other test's
+    "a spot far down its sector"."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=PANELS)
+            page.wait_for_selector(".vl-topblock .vl-main", timeout=WAIT)
+            spot = page.evaluate("() => { const v = P.view(); return Array.from(v.inView.best).find((s) => !!document.querySelector('#vl-top-' + s)); }")
+            assert spot is not None
+            page.evaluate(f"() => P.view().select({spot})")
+            page.wait_for_selector(".vl-details", timeout=WAIT)
+            page.wait_for_function(f"() => P.inBox(document.querySelector('#vl-top-{spot}'), document.querySelector('.vl-body'))", timeout=WAIT)
+            kept = page.evaluate("() => { const body = document.querySelector('.vl-body'); return ['.vl-topblock .vl-block-head', '.vl-topblock .vl-cols']"
+                                 ".map((s) => P.inBox(document.querySelector(s), body)); }")
+            assert kept == [True, True], kept
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
 def test_selection_details_fan_and_table(site):
     """A desktop. A press on a number selects: the details ("Spot 7.1" and "N lines", the four values, the stepper by
     mean height, "Stands for"), the rows pressed, the sector opened and paged with the row in the list's box; the

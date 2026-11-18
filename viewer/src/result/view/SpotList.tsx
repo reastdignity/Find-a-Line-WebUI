@@ -442,7 +442,10 @@ export function SpotList(p: PanelProps) {
       if (body && ui.scrollNew) body.scrollTop = 0;
       return;
     }
-    const row = root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
+    // the spot's row in "Best in view" where it has one there (that block and its head stay in view: the planner's
+    // decision of 2026-11-18, main's outcome and the mock-up's), else its row in the tree
+    const row = root.current.querySelector<HTMLElement>(`#vl-top-${ui.followed}`)
+      ?? root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
   });
   // a focused row this drawing took away (a filter, the map's move under the top block): the focus to the row that
