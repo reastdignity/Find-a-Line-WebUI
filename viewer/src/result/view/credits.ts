@@ -9,10 +9,13 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { creditsHtml } from "../../layers";
 import { t } from "../../i18n";
 import type { RunData } from "../../types";
-import { runFolder } from "./RunActions";
+
+/** The folder of the run's files: `folder` (a shared map's is its own page's), else the run's folder in `base` (the
+ *  folder of the runs' folders, default "/runs/"). */
+export const runFolder = (id: string, base = "/runs/", folder?: string) => folder ?? base + encodeURIComponent(id) + "/";
 
 /** Puts the credits of `data` into the attribution of `map` (none yet: nothing) while it is shown; `base` and
- *  `folder` locate the run's files as RunActions' do. */
+ *  `folder` locate the run's files (runFolder). */
 export function useRunCredits(map: L.Map | null | undefined, data: RunData, base?: string, folder?: string) {
   const [open, setOpen] = useState(false);
   const toggled = useRef(false);

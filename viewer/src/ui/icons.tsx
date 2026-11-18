@@ -40,6 +40,10 @@ export const ICONS = {
   warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   refresh: '<path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/>',
+  // the result view's (the pilot of 2026-11-18): the zoom out, the column a list is sorted by, a tight line's mark
+  minus: '<path d="M5 12h14"/>',
+  sort: '<path d="M12 4v16M6 14l6 6 6-6"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6.5M12 16.5v.5"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

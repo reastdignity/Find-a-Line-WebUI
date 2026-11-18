@@ -28,12 +28,7 @@ export interface RunActionsProps {
   show?: ("measure" | "compare" | "share" | "download")[];
   /** The folder of the runs' folders (default "/runs/"). */
   base?: string;
-  /** The folder of this run's files (default its folder in `base`; a shared map's is its own page's). */
-  folder?: string;
 }
-
-/** The folder of the run's files (RunActionsProps.folder). */
-export const runFolder = (id: string, base = "/runs/", folder?: string) => folder ?? base + encodeURIComponent(id) + "/";
 
 /** Measure: the next two clicks on the map; the profile between them is computed by the server. */
 function Measure({model, view, onMeasured, compact}: RunActionsProps) {

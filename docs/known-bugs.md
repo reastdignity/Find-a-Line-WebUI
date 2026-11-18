@@ -375,3 +375,14 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
   skip in CI, which installs only `--group tui`.
 - `tests/test_web.py::test_basic_form_on_a_phone` failed once in a parallel run of the affected files and passed
   alone on the same tree; run it alone before calling a failure of it a regression.
+
+## A phone on its side at half: an uncertain shore's chip on the status line
+
+On a phone held sideways in the phone's layout (667 x 375) the zoom and the layers stand in the level switch's row
+(the user's Q2 a, 2026-11-18). With the sheet at half the map shows 135 px below the top bar, room for two rows of
+controls. The shore's chip (195 px; only in a run with an uncertain shore) fits in neither: after the switch, Best,
+the zoom and the layers 164 px are left in the first row, and the second holds "Legend", the key's "i" and the
+status line, with the scale at its right end. With a level held, the status line's longer sentence ("Area. Held
+by you. Back to Auto") reaches under the chip. Measured with the test's stand-in on the test site's run: the
+status line at 159-387 x 137-165 px, the chip at 347-542 x 112-156. `test_phone_on_its_side` excepts this pair
+by name. Under Auto, and at the low stop, nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).

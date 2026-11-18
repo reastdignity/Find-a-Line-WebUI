@@ -3356,9 +3356,11 @@ def contrast(a: str, b: str) -> float:
 TOKENS_CSS = os.path.join(VIEWER, "src", "ui", "tokens.css")
 
 
-def _dark_blocks(blocks: dict) -> list:
-    """The dark theme's blocks of _css_blocks: the one that follows the system and the one set by data-theme."""
-    return [v for k, v in blocks.items() if 'data-theme="dark"' in k or 'not([data-theme="light"])' in k]
+def _dark_blocks(blocks: dict, under: str = "") -> list:
+    """The dark theme's blocks of _css_blocks: the one that follows the system and the one set by data-theme (of the
+    root .ui, or with `under` those of that descendant, e.g. " .v-result")."""
+    return [v for k, v in blocks.items() if ('data-theme="dark"' in k or 'not([data-theme="light"])' in k)
+            and (k.endswith(under) if under else k.endswith(")") or k.endswith("]"))]
 
 
 def _themes() -> dict:
@@ -3368,6 +3370,21 @@ def _themes() -> dict:
     dark = _dark_blocks(blocks)
     assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of tokens.css differ"
     return {"light": blocks[".ui"], "dark": {**blocks[".ui"], **dark[0]}}
+
+
+def _view_themes() -> dict:
+    """The result view's tokens in each theme: the app's (_themes) with the view's own neutrals over them (ui/tokens.css
+    .ui .v-result, its two dark blocks agreeing), as the view's root element has them."""
+    blocks, app = _css_blocks(TOKENS_CSS), _themes()
+    dark = _dark_blocks(blocks, " .v-result")
+    assert len(dark) == 2 and dark[0] == dark[1], "the two dark blocks of the view's neutrals differ"
+    light = blocks[".ui .v-result"]
+    return {"light": {**app["light"], **light}, "dark": {**app["dark"], **light, **dark[0]}}
+
+
+# The result view's surfaces (the pilot of 2026-11-18): the ground (side panels), raised (over the map, the sheet),
+# inset (tiles, fields), a row under the mouse, the selected row
+VIEW_SURFACES = ("--bg", "--surface", "--surface-2", "--hover", "--accent-soft")
 
 
 def test_contrast_of_contrast_helper():
@@ -3383,6 +3400,73 @@ def test_secondary_text_contrast():
     for theme, tokens in _themes().items():
         for ground in ("--bg", "--surface", "--surface-2"):
             assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, (theme, ground, tokens["--muted"])
+    # the result view's own surfaces (the pilot of 2026-11-18): its ground, raised and inset, a row under the mouse,
+    # the selected row (a spot's label "1.1" there is --muted)
+    for theme, tokens in _view_themes().items():
+        for ground in VIEW_SURFACES:
+            assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, ("view", theme, ground, tokens["--muted"], tokens[ground])
+    # the app's selected fill (--accent-soft) takes --ink-2 for its secondary text: --muted there is 4.46 light and
+    # 3.79 dark (the accent-soft check of the pilot, 2026-11-18: the places that show grey text on it)
+    for theme, tokens in _themes().items():
+        assert contrast(tokens["--ink-2"], tokens["--accent-soft"]) >= 4.5, theme
+    for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }"),
+                       (("result", "view", "result.css"), ".ui .r-row.r-sel .r-muted { color: var(--ink-2); }"),
+                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted, .cov .cov-row-on td::before { color: var(--ink-2); }"),
+                       (("search", "search.css"), ".ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }")):
+        with open(os.path.join(VIEWER, "src", *path), encoding="utf-8") as f:
+            assert rule in f.read(), (path, rule)
+
+
+def test_view_tokens():
+    """The pilot's tokens (2026-11-18, docs/DESIGN.md "The pilot's look"): the accent family in each of the three theme
+    blocks of ui/tokens.css (the whole app's), the tight tile's three colours there too, the view's neutrals in one
+    light block and two dark ones at its root (.ui .v-result), and the scales of R5 and R6 as tokens of their steps. Every
+    text the view draws reads at 4.5:1 or more on the surfaces it stands on, in both themes (R3), and the graphics a
+    person must see at 3:1 (WCAG 1.4.11): the selected row's edge, the tight tile's edge against a tile."""
+    blocks = _css_blocks(TOKENS_CSS)
+    family = ("--accent", "--accent-ink", "--accent-soft", "--on-accent", "--tight-bg", "--tight-edge", "--tight-ink",
+              "--accent-map", "--status-run")
+    for name, block in [(".ui", blocks[".ui"])] + [("dark", d) for d in _dark_blocks(blocks)]:
+        assert all(n in block for n in family), (name, [n for n in family if n not in block])
+        # what is drawn on the map's tiles in the accent takes the light theme's in every theme: the tiles stay light
+        assert block["--accent-map"] == blocks[".ui"]["--accent"], name
+    # the running status: its own fill (the user's c of 2026-11-18), its ink the accent's
+    for theme, tokens in _themes().items():
+        assert contrast(tokens["--accent-ink"], tokens["--status-run"]) >= 4.5, theme
+    light = blocks[".ui"]
+    # the ring declared again in the view's block: its 2 px gap is then the view's own --surface (a var() inside a
+    # custom property is resolved where it is declared)
+    assert blocks[".ui .v-result"]["--focus"] == light["--focus"]
+    assert [light[f"--fs-{k}"] for k in range(1, 8)] == ["12px", "13px", "14px", "16px", "20px", "24px", "30px"]
+    assert [light[f"--r-{k}"] for k in range(1, 5)] == ["3px", "8px", "14px", "20px"]
+    view = _view_themes()
+    texts = {"--ink": VIEW_SURFACES + ("--tight-bg",), "--ink-2": VIEW_SURFACES + ("--tight-bg",), "--muted": VIEW_SURFACES,
+             "--accent": ("--bg", "--surface", "--surface-2", "--hover", "--accent-soft"), "--accent-ink": ("--accent-soft",),
+             "--on-accent": ("--accent",), "--tight-ink": VIEW_SURFACES + ("--tight-bg",)}
+    for theme, tokens in view.items():
+        for text, grounds in texts.items():
+            for ground in grounds:
+                assert contrast(tokens[text], tokens[ground]) >= 4.5, (theme, text, ground, tokens[text], tokens[ground])
+        assert contrast(tokens["--accent"], tokens["--accent-soft"]) >= 3, theme
+        assert contrast(tokens["--tight-edge"], tokens["--surface-2"]) >= 3, theme
+    # the app's own surfaces with the new accent: links, buttons, chips and segments that are on
+    for theme, tokens in _themes().items():
+        for ground in ("--bg", "--surface", "--surface-2", "--accent-soft"):
+            assert contrast(tokens["--accent"], tokens[ground]) >= 4.5, (theme, ground)
+        assert contrast(tokens["--accent-ink"], tokens["--accent-soft"]) >= 4.5 and contrast(tokens["--on-accent"], tokens["--accent"]) >= 4.5, theme
+
+
+def test_3d_view_doc_accent_in_step():
+    """docs/3d-view.html (a page of its own, no bundle) copies the accent: its three theme blocks (light, dark by the
+    system, dark chosen) hold `ui/tokens.css`'s --accent and --accent-soft (docs/DESIGN.md "The pilot's look", choice 1:
+    a switch of the accent edits both), and its keyboard ring is the app's shape, 2 px of the accent 2 px off."""
+    with open(os.path.join(REPO, "docs", "3d-view.html"), encoding="utf-8") as f:
+        page = f.read()
+    blocks = _css_blocks(TOKENS_CSS)
+    want = [blocks[".ui"]] + _dark_blocks(blocks)
+    for name in ("--accent", "--accent-soft"):
+        assert re.findall(rf"{name}:\s*(#[0-9a-fA-F]{{6}})", page) == [b[name] for b in want], name
+    assert "outline: 2px solid var(--accent); outline-offset: 2px;" in page
 
 
 def test_placeholder_contrast():

@@ -38,20 +38,23 @@ window.P = {
     spot: b.dataset.spot === undefined ? null : +b.dataset.spot, row: +b.dataset.row,
     mark: b.querySelector(".v-sh")?.getAttribute("aria-label") ?? null, label: b.querySelector(".vl-num")?.textContent ?? null,
     pick: b.querySelector(".vl-lab")?.textContent ?? null, pressed: b.getAttribute("aria-pressed"), tab: b.tabIndex,
-    tight: !!b.querySelector(".r-tight"), dots: b.querySelectorAll(".ac").length, text: b.textContent,
+    tight: !!b.querySelector(".vl-tight"), dots: b.querySelectorAll(".ac").length, text: b.textContent,
+    over: b.querySelector(".vl-over-words")?.textContent ?? null,
     item: b.parentElement.tagName + ">" + b.tagName, inner: b.querySelectorAll("button, a, [tabindex]").length})); },
   // a row's values as the page must write them: length, the height (mean, or the highest point), clearance (a tight
   // line's rounded down), each after its column's name
   want(row, height) { const v = this.view().values, clr = v.clr[row], m = (x, d) => Number.isFinite(x) ? x.toFixed(d) + " m" : "–";
     return ["Length " + m(v.len[row], 0), height === "hmax" ? "Highest point " + m(v.hmax[row], 0) : "Mean height " + m(v.hmean[row], 1),
-            "Clear. " + (clr < 1 ? (Math.floor(clr * 10 + 1e-4) / 10).toFixed(1) : clr.toFixed(1)) + " m"]; },
+            "Clearance " + (clr < 1 ? (Math.floor(clr * 10 + 1e-4) / 10).toFixed(1) : clr.toFixed(1)) + " m"]; },
   holds(rows, height) { const view = this.view(); return rows.filter((r) => {
     const want = this.want(r.row, height).concat(r.spot === null ? [] : ["Lines " + this.n(view.passingCount(r.spot))]);
     const over = view.model.data.columns.over[r.row] === 1;
     return !(want.every((w) => r.text.includes(w)) && r.tight === (view.values.clr[r.row] < 1) && r.item === "LI>BUTTON" && r.inner === 0
              && r.text.includes("Over trees or buildings") === over); })
     .map((r) => r.text); },
-  heads(sel) { return [...document.querySelectorAll(sel + " .vl-cols span")].map((s) => s.textContent).filter(Boolean); },
+  // the heads' words, the sorted one marked " ▾" where it draws the kit's sort icon before its words (" (no icon)" else)
+  heads(sel) { return [...document.querySelectorAll(sel + " .vl-cols > span")].map((s) => s.textContent
+    + (s.classList.contains("vl-by") ? (s.querySelector("svg.u-ic") ? " ▾" : " (no icon)") : "")).filter(Boolean); },
   text(sel) { return document.querySelector(sel)?.textContent ?? null; },
   list() { const view = this.view(), c = view.counts;
     return {title: this.text("#vl-top-title"), top: this.rows(".vl-topblock"), note: this.text(".vl-topblock .vl-note"),
@@ -71,8 +74,10 @@ window.P = {
   details() { const view = this.view(), sel = view.selected, d = document.querySelector(".vl-details");
     return {selected: sel && [sel.spot, sel.row], index: view.selectedIndex, passing: sel ? Array.from(view.passingOf(sel.spot)) : [],
             label: sel ? view.label(sel.spot) : null, shown: !!d, data: d && [+d.dataset.spot, +d.dataset.row],
-            title: this.text(".vl-spot-title"), step: this.text(".vl-step-text"), stats: [...document.querySelectorAll(".vl-details .u-stat")].map((s) => s.textContent),
-            tight: this.text(".vl-details .r-tight-line"), stands: this.text(".vl-stands:not(.vl-fan-text)"), access: document.querySelectorAll(".vl-details .r-acc-row").length,
+            title: this.text(".vl-spot-title"), step: this.text(".vl-step-text"), stats: [...document.querySelectorAll(".vl-details .vl-tile")].map((s) => s.textContent),
+            labels: [...document.querySelectorAll(".vl-details .vl-tile-l")].map((s) => s.firstChild.textContent),
+            tight: this.text(".vl-details .vl-is-tight .vl-tword"), tightTiles: document.querySelectorAll(".vl-details .vl-is-tight").length,
+            stands: this.text(".vl-stands:not(.vl-fan-text)"), access: document.querySelectorAll(".vl-details .vl-acc-row").length,
             prev: document.querySelector(".vl-prev")?.disabled ?? null, next: document.querySelector(".vl-next")?.disabled ?? null,
             pressed: [...document.querySelectorAll('.vl-main[aria-pressed="true"]')].map((b) => +b.dataset.spot), empty: this.text(".vl-empty"),
             hmean: sel ? view.values.hmean[sel.row] : null, clr: sel ? view.values.clr[sel.row] : null, standsFor: sel ? sel.line.stands_for ?? null : null}; },
@@ -105,7 +110,7 @@ def _headline(s: dict) -> str:
     spots = WORDS["ui.result.spots_one" if c["spots"] == 1 else "ui.result.spots_other"].replace("{{n}}", _count(c["spots"]))
     lines = WORDS["ui.result.lines_one" if c["lines"] == 1 else "ui.result.lines_other"].replace("{{n}}", _count(c["lines"]))
     hidden = WORDS["ui.result.hidden"].replace("{{n}}", _count(c["hidden"])) if c["hidden"] else ""
-    return f"{spots} · {lines}{hidden}"
+    return WORDS["ui.view.headline"].replace("{{spots}}", spots).replace("{{lines}}", lines) + hidden
 
 
 def _sentence(s: dict) -> str:
@@ -124,7 +129,7 @@ def _tree_holds(s: dict, limits: dict | None = None):
         assert shown["meta"] == WORDS["ui.view.sector_spots_one" if k == 1 else "ui.view.sector_spots_other"] \
             .replace("{{n}}", _count(k)).replace("{{m}}", f"{model['hmeanMax']:.0f}")
         assert shown["meta2"].startswith(_count(model["lines"]) + " line") and shown["meta2"].endswith(
-            f" · {round(model['len'][0])}–{round(model['len'][1])} m")
+            f", {round(model['len'][0])}–{round(model['len'][1])} m long")
         if shown["open"] == "true":
             limit = (limits or {}).get(model["n"], PAGE)
             assert shown["rows"] == model["spots"][:limit], model["n"]
@@ -161,7 +166,7 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             # best first: the rows' mean heights never rise; every row carries the two access marks of this run
             means = page.evaluate("() => P.rows('.vl-topblock').map((r) => P.view().values.hmean[r.row])")
             assert means == sorted(means, reverse=True) and all(r["dots"] == 2 for r in first["top"])
-            assert page.evaluate("() => P.heads('.vl-topblock')") == ["Length", "Mean height ▾", "Clear.", "Anchors", "Lines"]
+            assert page.evaluate("() => P.heads('.vl-topblock')") == ["Length", "Mean height ▾", "Clearance", "Anchors", "Lines"]
             assert first["tabstops"] and set(first["tabstops"]) == {1}  # one tab stop per list
             _tree_holds(first)
             assert first["sectors"][0]["open"] == "true" and all(x["open"] == "false" for x in first["sectors"][1:])
@@ -207,7 +212,7 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             assert edge == start["picks"][0][1] and "edge" not in [k[0] for k in start["picks"]]
             page.evaluate("() => P.view().setLevel('auto')")
             # the five sorts: the tree follows the model's order, the ranking column is marked, the choice is kept
-            for sort, head in (("clr", "Clear."), ("len", "Length"), ("hmax", "Highest point"), ("n", "Lines"), ("hmean", "Mean height")):
+            for sort, head in (("clr", "Clearance"), ("len", "Length"), ("hmax", "Highest point"), ("n", "Lines"), ("hmean", "Mean height")):
                 page.select_option(".vl-tree select", sort)
                 page.wait_for_function(f"() => P.view().sort === '{sort}' && P.rows('.vl-tree')[0]?.spot === P.view().sectors[0].spots[0]", timeout=WAIT)
                 s = _list(page)
@@ -251,11 +256,11 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             tight = page.evaluate("() => { const v = P.view(); return Array.from(v.order).find((s) => v.values.clr[v.shownOf(s)] < 1); }")
             assert tight is not None, "the clip has no spot whose shown line is tight"
             page.evaluate(f"() => P.view().select({tight})")
-            page.wait_for_selector(f"#vl-row-{tight} .r-tight", timeout=WAIT)
+            page.wait_for_selector(f"#vl-row-{tight} .vl-tight", timeout=WAIT)
             keyed = _list(page)
             assert keyed["tightRows"] >= 1 and keyed["keys"] == 1 and keyed["keyLast"] is True
             page.evaluate("() => { P.view().select(null); const m = P.view().model; m.setFilters({...m.filters, clrMin: 1}); }")
-            page.wait_for_function("() => document.querySelectorAll('.vl-tree .r-tight').length === 0", timeout=WAIT)
+            page.wait_for_function("() => document.querySelectorAll('.vl-tree .vl-main .vl-tight').length === 0", timeout=WAIT)
             assert _list(page)["keys"] == 0
             page.evaluate("() => P.view().model.clearFilters()")
             page.wait_for_function("() => !document.querySelector('.vl-clear')", timeout=WAIT)
@@ -331,8 +336,120 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             browser.close()
 
 
+def test_tight_tile_and_over_trees_words(site):
+    """A desktop (the pilot of 2026-11-18). A tight line's clearance tile: the warning colour, the tight mark beside
+    its value and "Tight" as a second line of its label, no banner. A line over trees or buildings (the run has 6 948 of
+    its 7 934 lines over trees; the order's first two are marked so as well, in the page's columns, as
+    tools/ui_shots.py's VIEW_TREES does for its clip, which has none): its row says so in words on a line
+    of its own (R4.2), in "Best in view" and in the tree, once (no hidden copy beside them); another row does not;
+    selected, its clearance tile is "Clearance of terrain" (the store's `clr` is the clearance above the terrain)."""
+    from playwright.sync_api import sync_playwright
+    words = WORDS["ui.view.over_words"]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=PANELS)
+            page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
+            tight = page.evaluate("() => { const v = P.view(), c = v.model.data.columns; "
+                                  "return Array.from(v.order).find((s) => v.values.clr[v.shownOf(s)] < 1 && c.over[v.shownOf(s)] === 0); }")
+            assert tight is not None, "the clip has no spot whose shown line is tight and clear of trees"
+            page.evaluate(f"() => P.view().select({tight})")
+            page.wait_for_selector(".vl-details .vl-is-tight", timeout=WAIT)
+            tile = page.evaluate("""() => { const t = document.querySelector('.vl-details .vl-is-tight'), c = getComputedStyle(t);
+                return {label: t.querySelector('.vl-tile-l').firstChild.textContent, word: t.querySelector('.vl-tword').textContent,
+                        mark: t.querySelector('.vl-tile-v .vl-tight')?.getAttribute('aria-label') ?? null, fill: c.backgroundColor,
+                        others: document.querySelectorAll('.vl-details .vl-tile:not(.vl-is-tight)').length,
+                        banner: !!document.querySelector('.vl-details .r-tight-line'), wordColour: getComputedStyle(t.querySelector('.vl-tword')).color}; }""")
+            assert tile["label"] == WORDS["ui.view.tile.clear"] and tile["word"] == WORDS["ui.view.tile.tight"] and tile["others"] == 3
+            assert tile["mark"] == WORDS["ui.tight.label"] and not tile["banner"] and tile["fill"] == "rgb(246, 226, 160)", tile  # --tight-bg
+            assert tile["wordColour"] == "rgb(107, 76, 0)", tile  # --tight-ink
+            page.evaluate("() => P.view().select(null)")
+            marked = page.evaluate("""() => { const v = P.view(), c = v.model.data.columns, first = Array.from(v.order).slice(0, 2);
+                for (const s of first) c.over[v.shownOf(s)] = 1; window.FINDALINE_VIEW.map.refresh(); v.notify(); return first; }""")
+            page.wait_for_selector(".vl-tree .vl-over-words", timeout=WAIT)
+            # every row of a line over trees (the marked two, and the clip's own) says so once, any other row not at all
+            rows = page.evaluate("() => { const c = P.view().model.data.columns; return P.rows('.vl-tree').concat(P.rows('.vl-topblock'))"
+                                 ".map((r) => [r.spot, c.over[r.row] === 1, r.over, r.text.split(%r).length - 1]); }" % words)
+            assert all((r[2], r[3]) == ((words, 1) if r[1] else (None, 0)) for r in rows), rows
+            assert set(marked) <= {r[0] for r in rows if r[1]}
+            seen = page.evaluate("() => { const w = document.querySelector('.vl-tree .vl-over-words'), r = w.getBoundingClientRect(), "
+                                 "row = w.closest('.vl-main').querySelector('.vl-v').getBoundingClientRect(); return [r.height > 0, r.top >= row.bottom - 1]; }")
+            assert seen == [True, True]  # shown, on a line under the row's values
+            assert page.evaluate("() => P.holds(P.rows('.vl-tree'), 'hmean')") == []
+            page.evaluate(f"() => P.view().select({marked[0]})")
+            page.wait_for_function("() => !!document.querySelector('.vl-details')", timeout=WAIT)
+            labels = page.evaluate("() => P.details().labels")
+            assert labels[2] == WORDS["ui.view.tile.clear_terrain"], labels
+            assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
+        finally:
+            browser.close()
+
+
+def test_selection_follows_best_in_view(site):
+    """A desktop: a spot selected from the map's side that has a row in "Best in view" is followed to that row, and the
+    block's head ("Best in view: N of M", "Show 30") and its column heads stay in the list's box (the planner's decision
+    of 2026-11-18: main's outcome, the mock-up's look; the list scrolled to the spot's row in the tree before, and its
+    taller head went out of view). A spot without a row there is followed to its tree's row: the other test's
+    "a spot far down its sector"."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=PANELS)
+            page.wait_for_selector(".vl-topblock .vl-main", timeout=WAIT)
+            spot = page.evaluate("() => { const v = P.view(); return Array.from(v.inView.best).find((s) => !!document.querySelector('#vl-top-' + s)); }")
+            assert spot is not None
+            page.evaluate(f"() => P.view().select({spot})")
+            page.wait_for_selector(".vl-details", timeout=WAIT)
+            page.wait_for_function(f"() => P.inBox(document.querySelector('#vl-top-{spot}'), document.querySelector('.vl-body'))", timeout=WAIT)
+            kept = page.evaluate("() => { const body = document.querySelector('.vl-body'); return ['.vl-topblock .vl-block-head', '.vl-topblock .vl-cols']"
+                                 ".map((s) => P.inBox(document.querySelector(s), body)); }")
+            assert kept == [True, True], kept
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_press_in_the_tree_keeps_its_row(site):
+    """A desktop at 1280 x 640: a press on a tree row whose spot also has a "Best in view" row, by a click and by Enter,
+    keeps the pressed row in the list's box with the focus on it (the code review's F1 of 2026-11-18: the list scrolled
+    to the Best row, the pressed and focused row out of view). Only a selection that comes from elsewhere (the map,
+    the table of spots) goes to the Best row: test_selection_follows_best_in_view."""
+    from playwright.sync_api import sync_playwright
+    far = """() => { const v = P.view(); let best = null, gap = -1;
+      for (const s of Array.from(v.inView.best)) { const a = document.querySelector('#vl-top-' + s), b = document.querySelector('#vl-row-' + s);
+        if (!a || !b) continue; const d = b.getBoundingClientRect().top - a.getBoundingClientRect().top; if (d > gap) { gap = d; best = s; } }
+      return [best, gap, document.querySelector('.vl-body').clientHeight]; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for how in ("click", "Enter"):
+                page = _open(browser, f"{site}#run={BIG}", {**DESKTOP, "viewport": {"width": 1280, "height": 640}}, script=PANELS)
+                page.wait_for_selector(".vl-topblock .vl-main", timeout=WAIT)
+                page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
+                spot, gap, box = page.evaluate(far)
+                assert spot is not None and gap > box, (spot, gap, box)  # the two rows never in the box together
+                row = f"#vl-row-{spot} .vl-main"
+                page.evaluate(f"() => document.querySelector('{row}').scrollIntoView({{block: 'end'}})")
+                page.evaluate(FRAMES)
+                if how == "click":
+                    page.click(row)
+                else:
+                    page.focus(row)
+                    page.keyboard.press("Enter")
+                page.wait_for_selector(".vl-details", timeout=WAIT)
+                page.evaluate(FRAMES)
+                after = page.evaluate(f"""() => {{ const body = document.querySelector('.vl-body'), b = document.querySelector('{row}');
+                    return [P.inBox(b, body), document.activeElement === b, P.view().selected?.spot]; }}""")
+                assert after == [True, True, spot], (how, after)
+                assert page.errors == []
+                page.close()
+        finally:
+            browser.close()
+
+
 def test_selection_details_fan_and_table(site):
-    """A desktop. A press on a number selects: the details ("Spot 7.1 · N lines", the four values, the stepper by
+    """A desktop. A press on a number selects: the details ("Spot 7.1" and "N lines", the four values, the stepper by
     mean height, "Stands for"), the rows pressed, the sector opened and paged with the row in the list's box; the
     row pressed again, × and Esc end it (a top-block row too); the keys; "Lines from anchor A1" opens the panel
     whose rows carry the map's labels, its sentence, its sorts, the far end's mark; a row selects its line and
@@ -382,10 +499,38 @@ def test_selection_details_fan_and_table(site):
             d = page.evaluate("() => P.details()")
             n = len(d["passing"])
             assert d["selected"] == d["data"] == [target["spot"], d["passing"][0]] and d["index"] == 0
-            assert d["title"].startswith(WORDS["ui.view.spot_one" if n == 1 else "ui.view.spot_other"].replace("{{label}}", d["label"]).replace("{{n}}", _count(n)))
+            assert d["title"].startswith(WORDS["ui.view.spot"].replace("{{label}}", d["label"]) + " " +
+                                         WORDS["ui.view.spot_lines_one" if n == 1 else "ui.view.spot_lines_other"].replace("{{n}}", _count(n)))
             assert d["step"] == WORDS["ui.view.line_of"].replace("{{k}}", "1").replace("{{n}}", _count(n)) and d["prev"] is True
             assert len(d["stats"]) == 4 and d["stats"][1].startswith(f"{d['hmean']:.1f}") and d["access"] == 2
-            assert (d["tight"] is not None) == (d["clr"] < 1) and target["spot"] in d["pressed"]
+            # the clearance's tile of a tight line: the warning colour and "Tight" under its label (no banner)
+            assert d["tightTiles"] == (d["clr"] < 1) and d["tight"] == (WORDS["ui.view.tile.tight"] if d["clr"] < 1 else None)
+            # the run has 6 948 of its 7 934 lines over trees (counted 2026-11-18), but not this one: its tile says
+            # "Clearance"; "Clearance of terrain" is test_tight_tile_and_over_trees_words's
+            assert page.evaluate("() => P.view().selected.line.over") is False
+            assert d["labels"] == [WORDS[f"ui.view.tile.{k}"] for k in ("len", "mean", "clear", "highest")]
+            # the facts as a table under A1 and A2 (SpotDetails' viewFacts): a row's head and its two anchors' values, a
+            # value of the line across both columns, the rigging's rows under a group head
+            facts = page.evaluate("""() => [...document.querySelectorAll('.vl-details .vl-facts tbody tr')].map((tr) => {
+                const th = tr.querySelector('th'), tds = [...tr.querySelectorAll('td')];
+                return [th.getAttribute('scope'), th.firstChild ? th.firstChild.textContent : '', tds.map((td) => td.textContent), tds.map((td) => td.colSpan)]; })""")
+            heads = [f[1] for f in facts if f[0] == "row"]
+            assert heads[:4] == [WORDS[f"ui.view.fact.{k}"] for k in ("lat", "lon", "elev", "pct")], heads
+            line = page.evaluate("() => { const l = P.view().selected.line; return [l.lat1.toFixed(6), l.lat2.toFixed(6)]; }")
+            assert facts[0][2] == line and facts[0][3] == [1, 1], facts[0]
+            assert all(f[2] and all(f[2]) and (len(f[2]) == 2 or f[3] == [2]) for f in facts if f[0] == "row"), facts
+            assert WORDS["ui.details.dh"] in heads
+            assert [f[1] for f in facts if f[0] == "rowgroup"] in ([], [WORDS["ui.details.rigging"]]), facts
+            # the access mark's key from the details' "i": opened, the button in the kit's on-state; closed again
+            key = "() => { const b = document.querySelector('.vl-details .ac-info'); return [b.getAttribute('aria-expanded'), getComputedStyle(b).backgroundColor, !!document.querySelector('.vl-details .ac-help')]; }"
+            page.click(".vl-details .ac-info")
+            page.wait_for_selector(".vl-details .ac-help", timeout=WAIT)
+            opened = page.evaluate(key)
+            assert opened[0] == "true" and opened[2] and opened[1] not in ("rgba(0, 0, 0, 0)", "transparent"), opened
+            page.click(".vl-details .ac-info")
+            page.wait_for_selector(".vl-details .ac-help", state="detached", timeout=WAIT)
+            assert page.evaluate(key)[0] == "false" and page.evaluate(key)[1] != opened[1]
+            assert target["spot"] in d["pressed"]
             # another sort: the selection is followed again (its row paged in and in the list's box)
             for sort in ("n", "len", "hmean"):
                 page.select_option(".vl-tree select", sort)
@@ -482,7 +627,7 @@ def test_selection_details_fan_and_table(site):
             assert f["text"] == text + (" " + WORDS["ui.view.fan.capped"].replace("{{n}}", str(len(f["model"]))) if f["capped"] else "")
             assert [[r["row"], r["mark"]] for r in f["rows"]] == [[r["row"], r["label"]] for r in f["model"]] and len(f["rows"]) <= 40
             assert set(f["onMap"]) <= {r["label"] for r in f["model"]} and all(r["dots"] == 1 for r in f["rows"])
-            assert f["heads"] == ["Length", "Mean height ▾", "Clear.", "Height diff.", "Direction", "Far end"] and f["pressed"] == ["hmean"]
+            assert f["heads"] == ["Length", "Mean height ▾", "Clearance", "Height diff.", "Direction", "Far end"] and f["pressed"] == ["hmean"]
             assert page.evaluate("() => P.holds(P.rows('.vl-fan'), 'hmean')") == []
             free = [r["hmean"] for r in f["model"] if not r["numbered"] and r["hmean"] is not None]
             assert free == sorted(free, reverse=True)
@@ -640,7 +785,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             assert spot_head["whole"] and spot_head["order"] == ["vl-hint", "vl-sheet-row"], spot_head
             page.wait_for_function("() => document.querySelector('.u-sheet-body').scrollTop === 0", timeout=WAIT)
             # the longest heads still fit: a long spot's title with its two marks and ×, and "Lines from here" with "Close"
-            page.evaluate("() => { const t = document.querySelector('.vl-spot-title'); t.firstChild.textContent = 'Spot 12.34 · 1 234 lines'; }")
+            page.evaluate("() => { const t = document.querySelector('.vl-spot-title'); t.firstChild.textContent = 'Spot 12.34'; "
+                          "t.querySelector('.vl-spot-count').textContent = '1 234 lines'; }")
             long_head = page.evaluate(fits)
             assert long_head["whole"], long_head
             print("peek", device["viewport"]["width"], low, spot_head, long_head)
@@ -761,7 +907,8 @@ def test_storage_blocked_and_today_untouched(site):
                                     "return [document.activeElement === e, e.matches(':focus-visible')]; }")
             ring = page.evaluate(shadow)
             assert focused == [True, True]
-            assert own != "none" and "0px 0px 0px 3px" not in own and "0px 0px 0px 3px" in ring, (own, ring)
+            # the ring: 2 px of the accent 2 px off the control (--focus: a gap of 2 px, then 4 px)
+            assert own != "none" and "0px 0px 0px 4px" not in own and "0px 0px 0px 4px" in ring, (own, ring)
             assert ring.startswith(own) and len(ring) > len(own), (own, ring)
             page.click(".vl-tree .vl-main")
             page.wait_for_selector(".vl-details", timeout=WAIT)

@@ -25,7 +25,8 @@ import { clearanceText, isTight } from "../../tight";
 import type { SpotMap } from "../SpotMap";
 import type { Best, Pick as SpotPick, SectorRow, SpotView, ViewSort } from "../spots";
 import { BEST_ROWS } from "../viewgeom";
-import { count, cx, Swatch, TightKey, TightMark } from "./common";
+import { Icon } from "../../ui/icons";
+import { count, cx, Swatch, TightIcon, TightKey } from "./common";
 import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
@@ -62,20 +63,29 @@ export const withAccess = (view: SpotView): boolean => view.model.hasAccess;
 /** Is a line tight (by its row). */
 export const tightRow = (view: SpotView, row: number): boolean => isTight(view.values.clr[row]);
 
+/** Is a line over trees or buildings (by its row). */
+export const overRow = (view: SpotView, row: number): boolean => view.model.data.columns.over[row] === 1;
+
 /** The cells of a line that every row of the view shares: its colour (clear, or over trees or buildings: then
- *  also in words for a screen reader), length,
+ *  also in words for a screen reader, unless the row shows them: `words`), length,
  *  mean height (`height` "hmax": the highest point in its place) and clearance with the tight mark. */
-export function Cells({view, row, height = "hmean"}: {view: SpotView; row: number; height?: "hmean" | "hmax"}) {
-  const v = view.values, over = view.model.data.columns.over[row] === 1;
+export function Cells({view, row, height = "hmean", words}: {view: SpotView; row: number; height?: "hmean" | "hmax"; words?: boolean}) {
+  const v = view.values, over = overRow(view, row);
   return <>
     <Swatch color={over ? COLORS.over : COLORS.clean} class="vl-sw" />
-    {over && <span class="u-sr">{t("ui.result.legend_over")} </span>}
+    {over && !words && <span class="u-sr">{t("ui.result.legend_over")} </span>}
     <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
     {height === "hmax" ? <Value name={t("ui.list.col.highest")}>{metres(v.hmax[row])}</Value>
       : <Value name={t("ui.list.col.mean")}>{metres(v.hmean[row], 1)}</Value>}
-    <Value name={t("ui.list.col.clear")} class="vl-clr">
-      {tightRow(view, row) && <TightMark lift={view.model.data.lift} />}{metres(Number(clearanceText(v.clr[row])), 1)}</Value>
+    <Value name={t("ui.view.col.clear")} class="vl-clr">
+      {tightRow(view, row) && <TightIcon lift={view.model.data.lift} />}{metres(Number(clearanceText(v.clr[row])), 1)}</Value>
   </>;
+}
+
+/** A row's words for a line over trees or buildings (R4.2: the list says it in words), on a line of their own under
+ *  the row's values. */
+export function OverWords() {
+  return <span class="vl-over-words">{t("ui.view.over_words")}</span>;
 }
 
 /** The two access marks of a line's anchors (by its row). */
@@ -225,37 +235,44 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
   const on = !!sel && sel.spot === spot && (!pick || sel.row === row);
   const press = () => {
     if (on) { view.select(null); return; }
+    panelState(view).pressed = {id, spot};  // the list keeps this row in view (SpotList's follow)
     view.select(spot, pick ? row : undefined);
     const now = view.selected;
     if (now) map?.reveal(now.row, padding());  // a list's selection may move the map
   };
-  const label = view.label(spot), hover = useHover(map, row);
+  const label = view.label(spot), hover = useHover(map, row), over = overRow(view, row);
   drawn.rows++;
-  return <li class={cx("vl-row", on && "vl-sel", pick && "vl-pick")} id={id}>
+  return <li class={cx("vl-row", on && "vl-sel", pick && "vl-pick", over && "vl-over")} id={id}>
     <button type="button" class="vl-main" aria-pressed={on} tabIndex={tab ? 0 : -1} data-spot={spot} data-row={row}
             onClick={press}
             {...hover}>
       {mark ? <Shape text={mark} /> : <span class="vl-num">{label}</span>}
       {pick && <span class="vl-lab" title={pick}>{pick}</span>}
-      <Cells view={view} row={row} height={height} />
+      <Cells view={view} row={row} height={height} words />
       {withAccess(view) && <RowAccess view={view} row={row} />}
       <Value name={t("ui.list.col.lines")} class="vl-n">{count(view.passingCount(spot))}</Value>
+      {over && <OverWords />}
     </button>
     {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
   </li>;
 }
 
+/** A heading of a list's column; `by`: the list is sorted by it (the kit's "sort" icon before its words). */
+export function Head({by, text}: {by: boolean; text: string}) {
+  return <span class={by ? "vl-by" : undefined}>{by && <Icon name="sort" />}{text}</span>;
+}
+
 /** The headings of the rows (hidden from a screen reader: a row's values carry their names); sorted by the highest
- *  point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked "▾"
- *  (not for the picks, which are not ranked). */
+ *  point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked with
+ *  the sort icon (not for the picks, which are not ranked). */
 function Heads({view, ranked}: {view: SpotView; ranked: boolean}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
-  const head = (key: string, text: string) => <span class={by === key ? "vl-by" : undefined}>{text}{by === key && " ▾"}</span>;
+  const head = (key: string, text: string) => <Head by={by === key} text={text} />;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc")} aria-hidden="true">
     <span /><span />
     {head("len", t("ui.list.col.length"))}
     {head("h", t(view.sort === "hmax" ? "ui.list.col.highest" : "ui.list.col.mean"))}
-    {head("clr", t("ui.list.col.clear"))}
+    {head("clr", t("ui.view.col.clear"))}
     {withAccess(view) && <span class="vl-cell-acc">{t("ui.list.col.anchors")}</span>}
     {head("n", t("ui.list.col.lines"))}
   </div>;
@@ -314,7 +331,7 @@ function TopBlock(p: PanelProps) {
       <Heads view={view} ranked={!area} />
       <Rows view={view} label={title}>{rows}</Rows>
     </>}
-    {tight && <TightKey lift={view.model.data.lift} />}
+    {tight && <TightKey lift={view.model.data.lift} drawn />}
   </section>;
 }
 
@@ -331,15 +348,14 @@ function SectorRows({p, sector, k}: SectorProps) {
     <div class="vl-sec-head">
       <button type="button" class="vl-toggle" id={`vl-sec-${n + 1}`} aria-expanded={open}
               onClick={() => changePanels(view, (s) => { s.open.set(n, !open); })}>
-        <span class="vl-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+        <Icon name={open ? "down" : "next"} class="vl-caret" />
         <span><span class="vl-sec-name">{name}</span>
           <span class="vl-meta">{t("ui.view.sector_spots", {count: sector.spots.length, n: count(sector.spots.length), m: up})}</span>
           <span class="vl-meta2">{t("ui.view.sector_lines", {count: sector.lines, n: count(sector.lines),
                                                             a: Math.round(sector.len[0]), b: Math.round(sector.len[1])})}</span></span>
       </button>
       <button type="button" class="vl-sec-map" aria-label={t("ui.view.sector_map_label", {n: n + 1})} title={t("ui.view.sector_map")}
-              onClick={() => map?.showSector(n)}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" /><path d="M8 1v3M8 12v3M1 8h3M12 8h3" /></svg></button>
+              onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
       <Heads view={view} ranked />
@@ -347,7 +363,7 @@ function SectorRows({p, sector, k}: SectorProps) {
         {shown.map((spot, r) => <Row key={spot} {...p} spot={spot} row={view.shownOf(spot)} id={`vl-row-${spot}`}
                                      tab={r === stop} height={height} />)}
       </Rows>
-      {rest > 0 && <button type="button" class="u-btn u-ghost vl-more" data-sector={n}
+      {rest > 0 && <button type="button" class="u-btn vl-more" data-sector={n}
                            onClick={() => {
                              changePanels(view, (s) => showMore(s, n));
                              // the last "Show more" goes: the focus to the first row it showed, else the sector's head
@@ -392,7 +408,7 @@ function Tree(p: PanelProps) {
           {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label></div>
     {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} sig={sectorSig(p, s, k)} />)}
     {!sectors.length && <p class="u-small vl-note">{t("ui.view.none_pass")}</p>}
-    {tight && <TightKey lift={view.model.data.lift} />}
+    {tight && <TightKey lift={view.model.data.lift} drawn />}
   </section>;
 }
 
@@ -427,7 +443,13 @@ export function SpotList(p: PanelProps) {
       if (body && ui.scrollNew) body.scrollTop = 0;
       return;
     }
-    const row = root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
+    // a selection made by pressing a row keeps that row in view (it moves nothing where the row is in view); any other
+    // (the map, a key on the map, the table of spots) goes to the spot's row in "Best in view" where it has one there
+    // (that block and its head stay in view), else to its row in the tree: the planner's decisions of 2026-11-18
+    const pressed = ui.pressed && ui.pressed.spot === ui.followed ? ui.pressed.id : null;
+    const row = (pressed ? root.current.querySelector<HTMLElement>(`#${pressed}`) : null)
+      ?? root.current.querySelector<HTMLElement>(`#vl-top-${ui.followed}`)
+      ?? root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
   });
   // a focused row this drawing took away (a filter, the map's move under the top block): the focus to the row that

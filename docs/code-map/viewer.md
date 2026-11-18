@@ -200,9 +200,13 @@ changed: `marksKey`, timed as "fal:view:refan"), one Esc.
 columns, projected by hand; squares, strokes, numbers placed clear of every control, the presses with a press held and
 a right click, the hover; `legend()` what it drew; `drawn()` its own count, each line once). `view/SpotColumns.tsx` the
 frame (today's columns and sheet, which opens low and holds from its top the handle, the hint, the head's row and the
-body; the Leaflet map with quarter zoom steps, the toast, Esc; `data-choosing` on the map's column while the table of
+body; the Leaflet map with quarter zoom steps, the zoom's icons, a phone's scale at the bottom right, the toast (a
+desktop's; a phone's message is MapBar's `message`), Esc; `data-choosing` on the map's column while the table of
 spots is asked for; `window.FINDALINE_VIEW = {view, map}` once drawn, no `FINDALINE_RESULT`), `view/SpotPanels.tsx` its slots (`PANELS`: the list, the details, the sheet's head, the
-hint, the table of spots), `view/MapBar.tsx` the switch, Best, the status line and the legend (a phone: two lines with
+hint, the table of spots), `view/MapBar.tsx` the switch, Best, the status line and the legend (a phone, the pilot's
+arrangement: from the bottom up beside the scale the row of "Legend", the key's "i" and the hint's button, the legend,
+the status line holding the map's message; where the map is too low for that column, `inline`, the status line beside
+the row; the legend two lines with
 a fold, unfolded by itself while the sheet is low and there is room, folded at half or higher; a person's fold or
 unfold holds until the sheet's next stop; "Legend" pressed without room lowers the sheet, and where even the low
 stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
@@ -214,10 +218,12 @@ that raises Best, with All "In view"; "All spots": the sort and the tree of sect
 row is a list item with ONE button, `aria-pressed`, one tab stop per list, read from the columns without a Line; the
 panels' shared pieces `Cells`, `metres`, `useViewPanels`, `useHover`), `view/SpotSummary.tsx` the headline with
 today's `WhyBox`, `view/ViewFilters.tsx` the chips (today's `MainEditor` and `MoreFilters` without the grouping,
-"Top level only" and its sentence), `view/SpotDetails.tsx` a spot's details (the stepper, "Stands for", "Lines from
-anchor A1 / A2", today's `AccessBlock` and `lineFacts`) and a phone's sheet head, `view/FanPanel.tsx` the panel of
-"Lines from here" (the model sorts; "Far end"), `view/SpotChooser.tsx` the table of spots, `view/Hint.tsx` the hint
-and its "?" (the frame's two places), `view/viewstate.ts` what is kept (`findaline.view.v1`: the sort and the hint
+"Top level only" and its sentence), `view/SpotDetails.tsx` a spot's details (the four tiles, a tight line's in the
+warning colour with "Tight", "Reaching the anchors" with A1 and A2, the stepper, "Stands for", "Lines from anchor A1 /
+A2", the facts as a table, `viewFacts`; today's page keeps `AccessBlock` and `lineFacts`) and a phone's sheet head,
+`view/FanPanel.tsx` the panel of "Lines from here" (the model sorts; "Far end"), `view/SpotChooser.tsx` the table of
+spots, `view/Hint.tsx` the hint and its button (the kit's "rope" icon; the frame's two places), `view/viewstate.ts`
+what is kept (`findaline.view.v1`: the sort and the hint
 only) and the panels' state per view (open sectors, pages; it outlives the change between columns and phone). Tests:
 `tests/test_view_list_units.py` (Node), `tests/test_shell_c_view_list.py` (Playwright, a desktop and two phones).
 

@@ -75,6 +75,10 @@ export const HOLD_MS = 600, HOLD_PX = 15, MENU_QUIET = 1000;
 const FLASH_TAP = 1800, FLASH_SECTOR = 2400;
 const PAD = 2;  // px a number's shape keeps clear of a control
 const INK = "#1b2530", PAPER = "#ffffff";  // the numbers' shapes: the map's tiles stay light in the dark theme
+/** The canvas's text, px: R1's smallest, the value of --fs-1 (the pilot of 2026-11-18; the canvas reads no CSS token:
+ *  a change of that step changes this constant too). The numbers' shapes keep their sizes (markSize, as before). */
+const TEXT_PX = 12;
+const MARK_FONT = `600 ${TEXT_PX}px system-ui, sans-serif`;
 const D = Math.PI / 180;
 
 /** The half width and height of a number's shape. */
@@ -423,7 +427,7 @@ export class SpotMap {
       shapePath(ctx, kind, x, y, text);
       ctx.fillStyle = PAPER; ctx.fill();
       ctx.lineWidth = ring ? 2.4 : 1.6; ctx.strokeStyle = ring ?? INK; ctx.stroke();
-      ctx.fillStyle = INK; ctx.font = "600 11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = INK; ctx.font = MARK_FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(text, x, y + 0.5);
       shapes[kind] = true;
       const [w, h] = markSize(kind, text);
@@ -478,7 +482,7 @@ export class SpotMap {
         ctx.globalAlpha = 0.9; ctx.lineWidth = 0.8; ctx.strokeStyle = colours[cls]; ctx.stroke();
         if (label) {
           const text = String(Math.round(grid.values[k])), cx = (a[0] + c[0]) / 2, cy = (a[1] + c[1]) / 2;
-          ctx.font = `600 ${px >= 44 ? 13 : px >= 32 ? 11 : 10}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.font = `600 ${px >= 44 ? TEXT_PX + 1 : TEXT_PX}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, cx, cy);
           ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, cx, cy);
         }
@@ -491,6 +495,11 @@ export class SpotMap {
       stroke(lines, 3.5, dim, undefined, true);
       target(lines, 2);
       for (const pick of picks) if (!inFan.has(pick.row)) badge(pick.row, "P" + pick.n, "P", pick.spot);
+      // the legend lists the pick's shape whenever a pick's line is in view, its number drawn or not: a number left out
+      // for want of room took its row out of the legend, the foot shrank, and the number came back, again and again
+      // (the user's decision of 2026-11-18; the pick's line is on the map either way)
+      const f = this.free;
+      if (picks.some((pick) => { this.ends(pick.row, p); return clipT(p[0], p[1], p[2], p[3], f.x0, f.y0, f.x1, f.y1) !== null; })) shapes.P = true;
     } else {
       this.grid = null;
       const all = view.best === "all", refused = v.refused > 0;
@@ -585,7 +594,8 @@ export class SpotMap {
     return getComputedStyle(this.map.getContainer()).getPropertyValue(name).trim() || "#888";
   }
 
-  private accent(): string { return this.token("--accent"); }
+  /** The accent of what is drawn on the tiles (the flash): the light theme's in both themes, the tiles staying light. */
+  private accent(): string { return this.token("--accent-map"); }
 
   /** The squares' five classes' colours (the highline layer's tokens). */
   private layerColours(): string[] {

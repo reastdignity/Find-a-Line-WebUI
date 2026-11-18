@@ -82,6 +82,10 @@ export interface PanelState {
   scroll: boolean;
   /** That scroll follows another spot (a phone's sheet goes to its top only then, not for a new order). */
   scrollNew: boolean;
+  /** The list's row whose press (a click, Enter) made the selection, and its spot: while that spot stays selected the
+   *  list keeps that row in view, not the spot's "Best in view" row (the planner's decision of 2026-11-18); a
+   *  selection's end forgets it. */
+  pressed: {id: string; spot: number} | null;
 }
 
 interface Held { state: PanelState; listeners: Set<() => void> }
@@ -92,7 +96,7 @@ function holdOf(view: SpotView): Held {
   if (!h) {
     const k = kept();
     h = {state: {open: new Map(), limit: new Map(), paged: new Map(), fanFrom: null, hint: k.hint, why: false, editing: null,
-                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false},
+                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false, pressed: null},
          listeners: new Set()};
     held.set(view, h);
     // the kept sort, once per view and before anything is drawn from its order (the B numbers follow it)
@@ -162,6 +166,7 @@ export function follow(s: PanelState, view: SpotView): boolean {
   const sel = view.selected;
   if (!sel) {
     s.followed = null;
+    s.pressed = null;
     s.scroll = false;
     s.paged.clear();
     return false;
@@ -170,6 +175,7 @@ export function follow(s: PanelState, view: SpotView): boolean {
   if (same && s.followedOrder === order) return s.scroll;
   const n = view.sectorOf(sel.spot), sector = view.sectors.find((x) => x.n === n);
   if (!same) s.open.set(n, true);
+  if (!same && s.pressed?.spot !== sel.spot) s.pressed = null;  // another spot, not by that row's press
   s.followed = sel.spot;
   s.followedOrder = order;
   s.scroll = true;

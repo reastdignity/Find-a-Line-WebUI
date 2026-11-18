@@ -11,6 +11,7 @@ view's columns, storage blocked. Every wait is an event with a deadline (one exc
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -112,8 +113,11 @@ window.T = {
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
       zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
-      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *"}, out = {};
+      credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *",
+      back: ".v-status .v-back-auto"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
+      // the map's message on a phone is the first line of the status line's box (the pilot's arrangement): a part of it
+      if (name === "toast" && e && e.closest(".v-status")) continue;
       if (r && r.width && r.height && getComputedStyle(e).visibility !== "hidden") out[name] = [r.left, r.top, r.right, r.bottom].map((v) => Math.round(v * 10) / 10); }
     return out; },
   // the line of a number on the map: B of a best spot, P of a pick, L of the fan, A of the selected line
@@ -690,10 +694,10 @@ CHIP = """() => { const holder = document.createElement("div");
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
 
-# A stand-in for the panels' hint on the map (the frame's slot beside the status line: on a phone its "?"), which the
-# frame's own placeholder panels leave empty
-HINT = """() => { const hint = document.querySelector(".v-hint-slot").appendChild(document.createElement("button"));
-  hint.type = "button"; hint.className = "u-hint"; hint.textContent = "?"; }"""
+# The panels' hint hidden by its ×: on a phone its button then stands on the map, in the row of buttons beside "Legend"
+# (the frame's slot), the worst case of the pilot's arrangement (2026-11-18)
+HINT = "() => document.querySelector('.vl-hint-x').click()"
+HINT_SHOWN = "() => !!document.querySelector('.v-hint-slot .vl-hint-open')"
 
 
 def _over_holds(page, selector: str, state: str) -> dict:
@@ -718,26 +722,33 @@ def _over_holds(page, selector: str, state: str) -> dict:
     return r
 
 
-def _apart(page, state: str) -> dict:
-    """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet."""
+def _apart(page, state: str, known: tuple = ()) -> dict:
+    """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet.
+    `known`: pairs (names in order) excepted by the caller, each with its reason there."""
     boxes, sheet = page.evaluate("() => [T.boxes(), document.querySelector('.u-sheet')?.getBoundingClientRect().top ?? 1e9]")
     names, wrong = sorted(boxes), []
     for k, a in enumerate(names):
         if boxes[a][3] > sheet + 0.5:
             wrong.append((a, boxes[a], "under the sheet", sheet))
         for b in names[k + 1:]:
+            if (a, b) == ("back", "status") or (a, b) in known:  # "Back to Auto" is a part of the status line's sentence:
+                continue  # its target (44 px on a touch screen) reaches past the box, and no other control may lie there
             p, q = boxes[a], boxes[b]
             if min(p[2], q[2]) - max(p[0], q[0]) > 0.5 and min(p[3], q[3]) - max(p[1], q[1]) > 0.5:
                 wrong.append((a, p, b, q))
     assert not wrong, (state, wrong)
+    # every caller is a touch screen: "Back to Auto", where the status line has it, is a finger's 44 px target
+    assert "back" not in boxes or boxes["back"][3] - boxes["back"][1] >= 43.5, (state, boxes["back"])
     return boxes
 
 
 def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip on the map and a hint in the bar's row. At the sheet's low
-    stop and at half, no control of the map covers another (the status line, the legend, its fold, the "?", the
-    hint, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits, the
-    message, the top bar; the access mark's key, opened, lies above them as a panel) and each stands above
+    """A small phone (390 x 664) with the shore's chip on the map and the hint hidden (its button in the bar's row of
+    buttons: the pilot's worst case). At the sheet's low
+    stop and at half, no control of the map covers another (the status line, the legend, its fold, the key's "i", the
+    hint's button, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits,
+    the top bar; the message is the status line's first line, a part of its box; the access mark's key, opened,
+    lies above them as a panel) and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -755,6 +766,7 @@ def test_phone_controls_apart(site):
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
             page.evaluate(CHIP)
             page.evaluate(HINT)
+            page.wait_for_function(HINT_SHOWN, timeout=WAIT)
             seen = {}
             for stop in ("low", "half"):
                 if stop == "half":
@@ -782,7 +794,10 @@ def test_phone_controls_apart(site):
                                 return {lines: document.querySelectorAll(".v-lg-line").length, whole: text > 100 && by.clientWidth >= text,
                                         swatches: r.querySelectorAll(".v-lay").length, name: r.getAttribute("aria-label"), text: r.textContent,
                                         height: document.querySelector(".v-legend").getBoundingClientRect().height}; }""")
-                            assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 70, ramp
+                            # its two lines: the 44 px select of a touch screen (R2) with the ramp, then the pick's mark
+                            # (1:1) and the access marks, which wrap once at the pilot's 13 px (112 px measured
+                            # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
+                            assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
                             assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
                 # the access mark's key, opened by its "?": a panel above the controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
@@ -792,21 +807,34 @@ def test_phone_controls_apart(site):
                 _apart(page, f"{stop}, the access mark's key open")
                 key = _over_holds(page, ".v-over > .v-help", f"{stop}, the access mark's key")
                 assert key["box"][3] - key["box"][1] > 40, key
+                # its "i" says it is open, in words and in the kit's on-state (the soft accent)
+                look = "() => { const b = document.querySelector('.v-help-button button'), s = getComputedStyle(b); return [b.getAttribute('aria-expanded'), s.backgroundColor]; }"
+                soft = page.evaluate("() => { const e = document.createElement('i'); e.style.background = 'var(--accent-soft)'; document.querySelector('.v-result').append(e); "
+                                     "const c = getComputedStyle(e).backgroundColor; e.remove(); return c; }")
+                assert page.evaluate(look) == ["true", soft], (page.evaluate(look), soft)
                 _tap_on(page, ".v-help-button button")
                 page.wait_for_selector(".v-help", state="detached", timeout=WAIT)
+                assert page.evaluate(look)[0] == "false" and page.evaluate(look)[1] != soft
                 # a tap on several spots: the map says so; the message covers no control
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
-                crowded = _crowded(page, True, 4)  # (at half this phone's map has no point 24 px from every control)
+                # (at half this phone's map has no point 24 px from every control; nearer than about 10 px to the
+                # credits' links the browser's touch adjustment gives the tap to a link: measured 2026-11-18, a tap
+                # 2 or 4 px from the credits' box went to its "Leaflet" link, at 6 and 8 px to "Legend" beside it)
+                crowded = _crowded(page, True, 12)
                 assert crowded and len(crowded["spots"]) > 1, stop
                 _tap(page, crowded["x"], crowded["y"])
                 page.wait_for_selector(".v-toast", timeout=WAIT)
                 page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
                 page.evaluate("() => T.frames()")
                 boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
-                assert "toast" in boxes and page.evaluate("() => document.querySelector('.v-toast').textContent") == WORDS["ui.view.map.crowded"]
+                # the message stands in the status line's box, its first line (the pilot's arrangement of 2026-11-18)
+                assert "status" in boxes and page.evaluate("() => [document.querySelector('.v-toast').textContent, "
+                                                           "document.querySelector('.v-status').firstElementChild.classList.contains('v-toast')]") == \
+                    [WORDS["ui.view.map.crowded"], True]
                 page.wait_for_selector(".v-toast", state="detached", timeout=WAIT)
-            # at half this phone's map has no room for the legend (39 px under the chip): a press on "Legend" lowers the
-            # sheet and unfolds the legend there; nothing covers another; raised again, the legend is folded by itself
+            # at half this phone's map has no room for the whole legend (41 px under the zoom row, the legend's two lines
+            # need about 70): a press on "Legend" lowers the sheet and unfolds the legend there; nothing covers another;
+            # raised again, the legend is folded by itself
             _state(page, fit + "view.setLevel('spots');")
             assert page.evaluate("() => document.querySelector('.v-fold').disabled") is False and page.evaluate(legend) == ["false", False]
             _tap_on(page, ".v-fold")
@@ -873,10 +901,13 @@ def test_phone_controls_apart(site):
 
 
 def test_phone_on_its_side(site):
-    """A phone on its side (667 x 375, the phone's layout): the map has no room for a line of the legend even with
-    the sheet low. The legend is folded by itself; a press on "Legend" opens it as a panel above the map's other
-    controls, within the map's height, and says so (aria-expanded); the same button, Esc (which ends nothing else)
-    and a press on the map close it; at half the press lowers the sheet and opens the panel."""
+    """A phone on its side (667 x 375, the phone's layout), with the shore's chip (the test's stand-in): the zoom and
+    the layers stand in the level switch's row, right of Best (the user's Q2 a of 2026-11-18), the chip after the zoom
+    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (at half with
+    a level held, the status line's longer sentence under the chip: docs/known-bugs.md). The map has no room for a
+    line of the legend even with the sheet low: the legend is folded by itself; a press on "Legend" opens it as a panel
+    above the map's other controls, within the map's height, and says so (aria-expanded); the same button, Esc (which
+    ends nothing else) and a press on the map close it; at half the press lowers the sheet and opens the panel."""
     from playwright.sync_api import sync_playwright
     legend = "() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend'), !!document.querySelector('.v-over > .v-legend')]"
     is_ = "() => JSON.stringify((%s)()) === '%s'"
@@ -887,9 +918,15 @@ def test_phone_on_its_side(site):
         try:
             page = _open(browser, f"{site}#run={BIG}", SIDE_PHONE)
             page.wait_for_function(low, timeout=WAIT)
+            page.evaluate(CHIP)  # the shore's chip: this run has no uncertain shore
             first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
             assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
             page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
+            page.evaluate("() => T.frames()")
+            side = _apart(page, "on its side, low")
+            # the zoom and the layers up in the switch's row, the zoom right of Best; the chip after the zoom or below it
+            assert side["zoom"][0] >= side["best"][2] and side["zoom"][3] <= side["levels"][3] + 0.5, side
+            assert side["layers"][3] <= side["levels"][3] + 0.5 and side["chip"][0] >= side["zoom"][0], side
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
             page.evaluate("() => T.frames()")
@@ -905,19 +942,34 @@ def test_phone_on_its_side(site):
             assert _state(page)["selected"] == first["selected"]
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
-            # a press on the map closes it (a point of the map under no control and not under the panel)
+            # a press on the map closes it (a point of the map under no control and not under the panel, 12 px clear:
+            # nearer to the credits' links the browser's touch adjustment gives the tap to a link; measured
+            # 2026-11-18 on this phone: 2 or 4 px from the credits' box to its "Leaflet" link, 6 and 8 px to the "i")
             at = page.evaluate("""() => { const b = T.box(), f = T.free(), boxes = T.controls().concat([document.querySelector(".v-over").getBoundingClientRect()]);
               for (let y = f[3] - 12; y > f[1] + 12; y -= 7) for (let x = f[2] - 12; x > f[0] + 12; x -= 11) { const vx = x + b.left, vy = y + b.top;
-                if (!boxes.some((c) => vx > c.left - 6 && vx < c.right + 6 && vy > c.top - 6 && vy < c.bottom + 6) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
+                if (!boxes.some((c) => vx > c.left - 12 && vx < c.right + 12 && vy > c.top - 12 && vy < c.bottom + 12) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
               return null; }""")
             assert at, "no point of the map is free of the controls"
             _tap(page, at["x"], at["y"])
             page.wait_for_function(closed, timeout=WAIT)
-            # at half the press lowers the sheet and opens the panel there
-            _state(page, "view.select(null);")
+            # at half: no control covers another under Auto; with a level held one pair is known (docs/known-bugs.md:
+            # the status line's longer sentence, "... Held by you. Back to Auto", reaches under the shore's chip, which
+            # fits in neither row of a map 135 px high)
+            _state(page, "view.select(null); view.setLevel('auto');")
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
             page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
+            page.wait_for_function(closed, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            half = _apart(page, "on its side, half, Auto")
+            # MapBar's `inline`: in that low a map the status line stands beside the row of buttons, their bottoms level
+            assert page.evaluate("() => !!document.querySelector('.v-foot.v-foot-inline')"), half
+            assert half["status"][0] >= half["help"][2] and abs(half["status"][3] - half["fold"][3]) <= 1, half
+            _state(page, "view.setLevel('area');")
+            page.evaluate("() => T.frames()")
+            _apart(page, "on its side, half, Area held", known=(("back", "chip"), ("chip", "status")))
+            # and the press on "Legend" there lowers the sheet and opens the panel
+            _state(page, "view.setLevel('spots');")
             page.wait_for_function(closed, timeout=WAIT)
             _tap_on(page, ".v-fold")
             page.wait_for_function(low, timeout=WAIT)
@@ -929,9 +981,180 @@ def test_phone_on_its_side(site):
             browser.close()
 
 
+TABLET = {**PHONE, "viewport": {"width": 1180, "height": 820}, "device_scale_factor": 2}  # on its side: the columns, a finger
+
+
+def test_tablet_controls_apart(site):
+    """A tablet on its side (1180 x 820: the desktop's columns with a finger's 44 px controls): no control of the map
+    covers another at Area and at Spots (the switch is 52 px high there: Leaflet's zoom and layers stand under it)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", TABLET)
+            for level in ("area", "spots"):
+                _state(page, "map.fitArea({top: 70, right: 10, bottom: 80, left: 10}); "
+                             f"view.setTopOnly(true); view.setBest(10); view.setLevel('{level}');")
+                page.evaluate("() => T.frames()")
+                boxes = _apart(page, f"a tablet, {level}")
+                assert boxes["zoom"][1] >= boxes["levels"][3] + 8 - 0.5, boxes
+            # the credits and the scale at R1's floor for them, 10 px (Leaflet's own 0.75rem: 9.75 px)
+            sizes = page.evaluate("() => ['.v-map .leaflet-control-attribution', '.v-map .leaflet-control-scale-line']"
+                                  ".map((s) => parseFloat(getComputedStyle(document.querySelector(s)).fontSize))")
+            assert min(sizes) >= 10, sizes
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+PIXEL = {"viewport": {"width": 412, "height": 839}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True}
+
+
+def test_legend_unfolds_in_place_at_half(site):
+    """The Pixel 7 (412 x 839) with the sheet at half, under Auto: the legend, folded by itself at half, fits whole in
+    the room there, so a press on "Legend" unfolds it in place, not as a panel, and the sheet stays at half (Q1's rule
+    lowers the sheet only where the whole legend does not fit: the q1 table's Pixel cells); nothing covers another."""
+    from playwright.sync_api import sync_playwright
+    legend = ("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend'), "
+              "!!document.querySelector('.v-over > .v-legend')]")
+    # the sheet's top once it rests (the same in three frames running: its move takes 0.22 s)
+    sheet = """() => new Promise((ok) => { let last = null, same = 0; const f = () => {
+      const top = Math.round(document.querySelector('.u-sheet').getBoundingClientRect().top);
+      same = top === last ? same + 1 : 0; last = top; if (same >= 2) ok(top); else requestAnimationFrame(f); }; f(); })"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", PIXEL)
+            _state(page, "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10}); "
+                         "view.setTopOnly(true); view.setBest(10); view.setLevel('auto');")
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            page.wait_for_function(f"() => JSON.stringify(({legend})()) === '[\"false\",false,false]'", timeout=WAIT)
+            at = page.evaluate(sheet)
+            _tap_on(page, ".v-fold")
+            page.wait_for_function(f"() => JSON.stringify(({legend})()) === '[\"true\",true,false]'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            whole = page.evaluate("() => { const e = document.querySelector('.v-legend'); return e.scrollHeight <= e.clientHeight + 1; }")
+            assert page.evaluate(sheet) == at and whole, (at, page.evaluate(sheet), whole)
+            _apart(page, "the Pixel at half, the legend unfolded")
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_flash_takes_the_map_accent(site):
+    """In the dark theme the crowded tap's flash (SpotMap's accent) is --accent-map, the light theme's accent, while the
+    page's own accent is the dark one: the map's tiles stay light (the planner's decision of 2026-11-18)."""
+    from playwright.sync_api import sync_playwright
+    with open(os.path.join(REPO, "viewer", "src", "ui", "tokens.css"), encoding="utf-8") as f:
+        accents = re.findall(r"--accent:\s*(#[0-9a-fA-F]{6})", f.read())  # the light block's, then the dark blocks'
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", {**DESKTOP, "color_scheme": "dark"})
+            got = page.evaluate("() => [window.FINDALINE_VIEW.map.accent(), "
+                                "getComputedStyle(window.FINDALINE_MAP.getContainer()).getPropertyValue('--accent').trim()]")
+            assert got == [accents[0], accents[1]] and accents[0] != accents[1], (got, accents)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_pick_row_kept_in_the_legend(site):
+    """At Area on the small phone (390 x 664, the sheet low) with P1's line just above the bar's foot: the legend keeps
+    its "P1 pick" row whether the diamond found room or not, and the foot's top does not move between the canvas's
+    passes (the user's decision of 2026-11-18: before, the row came and went with the diamond, the foot's height with
+    it, and the canvas, placing its numbers again at most twice, stopped with the diamond left out though there was
+    room)."""
+    from playwright.sync_api import sync_playwright
+    put = """([gap]) => { const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, c = view.model.data.columns, row = view.picks()[0].row;
+      const box = m.getContainer().getBoundingClientRect(), foot = document.querySelector('.v-foot').getBoundingClientRect();
+      const p = m.latLngToContainerPoint([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2]);
+      m.panBy([0, Math.round(p.y - (foot.top - box.top - gap))], {animate: false}); }"""
+    seen = "() => [Math.round(document.querySelector('.v-foot').getBoundingClientRect().top), !!document.querySelector('.v-legend')?.textContent.includes('P1'), window.FINDALINE_VIEW.map.legend().shapes.P === true]"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
+            _state(page, "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10}); "
+                         "view.setTopOnly(true); view.setBest(10); view.setLevel('area');")
+            for gap in (4, 12, 20, 28):  # the line's middle this many px above the foot's top: the band where it toggled
+                page.evaluate(put, [gap])
+                passes = []
+                for _ in range(4):
+                    page.evaluate("() => T.frames()")
+                    passes.append(page.evaluate(seen))
+                assert all(s == passes[0] for s in passes) and passes[0][1:] == [True, True], (gap, passes)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+LANDSCAPES = ((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
+# A run's long data credits (this run has none; the ui_shots clip's run to 8 lines in the columns): credits.ts's own
+# markup (layers.ts creditsHtml with its "Data credits" button) put into the map's attribution
+LONG_CREDITS = """() => { const words = 'Source: Glowny Urzad Geodezji i Kartografii, the numerical terrain model (CC BY 4.0) | FABDEM V1-2 (CC BY-NC-SA 4.0) | ';
+  window.FINDALINE_MAP.attributionControl.addAttribution('<button type="button" class="u-credits-toggle" aria-expanded="false">Data credits</button>'
+    + '<span class="u-credits">Data: ' + words.repeat(6) + 'Processed by the app. Notices</span>'); }"""
+
+
+def test_landscape_phone_columns_fold_the_legend(site):
+    """A phone held sideways that is 768 px wide or more (844 x 390 to 932 x 430: the columns with a finger's
+    44 px controls), at Auto and at Area: the unfolded legend would reach the map's top controls, so it is folded
+    behind "Legend" (the phone's logic, the user's decision of 2026-11-18), and the zoom's + and − stand side by side
+    as on a phone (the planner's: in a column of 88 px it lay under the status line and the hint, as on main); a
+    finger's tap at each level button's middle presses that button (the status line covered them before); "Legend"
+    opens the legend; no control covers another. With a run's long data credits too (a stand-in of 8 lines' length:
+    the design review's D1, where the status line lay on the switch): they fold behind "Data credits", as on a phone,
+    and all of the above holds (the window turned from a wide one first, as a phone is: the foot's choice counts the
+    credits unfolded, so folding them does not undo it)."""
+    from playwright.sync_api import sync_playwright
+    hit = """([k]) => { const b = document.querySelector(`.v-levels button[data-level="${k}"]`), r = b.getBoundingClientRect(),
+      x = r.left + r.width / 2, y = r.top + r.height / 2, e = document.elementFromPoint(x, y); return {x, y, hit: !!e && b.contains(e)}; }"""
+    pressed = "([k]) => document.querySelector(`.v-levels button[data-level=\"${k}\"]`).getAttribute('aria-pressed') === 'true'"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for (w, h), level, long in [(size, level, long) for size in LANDSCAPES for level in ("auto", "area") for long in (False, True)]:
+                    state = f"{w} x {h}, {level}{', long credits' if long else ''}"
+                    page = _open(browser, f"{site}#run={BIG}", {**PHONE, "viewport": {"width": w, "height": h}})
+                    if long:
+                        page.evaluate(LONG_CREDITS)
+                        page.set_viewport_size({"width": 1400, "height": 900})  # a phone turned: the credits drawn whole first
+                        page.evaluate("() => T.frames()")
+                        page.set_viewport_size({"width": w, "height": h})
+                    _state(page, "map.fitArea({top: 70, right: 10, bottom: 80, left: 10}); "
+                                 f"view.setTopOnly(true); view.setBest(10); view.setLevel('{level}');")
+                    page.evaluate("() => T.frames()")
+                    fold = page.evaluate("() => [!!document.querySelector('.c-result-phone'), !!document.querySelector('.v-legend'), "
+                                         "document.querySelector('.v-fold')?.getAttribute('aria-expanded') ?? null]")
+                    assert fold == [False, False, "false"], (state, fold)  # the columns, the legend folded behind its button
+                    if long:  # the credits folded behind their button, as on a phone
+                        credits = page.evaluate("() => { const t = document.querySelector('.v-map .u-credits-toggle'), c = document.querySelector('.v-map .u-credits'); "
+                                                "return [!!document.querySelector('.v-map.v-compact'), getComputedStyle(t).display !== 'none', getComputedStyle(c).display === 'none']; }")
+                        assert credits == [True, True, True], (state, credits)
+                    boxes = _apart(page, state)
+                    assert boxes["zoom"][2] - boxes["zoom"][0] > boxes["zoom"][3] - boxes["zoom"][1], (state, boxes["zoom"])  # across
+                    for k in ("auto", "area", "spots", "lines"):
+                        at = page.evaluate(hit, [k])
+                        assert at["hit"], (state, k, at)
+                        _tap(page, at["x"], at["y"])
+                        page.wait_for_function(pressed, arg=[k], timeout=WAIT)
+                    _tap_on(page, ".v-fold")
+                    page.wait_for_function("() => !!document.querySelector('.v-legend') && "
+                                           "document.querySelector('.v-fold').getAttribute('aria-expanded') === 'true'", timeout=WAIT)
+                    assert page.errors == [], state
+                    page.close()
+        finally:
+            browser.close()
+
+
 def test_focus_rings(site):
-    """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus) beside the shadow
-    each of them carries by itself (their own shadow replaced the ring: the design review's finding 16)."""
+    """The keyboard's focus shows on "Legend" and on the level Auto chose: the kit's ring (--focus: 2 px of the accent
+    2 px off the control) beside the shadow "Legend" carries by itself (their own shadow replaced the ring: the design
+    review's finding 16); the level Auto chose is underlined by a drawn bar (the pilot's), not by a shadow."""
     from playwright.sync_api import sync_playwright
     shadow = "([selector]) => getComputedStyle(document.querySelector(selector)).boxShadow"
     with sync_playwright() as p:
@@ -947,9 +1170,21 @@ def test_focus_rings(site):
                                         "return [document.activeElement === e, e.matches(':focus-visible')]; }", [selector])
                 ring = page.evaluate(shadow, [selector])
                 assert focused == [True, True], selector
-                # the ring is a shadow of no offset and 3 px spread, drawn beside the control's own
-                assert own != "none" and "0px 0px 0px 3px" not in own and "0px 0px 0px 3px" in ring, (selector, own, ring)
-                assert ring.startswith(own) and len(ring) > len(own), (selector, own, ring)
+                # the ring is a shadow of no offset: a gap of 2 px, then 4 px of the accent, drawn beside the control's own
+                assert "0px 0px 0px 4px" not in own and "0px 0px 0px 4px" in ring, (selector, own, ring)
+                if selector == ".v-fold":
+                    assert own != "none" and ring.startswith(own) and len(ring) > len(own), (selector, own, ring)
+                else:
+                    bar = page.evaluate("() => { const s = getComputedStyle(document.querySelector('.v-levels button.v-now'), '::after'); "
+                                        "return [s.content, s.height, s.backgroundColor]; }")
+                    assert own == "none" and bar[0] == '""' and bar[1] == "2px", (own, bar)
+            # the zoom buttons: their bar clips them to its corners, so the ring is drawn inside the button (the design
+            # review's S1: the outer ring was cut away whole)
+            for selector in (".v-map .leaflet-control-zoom-in", ".v-map .leaflet-control-zoom-out"):
+                focused = page.evaluate("([selector]) => { const e = document.querySelector(selector); e.focus(); "
+                                        "return [document.activeElement === e, e.matches(':focus-visible')]; }", [selector])
+                ring = page.evaluate(shadow, [selector])
+                assert focused == [True, True] and "inset" in ring and "0px 0px 0px 2px" in ring, (selector, ring)
             assert page.errors == []
         finally:
             browser.close()

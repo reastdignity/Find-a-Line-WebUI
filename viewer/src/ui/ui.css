@@ -44,7 +44,7 @@
 
 /* Buttons */
 .ui .u-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: var(--touch); padding: 0 14px;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 500;
+  border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 500;
   white-space: nowrap; cursor: pointer; text-decoration: none; }
 .ui .u-btn:hover { background: var(--surface-2); }
 .ui .u-btn.u-pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -56,18 +56,18 @@
 .ui .u-btn.u-full { width: 100%; }
 .ui .u-btn:disabled, .ui .u-ib:disabled { opacity: .5; cursor: default; filter: none; }
 .ui .u-ib { width: var(--touch); height: var(--touch); display: inline-flex; align-items: center; justify-content: center; flex: none;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
+  border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
 .ui .u-ib:hover { background: var(--surface-2); }
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .u-ib.u-round { border-radius: 50%; }
-.ui .u-ib.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.ui .u-ib.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 
 /* Chips */
 .ui .u-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ui .u-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--surface); font-size: 13px; color: var(--ink-2); white-space: nowrap; cursor: pointer; }
 .ui .u-chip .u-ic { width: 15px; height: 15px; }
-.ui .u-chip.u-on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+.ui .u-chip.u-on { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); font-weight: 500; }
 .ui .u-chip.u-add { border-style: dashed; }
 .ui .u-chip-x { display: inline-flex; border: 0; background: none; padding: 0; margin-right: -4px; color: inherit; cursor: pointer; border-radius: 50%; }
 .ui .u-chip-x .u-ic { width: 14px; height: 14px; }
@@ -104,7 +104,7 @@
   background: var(--ink); color: var(--surface); box-shadow: var(--shadow); z-index: 1000;
   font: 400 13px/1.45 var(--font); text-align: left; white-space: normal; }
 .ui .u-hint-tip.u-hint-on { display: block; }
-.ui .u-input { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0 12px; width: 100%; }
+.ui .u-input { min-height: 38px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); padding: 0 12px; width: 100%; }
 .ui .u-input:focus-visible { border-color: var(--accent); }
 @media (pointer: coarse) { .ui .u-input { min-height: 44px; font-size: 16px; } }
 
@@ -145,7 +145,7 @@
   border-radius: 999px; text-transform: uppercase; white-space: nowrap; }
 .ui .u-st .u-ic { width: 13px; height: 13px; }
 .ui .u-st.u-done { background: var(--ok-soft); color: var(--ok); }
-.ui .u-st.u-running { background: var(--accent-soft); color: var(--accent); }
+.ui .u-st.u-running { background: var(--status-run); color: var(--accent-ink); }  /* apart from done's green (the user's c) */
 .ui .u-st.u-waiting, .ui .u-st.u-cancelled { background: var(--surface-2); color: var(--ink-2); }
 .ui .u-st.u-failed { background: var(--bad-soft); color: var(--bad); }
 .ui .u-st.u-shared { background: var(--warn-soft); color: var(--warn); }
@@ -296,4 +296,9 @@
   .ui .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
   .ui .u-credits:not(.u-open) { display: none; }
 }
+/* the same in the result view's columns while their foot is a phone's (MapBar's .v-compact: a window too short for
+   the legend; the planner's decision of 2026-11-18) */
+.ui .v-map.v-compact .u-credits-toggle { display: inline; }
+.ui .v-map.v-compact .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
+.ui .v-map.v-compact .u-credits:not(.u-open) { display: none; }
 .ui .leaflet-tooltip { background: var(--surface); color: var(--ink); border-color: var(--line); }
