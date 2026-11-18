@@ -1,12 +1,17 @@
 /* Design tokens of the interface (C) and the kit's demos. Scoped to the root class .ui, never
    :root, so the pages outside it keep their look.
    The theme follows the system unless the .ui element has data-theme="light" or "dark".
-   fonts.css: Barlow Condensed of --display, for every bundle that starts from here (app, run maps, coverage). */
+   fonts.css: Barlow Condensed of --display, for every bundle that starts from here (app, run maps, coverage).
+   The accent family (--accent, --accent-ink, --accent-soft, --on-accent; --focus and --focus-in are rings of
+   --accent) is the pilot's of 2026-11-18 for the whole app ("for now": docs/DESIGN.md, "The pilot's look"); the
+   result view's own neutrals are the block .ui .v-result at the end of this file. */
 @import "./fonts.css";
 .ui {
   --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #626e68; --line: #d2dad4;
-  --accent: #2350c8; --accent-soft: #e1e8fa; --on-accent: #ffffff;
+  --accent: #14676f; --accent-ink: #0f5a61; --accent-soft: #dfeeee; --on-accent: #ffffff;
   --ok: #1d7a47; --ok-soft: #e0f1e6; --warn: #995500; --warn-soft: #fbefd9; --bad: #b3261e; --bad-soft: #fbe4e1;
+  /* a tight line's clearance tile (the result view): its fill, its 1 px edge, its word and the tight mark */
+  --tight-bg: #f6e2a0; --tight-edge: #a87f0e; --tight-ink: #6b4c00;
   --map-bg: #ecebdf; --water: #93c3e3; --rock: #8a7b63;
   --clear: #e10fd6; --trees: #ef8300; --fav: #f0c400; --halo: #ffffff;
   --terrain: #bba680; --tree-fill: #80ae6b; --limit: #d62728;
@@ -17,11 +22,17 @@
   --acc-easy: #1a994f; --acc-tell: #ed8c0d; --acc-hard: #2f3a45; --acc-easy-sign: #ffffff; --acc-tell-sign: #2b1a00; --acc-hard-sign: #ffffff;
   --acc-map-easy: #1a994f; --acc-map-tell: #ed8c0d; --acc-map-hard: #2f3a45; --acc-map-tell-sign: #2b1a00; --acc-map-edge: #4d4538;
   --shadow: 0 1px 2px rgb(20 30 25 / .08), 0 8px 24px rgb(20 30 25 / .10);
-  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  /* the keyboard's focus: a 2 px ring of the accent 2 px off the control; inside a row of a list, whose list clips */
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  --focus-in: inset 0 0 0 2px var(--accent);
   --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
   --touch: 36px;  /* the height of buttons and inputs; 44px on coarse pointers */
+  /* The scales of docs/DESIGN.md R5 and R6 (the result view takes its sizes from here; a step moves in one line):
+     the type scale's seven steps (--fs-1 is R1's smallest text), the radii's four steps, pills and round */
+  --fs-1: 12px; --fs-2: 13px; --fs-3: 14px; --fs-4: 16px; --fs-5: 20px; --fs-6: 24px; --fs-7: 30px;
+  --r-1: 3px; --r-2: 8px; --r-3: 14px; --r-4: 20px; --r-full: 999px; --r-round: 50%;
   color-scheme: light;
 }
 @media (pointer: coarse) { .ui { --touch: 44px; } }
@@ -29,8 +40,9 @@
 @media (prefers-color-scheme: dark) {
   .ui:not([data-theme="light"]) {
     --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
-    --accent: #86a4ff; --accent-soft: #1f2a48; --on-accent: #0a1020;
+    --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
     --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
+    --tight-bg: #3b3220; --tight-edge: #9a8152; --tight-ink: #e8cfa6;
     --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
     --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
     --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
@@ -42,8 +54,9 @@
 }
 .ui[data-theme="dark"] {
   --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
-  --accent: #86a4ff; --accent-soft: #1f2a48; --on-accent: #0a1020;
+  --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
   --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
+  --tight-bg: #3b3220; --tight-edge: #9a8152; --tight-ink: #e8cfa6;
   --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
   --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
   --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
@@ -51,4 +64,28 @@
   --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
   --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
   color-scheme: dark;
+}
+
+/* The result view's own neutrals (the pilot's mock-up, 2026-11-18, "for now"; result/view/SpotColumns.tsx's root
+   .v-result): --bg the ground (its side panels and header), --surface what is raised (the boxes over the map, the
+   phone's sheet), --surface-2 what is set in (tiles, fields), --hover a row under the mouse, --rule the thin rules
+   between parts, --line a control's edge; --value the colour of a line's values (rows, tiles, facts: the ink, or
+   var(--accent) to show them in the accent). The accent family stays the app's (above). */
+.ui .v-result {
+  --bg: #f2f5f5; --surface: #ffffff; --surface-2: #e5ebeb; --hover: #e8eeee;
+  --ink: #16262a; --ink-2: #3c4e52; --muted: #56686c; --rule: #d3dcdc; --line: #b3c1c2;
+  --value: var(--ink);
+  --shadow: 0 1px 2px rgb(16 32 34 / .10), 0 4px 16px rgb(16 32 34 / .12);
+}
+@media (prefers-color-scheme: dark) {
+  .ui:not([data-theme="light"]) .v-result {
+    --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --hover: #1e2829;
+    --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --rule: #2a3738; --line: #4a5c5d;
+    --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
+  }
+}
+.ui[data-theme="dark"] .v-result {
+  --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --hover: #1e2829;
+  --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --rule: #2a3738; --line: #4a5c5d;
+  --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
 }

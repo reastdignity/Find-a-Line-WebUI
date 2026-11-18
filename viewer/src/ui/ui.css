@@ -60,14 +60,14 @@
 .ui .u-ib:hover { background: var(--surface-2); }
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .u-ib.u-round { border-radius: 50%; }
-.ui .u-ib.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.ui .u-ib.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 
 /* Chips */
 .ui .u-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ui .u-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--surface); font-size: 13px; color: var(--ink-2); white-space: nowrap; cursor: pointer; }
 .ui .u-chip .u-ic { width: 15px; height: 15px; }
-.ui .u-chip.u-on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+.ui .u-chip.u-on { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); font-weight: 500; }
 .ui .u-chip.u-add { border-style: dashed; }
 .ui .u-chip-x { display: inline-flex; border: 0; background: none; padding: 0; margin-right: -4px; color: inherit; cursor: pointer; border-radius: 50%; }
 .ui .u-chip-x .u-ic { width: 14px; height: 14px; }
@@ -145,7 +145,7 @@
   border-radius: 999px; text-transform: uppercase; white-space: nowrap; }
 .ui .u-st .u-ic { width: 13px; height: 13px; }
 .ui .u-st.u-done { background: var(--ok-soft); color: var(--ok); }
-.ui .u-st.u-running { background: var(--accent-soft); color: var(--accent); }
+.ui .u-st.u-running { background: var(--accent-soft); color: var(--accent-ink); }
 .ui .u-st.u-waiting, .ui .u-st.u-cancelled { background: var(--surface-2); color: var(--ink-2); }
 .ui .u-st.u-failed { background: var(--bad-soft); color: var(--bad); }
 .ui .u-st.u-shared { background: var(--warn-soft); color: var(--warn); }
