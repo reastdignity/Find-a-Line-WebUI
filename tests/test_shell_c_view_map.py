@@ -721,16 +721,17 @@ def _over_holds(page, selector: str, state: str) -> dict:
     return r
 
 
-def _apart(page, state: str) -> dict:
-    """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet."""
+def _apart(page, state: str, known: tuple = ()) -> dict:
+    """No control of the map covers another (their boxes, by name: T.boxes), and each stands above a phone's sheet.
+    `known`: pairs (names in order) excepted by the caller, each with its reason there."""
     boxes, sheet = page.evaluate("() => [T.boxes(), document.querySelector('.u-sheet')?.getBoundingClientRect().top ?? 1e9]")
     names, wrong = sorted(boxes), []
     for k, a in enumerate(names):
         if boxes[a][3] > sheet + 0.5:
             wrong.append((a, boxes[a], "under the sheet", sheet))
         for b in names[k + 1:]:
-            if (a, b) == ("back", "status"):  # "Back to Auto" is a part of the status line's sentence: its target (44 px
-                continue                      # on a touch screen) reaches past the box, and no other control may lie there
+            if (a, b) == ("back", "status") or (a, b) in known:  # "Back to Auto" is a part of the status line's sentence:
+                continue  # its target (44 px on a touch screen) reaches past the box, and no other control may lie there
             p, q = boxes[a], boxes[b]
             if min(p[2], q[2]) - max(p[0], q[0]) > 0.5 and min(p[3], q[3]) - max(p[1], q[1]) > 0.5:
                 wrong.append((a, p, b, q))
@@ -899,10 +900,13 @@ def test_phone_controls_apart(site):
 
 
 def test_phone_on_its_side(site):
-    """A phone on its side (667 x 375, the phone's layout): the map has no room for a line of the legend even with
-    the sheet low. The legend is folded by itself; a press on "Legend" opens it as a panel above the map's other
-    controls, within the map's height, and says so (aria-expanded); the same button, Esc (which ends nothing else)
-    and a press on the map close it; at half the press lowers the sheet and opens the panel."""
+    """A phone on its side (667 x 375, the phone's layout), with the shore's chip (the test's stand-in): the zoom and
+    the layers stand in the level switch's row, right of Best (the user's Q2 a of 2026-11-18), the chip after the zoom
+    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (at half with
+    a level held, the status line's longer sentence under the chip: docs/known-bugs.md). The map has no room for a
+    line of the legend even with the sheet low: the legend is folded by itself; a press on "Legend" opens it as a panel
+    above the map's other controls, within the map's height, and says so (aria-expanded); the same button, Esc (which
+    ends nothing else) and a press on the map close it; at half the press lowers the sheet and opens the panel."""
     from playwright.sync_api import sync_playwright
     legend = "() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), !!document.querySelector('.v-legend'), !!document.querySelector('.v-over > .v-legend')]"
     is_ = "() => JSON.stringify((%s)()) === '%s'"
@@ -913,13 +917,15 @@ def test_phone_on_its_side(site):
         try:
             page = _open(browser, f"{site}#run={BIG}", SIDE_PHONE)
             page.wait_for_function(low, timeout=WAIT)
+            page.evaluate(CHIP)  # the shore's chip: this run has no uncertain shore
             first = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
             assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
             page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
-            # no control covers another here either: the status line beside the row of buttons (MapBar's `inline`)
             page.evaluate("() => T.frames()")
             side = _apart(page, "on its side, low")
-            assert side["status"][1] >= side["zoom"][3] and abs(side["status"][3] - side["fold"][3]) <= 1, side
+            # the zoom and the layers up in the switch's row, the zoom right of Best; the chip after the zoom or below it
+            assert side["zoom"][0] >= side["best"][2] and side["zoom"][3] <= side["levels"][3] + 0.5, side
+            assert side["layers"][3] <= side["levels"][3] + 0.5 and side["chip"][0] >= side["zoom"][0], side
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
             page.evaluate("() => T.frames()")
@@ -945,11 +951,21 @@ def test_phone_on_its_side(site):
             assert at, "no point of the map is free of the controls"
             _tap(page, at["x"], at["y"])
             page.wait_for_function(closed, timeout=WAIT)
-            # at half the press lowers the sheet and opens the panel there
-            _state(page, "view.select(null);")
+            # at half: no control covers another under Auto; with a level held one pair is known (docs/known-bugs.md:
+            # the status line's longer sentence, "... Held by you. Back to Auto", reaches under the shore's chip, which
+            # fits in neither row of a map 135 px high)
+            _state(page, "view.select(null); view.setLevel('auto');")
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
             page.wait_for_function("() => T.free()[3] < T.box().height * 0.6", timeout=WAIT)
+            page.wait_for_function(closed, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            _apart(page, "on its side, half, Auto")
+            _state(page, "view.setLevel('area');")
+            page.evaluate("() => T.frames()")
+            _apart(page, "on its side, half, Area held", known=(("back", "chip"), ("chip", "status")))
+            # and the press on "Legend" there lowers the sheet and opens the panel
+            _state(page, "view.setLevel('spots');")
             page.wait_for_function(closed, timeout=WAIT)
             _tap_on(page, ".v-fold")
             page.wait_for_function(low, timeout=WAIT)
@@ -983,6 +999,78 @@ def test_tablet_controls_apart(site):
                                   ".map((s) => parseFloat(getComputedStyle(document.querySelector(s)).fontSize))")
             assert min(sizes) >= 10, sizes
             assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_pick_row_kept_in_the_legend(site):
+    """At Area on the small phone (390 x 664, the sheet low) with P1's line just above the bar's foot: the legend keeps
+    its "P1 pick" row whether the diamond found room or not, and the foot's top does not move between the canvas's
+    passes (the user's decision of 2026-11-18: before, the row came and went with the diamond, the foot's height with
+    it, and the canvas, placing its numbers again at most twice, stopped with the diamond left out though there was
+    room)."""
+    from playwright.sync_api import sync_playwright
+    put = """([gap]) => { const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, c = view.model.data.columns, row = view.picks()[0].row;
+      const box = m.getContainer().getBoundingClientRect(), foot = document.querySelector('.v-foot').getBoundingClientRect();
+      const p = m.latLngToContainerPoint([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2]);
+      m.panBy([0, Math.round(p.y - (foot.top - box.top - gap))], {animate: false}); }"""
+    seen = "() => [Math.round(document.querySelector('.v-foot').getBoundingClientRect().top), !!document.querySelector('.v-legend')?.textContent.includes('P1'), window.FINDALINE_VIEW.map.legend().shapes.P === true]"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
+            _state(page, "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10}); "
+                         "view.setTopOnly(true); view.setBest(10); view.setLevel('area');")
+            for gap in (4, 12, 20, 28):  # the line's middle this many px above the foot's top: the band where it toggled
+                page.evaluate(put, [gap])
+                passes = []
+                for _ in range(4):
+                    page.evaluate("() => T.frames()")
+                    passes.append(page.evaluate(seen))
+                assert all(s == passes[0] for s in passes) and passes[0][1:] == [True, True], (gap, passes)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+LANDSCAPES = ((844, 390), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns' layout
+
+
+def test_landscape_phone_columns_fold_the_legend(site):
+    """A phone held sideways that is 768 px wide or more (844 x 390, 915 x 412, 932 x 430: the columns with a finger's
+    44 px controls), at Auto and at Area: the unfolded legend would reach the map's top controls, so it is folded
+    behind "Legend" (the phone's logic, the user's decision of 2026-11-18); a finger's tap at each level button's middle
+    presses that button (the status line covered them before); "Legend" opens the legend. No control covers another
+    but two pairs, asked about and not yet answered: the status line and the desktop's hint against the zoom's column
+    of 88 px (as on main, where the status line covered the zoom too)."""
+    from playwright.sync_api import sync_playwright
+    hit = """([k]) => { const b = document.querySelector(`.v-levels button[data-level="${k}"]`), r = b.getBoundingClientRect(),
+      x = r.left + r.width / 2, y = r.top + r.height / 2, e = document.elementFromPoint(x, y); return {x, y, hit: !!e && b.contains(e)}; }"""
+    pressed = "([k]) => document.querySelector(`.v-levels button[data-level=\"${k}\"]`).getAttribute('aria-pressed') === 'true'"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for w, h in LANDSCAPES:
+                for level in ("auto", "area"):
+                    state = f"{w} x {h}, {level}"
+                    page = _open(browser, f"{site}#run={BIG}", {**PHONE, "viewport": {"width": w, "height": h}})
+                    _state(page, "map.fitArea({top: 70, right: 10, bottom: 80, left: 10}); "
+                                 f"view.setTopOnly(true); view.setBest(10); view.setLevel('{level}');")
+                    page.evaluate("() => T.frames()")
+                    fold = page.evaluate("() => [!!document.querySelector('.c-result-phone'), !!document.querySelector('.v-legend'), "
+                                         "document.querySelector('.v-fold')?.getAttribute('aria-expanded') ?? null]")
+                    assert fold == [False, False, "false"], (state, fold)  # the columns, the legend folded behind its button
+                    _apart(page, state, known=(("status", "zoom"), ("hint", "zoom")))
+                    for k in ("auto", "area", "spots", "lines"):
+                        at = page.evaluate(hit, [k])
+                        assert at["hit"], (state, k, at)
+                        _tap(page, at["x"], at["y"])
+                        page.wait_for_function(pressed, arg=[k], timeout=WAIT)
+                    _tap_on(page, ".v-fold")
+                    page.wait_for_function("() => !!document.querySelector('.v-legend') && "
+                                           "document.querySelector('.v-fold').getAttribute('aria-expanded') === 'true'", timeout=WAIT)
+                    assert page.errors == [], state
+                    page.close()
         finally:
             browser.close()
 

@@ -150,6 +150,11 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
   // (`asPanel`; it scrolls inside the map's height): closed by the same button, by Esc and by a press on the map.
   const [choice, setChoice] = useState<{at: Snap | undefined; folded: boolean; check?: boolean} | null>(null);
   const [room, setRoom] = useState(Infinity);  // px the legend may take between the top controls and the status line
+  // The columns (a desktop, a tablet): where their unfolded legend would reach the map's top controls (a phone held
+  // sideways that is 768 px wide or more, a short window), the foot takes the phone's arrangement and its logic: the
+  // legend behind "Legend", the key's "i" beside it (the user's decision of 2026-11-18). `roomWide`: the legend's room
+  // in the columns' own arrangement (without the row of buttons); a window where it fits keeps the columns' foot.
+  const [roomWide, setRoomWide] = useState(Infinity);
   const foot = useRef<HTMLDivElement>(null), natural = useRef(56);  // the unfolded legend's own height, as last drawn
   const asked = choice && choice.at === sheet ? choice.folded : null, high = sheet === "half" || sheet === "full";
   // the sheet changed its stop: the person's choice was for the one before (one made for this stop stays)
@@ -164,8 +169,9 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     else if (folded && above) setChoice({at: sheet, folded: false, check: true});  // drawn, measured, then kept or lowered
     else setChoice({at: sheet, folded: !folded});
   };
-  const asPanel = !wide && asked === false && room < LEGEND_LINE && !high;
-  const folded = !wide && (asked === null ? high || room < natural.current : asked || (room < LEGEND_LINE && !asPanel));
+  const compact = !wide || roomWide < natural.current;  // the phone's foot: the legend behind its fold
+  const asPanel = compact && asked === false && room < LEGEND_LINE && !high;
+  const folded = compact && (asked === null ? high || room < natural.current : asked || (room < LEGEND_LINE && !asPanel));
   useEffect(() => {
     const column = foot.current?.parentElement;
     if (!asPanel || !column) return;
@@ -196,15 +202,19 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
   // was measured in; any other state is measured again in the column first). Today's page had the same kind of
   // fallback (the foot beside the scale).
   const [inline, setInline] = useState<{key: string; right: number} | null>(null);
-  const key = `${sheet}|${status.text}|${message ?? ""}|${view.auto}|${asked}|${frame}`;
-  const row = !wide && inline !== null && inline.key === key ? inline : null;
+  const key = `${sheet}|${status.text}|${message ?? ""}|${view.auto}|${asked}|${compact}|${frame}`;
+  const row = compact && inline !== null && inline.key === key ? inline : null;
   useLayoutEffect(() => {
     const el = foot.current, column = el?.parentElement;
-    if (wide || !el || !column) return;
+    if (!el || !column) return;
     const visible = (r: DOMRect) => r.width > 0 && r.height > 0;
     const rects = (of: Element, selector: string) => Array.from(of.querySelectorAll(selector), (e) => e.getBoundingClientRect()).filter(visible);
     const drawn = el.querySelector<HTMLElement>(".v-legend"), box = el.getBoundingClientRect(), col = column.getBoundingClientRect();
     if (drawn) natural.current = drawn.scrollHeight + 2;
+    if (!wide) {  // where the switch and Best end: a phone on its side puts its zoom and layers beside them (mapbar.css)
+      const ends = rects(column, ".v-switch > *").map((r) => r.right), right = ends.length ? `${Math.round(Math.max(...ends) - col.left)}px` : "";
+      if (column.style.getPropertyValue("--v-switch-right") !== right) column.style.setProperty("--v-switch-right", right);
+    }
     const tops = rects(column, ".leaflet-top .leaflet-control, .v-switch > *");
     const floor = Math.max(col.top, ...tops.map((r) => r.bottom));
     const measured = [Math.round(floor - col.top), Math.round(col.width), Math.round(col.height), column.style.getPropertyValue("--v-covered"),
@@ -214,6 +224,11 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     const others = box.height - (drawn ? drawn.offsetHeight + GAP : 0);
     const next = Math.floor(box.bottom - others - GAP - floor - 4);
     if (next !== room) setRoom(next);
+    if (wide) {  // the room the legend would have in the columns' own arrangement: above the foot's bottom, its status row
+      const line = el.querySelector(".v-row:not(.v-buttons)")?.getBoundingClientRect();
+      const plain = Math.floor(box.bottom - (line ? line.height : 0) - GAP - floor - 4);
+      if (plain !== roomWide) setRoomWide(plain);
+    }
     // a press on "Legend" above the low stop: the legend just drawn unfolded stays where it fits whole, else the sheet
     // goes to its low stop and the legend unfolds there (this runs before the frame is painted)
     if (choice?.check && choice.at === sheet && drawn) {
@@ -225,7 +240,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
       const at = {bottom: Math.round(col.bottom - status.top) + GAP, max: Math.max(60, Math.floor(status.top - GAP - ceiling))};
       if (!over || over.bottom !== at.bottom || over.max !== at.max) setOver(at);
     }
-    if (row) return;
+    if (row || !compact) return;
     const mine = rects(el, ".v-status, .v-legend, .v-buttons > :not(.v-hint-slot), .v-hint-slot > *");
     if (!mine.some((b) => tops.some((c) => b.left < c.right + 4 && b.right > c.left - 4 && b.top < c.bottom + 4 && b.bottom > c.top - 4))) return;
     // left of what stands in the map's bottom right corner above the credits (the scale)
@@ -234,11 +249,12 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
   });
   const help = useAccessHelp(undefined, true);
   const legend = map?.legend(), access = view.model.hasAccess;
-  const shown = legend && map && (wide || !folded);
+  const shown = legend && map && !folded;  // (the columns' legend folds only in the phone's arrangement: `compact`)
   const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
-                                  style={!wide && !asPanel && room < natural.current ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`} : undefined}>
+                                  style={compact && !asPanel && room < natural.current
+                                    ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`, ...(wide ? {overflowY: "auto"} : {})} : undefined}>
     <LegendItems view={view} map={map} legend={legend} short={!wide} />
-    {wide && access && help.button}
+    {!compact && access && help.button}
     {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}
   </div>;
   const helpBox = access && help.panel && <div class="v-help" data-map-control>{help.panel}</div>;
@@ -269,19 +285,19 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     </div>
     <div class={cx("v-foot", !wide && "v-foot-phone", sheet === "full" && "v-foot-off", row && "v-foot-inline")} ref={foot}
          style={row ? {right: `${row.right}px`} : undefined}>
-      {wide && helpBox}
+      {!compact && helpBox}
       {wide ? <div class="v-row">{statusBox}{hint}</div> : statusBox}
-      {!wide && !asPanel && legendBox}
-      {!wide && <div class="v-row v-buttons">
+      {compact && !asPanel && legendBox}
+      {compact && <div class="v-row v-buttons">
         <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
                 title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
                 onClick={pressLegend}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>
         {access && <span class="v-help-button" data-map-control>{help.button}</span>}
-        {hint}
+        {!wide && hint}
       </div>}
-      {wide && legendBox}
+      {!compact && legendBox}
     </div>
-    {!wide && over && sheet !== "full" && (helpBox || (asPanel && legendBox)) &&
+    {compact && over && sheet !== "full" && (helpBox || (asPanel && legendBox)) &&
       <div class="v-over" style={{bottom: `${over.bottom}px`, maxHeight: `${over.max}px`}}>
         {helpBox}
         {asPanel && legendBox}

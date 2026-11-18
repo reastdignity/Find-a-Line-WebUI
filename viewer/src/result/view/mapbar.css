@@ -81,7 +81,7 @@
    status line beside it as wide as its words need, lines from the bottom; the foot ends left of the scale */
 .ui .v-foot.v-foot-inline { flex-direction: row; flex-wrap: wrap-reverse; align-items: flex-start; }  /* the lines' bottoms (wrap-reverse) */
 .ui .v-foot-inline > .v-buttons { order: -1; flex-wrap: nowrap; }
-.ui .v-foot-inline > .v-status { flex: 0 1 auto; min-width: 0; }
+.ui .v-foot-inline > .v-status, .ui .v-foot-inline > .v-row:not(.v-buttons) { flex: 0 1 auto; min-width: 0; }  /* the columns' status row */
 .ui .v-lg-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
 /* "Legend" (a phone), in the row of buttons at the foot's bottom */
 .ui .v-fold { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; color: var(--ink);
@@ -141,6 +141,14 @@
 .ui .v-result.c-result-phone .v-map .leaflet-control-zoom { display: flex; }
 .ui .v-result.c-result-phone .v-map .leaflet-control-zoom a { border-bottom: 0; }
 .ui .v-result.c-result-phone .v-map .leaflet-control-zoom a + a { border-left: 1px solid var(--rule); }
+/* a phone held sideways (a short phone layout: the user's Q2 a of 2026-11-18): the zoom and the layers go up into the
+   switch's row, the zoom right of Best (MapBar's --v-switch-right: where the switch and Best end), the shore's chip
+   after the zoom or on the next row; room for the foot under them at both stops (one pair left: docs/known-bugs.md) */
+@media (max-height: 480px) and (orientation: landscape) {
+  .ui .c-result-phone .v-map .leaflet-top { top: 52px; }
+  .ui .c-result-phone .v-map .leaflet-top.leaflet-left { left: var(--v-switch-right, 331px);
+    max-width: calc(100% - var(--v-switch-right, 331px) - 60px); flex-wrap: wrap; }
+}
 /* the phone's sheet: its handle 44 px, its head the hint's line and the head's row (44 px each: the low stop, 132 px) */
 .ui .v-result .u-sheet { border-radius: var(--r-4) var(--r-4) 0 0; }
 .ui .v-result .u-sheet-handle { min-height: 44px; border-radius: var(--r-4) var(--r-4) 0 0; }
