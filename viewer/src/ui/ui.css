@@ -44,7 +44,7 @@
 
 /* Buttons */
 .ui .u-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: var(--touch); padding: 0 14px;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 500;
+  border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 500;
   white-space: nowrap; cursor: pointer; text-decoration: none; }
 .ui .u-btn:hover { background: var(--surface-2); }
 .ui .u-btn.u-pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -56,7 +56,7 @@
 .ui .u-btn.u-full { width: 100%; }
 .ui .u-btn:disabled, .ui .u-ib:disabled { opacity: .5; cursor: default; filter: none; }
 .ui .u-ib { width: var(--touch); height: var(--touch); display: inline-flex; align-items: center; justify-content: center; flex: none;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
+  border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); padding: 0; cursor: pointer; }
 .ui .u-ib:hover { background: var(--surface-2); }
 .ui .u-ib.u-plain { border-color: transparent; background: transparent; }
 .ui .u-ib.u-round { border-radius: 50%; }

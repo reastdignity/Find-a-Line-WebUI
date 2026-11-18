@@ -75,8 +75,10 @@ export const HOLD_MS = 600, HOLD_PX = 15, MENU_QUIET = 1000;
 const FLASH_TAP = 1800, FLASH_SECTOR = 2400;
 const PAD = 2;  // px a number's shape keeps clear of a control
 const INK = "#1b2530", PAPER = "#ffffff";  // the numbers' shapes: the map's tiles stay light in the dark theme
-/** The numbers' text: 12 px, R1's smallest (the pilot of 2026-11-18; the shapes' sizes, markSize, as before). */
-const MARK_FONT = "600 12px system-ui, sans-serif";
+/** The canvas's text, px: R1's smallest, the value of --fs-1 (the pilot of 2026-11-18; the canvas reads no CSS token:
+ *  a change of that step changes this constant too). The numbers' shapes keep their sizes (markSize, as before). */
+const TEXT_PX = 12;
+const MARK_FONT = `600 ${TEXT_PX}px system-ui, sans-serif`;
 const D = Math.PI / 180;
 
 /** The half width and height of a number's shape. */
@@ -480,7 +482,7 @@ export class SpotMap {
         ctx.globalAlpha = 0.9; ctx.lineWidth = 0.8; ctx.strokeStyle = colours[cls]; ctx.stroke();
         if (label) {
           const text = String(Math.round(grid.values[k])), cx = (a[0] + c[0]) / 2, cy = (a[1] + c[1]) / 2;
-          ctx.font = `600 ${px >= 44 ? 13 : 12}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.font = `600 ${px >= 44 ? TEXT_PX + 1 : TEXT_PX}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, cx, cy);
           ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, cx, cy);
         }

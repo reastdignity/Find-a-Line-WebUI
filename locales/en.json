@@ -691,7 +691,7 @@
   "ui.view.map.title_lines_other": "{{n}} lines",
   "ui.view.map.panel_list": "Lines",
   "ui.view.map.panel_details": "The selected line",
-  "ui.view.map.rail_list": "Lines · {{n}}",
+  "ui.view.map.rail_list": "Lines: {{n}}",
   "ui.view.map.rail_details": "Line details",
   "ui.view.map.rail_spot": "Spot {{label}}",
   "ui.view.map.sheet": "Results",
