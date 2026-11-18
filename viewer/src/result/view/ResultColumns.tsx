@@ -326,7 +326,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
       <Title data={data} />
       <span class="u-grow" />
       {actions?.(false)}
-      <RunActions model={model} view={view} onMeasured={setMeasured} show={show} base={base} folder={folder} />
+      <RunActions model={model} view={view} onMeasured={setMeasured} show={show} base={base} />
     </header>
     <div class="c-cols" ref={colsRef}>
       <ResultPanel side="list" class="c-col-list" label="Lines" column={fit.list} max={maxColumnWidth("list", width, fit)}
@@ -395,7 +395,7 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
       </div>
-      <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} folder={folder} />
+      <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} />
     </div>
     <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132} top={64}
            header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
