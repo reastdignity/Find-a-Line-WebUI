@@ -6,11 +6,20 @@
 // loaded data.js by a tag before it. The lines of other runs come from their store or lines.js (Compare). The
 // load's failures are shown in their own words (too large, a newer store, a store or data.js not loaded). The
 // selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
+//
+// The disk notice (store wave 4: docs/line-volume/spec-store.md 1.2): a map.html written since then carries it
+// (mapping.MAP_HTML, the element NOTICE after this bundle's script). Over http(s) the page is marked served by the
+// bundle's first module (./served, before any other import runs), before the notice is parsed, and notice.css hides
+// it under that mark (viewer.css is loaded in the head), so no frame shows it; it is removed once the page is parsed.
+// From disk (file://) the bundle waits for the parse: a page with the notice loads nothing and leaves it shown, in
+// the stored theme; a page without it (written before) loads its data.js as before.
 
+import { served } from "./served";  // first: marks a served page before any other module runs
 import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
+import "./notice.css";
 import { t } from "../i18n";
 import { columnsOf, loadRunFrom, NewerStore, StoreFailed, TooLarge, type LoadProgress } from "../result/load";
 import type { ResultModel } from "../result/model";
@@ -76,4 +85,24 @@ function LoadedMap() {
   return <Screen theme={storedTheme()}><RunLoading progress={progress} error={error} /></Screen>;
 }
 
-render(<LoadedMap />, document.getElementById("map")!);
+/** mapping.DISK_NOTICE: the id of the disk notice in a run's map.html. */
+export const NOTICE = "disk-notice";
+
+/** The map over http(s); from disk once the page is parsed: the notice when the page has one, else the map. */
+function start() {
+  const notice = document.getElementById(NOTICE);
+  if (served) {
+    notice?.remove();
+    return;
+  }
+  if (notice) {
+    const theme = storedTheme();
+    if (theme !== "auto") notice.dataset.theme = theme;
+    return;
+  }
+  render(<LoadedMap />, document.getElementById("map")!);
+}
+
+if (served) render(<LoadedMap />, document.getElementById("map")!);
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, {once: true});
+else start();

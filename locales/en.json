@@ -599,6 +599,7 @@
   "ui.result.too_large": "This result is too large for this browser.",
   "ui.result.newer_store": "This result was made by a newer Find-a-Line. Update Find-a-Line to open it.",
   "ui.result.store_failed": "The run's data (lines.arrow, profiles.arrow) could not be loaded.",
+  "ui.map.disk_notice": "This map opens through Find-a-Line. Run:",
   "ui.result.export_preparing": "Preparing the file…",
   "ui.result.export_preparing_label": "Download: preparing the file",
   "ui.result.export_no_worker": "The file cannot be made now: the search service does not run. Try again later.",

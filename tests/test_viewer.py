@@ -1497,7 +1497,10 @@ def test_store_gives_the_rows_values(tmp_path, store_cases):
     null, hmean, highPct, angles NaN), the same keys.lineCoords (favourites, links), the columns as views of the
     downloaded bytes; the page's model on it gives data.js's spots, lines and counts under every filter and
     grouping, and its ranges: for the hard floats, the A-frames' columns, the square rule's count, a run without a
-    surface model, values no int32 holds (float64, int64, uint64 columns), no lines, and the clip's run."""
+    surface model, values no int32 holds (float64, int64, uint64 columns), no lines, and the clip's run. Its data.js
+    is made from the store (tests/old_runs.py), so the store's fidelity to the search is held by test_linestore's
+    test_store_round_trip_of_the_clip (the in-memory clip reference), test_store_round_trip and
+    test_units.py::test_saved_text_as_before."""
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
                           encoding="utf-8")

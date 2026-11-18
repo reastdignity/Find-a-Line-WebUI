@@ -220,14 +220,11 @@ def copy_clip(clip, data_dir, run_id: str, name: str):
 
 @pytest.fixture
 def data(tmp_path, big_clip):
-    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL). SMALL
-    also has its lines.js as runs saved before store wave 4 do (tests/old_runs.py): Home's mini map reads it
-    (Thumb.tsx) until store wave 4's item 3 reads the store."""
-    import old_runs
+    """A data folder with the clip's run (BIG, more lines than a mini map draws) and its small copy (SMALL), both
+    saved since store wave 4 (their store, no text files): Home's mini map draws SMALL from its lines.arrow."""
     folder = tmp_path / "data"
     copy_clip(big_clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
-    old_runs.write_scripts(folder / "runs" / SMALL, ("lines.js",))
     return folder
 
 
@@ -246,7 +243,11 @@ run({
     const small = card("run", SMALL).querySelector(".c-thumb"), big = card("run", BIG).querySelector(".c-thumb");
     result.smallThumb = [small.dataset.thumb, Number(small.dataset.lines), small.querySelectorAll("path.c-thumb-line").length];
     result.bigThumb = [big.dataset.thumb, Number(big.dataset.lines), text(`.c-card[data-run="${BIG}"] .c-thumb-label`)];
-    result.bigLinesLoaded = !!(window.FINDALINE_LINES || {})[BIG];
+    // the files of each run the page asked for (resource timing, 404s too): BIG's lines never, SMALL's store's lines
+    const asked = (id) => performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname)
+      .filter((p) => p.startsWith("/runs/" + encodeURIComponent(id) + "/")).map((p) => p.split("/").pop());
+    result.bigLinesLoaded = asked(BIG).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
+    result.smallLinesLoaded = asked(SMALL).filter((f) => /\\.arrow$|^(data|lines)\\.js$/.test(f));
     next();
   }); },
   newSearch(next) {
@@ -397,7 +398,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert set(r["cards"]) == {SMALL, BIG} and r["noWorker"] and r["example"] in (SMALL, BIG), r
     assert r["smallThumb"] == ["lines", SMALL_LINES, r["smallThumb"][2]] and r["smallThumb"][2] >= 1, r
     assert r["bigThumb"][:2] == ["outline", 0] and int(r["bigThumb"][2].split()[0].replace(",", "")) > 3000, r
-    assert not r["bigLinesLoaded"], r
+    assert r["bigLinesLoaded"] == [] and r["smallLinesLoaded"] == ["lines.arrow"], r
     assert r["newPage"] == ["#new", "The best lines here", True], r
     assert r["ready"][0] == "ready" and r["ready"][1] is False and r["ready"][2] >= 1, r
     assert r["started"][0] and r["started"][1] == "waiting", r
@@ -710,7 +711,9 @@ def test_shell_c_store_or_data_js(data, tmp_path):
     """Which file a run is read from over http (result/load.ts storeOf): a run with a store (run.json's block
     "store" in runs.js) from lines.arrow and profiles.arrow, its data.js never asked for, in the app and in its own
     map.html; a run without one from data.js, no store file asked for; both show the same lines, spots and first
-    line, and the store's head (the credits); no CSP violations."""
+    line, and the store's head (the credits); no CSP violations. OLD's data.js is made from the store
+    (tests/old_runs.py); the store's fidelity to the search is held by test_linestore's
+    test_store_round_trip_of_the_clip, test_store_round_trip and test_units.py::test_saved_text_as_before."""
     small_copy(data, BIG, small=OLD)
     drop_store(data, OLD)
     add_credits(data, SMALL)
