@@ -178,6 +178,16 @@ waited for is built, so it can be built now; only its removal of old runs needs 
 the `--dry-run` list), 2d, 2e, 2g, 3c (today's features joined, with the design review's list in `docs/roadmap.md`),
 3d.
 
+**State on 2026-11-18.** Rounds 3 and 4 are pushed and on the server (2026-11-17: `main` e88d69f3 deployed by the
+user, the worker's memory 19g). Done (round 5): 2c's wave 4, first deploy (`main` 1b1f2f15, a0c511ac, a86b86e8;
+pushed and deployed 2026-11-18): new runs keep no text files, `findaline.py view`, `runs remove-old`, the disk
+notice, Home's mini maps and the tools from the store (`spec-store.md` 1.9 "Built (round 5)"); then the old runs
+removed on the PC and on the server, each on the user's word after its dry run (`spec-store.md` 2 "As run"). The full
+pytest on the stack: 3 231 passed; the regression set: 91 entries unchanged (R17 waited on Overpass and R70 on
+basisdata.nl, neither on a run's files). Open: 2c's wave 4, second deploy (the end of the page's reader of `data.js`,
+built on its branch, into `main` now that both hosts are cleared), 2d, 2e, 2g, 3c (after the UX session's design
+pilot, the user's "a"), 3d.
+
 ## 6. The user's choices
 Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
 decided by a measurement first; **planner** = taken as recommended by the planner unless the user objects.
@@ -236,7 +246,7 @@ the sectors are computed in Python at saving.
 | Id | The question | Options | Recommendation | Blocks | Class |
 |---|---|---|---|---|---|
 | store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up |
-| store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before |
+| store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before; **decided 2026-11-18**: "remove on PC", "remove on server" (6.7) |
 
 ### 6.4 Decided on 2026-11-15 (rounds 2 and 3)
 The user's answers, verbatim: round 2, on the counts of every goal and the estimator: "1. a) 2. 2% 3. a) 4. ok start
@@ -303,6 +313,20 @@ says which question it answers.
 | – | On the view's controls under 44 px on a phone (docs/DESIGN.md R2): the view goes into `main` as it is, and they are brought to the rule in step 3c ("2. a") | `docs/roadmap.md`; `docs/known-bugs.md` |
 | – | On how the view goes into `main`: B2 and B3 together, as two squash commits, after B3's reviews ("3. a") | section 5 |
 | – | After trying the view in a test app: into `main` behind the flag ("ok, looks good. Stop app and merge") | section 5; `spec-view.md` B.10 |
+
+### 6.7 Decided in round 5 (2026-11-17 and 2026-11-18)
+The user's words, verbatim, each on the question named.
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| – | Round 5's scope: store wave 4 only, step 3c after the UX session's pilot ("2c wave 4 then wait till ux sessions ends it work"); the dry run on the PC on the real runs folder ("On runs/ itself (Recommended)"); no loose ends ("No, wave 4 only") | section 5 |
+| store U5's removal | Where the end of the `data.js` reader waits: "1. we can deploy right now": the server deployed first, so it goes into `main` once both hosts are cleared | `spec-store.md` 2.2 |
+| – | The disk notice: the planner's preview (the run's name, "This map opens through Find-a-Line. Run:", `findaline.py view <id>`) is its mock-up ("2. a") | `spec-store.md` 1.2, 1.6 |
+| – | R70, never run with a store (basisdata.nl unreachable), does not block the merges ("3. a") | `docs/known-bugs.md` |
+| – | A store that cannot be written: the search fails, no run kept (Q1a "1. a"); the removed runs' searches leave Home (Q3 "2. a"); the dry run's words as drafted (Q4 "3. a") | `spec-store.md` 1.9, 2.2, 2 "As built" |
+| – | Push and deploy today's `main` before wave 4 ("a"; "VPS is depleyed already"), then wave 4's first deploy ("a") | section 5 |
+| – | Before the PC's removal: `perf_reach`'s three named runs moved to a reference folder ("1. a"); the two favourite lines let go ("2. c"); the three stopped tiled folders deleted too ("b"); then "remove on PC" | `spec-store.md` 2 "As run" |
+| – | On the server: "remove on server"; its stopped tiled folders left ("2. a"); no demo for now ("3.b") | `spec-store.md` 2 "As run" |
 
 ## 7. Findings of phase 4 to fix later
 Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
