@@ -489,7 +489,9 @@ def _group_m(area: Area, plan) -> float:
     grid's (Luxembourg's and Scotland's 0.5 m float64 files, downloaded at the app's minimum of 1 m: groups of
     10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB on a server of 62 GB without swap,
     Luxembourg 11 times, Scotland 7, New Zealand 6, Wales 2; 2026-11-07). So 10 km at 1 m, 5 km at 0.5 m, 20 km at
-    2 m, by the finest native resolution of the plan's grouped layers (the area's resolution without one)."""
+    2 m, by the finest native resolution of the plan's grouped layers (the area's resolution without one); 100 km
+    for the USA's 10 m stand-in, which download_layers lays on that layer's grid of degrees as 0.9 degrees
+    (sources.layer.crs_length)."""
     import country
     native = [getattr(layer, "native_res", None) for layer in plan.layers if getattr(layer, "groups", False)]
     return country.PREFETCH_GROUP_M * min([r for r in native if r] or [area.resolution])

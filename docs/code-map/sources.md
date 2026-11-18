@@ -26,7 +26,7 @@ mirror's copies; `old_encoding`: a one-band float GeoTIFF that is not LERC, from
 `tools/area_download.py`) and by `relief.fetch_relief_tiles`) and `download_layers` (the tiles of all layers of a
 search in one pool of `DOWNLOAD_THREADS`, an entry (layer, label, grid) a layer over a grid of its own (the country
 prefetch's neighbours), the layers' indexes asked at once (`each_layer`; `estimate_layers` the same for
-`Layer.estimate`); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one after
+`Layer.estimate`); the groups of `group_m` given in metres and laid on each layer's own grid (`crs_length`: degrees of latitude for a geographic CRS, 3DEP's 1/3 arc-second DEM, whose blocks of a whole state were one group until 2026-11-18); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one after
 another (GDAL's cache of ranges finds the tiles neighbours share); `group_m` (the country prefetch): the layers whose
 `groups` is true in squares of group_m, `ComposedLayer._download_group` each (the reader's `fetch_group` under one
 host slot and no lock, then each tile under its `tile_lock` if still due, recorded as `_download_and_record` records

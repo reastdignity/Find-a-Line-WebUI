@@ -71,12 +71,23 @@ def state_text(state: Dict) -> str:
     return text + ", no news" if state["stale"] else text
 
 
+AGAIN = "again"
+
+
+def start_word(state: Optional[Dict]) -> str:
+    """What Start does with a row, in its question: a new download, one that goes on, a finished one checked again."""
+    if not state:
+        return "new"
+    return AGAIN if state["stage"] == "done" else "resumes"
+
+
 def is_live(state: Optional[Dict]) -> bool:
     return bool(state) and state["stage"] in LIVE and not state["stale"]
 
 
 class Box(Checkbox):
-    """A checkbox that looks like one; up and down go through the list, past the rows that cannot be ticked."""
+    """A checkbox that looks like one; up and down go through the list (every row can be ticked, a finished one
+    too since 2026-11-18)."""
     BINDINGS = [Binding("up", "app.previous_row", show=False), Binding("down", "app.next_row", show=False)]
 
     def render(self) -> Content:
@@ -138,10 +149,8 @@ class AreaRow(Horizontal):
         cell.set_class(stage == "done", "-done")
         cell.set_class(stage == "needs attention", "-attention")
         cell.set_class(bool(state) and state["stale"], "-stale")
-        done = stage == "done" and not starting
-        if done and self.box.value:
-            self.box.value = False
-        self.box.disabled = done
+        # A finished row can be ticked and started again (the user's word of 2026-11-18): a source may have gained
+        # a layer or a stand-in since (Utah's 10 m tiles), and a pass over what is cached takes about a minute
 
     def set_target(self, label: str, share: bool):
         self.target = label
@@ -448,7 +457,9 @@ class Downloads(App):
                 links += [link for link in needed if link not in links]
                 going.append(row)
         lines = [f"{row.row.title[:33]:<34}{row.row.resolution:g} m {km2_text(row.row.km2):>14}  {row.target[:7]:<8}"
-                 f"{'resumes' if row.state else 'new'}" for row in going]
+                 f"{start_word(row.state)}" for row in going]
+        if any(start_word(row.state) == AGAIN for row in going):
+            lines += ["", "A finished area is checked again: only what is missing or new is downloaded."]
         notes = [note for note in (ar.slow_note(row.row) for row in going) if note]
         if notes:
             lines += ["", *notes]
