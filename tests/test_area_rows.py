@@ -431,14 +431,26 @@ def test_a_stand_ins_folder_follows_the_rule_of_the_sources_own(settings, monkey
     assert not os.path.lexists(local)      # the empty folder removed for its link
     os.makedirs(local)
     open(os.path.join(local, "n38w110.tif"), "wb").close()
+    share = os.path.join(target.tiles, "usa", "3dep-13", "live")
     for row in (utah, nevada):
-        assert ar.links_of(row, target) == ([], f"{local} holds tiles on this disk")
+        assert ar.links_of(row, target) == ([], (
+            f"{local} holds tiles on this disk (those of usgs10m, which a download of usa fetches too): stop any "
+            f"download that writes there, move them to {share}, then start again"))
     assert os.listdir(local) == ["n38w110.tif"]
     os.remove(os.path.join(local, "n38w110.tif"))
     os.rmdir(local)
     monkeypatch.setattr(os.path, "islink", lambda path: path == local)
     monkeypatch.setattr(os, "readlink", lambda path: r"\\other\share\usa\3dep-13\live")
-    assert ar.links_of(utah, target) == ([], f"{local} links to another folder")
+    assert ar.links_of(utah, target) == ([], (
+        f"{local} links to another folder (those of usgs10m, which a download of usa fetches too), not to {share}"))
+    # the source's own folder: the same message without the stand-in's part
+    monkeypatch.undo()
+    own = os.path.join(target.data_dir, "cache", "usa", "3dep-1m")
+    os.makedirs(own)
+    open(os.path.join(own, "x.tif"), "wb").close()
+    assert ar.links_of(utah, target) == ([], (
+        f"{own} holds tiles on this disk: stop any download that writes there, move them to "
+        f"{os.path.join(target.tiles, 'usa', '3dep-1m')}, then start again"))
 
 
 def test_links_that_are_there_are_kept(settings, monkeypatch):

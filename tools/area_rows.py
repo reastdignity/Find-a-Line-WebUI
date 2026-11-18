@@ -478,20 +478,28 @@ def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
     source's own layers and of its stand-in (link_folders), by one rule: a folder that holds tiles on this disk,
     or links elsewhere, stops the row. A stand-in's folder left on this disk "when it holds tiles" would keep
     every later row of the source there without a word (all the states share `usa/3dep-13/live`; the code review
-    of 2026-11-18): the tiles are moved to the share by hand, then the row starts."""
+    of 2026-11-18): the tiles are moved to the share by hand, then the row starts. The message says whose tiles
+    they are and where they go: a row may be stopped by a folder of a source the user never ticked."""
     if target.tiles is None:
         return [], None
+    import sources as src
     needed = []
     cache_dir = os.path.join(target.data_dir, "cache")
+    stand_in = stand_in_folders(row.source)
     for folder in link_folders(row.source):
         parts = folder.split("/")
         link = Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
+        whose = ""
+        if folder in stand_in:
+            whose = (f" (those of {src.SOURCES[row.source].instead_without_data}, which a download of {row.source} "
+                     "fetches too)")
         if os.path.islink(link.path):
             if _plain(os.readlink(link.path)) != _plain(link.target):
-                return [], f"{link.path} links to another folder"
+                return [], f"{link.path} links to another folder{whose}, not to {link.target}"
         elif os.path.lexists(link.path):
             if os.listdir(link.path):
-                return [], f"{link.path} holds tiles on this disk"
+                return [], (f"{link.path} holds tiles on this disk{whose}: stop any download that writes there, move "
+                            f"them to {link.target}, then start again")
             os.rmdir(link.path)
             needed.append(link)
         else:
