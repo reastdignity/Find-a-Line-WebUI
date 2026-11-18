@@ -304,9 +304,14 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
 - **Compare's list of other runs goes stale from Home on:** Home's mini maps load the list of runs (`runs.js`, once
   per page) for every run card, so a run finished in the same tab is not offered by Compare until a reload (it opens
   and draws through the store's probe); before, the same happened from the first opened result.
-- **Two more cdd_fetch tests race on the CI's runners** (the same fake server as the two above): on 74de19ae
-  `test_fetch_resumes_and_records_every_file` (the fake's concurrent connections 2, not 1, on Linux) and
+- **Two more cdd_fetch tests race on the CI's runners** (the same fake server as the two above):
+  `test_fetch_resumes_and_records_every_file` on Linux in both runs since 74de19ae (CI 44170732371 and 44243858723:
+  the fake's concurrent connections 2, not 1; read only: the fake counts a request as active until its handler
+  returns, after the client may already have read the answer and sent the next) and, on 74de19ae,
   `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows).
+- **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
+  and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
+  CI 43618907225, nothing of store wave 4 in its path.
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
   back; a column selection in `linestore.read` would cut it.
@@ -315,9 +320,12 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
   while "saving results" leaves a folder without `run.json` that nothing removes (older than store wave 4), as does a
   tiled search stopped part-way (its `tiles/` and `progress.json` "running": the server kept 7 such folders, the
   user's "2. a").
-- **A run's `map.html` written before store wave 4** (with its text files) opens from disk through `data.js` until
-  the end of that reader (wave 4's second deploy); a bundle that does not load at all over http leaves the disk
-  notice of a new run's `map.html` shown, as the specification asks ("in the HTML, so it shows without the bundle").
+- **A bundle that does not load at all over http** leaves the disk notice of a run's `map.html` shown, as the
+  specification asks ("in the HTML, so it shows without the bundle"); a `map.html` written before store wave 4 has no
+  notice of its own, so from disk without the bundle it stays blank.
+- **Wave 4's second deploy:** a `runs/_viewer/index.css` installed before stays there (`install_viewer` adds files and
+  never deletes; nothing loads it); a run's `map.html` whose store cannot be loaded shows one sentence and no way back
+  to the app (as before wave 4; roadmap "Later").
 
 ## The UI measuring tools: known and left (2026-11-17)
 

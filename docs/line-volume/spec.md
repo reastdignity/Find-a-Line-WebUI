@@ -184,8 +184,8 @@ pushed and deployed 2026-11-18): new runs keep no text files, `findaline.py view
 notice, Home's mini maps and the tools from the store (`spec-store.md` 1.9 "Built (round 5)"); then the old runs
 removed on the PC and on the server, each on the user's word after its dry run (`spec-store.md` 2 "As run"). The full
 pytest on the stack: 3 231 passed; the regression set: 91 entries unchanged (R17 waited on Overpass and R70 on
-basisdata.nl, neither on a run's files). Open: 2c's wave 4, second deploy (the end of the page's reader of `data.js`,
-built on its branch, into `main` now that both hosts are cleared), 2d, 2e, 2g, 3c (after the UX session's design
+basisdata.nl, neither on a run's files). Then 2c's wave 4, second deploy, in `main` once both hosts were cleared (the
+end of the page's reader of `data.js`: `spec-store.md` 1.9). Open: 2d, 2e, 2g, 3c (after the UX session's design
 pilot, the user's "a"), 3d.
 
 ## 6. The user's choices

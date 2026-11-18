@@ -213,8 +213,11 @@ how a result is organised), built the low-effort part and specified the rest.
 - **State on 2026-11-18** (round 5): rounds 3 and 4 pushed and on the server (2026-11-17); store wave 4's first deploy
   in `main` and on the server (1b1f2f15, a0c511ac, a86b86e8: new runs keep no text files, `findaline.py view`,
   `findaline.py runs remove-old`, the disk notice, the mini maps and the tools from the store); the old runs removed
-  on the PC and on the server on the user's word. Next: the end of the page's reader of `data.js` (wave 4's second
-  deploy), then brotli and caching, the ranges, renaming a run, step 3c after the UX session's pilot, 3d. Later:
+  on the PC and on the server on the user's word; then wave 4's second deploy in `main` (the end of the page's reader
+  of `data.js`; on the server on the user's word). Next: brotli and caching, the ranges, renaming a run, step 3c after
+  the UX session's pilot, 3d. Later: a way back to the app from a run's `map.html` whose store cannot be loaded (one
+  sentence today; the app's result page has its Home button); `RunActions`' unused `runFolder` / `folder` prop (left
+  for the UX session's pass on the result view);
   `--html` removed after one release (store U10: accepted and ignored since a0c511ac); a way to remove a tiled
   search stopped part-way (a folder without `run.json`, which `runs remove-old` skips); `linestore.read` of chosen
   columns (`tools/perf_country.py`, docs/known-bugs.md).

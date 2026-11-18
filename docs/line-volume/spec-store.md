@@ -11,8 +11,9 @@ and U12 (brotli); the choices of class "planner" are taken as recommended (secti
 and runs outside the page's list read the store (b757bee), and wave 4's first deploy is built and on the server
 (1b1f2f15, a0c511ac, a86b86e8: new runs keep no text files, `findaline.py view`, `runs remove-old`, the disk notice);
 old runs were removed on the PC and on the server on the user's word (2026-11-18, section 2 "As run"); "as built"
-notes stand in 1.2, 1.3, 1.4, 1.8, 1.9, 1.10 and 2. Open: wave 4's second deploy (the end of the page's reader of
-`data.js`), waves 6, 7, 8.
+notes stand in 1.2, 1.3, 1.4, 1.8, 1.9, 1.10 and 2. Wave 4's second deploy followed in `main` once both hosts were
+cleared (1.9 "Built (round 5)"): the page reads a run from its store alone, and nothing writes or reads `data.js` or
+`lines.js`; on the server on the user's word. Open: waves 6, 7, 8.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -308,6 +309,14 @@ the note `view_columns_failed` and `view_columns_failed` in run.json, and such a
 correction of 2026-11-17: never removed). `findaline.py view` (A1, A2 of the round's plan), the disk notice (the
 user's accepted preview, "2. a"), Home's mini maps from `lines.arrow`, and the nine tools of `tools/` reading the
 store (old runs from their files) are in; section 2 has the removal as built and as run.
+Wave 4's second deploy (item 5, after the removal on both hosts): the page reads a run only from its store over
+http(s) (`result/load.ts`, keyed on the run's folder; a store that cannot be fetched or read shows
+`ui.result.store_failed`, "This result could not be loaded. Reload the page to try again.", the user's "b" of
+2026-11-18, with the reason in the console); `mapping.save_map` writes `map.html` alone, `web.RUN_FILES` is `map.html`,
+`ATTRIBUTION.txt` and the two store files, `has_lines` means `lines.arrow`. From disk every `map.html` shows the disk
+notice, one written before wave 4 too (the viewer builds it: the run's id from its folder, its name from `runs.js` or
+the page's title). The old writers of `data.js` and `lines.js` live on, frozen, in `tests/old_scripts.py` for the
+tools' tests of old runs; `index.css` (of the removed `runs/index.html`) is gone.
 
 The view's columns (`spot`, `top`, `by_spot`, the head's `sectors`, `box`, `lengths`) come with view B1, after wave 2.
 Wave 4 waits for view B1, so that from wave 4 on every new run carries them; a run saved between wave 2 and view B1
