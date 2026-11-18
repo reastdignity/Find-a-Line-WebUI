@@ -465,6 +465,40 @@ def test_a_stand_in_source_is_downloaded_too(setup, monkeypatch):
     assert ad.plans_of(alone) == [plans["fake_ifsar"]]
 
 
+def test_a_stand_ins_layers_ask_again_before_their_download(setup, monkeypatch):
+    """The answers a pass takes for its counts serve the first plan's download, a moment later; a stand-in's
+    download comes after the first plan's whole download, so its layers ask again then, as before: a tile of
+    theirs that another process cached meanwhile is not fetched."""
+    class Counting(FakeLayer):
+        def __init__(self, n):
+            super().__init__(n)
+            self.asked = 0
+
+        def to_download(self, grid, cache_dir, update):
+            self.asked += 1
+            return super().to_download(grid, cache_dir, update)
+
+    class First(Counting):
+        def download_tile(self, tile, path):   # while the first plan downloads, the stand-in's tile 0 arrives
+            other = second.tile_path(os.path.dirname(os.path.dirname(os.path.dirname(path))), 0)
+            if not os.path.exists(other):
+                os.makedirs(os.path.dirname(other), exist_ok=True)
+                open(other, "wb").close()
+            return super().download_tile(tile, path)
+    first, second = First(3), Counting(2)
+    second.folder = "fake/ifsar"
+    area = setup(first)
+    cache_dir = os.path.join(area.data_dir, "cache")
+    plans = {"fake": SimpleNamespace(layers=[first], grid=_grid(), paths=SimpleNamespace(cache=cache_dir),
+                                     source=SimpleNamespace(id="fake", instead_without_data="fake_ifsar")),
+             "fake_ifsar": SimpleNamespace(layers=[second], grid=_grid(), paths=SimpleNamespace(cache=cache_dir),
+                                           source=SimpleNamespace(id="fake_ifsar", instead_without_data=None))}
+    monkeypatch.setattr(ad, "plan_of", lambda a: plans[a.source])
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert (first.asked, second.asked) == (1, 2)
+    assert sorted(first.fetched) == [0, 1, 2] and second.fetched == [1]
+
+
 def test_a_pass_without_a_contact_warns(setup, monkeypatch, capsys):
     """The warning is printed and stands in the state until the first tile; the pass never fails for it."""
     monkeypatch.delenv("FINDALINE_CONTACT", raising=False)
@@ -1021,6 +1055,11 @@ def test_plan_clips_the_outline_to_the_coverage_boxes(tmp_path, monkeypatch, cap
     assert shape(written["geometry"]).equals(near) and written["properties"]["name"] == "land"
     out = capsys.readouterr().out
     assert "Outline clipped to the source's coverage boxes: about" in out and "km² outside them left out" in out
+    # a work folder of the caller's (tools/perf_cached_check.py): nothing written into the data folder's
+    elsewhere = ad.plan_of(area, str(tmp_path / "elsewhere"))
+    assert planned[-1][0] == str(tmp_path / "elsewhere" / "outline.geojson") and os.path.exists(planned[-1][0])
+    assert elsewhere.paths.work == str(tmp_path / "elsewhere") and elsewhere.paths.data == str(data)
+    capsys.readouterr()
     # A source without boxes: the stored file as it is, nothing printed
     ad.plan_of(ad.Area("land", "osm:Land", "europe", 1.0, str(data), str(state), min_free_gb=0))
     assert planned[-1][0] == str(stored) and planned[-1][1].equals(unary_union([near, far]))

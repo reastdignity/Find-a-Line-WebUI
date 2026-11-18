@@ -1,9 +1,12 @@
 """tools/perf_cached_check.py, offline: the two ways it asks about the files and the rows of a layer's tiles give the
 same answers, and its steps over a made-up layer."""
 
+import json
 import os
 import sys
 from types import SimpleNamespace
+
+import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -137,3 +140,35 @@ def test_a_dry_prune_deletes_nothing(tmp_path):
     assert pc.dry_prune(SimpleNamespace(index=Index()), cache_dir, paths) == 3
     assert cache.forget is kept and pc.files_each(paths).count(True) == 4
     assert pc.dry_prune(SimpleNamespace(), cache_dir, paths) == -1
+
+
+def test_an_index_answer_not_cached_stops_the_tool(tmp_path, monkeypatch):
+    """`tiles` would ask the service for it: the tool stops before, unless told that it may."""
+    cache_dir, paths = _cache(tmp_path)
+    plan = SimpleNamespace(grid=SimpleNamespace(width=10, height=20), layers=[], paths=SimpleNamespace(cache=cache_dir))
+    monkeypatch.setattr(ad, "plan_of", lambda area, work: plan)
+    monkeypatch.setattr(ad.Reporter, "_index_counts", lambda self: (3, 5))
+    assert pc.index_missing(plan, cache_dir) == 2
+    area = ad.Area("land", "osm:Land", "fake", 1.0, str(tmp_path), str(tmp_path / "state"))
+    with pytest.raises(SystemExit, match="2 index answers of land are not cached"):
+        pc.measure(area, str(tmp_path / "work"))
+    assert [row["step"] for row in pc.measure(area, str(tmp_path / "work"), allow_index=True)] == ["plan"]
+
+
+def test_the_command_reads_the_areas_state(tmp_path, monkeypatch):
+    """The area, the source and the resolution from <name>.state.json; the rows also as JSON."""
+    state = tmp_path / "state"
+    state.mkdir()
+    with pytest.raises(SystemExit, match="no state of land"):
+        pc.main(["land", "--state-dir", str(state), "--data-dir", str(tmp_path), "--work", str(tmp_path / "w")])
+    ad.write_state(str(state), "land", {"name": "land", "area": "osm:Land", "source": "fake", "resolution": 2.0})
+    seen = []
+    monkeypatch.setattr(pc, "measure", lambda *a: seen.append(a) or [{"step": "plan"}])
+    out = tmp_path / "rows.json"
+    assert pc.main(["land", "--state-dir", str(state), "--data-dir", str(tmp_path), "--work", str(tmp_path / "w"),
+                    "--by-folder", "--only", "check", "--no-check", "--json", str(out)]) == 0
+    area, work, check, allow_index, by_folder, only = seen[0]
+    assert (area.name, area.area, area.source, area.resolution) == ("land", "osm:Land", "fake", 2.0)
+    assert area.data_dir == str(tmp_path) and area.state_dir == str(state) and work == str(tmp_path / "w")
+    assert (check, allow_index, by_folder, only) == (False, False, True, ["check"])
+    assert json.loads(out.read_text(encoding="utf-8")) == {"area": "land", "source": "fake", "rows": [{"step": "plan"}]}

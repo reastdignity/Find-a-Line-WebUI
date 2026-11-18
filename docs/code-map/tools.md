@@ -539,8 +539,9 @@ a supervisor (one per area, a `FileLock`) starting passes, each a process of its
 the process, which would skip the whole layer: a pass names that a failure). A pass plans the source (`plans_of`:
 `plan_of`, and the stand-in's plan where `Source.instead_without_data` names one (alaska → alaska_ifsar, which
 `choose_source` never applies to a source given by name), its layers labelled "terrain (alaska_ifsar)", the totals
-over both: `Reporter.next_plan`; a pass asks each layer's `to_download` once, for its counts, and hands the answers
-to `download_layers(listed=)`, and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
+over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
+answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
+their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
 the pass and giving it back: docs/performance.md, "The check of cached tiles"), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's

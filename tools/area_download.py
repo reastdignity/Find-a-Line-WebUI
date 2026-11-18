@@ -520,8 +520,8 @@ def run_pass(area: Area, number: int) -> int:
     """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING.
 
     The tiles of a whole area are asked about folder by folder, not file by file (sources.layer.EXISTING: Utah's
-    207 897 on a share took 463 s against 38 s), and once a pass, not twice (_one_pass hands its answers to
-    download_layers): docs/performance.md, "The check of cached tiles". A pass is a process of its own; the
+    207 897 on a share took 463 s against 38 s), and the source's own layers once a pass, not twice (_one_pass
+    hands their answers to download_layers): docs/performance.md, "The check of cached tiles". A pass is a process of its own; the
     setting goes back for whatever else calls this."""
     import sources as src
     from sources.indexes import versions
@@ -573,11 +573,13 @@ def _one_pass(area: Area, number: int) -> int:
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            for plan, plan_labels, known in zip(plans, labels, asked):
-                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
+            for k, (plan, plan_labels) in enumerate(zip(plans, labels)):
+                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does.
+                # The first plan's answers are a moment old and are not asked again; a stand-in's were given
+                # before the first plan's whole download (hours), so its layers ask again, as they always did
                 src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
                                     group_m=_group_m(area, plan), on_error=failures, reencode_cached=False,
-                                    listed=known)
+                                    listed=asked[k] if k == 0 else None)
                 reporter.next_plan()
             _count_missing(cache_dir, plans, rows)
             reporter.state["tiles_missing"] = missing = sum(row["missing"] for row in rows)

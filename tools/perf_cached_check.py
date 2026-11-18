@@ -22,10 +22,14 @@ cold one: on a share, Windows keeps a folder's entries for seconds only):
   prune      layer.downloaded's question at the end of a pass, the older surveys of the cached tiles
              (index.prune), with nothing deleted: cache.forget only counts here
 
-It prints the seconds and the milliseconds a tile of each, and whether the two ways of each pair agree. Nothing is
-downloaded: every index answer must be cached (it stops before `tiles` when one is missing, unless --allow-index).
-The cache is written only where a search would write it too: a tile without a row of the index is adopted by `check`
-(--no-check leaves that step and `prune` out, and the cache as it is).
+It prints the seconds and the milliseconds a tile of each, and whether the two ways of each pair agree. No tile is
+downloaded and none deleted. For the layers it is made for (those without an index, as the HRDEM mosaic's, and those
+of a cached index of 0.25 degree answers, IndexedTiles: the USA's, Poland's) every index answer must be cached: it
+stops before `tiles` when one is missing, unless --allow-index. A layer with another kind of index (package
+directories, a bucket's folder listings, the sheets of a ZIP) is not prepared here: its `tiles` may ask its
+service, or give nothing, and the tool then says that it cannot list the layer. The cache is written only where a
+search would write it too: a tile without a row of the index is adopted by `check` (--no-check leaves that step
+and `prune` out, and the cache as it is).
 
     uv run tools/perf_cached_check.py utah --state-dir <state> --data-dir <data> --work <scratch> [--json <file>] \\
         [--by-folder] [--only check]
@@ -159,7 +163,8 @@ def measure(area: ad.Area, work: str, check: bool = True, allow_index: bool = Fa
             use(cache_dir, None)   # as IndexedTiles.to_download: tiles() gets only the grid
         seconds, tiles = timed(lambda: layer.tiles(plan.grid))
         if tiles is None:
-            raise SystemExit(f"the index of {layer.description} could not be reached")
+            raise SystemExit(f"{layer.description} gave no tiles: its index could not be reached, or it is of a "
+                             "kind this tool does not prepare (the module's docstring)")
         row(name, "tiles", len(tiles), seconds, "the first call")
         row(name, "tiles", len(tiles), timed(lambda: layer.tiles(plan.grid))[0], "again")
         seconds, paths = timed(lambda: [layer.tile_path(cache_dir, tile) for tile in tiles])

@@ -4138,7 +4138,7 @@ by a counter). The share idle, the PC otherwise as noted; the outputs in the ses
 | The prune with one listing per folder for the others, a second for the files | 93 | 0.45 | shared, a full pytest beside it |
 | **The prune with one listing per folder for both** | **55** | 0.26 | shared |
 
-On a local SSD none of it matters: the District of Columbia's 228 tiles took 0.014 ms a file either way.
+On a local SSD none of it matters: the 228 tiles of the District of Columbia took 0.014 ms a file one by one and 0.012 ms by folder (the scratch download of the real check).
 
 ### What it means
 - Nearly all of the time is the question "is the file there" asked of the share once a tile: about 2 ms each on an
@@ -4150,14 +4150,20 @@ On a local SSD none of it matters: the District of Columbia's 228 tiles took 0.0
 ### What was built (the user's choices of 2026-11-18)
 - **For the downloads only**: a pass asks about the files by folder (`sources.layer.EXISTING` set to
   `versions.existing` by `area_download.run_pass`, `cache.due_many(exists=)`: one listing of a folder from
-  `LISTING_FROM` 64 of its paths) and once (`download_layers(listed=)` takes the answers `run_pass` got). Utah's time
+  `LISTING_FROM` 64 of its paths; a folder with fewer of the area's tiles is still asked file by file, which is
+  the 51 s against the 38 s of listings alone) and the source's own layers once (`download_layers(listed=)` takes
+  the answers `run_pass` got a moment before; a stand-in's layers, downloaded hours later, ask again). Utah's time
   to the first tile, with everything cached: 2 x 390 s → 51 s. A search, the web worker and the country prefetch ask
   as before: `EXISTING` is None there (the answers are the same either way,
   `tests/test_units.py::test_cache_due_many_answers_as_due`). Making it every search's is in the roadmap ("To
   check"), to be measured first.
+- A whole area's folders are listed up to a minute before a file's turn in the index: a file listed and deleted
+  meanwhile by another process, with no row, is to be downloaded (file by file that gap was microseconds; the
+  code review of 2026-11-18, `test_cache_due_many_takes_the_callers_word_for_the_files`); one with a row counts
+  as there until the next pass.
 - **For every caller**: `ComposedBlocks.prune` lists each folder once for all its blocks and both of its questions
   (the files it finds and their order as before: `tests/test_parts.py::test_composed_prune_lists_a_folder_once`,
-  against the code of before; R22-R24 and R1-R5 unchanged, R13 skipped on this PC that day: the Slovak mirror folder lacked its 1 m tiles). `NewestPerSheet.prune` was done the same way on
-  2026-11-07.
+  against the code of before; R22-R24 and R1-R5 unchanged, R13 skipped on this PC that day: the Slovak mirror
+  folder lacked its 1 m tiles). `NewestPerSheet.prune` was done the same way on 2026-11-07.
 - Not changed: what a pass downloads, and how fast (the connections of a host decide); the tiles, the index and
   every result.

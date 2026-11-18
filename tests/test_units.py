@@ -230,6 +230,46 @@ def test_cache_due_many_answers_as_due(tmp_path):
     assert [kinds[p] for p, due in zip(paths, cache.due_many(str(first), paths)) if due] ==         ["lost", "new"] * 2
 
 
+def test_cache_due_many_takes_the_callers_word_for_the_files(tmp_path):
+    """With `exists`, due_many asks no file itself: the caller's answers decide (so a whole area's files are asked
+    by folder, not one by one again), and a file the caller listed that is gone before its turn, with no row to
+    adopt it by, is due, not an error (another process deleted it during the minute between the listing of an
+    area's folders and this file's turn)."""
+    cache_dir = str(tmp_path)
+    paths = {}
+    for name in ("ok", "ok-gone", "adopted", "listed-gone", "new", "hidden"):
+        path = tmp_path / "land" / "tiles" / f"{name}.tif"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if name not in ("listed-gone", "new"):
+            path.write_bytes(b"a")
+        if name.startswith("ok"):
+            cache.record(cache_dir, str(path))
+        paths[name] = str(path)
+    os.remove(paths["ok-gone"])
+    said = {"ok": True, "ok-gone": True, "adopted": True, "listed-gone": True, "new": False, "hidden": False}
+    asked = []
+
+    def exists(some):
+        asked.append(list(some))
+        return [said[os.path.basename(p)[:-4]] for p in some]
+    real = os.path.exists
+    probed = []
+    os.path.exists = lambda p: probed.append(p) or real(p)
+    try:
+        due = cache.due_many(cache_dir, list(paths.values()), exists=exists)
+    finally:
+        os.path.exists = real
+    assert asked == [list(paths.values())] and not [p for p in probed if p.endswith(".tif")]
+    # ok-gone: its row says ok and the caller says there: not due until the next question; hidden: a file the
+    # caller did not see is due, whatever the disk says
+    assert dict(zip(paths, due)) == {"ok": False, "ok-gone": False, "adopted": False, "listed-gone": True,
+                                     "new": True, "hidden": True}
+    assert cache.info(cache_dir, paths["adopted"])["status"] == "ok"
+    assert cache.info(cache_dir, paths["listed-gone"]) is None and cache.info(cache_dir, paths["hidden"]) is None
+    # without `exists` a file is asked about and its time read in one breath: nothing to catch, as ever
+    assert cache.due_many(cache_dir, [paths["listed-gone"], paths["hidden"]]) == [True, False]
+
+
 def test_cache_states_answers_as_state(tmp_path):
     """cache.states (one connection per top-level folder) answers as state() of each file, in the order
     of the paths: not recorded, adopted (a file without a row, which it records), missing, another

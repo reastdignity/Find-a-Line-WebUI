@@ -494,13 +494,21 @@ def _state(db: sqlite3.Connection, path: str, inner: str, processing: int,
            there: Optional[bool] = None) -> Optional[str]:
     """state() on an open connection to the index of the file's top-level folder; a file adopted
     (one without a row) is committed at once, as state() does. there: whether the file exists, when the
-    caller asked already (due_many's `exists`); None: asked here."""
+    caller asked already (due_many's `exists`); None: asked here. The caller's answer may be a minute old (the
+    folders of a whole area listed first): a file gone since, with no row, is to be downloaded, not an error;
+    one with an "ok" row counts as there until the next question."""
     row = db.execute("SELECT status, processing FROM files WHERE path = ?", (inner,)).fetchone()
     if row and row[1] is not None and row[1] != processing:
         return None  # made by another version of the processing: fetch again
     if os.path.exists(path) if there is None else there:
         if row is None:  # a file without a row is adopted
-            mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat(timespec="seconds")
+            try:
+                seconds = os.path.getmtime(path)
+            except FileNotFoundError:
+                if there is None:
+                    raise
+                return None  # listed, and deleted before its turn here
+            mtime = datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds")
             with db:
                 db.execute("INSERT INTO files (path, status, fetched_at, checked_at, processing) "
                            "VALUES (?, 'ok', ?, ?, ?)", (inner, mtime, mtime, processing))
