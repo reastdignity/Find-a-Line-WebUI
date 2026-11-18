@@ -3406,12 +3406,12 @@ def test_secondary_text_contrast():
         for ground in VIEW_SURFACES:
             assert contrast(tokens["--muted"], tokens[ground]) >= 4.5, ("view", theme, ground, tokens["--muted"], tokens[ground])
     # the app's selected fill (--accent-soft) takes --ink-2 for its secondary text: --muted there is 4.46 light and
-    # 3.79 dark (the accent-soft check of the pilot, 2026-11-18: the four places that show grey text on it)
+    # 3.79 dark (the accent-soft check of the pilot, 2026-11-18: the places that show grey text on it)
     for theme, tokens in _themes().items():
         assert contrast(tokens["--ink-2"], tokens["--accent-soft"]) >= 4.5, theme
-    for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small { color: var(--ink-2); }"),
+    for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }"),
                        (("result", "view", "result.css"), ".ui .r-row.r-sel .r-muted { color: var(--ink-2); }"),
-                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted { color: var(--ink-2); }"),
+                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted, .cov .cov-row-on td::before { color: var(--ink-2); }"),
                        (("search", "search.css"), ".ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }")):
         with open(os.path.join(VIEWER, "src", *path), encoding="utf-8") as f:
             assert rule in f.read(), (path, rule)

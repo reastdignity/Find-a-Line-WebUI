@@ -134,7 +134,8 @@
 .ui .c-tree { list-style: none; margin: 0; padding: 0; }
 .ui .c-tree-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; min-width: 0; }
 .ui .c-tree-row.u-on { background: var(--accent-soft); }
-.ui .c-tree-row.u-on .u-small { color: var(--ink-2); }  /* the count on the fill: --muted there is under 4.5:1 (3.79 dark) */
+/* the counts and runs' names on the fill (a selected folder; a row dragged over): --muted is under 4.5:1 there (3.79 dark) */
+.ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }
 .ui .c-tree-fold { width: 24px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 0;
   background: none; padding: 0; color: var(--muted); cursor: pointer; }
 .ui .c-tree-fold .u-ic { width: 14px; height: 14px; }
