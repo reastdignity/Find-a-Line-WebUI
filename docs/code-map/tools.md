@@ -640,7 +640,7 @@ never on a command line; an e-mail address with a dotted domain or an http(s) ad
 targets, `host_slots` and `max_memory_gb` (the row's over the target's, as `--max-memory-gb` of `command_of`; neither:
 the downloader's default); the target chosen in the window is kept in `tui-targets.json` of the state folder. Start:
 `links_of` (a share's tile folders, `Layer.folder`, as links from the data folder's cache; a real folder with tiles
-stops that row), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
+stops that row; the folders of the source's stand-in too, `stand_in_folders`, which a download fetches as well: `usa/3dep-13/live` for a state, `usa/ifsar-5m` for Alaska; one of those that is there already, with tiles on this disk or as a link, stays and stops nothing), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
 `os.symlink`, else one UAC window on Windows without Developer Mode: `_elevated`, a script with its BOM for PowerShell
 5.1), then `start`: `area_download.py run` detached (`_detached`: a hidden console of its own on Windows, a new
 session on Linux, so it outlives the window and its terminal); a row of a source with parts (`usa`, `canada`: the

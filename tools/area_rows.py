@@ -38,7 +38,8 @@ The settings, a JSON file outside the repository (it may name a contact and a sh
 
 `max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
 unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
-its tile folders on the share: SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
+its tile folders on the share (the source's own, and its stand-in's where they are not on this disk already:
+`links_of`): SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
 download starts: Windows lets only an administrator make them while Developer Mode is off, so there they take one UAC
 window per start.
 """
@@ -454,15 +455,35 @@ def layer_folders(source_id: str) -> List[str]:
     return [layer.folder for layer in (source.nmt, source.nmpt) if layer is not None]
 
 
+def stand_in_folders(source_id: str) -> List[str]:
+    """The tile folders of the source's stand-in (Source.instead_without_data, which a download fetches too:
+    area_download.plans_of), those that are not the source's own: `usa/3dep-13/live` for `usa`, `usa/ifsar-5m` for
+    `alaska`; [] without a stand-in."""
+    import sources as src
+    stand_in = src.SOURCES[source_id].instead_without_data
+    if not stand_in or stand_in == source_id:
+        return []
+    own = layer_folders(source_id)
+    return [folder for folder in layer_folders(stand_in) if folder not in own]
+
+
 def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
-    """The links a download to this target still needs, and why it cannot start, if so."""
+    """The links a download to this target still needs, and why it cannot start, if so: the folders of the
+    source's own layers, which must be on the share (one that holds tiles on this disk, or links elsewhere, stops
+    the row), and those of its stand-in, linked when they can be: a stand-in's folder that is there already, with
+    tiles on this disk or as a link of its own, stays as it is and stops nothing (a state's 10 m tiles went to the
+    local disk until 2026-11-18, and a stand-in may be a world-wide model another download filled)."""
     if target.tiles is None:
         return [], None
     needed = []
-    for folder in layer_folders(row.source):
+    cache_dir = os.path.join(target.data_dir, "cache")
+
+    def link_of(folder: str) -> Link:
         parts = folder.split("/")
-        cache_dir = os.path.join(target.data_dir, "cache")
-        link = Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
+        return Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
+
+    for folder in layer_folders(row.source):
+        link = link_of(folder)
         if os.path.islink(link.path):
             if _plain(os.readlink(link.path)) != _plain(link.target):
                 return [], f"{link.path} links to another folder"
@@ -473,6 +494,13 @@ def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
             needed.append(link)
         else:
             needed.append(link)
+    for folder in stand_in_folders(row.source):
+        link = link_of(folder)
+        if os.path.islink(link.path) or (os.path.lexists(link.path) and os.listdir(link.path)):
+            continue
+        if os.path.lexists(link.path):
+            os.rmdir(link.path)
+        needed.append(link)
     return needed, None
 
 

@@ -353,6 +353,8 @@ last column of the table in section 2.
   hour, all 50 about 16.6 days and 6.7 TB received. Canada's are not measured: a `canada` row asks every 1 km block
   of its outline twice, with lidar or not. A row downloads its source's own layers and its stand-in
   (`Source.instead_without_data`), never its fallbacks: a province's row leaves out `canada_2m` and `mrdem30`.
+  With a target on a share the window links the stand-in's tile folders there too (since 2026-11-18: a
+  state's 10 m tiles, about 5 GB for Utah, *est.*, would otherwise fill the local disk beside the indexes).
 - Downloading and computing overlap: a country driver computes the tiles whose data is in while the
   next ones download, so a run takes about the longer of the two, not their sum.
 
