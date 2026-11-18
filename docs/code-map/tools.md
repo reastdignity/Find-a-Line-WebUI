@@ -306,7 +306,14 @@ anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_li
 size; what `search.reach_of_anchor`'s engine was chosen on; a run's lines through `run_rows`: the CSV export of its
 store into a temporary folder by a child process (the measuring process stays as before step 1), or the lines.csv
 of a run saved before the store (its three named cases, `find_run`: in `<data>/runs/`, then in
-`--reference-dir`, default `<data>/local/reference-runs`), the results' `lines_read`; `tests/test_perf_reach.py`)
+`--reference-dir`, default `<data>/local/reference-runs`), the results' `lines_read`; `tests/test_perf_reach.py`),
+`perf_cached_check.py` (where the time between the start of an area download's pass and its first tile goes, for one
+area of a state folder on its real data folder: the plan (`area_download.plan_of(area, work)`, its work folder a
+scratch one), `layer.tiles`, the paths, the files asked one by one and by one listing per folder, the index rows
+asked one by one and in one query, each pair's answers compared, then `layer.to_download` as a search asks it or,
+with `--by-folder`, as a pass does (`sources.layer.EXISTING`), and the prune at a pass's end with `cache.forget`
+replaced by a counter (`dry_prune`: nothing deleted); `--only <step>`; it stops when an index answer is not cached;
+the cache is written only where a file without a row is adopted by `check`; `tests/test_perf_cached_check.py`)
 
 `perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
 drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
@@ -533,7 +540,10 @@ a supervisor (one per area, a `FileLock`) starting passes, each a process of its
 the process, which would skip the whole layer: a pass names that a failure). A pass plans the source (`plans_of`:
 `plan_of`, and the stand-in's plan where `Source.instead_without_data` names one (alaska → alaska_ifsar, which
 `choose_source` never applies to a source given by name), its layers labelled "terrain (alaska_ifsar)", the totals
-over both: `Reporter.next_plan`), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
+over both: `Reporter.next_plan`; a pass asks each layer's `to_download` for its counts and hands the first plan's
+answers to `download_layers(listed=)`, so the source's own layers are asked once (a stand-in's ask again before
+their download, hours later), and asks about the files by folder, `run_pass` setting `sources.layer.EXISTING` for
+the pass and giving it back: docs/performance.md, "The check of cached tiles"), inside its `try`: a `SearchError`, `ValueError`, `RuntimeError` or `OSError` of
 planning (Denmark's key, an unknown outline) is a `Stop` with its text; the window layers' groups are
 `country.PREFETCH_GROUP_M` times the finest native resolution of the plan's grouped layers (`_group_m`: a group's
 window is read on the files' own pixels, whatever the grid's; Luxembourg's and Scotland's 0.5 m float64 files at the

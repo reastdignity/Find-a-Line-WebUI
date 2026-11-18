@@ -418,14 +418,15 @@ def outline(area: Area) -> str:
     return path
 
 
-def plan_of(area: Area):
+def plan_of(area: Area, work: Optional[str] = None):
     """The plan of a search over the whole outline: its layers (terrain, and the surface where the source has one)
-    and its grid, without tiles."""
+    and its grid, without tiles. work: the plan's work folder, when not the data folder's (a measurement that
+    writes nothing there: tools/perf_cached_check.py)."""
     import area as ar
     import search
     import sources as src
     from params import SearchParams
-    work = os.path.join(area.data_dir, "work", f"area-download-{area.name}")
+    work = work or os.path.join(area.data_dir, "work", f"area-download-{area.name}")
     # The outline clipped to the source's coverage boxes (Source.coverage_boxes): the USA's holds Hawaii and
     # islands far off its 1 m DEM; the stored outline (<state>/<name>.geojson) stays as it is
     source = src.SOURCES.get(area.source)
@@ -516,7 +517,23 @@ def _planned(area: Area) -> List:
 
 
 def run_pass(area: Area, number: int) -> int:
-    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING."""
+    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING.
+
+    The tiles of a whole area are asked about folder by folder, not file by file (sources.layer.EXISTING: Utah's
+    207 897 on a share took 463 s against 38 s), and the source's own layers once a pass, not twice (_one_pass
+    hands their answers to download_layers): docs/performance.md, "The check of cached tiles". A pass is a process of its own; the
+    setting goes back for whatever else calls this."""
+    import sources as src
+    from sources.indexes import versions
+    before, src.layer.EXISTING = src.layer.EXISTING, versions.existing
+    try:
+        return _one_pass(area, number)
+    finally:
+        src.layer.EXISTING = before
+
+
+def _one_pass(area: Area, number: int) -> int:
+    """run_pass, with the layers' way of asking set."""
     import progress as bars
     import sources as src
     bars.TEXT_INTERVAL = PROGRESS_SECONDS
@@ -525,6 +542,7 @@ def run_pass(area: Area, number: int) -> int:
     failures = Failures(cache_dir)
     code = EXIT_DONE
     plans: List = []
+    asked: List[Dict] = []   # per plan: what each layer's to_download gave, by id(layer)
     with Reporter(area, number, plans, failures) as reporter:
         if not os.environ.get("FINDALINE_CONTACT"):
             print(f"Warning: {NO_CONTACT}", flush=True)
@@ -540,6 +558,7 @@ def run_pass(area: Area, number: int) -> int:
                 print(f"{area.name} ({plan_labels[0]}): {grid.width} x {grid.height} px, listing the tiles", flush=True)
                 # to_download, not Layer.estimate: that opens every cached file of a layer whose index cannot be reached
                 listed = src.layer.each_layer(plan.layers, lambda layer, g=grid: layer.to_download(g, cache_dir, None))
+                asked.append(dict(zip(map(id, plan.layers), listed)))
                 for layer in plan.layers:
                     if layer.tiles(grid) is None:
                         raise Stop(f"the index of {layer.description} could not be reached")
@@ -554,10 +573,13 @@ def run_pass(area: Area, number: int) -> int:
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            for plan, plan_labels in zip(plans, labels):
-                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
+            for k, (plan, plan_labels) in enumerate(zip(plans, labels)):
+                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does.
+                # The first plan's answers are a moment old and are not asked again; a stand-in's were given
+                # before the first plan's whole download (hours), so its layers ask again, as they always did
                 src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
-                                    group_m=_group_m(area, plan), on_error=failures, reencode_cached=False)
+                                    group_m=_group_m(area, plan), on_error=failures, reencode_cached=False,
+                                    listed=asked[k] if k == 0 else None)
                 reporter.next_plan()
             _count_missing(cache_dir, plans, rows)
             reporter.state["tiles_missing"] = missing = sum(row["missing"] for row in rows)

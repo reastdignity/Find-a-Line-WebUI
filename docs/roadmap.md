@@ -1698,6 +1698,19 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **No shell anywhere**: the worker calls `run_search()` directly.
 
 ## To check
+- **The check of cached tiles by folder for every search** (a possible improvement, noted on the user's word of
+  2026-11-18; docs/performance.md, "The check of cached tiles"). A pass of `tools/area_download.py` asks whether its
+  tiles' files are there by one listing per folder (`sources.layer.EXISTING`, `cache.due_many(exists=)`): Utah's
+  207 897 tiles on a share took 390 s file by file and 51 s by folder. A search, the web worker and the country
+  prefetch still ask file by file: the user chose the change for the downloads only, so that no search's path
+  changed. Making it the rule (`Layer.missing` always through `versions.existing`, also `cache.states`) is a small
+  step, since the helper and its threshold are there and already serve every search in one place
+  (`versions.existing`, `LISTING_FROM` 64 paths of a folder, behind both prunes), but it needs measuring first:
+  what the tiles of a search cost in a huge flat folder with that threshold (Poland's sheets lie in one folder per
+  model, tens of thousands of files once a country is downloaded: a search asking 64 of them would list them all),
+  the same on a local SSD
+  (where a question takes about 0.01 ms and nothing is to be gained), and the country prefetch on a share, which
+  is where it would pay; and the regression set as the proof that nothing else changed.
 - **Data faults met while measuring the line counts** (2026-11-10, the line-volume session; none checked further):
   - *Bełchatów's pit*: a straight north-south step of 20-30 m, one pixel wide and about 1.5 km long, along
     easting 510 904 (EPSG:2180); heights across one pixel 19 → 38 m, 10 → 31 m, 2 → 31 m. The 25 best spots of a

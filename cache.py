@@ -52,7 +52,7 @@ import tempfile
 import time
 import tomllib
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 LAYOUT = 1
 LOCKS = "locks"  # the lock files of downloads (sources.host_slot, tile_lock), not a dataset
@@ -457,21 +457,28 @@ def due(cache_dir: str, path: str, processing: int = 1, update: Optional[str] = 
 
 
 def due_many(cache_dir: str, paths: Iterable[str], processing: int = 1, update: Optional[str] = None,
-             ttl: Optional[int] = None) -> List[bool]:
+             ttl: Optional[int] = None,
+             exists: Optional[Callable[[List[str]], List[bool]]] = None) -> List[bool]:
     """due() of each of many files (the tiles of a layer), in their order: the same answers, with
     one connection per top-level folder instead of two per file (stale() reads the status and
-    checked_at of the row)."""
+    checked_at of the row).
+
+    exists: how the files are asked about, None for os.path.exists of each as ever; else a callable giving that
+    answer for each of a list of paths (sources.indexes.versions.existing: one listing of a folder instead of a
+    question a file). The tiles of a whole area on a network share: Utah's 207 897 took 463 s file by file and
+    38 s by folder (docs/performance.md, "The check of cached tiles"); tools/area_download.py asks so."""
     paths = list(paths)
     answers: List[Optional[bool]] = [None] * len(paths)
     by_top: Dict[str, List[int]] = {}
     for k, path in enumerate(paths):
         by_top.setdefault(_split(cache_dir, path)[0], []).append(k)
     for top, ks in by_top.items():
+        there = dict(zip(ks, exists([paths[k] for k in ks]))) if exists is not None else {}
         db = _connect(cache_dir, top)
         try:
             for k in ks:
                 inner = _split(cache_dir, paths[k])[1]
-                if _state(db, paths[k], inner, processing) is None:
+                if _state(db, paths[k], inner, processing, there.get(k)) is None:
                     answers[k] = True
                 elif not update or ttl is None:
                     answers[k] = False  # stale() without looking at the row
@@ -483,15 +490,25 @@ def due_many(cache_dir: str, paths: Iterable[str], processing: int = 1, update: 
     return answers
 
 
-def _state(db: sqlite3.Connection, path: str, inner: str, processing: int) -> Optional[str]:
+def _state(db: sqlite3.Connection, path: str, inner: str, processing: int,
+           there: Optional[bool] = None) -> Optional[str]:
     """state() on an open connection to the index of the file's top-level folder; a file adopted
-    (one without a row) is committed at once, as state() does."""
+    (one without a row) is committed at once, as state() does. there: whether the file exists, when the
+    caller asked already (due_many's `exists`); None: asked here. The caller's answer may be a minute old (the
+    folders of a whole area listed first): a file gone since, with no row, is to be downloaded, not an error;
+    one with an "ok" row counts as there until the next question."""
     row = db.execute("SELECT status, processing FROM files WHERE path = ?", (inner,)).fetchone()
     if row and row[1] is not None and row[1] != processing:
         return None  # made by another version of the processing: fetch again
-    if os.path.exists(path):
+    if os.path.exists(path) if there is None else there:
         if row is None:  # a file without a row is adopted
-            mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat(timespec="seconds")
+            try:
+                seconds = os.path.getmtime(path)
+            except FileNotFoundError:
+                if there is None:
+                    raise
+                return None  # listed, and deleted before its turn here
+            mtime = datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds")
             with db:
                 db.execute("INSERT INTO files (path, status, fetched_at, checked_at, processing) "
                            "VALUES (?, 'ok', ?, ?, ?)", (inner, mtime, mtime, processing))

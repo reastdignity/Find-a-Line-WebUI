@@ -4105,3 +4105,65 @@ On KOB and BAH (above), the same lines in a random order and in the order of `by
 representatives, but `lines.csv` not byte for byte (KOB 2 and 4 rows, BAH 66 767 and 63 094; equal when sorted).
 Inside a group, members tied in clearance and length keep the input's order. So the rows stay in the search's order
 and `by_spot` is stored.
+
+## The check of cached tiles (2026-11-18, tag `history/cached-check-speed`)
+
+A pass of `tools/area_download.py` lists the tiles under its outline and asks the cache about every one before it
+downloads anything, and at its end asks about them again to delete older surveys. On Utah's download (207 897 tiles
+of the 3DEP 1 m DEM, 202 444 files in 2 200 folders on a network share, the index on a local disk) the time from a
+pass's start to its first tile grew with the tiles already cached: 15 min with nothing cached, 25 min with 49 092
+tiles, 73 min with 199 466 (2026-11-06 and 2026-11-10, two other downloads writing to the same share; from the log
+and the history), and a pass pays it at every restart. The user: the whole USA as one download "takes very long
+time - both in total download time as well as listing files to download".
+
+### How it was measured
+`tools/perf_cached_check.py utah --state-dir <state> --data-dir <data> --work <scratch>` on the finished download:
+each step of a pass's questions apart, nothing downloaded, nothing deleted (the prune with `cache.forget` replaced
+by a counter). The share idle, the PC otherwise as noted; the outputs in the session's private folder
+(`local/area-split-2026-11-18/cached-check/`).
+
+### Step by step
+| Step, Utah's 207 897 tiles | Seconds | ms a tile | Lock |
+| --- | --- | --- | --- |
+| The plan of the search over the outline | 0.4-1.1 | | |
+| `layer.tiles`: the blocks from the 430 cached index answers | 7.0-9.6 | 0.04 | |
+| The tiles' paths | 0.3-0.4 | 0.002 | |
+| The files, `os.path.exists` of each (as `cache._state` asked) | 463 | 2.2 | shared |
+| The files, one `os.scandir` per folder: the same answers | 38 | 0.18 | shared |
+| The index rows, one SELECT a tile (as `cache._state` asks) | 3.6 | 0.017 | shared |
+| The index rows, one SELECT for the folder: the same answers | 1.5 | 0.007 | shared |
+| **`layer.to_download` file by file** (every search; a pass until this change, twice) | **390** | 1.9 | exclusive |
+| **`layer.to_download` by folder** (a pass since) | **51** | 0.25 | exclusive, run first: the share cold |
+| **The prune before** (`os.path.exists` a block, a listing of its folder a cached block) | **317** | 1.5 | shared |
+| The prune with one listing per folder for the others, a second for the files | 93 | 0.45 | shared, a full pytest beside it |
+| **The prune with one listing per folder for both** | **55** | 0.26 | shared |
+
+On a local SSD none of it matters: the 228 tiles of the District of Columbia took 0.014 ms a file one by one and 0.012 ms by folder (the scratch download of the real check).
+
+### What it means
+- Nearly all of the time is the question "is the file there" asked of the share once a tile: about 2 ms each on an
+  idle share, 10 ms and more while downloads write to it (the 73 min of 2026-11-10 are two checks of about 36 min).
+  The index rows, the listing of the tiles and the plan are seconds.
+- A pass asked twice before its first tile (`run_pass` for its counts, then `download_layers`) and a third time at
+  its end (the prune): on the idle share 2 x 390 + 317 s, 18 min a pass of Utah that had nothing to download.
+
+### What was built (the user's choices of 2026-11-18)
+- **For the downloads only**: a pass asks about the files by folder (`sources.layer.EXISTING` set to
+  `versions.existing` by `area_download.run_pass`, `cache.due_many(exists=)`: one listing of a folder from
+  `LISTING_FROM` 64 of its paths; a folder with fewer of the area's tiles is still asked file by file, which is
+  the 51 s against the 38 s of listings alone) and the source's own layers once (`download_layers(listed=)` takes
+  the answers `run_pass` got a moment before; a stand-in's layers, downloaded hours later, ask again). Utah's time
+  to the first tile, with everything cached: 2 x 390 s → 51 s. A search, the web worker and the country prefetch ask
+  as before: `EXISTING` is None there (the answers are the same either way,
+  `tests/test_units.py::test_cache_due_many_answers_as_due`). Making it every search's is in the roadmap ("To
+  check"), to be measured first.
+- A whole area's folders are listed up to a minute before a file's turn in the index: a file listed and deleted
+  meanwhile by another process, with no row, is to be downloaded (file by file that gap was microseconds; the
+  code review of 2026-11-18, `test_cache_due_many_takes_the_callers_word_for_the_files`); one with a row counts
+  as there until the next pass.
+- **For every caller**: `ComposedBlocks.prune` lists each folder once for all its blocks and both of its questions
+  (the files it finds and their order as before: `tests/test_parts.py::test_composed_prune_lists_a_folder_once`,
+  against the code of before; R22-R24 and R1-R5 unchanged, R13 skipped on this PC that day: the Slovak mirror
+  folder lacked its 1 m tiles). `NewestPerSheet.prune` was done the same way on 2026-11-07.
+- Not changed: what a pass downloads, and how fast (the connections of a host decide); the tiles, the index and
+  every result.
