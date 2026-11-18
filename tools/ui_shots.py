@@ -144,6 +144,15 @@ VIEW_READY = "wait:window.FINDALINE_VIEW"
 VIEW_AT = ("(() => { const {view, map} = window.FINDALINE_VIEW, c = view.model.data.columns, row = view.shownOf(view.order[0]); "
            "window.FINDALINE_MAP.setView([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2], "
            "map.zoomOf(%s), {animate: false}); })()")
+# Then (a step of its own: the bar has drawn the level the zoom gave) that line's middle moved up or down to the
+# middle of the part of the map a person sees between the switch and the bar's foot, as the view's own fit keeps it
+# (SpotColumns.tsx barPadding): VIEW_AT alone puts it in the middle of the map's box, which on a phone lies behind the
+# foot (c-view-area: P1 was not drawn there, the foot covering its line)
+VIEW_FREE = ("(() => { const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, c = view.model.data.columns, row = view.shownOf(view.order[0]); "
+             "const box = m.getContainer().getBoundingClientRect(), bar = document.querySelector('.v-switch').getBoundingClientRect(), "
+             "foot = document.querySelector('.v-foot').getBoundingClientRect(), "
+             "p = m.latLngToContainerPoint([(c.lat1.at(row) + c.lat2.at(row)) / 2, (c.lon1.at(row) + c.lon2.at(row)) / 2]); "
+             "m.panBy([0, Math.round(p.y - (bar.bottom + foot.top) / 2 + box.top)], {animate: false}); })()")
 VIEW_DO = "(() => { const {view, map} = window.FINDALINE_VIEW; %s; })()"  # a change of the view's model
 # A press where several spots lie about as near (found on the best spots' lines by the canvas's own answer, away from
 # the map's edges): on a phone the map zooms in around it, flashes the lines and says so
@@ -293,7 +302,7 @@ PAGES = {
     # 5 000 thin lines; Lines held far out; several spots under one press (a phone zooms in and says so); the map's own
     # controls open (the layers, the data credits). On a phone the view opens with the sheet low
     "c-view": ("c", "#run={run}", [VIEW_READY]),
-    "c-view-area": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6]),
+    "c-view-area": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 2.6, "js:" + VIEW_FREE]),
     "c-view-spots": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1]),
     "c-view-lines": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 0.3]),
     "c-view-best30": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_AT % 1, "js:" + VIEW_DO % "view.setBest(30)"]),

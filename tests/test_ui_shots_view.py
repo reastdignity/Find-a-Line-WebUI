@@ -56,6 +56,10 @@ def test_the_views_states():
     assert not set(ui_shots.VIEWS) & set(ui_shots.left_out_by_run(ui_shots.PAGES, {"view"}))
     # the steps' scripts name the page's own objects
     assert "window.FINDALINE_VIEW" in ui_shots.VIEW_AT and "map.zoomOf(1)" in ui_shots.VIEW_AT % 1
+    # c-view-area: the line then in the middle of the map's part between the switch and the bar's foot (a phone's
+    # foot covers the middle of the map's box: its number was not drawn)
+    assert ui_shots.PAGES["c-view-area"][2][-1] == "js:" + ui_shots.VIEW_FREE
+    assert ".v-switch" in ui_shots.VIEW_FREE and ".v-foot" in ui_shots.VIEW_FREE and "panBy" in ui_shots.VIEW_FREE
     assert "map.pickAt(" in ui_shots.VIEW_CROWDED and "view.setBest(30)" in ui_shots.VIEW_DO % "view.setBest(30)"
     # one state raises a phone's sheet to half (the view opens with it low)
     assert "js:" + ui_shots.VIEW_HALF in ui_shots.PAGES["c-view-half"][2] and "ArrowUp" in ui_shots.VIEW_HALF
