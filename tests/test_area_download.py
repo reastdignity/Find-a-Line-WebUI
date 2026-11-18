@@ -154,6 +154,46 @@ def test_pass_to_its_end(setup):
     assert (state["tiles_done"], state["mb"]) == (6, pytest.approx(12))  # the MB of the passes before stay
 
 
+def test_a_pass_asks_the_cache_once_and_by_folder(setup, monkeypatch):
+    """The tiles of a whole area: each layer's to_download once a pass (run_pass for its counts; download_layers
+    takes those answers), the files asked about by folder through sources.layer.EXISTING, which a search never
+    sets and a pass leaves as it was. A tile another process downloads between the question and the download is
+    not downloaded again."""
+    from sources.indexes import versions
+
+    class Counting(FakeLayer):
+        asked = 0
+
+        def to_download(self, grid, cache_dir, update):
+            Counting.asked += 1
+            Counting.how = src.layer.EXISTING
+            todo, line = super().to_download(grid, cache_dir, update)
+            if Counting.asked == 1:   # another download brings tile 0 right after the question
+                path = self.tile_path(cache_dir, 0)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                open(path, "wb").close()
+                cache.record(cache_dir, path)
+            return todo, line
+    assert src.layer.EXISTING is None
+    layer = Counting(6)
+    area = setup(layer)
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert Counting.asked == 1 and Counting.how is versions.existing
+    assert src.layer.EXISTING is None
+    assert sorted(layer.fetched) == [1, 2, 3, 4, 5]
+    state = ad.read_state(area.state_dir, "land")
+    assert state["layers"] == [{"label": "terrain", "tiles": 6, "to_download": 6, "missing": 0}]
+    # a search, and any other caller of download_layers, asks itself, file by file
+    Counting.asked = 0
+    src.download_layers([(Counting(6), "terrain")], _grid(), os.path.join(area.data_dir, "cache"))
+    assert Counting.asked == 1 and Counting.how is None
+    # a pass that stops gives the setting back too
+    monkeypatch.setattr(ad, "_one_pass", lambda area, number: (_ for _ in ()).throw(RuntimeError("broken")))
+    with pytest.raises(RuntimeError, match="broken"):
+        ad.run_pass(area, 2)
+    assert src.layer.EXISTING is None
+
+
 def test_pass_with_failed_tiles(setup):
     """The others are downloaded, the failed ones listed with their errors; the next pass asks only for those."""
     area = setup(FakeLayer(6, bad=[1, 4]))

@@ -337,18 +337,45 @@ class ComposedBlocks(Versions):
                 blocks.append(block)
         return sorted(blocks, key=lambda b: (not _same_crs(b.crs, grid.crs), -b.year, b.crs, b.j, b.i))
 
-    def _others(self, cache_dir: str, block: Block) -> List[str]:
-        """The cached files of the same block made from other sets of files."""
+    def _others(self, cache_dir: str, block: Block,
+                folders: Optional[Dict[str, Dict[tuple, List[Tuple[str, str]]]]] = None,
+                listings: Optional[Dict[str, Optional[Dict]]] = None) -> List[str]:
+        """The cached files of the same block made from other sets of files, in the folder's order. folders: the
+        blocks' files of the folders listed so far, (i, j): [(path, key)], kept between the blocks of one prune
+        (filled here): a folder holds a hundred blocks, and was listed and matched again for each. listings:
+        existing()'s listings of the folders it listed (their entries in the order the system gave them, as
+        os.listdir gives the names): such a folder is not listed again."""
         folder = os.path.dirname(self.path(cache_dir, block))
-        found = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
-        return [p for p in found if (b := self._block_of(p)) is not None and (b.i, b.j) == (block.i, block.j)
-                and b.key != block.key]
+        found = None if folders is None else folders.get(folder)
+        if found is None:
+            found = {}
+            entries = (listings or {}).get(folder)
+            if entries is not None:
+                names = [entry.name for entry in entries.values()]
+            else:
+                names = os.listdir(folder) if os.path.isdir(folder) else []
+            for name in names:
+                path = os.path.join(folder, name)
+                b = self._block_of(path)
+                if b is not None:
+                    found.setdefault((b.i, b.j), []).append((path, b.key))
+            if folders is not None:
+                folders[folder] = found
+        return [path for path, key in found.get((block.i, block.j), ()) if key != block.key]
 
     def prune(self, cache_dir: str, tiles: List[Block]) -> int:
+        """Delete the cached files of the blocks' other sets of files, for the blocks whose own file is cached;
+        how many. The blocks' files asked about through existing() and each folder listed once for all its
+        blocks and both questions: file by file and a listing a block, the blocks of a whole area
+        (tools/area_download.py: Utah's 207 897 on a share) took 317 s at the end of every pass
+        (docs/performance.md, "The check of cached tiles"). The same files as before, in the same order
+        (tests/test_parts.py)."""
+        folders: Dict[str, Dict[tuple, List[Tuple[str, str]]]] = {}
+        listings: Dict[str, Optional[Dict]] = {}
         older = []
-        for block in tiles:
-            if os.path.exists(self.path(cache_dir, block)):
-                older += self._others(cache_dir, block)
+        for block, there in zip(tiles, existing([self.path(cache_dir, b) for b in tiles], listings=listings)):
+            if there:
+                older += self._others(cache_dir, block, folders, listings)
         cache.forget(cache_dir, older)
         return len(older)
 

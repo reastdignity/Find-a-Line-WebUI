@@ -683,6 +683,65 @@ def test_download_layers_with_a_grid_per_layer(tmp_path, capsys):
     assert "Fake: 3 tiles (0 cached, 3 to download)" in out and "Fake: 2 tiles (0 cached, 2 to download)" in out
 
 
+def test_composed_prune_lists_a_folder_once(tmp_path, monkeypatch):
+    """ComposedBlocks.prune deletes exactly the files the per-block code of before deleted (os.path.exists of
+    every block's file, then a listing of its folder for each cached block), in the same order, whether
+    existing() lists the folders or asks file by file; and each folder is listed once for the others, however
+    many of its blocks are cached."""
+    from sources.indexes import versions as vs
+
+    def old_prune(policy, cache_dir, tiles):  # the code of before (main a86b86e8), without the deletion
+        older = []
+        for block in tiles:
+            if os.path.exists(policy.path(cache_dir, block)):
+                folder = os.path.dirname(policy.path(cache_dir, block))
+                found = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
+                older += [p for p in found if (b := policy._block_of(p)) is not None
+                          and (b.i, b.j) == (block.i, block.j) and b.key != block.key]
+        return older
+
+    for listing_from in (1, 10 ** 9):
+        monkeypatch.setattr(vs, "LISTING_FROM", listing_from)
+        rng = np.random.default_rng(5)
+        cache_dir = str(tmp_path / f"cache{listing_from}")
+        policy = vs.ComposedBlocks("t/blocks", 1000, 1.0)
+        tiles = []
+        for i in range(395, 425):          # four folders across i // 10
+            for j in range(4400, 4405):
+                keys = [f"{k:08x}" for k in rng.integers(0, 16 ** 8, int(rng.integers(1, 4)))]
+                versions = [vs.Block("EPSG:26912", i, j, 1000, 2015 + n, key) for n, key in enumerate(keys)]
+                tiles.append(versions[-1])
+                for block in versions:
+                    if rng.random() < 0.6:
+                        path = policy.path(cache_dir, block)
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        open(path, "wb").close()
+        tiles.append(vs.Block("EPSG:26911", 700, 4400, 1000, 2020, "0000aaaa"))   # a folder that is not there
+        stray = os.path.join(os.path.dirname(policy.path(cache_dir, tiles[0])), "notes.txt")
+        open(stray, "wb").close()          # not a block's file: never an "other"
+        expected = old_prune(policy, cache_dir, tiles)
+        deleted, listed, scanned = [], [], []
+        monkeypatch.setattr(vs.cache, "forget", lambda c, paths: deleted.extend(paths))
+        listdir, scandir = os.listdir, os.scandir
+        monkeypatch.setattr(vs.os, "listdir", lambda p: listed.append(p) or listdir(p))
+        monkeypatch.setattr(vs.os, "scandir", lambda p: scanned.append(p) or scandir(p))
+        assert policy.prune(cache_dir, tiles) == len(expected) and deleted == expected and len(expected) > 20
+        monkeypatch.setattr(vs.os, "listdir", listdir)
+        monkeypatch.setattr(vs.os, "scandir", scandir)
+        asked = {os.path.dirname(policy.path(cache_dir, b)) for b in tiles}
+        cached = {os.path.dirname(policy.path(cache_dir, b)) for b in tiles
+                  if os.path.exists(policy.path(cache_dir, b))}
+        assert len(asked) == 5 and len(cached) == 4
+        if listing_from == 1:   # existing() lists every folder asked about, and that listing serves the others
+            assert sorted(scanned) == sorted(asked) and listed == []
+        else:                   # file by file: each folder with a cached block listed once, not once a block
+            assert scanned == [] and sorted(listed) == sorted(cached)
+        assert os.path.exists(stray)
+    # a caller without the memo (none in the code today) lists as before
+    block = next(b for b in tiles if os.path.exists(policy.path(cache_dir, b)))
+    assert policy._others(cache_dir, block) == policy._others(cache_dir, block, {})
+
+
 def test_prune_asks_a_folder_once(tmp_path, monkeypatch):
     """NewestPerSheet.prune deletes exactly the files of the other surveys the per-file code of before
     deleted (os.path.exists of every cached sheet and then of its other surveys), whether existing()

@@ -602,7 +602,11 @@ start with a ZIP's local header) for `S3SheetSets`, first in `STRATEGIES` (as an
 
 Data folder (`cache/`, `runs/`, `work/`), cache layout, `index.sqlite` per top-level folder (`due` of one file on one
 connection, `due_many` of a layer's tiles on one per top-level folder: `Layer.missing`; the answers of before,
-`tests/test_units.py::test_cache_due_many_answers_as_due`; `states` likewise for `state`: `prepare_layer`,
+`tests/test_units.py::test_cache_due_many_answers_as_due`; its `exists`, how the files are asked about: None,
+`os.path.exists` of each, for every search, or a callable for all of a top-level folder's at once, which
+`Layer.missing` takes from `sources.layer.EXISTING` and only a pass of `tools/area_download.py` sets, to
+`versions.existing`, one listing per folder: the tiles of a whole area on a share, docs/performance.md, "The check
+of cached tiles"; `states` likewise for `state`: `prepare_layer`,
 `water_body_mask`); `migrate` (schema versions of the SQLite databases, `PRAGMA user_version`); `reencoded` (a tile
 written again in the current encoding: the row's sha256 only, its times kept); `runs_lock` (`runs/_runs.lock`, a
 filelock: `mapping.install_viewer` and `runs.write_index` take it, one process at a time; two compute slots saving
