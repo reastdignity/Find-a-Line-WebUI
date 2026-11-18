@@ -115,13 +115,13 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-portugal": "Portugal (4)",
             "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
-            "group-north-america": "North America (19)", "group-north-america-canada": "Canada (4)",
+            "group-north-america": "North America (81)", "group-north-america-canada": "Canada (17)",
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
-            "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
+            "group-north-america-united-states": "United States (54)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
             "group-asia": "Asia (4)", "group-asia-japan": "Japan (2)", "group-africa": "Africa (2)",
             "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 84
+        assert len(app.area_rows()) == 146   # 83 areas of the map, 50 states, 13 provinces and territories
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]
@@ -130,8 +130,11 @@ def test_the_whole_list_by_continent_and_country(settings):
         assert app.row_of("france-french-guiana").parent.parent.id == "group-south-america"
         assert str(app.row_of("france-french-guiana").query_one(".name").render()) == "France: French Guiana"
         assert str(app.row_of("netherlands-saba").query_one(".name").render()) == "Saba"
-        assert [row.row.name for row in _group(app, "North America", "United States").query(tui.AreaRow)] == [
-            "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+        states = [row.row.name for row in _group(app, "North America", "United States").query(tui.AreaRow)]
+        assert states[:3] == ["united-states", "united-states-alabama", "united-states-alaska"]
+        assert states.count("utah") == 1 and "united-states-utah" not in states   # the extra, not the part again
+        assert str(app.row_of("united-states-texas").query_one(".name").render()) == "Texas"
+        assert str(app.row_of("canada-alberta-nrcan").query_one(".name").render()) == "Alberta · canada"
         assert str(app.row_of("italy").query_one(".name").render()) == "Whole country · tinitaly"
         assert str(app.row_of("germany-bavaria").query_one(".name").render()) == "Bavaria"
         assert [row.row.name for row in _group(app, "Europe", "Portugal").query(tui.AreaRow)] == [
@@ -522,6 +525,7 @@ def test_the_state_comes_from_the_state_folder(settings):
 @pytest.mark.parametrize("stage, message, failed, text", [
     ("needs attention", "3 tiles failed", 3, "needs attention: 3 tiles failed"),
     ("waiting", "index down", 0, "waiting: index down"),
+    ("queued", "waiting for its turn among the downloads of the queue usa", 0, "queued, 40 % downloaded"),
     ("stopped", "", 0, "stopped"),
     ("done", "", 2, "done, 2.5 GB, 2 failed"),
 ])

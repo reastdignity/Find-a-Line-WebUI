@@ -173,9 +173,56 @@ def test_the_order_continent_country_then_the_whole_country_first(settings):
     assert europe == sorted(europe, key=lambda name: ar.anyascii(name).lower())
     assert [row.label for row in rows if row.country == "Italy"] == [
         "Whole country · tinitaly", "Aosta Valley", "Sardinia", "South Tyrol", "Trentino", "Tuscany"]
-    assert [row.name for row in rows if row.country == "United States"] == [
-        "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+    states = [row.name for row in rows if row.country == "United States"]
+    assert len(states) == 54 and states[:4] == [
+        "united-states", "united-states-alabama", "united-states-alaska", "united-states-arizona"]
+    assert states[states.index("united-states-pennsylvania"):][:3] == [
+        "united-states-pennsylvania", "puerto-rico", "united-states-rhode-island"]
+    assert states[states.index("united-states-texas"):][:4] == [
+        "united-states-texas", "u-s-virgin-islands", "utah", "united-states-vermont"]
+    assert [row.label for row in rows if row.country == "Canada"][:5] == [
+        "Whole country · canada", "Alberta · canada", "British Columbia", "British Columbia · canada",
+        "Manitoba · canada"]
     assert [row.name for row in rows if row.country == "Finland"] == ["finland", "aland"]
+
+
+def test_the_parts_of_a_country_wide_source():
+    """The states of the USA and the provinces of Canada: rows of their country's source, no areas of the map. The
+    names Nominatim reads as a city are spelled its way (checked 2026-11-18)."""
+    rows = ar.parts()
+    names = [row.name for row in rows]
+    assert len(rows) == 63 and len(set(names)) == 63
+    assert not set(names) & {row.name for row in ar.catalogue()}
+    texas = _row(rows, "united-states-texas")
+    assert (texas.title, texas.area, texas.source) == ("United States: Texas", "osm:Texas, United States", "usa")
+    assert (texas.continent, texas.country, texas.label) == ("North America", "United States", "Texas")
+    assert (texas.resolution, texas.surface, texas.km2) == (1.0, False, 676587)
+    assert _row(rows, "united-states-new-york").area == "osm:New York State, United States"
+    assert _row(rows, "united-states-washington").area == "osm:Washington State, United States"
+    assert _row(rows, "united-states-district-of-columbia").area == "osm:District of Columbia, United States"
+    assert sum(row.source == "usa" for row in rows) == 50 and "united-states-alaska" not in names
+    alberta = _row(rows, "canada-alberta-nrcan")
+    assert (alberta.title, alberta.area, alberta.source) == ("Canada: Alberta (NRCan)", "osm:Alberta, Canada", "canada")
+    assert (alberta.continent, alberta.country, alberta.label) == ("North America", "Canada", "Alberta · canada")
+    assert alberta.surface and sum(row.source == "canada" for row in rows) == 13
+    # beside the regions of the map of the same provinces, which keep their names and sources
+    assert _row(rows, "canada-british-columbia-nrcan").source == "canada"
+    assert _row(ar.catalogue(), "canada-british-columbia").source == "british_columbia"
+    assert _row(ar.catalogue(), "canada-nunavut").source == "nunavut" and "canada-nunavut-nrcan" in names
+
+
+def test_a_part_that_ran_under_another_name_keeps_it(tmp_path):
+    """Utah was downloaded as the settings' extra `utah`: the part has that name, never united-states-utah, and
+    settings that still name the extra show the extra's row once."""
+    names = [row.name for row in ar.parts()]
+    assert "utah" in names and "united-states-utah" not in names
+    assert all(row.name == ar.PART_NAMES.get(row.title, ar.slug(row.title)) for row in ar.parts())
+    plain = ar.rows_of(ar.load_settings(_write(tmp_path)))
+    assert len(plain) == len(ar.catalogue()) + 63 and len({row.name for row in plain}) == len(plain)
+    assert (_row(plain, "utah").area, _row(plain, "utah").km2) == ("osm:Utah, United States", 212818)
+    with_extra = ar.rows_of(ar.load_settings(_write(tmp_path, extra=[UTAH], rows={"utah": {"target": "NAS"}})))
+    assert len(with_extra) == len(plain) and [row.name for row in with_extra].count("utah") == 1
+    assert (_row(with_extra, "utah").area, _row(with_extra, "utah").km2) == ("osm:Utah", 219900)
 
 
 @pytest.mark.parametrize("entry, country, label", [
@@ -473,6 +520,9 @@ def test_the_command_is_the_one_by_hand(settings, monkeypatch):
     assert area.data_dir == _nas(settings).data_dir and area.state_dir == settings.state_dir
     assert area.min_free_gb == 200 and area.host_slots == (("opendata.geoportal.gov.pl", 2),)
     assert "--number" in passes
+    assert area.queue == "geoportal"   # the rows of one source in turn: the states of the USA all wait for `usa`
+    texas = ar.command_of(_row(ar.rows_of(settings), "united-states-texas"), _nas(settings), settings)
+    assert texas[texas.index("--queue") + 1] == "usa" and "osm:Texas, United States" in texas
 
 
 def test_the_memory_budget_of_a_target_and_a_row(tmp_path):

@@ -32,7 +32,7 @@ STATE_SECONDS = 2
 FREE_SECONDS = 60
 STARTING_SECONDS = 30       # a row started shows "starting" until its state says more, at most this long
 BAR_CELLS = 8
-LIVE = ("listing", "downloading", "waiting")
+LIVE = ("listing", "downloading", "waiting", "queued")   # queued: its supervisor waits for its source's turn
 SINGLE_ROW_COUNTRY_LEVEL = False  # a country of one row sits in its continent, by its title; True: a group of its own
 FOLD_AT_START = True   # a country's group folded at start unless one of its rows has a download's state; False: all open
 
@@ -58,6 +58,8 @@ def state_text(state: Dict) -> str:
         text = f"done, {state['gb']:.1f} GB" if state["gb"] >= 1 else f"done, {1000 * state['gb']:.0f} MB"
     elif stage in ("waiting", "needs attention") and state["message"]:
         text = f"{stage}: {state['message']}"
+    elif stage == "queued":   # its turn comes after the rows of its source started before it
+        text = "queued" if not state["share"] else f"queued, {100 * state['share']:.0f} % downloaded"
     else:
         text = stage
     if state["failed"] and stage != "needs attention":
