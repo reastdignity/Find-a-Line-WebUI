@@ -4106,7 +4106,7 @@ representatives, but `lines.csv` not byte for byte (KOB 2 and 4 rows, BAH 66 767
 Inside a group, members tied in clearance and length keep the input's order. So the rows stay in the search's order
 and `by_spot` is stored.
 
-## The check of cached tiles (2026-11-18, branch `cached-check-speed`)
+## The check of cached tiles (2026-11-18, tag `history/cached-check-speed`)
 
 A pass of `tools/area_download.py` lists the tiles under its outline and asks the cache about every one before it
 downloads anything, and at its end asks about them again to delete older surveys. On Utah's download (207 897 tiles
