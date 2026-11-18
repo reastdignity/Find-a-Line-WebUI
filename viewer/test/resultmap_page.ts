@@ -24,7 +24,7 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
   try {
     const failed = await loadRun("no such run").then(() => false, () => true);
     const data = await loadRun(runId);
-    out.load = {failed, lines: data.columns.length, cleared: window.FINDALINE_RUN === undefined,
+    out.load = {failed, lines: data.columns.length,
                 cached: (await loadRun(runId)) === data};
     const div = document.createElement("div");
     div.id = "map";

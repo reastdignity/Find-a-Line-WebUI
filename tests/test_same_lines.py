@@ -566,8 +566,9 @@ run({
 });
 """
 
-# The first line of the run made tight (0.99 m) and the highest on average, so its spot is the list's first row
-TIGHT_LINE = "FINDALINE_RUN.lines[0][9] = 0.99; FINDALINE_RUN.lines[0][17] = 10000;"
+# The first line of the run made tight (0.99 m) and the highest on average, so its spot is the list's first row (the
+# store's columns: test_web.store_with)
+TIGHT_LINE = {"clr": 0.99, "hmean": 10000}
 
 
 def _spaced(n: int) -> str:
@@ -594,14 +595,14 @@ def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
         run_id = tw._clip_run(tmp_path, monkeypatch, "--name", name, *extra)
         folder = tmp_path / "runs" / run_id
         page = tw._map_page(folder, "square_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN,
-                            after_data=TIGHT_LINE)
+                            first=TIGHT_LINE)
         r = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile=f"edge-{name}"))
         assert "timeout" not in r and r["at"] == "end" and "error" not in r, r
         results[name] = (r, json.loads(_read(str(folder), "run.json"))["summary"])
     # the run without the option, its head given a count of found lines: a run made with the square rule without
     # the no-fall zone and A-frames (no new search)
     page = tw._map_page(folder, "plain_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN,
-                        after_data=TIGHT_LINE + " FINDALINE_RUN.found = 12345; FINDALINE_RUN.square = 5;")
+                        head={"found": 12345, "square": 5}, first=TIGHT_LINE)
     plain = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile="edge-plain"))
     assert "timeout" not in plain and plain["at"] == "end" and "error" not in plain, plain
     assert plain["foundLine"] == f"{_spaced(12345)} found. Why so many?" and plain["counts"] is None, plain

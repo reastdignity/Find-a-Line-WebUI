@@ -53,11 +53,10 @@ tests that start Edge).
   depend on it. Locally the one user is `LOCAL` and `FINDALINE_LIMIT_*` apply as before (`web.unlimited` is False
   without `--public`).
 - `web.RUN_FILES` (the files of a run the public site serves) and what `search.save_run` writes (`map.html`,
-  `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`; old runs also hold `data.js`, `lines.js`, `lines.csv`,
-  `lines.geojson`, which stay in it until store wave 4's item 5): a new file a map needs goes into both, a file with
-  the owner's details (`run.json`) or work state (`progress.json`, `tiles/`) into neither.
-  `web.SIZED_FILES` carry `web.SIZE_HEADER`, the name `viewer/src/download.ts` `SIZE_HEADER` reads
-  (`tests/test_viewer.py::test_run_script_parsed_and_body_sized`). An export (`jobs.quick_export`) lives only in
+  `ATTRIBUTION.txt`, the store `lines.arrow`, `profiles.arrow`; since store wave 4's item 5 nothing of the text files
+  of runs of before): a new file a map needs goes into both, a file with the owner's details (`run.json`) or work
+  state (`progress.json`, `tiles/`) into neither. `web.SIZED_FILES` (the store's two files) carry
+  `web.SIZE_HEADER`, the name `viewer/src/download.ts` `SIZE_HEADER` reads (`tests/test_viewer.py::test_body_sized`). An export (`jobs.quick_export`) lives only in
   `work/exports/` as `<run id>-<token>.<ext>` until its one GET deletes it: never in a run folder, `RUN_FILES` or a
   run's `bytes`; `web.EXPORT_NAME` follows `jobs.EXPORT_TOKEN_BYTES`, `EXPORT_EXTENSIONS` (`tests/test_export.py`).
   `window.FINDALINE_APP` (`profiles`: may the map

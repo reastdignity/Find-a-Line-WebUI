@@ -13,7 +13,8 @@ import type { SpotView } from "../src/result/spots";
 import { clipper } from "../src/result/viewgeom";
 import { opensView, SpotColumns, viewWanted } from "../src/result/view/SpotColumns";
 import type { SpotPanels } from "../src/result/view/SpotPanels";
-import { lineColumns, type LineRow, type RunData, type RunHead } from "../src/types";
+import type { RunData, RunHead } from "../src/types";
+import { lineColumns, type LineRow } from "./rows";
 
 interface Made { rows: LineRow[]; head: RunHead; view: {spot: number[]; top: number[]; by_spot: number[]} }
 

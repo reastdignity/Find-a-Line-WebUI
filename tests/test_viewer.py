@@ -28,13 +28,19 @@ pytestmark = pytest.mark.skipif(
     reason="needs Node and `npm install` in viewer/")
 
 
+# The modules whose units read made-up rows (data.js's, lines.js's): bundled with the tests' rows reader
+# (viewer/test/rows.ts: toLine, lineColumns, runData; the page reads a run from its store alone since store wave 4)
+ROW_ENTRIES = {"types": "test/types_rows.ts", "result/model": "test/model_rows.ts"}
+
+
 def run_ts(tmp_path, module: str, script: str, bundles=None):
     """Bundle viewer/src/<module>.ts for Node and run script with it as `m`; returns its JSON output.
     bundles: more modules bundled beside it ({name: module}: <tmp_path>/<name>.cjs)."""
     bundle = tmp_path / f"{module}.cjs"
     for name, source in [(module, module), *(bundles or {}).items()]:
         out = tmp_path / f"{name}.cjs"
-        subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/{source}.ts'], bundle: true, "
+        entry = ROW_ENTRIES.get(source, f"src/{source}.ts")
+        subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['{entry}'], bundle: true, "
                                       f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(out))}}})"],
                        cwd=VIEWER, check=True)
     path = tmp_path / f"{module}-test.cjs"
@@ -536,8 +542,8 @@ def test_bundle_is_built_from_sources(tmp_path):
 
 
 def test_ortho_attribution_url(tmp_path):
-    """data.js names the orthophoto's attribution link when its service has one (layers.ts makes the
-    attribution a link to it), and leaves the field out otherwise, as in the maps of before."""
+    """The run's head (mapping.map_head: its store's) names the orthophoto's attribution link when its service has
+    one (layers.ts makes the attribution a link to it), and leaves the field out otherwise, as in the maps of before."""
     from types import SimpleNamespace
 
     from shapely.geometry import Point
@@ -556,10 +562,7 @@ def test_ortho_attribution_url(tmp_path):
                                   base_max_zoom=18, **({"attribution_url": url} if url else {}))
         folder = tmp_path / ("with" if url else "without")
         folder.mkdir()
-        mapping.save_map(helpers.LineTable.empty(), Area, str(folder), str(tmp_path / "runs"), run, "EPSG:2180",
-                         ortho_service=service)
-        text = (folder / "data.js").read_text(encoding="utf-8")
-        found.append(json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["ortho"])
+        found.append(mapping.map_head(Area, str(folder / "map.html"), run, "EPSG:2180", ortho_service=service)["ortho"])
     assert found[0]["attribution_url"] == "https://example.org/terms" and found[0]["attribution"] == "© Test"
     assert "attribution_url" not in found[1]
 
@@ -768,7 +771,7 @@ def test_result_model(tmp_path, clip_data):
     data_path = tmp_path / "data.json"
     data_path.write_text(text, encoding="utf-8")
     bundle = tmp_path / "model.cjs"
-    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['src/result/model.ts'], bundle: true, "
+    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/model_rows.ts'], bundle: true, "
                                   f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
                    cwd=VIEWER, check=True)
     script = tmp_path / "model-test.cjs"
@@ -918,7 +921,7 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
     data_path.write_text(json.dumps(data), encoding="utf-8")
     entry = tmp_path / "entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/result/model";\nexport {{ lineFacts, ordinal }} from '
+    entry.write_text(f'export * from "{src}/../test/model_rows";\nexport {{ lineFacts, ordinal }} from '
                      f'"{src}/result/view/LineDetails";\n', encoding="utf-8")
     bundle = tmp_path / "filters.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
@@ -959,7 +962,7 @@ def test_elevation_and_percentile_filters(tmp_path, clip_data):
 def _columns_bundle(tmp_path):
     entry = tmp_path / "columns_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ formatValue, sortKey, sortRows }} from "{src}/list";\n'
                      f'export {{ passes, range, needClass, liftNeed, dh, lowerAnchor, upperAnchor, wallAngle, prominence, '
@@ -1296,11 +1299,12 @@ def _store_bundle(tmp_path):
     """The columns' bundle (_columns_bundle) with result/load.ts's store reader."""
     entry = tmp_path / "store_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\nexport {{ groupLines }} from "{src}/grouping";\n'
                      f'export {{ passes, range, dh, lowerAnchor, upperAnchor, wallAngle, prominence, drop }} '
                      f'from "{src}/filters";\n'
-                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, NewerStore, '
+                     f'export {{ readStore, storedProfiles, storeOf, parseLoose, loadOtherRun, loadRun, loadRunLines, '
+                     f'NewerStore, '
                      f'StoreFailed, TooLarge, STORE_FORMAT }} '
                      f'from "{src}/result/load";\n', encoding="utf-8")
     bundle = tmp_path / "store.cjs"
@@ -1328,14 +1332,16 @@ def _store_head(lines, ends: bool, square: bool, nan_mean: bool = False) -> dict
 
 
 def _store_and_script(folder, lines, head) -> dict:
-    """lines.arrow and profiles.arrow (linestore.write) and data.js (mapping.write_map_scripts) of one LineTable
-    in `folder`; returns run.json's block "store"."""
+    """lines.arrow and profiles.arrow (linestore.write) and data.js (tests/old_scripts.py, the frozen writer of
+    before store wave 4's item 5: the rows the tests read into columns) of one LineTable in `folder`; returns
+    run.json's block "store"."""
     import linestore
+    import old_scripts
     folder.mkdir(parents=True, exist_ok=True)
     block = linestore.write(str(folder), lines, head)
-    heads = (mapping._script_head("window.FINDALINE_RUN", {**head, "lines": None}),
-             mapping._script_head("window.X", {"lines": None}))
-    mapping.write_map_scripts(lines, str(folder), heads, files=("data.js",))
+    heads = (old_scripts._script_head("window.FINDALINE_RUN", {**head, "lines": None}),
+             old_scripts._script_head("window.X", {"lines": None}))
+    old_scripts.write_map_scripts(lines, str(folder), heads, files=("data.js",))
     return block
 
 
@@ -1401,11 +1407,25 @@ function same(a, b) {
 }
 const api = {loadFavourites: async () => [], saveFavourite: async () => {}, profile: async () => { throw new Error("no"); }};
 const key = (l) => m.lineCoords(l);
+// Python's reading of each store (linestore.read): a store column's values by its name, NaN, ±Infinity and -0 as text
+const reference = JSON.parse(fs.readFileSync(process.argv[3], "utf-8"));
+const decode = (v) => v === "NaN" ? NaN : v === "Infinity" ? Infinity : v === "-Infinity" ? -Infinity : v === "-0" ? -0 : v;
 const out = {};
 for (const [name, folder] of Object.entries(cases)) {
   const linesBytes = bytes(folder + "/lines.arrow");
   const store = m.readStore(linesBytes, bytes(folder + "/profiles.arrow"));
   const data = script(folder + "/data.js"), cols = store.columns, bad = [], cursor = new m.LineCursor(cols);
+  // every value the page reads is Python's (null where data.js wrote null for a missing value: NULL_WHEN_MISSING)
+  const python = [];
+  for (const [column, values] of Object.entries(reference[name])) {
+    values.forEach((v, i) => {
+      let want = decode(v);
+      if (column === "over") want = want === true || want === 1;
+      else if (m.NULL_WHEN_MISSING.includes(column) && Number.isNaN(want)) want = null;
+      const got = m.lineAt(cols, i)[column];
+      if (!Object.is(got, want)) python.push([i, column, String(want), String(got)]);
+    });
+  }
   // The view's keys (view B1: sectors, box, lengths) are in a new run's store only, not in its data.js, and so are
   // the view's columns as the reader hands them on (`view`, step 3b: test_view_columns.py says what it holds)
   const {columns, sectors, box, lengths, view, ...head} = store, {lines, ...want} = data;
@@ -1425,7 +1445,8 @@ for (const [name, folder] of Object.entries(cases)) {
   // Without a copy: the columns are views of the downloaded bytes (only int64/uint64 ones are copied)
   const shared = Object.entries(cols).filter(([, v]) => v && v.values && v.values.length && v.values.buffer === linesBytes)
     .map(([k]) => k).concat(cols.over.buffer === linesBytes ? ["over"] : []);
-  out[name] = {bad: bad.slice(0, 20), n: data.lines.length, length: cols.length, head: same(head, want), types, shared,
+  out[name] = {bad: bad.slice(0, 20), python: python.slice(0, 20), columns: Object.keys(reference[name]).length,
+               n: data.lines.length, length: cols.length, head: same(head, want), types, shared,
                profiles: data.lines.filter((r) => r[r.length - 1] !== null && typeof r[r.length - 1] === "object").length};
   if (!data.lines.length) continue;
   // The page's model on the store and on data.js's rows (the columns of wave 1): the same spots, lines and counts
@@ -1474,11 +1495,11 @@ def clip_folder(tmp_path_factory):
 
 
 def _clip_folder(tmp_path_factory, name: str):
-    """A copy of the folder of clip_data's run (the search runs once per session), a run of before store wave 4:
-    its data.js, lines.js and text files beside its store (tests/old_runs.py "with_text"), which these tests of the
-    page's reader of data.js compare the store with until item 5."""
+    """A copy of the folder of clip_data's run (the search runs once per session) with its data.js and lines.js
+    beside its store, as the search wrote them before store wave 4 (tests/old_scripts.py): the rows these tests read
+    into columns (viewer/test/rows.ts) as the reference of the page's store reader."""
     import clip_runs
-    import old_runs
+    import old_scripts
     tests_data = os.path.join(REPO, "tests", "data")
     data = clip_runs.data_copy(tmp_path_factory, name, [
         "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
@@ -1487,12 +1508,37 @@ def _clip_folder(tmp_path_factory, name: str):
         "--ortho", "never"])
     folder = next((data / "runs").glob("*/run.json")).parent
     if not (folder / "data.js").is_file():
-        old_runs.make_old(folder, "with_text")
+        old_scripts.write_scripts(folder)
     return folder
 
 
+def python_reference(cases: dict, tmp_path):
+    """Python's reading of each case's store (linestore.read, Q5-3: the page's reference since store wave 4's item 5)
+    as a JSON file for STORE_SCRIPT: {case: {the store's column: its values}}, NaN, ±Infinity and -0 as text."""
+    import math
+    import linestore
+
+    def text(v):
+        v = v.item() if hasattr(v, "item") else v
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v) or (v == 0 and math.copysign(1, v) < 0)):
+            return "NaN" if math.isnan(v) else "-0" if v == 0 else ("Infinity" if v > 0 else "-Infinity")
+        return v
+    reference = {}
+    for name, folder in cases.items():
+        lines, _ = linestore.read(str(folder), profiles=False)
+        reference[name] = {}
+        for store_name, column, index, _, _ in linestore.COLUMNS:
+            if column in lines.columns:
+                values = lines.columns[column] if index is None else lines.columns[column][:, index]
+                reference[name][store_name] = [text(v) for v in values]
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(reference), encoding="utf-8")
+    return path
+
+
 def test_store_gives_the_rows_values(tmp_path, store_cases):
-    """result/load.ts readStore: a run's store (lines.arrow, profiles.arrow) gives every Line value, the profile
+    """result/load.ts readStore: a run's store (lines.arrow, profiles.arrow) gives every value Python's reading of it
+    gives (linestore.read: the reference since store wave 4's item 5, Q5-3), and every Line value, the profile
     and the head data.js of the same lines gives (Object.is: -0, NaN, null as data.js shows them: clrN, prom, drop
     null, hmean, highPct, angles NaN), the same keys.lineCoords (favourites, links), the columns as views of the
     downloaded bytes; the page's model on it gives data.js's spots, lines and counts under every filter and
@@ -1504,8 +1550,9 @@ def test_store_gives_the_rows_values(tmp_path, store_cases):
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps({name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}),
                           encoding="utf-8")
-    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases_path)
+    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases_path, python_reference(store_cases, tmp_path))
     for name, case in out.items():
+        assert case["python"] == [] and case["columns"] >= 25, (name, case["python"])
         assert case["bad"] == [], (name, case["bad"])
         assert case["head"], name
         assert case["n"] == case["length"], name
@@ -1598,28 +1645,29 @@ globalThis.window = globalThis;
 globalThis.XMLHttpRequest = FakeXHR;
 globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
 globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
-// data.js that JSON.parse refuses (NaN) is loaded as a script: evaluated here
-globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {
-  const [, run, file] = /\/runs\/([^/]+)\/([^/]+)$/.exec(s.src);
-  setTimeout(() => { new Function("window", fs.readFileSync(cases[run] + "/" + file, "utf-8"))(window); s.onload(); });
-}}};
 const block = {format: 1, lines: 0, bytes: 0, sha256: ""};
 const info = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
-// the page's list of runs (map.html's ../runs.js): every case listed with its block, "older" with a newer format
-window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, block))
+// the page's list of runs (map.html's ../runs.js): every case listed with its block but "wide" (listed without it),
+// "older" with a newer format
+window.FINDALINE_RUNS = Object.keys(cases).filter((id) => id !== "older").map((id) => info(id, id === "wide" ? null : block))
   .concat([info("older", {...block, format: m.STORE_FORMAT + 1})]);
-const linesJs = (id) => Promise.resolve({lines: [], crs: "", area: null, from: "lines.js of " + id});
+// the console's warnings (StoreFailed's detail: load.ts writes it once for every failed load)
+const warned = [];
+console.warn = (...args) => warned.push(args.join(" "));
 const outcome = async (f) => {
   asked.splice(0);
-  try { const d = await f(); return {ok: d.columns ? d.columns.length : d.from, asked: asked.splice(0)}; }
-  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0)}; }
+  warned.splice(0);
+  try { const d = await f(); return {ok: d.columns.length, asked: asked.splice(0), warned: warned.splice(0)}; }
+  catch (e) { return {error: e.name, message: e.message, asked: asked.splice(0), warned: warned.splice(0)}; }
 };
 (async () => {
   const out = {};
   out.store = await outcome(() => m.loadRun("zone"));
+  out.withoutBlock = await outcome(() => m.loadRun("wide"));  // listed without the block: its store asked for all the same
   gone.add("lines.arrow");
-  out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: data.js
-  out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/", linesJs));
+  out.linesGone = await outcome(() => m.loadRun("square"));  // a listed store whose lines.arrow is missing: no data.js
+  out.compareGone = await outcome(() => m.loadOtherRun(info("square", block), "/runs/"));
+  out.thumbGone = await outcome(() => m.loadRunLines("square", undefined, "/runs/"));  // a mini map's, unlisted
   gone.clear();
   gone.add("profiles.arrow");
   out.profilesGone = await outcome(() => m.loadRun("both"));
@@ -1630,7 +1678,7 @@ const outcome = async (f) => {
   broken.add("lines.arrow");
   out.serverError = await outcome(() => m.loadRun("nosurface"));
   broken.clear();
-  out.newer = await outcome(() => m.loadRun("older"));       // a newer store: refused, never data.js
+  out.newer = await outcome(() => m.loadRun("older"));       // a newer store: refused
   out.texts = {tooLarge: new m.TooLarge().message, newer: new m.NewerStore().message};
   console.log(JSON.stringify(out));
 })();
@@ -1639,24 +1687,43 @@ const outcome = async (f) => {
 
 def test_store_failures_and_fallbacks(tmp_path, store_cases):
     """load.ts over http with a made-up XMLHttpRequest: a run whose listed store is read asks for lines.arrow and
-    profiles.arrow only; a missing lines.arrow or profiles.arrow (404) falls back to data.js (Compare: to lines.js)
-    while runs keep it; a 200 with a null response (the browser could not allocate the body) is TooLarge with its
-    text; a server error is a StoreFailed, not data.js; a newer format is refused without any download and no
-    fallback."""
+    profiles.arrow only, and so does a run listed without the block; a missing lines.arrow or profiles.arrow (404) is
+    a StoreFailed (Compare's too) with no other file asked for (store wave 4's item 5: no data.js, no lines.js); a 200
+    with a null response (the browser could not allocate the body) is TooLarge with its text; a server error is a
+    StoreFailed; a newer format is refused without any download. A StoreFailed (a run's own, Compare's, a mini map's:
+    loadRunLines) shows the catalogue's words and writes its detail to the console once."""
     cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
     cases["older"] = cases["plain"]
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps(cases), encoding="utf-8")
     out = _run_node(tmp_path, _store_bundle(tmp_path), LOAD_PATHS_SCRIPT, cases_path)
-    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"]}
-    assert out["linesGone"] == {"ok": 3000, "asked": ["/runs/square/lines.arrow", "/runs/square/profiles.arrow",
-                                                      "/runs/square/data.js"]}
-    assert out["compareGone"] == {"ok": "lines.js of square", "asked": ["/runs/square/lines.arrow"]}
-    assert out["profilesGone"]["ok"] == 3000 and out["profilesGone"]["asked"][-1] == "/runs/both/data.js"
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert out["store"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"], "warned": []}
+    assert out["withoutBlock"] == {"ok": 3000, "asked": ["/runs/wide/lines.arrow", "/runs/wide/profiles.arrow"],
+                                   "warned": []}
+    # every failed store load writes its detail to the console once (load.ts StoreFailed): the run's own, Compare's,
+    # a mini map's; the page shows the catalogue's words (the message)
+    for name, run, why in (("linesGone", "square", "404"), ("compareGone", "square", "404"),
+                           ("thumbGone", "square", "404"), ("profilesGone", "both", "404"),
+                           ("serverError", "nosurface", "500")):
+        assert out[name]["warned"] == [f"could not load the store of the run {run} ({why})"], (name, out[name])
+        assert out[name]["message"] == words, (name, out[name])
+    assert out["thumbGone"]["error"] == "StoreFailed" and out["thumbGone"]["asked"] == ["/runs/square/lines.arrow"]
+    assert out["nullBody"]["warned"] == [] and out["newer"]["warned"] == []
+    assert out["linesGone"]["error"] == "StoreFailed", out
+    assert out["linesGone"]["asked"] == ["/runs/square/lines.arrow", "/runs/square/profiles.arrow"], out
+    assert out["compareGone"]["error"] == "StoreFailed" and out["compareGone"]["asked"] == ["/runs/square/lines.arrow"]
+    assert out["profilesGone"]["error"] == "StoreFailed", out
+    assert out["profilesGone"]["asked"] == ["/runs/both/lines.arrow", "/runs/both/profiles.arrow"], out
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        too_large = json.load(f)["ui.result.too_large"]
+    assert too_large == out["texts"]["tooLarge"] == "This result is too large for this browser."
     assert out["nullBody"]["error"] == "TooLarge" and out["nullBody"]["message"] == out["texts"]["tooLarge"]
-    assert "/runs/plain/data.js" not in out["nullBody"]["asked"]
-    assert out["serverError"]["error"] == "StoreFailed" and "/runs/nosurface/data.js" not in out["serverError"]["asked"]
-    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": []}
+    assert out["nullBody"]["asked"] == ["/runs/plain/lines.arrow", "/runs/plain/profiles.arrow"], out
+    assert out["serverError"]["error"] == "StoreFailed", out
+    assert out["serverError"]["asked"] == ["/runs/nosurface/lines.arrow", "/runs/nosurface/profiles.arrow"], out
+    assert out["newer"] == {"error": "NewerStore", "message": out["texts"]["newer"], "asked": [], "warned": []}
 
 
 COMPARE_GROUPS_SCRIPT = r"""
@@ -1711,40 +1778,37 @@ const block = {format: 1, lines: 5, bytes: 100, sha256: "0123456789abcdef"};
 const run = (id, store) => ({id, name: id, created: "", description: "", ...(store ? {store} : {})});
 (async () => {
   const out = {};
-  const ask = async (name, url) => { loads = []; out[name] = {store: await m.storeOf(url), loads: loads.slice()}; };
+  const ask = async (name, folder) => { loads = []; out[name] = {store: await m.storeOf(folder), loads: loads.slice()}; };
   listed = [run("a", block), run("b")];
-  await ask("withStore", "/runs/a/data.js");          // the list loaded once: its block
-  await ask("without", "/runs/b/data.js");            // the list the page has: no store (a store without the block)
+  await ask("withStore", "/runs/a/");          // the list loaded once: its block
+  await ask("without", "/runs/b/");            // the list the page has, without the block: its store asked for directly
   listed = [run("a", block), run("b"), run("new id", block)];
-  await ask("savedSince", "/runs/new%20id/data.js");  // not in the page's list: its store asked for, no list again
-  await ask("unlisted", "../x/data.js");             // another user's run (an administrator): the same
-  await ask("notDataJs", "/runs/a/other.js");
-  await ask("shareLink", "/s/AbCdEf0123456789/data.js");  // a share link: its runs.js lists no runs, none asked for
-  window.FINDALINE_RUNS = [run("own", block)];           // map.html's own ../runs.js, loaded before the bundle
-  await ask("fromTag", "/runs/own/data.js");
+  await ask("savedSince", "/runs/new%20id/");  // not in the page's list: its store asked for, no list again
+  await ask("unlisted", "../x/");             // another user's run (an administrator): the same
+  await ask("shareLink", "/s/AbCdEf0123456789/");  // a share link: its runs.js lists no runs, none asked for
+  window.FINDALINE_RUNS = [run("own", block)];    // map.html's own ../runs.js, loaded before the bundle
+  await ask("ownList", "/runs/own/");
   console.log(JSON.stringify(out));
 })();
 """
 
 
 def test_which_file_a_run_is_read_from(tmp_path):
-    """load.ts storeOf: a run is read from its store when its entry in the page's list of runs (beside its folder)
-    holds run.json's block "store"; a run listed without it (saved before the store, its store failed, or a store left
-    by a stopped save) from data.js; a run the list does not name (saved since the page loaded it, another user's run
-    an administrator opens) and a share link (/s/<token>/: its runs.js lists no runs) get the probe (store SL,
-    2026-11-17): the store's files asked for directly, a 404 then data.js (tests/test_store_share.py). The list is
-    loaded once at most: the list the page has (map.html's own runs.js) is used as it is, and no list is read again
-    for a run it lacks; a share link asks for none."""
+    """load.ts storeOf, by the run's folder (store wave 4's item 5: no data.js): a run is read from the store its entry
+    in the page's list of runs (beside its folder) names with run.json's block "store"; a run listed without it, a run
+    the list does not name (saved since the page loaded it, another user's run an administrator opens) and a share
+    link (/s/<token>/: its runs.js lists no runs) get the probe: the store's files asked for directly
+    (tests/test_store_share.py). The list is loaded once at most: the list the page has (map.html's own runs.js) is
+    used as it is, and no list is read again for a run it lacks; a share link asks for none."""
     out = _run_node(tmp_path, _store_bundle(tmp_path), WHICH_FILE_SCRIPT)
     block = {"format": 1, "lines": 5, "bytes": 100, "sha256": "0123456789abcdef"}
     probe = {"format": 1, "lines": 0, "bytes": 0, "sha256": ""}
     assert out["withStore"] == {"store": block, "loads": ["http://test/runs/runs.js"]}
-    assert out["without"] == {"store": None, "loads": []}
+    assert out["without"] == {"store": probe, "loads": []}
     assert out["savedSince"] == {"store": probe, "loads": []}
     assert out["unlisted"] == {"store": probe, "loads": []}
-    assert out["notDataJs"] == {"store": None, "loads": []}
     assert out["shareLink"] == {"store": probe, "loads": []}
-    assert out["fromTag"] == {"store": block, "loads": []}
+    assert out["ownList"] == {"store": block, "loads": []}
 
 
 PRUNE_SCRIPT = r"""
@@ -1793,64 +1857,11 @@ def test_made_lines_dropped_after_regrouping(tmp_path):
     assert regrouped["spots"] == out["spots"] and regrouped["kept"] <= 2 * out["spots"] + 2
 
 
-TOO_LARGE_SCRIPT = r"""
-// result/load.ts over http with a fake XMLHttpRequest and document: what a body makes of the load
-globalThis.window = globalThis;
-globalThis.location = {protocol: "http:", href: "http://test/app/"};
-const made = [], lists = [];
-globalThis.document = {querySelector: () => null, head: {appendChild(s) {
-  if (s.src.endsWith("/runs.js")) {  // the list of runs (load.ts storeOf): none of these runs has a store
-    lists.push(s.src);
-    setTimeout(() => { window.FINDALINE_RUNS = [{id: "big"}, {id: "ok"}, {id: "nan"}]; s.onload(); });
-    return;
-  }
-  made.push(s.src);  // a script: data.js as the script would set it
-  setTimeout(() => { window.FINDALINE_RUN = {run: {id: "nan"}, lines: [[1, 2]]}; s.onload(); });
-}}, createElement: () => ({remove() {}})};
-let answer = {body: "", loaded: 0};
-globalThis.XMLHttpRequest = class {
-  static HEADERS_RECEIVED = 2;
-  open() {} setRequestHeader() {} getResponseHeader() { return null; }
-  send() { setTimeout(() => { this.status = 200; this.response = answer.body; this.onload({loaded: answer.loaded}); }); }
-};
-(async () => {
-  const out = {};
-  answer = {body: "", loaded: 600e6};  // Chromium: the text of a body over its string limit is ""
-  const e = await m.loadRun("big").then(() => null, (e) => e);
-  out.big = {name: e && e.name, message: e && e.message, tooLarge: e instanceof m.TooLarge, scripts: made.length};
-  answer = {body: 'window.FINDALINE_RUN = {"run":{"id":"ok"},"lines":[[1,2],[3,4]]};\n', loaded: 60};
-  const ok = await m.loadRun("ok");
-  out.ok = {columns: ok.columns.length, lines: "lines" in ok, scripts: made.length};
-  answer = {body: 'window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n', loaded: 40};  // JSON.parse refuses: the script
-  const nan = await m.loadRun("nan");
-  out.nan = {columns: nan.columns.length, scripts: made.length, cleared: window.FINDALINE_RUN === undefined};
-  out.words = [m.tooLarge("", 1), m.tooLarge("", 0), m.tooLarge("x", 1)];
-  out.lists = lists;
-  console.log(JSON.stringify(out));
-})();
-"""
-
-
-def test_too_large_body(tmp_path):
-    """result/load.ts: over http a body that arrives empty although its bytes came (Chromium's string limit) fails the
-    load with TooLarge, whose message is the catalogue's text the page shows, and starts no script; a body JSON.parse
-    reads gives the columns without the rows; one it refuses (NaN) is still loaded as a script, into columns."""
-    found = run_ts(tmp_path, "result/load", TOO_LARGE_SCRIPT)
-    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
-        text = json.load(f)["ui.result.too_large"]
-    assert text == "This result is too large for this browser."
-    assert found["big"] == {"name": "TooLarge", "message": text, "tooLarge": True, "scripts": 0}
-    assert found["ok"] == {"columns": 2, "lines": False, "scripts": 0}
-    assert found["nan"] == {"columns": 1, "scripts": 1, "cleared": True}
-    assert found["words"] == [True, False, False]
-    assert found["lists"] == ["http://test/runs/runs.js"]  # runs.js read once: no store, data.js read
-
-
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_result_map_in_edge(tmp_path, clip_data):
+def test_result_map_in_edge(tmp_path, clip_data, clip_folder):
     """result/ResultMap and loadRun in headless Edge, on a test page of a run served by the app (its CSP):
     the run downloaded and parsed, lines drawn, a selection with its variants, a click on a variant shows it,
     measuring (two clicks, Esc cancels), onMove, and destroy() leaves the map without a layer of it."""
@@ -1860,7 +1871,9 @@ def test_result_map_in_edge(tmp_path, clip_data):
     run_id = data["run"]["id"]
     folder = tmp_path / "runs" / run_id
     folder.mkdir(parents=True)
-    (folder / "data.js").write_text(f"window.FINDALINE_RUN = {text};\n", encoding="utf-8")
+    import linestore
+    for name in linestore.FILES:  # the run's store: not in a list of runs, so loadRun asks for its files directly
+        shutil.copyfile(clip_folder / name, folder / name)
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/resultmap_page.ts'], "
                                   "bundle: true, format: 'iife', target: 'es2020', "
                                   "loader: {'.png': 'dataurl', '.svg': 'text'}, "
@@ -1875,7 +1888,7 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert found, dom[-2000:]
     out = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     assert "error" not in out, out["error"]
-    assert out["load"] == {"failed": True, "lines": len(data["lines"]), "cleared": True, "cached": True}
+    assert out["load"] == {"failed": True, "lines": len(data["lines"]), "cached": True}
     assert out["drawn"] > 0 and out["selectedLayers"] > out["drawn"]
     assert out["clicked"] == ["variant"] and out["variantShown"] is True
     assert out["measured"] is True and out["escaped"] is True and out["moves"] == 1
@@ -2994,19 +3007,9 @@ console.log(JSON.stringify({{available: im.available, texts: row.children.map((c
     assert found["buttons"] == ["Shaded", "Edges"]
 
 
-def test_run_script_parsed_and_body_sized(tmp_path):
-    """result/load.ts: a data.js's text read by JSON.parse (null for NaN, for another script, for a file cut
-    short: those are loaded as a script); download.ts: the bytes a body will read, web.SIZE_HEADER first,
-    Content-Length only when nothing compressed the body."""
-    found = run_ts(tmp_path, "result/load", r"""
-const ok = m.parseRunScript('window.FINDALINE_RUN = {"run":{"id":"r"},"lines":[[1,2],[3,4]]};\n');
-console.log(JSON.stringify({
-  lines: ok && ok.lines.length,
-  nan: m.parseRunScript('window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n'),
-  other: m.parseRunScript('(window.FINDALINE_LINES = window.FINDALINE_LINES || {})["r"] = {"lines":[]};\n'),
-  cut: m.parseRunScript('window.FINDALINE_RUN = {"lines":[[1,2'),
-}));""")
-    assert found == {"lines": 2, "nan": None, "other": None, "cut": None}
+def test_body_sized(tmp_path):
+    """download.ts: the bytes a body will read, web.SIZE_HEADER first, Content-Length only when nothing compressed the
+    body (a run's store's files: web.SIZED_FILES)."""
     sizes = run_ts(tmp_path, "download", r"""
 const size = (h) => m.bodySize((name) => new Headers(h).get(name));
 console.log(JSON.stringify({
@@ -3149,7 +3152,7 @@ def _access_bundle(tmp_path):
     table of the result page."""
     entry = tmp_path / "access_entry.ts"
     src = os.path.join(VIEWER, "src").replace("\\", "/")
-    entry.write_text(f'export * from "{src}/types";\nexport * from "{src}/result/model";\n'
+    entry.write_text(f'export * from "{src}/../test/model_rows";\n'
                      f'export {{ lineCoords }} from "{src}/keys";\n'
                      f'export {{ readStore }} from "{src}/result/load";\n'
                      f'export * from "{src}/access";\n'

@@ -332,7 +332,7 @@ and 40 connections, for orthophoto tiles (`/cache/`) 100 requests/s with a burst
 connections (zooming a map asks for a few hundred tiles within seconds), 10 requests/minute with a
 burst of 10 for `/login/` and `/auth/` (beyond them: 429); `/api/events` (the live event stream)
 without buffering and with a read timeout of an hour, other requests 620 s (an estimate may wait
-for the worker's quick lane); gzip for scripts, JSON, CSS and CSV (a run's `data.js` shrinks about
+for the worker's quick lane); gzip for scripts, JSON, CSS and CSV (a run's `data.js` of before shrank about
 4.7 times) and for a run's store (`lines.arrow`, `profiles.arrow`, `application/vnd.apache.arrow.file`: about 2.3
 times, BAH's 207.8 MB to 89.5 MB, docs/performance.md "From the store"); HTTP/2; HSTS; no nginx version in the `Server` header; `www.` + the site's name sent
 to the site's name with 301 (on port 80 directly to https). A request for any other name (or
@@ -617,8 +617,8 @@ faces the visitors. Neither may plant what the other trusts:
   the VPS: `warmup.py` does it at the worker's start, in a process of its own, while the jobs
   are already claimed; `FINDALINE_WARM_UP=0` leaves it to the first search).
 
-An accepted residual risk: the worker writes the runs, including each run's `data.js`, which
-its map page loads as a script. A compromised worker can therefore change what the map of a run
+An accepted residual risk: the worker writes the runs, including each run's `map.html` and store, which
+its map page shows and reads. A compromised worker can therefore change what the map of a run
 shows or does in the visitor's browser (its own origin, with the page's Content-Security-Policy),
 and change or delete the runs, the cache and the queue. The viewer itself (its scripts and
 styles) comes from the image, not from the volume. Keeping the worker from being compromised
@@ -907,8 +907,11 @@ the searches that saved them leave their owners' list on Home (an administrator 
 reports, folders of favourites, quotas and the cache stay. A user who wants to keep favourite lines saves them first
 with *Export for the trip*. Then the **demo** is made again: an administrator runs the demo search with the new code
 and marks its run (`POST /api/runs/<id>/demo`, the admin page), since the sign-in page shows no demo until then.
-Only after the removal on this server does the **second deploy** (the page without the reader of `data.js`) come
-here; until then old runs must stay readable.
+Only after the removal on this server does the **second deploy** (store wave 4's item 5: the page without the
+reader of `data.js`, `web.RUN_FILES` without the text files) come here; until then old runs must stay readable. Its
+update is the usual `deploy/vps.sh update` once `main` holds it, and nothing more: no data changes, and a run of
+before left on the server (one the removal skipped: a file held, a store it could not read) shows on its map that its
+data could not be loaded, and its share link the same; run `runs remove-old --dry-run` again to list it.
 
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at

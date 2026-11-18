@@ -1,6 +1,7 @@
 """tools/prune_study.py: the audit of pruning rules on made-up tables with known answers. Offline; the
-tables are written by production's own code (runs.save_results, mapping.write_map_scripts) and every
-line, place and known line in them is invented."""
+tables are written by production's own code (runs.save_results; a lines.js of before by tests/old_scripts.py, the
+frozen copy of mapping.py's writer of before store wave 4's item 5) and every line, place and known line in them is
+invented."""
 
 import json
 import os
@@ -52,7 +53,8 @@ def save(folder, rows, lines_js=False, distance=20.0, store=False):
         os.remove(os.path.join(str(folder), "lines.csv"))
     if lines_js:
         head = '(window.FINDALINE_LINES = window.FINDALINE_LINES || {})["made-up"] = {"crs":"EPSG:2180","lines":['
-        mapping.write_map_scripts(lines, str(folder), ("", head), files=("lines.js",))
+        import old_scripts
+        old_scripts.write_map_scripts(lines, str(folder), ("", head), files=("lines.js",))
     return str(folder), groups
 
 

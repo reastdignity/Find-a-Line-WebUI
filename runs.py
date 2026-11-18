@@ -437,9 +437,8 @@ def list_runs(runs_dir: str, only: Optional[Iterable[str]] = None) -> List[Dict]
                     run = json.load(f)
                 run["created"] = cache.utc_iso(run.get("created")) or ""  # without an offset before 2026-10-31
                 run["has_map"] = os.path.isfile(os.path.join(runs_dir, run_id, "map.html"))
-                # Lines another map can show (Compare): its store (linestore.LINES_FILE) or, before it, its lines.js
-                run["has_lines"] = any(os.path.isfile(os.path.join(runs_dir, run_id, name))
-                                       for name in ("lines.arrow", "lines.js"))
+                # Lines another map can show (Compare): its store's lines (linestore.LINES_FILE)
+                run["has_lines"] = os.path.isfile(os.path.join(runs_dir, run_id, "lines.arrow"))
                 runs.append(run)
     return sorted(runs, key=lambda r: r["created"], reverse=True)
 
@@ -497,8 +496,7 @@ def _bbox(run: Dict) -> Optional[List[float]]:
 
 def _listed(run: Dict) -> Dict:
     """A run as runs.js lists it: without the data files, their credits, the area outline and its
-    terrain (in the run's data.js and lines.js), its shore and where its terrain came from (data.js), with
-    its box."""
+    terrain, its shore and where its terrain came from (all in the run's head: its store), with its box."""
     listed = {k: v for k, v in without_paths(run).items()
               if k not in ("data", "area", "attribution", "terrain", "shore", "terrain_sources")}
     listed["bbox"] = _bbox(run)

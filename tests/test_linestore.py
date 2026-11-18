@@ -482,8 +482,8 @@ def test_store_schema(tmp_path):
 def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     """The web process serves a run's store (the local app: its media type) without importing linestore or
     pyarrow (the store is read by the page, exported by the worker), as it never imports search or numba;
-    list_runs: a run with the store has its lines, an old run (lines.js only: tests/old_runs.py) too, a run without
-    both not."""
+    list_runs: a run with the store has its lines, an old run (no store: tests/old_runs.py; its lines.js, which no
+    page reads since store wave 4's item 5, does not count) and a run without either not."""
     import clip_runs
     import old_runs
     import runs
@@ -494,13 +494,15 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     run_id = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     folder = data / "runs" / run_id
     assert all((folder / name).is_file() for name in linestore.FILES)
+    import old_scripts
     for name, remove in (("old", linestore.FILES), ("bare", linestore.FILES + ("lines.js",)),
                          ("store", ("lines.js",))):
         old_runs.make_old(old_runs.copy_run(folder, data / "runs", name), "with_text")
+        old_scripts.write_scripts(data / "runs" / name)  # what an old run held
         for file in remove:
             os.remove(data / "runs" / name / file)
     listed = {r["id"]: r["has_lines"] for r in runs.list_runs(str(data / "runs"))}
-    assert listed == {run_id: True, "old": True, "bare": False, "store": True}  # lines.arrow or lines.js (2b-C)
+    assert listed == {run_id: True, "old": False, "bare": False, "store": True}  # lines.arrow alone
     code = (f"import json, sys; sys.path.insert(0, {REPO!r}); import web\n"
             "from fastapi.testclient import TestClient\n"
             f"c = TestClient(web.create_app({str(data)!r}, token='t', start_scheduler=False), "
@@ -518,5 +520,6 @@ def test_web_process_never_imports_the_store(tmp_path_factory, tmp_path):
     assert answers[0][0] == 200
     arrow = (folder / linestore.LINES_FILE).stat().st_size, (folder / linestore.PROFILES_FILE).stat().st_size
     assert answers[1] == [200, linestore.MEDIA_TYPE, arrow[0]] and answers[2] == [200, linestore.MEDIA_TYPE, arrow[1]]
-    # the new run keeps no data.js (store wave 4); an old run: no store, its data.js as before
+    # the new run keeps no data.js (store wave 4); an old run: no store; the local app serves its folder as it is
+    # (its data.js too, which no page asks for since item 5)
     assert [a[0] for a in answers[3:]] == [404, 404, 404, 200]

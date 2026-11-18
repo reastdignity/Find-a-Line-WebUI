@@ -16,8 +16,9 @@ Not driven here: the public site's pages (a signed-in user's map.html, a visitor
 `_server` is the local app, and test_public's `_public_server` answers as https://lines.example.org, which no
 browser of a test reaches. A signed-in user's and a visitor's map.html are the same map.html without the token meta
 as the local one of test_store_run_on_its_own_map_has_no_download (mayExport reads only the token and `fromStore`).
-A share link's page reads data.js (result/load.ts storeOf: no list of runs under /s/), so it is a run without a
-store to the page: the two links of test_run_without_a_store_keeps_its_two_links."""
+A share link's page reads the run's store too (result/load.ts storeOf: STORE_PROBE under /s/) and holds no token: no
+Download, as test_store_run_on_its_own_map_has_no_download. Since store wave 4's item 5 no run is read from its data.js:
+the two links of a run without a store went with them."""
 
 import json
 import os
@@ -30,7 +31,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_shell_c import BIG, SMALL, copy_clip, drop_store, small_copy, stub_page  # noqa: E402
+from test_shell_c import BIG, SMALL, copy_clip, small_copy, stub_page  # noqa: E402
 from test_web import EDGE, TOKEN, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -38,7 +39,6 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 WAIT = 30000  # ms: the deadline of every wait for the page
 DESKTOP = {"viewport": {"width": 1400, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
-OLD = "2026-10-29_120000_Old_00000000000000d1"  # SMALL's lines in a run without a store (data.js)
 OTHER = "2026-10-30_120000_Other_00000000000000e1"  # SMALL's lines again in a second run with a store
 with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as _f:
     EN = json.load(_f)
@@ -97,25 +97,17 @@ def _listed(folder) -> dict:
     return {run["id"]: run for run in json.JSONDecoder().raw_decode(text, start)[0]}
 
 
-def _data(tmp_path, clip, old: bool = False, other: bool = False):
-    """A data folder with the clip's run (BIG) and its first 300 lines with a store (SMALL), with `old` the same
-    lines as a run without a store too (OLD: no block "store" in run.json, so none in runs.js, and no store
-    files), with `other` as a second small run with a store (OTHER); the app's page for the tests (its head has
-    the token: api.ts canChange)."""
+def _data(tmp_path, clip, other: bool = False):
+    """A data folder with the clip's run (BIG) and its first 300 lines with a store (SMALL), with `other` as a second
+    small run with a store (OTHER); the app's page for the tests (its head has the token: api.ts canChange)."""
     folder = tmp_path / "data"
     copy_clip(clip, folder, BIG, "Big run")
     small_copy(folder, BIG)
     if other:
         small_copy(folder, BIG, small=OTHER, name="Other run")
         assert _listed(folder)[OTHER].get("store"), "the second run has no store"
-    if old:
-        small_copy(folder, BIG, small=OLD, name="Old run")
-        drop_store(folder, OLD)
-        for name in ("lines.arrow", "profiles.arrow"):
-            (folder / "runs" / OLD / name).unlink(missing_ok=True)
     listed = _listed(folder)
-    assert listed[SMALL].get("store"), ("the clip's run has no store: the page would read data.js", listed[SMALL])
-    assert not old or "store" not in listed[OLD], listed[OLD]
+    assert listed[SMALL].get("store"), ("the clip's run has no store", listed[SMALL])
     page_path = stub_page(folder, "downloadtest")
     html = (folder / page_path).read_text("utf-8")
     assert f'<meta name="findaline-token" content="{TOKEN}">' in html, "the app's page has no token: no export there"
@@ -447,41 +439,6 @@ def test_failure_opens_a_closed_menu_again(tmp_path, clip):
     assert [json.loads(q["body"]) for q in r["requests"]] == [{"format": "geojson"}] * 2, r["requests"]
 
 
-def test_run_without_a_store_keeps_its_two_links(tmp_path, clip):
-    """A run without a store (no block "store" in runs.js: the page read its data.js, `fromStore` not set) keeps
-    Download's two links to its own files, lines.csv and lines.geojson with `download`, on the app's page (a
-    desktop and a phone) and on its own map.html; no row that asks the server, and no export request. The run with
-    a store beside it has the two rows and no link (`fromStore` true)."""
-    from playwright.sync_api import sync_playwright
-    folder, page_path = _data(tmp_path, clip, old=True)
-    r = {}
-    with _server(folder) as port, sync_playwright() as p:
-        browser = p.chromium.launch(channel="msedge", headless=True)
-        try:
-            site = f"http://127.0.0.1:{port}"
-            for name, url, context in (("app", f"{site}/{page_path}?ui=c#run={OLD}", DESKTOP),
-                                       ("app phone", f"{site}/{page_path}?ui=c#run={OLD}", PHONE),
-                                       ("map", f"{site}/runs/{OLD}/map.html", DESKTOP),
-                                       ("map phone", f"{site}/runs/{OLD}/map.html", PHONE),
-                                       ("store", f"{site}/{page_path}?ui=c#run={SMALL}", DESKTOP)):
-                page, asked = _open(browser, url, **context)
-                _menu(page)
-                r[name] = [page.evaluate(STATE), asked,
-                           page.evaluate("() => !!document.querySelector('meta[name=findaline-token]')")]
-                page.close()
-        finally:
-            browser.close()
-    for name, files in (("app", f"/runs/{OLD}/"), ("app phone", f"/runs/{OLD}/"), ("map", ""), ("map phone", "")):
-        found, asked, token = r[name]
-        assert found["fromStore"] is None and token == name.startswith("app"), (name, found, token)
-        assert found["links"] == [[files + "lines.csv", True], [files + "lines.geojson", True]], (name, found)
-        assert found["csv"] == 1 and found["geojson"] == 1 and found["rows"] == [], (name, found)
-        assert found["allErrors"] == 0 and asked == [], (name, found, asked)
-    found, asked, token = r["store"]
-    assert found["fromStore"] is True and token and _rows(found) == IDLE_ROWS, found
-    assert found["links"] == [] and found["csv"] == 0 and found["geojson"] == 0 and asked == [], (found, asked)
-
-
 def test_store_run_on_its_own_map_has_no_download(tmp_path, clip):
     """A run read from its store on its own map.html (/runs/<id>/map.html: no token there, the server would
     refuse the request): no Download among the actions at all, on a desktop and a phone, no link to the kept
@@ -512,36 +469,6 @@ def test_store_run_on_its_own_map_has_no_download(tmp_path, clip):
         assert found["pops"] == 0 and found["rows"] == [] and found["links"] == [], (name, found)
         assert found["csv"] == 0 and found["geojson"] == 0 and not found["open"], (name, found)
         assert asked == [], (name, asked)
-
-
-def test_store_that_answers_404_keeps_the_two_links(tmp_path, clip):
-    """A run whose store's file is missing (lines.arrow answers 404) is read from its data.js (result/load.ts
-    fromServer), so the app's page shows the two links to its kept files, not the rows that ask the server for a
-    file made from the store; no export request. The run is one saved before store wave 4 with its store
-    (tests/old_runs.py "with_text": data.js and the kept files beside the store), whose reader item 5 ends."""
-    from playwright.sync_api import sync_playwright
-    import old_runs
-    folder, page_path = _data(tmp_path, clip)
-    old_runs.make_old(folder / "runs" / SMALL, "with_text")
-    missing = []
-
-    def routes(page):
-        def gone(route):
-            missing.append(urlsplit(route.request.url).path)
-            route.fulfill(status=404, content_type="text/plain", body="Not Found")
-        page.route(f"**/runs/{SMALL}/lines.arrow", gone)
-    with _server(folder) as port, sync_playwright() as p:
-        browser = p.chromium.launch(channel="msedge", headless=True)
-        try:
-            page, asked = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={SMALL}", routes, **DESKTOP)
-            _menu(page)
-            found = page.evaluate(STATE)
-        finally:
-            browser.close()
-    assert missing == [f"/runs/{SMALL}/lines.arrow"], missing
-    assert found["fromStore"] is None and found["rows"] == [], found
-    assert found["links"] == [[f"/runs/{SMALL}/lines.csv", True], [f"/runs/{SMALL}/lines.geojson", True]], found
-    assert found["csv"] == 1 and found["geojson"] == 1 and asked == [], (found, asked)
 
 
 # ---- the wait belongs to the run (RunActions.tsx waits, startExport, elsewhere) ----------------------------------

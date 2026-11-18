@@ -256,7 +256,7 @@ def test_a_held_file_keeps_the_run_whole(tmp_path_factory, monkeypatch, capsys):
     with open(folder / "lines.csv", "rb"):
         status, output = _in_process(data, "--yes", capsys=capsys)
     assert status == 1 and "Not deleted: 1" in output and f"  {OLD['data_js']}: PermissionError" in output, output
-    assert (folder / "run.json").is_file() and (folder / "data.js").is_file()
+    assert (folder / "run.json").is_file() and (folder / "lines.csv").is_file()
     assert not any((data / "runs" / run_id).exists() for kind, run_id in OLD.items() if kind != "data_js")
     assert not (data / "runs" / "index.html").exists() and OLD["data_js"] in _listed(data)
     jobs = jb.Jobs(str(data))
@@ -327,7 +327,7 @@ def test_the_apps_delete_renames_first(tmp_path_factory, monkeypatch):
     jobs = jb.Jobs(str(data))
     folder = data / "runs" / OLD["data_js"]
     if os.name == "nt":
-        with open(folder / "data.js", "rb"), pytest.raises(OSError):
+        with open(folder / "lines.csv", "rb"), pytest.raises(OSError):
             jobs.delete_run(OLD["data_js"], runs_dir)
         assert (folder / "run.json").is_file() and jobs.run(OLD["data_js"])
     real = rn.finish_removal

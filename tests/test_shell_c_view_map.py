@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_shell_c import BIG, copy_clip, drop_store, stub_page  # noqa: E402
+from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
 from test_web import EDGE, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -50,12 +50,13 @@ def view_clip(tmp_path_factory):
 
 @pytest.fixture
 def site(tmp_path, view_clip):
-    """A data folder with the clip's run (BIG) and the same run without its store's block (OLD), served by the app;
-    yields the address of the app's page."""
+    """A data folder with the clip's run (BIG) and the same run with a store saved before the view's columns (OLD:
+    tests/old_runs.py drop_view), served by the app; yields the address of the app's page."""
+    import old_runs
     folder = tmp_path / "data"
     copy_clip(view_clip, folder, BIG, "Clip")
     copy_clip(view_clip, folder, OLD, "Old clip")
-    drop_store(folder, OLD)
+    old_runs.drop_view(folder / "runs" / OLD)
     page_path = stub_page(folder, "viewtest")
     with _server(folder) as port:
         yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
@@ -976,7 +977,7 @@ def test_flag_old_run_and_blocked_storage(site):
             # the run's actions are not in the view yet; today's page has them
             assert page.evaluate("() => !!document.querySelector('.r-actions')") is True
             page.close()
-            # a run saved before the view's columns (no store read): today's page, the console says why
+            # a run saved before the view's columns (a store without them): today's page, the console says why
             page = browser.new_context(**DESKTOP).new_page()
             page.add_init_script(HELPERS + FLAG)
             said = []

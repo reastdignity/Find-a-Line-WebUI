@@ -1,6 +1,6 @@
 // Builds dist/viewer.js and .css (the map of every run, map.html) and dist/app.js and .css
 // (the web app of `findaline.py web`), dist/view3d.js and .css (the app's 3D view of a line, /view3d),
-// dist/coverage.js and .css (the coverage map's page, /coverage) and dist/index.css (runs/index.html);
+// dist/coverage.js and .css (the coverage map's page, /coverage);
 // dist is committed: users need no Node.
 // The logo's files go to dist/ as they are: logo.svg for web.py's server-rendered pages (the app bundles
 // the same file as text), favicon.svg for every page of the app; the coverage map's outlines
@@ -24,7 +24,7 @@ const notice = `/*! Licences of the bundled libraries: ${LICENCES} */`;
 const entryPoints = media
   ? { "coverage-media": "src/coverage/media/main.ts" }
   : { viewer: "src/map/main.tsx", app: "src/app/app.tsx", view3d: "src/view3d/main.ts",
-      coverage: "src/coverage/page/main.tsx", index: "src/index.css" };
+      coverage: "src/coverage/page/main.tsx" };
 await esbuild.build({
   entryPoints,
   bundle: true,

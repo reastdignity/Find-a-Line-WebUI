@@ -4,7 +4,7 @@
 // draw it with ResultMap and their own panels. Plain TypeScript (no DOM but fetch), so tests run it
 // under Node.
 //
-// The lines are columns (types.ts lineColumns: this run's and each other run's), known by their index among the
+// The lines are columns (result/load.ts readStore: this run's and each other run's), known by their index among the
 // runs shown (`lineAt`): the filters, the grouping, the ranges and the counts read the columns through a LineCursor,
 // and the spots (LineGroup) hold indices. A Line object is made (lineAt) only for a line drawn, listed, selected,
 // opened, compared or saved as a favourite: a spot's shown line, the members of a spot asked for (the selected
@@ -24,8 +24,8 @@ import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, t
 import { colorOf, localPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
-import { ACCESS, lineAt, lineColumns, LineCursor, runData, type Line, type LineColumns, type LineValues, type OtherRun,
-         type Profile, type RunData, type RunInfo, type RunLines, type RunScript } from "../types";
+import { ACCESS, emptyColumns, lineAt, LineCursor, type Line, type LineColumns, type LineValues, type OtherRun,
+         type Profile, type RunData, type RunHead, type RunInfo } from "../types";
 import type { OnProgress } from "./load";
 import { measuredLine } from "./measured";
 
@@ -70,7 +70,7 @@ export interface ShownRun {
   info: RunInfo;
   color: string;
   crs: string;
-  area: RunLines["area"];
+  area: RunHead["area"];
   start: number;
   count: number;
 }
@@ -255,14 +255,12 @@ export class ResultModel {
   private ordered = new WeakMap<LineGroup, Line[]>();
   private inOrder = new WeakMap<LineGroup, Line[]>();
   private readonly compareMean = byMean<LineCursor>((c) => c.i);  // c.i: the line's row in its run
-  private readonly cursorA = new LineCursor(lineColumns([]));
-  private readonly cursorB = new LineCursor(lineColumns([]));
+  private readonly cursorA = new LineCursor(emptyColumns());
+  private readonly cursorB = new LineCursor(emptyColumns());
 
-  /** `data`: a run with its lines as columns (result/load.ts), or data.js's value with its rows (read into columns
-   *  here; the rows are left as they are). */
-  constructor(data: RunData | RunScript, options: ResultOptions = {}) {
-    this.data = "columns" in data ? data
-      : timed("fal:run:lines", () => runData(data as RunScript), {count: (data as RunScript).lines.length});
+  /** `data`: a run with its lines as columns (result/load.ts readStore). */
+  constructor(data: RunData, options: ResultOptions = {}) {
+    this.data = data;
     this.runId = data.run.id;
     this.tables.push({cols: this.data.columns, start: 0, access: marked(this.data.ends)});
     this.nextStart = this.data.columns.length;
@@ -997,10 +995,9 @@ export class ResultModel {
 
   // --- other runs ---
 
-  /** Show another run's lines with this run's: its lines.js (others.loadLines), its rows read into columns, or its
-   *  store's columns (load.ts loadOtherRun). */
-  addRun(info: RunInfo, loaded: RunLines | RunData, color = colorOf(info.id)) {
-    const cols = "columns" in loaded ? loaded.columns : lineColumns(loaded.lines, loaded.terrain, loaded.ends);
+  /** Show another run's lines with this run's: its store's columns (load.ts loadOtherRun). */
+  addRun(info: RunInfo, loaded: RunData, color = colorOf(info.id)) {
+    const cols = loaded.columns;
     const start = this.nextStart;
     this.nextStart += cols.length;
     this.tables.push({cols, start, run: {info, color}, access: marked(loaded.ends)});

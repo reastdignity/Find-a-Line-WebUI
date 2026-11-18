@@ -631,15 +631,15 @@ def _store_rows(folder) -> list:
 
 
 def _old_copy(folder, tmp_path) -> "os.PathLike":
-    """A copy of a run made a run of before store wave 4 (tests/old_runs.py "with_text": data.js, lines.js and the
-    text files beside its store), for the tests of the page's reader of data.js until item 5."""
-    import old_runs
+    """A copy of a run with its data.js and lines.js beside its store, as the search wrote them before store wave 4
+    (tests/old_scripts.py's frozen writer): the rows these tests read into columns as the page's reference."""
+    import old_scripts
     import pathlib
     target = pathlib.Path(tmp_path) / "old" / pathlib.Path(folder).name
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         shutil.copytree(folder, target)
-        old_runs.make_old(target, "with_text")
+        old_scripts.write_scripts(target)
     return target
 
 
@@ -1175,12 +1175,12 @@ console.log(JSON.stringify({n: on.lines.length, rows: text(bare(lines(on))) === 
 @pytest.mark.skipif(shutil.which("node") is None or not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
                     reason="needs Node and `npm install` in viewer/")
 def test_the_page_reads_the_run_as_without_the_option_and_its_marks(tmp_path, scene_runs):
-    """The page (viewer/src/types.ts toLine and lineColumns/lineAt, what the result's page reads a run with) gives
+    """The rows' reader of the tests (viewer/test/rows.ts toLine, lineColumns; types.ts lineAt, the page's) gives
     every line of a run made with --access the very values of the run made without it, and beside them the two
     access values its head's "ends" names (step 1d-P: `Line.access1`/`access2`, 0, 1 or 2), the same from the rows
     and from the columns; the run made without the option reads null for both."""
     bundle = tmp_path / "types.cjs"
-    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/types.ts'], bundle: true, "
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['test/types_rows.ts'], bundle: true, "
                                   f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
                    cwd=VIEWER, check=True)
     off, on = (_old_copy(scene_runs[name], tmp_path) for name in ("off", "on"))  # runs of before (data.js)
@@ -1222,15 +1222,18 @@ console.log(JSON.stringify({bad: bad.slice(0, 20), n: data.lines.length, rows: t
 def test_the_page_reads_the_store_of_a_run_with_the_option(tmp_path, scene_runs):
     """The page's store reader (result/load.ts readStore, types.ts storedColumns) reads a run made with --access with
     the same Line values, profiles, keys and head as its data.js, and the page's model on it gives data.js's spots and
-    counts (test_viewer.py's STORE_SCRIPT); the store's access1, access2 (apache-arrow, the page's library) are uint8
-    with each row's values of data.js (named by its "ends"). Its data.js is written from Python's reading of the
-    store (old_runs): the page's reader is checked against Python's; the store's fidelity is test_linestore's."""
+    counts (test_viewer.py's STORE_SCRIPT, with Python's linestore.read as its reference); the store's access1,
+    access2 (apache-arrow, the page's library) are uint8 with each row's values of data.js (named by its "ends"). Its
+    data.js is written from Python's reading of the store (tests/old_scripts.py); the store's fidelity is
+    test_linestore's."""
     sys.path.insert(0, os.path.join(REPO, "tests"))
-    from test_viewer import STORE_SCRIPT, _run_node, _store_bundle
+    from test_viewer import STORE_SCRIPT, _run_node, _store_bundle, python_reference
     folder = _old_copy(scene_runs["on"], tmp_path)  # its data.js beside the store: the page's reference
     cases = tmp_path / "cases.json"
     cases.write_text(json.dumps({"access": str(folder).replace("\\", "/")}), encoding="utf-8")
-    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases)["access"]
+    reference = python_reference({"access": folder}, tmp_path)
+    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases, reference)["access"]
+    assert out["python"] == [] and out["columns"] >= 27, out
     assert out["bad"] == [] and out["head"] and out["n"] == out["length"] > 50, out
     assert out["model"]["differ"] == [] and out["model"]["lines"] == out["n"]
     entry = tmp_path / "arrow_entry.ts"

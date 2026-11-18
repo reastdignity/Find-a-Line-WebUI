@@ -298,14 +298,12 @@ Sag estimator (elastic catenary + point load) and envelope table for `--model sa
 Coordinates (`coordify` adds columns; each part's different anchor pixels transformed once and gathered), grouping
 (`group_lines` → `Groups`: index arrays; its cell index `_cell_index`: one int64 key per line, a stable argsort, the
 lines of a row of cells found by `searchsorted`; its loop `grouping.greedy`), matplotlib map; `save_map` writes a
-run's `map.html` (`save_run` passes `files=("map.html",)`, which installs the viewer; its orthophoto entry
+run's `map.html` (`map_page`: with the disk notice) and installs the viewer (its orthophoto entry
 `ortho_entry`, also the 3D view's patch meta, is in the store's head); `map_head` the store's head as a dict
-(`linestore.write`; data.js's head in old runs); until store wave 4's item 5 the writers of the old runs' scripts stay
-for `tests/old_runs.py` (`save_map`'s `files=` with `MAP_FILES`, `map_heads` the scripts' texts before the lines,
-`write_map_scripts` the lines of `data.js` and/or `lines.js` chunk by chunk from the columns): the
-run's `terrain` in the heads of both scripts; `end_zone`, `lift` and `"ends": ["lift_needed", "lift_no_zone"]` in them
-only when the run has the options, `map_rows` putting those values before the profile; a run made with the square
-rule has `square`, `found` and `stands_for` as the last name of `ends`, each row's count before the profile);
+(`linestore.write`; data.js's head in old runs): the run's `terrain`; `end_zone`, `lift` and `"ends":
+["lift_needed", "lift_no_zone"]` only when the run has the options (`_ends`); a run made with the square rule has
+`square`, `found` and `stands_for` as the last name of `ends`; the writers of data.js and lines.js went with store wave
+4's item 5 (a frozen copy for the tests: `tests/old_scripts.py`);
 `view_columns(lines, groups, centre)` the result view's columns of a new run's store (view B1, docs/line-volume/
 spec-store.md 1.3, from the values as the store holds them): `spot` (`group_lines`' groups renumbered by sector, then
 by their first line's mean height), `by_spot` (rows by spot, inside a spot by mean height, clearance, length, then
@@ -343,7 +341,7 @@ A run's store (docs/line-volume/spec-store.md 1.3; since 2026-11-15 written by `
 after and beside the text files; a store that fails leaves the run without one, with a warning): `lines.arrow` (a row per line in the search's order) and `profiles.arrow` (a row
 per saved profile, `row` into `lines.arrow`), Arrow IPC files (pyarrow), uncompressed, one record batch each.
 `COLUMNS` names each column with its `LineTable` column and its decimals: the anchors int32 at 7, the grouping's
-values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of `mapping.map_rows`' decimals in
+values (`x1`…`y2`, `len`, `clr`, `hmax`) float64 as they are, the others integers of data.js's decimals in
 the narrowest int type (field metadata `decimals`), nulls where a value may miss, the end columns and `stands_for`
 (uint32) only when the lines have them; the schema metadata `findaline` holds `format` (`FORMAT`, a higher one is
 refused: `NewerStore`), the head (`mapping.map_head`) and `negative_zero` (the rows of each integer column whose value

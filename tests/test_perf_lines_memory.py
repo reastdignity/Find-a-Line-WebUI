@@ -43,13 +43,13 @@ def _lines(n=500):
 
 
 def test_step5_runs_no_text_writer_and_no_saving(tmp_path, monkeypatch):
-    """Step 5 is the store's write alone: runs.save_results, mapping.save_map and write_map_scripts (what step 5
-    called before store wave 4) are never reached, and saving.py is never imported."""
+    """Step 5 is the store's write alone: runs.save_results and mapping.save_map (what step 5 called before store
+    wave 4, with the writers of data.js and lines.js, gone since its item 5) are never reached, and saving.py is never
+    imported."""
     def refuse(*a, **k):
         raise AssertionError("a text writer in step 5")
     monkeypatch.setattr(rn, "save_results", refuse)
     monkeypatch.setattr(mp, "save_map", refuse)
-    monkeypatch.setattr(mp, "write_map_scripts", refuse)
     lines, groups = _lines()
     assert plm.save_step5(np, mp, rn, lines, groups, str(tmp_path / "out"), len(lines)) == sorted(linestore.FILES)
     source = inspect.getsource(plm)
@@ -66,6 +66,13 @@ def test_step5_of_older_checkouts(tmp_path, monkeypatch):
     back, head = linestore.read(str(tmp_path / "wave2"), profiles=False)
     assert "spot" not in back.columns and "sectors" not in head and len(back) == len(lines)
     monkeypatch.setitem(sys.modules, "linestore", None)  # a checkout before the store: import linestore fails
-    files = plm.save_step5(np, mp, rn, lines, groups, str(tmp_path / "text"), len(lines))
+    import old_scripts
+
+    def save_map(lines, area, run_path, runs_dir, run, crs):  # mapping.save_map of such a checkout: the scripts too
+        head = mp.map_head(area, os.path.join(run_path, "map.html"), run, crs)
+        old_scripts.write_map_scripts(lines, run_path, old_scripts.heads_of(head, run))
+        return mp.save_map(run_path, runs_dir, run)
+    before = types.SimpleNamespace(save_map=save_map)
+    files = plm.save_step5(np, before, rn, lines, groups, str(tmp_path / "text"), len(lines))
     assert {"lines.csv", "lines.geojson", "run.json", "data.js", "lines.js", "map.html"} <= set(files)
     assert not set(linestore.FILES) & set(files)

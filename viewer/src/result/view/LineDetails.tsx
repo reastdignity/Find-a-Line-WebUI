@@ -90,7 +90,7 @@ export function riggingText(l: Line, run?: {end_zone?: number; lift?: number}): 
 }
 
 /** The facts of a line beyond its four numbers, as label and value; `run`: the options of the line's run (this
- *  run's data.js "end_zone" and "lift") for the row "Rigging". */
+ *  run's head's "end_zone" and "lift") for the row "Rigging". */
 export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; lift?: number}): [string, string][] {
   const facts: [string, string][] = [];
   if (l.run) facts.push(["Run", `${day(l.run.info.created)} ${l.run.info.name}`]);

@@ -1,6 +1,6 @@
-// Other runs shown with the current one: their lines.js, colours and which are nearby.
+// Other runs shown with the current one: their colours and which are nearby (their lines: result/load.ts loadOtherRun).
 
-import type { RunInfo, RunLines } from "./types";
+import type { RunInfo } from "./types";
 
 export const NEARBY_KM = 20;
 // Colours of other runs (not the pink and orange of the current run)
@@ -14,23 +14,6 @@ export function colorOf(id: string): string {
   return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
-/** Load ../<id>/lines.js (a script: pages opened from disk cannot fetch JSON); `base`: the folder of the
- * runs relative to the page (the app's pages: "/runs/"). */
-export function loadLines(id: string, base = "../"): Promise<RunLines> {
-  const loaded = window.FINDALINE_LINES?.[id];
-  if (loaded) return Promise.resolve(loaded);
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = base + encodeURIComponent(id) + "/lines.js";
-    script.onload = () => {
-      const lines = window.FINDALINE_LINES?.[id];
-      if (lines) resolve(lines); else reject(new Error("no lines in " + script.src));
-    };
-    script.onerror = () => reject(new Error("could not load " + script.src));
-    document.head.appendChild(script);
-  });
-}
-
 /** Distance in km between two boxes (west, south, east, north); 0 when they overlap. */
 export function boxDistanceKm(a: number[], b: number[]): number {
   const dLon = Math.max(0, b[0] - a[2], a[0] - b[2]), dLat = Math.max(0, b[1] - a[3], a[1] - b[3]);
@@ -38,7 +21,7 @@ export function boxDistanceKm(a: number[], b: number[]): number {
   return Math.hypot(dLon * Math.cos(lat * Math.PI / 180), dLat) * Math.PI / 180 * EARTH_RADIUS / 1000;
 }
 
-/** Runs that can be shown (they have lines.js), with their distance, nearest first. */
+/** Runs that can be shown (they have lines: lines.arrow), with their distance, nearest first. */
 export function listOthers(runs: RunInfo[], currentId: string, box: number[]): {run: RunInfo; km: number}[] {
   return runs.filter((r) => r.id !== currentId && r.has_lines && r.bbox)
     .map((run) => ({run, km: boxDistanceKm(box, run.bbox!)}))

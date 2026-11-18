@@ -1,5 +1,6 @@
-// Keys of lines: their anchors as data.js and lines.js hold them (mapping.save_map rounds both
-// alike), so the same line of a run has the same key on every map and after every reload.
+// Keys of lines: their anchors as the run's store holds them (int32 of 1e-7 degree: the same doubles as the 7
+// decimals data.js and lines.js had), so the same line of a run has the same key on every map and after every
+// reload.
 
 import type { Line } from "./types";
 

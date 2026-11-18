@@ -3,7 +3,8 @@ lines.arrow, profiles.arrow, map.html (not with --no-html), ATTRIBUTION.txt and 
 last, with its block "store"), and none of data.js, lines.js, lines.csv, lines.geojson; no runs/index.html and no
 findaline_map.html; a run that cannot be saved whole fails the search (run_not_saved) and keeps no run; view columns
 that cannot be computed leave a store without them and a coded warning (view_columns_failed). Also tests/old_runs.py,
-the old runs the tests make until store wave 4's item 5."""
+the old runs the tests of `runs remove-old` make, and tests/old_scripts.py, the frozen writer of a run's data.js and
+lines.js the tools' tests use."""
 
 import dataclasses
 import json
@@ -20,6 +21,7 @@ import linestore  # noqa: E402
 import mapping  # noqa: E402
 import messages  # noqa: E402
 import old_runs  # noqa: E402
+import old_scripts  # noqa: E402
 import search  # noqa: E402
 from test_access_search import _plan, offline, scene  # noqa: E402,F401 - offline is a fixture
 
@@ -131,23 +133,22 @@ def test_view_columns_that_fail_keep_the_lines(scene_lines, tmp_path, monkeypatc
 
 
 def test_old_runs_are_todays_files(scene_lines, tmp_path):
-    """tests/old_runs.py writes the old files of a run with a store as the search wrote them before store wave 4:
-    data.js and lines.js equal mapping.save_map's from the search's own lines, byte for byte; each kind holds the
-    files of its time; an old kind's map.html is the page of before (no disk notice)."""
+    """tests/old_runs.py makes each kind of run of before store wave 4 from a run with a store, with the files of its
+    time but data.js and lines.js (no reader is left of them); an old kind's map.html is the page of before (no disk
+    notice). tests/old_scripts.py's data.js and lines.js written from the store equal what its frozen writer gives
+    from the search's own lines (the heads mapping.map_head gives the search's arguments), byte for byte."""
     plan, lines = scene_lines
     path, result = _save(plan, lines, tmp_path, "r0ld5x")
-    p = plan.params
     reference = tmp_path / "reference"
     reference.mkdir()
-    mapping.save_map(result.results, plan.area, str(reference), str(tmp_path / "runs"), result.meta, plan.crs,
-                     plan.group_distance, p.group_by, None, None, p.model, plan.rigging, high_above=p.high_above,
-                     files=mapping.MAP_FILES)
+    _reference_scripts(plan, result, reference)
     kinds = {}
     for kind in old_runs.KINDS:
         kinds[kind] = old_runs.copy_run(path, tmp_path / "runs", f"r0ld5x-{kind}")
         old_runs.make_old(kinds[kind], kind)
     copy = kinds["with_text"]
-    for name in mapping.MAP_FILES:
+    old_scripts.write_scripts(copy)
+    for name in old_scripts.MAP_FILES:
         expected = (reference / name).read_text("utf-8").replace('"r0ld5x"', '"r0ld5x-with_text"')
         assert (copy / name).read_text("utf-8") == expected, name
     assert set(os.listdir(kinds["data_js"])) == {"map.html", "ATTRIBUTION.txt", "run.json", *old_runs.TEXT_FILES}
@@ -216,22 +217,28 @@ def scene_lines_with_ends(tmp_path_factory, offline):  # noqa: F811
 
 
 def test_old_runs_with_ends_are_todays_files(scene_lines_with_ends, tmp_path):
-    """tests/old_runs.py's data.js and lines.js of a run with "ends" (the A-frame heights, the access mark, the square
-    rule's count: the heads it builds by hand) equal mapping.save_map's from the search's own lines, byte for byte."""
+    """tests/old_scripts.py's data.js and lines.js of a run with "ends" (the A-frame heights, the access mark, the square
+    rule's count: the heads it builds by hand) equal its frozen writer's from the search's own lines, byte for byte."""
     plan, lines = scene_lines_with_ends
     path, result = _save(plan, lines, tmp_path, "r0ld5e")
     assert {"lift_needed", "access1", "stands_for"} <= set(result.results.columns)
-    p = plan.params
     reference = tmp_path / "reference"
     reference.mkdir()
-    mapping.save_map(result.results, plan.area, str(reference), str(tmp_path / "runs"), result.meta, plan.crs,
-                     plan.group_distance, p.group_by, None, None, p.model, plan.rigging, high_above=p.high_above,
-                     files=mapping.MAP_FILES)
-    old_runs.make_old(path, "with_text")
-    for name in mapping.MAP_FILES:
+    _reference_scripts(plan, result, reference)
+    old_scripts.write_scripts(path)
+    for name in old_scripts.MAP_FILES:
         text = (path / name).read_text("utf-8")
         assert '"ends":["lift_needed","lift_no_zone","access1","access2","stands_for"]' in text, name
         assert text == (reference / name).read_text("utf-8"), name
+
+
+def _reference_scripts(plan, result, folder):
+    """data.js and lines.js of the search's own lines (result.results) by tests/old_scripts.py's frozen writer, their
+    heads from mapping.map_head of the search's arguments, as mapping.save_map wrote them before store wave 4."""
+    p = plan.params
+    head = mapping.map_head(plan.area, str(folder / "map.html"), result.meta, plan.crs, plan.group_distance,
+                            p.group_by, None, None, p.model, plan.rigging, high_above=p.high_above)
+    old_scripts.write_map_scripts(result.results, str(folder), old_scripts.heads_of(head, result.meta))
 
 
 class _Stub:

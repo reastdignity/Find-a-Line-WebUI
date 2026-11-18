@@ -1,42 +1,31 @@
-// A run's data for the app and a run's map.html: its data.js (window.FINDALINE_RUN = {...};). Over http(s) it
-// is downloaded (download.ts: XMLHttpRequest) and its bytes counted for the progress bar (against SIZE_HEADER,
-// the size web.RunFiles gives before nginx gzips it, or Content-Length when nothing compressed it), then read by
-// JSON.parse (measured 2026-11-04: about 30 % faster than the script; tools/perf_run_load.py). A file JSON.parse refuses (NaN,
-// Infinity: runs.column_texts writes them) is loaded as a script instead, from the HTTP cache, so every value
-// stays as the script gives it. From disk (file://: no fetch) it is a script, which the CSP (script-src
-// 'self') allows and web.RunFiles serves only to who may open the run. The lines of other runs (Compare) and of
-// Home's mini maps come from their store or their lines.js (loadOtherRun, loadRunLines, others.loadLines).
+// A run's data for the app and a run's map.html over http(s): its store, lines.arrow and profiles.arrow (store
+// wave 2: run.json's block `store`, which runs.js lists), downloaded together (download.ts: XMLHttpRequest, as
+// bytes) and their bytes counted for the progress bar (against SIZE_HEADER, the size web.RunFiles gives before nginx
+// compresses it, or Content-Length when nothing compressed it), read with apache-arrow (readStore) into columns
+// without a copy (types.ts storedColumns: docs/line-volume/spec-store.md 1.2), the head from the schema's metadata
+// `findaline`. The page keeps the run's lines as typed arrays (RunData.columns). Since store wave 4's item 5 a run is
+// read only from its store: the reader of data.js and lines.js ended with the runs that held them (removed by
+// `findaline.py runs remove-old` on each host first), and a page from disk (file://) loads no run (map/main.tsx shows
+// the disk notice).
 //
-// The rows are then read into columns (types.ts runData: docs/line-volume/spec-store.md 1.2, store wave 1) and
-// dropped: the page keeps the run's lines as typed arrays (RunData.columns). A body that arrives empty although its
-// bytes came is longer than the browser's longest string (Chromium: 536 870 888 characters, about 2.3 M lines of
-// today's data.js; the XHR's text is then "" with no error): the load fails with TooLarge, whose message the page
-// shows, and is not tried as a script (which crashed the tab: part E2 of the line-volume study).
-//
-// A run with a store (store wave 2: run.json's block `store`, which runs.js lists) is read from it instead over
-// http(s): lines.arrow and profiles.arrow downloaded together (download.ts, as bytes), read with apache-arrow
-// (readStore) into the same columns without a copy, the head from the schema's metadata `findaline`. Which file is
-// read is decided by the run's entry in the list of runs the page has (storeOf: window.FINDALINE_RUNS, or runs.js
-// beside the run's folder loaded once): a run listed without the block `store` (saved before 2026-11-15, its store
-// failed, or a save stopped before it wrote run.json) reads data.js, and so does a page from disk. A run the list
-// does not name (a share link, whose runs.js lists no runs; another user's run an administrator opens; a run saved
-// since the list was read) asks for its store's files directly (STORE_PROBE): a run without them answers 404 and
-// reads data.js, and so does a probe whose files could not be fetched (another status, a network error: the probe
-// is a guess, and an old run must not fail on it). A store whose file is missing (404) falls back to data.js while
-// runs keep it (until store wave 4); a store of a newer format never does (NewerStore: its file's metadata says so),
-// and a store that fails otherwise (a listed one not fetched, any one fetched but unreadable) is a StoreFailed. A
-// body the browser could not hold (a null ArrayBuffer) is TooLarge, as data.js's empty text is. Only answers of 200
-// report the download's progress (a 404's short body is no part of the run).
+// The run is named by its folder (`<base><id>/`); which store is read is decided by the run's entry in the list of
+// runs the page has (storeOf: window.FINDALINE_RUNS, or runs.js beside the run's folder loaded once): its block
+// `store`. A run the list does not name (a share link, whose runs.js lists no runs; another user's run an
+// administrator opens; a run saved since the list was read) or names without the block asks for its store's files
+// directly (STORE_PROBE). A store of a newer format is refused (NewerStore: run.json's block or the file's metadata
+// says so); a store that cannot be fetched (404 or another status, a network error) or read is a StoreFailed, whose
+// words the page shows (ui.result.store_failed). A body the browser could not hold (a null ArrayBuffer) is TooLarge.
+// Only answers of 200 report the download's progress (an error's short body is no part of the run). The lines of
+// other runs (Compare) and of Home's mini maps come from their lines.arrow alone (loadOtherRun, loadRunLines).
 
 import { RecordBatchReader, Type, type Data, type RecordBatch, type Schema } from "apache-arrow";
 import { download } from "../download";
 import { t } from "../i18n";
 import { measure, timed } from "../perf";
 import { nextPaint } from "../paint";
-import { runData, storedColumns, type LineColumns, type Ortho, type Profile, type ProfileSource, type RunData, type RunHead,
-         type RunInfo, type RunScript, type StoredColumn, type StoreInfo, type ViewColumns } from "../types";
+import { storedColumns, type LineColumns, type Ortho, type Profile, type ProfileSource, type RunData, type RunHead,
+         type RunInfo, type StoredColumn, type StoreInfo, type ViewColumns } from "../types";
 
-const PREFIX = "window.FINDALINE_RUN = ";  // mapping._script_head of data.js
 /** The store's format this page reads (linestore.FORMAT): a store of a higher one is refused (NewerStore). */
 export const STORE_FORMAT = 1;
 export const STORE_FILES = ["lines.arrow", "profiles.arrow"];  // linestore.FILES
@@ -53,7 +42,7 @@ export interface LoadProgress {
 
 export type OnProgress = (progress: LoadProgress) => void;
 
-/** A run too large for this browser: its data.js arrived as an empty text (the browser's string limit). */
+/** A run too large for this browser: the body of its store's file could not be held (a null ArrayBuffer). */
 export class TooLarge extends Error {
   constructor() {
     super(t("ui.result.too_large"));
@@ -61,20 +50,18 @@ export class TooLarge extends Error {
   }
 }
 
-/** A run's store that could not be downloaded or read (not a missing file: that falls back to data.js). */
+/** A run's store that could not be downloaded (a 404 among them: a run without a store) or read: its message the
+ *  catalogue's words the page shows (ui.result.store_failed), `detail` what went wrong, written to the console once
+ *  here for every failed load (a run's own, Compare's other run, a mini map), so no caller needs to. */
 export class StoreFailed extends Error {
+  readonly detail: string;
   constructor(key: string, why: string) {
-    super(`could not load the store of the run ${key} (${why})`);
+    super(t("ui.result.store_failed"));
     this.name = "StoreFailed";
+    this.detail = `could not load the store of the run ${key} (${why})`;
+    console.warn(this.detail);
   }
 }
-
-/** A store's file answered 404: the run is read from data.js (or lines.js) instead while runs keep them. */
-class StoreMissing extends Error {}
-
-/** A store's file that could not be fetched (a status other than 200 or 404, a network error): a StoreFailed, but
- *  the probe (STORE_PROBE) reads data.js instead. */
-class StoreNotFetched extends StoreFailed {}
 
 /** A run whose store is of a higher format than STORE_FORMAT: made by a newer Find-a-Line. */
 export class NewerStore extends Error {
@@ -92,19 +79,21 @@ interface Loading {
 
 const loaded = new Map<string, Loading>();
 
-/** The data of run `id` (`<base><id>/data.js`), loaded once; rejects when it cannot be loaded (a failed load
+/** The data of run `id` (its store in `<base><id>/`), loaded once; rejects when it cannot be loaded (a failed load
  *  is tried again on the next call). `onProgress` hears the load's phases until it ends. */
 export function loadRun(id: string, base = "/runs/", onProgress?: OnProgress): Promise<RunData> {
-  return loadRunFrom(base + encodeURIComponent(id) + "/data.js", id, onProgress);
+  return loadRunFrom(base + encodeURIComponent(id) + "/", id, onProgress);
 }
 
-/** The run data of the script at `url`, kept under `key` (loadRun's run id). */
-export function loadRunFrom(url: string, key: string, onProgress?: OnProgress): Promise<RunData> {
+/** The run whose folder is `folder` (a URL ending in "/", relative to the page: "./" for a run's own map.html),
+ *  kept under `key` (loadRun's run id). Over http(s) only: from disk it rejects (no run is read from disk). */
+export function loadRunFrom(folder: string, key: string, onProgress?: OnProgress): Promise<RunData> {
   let loading = loaded.get(key);
   if (!loading) {
     const entry: Loading = {listeners: new Set(), last: null, promise: Promise.resolve(null as unknown as RunData)};
     const report = (p: LoadProgress) => { entry.last = p; entry.listeners.forEach((f) => f(p)); };
-    entry.promise = overHttp() ? fromServer(url, key, report) : scriptRun(url, key, report);
+    entry.promise = overHttp() ? fromServer(new URL(folder, location.href).href, key, report)
+      : Promise.reject(new StoreFailed(key, "a page from disk reads no run"));
     loaded.set(key, entry);
     entry.promise.catch(() => { if (loaded.get(key) === entry) loaded.delete(key); });
     entry.promise.finally(() => entry.listeners.clear()).catch(() => undefined);
@@ -121,85 +110,33 @@ function overHttp(): boolean {
   return location.protocol === "http:" || location.protocol === "https:";
 }
 
-/** A data.js's text as its value, or null when it is not one JSON.parse reads (NaN or Infinity in it). */
-export function parseRunScript(text: string): RunScript | null {
-  const end = text.lastIndexOf(";");
-  if (!text.startsWith(PREFIX) || end < PREFIX.length) return null;
-  try {
-    const data = JSON.parse(text.slice(PREFIX.length, end));
-    return data && Array.isArray(data.lines) ? data as RunScript : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Was a downloaded body cut to nothing by the browser's string limit: empty although `bytes` of it came. */
-export function tooLarge(body: string, bytes: number): boolean {
-  return body === "" && bytes > 0;
-}
-
-/** data.js's value with its rows read into columns (the rows are dropped with the value). */
-export function columnsOf(script: RunScript): RunData {
-  return timed("fal:run:lines", () => runData(script), {count: script.lines.length});
-}
-
-async function downloadRun(url: string, key: string, report: OnProgress): Promise<RunData> {
-  const start = performance.now();
+/** A run over http(s) from its store in `folder` (an absolute URL ending in "/"), with its profiles. */
+async function fromServer(folder: string, key: string, report: OnProgress): Promise<RunData> {
   report({phase: "download", fraction: null});
-  const answer = await download(url, "text", {
-    onHeaders: (total) => report({phase: "download", fraction: total ? 0 : null, done: 0, total}),
-    onBytes: (done, total) => report({phase: "download", fraction: total ? Math.min(1, done / total) : null, done, total}),
-  }).catch(() => { throw new Error("could not load the run " + key); });
-  if (answer.status !== 200) throw new Error(`could not load the run ${key} (${answer.status})`);
-  measure("fal:run:download", start, {bytes: answer.bytes});
-  if (tooLarge(answer.body, answer.bytes)) throw new TooLarge();
-  report({phase: "parse", fraction: null});
-  await nextPaint();
-  const parseStart = performance.now();
-  const script = parseRunScript(answer.body);
-  measure("fal:run:parse", parseStart, {json: script !== null});
-  if (script) return columnsOf(script);
-  return scriptRun(url, key, report);
+  const store = await storeOf(folder);
+  return Object.assign(await downloadStore(folder, key, report, store, true), {fromStore: true});
 }
 
-/** A run over http(s): its store when its entry in runs.js has one, else (or when a store's file is missing) its
- *  data.js (`url`). */
-async function fromServer(url: string, key: string, report: OnProgress): Promise<RunData> {
-  report({phase: "download", fraction: null});
-  const store = await storeOf(url);
-  if (!store) return downloadRun(url, key, report);
-  try {
-    return Object.assign(await downloadStore(new URL(".", new URL(url, location.href)).href, key, report, store, true), {fromStore: true});
-  } catch (e) {
-    if (e instanceof StoreMissing || (store === STORE_PROBE && e instanceof StoreNotFetched)) {
-      return downloadRun(url, key, report);
-    }
-    throw e;
-  }
-}
-
-/** The store asked for when no list names the run (storeOf): its files are fetched as a listed store's, a 404
- *  reads data.js, and a newer format is refused by the file's own metadata (readStore), whatever this says. */
+/** The store asked for when no list names the run, or names it without its block (storeOf): its files are fetched
+ *  as a listed store's, and a newer format is refused by the file's own metadata (readStore), whatever this says. */
 export const STORE_PROBE: Readonly<StoreInfo> = Object.freeze({format: STORE_FORMAT, lines: 0, bytes: 0, sha256: ""});
 
-/** The store to read for the run whose data.js is at `url` (its folder's name is the run's id): its block `store`
- *  in the list of runs the page has (window.FINDALINE_RUNS: a map.html's own runs.js, or the list loaded before),
- *  else in `../runs.js` beside its folder, loaded once; null for a run listed without one (data.js). A run that list
- *  does not name, and a share link (/s/<token>/: its runs.js lists no runs, so none is asked for), get STORE_PROBE:
- *  the store's files asked for directly, no list read again. */
-export async function storeOf(url: string): Promise<StoreInfo | null> {
-  const at = new URL(url, location.href), parts = at.pathname.split("/");
-  if (parts.length < 3 || parts[parts.length - 1] !== "data.js") return null;
-  if (at.pathname.startsWith("/s/")) return STORE_PROBE;
+/** The store to read for the run in `folder` (a URL ending in "/<id>/"): its block `store` in the list of runs the
+ *  page has (window.FINDALINE_RUNS: a map.html's own runs.js, or the list loaded before), else in `../runs.js`
+ *  beside its folder, loaded once. A run that list does not name or names without the block, and a share link
+ *  (/s/<token>/: its runs.js lists no runs, so none is asked for), get STORE_PROBE: the store's files asked for
+ *  directly, no list read again. */
+export async function storeOf(folder: string): Promise<StoreInfo> {
+  const at = new URL(folder, location.href), parts = at.pathname.split("/");
+  if (at.pathname.startsWith("/s/") || parts.length < 3) return STORE_PROBE;
   const id = decodeURIComponent(parts[parts.length - 2]);
   const runs = window.FINDALINE_RUNS ?? await loadRunList(new URL("../runs.js", at).href);
-  const run = runs.find((r) => r.id === id);
-  return run ? run.store ?? null : STORE_PROBE;
+  return runs.find((r) => r.id === id)?.store ?? STORE_PROBE;
 }
 
 /** A run's store in `folder` (an absolute URL ending in "/"): lines.arrow and, with `profiles`, profiles.arrow,
- *  downloaded together with one progress, read into columns (readStore). Without profiles (Compare's other runs, as
- *  their lines.js) the lines have none. */
+ *  downloaded together with one progress, read into columns (readStore). Without profiles (Compare's other runs,
+ *  Home's mini maps) the lines have none. */
 async function downloadStore(folder: string, key: string, report: OnProgress, store: StoreInfo,
                              profiles: boolean): Promise<RunData> {
   if (!(store.format <= STORE_FORMAT)) throw new NewerStore();
@@ -217,10 +154,9 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
   const answers = await Promise.all(names.map((name, k) => download(folder + name, "arraybuffer", {
     onHeaders: (total, status) => { refused ||= status !== 200; totals[k] = total; progress(); },
     onBytes: (bytes) => { done[k] = bytes; progress(); },
-  }))).catch(() => { throw new StoreNotFetched(key, "the download failed"); });
-  if (answers.some((a) => a.status === 404)) throw new StoreMissing();
+  }))).catch(() => { throw new StoreFailed(key, "the download failed"); });
   for (const answer of answers) {
-    if (answer.status !== 200) throw new StoreNotFetched(key, String(answer.status));
+    if (answer.status !== 200) throw new StoreFailed(key, String(answer.status));
     // The XHR gives null when it could not allocate the body's ArrayBuffer (XMLHttpRequest standard, "response")
     if (!answer.body && answer.bytes > 0) throw new TooLarge();
   }
@@ -233,7 +169,6 @@ async function downloadStore(folder: string, key: string, report: OnProgress, st
     throw e instanceof NewerStore ? e : new StoreFailed(key, e instanceof Error ? e.message : String(e));
   }
 }
-
 /** A store's Arrow file (`bytes`, the whole file) as its one record batch and its metadata `findaline`; a store of
  *  a higher format is refused before its batch is read. */
 function storeBatch(bytes: ArrayBuffer): {batch: RecordBatch; meta: StoreMeta} {
@@ -261,7 +196,7 @@ function metaOf(schema: Schema): StoreMeta {
 }
 
 /** JSON as Python's json.dumps writes it, also with NaN, Infinity and -Infinity outside strings (a head's value may
- *  be one: data.js is then read as a script), which JSON.parse refuses: each such token becomes a marked string
+ *  be one: the store's metadata is json.dumps'), which JSON.parse refuses: each such token becomes a marked string
  *  first and its number again. */
 export function parseLoose(text: string): unknown {
   try {
@@ -342,7 +277,7 @@ function viewColumns(stored: Map<string, StoredColumn>, n: number): ViewColumns 
 }
 
 /** profiles.arrow as the run's profiles by row: each made when it is asked for (lineAt), as helpers.line_profile's
- *  dict that data.js holds (NaN of the terrain and surface as null, `s`, `w`, `g`, `min_nmpt` null when absent,
+ *  dict that data.js held (NaN of the terrain and surface as null, `s`, `w`, `g`, `min_nmpt` null when absent,
  *  `zone` and `lift` only for a profile with them); the file's arrays are kept, not copied. */
 export function storedProfiles(bytes: ArrayBuffer): ProfileSource {
   const {batch} = storeBatch(bytes);
@@ -396,64 +331,21 @@ export function storedProfiles(bytes: ArrayBuffer): ProfileSource {
   };
 }
 
-/** Another run's lines for Compare (RunActions): from its store when its entry has one and the page is served
- *  (lines.arrow only: no profiles, as its lines.js), else, or when lines.arrow is missing, its lines.js (`lines`:
- *  others.loadLines). */
-export async function loadOtherRun<T>(run: RunInfo, base: string, lines: (id: string, base: string) => Promise<T>):
-    Promise<RunData | T> {
-  if (!run.store || !overHttp()) return lines(run.id, base);
+/** Another run's lines for Compare (RunActions): from its lines.arrow only (no profiles), its entry's store or, for
+ *  an entry without the block, STORE_PROBE; any failure rejects (StoreFailed, NewerStore). */
+export async function loadOtherRun(run: RunInfo, base: string): Promise<RunData> {
   const folder = new URL(base + encodeURIComponent(run.id) + "/", location.href).href;
-  try {
-    return await downloadStore(folder, run.id, () => undefined, run.store, false);
-  } catch (e) {
-    if (e instanceof StoreMissing) return lines(run.id, base);
-    throw e;
-  }
+  return downloadStore(folder, run.id, () => undefined, run.store ?? STORE_PROBE, false);
 }
 
-/** A run's lines for Home's mini map (app/c/Thumb.tsx): lines.arrow only (no profiles.arrow), as Compare's. `listed`
- *  is the run's entry in the list of runs (loadRunList), undefined when the list does not name it: a listed run is
- *  read as loadOtherRun reads it (its store, a 404 reading its lines.js while runs keep it; without a store its
- *  lines.js). A run the list does not name (saved since the list was read: it is loaded once) asks for its
- *  lines.arrow directly, as storeOf's STORE_PROBE: a 404 or a file not fetched reads its lines.js (`lines`:
- *  others.loadLines), and a store of a newer format is refused by the file's own metadata, never read as an old run. */
-export async function loadRunLines<T>(id: string, listed: RunInfo | undefined, base: string,
-                                      lines: (id: string, base: string) => Promise<T>): Promise<RunData | T> {
-  if (listed) return loadOtherRun(listed, base, lines);
-  if (!overHttp()) return lines(id, base);
+/** A run's lines for Home's mini map (app/c/Thumb.tsx): lines.arrow only (no profiles.arrow), as Compare's.
+ *  `listed` is the run's entry in the list of runs (loadRunList), undefined when the list does not name it (saved
+ *  since the list was read: it is loaded once): its lines.arrow is asked for directly, as storeOf's STORE_PROBE, and
+ *  a store of a newer format is refused by the file's own metadata. Any failure rejects (the card's placeholder). */
+export async function loadRunLines(id: string, listed: RunInfo | undefined, base: string): Promise<RunData> {
+  if (listed) return loadOtherRun(listed, base);
   const folder = new URL(base + encodeURIComponent(id) + "/", location.href).href;
-  try {
-    return await downloadStore(folder, id, () => undefined, STORE_PROBE, false);
-  } catch (e) {
-    if (e instanceof StoreMissing || e instanceof StoreNotFetched) return lines(id, base);
-    throw e;
-  }
-}
-
-function scriptRun(url: string, key: string, report: OnProgress): Promise<RunData> {
-  return scriptValue(url, key, report).then(columnsOf);
-}
-
-/** data.js's value loaded as a script. */
-function scriptValue(url: string, key: string, report: OnProgress): Promise<RunScript> {
-  report({phase: "download", fraction: null});
-  return new Promise<RunScript>((resolve, reject) => {
-    const script = document.createElement("script"), start = performance.now();
-    script.src = url;
-    // A script's load event comes right after it ran, before any other script: FINDALINE_RUN is its own
-    script.onload = () => {
-      measure("fal:run:script", start);
-      const data = window.FINDALINE_RUN;
-      delete window.FINDALINE_RUN;
-      script.remove();
-      if (data) resolve(data); else reject(new Error("no run data in " + url));
-    };
-    script.onerror = () => {
-      script.remove();
-      reject(new Error("could not load the run " + key));
-    };
-    document.head.appendChild(script);
-  });
+  return downloadStore(folder, id, () => undefined, STORE_PROBE, false);
 }
 
 /** The run's orthophoto for the app's page: its cache folder is relative to the run's map.html

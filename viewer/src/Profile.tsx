@@ -53,7 +53,7 @@ export interface ProfileProps {
   slope: number;
   leashFall: number;
   rigging: Rigging;                      // initial values (the run's)
-  /** The run's no-fall zone at the ends and A-frame height, metres (data.js "end_zone", "lift"; the patch meta's);
+  /** The run's no-fall zone at the ends and A-frame height, metres (the head's "end_zone", "lift"; the patch meta's);
    *  none: off (a run without them, or before them). */
   endZone?: number;
   lift?: number;

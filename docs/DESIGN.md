@@ -559,9 +559,10 @@ Only rules the repository already states (the files named); the rules the user p
 - Do style through classes or the CSSOM (`element.style`, Preact's `style` prop); don't write `style=` attributes
   or `<style>` in HTML strings: the CSP allows `style-src 'self'` only (`.claude/rules/viewer.md`).
 - Don't import `preact/compat` (`.claude/rules/viewer.md`).
-- Do bundle fonts, scripts and pictures: no CDN. A run's map opens through the app; from `file://` a map.html written
-  since store wave 4 shows only the disk notice (the run's name, the sentence and `findaline.py view <id>` on its own
-  line: the accepted preview, 2026-11-17), older ones still load from disk (`.claude/rules/viewer.md`).
+- Do bundle fonts, scripts and pictures: no CDN. A run's map opens through the app; from `file://` every map.html
+  shows only the disk notice (the run's name, the sentence and `findaline.py view <id>` on its own line: the accepted
+  preview, 2026-11-17): one written since store wave 4 holds it, an older one gets it from the viewer
+  (`.claude/rules/viewer.md`).
 - Don't nest buttons: a removable chip is a span with two buttons (`ui/components.tsx`, `Chip`).
 - Do give an icon-only button its name, which is also its tooltip (`IconButton`); an icon is hidden from screen
   readers unless it has a title (`Icon`).

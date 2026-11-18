@@ -160,11 +160,10 @@ def test_wms_in_degrees_unchanged(monkeypatch):
 
 
 def test_map_data_names_the_wms_crs(tmp_path):
-    """data.js carries wms_crs for a WMS asked in Web Mercator (layers.ts asks Leaflet's WMS in EPSG:3857) and
-    leaves it out for EPSG:4326, so the maps of other sources stay as they were."""
+    """The run's head (mapping.map_head: its store's) carries wms_crs for a WMS asked in Web Mercator (layers.ts asks
+    Leaflet's WMS in EPSG:3857) and leaves it out for EPSG:4326, so the maps of other sources stay as they were."""
     from shapely.geometry import Point
 
-    import helpers
     import mapping
 
     class Area:
@@ -180,9 +179,6 @@ def test_map_data_names_the_wms_crs(tmp_path):
                                                        "test")):
         folder = tmp_path / service.folder.replace("/", "_")
         folder.mkdir()
-        mapping.save_map(helpers.LineTable.empty(), Area, str(folder), str(tmp_path / "runs"), run, "EPSG:8088",
-                         ortho_service=service)
-        text = (folder / "data.js").read_text(encoding="utf-8")
-        found.append(json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["ortho"])
+        found.append(mapping.map_head(Area, str(folder / "map.html"), run, "EPSG:8088", ortho_service=service)["ortho"])
     assert found[0]["wms_crs"] == "EPSG:3857" and found[0]["wms_version"] == "1.1.1"
     assert "wms_crs" not in found[1] and "wms_version" not in found[1]

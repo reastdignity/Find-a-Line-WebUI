@@ -1,4 +1,4 @@
-// A download with its progress (a run's data.js, the 3D view's patch) by XMLHttpRequest, not a fetch's streamed
+// A download with its progress (a run's store, the 3D view's patch) by XMLHttpRequest, not a fetch's streamed
 // body: its progress events count the body's bytes as they come, after any decompression, and headless Edge's
 // virtual time (the tests' --dump-dom) waits for it as for a script, while it runs ahead of a fetch's stream
 // (with no timer left it jumps to its budget's end, and the page never sees the data).

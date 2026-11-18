@@ -27,7 +27,7 @@ export interface PatchMeta {
   affine: [number, number, number, number, number, number];
   rigging: Rigging;
   model: string;
-  /** The run's formula-model constants as data.js has them (search.patch_of_line): the profile chart's limit. */
+  /** The run's formula-model constants as its head has them (search.patch_of_line): the profile chart's limit. */
   slope: number;
   leash_fall: number;
   /** The run's no-fall zone at the ends and its A-frame height, metres (search.patch_of_line, only when set): the

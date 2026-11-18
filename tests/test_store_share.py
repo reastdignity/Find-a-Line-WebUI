@@ -1,8 +1,9 @@
 """A share link's page and a run outside the page's list of runs read the run's store (lines.arrow,
-profiles.arrow), not data.js (result/load.ts storeOf: STORE_PROBE; docs/line-volume/spec-store.md 1.10, store SL,
-2026-11-17): in load.ts with a made-up XMLHttpRequest, and in headless Edge on the local app (a run missing from
-runs.js: its map.html and the app) and on the public site (share links). A run without a store reads data.js after
-its store's two 404s; the list of runs is asked for once at most; a share link's visitor gets no list."""
+profiles.arrow) (result/load.ts storeOf: STORE_PROBE; docs/line-volume/spec-store.md 1.10, store SL, 2026-11-17): in
+load.ts with a made-up XMLHttpRequest, and in headless Edge on the local app (a run missing from runs.js: its map.html
+and the app) and on the public site (share links). A run without a store shows that its data could not be loaded after
+its store's two 404s (store wave 4's item 5: no data.js); the list of runs is asked for once at most; a share link's
+visitor gets no list."""
 
 import json
 import os
@@ -67,17 +68,12 @@ globalThis.window = globalThis;
 globalThis.XMLHttpRequest = FakeXHR;
 globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
 globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
-// A script tag: a list of runs (recorded), or data.js that JSON.parse refuses (NaN), evaluated as the page would
+// A script tag: a list of runs (recorded); any other script is recorded too (none may come: no data.js)
 globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {
   const path = s.src.replace("http://test", "");
-  if (path.endsWith("/runs.js")) {
-    scripts.push(path);
-    setTimeout(() => { window.FINDALINE_RUNS = listed; s.onload(); });
-    return;
-  }
-  const runs = /^\/runs\/([^/]+)\/([^/]+)$/.exec(path), share = /^\/s\/[^/]+\/([^/]+)$/.exec(path);
-  const local = cases[runs ? runs[1] : shared] + "/" + (runs ? runs[2] : share[1]);
-  setTimeout(() => { new Function("window", fs.readFileSync(local, "utf-8"))(window); s.onload(); });
+  scripts.push(path);
+  if (path.endsWith("/runs.js")) setTimeout(() => { window.FINDALINE_RUNS = listed; s.onload(); });
+  else setTimeout(() => s.onerror());
 }}};
 const outcome = async (f) => {
   asked.splice(0);
@@ -97,10 +93,10 @@ const outcome = async (f) => {
   out.unlisted = await outcome(() => m.loadRun("zone"));
   out.unlistedAgain = await outcome(() => m.loadRun("both"));
   gone.add("lines.arrow"); gone.add("profiles.arrow");
-  out.unlistedOld = await outcome(() => m.loadRun("square"));  // a run without a store: its data.js after the 404s
+  out.unlistedOld = await outcome(() => m.loadRun("square"));  // a run without a store: the 404s, then it fails
   gone.clear();
   out.listed = await outcome(() => m.loadRun("plain"));                // listed with its block: the store
-  out.listedWithout = await outcome(() => m.loadRun("nosurface"));     // listed without one: data.js, no probe
+  out.listedWithout = await outcome(() => m.loadRun("nosurface"));     // listed without one: its store all the same
   console.log(JSON.stringify(out));
 })();
 """
@@ -108,9 +104,9 @@ const outcome = async (f) => {
 
 def test_share_links_and_unlisted_runs_read_the_store(tmp_path, store_cases):
     """load.ts over http with a made-up XMLHttpRequest: a share link's run, and a run the page's list of runs does not
-    name, are read from lines.arrow and profiles.arrow, never data.js; without a store (404) they read data.js; the
-    list of runs is loaded once for /runs/ and never for a share link; a run listed without its store block reads
-    data.js without asking for a store."""
+    name, are read from lines.arrow and profiles.arrow; without a store (404) they fail (StoreFailed) and ask for
+    nothing else (no data.js); the list of runs is loaded once for /runs/ and never for a share link; a run listed
+    without its store block is read from its store all the same."""
     cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps(cases), encoding="utf-8")
@@ -118,17 +114,20 @@ def test_share_links_and_unlisted_runs_read_the_store(tmp_path, store_cases):
     share = f"/s/{TOKEN}/"
     assert out["share"] == {"ok": 3000, "asked": [share + "lines.arrow", share + "profiles.arrow"], "scripts": []}
     other = f"/s/{OTHER_TOKEN}/"
-    assert out["shareOld"] == {"ok": 3000, "asked": [other + "lines.arrow", other + "profiles.arrow",
-                                                     other + "data.js"], "scripts": []}
+    assert out["shareOld"]["error"] == "StoreFailed", out
+    assert {k: out["shareOld"][k] for k in ("asked", "scripts")} == {
+        "asked": [other + "lines.arrow", other + "profiles.arrow"], "scripts": []}, out
     assert out["unlisted"] == {"ok": 3000, "asked": ["/runs/zone/lines.arrow", "/runs/zone/profiles.arrow"],
                                "scripts": ["/runs/runs.js"]}
     assert out["unlistedAgain"] == {"ok": 3000, "asked": ["/runs/both/lines.arrow", "/runs/both/profiles.arrow"],
                                     "scripts": []}
-    assert out["unlistedOld"] == {"ok": 3000, "asked": ["/runs/square/lines.arrow", "/runs/square/profiles.arrow",
-                                                        "/runs/square/data.js"], "scripts": []}
+    assert out["unlistedOld"]["error"] == "StoreFailed", out
+    assert {k: out["unlistedOld"][k] for k in ("asked", "scripts")} == {
+        "asked": ["/runs/square/lines.arrow", "/runs/square/profiles.arrow"], "scripts": []}, out
     assert out["listed"] == {"ok": 3000, "asked": ["/runs/plain/lines.arrow", "/runs/plain/profiles.arrow"],
                              "scripts": []}
-    assert out["listedWithout"] == {"ok": 3000, "asked": ["/runs/nosurface/data.js"], "scripts": []}
+    assert out["listedWithout"] == {"ok": 3000, "asked": ["/runs/nosurface/lines.arrow",
+                                                          "/runs/nosurface/profiles.arrow"], "scripts": []}
 
 
 # The files the page asked for (resource timing: 404s too), of the run's folder and the lists of runs
@@ -142,9 +141,9 @@ const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
 
 MAP_SCRIPT = FILES_JS + """
 run({
-  map(next) { wait(() => model() && $(".r-rows .r-row"), () => {
-    result.map = {files: filesOf("%(folder)s"), lists: lists(), lines: model().total,
-                  listed: (window.FINDALINE_RUNS || []).map((r) => r.id)};
+  map(next) { wait(() => (model() && $(".r-rows .r-row")) || text(".c-result-wait .c-error"), () => {
+    result.map = {files: filesOf("%(folder)s"), lists: lists(), lines: model() ? model().total : null,
+                  error: text(".c-result-wait .c-error"), listed: (window.FINDALINE_RUNS || []).map((r) => r.id)};
     next();
   }); },
 });
@@ -185,12 +184,10 @@ def _test_map(data_dir, run_id: str, name: str):
 def test_unlisted_runs_read_the_store_in_edge(data, tmp_path):
     """The local app over http with runs.js lacking two runs: the run with a store, in its own map.html and in the app,
     is read from lines.arrow and profiles.arrow (no data.js), with runs.js asked for once at most; the run without a
-    store (its files deleted, its block gone) reads data.js after the two 404s; the same lines either way; no CSP
-    violation."""
+    store (its files deleted, its block gone) shows ui.result.store_failed's words after the two 404s and asks for
+    nothing else; no CSP violation."""
     small_copy(data, BIG, small=OLD)
-    drop_store(data, OLD)
-    for name in ("lines.arrow", "profiles.arrow"):
-        os.remove(data / "runs" / OLD / name)
+    drop_store(data, OLD)  # its files and its block
     import mapping
     mapping.install_viewer(str(data / "runs"))
     _unlist(data, SMALL, OLD)
@@ -205,12 +202,14 @@ def test_unlisted_runs_read_the_store_in_edge(data, tmp_path):
     assert SMALL not in own["map"]["listed"] and OLD not in old["map"]["listed"]  # really outside the list
     assert sorted(own["map"]["files"]) == ["lines.arrow", "profiles.arrow"], own
     assert own["map"]["lists"] == ["/runs/runs.js"], own  # the map's own, no second one
-    files = old["map"]["files"]  # the store's two files at once (each a 404), then data.js
-    assert sorted(files[:2]) == ["lines.arrow", "profiles.arrow"] and files[2:] == ["data.js"], old
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert sorted(old["map"]["files"]) == ["lines.arrow", "profiles.arrow"], old  # the store's two files, each a 404
+    assert old["map"]["error"] == words and old["map"]["lines"] is None, old
     assert old["map"]["lists"] == ["/runs/runs.js"], old
     assert sorted(app["app"]["files"]) == ["lines.arrow", "profiles.arrow"], app
     assert len(app["app"]["lists"]) <= 1, app
-    assert own["map"]["lines"] == old["map"]["lines"] == app["app"]["lines"] == SMALL_LINES
+    assert own["map"]["lines"] == app["app"]["lines"] == SMALL_LINES and own["map"]["error"] == "", own
 
 
 SHARE_SCRIPT = FILES_JS + """
@@ -223,8 +222,11 @@ const actions = () => [...document.querySelectorAll(".r-actions button")]
   .map((b) => b.getAttribute("aria-label") || b.textContent.trim());
 const downloadButton = () => [...document.querySelectorAll(".r-actions button")]
   .find((b) => b.textContent.trim() === "Download" || b.getAttribute("aria-label") === "Download");
-waitFor(() => model() && document.querySelector(".r-rows .r-row") && document.querySelector(".r-actions"), () => {
+const error = () => (document.querySelector(".c-result-wait .c-error") || {}).textContent || "";
+waitFor(() => (model() && document.querySelector(".r-rows .r-row") && document.querySelector(".r-actions")) || error(), () => {
   const folder = location.pathname.replace(/[^/]*$/, "");
+  if (error()) return finish({files: filesOf(folder), lists: lists(), error: error(), runs: window.FINDALINE_RUNS === undefined,
+                              others: asked().filter((p) => p.startsWith("/runs/"))});
   const r = {files: filesOf(folder), lists: lists(), lines: model().total, runs: window.FINDALINE_RUNS === undefined,
              others: asked().filter((p) => p.startsWith("/runs/") || (p.startsWith("/s/") && !p.startsWith(folder)
                                                                     && p !== "/s/runs.js" && !p.startsWith("/s/_viewer/"))),
@@ -244,7 +246,8 @@ waitFor(() => model() && document.querySelector(".r-rows .r-row") && document.qu
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings, monkeypatch):
     """The public site: a share link's map of a run with a store reads lines.arrow and profiles.arrow, never data.js,
-    and of a run without a store data.js after the two 404s; the only list asked for is /s/runs.js, which lists no
+    and of a run without a store says its data could not be loaded after the two 404s (store wave 4's item 5: no
+    data.js); the only list asked for is /s/runs.js, which lists no
     runs (FINDALINE_RUNS undefined), and nothing of another run or of /runs/ is asked for: the visitor learns no other
     run's name, id or size; no CSP violation."""
     import socket
@@ -279,8 +282,6 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
         jobs.set_share(run_id, ac.digest(tokens[run_id]))
     assert json.loads((data / "runs" / RUN_A / "run.json").read_text("utf-8")).get("store")
     drop_store(data, RUN_B)  # RUN_B as a run saved before the store: no block, no files
-    for name in ("lines.arrow", "profiles.arrow"):
-        os.remove(data / "runs" / RUN_B / name)
     settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
     app = web.create_app(str(data), public=settings, accounts=account_settings)
     from starlette.staticfiles import StaticFiles
@@ -311,21 +312,17 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
     for got in (store, old):
         assert "timeout" not in got, got
         assert got["lists"] == ["/s/runs.js"] and got["runs"] is True and got["others"] == [], got
-        assert got["lines"] > 0
     assert sorted(store["files"]) == ["lines.arrow", "profiles.arrow"], store
-    assert sorted(old["files"][:2]) == ["lines.arrow", "profiles.arrow"] and old["files"][2:] == ["data.js"], old
-    assert store["lines"] == old["lines"]
+    with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)["ui.result.store_failed"]
+    assert sorted(old["files"]) == ["lines.arrow", "profiles.arrow"] and old["error"] == words, old
     # The Download (the user, 2026-11-16: "No Download there"): a share link's page of a run with a store has none, in
     # its actions bar (.r-actions: no button "Download", no menu .r-downloads), the page itself drawn (the map, the
-    # rows, the bar); a run without a store keeps its menu of the two kept files; a not-signed-in visitor's demo run
-    # with a store has none either
+    # rows, the bar); a not-signed-in visitor's demo run with a store has none either
     demo = found["demo"]
-    for got in (store, old, demo):
-        assert "timeout" not in got and got["map"] and got["actionsBar"] and got["lines"] > 0, got
     for got in (store, demo):
+        assert "timeout" not in got and got["map"] and got["actionsBar"] and got["lines"] > 0, got
         assert "Download" not in got["actions"] and not got["menu"] and got["downloads"] is None, got
-    assert "Download" in old["actions"], old
-    assert old["downloads"] == [f"/s/{OTHER_TOKEN}/lines.csv", f"/s/{OTHER_TOKEN}/lines.geojson"], old
 
 
 PROBE_FAILURES_SCRIPT = r"""
@@ -373,10 +370,9 @@ window.FINDALINE_RUNS = [{id: "plain", name: "plain", created: "", description: 
 globalThis.XMLHttpRequest = FakeXHR;
 globalThis.location = {protocol: "http:", href: "http://test/app/", origin: "http://test"};
 globalThis.requestAnimationFrame = (f) => setTimeout(f, 0);
-globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {  // data.js with NaN
-  const path = s.src.replace("http://test", ""), share = /^\/s\/([^/]+)\/([^/]+)$/.exec(path);
-  setTimeout(() => { new Function("window", fs.readFileSync(cases[shared[share[1]]] + "/" + share[2], "utf-8"))(window);
-                     s.onload(); });
+globalThis.document = {createElement: () => ({remove() {}}), head: {appendChild(s) {  // no script may be added
+  events.push("script " + s.src);
+  setTimeout(() => s.onerror());
 }}};
 const outcome = async (token, run) => {
   events.splice(0);
@@ -389,13 +385,13 @@ const outcome = async (token, run) => {
 (async () => {
   const out = {};
   out.store = await outcome("t1", "zone");          // both store files asked for before either answers
-  out.old = await outcome("t2", "old");             // no store: two 404s with a body, no progress from them
+  out.old = await outcome("t2", "old");             // no store: two 404s with a body, no progress from them, refused
   broken.add("lines.arrow");
-  out.badGateway = await outcome("t3", "zone");     // a probe's file answers 502: data.js
+  out.badGateway = await outcome("t3", "zone");     // a probe's file answers 502: refused
   out.listedBadGateway = await outcome("listed", "plain");  // a listed store's file answers 502: refused
   broken.clear();
   dropped.add("profiles.arrow");
-  out.networkError = await outcome("t4", "zone");   // a probe's file fails on the network: data.js
+  out.networkError = await outcome("t4", "zone");   // a probe's file fails on the network: refused
   dropped.clear();
   out.newer = await outcome("t5", "newer");         // a probe that finds a store of a newer format: refused
   out.unreadable = await outcome("t6", "garbage");  // a probe that finds a store it cannot read: refused
@@ -406,16 +402,17 @@ const outcome = async (token, run) => {
 
 def test_the_probes_failures_and_progress(tmp_path, store_cases):
     """The probe (a share link's run here): its two store files asked for at once (both sent before either answers);
-    a 404 (with a short body that has a Content-Length) reports no progress before data.js; a file that cannot be
-    fetched (502, a network error) reads data.js as a 404 does, while a listed store's 502 stays a StoreFailed; a store
-    the probe fetched but of a newer format (NewerStore) or unreadable (StoreFailed) is refused, never data.js."""
+    a 404 (with a short body that has a Content-Length) reports no progress and is a StoreFailed, as are a file that
+    cannot be fetched (502, a network error) and a listed store's 502; a store the probe fetched but of a newer format
+    (NewerStore) or unreadable (StoreFailed) is refused; nothing else is asked for and no script added (store wave 4's
+    item 5: no data.js)."""
     import shutil
 
     import pyarrow as pa
 
     import linestore
     cases = {name: str(folder).replace("\\", "/") for name, folder in store_cases.items()}
-    old = tmp_path / "old"  # a run saved before the store: data.js only
+    old = tmp_path / "old"  # a run saved before the store: no store files
     shutil.copytree(store_cases["zone"], old, ignore=shutil.ignore_patterns("*.arrow"))
     newer = tmp_path / "newer"  # a store whose metadata says format 2
     shutil.copytree(store_cases["zone"], newer)
@@ -435,15 +432,12 @@ def test_the_probes_failures_and_progress(tmp_path, store_cases):
     out = _run_node(tmp_path, _store_bundle(tmp_path), PROBE_FAILURES_SCRIPT, cases_path)
     store = out["store"]
     assert store["ok"] == 3000 and sorted(store["events"][:2]) == ["send lines.arrow", "send profiles.arrow"], store
-    data_js = (store_cases["zone"] / "data.js").stat().st_size
     old_events = out["old"]["events"]
-    assert out["old"]["ok"] == 3000 and old_events.index("send data.js") > old_events.index("answer profiles.arrow")
-    assert not any(e.startswith("progress") for e in old_events[:old_events.index("send data.js")]), old_events
-    assert all(e.endswith(f" of {data_js}") for e in old_events if e.startswith("progress")), old_events
-    for name in ("badGateway", "networkError"):
+    assert out["old"]["error"] == "StoreFailed" and not any(e.startswith("progress") for e in old_events), old_events
+    for name, error in (("old", "StoreFailed"), ("badGateway", "StoreFailed"), ("networkError", "StoreFailed"),
+                        ("listedBadGateway", "StoreFailed"), ("newer", "NewerStore"), ("unreadable", "StoreFailed")):
         got = out[name]
-        assert got["ok"] == 3000 and [e for e in got["events"] if e.startswith("send")] == [
-            "send lines.arrow", "send profiles.arrow", "send data.js"], (name, got)
-    for name, error in (("listedBadGateway", "StoreFailed"), ("newer", "NewerStore"), ("unreadable", "StoreFailed")):
-        got = out[name]
-        assert got.get("error") == error and "send data.js" not in got["events"], (name, got)
+        sent = [e for e in got["events"] if e.startswith(("send", "script"))]
+        assert got.get("error") == error, (name, got)
+        assert sent in ([], ["send lines.arrow", "send profiles.arrow"], ["send profiles.arrow", "send lines.arrow"]), \
+            (name, got)

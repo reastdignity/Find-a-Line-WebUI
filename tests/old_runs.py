@@ -1,23 +1,19 @@
 """Runs as Find-a-Line saved them before store wave 4 (docs/line-volume/spec-store.md 2.2), made from a new run for
-the tests: since wave 4 a search writes only its store (lines.arrow, profiles.arrow), map.html, ATTRIBUTION.txt and
-run.json, while the page still opens the old runs on disk until wave 4's item 5 (the reader of data.js) and
-`findaline.py runs remove-old` lists and removes them. This module goes with item 5, all but what remove-old's
-tests still need then (a folder with run.json and no current store).
+the tests of `findaline.py runs remove-old`, which lists and removes them: since wave 4 a search writes only its store
+(lines.arrow, profiles.arrow), map.html, ATTRIBUTION.txt and run.json, and since its item 5 nothing reads a run's
+data.js or lines.js (a run of before is a folder with run.json and no current store; tests/old_scripts.py writes
+those two files where a test still wants them).
 
 `make_old(folder, kind)` turns a run folder (a copy: `clip_runs.data_copy`) into one of the kinds of before, in
-place, with today's writers: data.js and lines.js by `mapping.write_map_scripts` (kept in mapping.py until item 5),
-their heads from the store's head (data.js's head is `mapping.map_head`'s dict, the store's head less
-`linestore.VIEW_HEAD`; lines.js's that of `mapping.map_heads`), the lines and profiles from `linestore.read`;
-lines.csv and lines.geojson by `linestore.export` (the bytes the search wrote: export = lines.csv was checked on
-every regression entry until wave 4); map.html of an old kind is the page of before (BASE_MAP_HTML: without the
+place: lines.csv and lines.geojson by `linestore.export` (the bytes the search wrote: export = lines.csv was checked
+on every regression entry until wave 4); map.html of an old kind is the page of before (BASE_MAP_HTML: without the
 disk notice). The kinds:
-- "data_js": saved before store wave 2: data.js, lines.js, lines.csv, lines.geojson, no store;
+- "data_js": saved before store wave 2: the text files, no store (its data.js and lines.js are not written);
 - "no_html": saved with --no-html before wave 2: lines.csv and lines.geojson only (no map.html, no store);
 - "tiled": "data_js" with a tiled search's work state (tiles/, progress.json "done", shore.json);
 - "no_view": saved between wave 2 and view B1: the text files and a store without the view's columns;
 - "with_text": saved between view B1 and wave 4: the current store and the text files (not old by 2.2).
 `make_running`, `make_unsaved`, `newer_store` and `make_leftovers` make the other folders remove-old meets.
-`data_js(folder)` gives the value data.js would hold (window.FINDALINE_RUN) for tests that read its rows.
 """
 
 import json
@@ -26,9 +22,9 @@ import shutil
 from pathlib import Path
 
 KINDS = ("data_js", "no_html", "tiled", "no_view", "with_text")
-TEXT_FILES = ("data.js", "lines.js", "lines.csv", "lines.geojson")
+TEXT_FILES = ("lines.csv", "lines.geojson")
 
-# mapping.MAP_HTML at e88d69f3 (before store wave 4): the map.html of every run saved before, which loads data.js
+# mapping.MAP_HTML at e88d69f3 (before store wave 4): the map.html of every run saved before (no disk notice)
 BASE_MAP_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
@@ -47,22 +43,6 @@ def _meta(folder) -> dict:
 def _write_meta(folder, meta: dict):
     with open(Path(folder) / "run.json", "w", encoding="utf-8") as f:  # as runs.save_results writes it
         json.dump(meta, f, ensure_ascii=False, indent=2)
-
-
-def write_scripts(folder, files=("data.js", "lines.js"), out=None):
-    """data.js and lines.js of a run with a store, as mapping.save_map wrote them before store wave 4, into the run
-    folder (or the folder `out`)."""
-    import linestore
-    import mapping
-    folder = str(folder)
-    lines, head = linestore.read(folder)
-    meta = _meta(folder)
-    data = {k: v for k, v in head.items() if k not in linestore.VIEW_HEAD}
-    target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(meta['id'])}]"
-    heads = (mapping._script_head("window.FINDALINE_RUN", {**data, "lines": None}),
-             mapping._script_head(target, {"crs": data["crs"], "area": data["area"], "terrain": data["terrain"],
-                                           **mapping._ends(meta), "lines": None}))
-    mapping.write_map_scripts(lines, str(out or folder), heads, files=tuple(files))
 
 
 def write_text(folder, files=("lines.csv", "lines.geojson")):
@@ -116,8 +96,6 @@ def make_old(folder, kind: str):
     if kind not in KINDS:
         raise ValueError(kind)
     folder = Path(folder)
-    if kind != "no_html":
-        write_scripts(folder)
     write_text(folder)
     old_map(folder)
     if kind in ("data_js", "tiled", "no_html"):
@@ -191,13 +169,3 @@ def copy_run(run_folder, runs_dir, run_id: str) -> Path:
         head = table.schema.metadata[linestore.META_KEY].decode("utf-8").replace(old, run_id)
         linestore._write_file(str(path), table.replace_schema_metadata({linestore.META_KEY: head.encode("utf-8")}))
     return target
-
-
-def data_js(folder) -> dict:
-    """The value of the data.js a run with a store had before store wave 4 (its head and "lines": a row per line,
-    the profile last or null), made in a temporary folder: the run folder is left as it is."""
-    import tempfile
-    with tempfile.TemporaryDirectory(prefix="data-js-") as out:
-        write_scripts(folder, ("data.js",), out)
-        text = (Path(out) / "data.js").read_text("utf-8")
-    return json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))
