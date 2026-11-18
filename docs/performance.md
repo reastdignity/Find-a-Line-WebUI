@@ -4167,3 +4167,27 @@ On a local SSD none of it matters: the 228 tiles of the District of Columbia too
   folder lacked its 1 m tiles). `NewestPerSheet.prune` was done the same way on 2026-11-07.
 - Not changed: what a pass downloads, and how fast (the connections of a host decide); the tiles, the index and
   every result.
+
+### A whole pass, timed (Utah, 2026-11-18, the code of `main` 5303d901)
+Started from the window's worktree on the finished download (207 897 tiles of the 1 m DEM cached, on the share),
+nothing else downloading there: 64 s from the pass's start to the end of its check (its first history row; the
+1 m layer's 207 897 tiles found cached, the 10 m stand-in's 2 385 blocks listed), against the 73 min of the same
+step on 2026-11-10; the whole pass 28 min 24 s, of which 25 min 27 s the stand-in.
+
+### The groups of a layer on a grid of degrees (found in that pass)
+The stand-in, 3DEP's 1/3 arc-second DEM, came as one task: 2 385 blocks of 0.1 degree, 3 550 MB in 25 min 27 s
+(2.3 MB/s) on one connection, the pass holding 12.7 GB and writing nothing until all of it had arrived (the window
+showed "99 %, 0.0 MB/s"). `area_download._group_m` gives that layer groups of 100 km (10 km of 1 m data in pixels),
+and `sources.layer._tasks` laid the 100 000 on the layer's own grid, which is EPSG:4269: as degrees, so every block
+of a state lay in one square. A state three times Utah's size would have passed the pass's memory budget and
+restarted without end. Since tag `history/download-groups` the metres are converted to the grid's unit
+(`sources.layer.crs_length`: degrees of latitude for a geographic CRS): groups of 0.9 degrees, 81 blocks at most.
+
+| The 10 m DEM of a state, by a pass of `tools/area_download.py` | Blocks | MB | Time | MB/s | Memory, peak | Tasks |
+| --- | --- | --- | --- | --- | --- | --- |
+| Utah, before: one group | 2 385 | 3 550 | 25 min 27 s | 2.3 | 12.7 GB | 1 |
+| Vermont, after (a scratch folder on the local disk; the pass of `usgs10m` alone) | 334 | 493 | 1 min 35 s | 5.2 | 3.2 GB (sampled every 5 s) | at most 12 (the squares of 0.9 degrees over the state's box) |
+
+Vermont's blocks came in steps (12, 87, 97, 256, 334 of 334). The two rows are different states on different disks:
+they show the mechanism, not a speed-up factor. The country prefetch's groups of 10 km are a block or two on that
+grid, as before in effect (one block is 0.1 degree, about 11 km).

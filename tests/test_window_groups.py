@@ -247,6 +247,31 @@ def test_squares_by_the_blocks_centres(files):
         assert len(square) <= 9
 
 
+def test_a_group_in_metres_on_a_grid_of_degrees():
+    """download_layers' groups are given in metres and laid on the layer's own grid: on a geographic CRS (3DEP's
+    1/3 arc-second DEM, EPSG:4269, blocks of 0.1 degree) the metres become degrees of latitude. Taken as degrees
+    themselves, 100 000 put every block of a state into one group (Utah's 2 385, 12.7 GB held; 2026-11-18)."""
+    usgs = src.SOURCES["usgs10m"].nmt
+    assert usgs.groups and usgs.crs == "EPSG:4269"
+    # Utah's box in tenths of a degree: 5 x 5 degrees, 2 500 blocks
+    tiles = [(i, j) for i in range(-1140, -1090) for j in range(370, 420)]
+    r = usgs.index.request(tiles[0])
+    assert rio.crs.CRS.from_user_input(r.crs).is_geographic and abs(r.transform.a) * r.shape[1] == pytest.approx(0.1)
+    assert src.layer.crs_length(r.crs, 100000) == pytest.approx(100000 / 111320)
+    assert src.layer.crs_length("EPSG:32612", 100000) == 100000 and src.layer.crs_length("EPSG:2180", 10000) == 10000
+    tasks = src.layer._tasks([(usgs, t) for t in tiles], 100000)
+    assert {kind for _, _, kind in tasks} == {"group"}
+    assert sorted(t for _, group, _ in tasks for t in group) == sorted(tiles)
+    sizes = [len(group) for _, group, _ in tasks]
+    # groups of 0.9 degrees: at most 9 x 9 blocks each, 100 Mpx at 1 080 px a block, as 10 km of 1 m data
+    assert len(tasks) >= 25 and max(sizes) <= 81
+    for _, group, _ in tasks:
+        assert max(i for i, _ in group) - min(i for i, _ in group) < 9
+        assert max(j for _, j in group) - min(j for _, j in group) < 9
+    # the country prefetch's 10 km on that grid: a block or two a group, never the whole area
+    assert max(len(group) for _, group, _ in src.layer._tasks([(usgs, t) for t in tiles], 10000)) <= 4
+
+
 def test_runs():
     assert ranges.runs([10, 0, 31, 20], [10, 10, 5, 10], gap=0) == [(0, 29), (31, 35)]
     assert ranges.runs([10, 0, 30, 20], [10, 10, 5, 10], gap=0) == [(0, 34)]

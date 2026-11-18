@@ -452,14 +452,35 @@ def test_a_stopped_download_resumes(settings):
     assert started == [("austria", "cache")]
 
 
-def test_a_finished_area_cannot_be_ticked(settings):
+def test_a_finished_area_can_be_started_again(settings):
+    """Its box is ticked like any other; the question says "again" and that only what is missing or new is
+    downloaded; the row starts (a source may have gained a layer or a stand-in since it was done)."""
     _state(settings, "czechia", "done")
-    app, _ = _app(settings)
+    app, started = _app(settings)
 
     async def body(pilot):
-        assert app.row_of("czechia").box.disabled
+        assert not app.row_of("czechia").box.disabled
         assert _text(app, "czechia") == "done, 2.5 GB"
+        await _tick(pilot, "czechia")
+        await _tick(pilot, "austria")
+        assert app.row_of("czechia").ticked
+        app.refresh_states()            # the state read again leaves the tick where it is
+        await pilot.pause()
+        assert app.row_of("czechia").ticked
+        await pilot.click("#start")
+        await pilot.pause()
+        text = str(app.screen.query_one("#dialog-text").render())
+        czechia = next(line for line in text.splitlines() if line.startswith("Czechia"))
+        austria = next(line for line in text.splitlines() if line.startswith("Austria"))
+        assert czechia.endswith("again") and austria.endswith("new")
+        assert "A finished area is checked again: only what is missing or new is downloaded." in text
+        await pilot.click("#yes")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
     _drive(app, body)
+    assert started == [("austria", "cache"), ("czechia", "cache")]
+    assert [tui.start_word(state) for state in (None, {"stage": "stopped"}, {"stage": "needs attention"},
+                                                {"stage": "done"})] == ["new", "resumes", "resumes", "again"]
 
 
 def test_the_links_come_first_and_a_row_without_them_stays(settings):
@@ -740,7 +761,8 @@ def test_everything_has_a_key(settings):
     assert started == [("austria", "cache")]
 
 
-def test_up_and_down_pass_a_finished_area(settings):
+def test_up_and_down_stop_at_a_finished_area_too(settings):
+    """Its box can be ticked since 2026-11-18, so the keys reach it like any other."""
     _state(settings, "czechia", "done")
     app, _ = _app(settings)
 
@@ -748,9 +770,11 @@ def test_up_and_down_pass_a_finished_area(settings):
         await _keys(pilot, "down")
         assert _at(app) == "box-austria"
         await _keys(pilot, "down")
+        assert _at(app) == "box-czechia"
+        await _keys(pilot, "down")
         assert _at(app) == "title group-europe-germany"
         await _keys(pilot, "up")
-        assert _at(app) == "box-austria"
+        assert _at(app) == "box-czechia"
     _drive(app, body)
 
 

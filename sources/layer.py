@@ -357,10 +357,22 @@ def estimate_layers(layers: Sequence[Layer], grid: Grid, cache_dir: str,
     return each_layer(layers, lambda layer: layer.estimate(grid, cache_dir, update))
 
 
+METRES_PER_DEGREE = 111_320.0   # of latitude, and of longitude at the equator
+
+
+def crs_length(crs, metres: float) -> float:
+    """A length in metres on the axes of a CRS: itself for a projected one, degrees for a geographic one (those of
+    latitude; a square of that many degrees is narrower in longitude away from the equator, never wider). The
+    groups of download_layers are given in metres and laid on the layers' own grids: 3DEP's 1/3 arc-second DEM is
+    on EPSG:4269, where 100 000 "metres" taken as degrees put every block of a state into one group (Utah's
+    2 385 blocks: one task, 12.7 GB held, nothing written for 25 min; 2026-11-18)."""
+    return metres / METRES_PER_DEGREE if rio.crs.CRS.from_user_input(crs).is_geographic else metres
+
+
 def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
     """The tiles of a layer whose index makes block requests (sources/readers/windows.py) in squares of size_m
-    on their CRS from 0, by the centres of their requests: each square's tiles in their order, the squares in the
-    order of their first tile."""
+    on their CRS from 0 (in the CRS's own unit: _tasks converts a group's metres with crs_length), by the centres
+    of their requests: each square's tiles in their order, the squares in the order of their first tile."""
     found: Dict[tuple, list] = {}
     for tile in tiles:
         r = layer.index.request(tile)
@@ -482,8 +494,8 @@ def _tasks(todo: Sequence[Tuple[Layer, Any]], group_m: Optional[float]) -> List[
             continue
         by_layer.setdefault((id(layer), kind), (layer, kind, []))[2].append(tile)
     for layer, kind, tiles in by_layer.values():
-        if kind == "group":
-            size = group_m
+        if kind == "group":   # given in metres, laid on the layer's own grid
+            size = crs_length(layer.index.request(tiles[0]).crs, group_m)
         else:
             r = layer.index.request(tiles[0])
             size = abs(r.transform.a) * r.shape[1] * SERIAL_SQUARE

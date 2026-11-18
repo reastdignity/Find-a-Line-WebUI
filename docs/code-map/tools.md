@@ -632,7 +632,10 @@ slug alike are one (`_one_spelling`: the group ids are slugs). Sorted by `CONTIN
 carries its count and ticked count; at start the continents open and a country's group only when one of its rows has a
 state (`FOLD_AT_START`); the filter matches title and country, opens the groups with a match, hides the others and
 gives the folds back when cleared; up and down walk the visible titles and boxes. A checkbox
-only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A row's name is its name in the state folder
+only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A finished row can be ticked and
+started again (the user's word of 2026-11-18; its box was disabled before): the question says "again"
+(`start_word`) and that only what is missing or new is downloaded, which is how a row gets a layer or a
+stand-in its source gained after it was done. A row's name is its name in the state folder
 (`slug` of the title: `poland`, `czechia`, as the downloads started by hand). The settings (a JSON file outside the
 repository: the docstring of `area_rows.py`) name the state folder, a contact (`FINDALINE_CONTACT` of what starts,
 never on a command line; an e-mail address with a dotted domain or an http(s) address, `contact_ok`, else a
