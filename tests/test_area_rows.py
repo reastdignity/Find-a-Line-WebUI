@@ -181,7 +181,7 @@ def test_the_order_continent_country_then_the_whole_country_first(settings):
     assert states[states.index("united-states-texas"):][:4] == [
         "united-states-texas", "u-s-virgin-islands", "utah", "united-states-vermont"]
     assert [row.label for row in rows if row.country == "Canada"][:5] == [
-        "Whole country · canada", "Alberta · canada", "British Columbia", "British Columbia · canada",
+        "Whole country · canada (slow)", "Alberta · canada", "British Columbia", "British Columbia · canada",
         "Manitoba · canada"]
     assert [row.name for row in rows if row.country == "Finland"] == ["finland", "aland"]
 
@@ -209,6 +209,24 @@ def test_the_parts_of_a_country_wide_source():
     assert _row(rows, "canada-british-columbia-nrcan").source == "canada"
     assert _row(ar.catalogue(), "canada-british-columbia").source == "british_columbia"
     assert _row(ar.catalogue(), "canada-nunavut").source == "nunavut" and "canada-nunavut-nrcan" in names
+
+
+def test_the_country_wide_row_of_a_source_with_parts_says_slow():
+    """The user's word of 2026-11-18: the row stays, marked, and the window says why before it starts it; no
+    other row is marked. The label fits the window's 31 columns of a country's group."""
+    rows = ar.catalogue() + ar.parts()
+    usa, canada = _row(rows, "united-states"), _row(rows, "canada")
+    assert (usa.label, canada.label) == ("Whole country · usa (slow)", "Whole country · canada (slow)")
+    assert max(len(usa.label), len(canada.label)) <= 31
+    assert [row.name for row in rows if row.label.endswith(ar.SLOW)] == ["canada", "united-states"]
+    assert ar.slow_note(usa) == ("United States: one download of the whole country lists and checks all its tiles "
+                                 "at every restart, and nothing of it is done before all of it. Its states are rows "
+                                 "of their own.")
+    assert ar.slow_note(canada).endswith("Its provinces and territories are rows of their own.")
+    for name in ("italy", "poland", "united-states-texas", "united-states-alaska", "puerto-rico",
+                 "canada-alberta-nrcan", "canada-british-columbia"):
+        assert ar.slow_note(_row(rows, name)) is None
+    assert usa.label.startswith(ar.WHOLE)    # still first in its country (order_of)
 
 
 def test_a_part_that_ran_under_another_name_keeps_it(tmp_path):

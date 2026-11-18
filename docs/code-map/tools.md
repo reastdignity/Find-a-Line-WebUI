@@ -599,7 +599,9 @@ territorial waters), the parts of the country-wide sources (`area_rows.parts`, `
 same provinces; rows only, no areas of the map; their km² a table of land areas; Nominatim's name
 "<part>, <country>" unless the table gives another: "New York State", "Washington State", since the plain names give
 the city and the District of Columbia, each checked against its outline on 2026-11-18; `PART_NAMES` keeps the name a
-part's download ran under before, Utah's `utah`) plus the settings' `extra` (one of a part's name replaces the
+part's download ran under before, Utah's `utah`; the country-wide row of such a source keeps its place with
+"(slow)" after its label, `SLOW`, and the Start question says why, `slow_note`: the user's word of 2026-11-18)
+plus the settings' `extra` (one of a part's name replaces the
 part), grouped Continent → Country → area (`Group`, a `Collapsible`, per
 continent holding one per country of two or more rows, with rows of `Checkbox` subclasses: a `DataTable`'s first click
 only moves its cursor, a `SelectionList` has no cell to click for the target). A country of one row (after `PARENTS`

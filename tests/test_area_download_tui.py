@@ -358,6 +358,33 @@ def test_start_asks_first(settings):
     _drive(app, body)
 
 
+def test_the_question_says_why_a_whole_country_with_parts_is_slow(settings):
+    """Before the whole USA is started the window says that its states are rows of their own; a state alone
+    brings no such line."""
+    settings.rows = {}
+    app, started = _app(settings, ar.rows_of(settings))
+
+    async def body(pilot):
+        assert str(app.row_of("united-states").query_one(".name").render()) == "Whole country · usa (slow)"
+        app.row_of("united-states-texas").box.value = True   # far down the list of 146: no click reaches it
+        await pilot.pause()
+        await pilot.click("#start")
+        await pilot.pause()
+        assert "rows of their own" not in str(app.screen.query_one("#dialog-text").render())
+        await pilot.click("#cancel")
+        await pilot.pause()
+        app.row_of("united-states").box.value = True
+        await pilot.pause()
+        await pilot.click("#start")
+        await pilot.pause()
+        text = str(app.screen.query_one("#dialog-text").render())
+        assert "United States: one download of the whole country" in text and "Its states are rows of their own" in text
+        await pilot.click("#cancel")
+        await pilot.pause()
+    _drive(app, body)
+    assert started == []
+
+
 def test_the_question_names_a_region_by_its_full_title(settings):
     app, _ = _app(settings)
 

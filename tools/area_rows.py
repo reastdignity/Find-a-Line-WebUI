@@ -17,7 +17,8 @@ Canada's `canada`) are rows too, though no areas of the map: one download of suc
 of tiles before its first one, at every restart of a pass (Utah: 15 min on an empty cache, 73 min with 199 000 tiles
 cached; the whole USA about two days, estimated), a part only its own. A part's tiles are the country-wide row's (one
 source, one cache folder): a tile on a border is found cached by the second part. A settings' `extra` of a part's name
-replaces it (Utah was an extra first, and keeps its name `utah`).
+replaces it (Utah was an extra first, and keeps its name `utah`). The country-wide row of such a source stays, its
+label marked "(slow)" (`SLOW`), and the window says why before it starts it (`slow_note`).
 
 The rows of a source with parts download one at a time (`command_of`: `--queue <source>`, area_download.py's queue;
 the states, the country-wide row and the territories of `usa` alike), so that starting fifty states is fifty
@@ -101,6 +102,7 @@ class Parts:
     country: str    # a code of COUNTRIES: the rows' country and continent
     dataset: str    # in the title, "<country>: <part> (<dataset>)", where the country's regions of the map have rows of
                     # their own sources under the part's name (Canada: British Columbia); "": "<country>: <part>"
+    called: str     # what the parts are, in the note of the country-wide row: "states"
     parts: Tuple[Tuple, ...]
 
 
@@ -129,7 +131,9 @@ CA_PROVINCES = (
     ("Saskatchewan", 591670), ("Yukon", 474391))
 # Alaska is no part of `usa` (its own source and area of the map, us-ak); Puerto Rico and the U.S. Virgin Islands
 # are areas of the map already
-PARTS = (Parts("usa", "us", "", US_STATES), Parts("canada", "ca", "NRCan", CA_PROVINCES))
+PARTS = (Parts("usa", "us", "", "states", US_STATES),
+         Parts("canada", "ca", "NRCan", "provinces and territories", CA_PROVINCES))
+SLOW = "(slow)"   # after the label of the country-wide row of a source with parts: "Whole country · usa (slow)"
 # A part whose download ran under another name before it was a row here: a row's name never changes
 PART_NAMES = {"United States: Utah": "utah"}
 
@@ -240,6 +244,8 @@ def catalogue() -> List[Row]:
             label = COUNTRIES[code]          # a territory: its own name
         else:
             label = f"{WHOLE} · {source.id}"
+            if any(group.source == source.id for group in PARTS):
+                label += f" {SLOW}"          # the user, 2026-11-18: the parts are the way; slow_note says why
         continent = continents.get(area) or REGION_CONTINENTS.get(area) or continents[code]
         rows.append(Row(slug(title), title, continent, COUNTRIES[parent], label,
                         f"osm:{src.AREA_NAMES[area]}", source.id, source.default_resolution, source.nmpt is not None,
@@ -264,6 +270,16 @@ def parts() -> List[Row]:
                             f"osm:{query[0] if query else f'{name}, {country}'}", source.id,
                             source.default_resolution, source.nmpt is not None, km2))
     return rows
+
+
+def slow_note(row: Row) -> Optional[str]:
+    """What the window says before it starts the country-wide row of a source with parts (its label ends with
+    SLOW), None for any other row: the row is kept, the parts are the better way."""
+    group = next((g for g in PARTS if g.source == row.source), None)
+    if group is None or not (row.label.startswith(WHOLE) and row.label.endswith(SLOW)):
+        return None
+    return (f"{row.title}: one download of the whole country lists and checks all its tiles at every restart, and "
+            f"nothing of it is done before all of it. Its {group.called} are rows of their own.")
 
 
 def _country_of(title: str) -> Tuple[str, str]:

@@ -449,6 +449,9 @@ class Downloads(App):
                 going.append(row)
         lines = [f"{row.row.title[:33]:<34}{row.row.resolution:g} m {km2_text(row.row.km2):>14}  {row.target[:7]:<8}"
                  f"{'resumes' if row.state else 'new'}" for row in going]
+        notes = [note for note in (ar.slow_note(row.row) for row in going) if note]
+        if notes:
+            lines += ["", *notes]
         if blocked:
             lines += ["", "Not started:", *blocked]
         if not going:
