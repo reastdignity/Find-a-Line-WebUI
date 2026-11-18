@@ -174,10 +174,11 @@ VIEW_TIGHT = VIEW_DO % ("const best = Array.from(view.inView.best), tight = best
                         "view.select(tight ?? best[0] ?? view.order[0])")
 # The clip's run has no line over trees or buildings: the shown lines of the list's first two spots (VIEW_AT centres
 # the map on the first) are marked so in the page's own columns (the picture's stand-in for a run with such lines; the
-# map and the panels are drawn again: the view's listeners), the first of them selected where `%s` is "true"
+# map and the panels are drawn again: "Top level only" pressed twice counts the lines again, so the tree's sectors
+# redraw too), the first of them selected where `%s` is "true"
 VIEW_TREES = VIEW_DO % ("const c = view.model.data.columns, first = Array.from(view.order).slice(0, 2); "
-                        "for (const s of first) c.over[view.shownOf(s)] = 1; map.refresh(); view.notify(); "
-                        "if (%s && first.length) view.select(first[0])")
+                        "for (const s of first) c.over[view.shownOf(s)] = 1; view.setTopOnly(!view.topOnly); view.setTopOnly(!view.topOnly); "
+                        "map.refresh(); if (%s && first.length) view.select(first[0])")
 CLICK_MS = 10000  # the pages' default timeout (a click; Playwright's own is 30 s)
 LOAD_MS = 30000  # a page's load and its screenshot (Playwright's default, kept)
 # The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
