@@ -52,8 +52,9 @@ window.P = {
     return !(want.every((w) => r.text.includes(w)) && r.tight === (view.values.clr[r.row] < 1) && r.item === "LI>BUTTON" && r.inner === 0
              && r.text.includes("Over trees or buildings") === over); })
     .map((r) => r.text); },
-  // the heads' words, the sorted one marked " ▾" (the page draws the kit's sort icon before its words)
-  heads(sel) { return [...document.querySelectorAll(sel + " .vl-cols > span")].map((s) => s.textContent + (s.classList.contains("vl-by") ? " ▾" : "")).filter(Boolean); },
+  // the heads' words, the sorted one marked " ▾" where it draws the kit's sort icon before its words (" (no icon)" else)
+  heads(sel) { return [...document.querySelectorAll(sel + " .vl-cols > span")].map((s) => s.textContent
+    + (s.classList.contains("vl-by") ? (s.querySelector("svg.u-ic") ? " ▾" : " (no icon)") : "")).filter(Boolean); },
   text(sel) { return document.querySelector(sel)?.textContent ?? null; },
   list() { const view = this.view(), c = view.counts;
     return {title: this.text("#vl-top-title"), top: this.rows(".vl-topblock"), note: this.text(".vl-topblock .vl-note"),
@@ -337,8 +338,9 @@ def test_list_ranking_sorts_sectors_and_chips(site):
 
 def test_tight_tile_and_over_trees_words(site):
     """A desktop (the pilot of 2026-11-18). A tight line's clearance tile: the warning colour, the tight mark beside
-    its value and "Tight" as a second line of its label, no banner. A line over trees or buildings (the clip has none:
-    two marked so in the page's columns, as tools/ui_shots.py's VIEW_TREES does): its row says so in words on a line
+    its value and "Tight" as a second line of its label, no banner. A line over trees or buildings (the run has 6 948 of
+    its 7 934 lines over trees; the order's first two are marked so as well, in the page's columns, as
+    tools/ui_shots.py's VIEW_TREES does for its clip, which has none): its row says so in words on a line
     of its own (R4.2), in "Best in view" and in the tree, once (no hidden copy beside them); another row does not;
     selected, its clearance tile is "Clearance of terrain" (the store's `clr` is the clearance above the terrain)."""
     from playwright.sync_api import sync_playwright
@@ -440,8 +442,31 @@ def test_selection_details_fan_and_table(site):
             assert len(d["stats"]) == 4 and d["stats"][1].startswith(f"{d['hmean']:.1f}") and d["access"] == 2
             # the clearance's tile of a tight line: the warning colour and "Tight" under its label (no banner)
             assert d["tightTiles"] == (d["clr"] < 1) and d["tight"] == (WORDS["ui.view.tile.tight"] if d["clr"] < 1 else None)
-            over = page.evaluate("() => P.view().selected.line.over")  # the clip's run has lines over trees
-            assert d["labels"] == [WORDS[f"ui.view.tile.{k}"] for k in ("len", "mean", "clear_terrain" if over else "clear", "highest")]
+            # the run has 6 948 of its 7 934 lines over trees (counted 2026-11-18), but not this one: its tile says
+            # "Clearance"; "Clearance of terrain" is test_tight_tile_and_over_trees_words's
+            assert page.evaluate("() => P.view().selected.line.over") is False
+            assert d["labels"] == [WORDS[f"ui.view.tile.{k}"] for k in ("len", "mean", "clear", "highest")]
+            # the facts as a table under A1 and A2 (SpotDetails' viewFacts): a row's head and its two anchors' values, a
+            # value of the line across both columns, the rigging's rows under a group head
+            facts = page.evaluate("""() => [...document.querySelectorAll('.vl-details .vl-facts tbody tr')].map((tr) => {
+                const th = tr.querySelector('th'), tds = [...tr.querySelectorAll('td')];
+                return [th.getAttribute('scope'), th.firstChild ? th.firstChild.textContent : '', tds.map((td) => td.textContent), tds.map((td) => td.colSpan)]; })""")
+            heads = [f[1] for f in facts if f[0] == "row"]
+            assert heads[:4] == [WORDS[f"ui.view.fact.{k}"] for k in ("lat", "lon", "elev", "pct")], heads
+            line = page.evaluate("() => { const l = P.view().selected.line; return [l.lat1.toFixed(6), l.lat2.toFixed(6)]; }")
+            assert facts[0][2] == line and facts[0][3] == [1, 1], facts[0]
+            assert all(f[2] and all(f[2]) and (len(f[2]) == 2 or f[3] == [2]) for f in facts if f[0] == "row"), facts
+            assert WORDS["ui.details.dh"] in heads
+            assert [f[1] for f in facts if f[0] == "rowgroup"] in ([], [WORDS["ui.details.rigging"]]), facts
+            # the access mark's key from the details' "i": opened, the button in the kit's on-state; closed again
+            key = "() => { const b = document.querySelector('.vl-details .ac-info'); return [b.getAttribute('aria-expanded'), getComputedStyle(b).backgroundColor, !!document.querySelector('.vl-details .ac-help')]; }"
+            page.click(".vl-details .ac-info")
+            page.wait_for_selector(".vl-details .ac-help", timeout=WAIT)
+            opened = page.evaluate(key)
+            assert opened[0] == "true" and opened[2] and opened[1] not in ("rgba(0, 0, 0, 0)", "transparent"), opened
+            page.click(".vl-details .ac-info")
+            page.wait_for_selector(".vl-details .ac-help", state="detached", timeout=WAIT)
+            assert page.evaluate(key)[0] == "false" and page.evaluate(key)[1] != opened[1]
             assert target["spot"] in d["pressed"]
             # another sort: the selection is followed again (its row paged in and in the list's box)
             for sort in ("n", "len", "hmean"):

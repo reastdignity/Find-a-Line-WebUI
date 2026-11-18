@@ -816,7 +816,8 @@ def test_phone_controls_apart(site):
                 # a tap on several spots: the map says so; the message covers no control
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
                 # (at half this phone's map has no point 24 px from every control; nearer than about 10 px to the
-                # credits' links the browser's touch adjustment gives the tap to a link)
+                # credits' links the browser's touch adjustment gives the tap to a link: measured 2026-11-18, a tap
+                # 2 or 4 px from the credits' box went to its "Leaflet" link, at 6 and 8 px to "Legend" beside it)
                 crowded = _crowded(page, True, 12)
                 assert crowded and len(crowded["spots"]) > 1, stop
                 _tap(page, crowded["x"], crowded["y"])
@@ -935,7 +936,8 @@ def test_phone_on_its_side(site):
             _tap_on(page, ".v-fold")
             page.wait_for_function(opened, timeout=WAIT)
             # a press on the map closes it (a point of the map under no control and not under the panel, 12 px clear:
-            # nearer to the credits' links the browser's touch adjustment gives the tap to a link)
+            # nearer to the credits' links the browser's touch adjustment gives the tap to a link; measured
+            # 2026-11-18 on this phone: 2 or 4 px from the credits' box to its "Leaflet" link, 6 and 8 px to the "i")
             at = page.evaluate("""() => { const b = T.box(), f = T.free(), boxes = T.controls().concat([document.querySelector(".v-over").getBoundingClientRect()]);
               for (let y = f[3] - 12; y > f[1] + 12; y -= 7) for (let x = f[2] - 12; x > f[0] + 12; x -= 11) { const vx = x + b.left, vy = y + b.top;
                 if (!boxes.some((c) => vx > c.left - 12 && vx < c.right + 12 && vy > c.top - 12 && vy < c.bottom + 12) && document.elementFromPoint(vx, vy)?.closest(".c-leaflet")) return {x: vx, y: vy}; }
