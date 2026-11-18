@@ -38,8 +38,8 @@ The settings, a JSON file outside the repository (it may name a contact and a sh
 
 `max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
 unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
-its tile folders on the share (the source's own, and its stand-in's where they are not on this disk already:
-`links_of`): SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
+its tile folders on the share (the source's own and its stand-in's, `link_folders`): SQLite's WAL does not work
+over one. The tile folders are symbolic links, made when a
 download starts: Windows lets only an administrator make them while Developer Mode is off, so there they take one UAC
 window per start.
 """
@@ -467,23 +467,25 @@ def stand_in_folders(source_id: str) -> List[str]:
     return [folder for folder in layer_folders(stand_in) if folder not in own]
 
 
+def link_folders(source_id: str) -> List[str]:
+    """The tile folders a download of the source fills, relative to a cache: its own and its stand-in's. With a
+    target on a share every one of them is a link to the share (links_of)."""
+    return layer_folders(source_id) + stand_in_folders(source_id)
+
+
 def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
     """The links a download to this target still needs, and why it cannot start, if so: the folders of the
-    source's own layers, which must be on the share (one that holds tiles on this disk, or links elsewhere, stops
-    the row), and those of its stand-in, linked when they can be: a stand-in's folder that is there already, with
-    tiles on this disk or as a link of its own, stays as it is and stops nothing (a state's 10 m tiles went to the
-    local disk until 2026-11-18, and a stand-in may be a world-wide model another download filled)."""
+    source's own layers and of its stand-in (link_folders), by one rule: a folder that holds tiles on this disk,
+    or links elsewhere, stops the row. A stand-in's folder left on this disk "when it holds tiles" would keep
+    every later row of the source there without a word (all the states share `usa/3dep-13/live`; the code review
+    of 2026-11-18): the tiles are moved to the share by hand, then the row starts."""
     if target.tiles is None:
         return [], None
     needed = []
     cache_dir = os.path.join(target.data_dir, "cache")
-
-    def link_of(folder: str) -> Link:
+    for folder in link_folders(row.source):
         parts = folder.split("/")
-        return Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
-
-    for folder in layer_folders(row.source):
-        link = link_of(folder)
+        link = Link(os.path.join(cache_dir, *parts), os.path.join(target.tiles, *parts), cache_dir)
         if os.path.islink(link.path):
             if _plain(os.readlink(link.path)) != _plain(link.target):
                 return [], f"{link.path} links to another folder"
@@ -494,13 +496,6 @@ def links_of(row: Row, target: Target) -> Tuple[List[Link], Optional[str]]:
             needed.append(link)
         else:
             needed.append(link)
-    for folder in stand_in_folders(row.source):
-        link = link_of(folder)
-        if os.path.islink(link.path) or (os.path.lexists(link.path) and os.listdir(link.path)):
-            continue
-        if os.path.lexists(link.path):
-            os.rmdir(link.path)
-        needed.append(link)
     return needed, None
 
 

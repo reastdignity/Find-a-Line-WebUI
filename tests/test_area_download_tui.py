@@ -485,6 +485,31 @@ def test_the_links_come_first_and_a_row_without_them_stays(settings):
     assert started == [("austria", "cache")]
 
 
+def test_a_row_without_its_stand_ins_link_stays(settings):
+    """The link of the stand-in's folder refused (the UAC window), the source's own made: the row does not start,
+    or its stand-in's tiles would fill this disk, and those of every later row of the source."""
+    settings.rows = {"utah": {"target": "NAS"}}
+    calls = []
+
+    def links(needed, state_dir):
+        calls.append([os.path.basename(link.path) for link in needed])
+        return [link for link in needed if link.path.endswith("live")]
+    app, started = _app(settings, links=links)
+
+    async def body(pilot):
+        await _tick(pilot, "utah")
+        await _tick(pilot, "austria")
+        await pilot.click("#start")
+        await pilot.pause()
+        assert "2 tile folders linked to the share" in str(app.screen.query_one("#dialog-text").render())
+        await pilot.click("#yes")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+    _drive(app, body)
+    assert calls == [["3dep-1m", "live"]]
+    assert started == [("austria", "cache")]
+
+
 def test_tiles_in_the_way_are_named_and_the_others_start(settings):
     folder = os.path.join(settings.targets["NAS"].data_dir, "cache", "poland", "nmt")
     os.makedirs(folder)

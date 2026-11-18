@@ -487,7 +487,8 @@ class Downloads(App):
         for row in rows:
             target = self.settings.targets[row.target]
             needed = {os.path.join(target.data_dir, "cache", *folder.split("/"))
-                      for folder in ar.layer_folders(row.row.source)}
+                      for folder in ar.link_folders(row.row.source)}   # the stand-in's too: a row without one of
+            #                                                             them would fill this disk
             if target.tiles is not None and needed & unlinked:
                 self.call_from_thread(self.notify, f"{row.row.title}: no links, not started", severity="error",
                                       markup=False)

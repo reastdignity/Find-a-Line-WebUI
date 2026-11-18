@@ -416,11 +416,14 @@ def test_the_stand_ins_folders_of_other_sources(settings):
         assert not set(ar.stand_in_folders(source)) & set(ar.layer_folders(source))
 
 
-def test_a_stand_ins_folder_that_is_there_stops_nothing(settings):
-    """With tiles on this disk it stays (a state started before the links, a world model another download filled);
-    an empty folder gives way to the link, as the source's own does."""
+def test_a_stand_ins_folder_follows_the_rule_of_the_sources_own(settings, monkeypatch):
+    """An empty folder gives way to its link; one with tiles on this disk stops the row, and every other row of
+    the source with it (all the states share the folder: left there, each later state would fill this disk without
+    a word); a link to another folder stops it too."""
     target = _nas(settings)
-    utah = _row(ar.rows_of(settings), "utah")
+    rows = ar.rows_of(settings)
+    utah, nevada = _row(rows, "utah"), _row(rows, "united-states-nevada")
+    assert ar.link_folders("usa") == ["usa/3dep-1m", "usa/3dep-13/live"]
     local = os.path.join(target.data_dir, "cache", "usa", "3dep-13", "live")
     os.makedirs(local)
     needed, problem = ar.links_of(utah, target)
@@ -428,14 +431,14 @@ def test_a_stand_ins_folder_that_is_there_stops_nothing(settings):
     assert not os.path.lexists(local)      # the empty folder removed for its link
     os.makedirs(local)
     open(os.path.join(local, "n38w110.tif"), "wb").close()
-    needed, problem = ar.links_of(utah, target)
-    assert problem is None and _linked(needed, target) == ["usa/3dep-1m"]
+    for row in (utah, nevada):
+        assert ar.links_of(row, target) == ([], f"{local} holds tiles on this disk")
     assert os.listdir(local) == ["n38w110.tif"]
-    # the source's own folder with tiles on this disk still stops the row
-    own = os.path.join(target.data_dir, "cache", "usa", "3dep-1m")
-    os.makedirs(own)
-    open(os.path.join(own, "x.tif"), "wb").close()
-    assert ar.links_of(utah, target) == ([], f"{own} holds tiles on this disk")
+    os.remove(os.path.join(local, "n38w110.tif"))
+    os.rmdir(local)
+    monkeypatch.setattr(os.path, "islink", lambda path: path == local)
+    monkeypatch.setattr(os, "readlink", lambda path: r"\\other\share\usa\3dep-13\live")
+    assert ar.links_of(utah, target) == ([], f"{local} links to another folder")
 
 
 def test_links_that_are_there_are_kept(settings, monkeypatch):
