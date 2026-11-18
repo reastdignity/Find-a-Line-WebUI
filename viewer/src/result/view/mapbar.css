@@ -36,11 +36,13 @@
 /* the status line's row is wider than its boxes: a press beside them goes to the map */
 .ui .v-foot > .v-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; pointer-events: none; }
 .ui .v-row > *, .ui .v-hint-slot > * { pointer-events: auto; }
-.ui .v-status { padding: 4px 12px; font-size: var(--fs-3); line-height: 20px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px;
-  align-items: center; }
+/* one sentence: "Back to Auto" is a link in it (R2's exception), not a box of its own */
+.ui .v-status { padding: 4px 12px; font-size: var(--fs-3); line-height: 20px; font-weight: 500; }
+.ui .v-status > * + * { margin-left: 8px; }
 .ui .v-status.v-refused { background: var(--warn-soft); }
 /* a phone: the map's message as the status line's first line while it lasts */
-.ui .v-status .v-msg { flex-basis: 100%; font-weight: 600; }
+.ui .v-status .v-msg { display: block; margin-left: 0; font-weight: 600; }
+.ui .v-status .v-msg + * { margin-left: 0; }
 .ui .v-hint-slot { display: contents; }  /* the frame's slot beside the status line: its children are the boxes */
 
 /* The legend: the shapes and colours on the map now; on a phone two lines of short labels and a fold */
@@ -114,6 +116,11 @@
   border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); }
 .ui .v-result .v-map .leaflet-bar a:last-child { border-bottom: 0; }
 .ui .v-result .v-map .leaflet-bar a .u-ic { width: 16px; height: 16px; }
+/* the layers' list opened: its rows 24 px (44 on a touch screen), their words 13 px (R1, R2) */
+.ui .v-result .v-map .leaflet-control-layers-list { font-size: var(--fs-2); }
+.ui .v-result .v-map .leaflet-control-layers-list label { display: flex; align-items: center; min-height: 24px; }
+.ui .v-result .v-map .leaflet-control-layers-list label > span, .ui .v-result .v-map .leaflet-control-layers-list label > div {
+  display: flex; align-items: center; gap: 8px; }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */
 .ui .v-result .u-shore { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; }
 .ui .v-result .u-shore-chip { min-height: 32px; padding: 0 8px; gap: 4px; font-size: var(--fs-3); }
@@ -141,6 +148,7 @@
   .ui .v-levels button { min-height: 44px; padding: 0 8px; }
   .ui .v-result .v-map .leaflet-bar a { width: 44px; height: 44px; }
   .ui .v-result .u-shore-chip { min-height: 44px; }
+  .ui .v-result .v-map .leaflet-control-layers-list label { min-height: 44px; }
 }
 
 /* The canvas (SpotMap.ts): it takes no pointer events (the map does: presses are found by distance); on the map no
