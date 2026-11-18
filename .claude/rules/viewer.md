@@ -36,7 +36,7 @@ catalogue), `browser-tests.md`.
   `search/basic.ts` (`basicValues`: on), never in `SearchParams` or the schema: the form sends what differs from the
   schema's default, so a default moved there would drop the ticked value from the request. A search too wide for the
   access grid runs without the mark: the estimate's note has the code `access_skipped` (`basic.ts` `ACCESS_SKIPPED` =
-  `search.py`'s note) and the run's heads the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_heads`).
+  `search.py`'s note) and the run's head the key `access_skipped` (`types.ts` `RunHead` = `mapping.map_head`).
 
 - The result view (step 3b, beside today's page behind `findaline.view`; docs/code-map/viewer.md): `result/spots.ts`
   reads the store's `spot`, `top`, `by_spot` as written (run-files.md: the order inside a spot is Python's); its
