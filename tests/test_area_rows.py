@@ -173,9 +173,74 @@ def test_the_order_continent_country_then_the_whole_country_first(settings):
     assert europe == sorted(europe, key=lambda name: ar.anyascii(name).lower())
     assert [row.label for row in rows if row.country == "Italy"] == [
         "Whole country · tinitaly", "Aosta Valley", "Sardinia", "South Tyrol", "Trentino", "Tuscany"]
-    assert [row.name for row in rows if row.country == "United States"] == [
-        "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+    states = [row.name for row in rows if row.country == "United States"]
+    assert len(states) == 54 and states[:4] == [
+        "united-states", "united-states-alabama", "united-states-alaska", "united-states-arizona"]
+    assert states[states.index("united-states-pennsylvania"):][:3] == [
+        "united-states-pennsylvania", "puerto-rico", "united-states-rhode-island"]
+    assert states[states.index("united-states-texas"):][:4] == [
+        "united-states-texas", "u-s-virgin-islands", "utah", "united-states-vermont"]
+    assert [row.label for row in rows if row.country == "Canada"][:5] == [
+        "Whole country · canada (slow)", "Alberta · canada", "British Columbia", "British Columbia · canada",
+        "Manitoba · canada"]
     assert [row.name for row in rows if row.country == "Finland"] == ["finland", "aland"]
+
+
+def test_the_parts_of_a_country_wide_source():
+    """The states of the USA and the provinces of Canada: rows of their country's source, no areas of the map. The
+    names Nominatim reads as a city are spelled its way (checked 2026-11-18)."""
+    rows = ar.parts()
+    names = [row.name for row in rows]
+    assert len(rows) == 63 and len(set(names)) == 63
+    assert not set(names) & {row.name for row in ar.catalogue()}
+    texas = _row(rows, "united-states-texas")
+    assert (texas.title, texas.area, texas.source) == ("United States: Texas", "osm:Texas, United States", "usa")
+    assert (texas.continent, texas.country, texas.label) == ("North America", "United States", "Texas")
+    assert (texas.resolution, texas.surface, texas.km2) == (1.0, False, 676587)
+    assert _row(rows, "united-states-new-york").area == "osm:New York State, United States"
+    assert _row(rows, "united-states-washington").area == "osm:Washington State, United States"
+    assert _row(rows, "united-states-district-of-columbia").area == "osm:District of Columbia, United States"
+    assert sum(row.source == "usa" for row in rows) == 50 and "united-states-alaska" not in names
+    alberta = _row(rows, "canada-alberta-nrcan")
+    assert (alberta.title, alberta.area, alberta.source) == ("Canada: Alberta (NRCan)", "osm:Alberta, Canada", "canada")
+    assert (alberta.continent, alberta.country, alberta.label) == ("North America", "Canada", "Alberta · canada")
+    assert alberta.surface and sum(row.source == "canada" for row in rows) == 13
+    # beside the regions of the map of the same provinces, which keep their names and sources
+    assert _row(rows, "canada-british-columbia-nrcan").source == "canada"
+    assert _row(ar.catalogue(), "canada-british-columbia").source == "british_columbia"
+    assert _row(ar.catalogue(), "canada-nunavut").source == "nunavut" and "canada-nunavut-nrcan" in names
+
+
+def test_the_country_wide_row_of_a_source_with_parts_says_slow():
+    """The user's word of 2026-11-18: the row stays, marked, and the window says why before it starts it; no
+    other row is marked. The label fits the window's 31 columns of a country's group."""
+    rows = ar.catalogue() + ar.parts()
+    usa, canada = _row(rows, "united-states"), _row(rows, "canada")
+    assert (usa.label, canada.label) == ("Whole country · usa (slow)", "Whole country · canada (slow)")
+    assert max(len(usa.label), len(canada.label)) <= 31
+    assert [row.name for row in rows if row.label.endswith(ar.SLOW)] == ["canada", "united-states"]
+    assert ar.slow_note(usa) == ("United States: one download of the whole country lists and checks all its tiles "
+                                 "at every restart, and nothing of it is done before all of it. Its states are rows "
+                                 "of their own.")
+    assert ar.slow_note(canada).endswith("Its provinces and territories are rows of their own.")
+    for name in ("italy", "poland", "united-states-texas", "united-states-alaska", "puerto-rico",
+                 "canada-alberta-nrcan", "canada-british-columbia"):
+        assert ar.slow_note(_row(rows, name)) is None
+    assert usa.label.startswith(ar.WHOLE)    # still first in its country (order_of)
+
+
+def test_a_part_that_ran_under_another_name_keeps_it(tmp_path):
+    """Utah was downloaded as the settings' extra `utah`: the part has that name, never united-states-utah, and
+    settings that still name the extra show the extra's row once."""
+    names = [row.name for row in ar.parts()]
+    assert "utah" in names and "united-states-utah" not in names
+    assert all(row.name == ar.PART_NAMES.get(row.title, ar.slug(row.title)) for row in ar.parts())
+    plain = ar.rows_of(ar.load_settings(_write(tmp_path)))
+    assert len(plain) == len(ar.catalogue()) + 63 and len({row.name for row in plain}) == len(plain)
+    assert (_row(plain, "utah").area, _row(plain, "utah").km2) == ("osm:Utah, United States", 212818)
+    with_extra = ar.rows_of(ar.load_settings(_write(tmp_path, extra=[UTAH], rows={"utah": {"target": "NAS"}})))
+    assert len(with_extra) == len(plain) and [row.name for row in with_extra].count("utah") == 1
+    assert (_row(with_extra, "utah").area, _row(with_extra, "utah").km2) == ("osm:Utah", 219900)
 
 
 @pytest.mark.parametrize("entry, country, label", [
@@ -473,6 +538,27 @@ def test_the_command_is_the_one_by_hand(settings, monkeypatch):
     assert area.data_dir == _nas(settings).data_dir and area.state_dir == settings.state_dir
     assert area.min_free_gb == 200 and area.host_slots == (("opendata.geoportal.gov.pl", 2),)
     assert "--number" in passes
+    assert area.queue == "" and "--queue" not in command   # no source with parts: it starts at once, as ever
+
+
+def test_the_rows_of_a_source_with_parts_are_in_its_queue(settings):
+    """The states, the country-wide row, the territories and an extra of `usa` wait for one another, the provinces
+    for `canada`; every other row is in no queue: Finland and Åland (one source) start together as before, and so
+    do British Columbia's and Ontario's own sources beside the provinces of `canada`."""
+    rows = ar.rows_of(settings)
+
+    def queue(name):
+        command = ar.command_of(_row(rows, name), _nas(settings), settings)
+        return command[command.index("--queue") + 1] if "--queue" in command else None
+    assert "osm:Texas, United States" in ar.command_of(_row(rows, "united-states-texas"), _nas(settings), settings)
+    assert {queue(name) for name in ("united-states-texas", "united-states", "puerto-rico", "u-s-virgin-islands",
+                                     "utah")} == {"usa"}
+    assert {queue(name) for name in ("canada-alberta-nrcan", "canada-nunavut-nrcan", "canada")} == {"canada"}
+    queued = {row.source for row in rows if queue(row.name)}
+    assert queued == {"usa", "canada"}
+    assert queue("finland") is None and queue("aland") is None and _row(rows, "aland").source == "finland"
+    assert queue("canada-british-columbia") is None and queue("canada-ontario") is None
+    assert queue("united-states-alaska") is None
 
 
 def test_the_memory_budget_of_a_target_and_a_row(tmp_path):
@@ -522,6 +608,12 @@ def test_start_detached_with_the_contact_in_its_environment(tmp_path, monkeypatc
     assert ar.start(row, settings.targets["cache"], settings) == 1234
     assert seen["env"]["FINDALINE_CONTACT"] == "someone@example.org"
     assert seen["stdin"] == subprocess.DEVNULL and seen["cwd"] == ar.REPO
+    # the row's place in its queue is the time of its start: the next row started is behind it
+    first = float(seen["env"][ad.QUEUE_TICKET])
+    assert abs(first - time.time()) < 60
+    time.sleep(0.02)
+    ar.start(ar.rows_of(settings)[1], settings.targets["cache"], settings)
+    assert float(seen["env"][ad.QUEUE_TICKET]) > first
     if os.name == "nt":
         assert seen["creationflags"] & subprocess.CREATE_NO_WINDOW
     else:

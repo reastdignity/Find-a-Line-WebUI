@@ -115,13 +115,13 @@ def test_the_whole_list_by_continent_and_country(settings):
             "group-europe-italy": "Italy (6)", "group-europe-norway": "Norway (3)", "group-europe-portugal": "Portugal (4)",
             "group-europe-spain": "Spain (2)",
             "group-europe-united-kingdom": "United Kingdom (4)",
-            "group-north-america": "North America (19)", "group-north-america-canada": "Canada (4)",
+            "group-north-america": "North America (81)", "group-north-america-canada": "Canada (17)",
             "group-north-america-france": "France (5)", "group-north-america-netherlands": "Netherlands (3)",
-            "group-north-america-united-states": "United States (5)", "group-oceania": "Oceania (4)",
+            "group-north-america-united-states": "United States (54)", "group-oceania": "Oceania (4)",
             "group-oceania-australia": "Australia (3)", "group-south-america": "South America (3)",
             "group-asia": "Asia (4)", "group-asia-japan": "Japan (2)", "group-africa": "Africa (2)",
             "group-africa-france": "France (2)"}
-        assert len(app.area_rows()) == 84
+        assert len(app.area_rows()) == 146   # 83 areas of the map, 50 states, 13 provinces and territories
         assert [row.row.name for row in _group(app, "North America", "France").query(tui.AreaRow)] == [
             "france-guadeloupe", "france-martinique", "saint-barthelemy", "saint-martin-france",
             "saint-pierre-and-miquelon"]
@@ -130,8 +130,11 @@ def test_the_whole_list_by_continent_and_country(settings):
         assert app.row_of("france-french-guiana").parent.parent.id == "group-south-america"
         assert str(app.row_of("france-french-guiana").query_one(".name").render()) == "France: French Guiana"
         assert str(app.row_of("netherlands-saba").query_one(".name").render()) == "Saba"
-        assert [row.row.name for row in _group(app, "North America", "United States").query(tui.AreaRow)] == [
-            "united-states", "united-states-alaska", "puerto-rico", "u-s-virgin-islands", "utah"]
+        states = [row.row.name for row in _group(app, "North America", "United States").query(tui.AreaRow)]
+        assert states[:3] == ["united-states", "united-states-alabama", "united-states-alaska"]
+        assert states.count("utah") == 1 and "united-states-utah" not in states   # the extra, not the part again
+        assert str(app.row_of("united-states-texas").query_one(".name").render()) == "Texas"
+        assert str(app.row_of("canada-alberta-nrcan").query_one(".name").render()) == "Alberta · canada"
         assert str(app.row_of("italy").query_one(".name").render()) == "Whole country · tinitaly"
         assert str(app.row_of("germany-bavaria").query_one(".name").render()) == "Bavaria"
         assert [row.row.name for row in _group(app, "Europe", "Portugal").query(tui.AreaRow)] == [
@@ -355,6 +358,33 @@ def test_start_asks_first(settings):
     _drive(app, body)
 
 
+def test_the_question_says_why_a_whole_country_with_parts_is_slow(settings):
+    """Before the whole USA is started the window says that its states are rows of their own; a state alone
+    brings no such line."""
+    settings.rows = {}
+    app, started = _app(settings, ar.rows_of(settings))
+
+    async def body(pilot):
+        assert str(app.row_of("united-states").query_one(".name").render()) == "Whole country · usa (slow)"
+        app.row_of("united-states-texas").box.value = True   # far down the list of 146: no click reaches it
+        await pilot.pause()
+        await pilot.click("#start")
+        await pilot.pause()
+        assert "rows of their own" not in str(app.screen.query_one("#dialog-text").render())
+        await pilot.click("#cancel")
+        await pilot.pause()
+        app.row_of("united-states").box.value = True
+        await pilot.pause()
+        await pilot.click("#start")
+        await pilot.pause()
+        text = str(app.screen.query_one("#dialog-text").render())
+        assert "United States: one download of the whole country" in text and "Its states are rows of their own" in text
+        await pilot.click("#cancel")
+        await pilot.pause()
+    _drive(app, body)
+    assert started == []
+
+
 def test_the_question_names_a_region_by_its_full_title(settings):
     app, _ = _app(settings)
 
@@ -392,8 +422,10 @@ def test_start_with_nothing_ticked_asks_nothing(settings):
     assert started == []
 
 
-def test_a_download_running_is_not_started_again(settings):
-    _state(settings, "austria", "downloading")
+@pytest.mark.parametrize("stage", ["downloading", "queued"])
+def test_a_download_running_is_not_started_again(settings, stage):
+    """Nor one that waits for its turn in its source's queue: its supervisor runs."""
+    _state(settings, "austria", stage)
     app, started = _app(settings)
 
     async def body(pilot):
@@ -474,8 +506,10 @@ def test_tiles_in_the_way_are_named_and_the_others_start(settings):
     assert started == [("austria", "cache")]
 
 
-def test_stop_asks_first_and_leaves_the_stop_file(settings):
-    _state(settings, "austria", "downloading")
+@pytest.mark.parametrize("stage", ["downloading", "queued"])
+def test_stop_asks_first_and_leaves_the_stop_file(settings, stage):
+    """A queued row is stopped as a downloading one."""
+    _state(settings, "austria", stage)
     app, _ = _app(settings)
     stop_file = ad.state_file(settings.state_dir, "austria", ".stop")
 
@@ -511,7 +545,15 @@ def test_the_state_comes_from_the_state_folder(settings):
         app.refresh_states()
         await pilot.pause()
         assert "40 %" in _text(app, "austria")
-        assert "1 downloading" in str(app.query_one("#summary").render())
+        assert str(app.query_one("#summary").render()).endswith("1 downloading")
+        # rows that wait for their turn are not counted as downloading: fifty states started, one downloads
+        _state(settings, "czechia", "queued")
+        _state(settings, "poland", "queued")
+        app.refresh_states()
+        await pilot.pause()
+        assert str(app.query_one("#summary").render()).endswith("1 downloading, 2 queued")
+        _state(settings, "czechia", "done")
+        _state(settings, "poland", "done")
         _state(settings, "austria", "listing", index_done=12, index_total=2288)
         app.refresh_states()
         await pilot.pause()
@@ -522,6 +564,7 @@ def test_the_state_comes_from_the_state_folder(settings):
 @pytest.mark.parametrize("stage, message, failed, text", [
     ("needs attention", "3 tiles failed", 3, "needs attention: 3 tiles failed"),
     ("waiting", "index down", 0, "waiting: index down"),
+    ("queued", "waiting for its turn among the downloads of the queue usa", 0, "queued, 40 % downloaded"),
     ("stopped", "", 0, "stopped"),
     ("done", "", 2, "done, 2.5 GB, 2 failed"),
 ])

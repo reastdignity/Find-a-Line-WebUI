@@ -331,6 +331,26 @@ last column of the table in section 2.
   about three. The COGs' overviews would cut the bytes of coarse bands (section 2).
 - `tools/area_download.py` (with a window for ticking the catalogue's areas: its command `tui`) downloads a whole area ahead of a run, for weeks if need be: passes that resume, tiles
   that fail set aside, a page and a table of the progress, a cap on a host's connections.
+- **The USA and Canada by state and province** (2026-11-18, the user: the whole USA as one download "takes very
+  long time - both in total download time as well as listing files to download"). Measured on Utah's download
+  (207,897 tiles, 184.65 GB received in 11.07 h of downloading at 8 connections, tiles on a share, two other
+  downloads beside it): the time from a pass's start to its first tile grows with the tiles already cached, 15 min
+  with the index and the cache empty (430 index answers), 25 min with 49,092 tiles cached, 73 min with 199,466
+  (about 22 ms a tile; which part of it is the index's rows, the file checks on the share or the composing of the
+  blocks is not measured yet), and a pass pays it again at every restart. For the whole USA (about 7.7 M tiles,
+  *est.*) that is about two days per restart near the end, for Canada's two layers over its whole outline (about
+  20 M blocks, *est.*) about five. So the window has a row per state (50: the 48, the District of Columbia, Hawaii)
+  and per province and territory (13) of the country-wide sources `usa` and `canada` (`tools/area_rows.py`
+  `PARTS`): a part pays for its own tiles only, is usable when it is done and restarts alone. The sum of the
+  downloads does not get shorter: the passes of a data folder share the 8 connections of a host, so the rows of
+  each of these two sources download in turn (`area_download.py run --queue`; checked for real on 2026-11-18: the
+  District of Columbia, Rhode Island and Maryland started together ran one after another, Prince Edward Island
+  beside them; Maryland found the District's 61 border tiles cached; Rhode Island's 3,929 tiles, 2.43 GB, took
+  9 min). Scaled from Utah by land area, an upper bound where a
+  state has less 1 m data (*est.*): Texas 35 h and 590 GB, California 21 h, the small north-eastern states about an
+  hour, all 50 about 16.6 days and 6.7 TB received. Canada's are not measured: a `canada` row asks every 1 km block
+  of its outline twice, with lidar or not. A row downloads its source's own layers and its stand-in
+  (`Source.instead_without_data`), never its fallbacks: a province's row leaves out `canada_2m` and `mrdem30`.
 - Downloading and computing overlap: a country driver computes the tiles whose data is in while the
   next ones download, so a run takes about the longer of the two, not their sum.
 

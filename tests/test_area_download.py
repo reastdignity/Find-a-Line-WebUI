@@ -10,6 +10,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import psutil
 import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -667,6 +668,196 @@ def test_one_supervisor_per_area(tmp_path):
         assert ad.supervise(area, [sys.executable, "-c", "pass"]) == 1
 
 
+def _queued(tmp_path, monkeypatch, names):
+    """Areas of one state folder in the queue "usa", their tickets in the order of `names` whatever starts first;
+    a pass writes "<name> <number> starts" and "... ends" to order.txt, 0.4 s apart."""
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    monkeypatch.setattr(ad, "POLL_SECONDS", 0.05)
+    monkeypatch.setattr(ad, "_ticket", lambda area: (float(names.index(area.name)), area.name))
+    return [ad.Area(name, f"osm:{name}", "usa", 1.0, str(tmp_path), str(state), queue="usa") for name in names]
+
+
+def _queue_pass(tmp_path, name, exit_code="0"):
+    path = tmp_path / f"pass-{name}.py"
+    order = str(tmp_path / "order.txt")
+    path.write_text("import sys, time\nnumber = int(sys.argv[-1])\n"
+                    f"open({order!r}, 'a').write('{name} %d starts\\n' % number)\ntime.sleep(0.4)\n"
+                    f"open({order!r}, 'a').write('{name} %d ends\\n' % number)\nsys.exit({exit_code})\n",
+                    encoding="utf-8")
+    return [sys.executable, str(path)]
+
+
+def _supervised(area, command, codes, **more):
+    thread = threading.Thread(target=lambda: codes.__setitem__(area.name, ad.supervise(area, command, **more)),
+                              daemon=True)
+    thread.start()
+    return thread
+
+
+QUEUE_TEST_SECONDS = 60   # a supervisor stuck in its queue fails its test, never hangs it
+
+
+def _until(condition, what, seconds=QUEUE_TEST_SECONDS):
+    """Waits for condition() to hold; the test fails after `seconds` without it."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, f"not within {seconds} s: {what}"
+        time.sleep(0.02)
+
+
+def _ended(threads):
+    _until(lambda: not any(thread.is_alive() for thread in threads), "the supervisors end")
+
+
+def _order(tmp_path):
+    return (tmp_path / "order.txt").read_text().split("\n")[:-1]
+
+
+def test_a_queue_downloads_one_area_at_a_time_in_the_order_of_their_start(tmp_path, monkeypatch):
+    """Three states started together, the last ticket's supervisor first: their passes never overlap and run in the
+    tickets' order; the waiting ones say "queued", the one whose turn it is does not (its pass writes no state
+    here: the supervisor's own "listing" stands, and the others wait for the lock, not for that state)."""
+    areas = _queued(tmp_path, monkeypatch, ["texas", "ohio", "maine"])
+    # a state that says "queued" counts for an hour: an area that kept saying so with its turn or after its pass
+    # would hold the next one back for good, and the test would fail at its limit instead of passing 30 s late
+    monkeypatch.setattr(ad, "RUNNING_STATE_S", 3600)
+    ad.write_state(areas[0].state_dir, "texas", {"name": "texas", "stage": "stopped", "memory_gb": 6.5})
+    codes, seen = {}, set()
+    threads = [_supervised(area, _queue_pass(tmp_path, area.name), codes, settle_seconds=1.0)
+               for area in reversed(areas)]
+
+    def looked():
+        stages = {area.name: ad.read_state(area.state_dir, area.name).get("stage") for area in areas}
+        seen.update((name, stage) for name, stage in stages.items() if stage)
+        return not any(thread.is_alive() for thread in threads)
+    _until(looked, "the supervisors end")
+    assert codes == {"texas": 0, "ohio": 0, "maine": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "ohio 1 starts", "ohio 1 ends", "maine 1 starts", "maine 1 ends"]
+    assert {("ohio", "queued"), ("maine", "queued"), ("texas", "listing"), ("maine", "listing")} <= seen
+    texas = ad.read_state(areas[0].state_dir, "texas")
+    assert "queued_at" not in texas and texas["memory_gb"] == 0.0   # the pass before's memory is not this one's
+    assert "waiting for its turn among the downloads of the queue usa" in open(
+        areas[2].file(".log"), encoding="utf-8").read()
+
+
+def test_the_turn_is_given_up_while_an_area_waits_for_its_next_pass(tmp_path, monkeypatch):
+    """A pass that gave up waits retry_seconds: the next area of the queue downloads meanwhile, and the first, its
+    ticket kept, goes on after it."""
+    texas, ohio = _queued(tmp_path, monkeypatch, ["texas", "ohio"])
+    codes = {}
+    _ended([_supervised(texas, _queue_pass(tmp_path, "texas", "0 if number == 2 else 4"), codes,
+                        retry_seconds=1.5, settle_seconds=0.5),
+            _supervised(ohio, _queue_pass(tmp_path, "ohio"), codes, settle_seconds=0.5)])
+    assert codes == {"texas": 0, "ohio": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "ohio 1 starts", "ohio 1 ends", "texas 2 starts", "texas 2 ends"]
+
+
+def test_a_pass_started_again_at_once_keeps_the_turn(tmp_path, monkeypatch):
+    """A pass over its memory budget (EXIT_RESTART, with progress: the first pass) is started again at once, the
+    queue still this area's: the next area's pass comes after both."""
+    texas, ohio = _queued(tmp_path, monkeypatch, ["texas", "ohio"])
+    codes = {}
+    _ended([_supervised(texas, _queue_pass(tmp_path, "texas", "0 if number == 2 else 5"), codes,
+                        retry_seconds=30, settle_seconds=0.5),
+            _supervised(ohio, _queue_pass(tmp_path, "ohio"), codes, settle_seconds=0.5)])
+    assert codes == {"texas": 0, "ohio": 0}
+    assert _order(tmp_path) == [
+        "texas 1 starts", "texas 1 ends", "texas 2 starts", "texas 2 ends", "ohio 1 starts", "ohio 1 ends"]
+
+
+def test_a_queued_area_stops_by_hand(tmp_path, monkeypatch):
+    """The stop file ends an area that waits for its turn: no pass was started, `run` queues it again. While it
+    waits its state is written again and again (the areas behind it read its age)."""
+    from filelock import FileLock
+    (texas,) = _queued(tmp_path, monkeypatch, ["texas"])
+    monkeypatch.setattr(ad, "STATE_SECONDS", 0.1)
+    codes = {}
+
+    def state():
+        return ad.read_state(texas.state_dir, "texas")
+    with FileLock(ad.state_file(texas.state_dir, "usa", ".queue.lock")):   # another area's turn
+        thread = _supervised(texas, _queue_pass(tmp_path, "texas"), codes, settle_seconds=0)
+        _until(lambda: state().get("stage") == "queued", "texas is queued")
+        first = state()
+        assert (first["queue"], first["queued_at"]) == ("usa", 0.0) and "its turn" in first["message"]
+        _until(lambda: state().get("updated", first["updated"]) != first["updated"], "the state is written again")
+        assert state()["stage"] == "queued"
+        open(texas.file(".stop"), "w").close()
+        _ended([thread])
+    assert codes == {"texas": 0} and state()["stage"] == "stopped"
+    assert not (tmp_path / "order.txt").exists()
+    assert "pass 1 starts" not in open(texas.file(".log"), encoding="utf-8").read()
+
+
+def test_the_queues_lock_is_a_file_of_the_state_folder(tmp_path, monkeypatch):
+    """<key>.queue.lock, a key's characters unfit for a file name replaced: an area waits while anything holds
+    it (another supervisor, of this process or not) and goes on when it is free."""
+    from filelock import FileLock
+    (texas,) = _queued(tmp_path, monkeypatch, ["texas"])
+    texas = dataclasses.replace(texas, queue="north america/usa 1m")
+    codes = {}
+    held = FileLock(ad.state_file(texas.state_dir, "north-america-usa-1m", ".queue.lock"))
+    held.acquire()
+    try:
+        thread = _supervised(texas, _queue_pass(tmp_path, "texas"), codes, settle_seconds=0)
+        _until(lambda: ad.read_state(texas.state_dir, "texas").get("stage") == "queued", "texas is queued")
+        time.sleep(1.0)
+        assert thread.is_alive() and not (tmp_path / "order.txt").exists()
+    finally:
+        held.release()
+    _ended([thread])
+    assert codes == {"texas": 0} and _order(tmp_path) == ["texas 1 starts", "texas 1 ends"]
+
+
+def test_the_ticket_of_an_area(monkeypatch):
+    """What started the supervisor says when (the window, for the rows' order); else the process's own start."""
+    area = ad.Area("ohio", "osm:Ohio", "usa", 1.0, "d", "s", queue="usa")
+    monkeypatch.setenv(ad.QUEUE_TICKET, "1794985693.25")
+    assert ad._ticket(area) == (1794985693.25, "ohio")
+    for value in (None, "soon"):
+        monkeypatch.delenv(ad.QUEUE_TICKET, raising=False)
+        if value:
+            monkeypatch.setenv(ad.QUEUE_TICKET, value)
+        assert ad._ticket(area) == (psutil.Process().create_time(), "ohio")
+
+
+def test_who_is_ahead_in_a_queue(tmp_path):
+    """Only an area that waits in the same queue with an earlier ticket, and whose supervisor still writes its
+    state: one killed while it waited is passed over after RUNNING_STATE_S."""
+    state_dir = str(tmp_path)
+    area = ad.Area("ohio", "osm:Ohio", "usa", 1.0, "d", state_dir, queue="usa")
+    waiting = {"stage": "queued", "queue": "usa"}
+    ad.write_state(state_dir, "texas", {**waiting, "queued_at": 5.0})
+    ad.write_state(state_dir, "maine", {**waiting, "queued_at": 3.0})
+    ad.write_state(state_dir, "utah", {**waiting, "queued_at": 20.0})                 # after this one
+    ad.write_state(state_dir, "alberta", {**waiting, "queue": "canada", "queued_at": 1.0})
+    ad.write_state(state_dir, "idaho", {"stage": "downloading", "queue": "usa", "queued_at": 1.0})   # has its turn
+    ad.write_state(state_dir, "iowa", {"stage": "queued", "queue": "usa"})            # a state cut short
+    now = time.time()
+    assert ad._ahead(area, (10.0, "ohio"), now) == "maine"
+    assert ad._ahead(area, (4.0, "ohio"), now) == "maine" and ad._ahead(area, (2.0, "ohio"), now) is None
+    assert ad._ahead(area, (3.0, "ohio"), now) == "maine"      # the same moment: by name
+    assert ad._ahead(area, (10.0, "ohio"), now + ad.RUNNING_STATE_S + 5) is None
+
+
+def test_no_queue_unless_asked(tmp_path, monkeypatch):
+    """Without --queue a supervisor never waits, whoever holds a queue's lock."""
+    seen = []
+    monkeypatch.setattr(ad, "supervise", lambda area, command: seen.append(area) or 0)
+    base = ["run", "land", "--area", "osm:Land", "--source", "fake", "--resolution", "1", "--data-dir", "d",
+            "--state-dir", "s"]
+    ad.main(base)
+    ad.main(base + ["--queue", "usa"])
+    assert [area.queue for area in seen] == ["", "usa"]
+    monkeypatch.undo()
+    monkeypatch.setattr(ad, "_take_turn", lambda *a: pytest.fail("no queue was asked for"))
+    area = _area(tmp_path)
+    assert ad.supervise(area, _pass(tmp_path, "sys.exit(0)\n")) == 0
+
+
 def test_summary():
     now = 100_000.0
     state = {"name": "land", "stage": "downloading", "tiles_done": 500, "tiles_total": 1000, "mb": 2000.0,
@@ -681,6 +872,8 @@ def test_summary():
     assert late["stale"]
     waiting = ad.summary({**state, "stage": "waiting"}, history, ad._seconds(state["updated"]) + ad.STALE_SECONDS + 1)
     assert not waiting["stale"] and waiting["mb_s"] is None and waiting["eta"] is None
+    queued = ad.summary({**state, "stage": "queued"}, history, ad._seconds(state["updated"]))
+    assert not queued["stale"] and queued["mb_s"] is None and queued["eta"] is None and queued["share"] == 0.5
     done = ad.summary({**state, "stage": "done"}, history, ad._seconds(state["updated"]) + 10 ** 6)
     assert not done["stale"]
 
