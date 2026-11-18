@@ -14,8 +14,9 @@ country is its `"country"`, else its title's part before ": " when that names a 
 
 The parts of a country-wide source (`PARTS`, `parts()`: the states of the USA's `usa`, the provinces and territories of
 Canada's `canada`) are rows too, though no areas of the map: one download of such a country lists and checks millions
-of tiles before its first one, at every restart of a pass (Utah: 15 min on an empty cache, 73 min with 199 000 tiles
-cached; the whole USA about two days, estimated), a part only its own. A part's tiles are the country-wide row's (one
+of tiles before its first one, at every restart of a pass, a part only its own (Utah, when the rows were made: 15 min
+on an empty cache, 73 min with 199 000 tiles cached; the check itself is about fifteen times shorter since, asked by
+folder: docs/performance.md, "The check of cached tiles"); a part is also done, and usable, on its own. A part's tiles are the country-wide row's (one
 source, one cache folder): a tile on a border is found cached by the second part. A settings' `extra` of a part's name
 replaces it (Utah was an extra first, and keeps its name `utah`). The country-wide row of such a source stays, its
 label marked "(slow)" (`SLOW`), and the window says why before it starts it (`slow_note`).

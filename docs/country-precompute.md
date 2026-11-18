@@ -336,10 +336,12 @@ last column of the table in section 2.
   (207,897 tiles, 184.65 GB received in 11.07 h of downloading at 8 connections, tiles on a share, two other
   downloads beside it): the time from a pass's start to its first tile grows with the tiles already cached, 15 min
   with the index and the cache empty (430 index answers), 25 min with 49,092 tiles cached, 73 min with 199,466
-  (about 22 ms a tile; which part of it is the index's rows, the file checks on the share or the composing of the
-  blocks is not measured yet), and a pass pays it again at every restart. For the whole USA (about 7.7 M tiles,
-  *est.*) that is about two days per restart near the end, for Canada's two layers over its whole outline (about
-  20 M blocks, *est.*) about five. So the window has a row per state (50: the 48, the District of Columbia, Hawaii)
+  (about 22 ms a tile), and a pass paid it again at every restart: for the whole USA (about 7.7 M tiles, *est.*)
+  about two days per restart near the end, for Canada's two layers over its whole outline (about 20 M blocks,
+  *est.*) about five. Measured since, and made about fifteen times shorter the same day (docs/performance.md,
+  "The check of cached tiles": nearly all of it was the question "is the file there", asked of the share once a
+  tile and twice a pass; a pass now asks by folder and once, Utah's 2 x 390 s → 51 s on an idle share), so those
+  days are of the code before; a part still pays only for its own tiles. So the window has a row per state (50: the 48, the District of Columbia, Hawaii)
   and per province and territory (13) of the country-wide sources `usa` and `canada` (`tools/area_rows.py`
   `PARTS`): a part pays for its own tiles only, is usable when it is done and restarts alone. The sum of the
   downloads does not get shorter: the passes of a data folder share the 8 connections of a host, so the rows of
