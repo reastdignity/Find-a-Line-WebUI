@@ -138,9 +138,12 @@
 .ui .c-result-phone .v-switch { top: 60px; justify-content: flex-start; }
 .ui .c-result-phone .v-map .leaflet-top { top: 112px; }
 .ui .c-result-phone .v-map .leaflet-top.leaflet-left { display: flex; align-items: flex-start; }
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom { display: flex; }
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a { border-bottom: 0; }
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a + a { border-left: 1px solid var(--rule); }
+/* the zoom across, + and − side by side: on a phone, and in the columns while their foot is the phone's (MapBar's
+   .v-compact: the legend folded where it would reach the top controls; the planner's decision of 2026-11-18) */
+.ui .v-result.c-result-phone .v-map .leaflet-control-zoom, .ui .v-result .v-map.v-compact .leaflet-control-zoom { display: flex; }
+.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a, .ui .v-result .v-map.v-compact .leaflet-control-zoom a { border-bottom: 0; }
+.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a + a, .ui .v-result .v-map.v-compact .leaflet-control-zoom a + a {
+  border-left: 1px solid var(--rule); }
 /* a phone held sideways (a short phone layout: the user's Q2 a of 2026-11-18): the zoom and the layers go up into the
    switch's row, the zoom right of Best (MapBar's --v-switch-right: where the switch and Best end), the shore's chip
    after the zoom or on the next row; room for the foot under them at both stops (one pair left: docs/known-bugs.md) */

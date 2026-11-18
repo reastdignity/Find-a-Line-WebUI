@@ -215,6 +215,9 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
       const ends = rects(column, ".v-switch > *").map((r) => r.right), right = ends.length ? `${Math.round(Math.max(...ends) - col.left)}px` : "";
       if (column.style.getPropertyValue("--v-switch-right") !== right) column.style.setProperty("--v-switch-right", right);
     }
+    // the columns with the phone's foot: the zoom's + and − side by side in one row, as on a phone (mapbar.css; the
+    // planner's decision of 2026-11-18)
+    if (column.classList.contains("v-compact") !== (wide && compact)) column.classList.toggle("v-compact", wide && compact);
     const tops = rects(column, ".leaflet-top .leaflet-control, .v-switch > *");
     const floor = Math.max(col.top, ...tops.map((r) => r.bottom));
     const measured = [Math.round(floor - col.top), Math.round(col.width), Math.round(col.height), column.style.getPropertyValue("--v-covered"),
@@ -225,8 +228,10 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message}: MapBarP
     const next = Math.floor(box.bottom - others - GAP - floor - 4);
     if (next !== room) setRoom(next);
     if (wide) {  // the room the legend would have in the columns' own arrangement: above the foot's bottom, its status row
-      const line = el.querySelector(".v-row:not(.v-buttons)")?.getBoundingClientRect();
-      const plain = Math.floor(box.bottom - (line ? line.height : 0) - GAP - floor - 4);
+      // the zoom counted stacked, as the columns draw it, also while it stands across: the choice must not undo itself
+      const line = el.querySelector(".v-row:not(.v-buttons)")?.getBoundingClientRect(), zoom = column.querySelector(".leaflet-control-zoom");
+      const stacked = zoom ? zoom.getBoundingClientRect().top + Array.from(zoom.children, (a) => a.getBoundingClientRect().height).reduce((h, v) => h + v, 0) : 0;
+      const plain = Math.floor(box.bottom - (line ? line.height : 0) - GAP - Math.max(floor, stacked) - 4);
       if (plain !== roomWide) setRoomWide(plain);
     }
     // a press on "Legend" above the low stop: the legend just drawn unfolded stays where it fits whole, else the sheet

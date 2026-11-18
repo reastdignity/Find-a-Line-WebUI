@@ -1033,16 +1033,16 @@ def test_pick_row_kept_in_the_legend(site):
             browser.close()
 
 
-LANDSCAPES = ((844, 390), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns' layout
+LANDSCAPES = ((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
 
 
 def test_landscape_phone_columns_fold_the_legend(site):
-    """A phone held sideways that is 768 px wide or more (844 x 390, 915 x 412, 932 x 430: the columns with a finger's
+    """A phone held sideways that is 768 px wide or more (844 x 390 to 932 x 430: the columns with a finger's
     44 px controls), at Auto and at Area: the unfolded legend would reach the map's top controls, so it is folded
-    behind "Legend" (the phone's logic, the user's decision of 2026-11-18); a finger's tap at each level button's middle
-    presses that button (the status line covered them before); "Legend" opens the legend. No control covers another
-    but two pairs, asked about and not yet answered: the status line and the desktop's hint against the zoom's column
-    of 88 px (as on main, where the status line covered the zoom too)."""
+    behind "Legend" (the phone's logic, the user's decision of 2026-11-18), and the zoom's + and − stand side by side
+    as on a phone (the planner's: in a column of 88 px it lay under the status line and the hint, as on main); a
+    finger's tap at each level button's middle presses that button (the status line covered them before); "Legend"
+    opens the legend; no control covers another."""
     from playwright.sync_api import sync_playwright
     hit = """([k]) => { const b = document.querySelector(`.v-levels button[data-level="${k}"]`), r = b.getBoundingClientRect(),
       x = r.left + r.width / 2, y = r.top + r.height / 2, e = document.elementFromPoint(x, y); return {x, y, hit: !!e && b.contains(e)}; }"""
@@ -1060,7 +1060,8 @@ def test_landscape_phone_columns_fold_the_legend(site):
                     fold = page.evaluate("() => [!!document.querySelector('.c-result-phone'), !!document.querySelector('.v-legend'), "
                                          "document.querySelector('.v-fold')?.getAttribute('aria-expanded') ?? null]")
                     assert fold == [False, False, "false"], (state, fold)  # the columns, the legend folded behind its button
-                    _apart(page, state, known=(("status", "zoom"), ("hint", "zoom")))
+                    boxes = _apart(page, state)
+                    assert boxes["zoom"][2] - boxes["zoom"][0] > boxes["zoom"][3] - boxes["zoom"][1], (state, boxes["zoom"])  # across
                     for k in ("auto", "area", "spots", "lines"):
                         at = page.evaluate(hit, [k])
                         assert at["hit"], (state, k, at)
