@@ -211,7 +211,10 @@ passes' loop, rows kept as made, `on_row` called with each), `pass_context` (a p
 clip's files and the checkout's path, which the clip run's files name) keeps the clip run and the cubes while the key is the same (`--fresh` makes them anew and removes the
 clip run made before: one in the folder, a failed removal retried at every start, the problem report made again);
 each start ends the tool's users' sessions before making theirs (one run at a time per folder); the Basic
-form's riggers get only the rigs they do not have yet, the problem report is added once
+form's riggers get only the rigs they do not have yet, the problem report is added once. The runs open from their
+store over http (no `file://`): the clip run's credits go into run.json and the store's head (`with_credits`; a
+run's data.js only when it has one: a `--run` of a run saved before store wave 4), and the lines naming the 3D
+view's pages come from the store (`first_line`; data.js for such an old run; printed: `lines_read`)
 
 The result view's map states (`c-view*`: the first view, Area, Spots, Lines, Best 30, All refused, Lines held, several
 spots under one press, the map's controls open, a phone's sheet raised to half) open with the page's flag: `VIEWS` names the
@@ -273,19 +276,23 @@ favourite is refused (R4 saves a favourite, and Home then counts differently) (`
 Run by hand: the measurements of docs/performance.md: `perf_run_load.py` (a run's result and its first line's 3D view
 opened in headless Chromium on the local app over a scratch data folder, the runs copied and the cache linked: the
 page's User Timing measures, `viewer/src/perf.ts` "fal:run:*"/"fal:3d:*", the long tasks and heap, data.js as a script
-against fetch + JSON.parse, gzipped sizes and their times at 10/50/200 Mbit/s; `tests/test_perf_run_load.py`),
+against fetch + JSON.parse (a run saved since store wave 4 has no data.js: left out, said in the report), gzipped
+sizes and their times at 10/50/200 Mbit/s; a run needs run.json and its store or data.js, its first line from the
+store (`first_line`, data.js for a run saved before it; `line_read` says which); `tests/test_perf_run_load.py`),
 `perf_profile.py` (cores and memory of a search per stage, a timeline chart; `--cores N` like a worker container;
 `--memory BYTES` the budget of a compute slot (`search.available_memory` answers it), so an area's tiles are sized as
 the web worker sizes them; a bar of parts (`progress.compute.update(n, part=...)`) is listed per part),
 `perf_download.py` (the download phase on an empty cache with N threads), `perf_sqlite.py` (`jobs.sqlite` under K jobs
 and M open pages), `perf_lines_memory.py` (bytes per line of steps 3, 4 and 5, from a capture of
 `perf_line_funnel.py`: `--call`, or of the join of a tiled run's tiles and, for tile files that still hold the pixel
-columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the traced heap of one process),
+columns (written before 2026-11-01's wave 5), its steps 4 and 5: `--tiles`; the traced heap of one process; step 5
+`save_step5`: what `save_run` writes since store wave 4, `mapping.view_columns` and `linestore.write`, or a
+`--repo` without linestore.py (a checkout before the store) its text files; `tests/test_perf_lines_memory.py`),
 `perf_slot_memory.py` (the memory of one search's whole process tree, as `search.LINE_BYTES` counts it: the search
-through `perf_profile.py` in a child process with hooks (the stages, `saving.save`, `saving.hand_over` and its
-folder's size, `linestore.write`, the plan's pixels, the square rule's `peak_rows`), the tree sampled every 0.2 s
-(working sets, private bytes, `--uss` unique sets, the machine's used memory); the peaks and where they fell, and
-the unique sets plus the hand-over files once (the larger of its value at the working sets' peak and its largest);
+through `perf_profile.py` in a child process with hooks (the stages, `mapping.view_columns`, `linestore.write`,
+the plan's pixels, the square rule's `peak_rows`; `saving.py`'s hooks and hand-over term went with it in store wave
+4), the tree sampled every 0.2 s (working sets, private bytes, `--uss` unique sets, the machine's used memory); the
+peaks and where they fell, and the unique sets' peak (`peak_tree_uss_mb`, the measure);
 `--cores`, `--memory`, `--worker` for a compute slot's shape (the search's own plan only); a refusal as its code, a
 missing record or run as a warning; `tests/test_perf_slot_memory.py`, which also pins `perf_country.py`'s copy of
 `LINE_BYTES`);
@@ -296,7 +303,9 @@ ctypes into rasterio's GDAL library, our own range requests counted at `ranges.g
 as the prediction, per block and each once; `tests/test_perf_window_reads.py`), `perf_reach.py` (the reach of one
 anchor over a 3D patch's lattice by batched numpy and by `linesearch.evaluate_lines`, both checked against
 `helpers.evaluate_line`: seconds, memory, numba's one-time costs, the representatives of three rules, an answer's
-size; what `search.reach_of_anchor`'s engine was chosen on; `tests/test_perf_reach.py`)
+size; what `search.reach_of_anchor`'s engine was chosen on; a run's lines through `run_rows`: the CSV export of its
+store into a temporary folder by a child process (the measuring process stays as before step 1), or the lines.csv
+of a run saved before the store (its three named cases), the results' `lines_read`; `tests/test_perf_reach.py`)
 
 `perf_run_load.py --view` opens the result view (the page's flag) and reports its phases ("fal:view:*") and which page
 drew the run; `--interact` times changes on the open page from the call to two frames later, with their part in script
@@ -316,7 +325,13 @@ pixels and the relief over windows of 1, 3 and 5 blocks, `relief.tile_blocks`; t
 steep share × relief, and the samples' 1 km cells with their edge fraction; `virtual_cells` for a place measured only
 at another grid) and `estimate` (country totals: strata of the steep share, the relief below 0.5 %, lines per km² from
 the cells, a bootstrap over the places; times from `time_model` per band and grid; `inputs.json` names the strata,
-machines, data and services); `tests/test_perf_country.py`
+machines, data and services); a run's lines (`read_lines`) from its lines.npz (`profile --lean` until store wave 4;
+`--lean` is accepted and does nothing since), its store (`linestore.read`'s columns in memory, grouped and in
+lines.csv's order: length, clearance, height and the first anchor's coordinates unrounded, so a line at a band's or
+cell's edge may take another key than its lines.csv's rounding) or the lines.csv of a run saved before the store,
+`lines_from` in compare's, cube's and relief's results; a lines.csv over 200 MB packed once into
+`perf_country_cache` in the system's temporary folder, never beside the run;
+`tests/test_perf_country.py`
 
 ## `tools/perf_line_funnel.py`, `tools/line_funnel_kernels.py`
 
@@ -334,7 +349,8 @@ pixel; F8c as production applies it since 2026-11-03), the work of the anchors w
 ## `tools/device_page.py`
 
 Run by hand: the 3D view on a real phone (docs/3d-view-contract.md, "Wave 4"): `record` takes the `/api/patch` (steps
-1 and 2) and `/api/profile` answers of a few lines of a data folder's runs from the local app in-process, `serve`
+1 and 2) and `/api/profile` answers of a few lines of a data folder's runs (`run_anchors`: from the store, or the
+data.js of a run saved before it; the index's `lines_read`) from the local app in-process, `serve`
 serves them again over HTTPS on the LAN (a self-signed certificate per start, the 3D page as `web.VIEW3D_HTML` gives
 it with the app's headers and CSP, `/cache/` read-only, GET only, no accounts) with an iPhone checklist, `measure`
 gives the data of one open per line and level (the imagery planned by the page's own `tiles.ts` run in Node, cached
@@ -461,8 +477,8 @@ coded error and its message, the child's stderr in `output.log` after `--- stder
 `--failed`, `--status`, `--ids @FILE`), one data folder `<out>/data` whose `cache/` `studylib.linked_data_folder`
 links to the real cache, `--parallel N` children in it (each with its own work folder `work/truth-<time>-<hex>/`,
 removed once its process tree ended, since findaline.py on Windows leaves the work folder of a search without lines;
-`jobs.kill_tree` at `--timeout` and Ctrl+C), a run's line files (`RUN_FILES`: 31 GB on the first pass) deleted once
-its capture is written, run.json kept (`--keep-runs` keeps them all); a pass under `tools/test_lock.py run --heavy`);
+`jobs.kill_tree` at `--timeout` and Ctrl+C), a run's line files (`RUN_FILES`: the store, map.html, ATTRIBUTION.txt
+and the text files of a run saved before store wave 4; 31 GB on the first pass) deleted once its capture is written, run.json kept (`--keep-runs` keeps them all); a pass under `tools/test_lock.py run --heavy`);
 `analyse` and `report` call `tools/truth_analysis.py` (the match in the grid's CRS: both anchors within
 `tol = max(TOL_M 10 m, TOL_SHARE 10 % of L)` either way round (raised to the coordinate quantum for coarse anchors:
 matched with a doubtful geometry) and the length within it too, `tools/coverage_contrast.matched` with a radius per
@@ -488,8 +504,9 @@ Run by hand: what a pruning rule keeps of a saved table of lines and an audit of
 K-49), offline, nothing written beside the run: `<run folder> --rule <name> [--param k=v] [--rules-file F.py]
 [--radius M] [--known <truth-check pass folder>] [--terrain F.npz] [--pictures] --out <folder>`; rules are functions
 from the table to a mask of kept lines, registered with `rule` (`higher_wins`, `best_per_cell_pair` shipped);
-`table.terrain` the grid under the anchors for rules that judge an anchor by the ground; places by
-`mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
+`table.terrain` the grid under the anchors for rules that judge an anchor by the ground; the table of a run's store
+(the CSV export in a temporary folder, the search's order and unrounded values from `linestore.read`: `Table.source`
+"store") or of a run saved before it (lines.csv, with lines.js "lines.js"); places by `mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
 lines as counts only; `tests/test_prune_study.py`
 
 ## `tools/estimate_study.py`

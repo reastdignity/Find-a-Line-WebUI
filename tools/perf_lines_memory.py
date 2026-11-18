@@ -1,8 +1,7 @@
 """
 Run by hand: the traced heap of the lines of a search per line, in one process (docs/performance.md). Since
-2026-11-15 search.LINE_BYTES is measured on the whole process tree, saving's children included, with
-tools/perf_slot_memory.py ("The memory constant"); this one does not see the children, the store or the square
-rule.
+2026-11-15 search.LINE_BYTES is measured on the whole process tree with tools/perf_slot_memory.py ("The memory
+constant"); this one does not see the square rule.
 
 Two modes, both measuring the traced heap (tracemalloc) above what was there before, divided by
 the number of lines (and for step 3 also by the pairs found), with the code of --repo (this
@@ -18,7 +17,7 @@ run through steps 3, 4 and 5 as search._lines and save_run do:
     groups          the peak of mapping.group_lines
     profiles        the peak of the representatives' profiles (lineprofiles.line_profiles)
     held            the lines with their coordinates and groups, as a finished tile keeps them
-    step 5 peak     save_results and save_map of all of them
+    step 5 peak     what save_run writes of all of them (save_step5)
 A first call on a few thousand anchors loads the numba code before the measurement.
 
 --tiles <run>/tiles: the lines of a tiled run (its tiles/<k>.table.pkl.gz) through steps 4 and 5
@@ -31,7 +30,15 @@ only for tiles written before wave 5 (search._lines keeps no pixel columns since
     lines found    the output of the line search (find_valid_lines)
     step 4 peak     coordify and group_lines over them (the peak of a tile's step 4, the grids apart)
     held            the lines with their coordinates, as a finished tile keeps them
-    step 5 peak     save_results and save_map of all of them
+    step 5 peak     what save_run writes of all of them (save_step5)
+
+Step 5 is what search.save_run does with the lines since store wave 4 (2026-11-17): the result view's columns
+(mapping.view_columns) and the store (linestore.write, its head mapping.map_head's); map.html, one small file, is left
+out. A --repo without linestore.py (a checkout before store wave 2) writes what its save_run wrote instead: the text
+files (runs.save_results: lines.csv, lines.geojson, run.json; mapping.save_map: data.js, lines.js, map.html); a
+--repo of store wave 2 or 3 (linestore, before or after view B1's view_columns) is measured on its store alone,
+though its save_run still wrote the text files too. Until wave 4 save_run wrote both, the text files in saving.py's
+children from 100 000 lines; a "step 5 peak" measured before compares with one measured after only as that.
 
 The grids of a tile are not included (search.PIXEL_BYTES), nor the profiles of a circle's every
 line (search.PROFILE_POINT_BYTES: measure them with perf_profile.py --tracemalloc).
@@ -85,11 +92,27 @@ class _Marks:
         tracemalloc.reset_peak()
 
 
-def _save(np, sh, mp, rn, found, groups, out, n):
+def save_step5(np, mp, rn, found, groups, out, n):
+    """Step 5 of the lines `found` (a LineTable after step 4) and their `groups` into the folder `out`, as the
+    module docstring says: the store (with the result view's columns) when --repo has linestore, else the text
+    files. Returns the files written."""
     os.makedirs(out, exist_ok=True)
-    run = {"id": "r", "name": "memory", "created": "2026-10-31T10:00:00+00:00"}
-    rn.save_results(out, found, groups, {"name": "memory", "summary": {"lines": n}})
-    mp.save_map(found, _Area, out, os.path.join(out, "runs"), run, "EPSG:32633")
+    run = {"id": "r", "name": "memory", "created": "2026-10-31T10:00:00+00:00", "summary": {"lines": n}}
+    try:
+        import linestore
+    except ImportError:  # a checkout before the store: its text files
+        rn.save_results(out, found, groups, {"name": "memory", "summary": {"lines": n}})
+        mp.save_map(found, _Area, out, os.path.join(out, "runs"), run, "EPSG:32633")
+        return sorted(os.listdir(out))
+    head = mp.map_head(_Area, os.path.join(out, "map.html"), run, "EPSG:32633")
+    if not hasattr(mp, "view_columns"):  # a checkout of store wave 2 or 3 before view B1: the store alone
+        linestore.write(out, found, head)
+        return sorted(os.listdir(out))
+    # the run's centre in the grid CRS (the sectors' origin): the anchors' middle, as no area is searched here
+    centre = tuple(float(v) for v in np.mean(found.columns["a1_xy"], axis=0)) if n else (0.0, 0.0)
+    view, view_head = mp.view_columns(found, groups, centre)
+    linestore.write(out, found, {**head, **view_head}, view)
+    return sorted(os.listdir(out))
 
 
 def load_call(folder):
@@ -200,7 +223,7 @@ def measure_call(folder, out):
     seconds["step 4"] = time.time() - t
     marks.mark("held")
     t = time.time()
-    _save(np, sh, mp, rn, results, groups, out, len(results))
+    save_step5(np, mp, rn, results, groups, out, len(results))
     seconds["step 5"] = time.time() - t
     marks.mark("step 5 peak", peak=True)
     tracemalloc.stop()
@@ -303,13 +326,13 @@ def measure_tiles(args):
     marks.mark("held")
     step4 = time.time() - t
     t = time.time()
-    meta = {"name": "memory", "summary": {"lines": n}}
-    run = {"id": "r", "name": "memory", "created": "2026-10-31T10:00:00+00:00"}
-    if args.legacy:
+    if args.legacy:  # the code of before the columns (a dict per line), before the store too
+        meta = {"name": "memory", "summary": {"lines": n}}
+        run = {"id": "r", "name": "memory", "created": "2026-10-31T10:00:00+00:00"}
         rn.save_results(args.out, groups, meta)
+        mp.save_map(found, _Area, args.out, os.path.join(args.out, "runs"), run, "EPSG:32633")
     else:
-        rn.save_results(args.out, found, groups, meta)
-    mp.save_map(found, _Area, args.out, os.path.join(args.out, "runs"), run, "EPSG:32633")
+        save_step5(np, mp, rn, found, groups, args.out, n)
     marks.mark("step 5 peak", peak=True)
     print(f"{n} lines, {len(groups)} groups ({'dicts' if args.legacy else 'columns'}"
           f"): step 4 {step4:.1f} s, "

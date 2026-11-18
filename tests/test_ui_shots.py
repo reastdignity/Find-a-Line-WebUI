@@ -1013,7 +1013,7 @@ def test_credits_go_into_data_js_and_the_store(tmp_path):
     (folder / "run.json").write_text(json.dumps({"id": "r", "store": block}), encoding="utf-8")
     before, _ = linestore.read(str(folder))
 
-    ui_shots.with_credits(str(folder / "data.js"))
+    ui_shots.with_credits(str(folder))
     data = json.loads((folder / "data.js").read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";"))
     meta = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     after, head = linestore.read(str(folder))
@@ -1029,5 +1029,42 @@ def test_credits_go_into_data_js_and_the_store(tmp_path):
     plain.mkdir()
     (plain / "data.js").write_text((folder / "data.js").read_text(encoding="utf-8"), encoding="utf-8")
     (plain / "run.json").write_text(json.dumps({"id": "p"}), encoding="utf-8")
-    ui_shots.with_credits(str(plain / "data.js"))
+    ui_shots.with_credits(str(plain))
     assert "store" not in json.loads((plain / "run.json").read_text(encoding="utf-8"))
+
+    # a run of store wave 4: its store and run.json, no data.js (none is made)
+    new = tmp_path / "new"
+    new.mkdir()
+    for name in linestore.FILES:
+        (new / name).write_bytes((folder / name).read_bytes())
+    (new / "run.json").write_text(json.dumps({"id": "n", "store": meta["store"]}), encoding="utf-8")
+    ui_shots.with_credits(str(new))
+    meta = json.loads((new / "run.json").read_text(encoding="utf-8"))
+    _, head = linestore.read(str(new))
+    assert not (new / "data.js").exists() and head["attribution"] == meta["attribution"] == data["attribution"]
+    assert meta["store"]["sha256"] == hashlib.sha256((new / linestore.LINES_FILE).read_bytes()).hexdigest()[:16]
+
+
+def test_first_line_of_the_store_and_of_data_js(tmp_path_factory, tmp_path):
+    """The lines that name the 3D view's pages (first_line, rows 0, 40, 200 and beyond the end) of the clip's run as a
+    run of store wave 4 (its store alone) and as a run saved before the store (data.js alone, a --run of an old run):
+    the same, each named as data.js's row names it; nothing written into either run."""
+    import clip_runs
+    import tool_runs
+    args = ["--elevation-file", os.path.join(REPO, "tests", "data", "zabi_kon_nmt.tif"), "--northing", "254608",
+            "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+            "--ortho", "never", "--nmpt", "off", "--model", "sag"]  # test_device_page's search (shared by clip_runs)
+    data = clip_runs.data_copy(tmp_path_factory, "shots-lines", args)
+    run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
+    tool_runs.store_only(str(data / "runs" / run), str(tmp_path / "runs" / "store"))
+    text = tool_runs.text_only(str(data / "runs" / run), str(tmp_path / "runs" / "text"))
+    before = tool_runs.snapshot(str(tmp_path))
+    with open(os.path.join(text, "data.js"), encoding="utf-8") as f:
+        rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    assert ui_shots.lines_read(str(tmp_path), "store") == "store"
+    assert ui_shots.lines_read(str(tmp_path), "text") == "data.js"
+    for k in (0, 40, 200, 10 ** 9):
+        line = ui_shots.first_line(str(tmp_path), "store", k)
+        assert line == ui_shots.first_line(str(tmp_path), "text", k)
+        assert line == ",".join(str(v) for v in rows[min(k, len(rows) - 1)][:4])
+    assert tool_runs.snapshot(str(tmp_path)) == before

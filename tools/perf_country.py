@@ -52,6 +52,22 @@ another resolution than its base are scaled by the median ratio of the places me
 
 The options after "--" are findaline.py's; --no-plot, --yes and --ortho never are added. Give
 --data-dir there to keep the runs out of the repository's runs/.
+
+compare, cube, relief and estimate read a run's lines (read_lines) from the first of: its lines.npz (a run of
+profile --lean, which wrote it until store wave 4), its store (lines.arrow, a run saved since 2026-11-15), its
+lines.csv (a run saved before the store); compare, cube and relief record which ("lines_from"). From the store the
+columns come from linestore.read in memory (no export, nothing written anywhere), grouped by mapping.group_lines
+with run.json's distance and value and put in lines.csv's order (runs.row_order), as --lean did: the length,
+clearance, height above the terrain and the first anchor's easting and northing unrounded (float64: at least
+--lean's float32, finer than lines.csv's 1-2 decimals), the metres over water at 0.1 m (as the search keeps them),
+the wall angles and prominences at the store's 0.1 (lines.csv's decimals; --lean had them unrounded in float32).
+So a run read from its store may put a line within half a decimal of a band's or a cell's edge in another key than
+its lines.csv would (or a lean run of the same search): the keys of a sample profiled since store wave 4 come from
+those precisions. A lines.csv over 200 MB is packed once into perf_country_cache in the system's temporary folder,
+never beside the run. --lean is no longer used: since store wave 4 a run keeps its store, about as small as
+lines.npz, and no text file. The machine factor (estimate) takes the stage "Step 5: Compute saving
+results" as single-core: since store wave 4 it holds the store's write instead of the text files, so a bench.json
+made before that compares with one made after on other work there.
 """
 
 import argparse
@@ -63,6 +79,7 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -226,38 +243,16 @@ def tension_table(points: Sequence[Tuple[float, float]]):
     return Table
 
 
-def lean_save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None):
-    """runs.save_results for the measurements: run.json and lines.npz with the columns compare and
-    cube read, in the order of lines.csv (group by group, the representative first), as float32;
-    no lines.csv or lines.geojson (in steep terrain tens of millions of lines are tens of GB)."""
-    import runs as rn
-    order, number, is_rep, _ = rn.row_order(groups, 0, len(groups.members), rn.rep_positions(groups))
-    c = lines.columns
-    pick = lambda name, k=None: (c[name][order] if k is None else c[name][order, k]).astype(np.float32)  # noqa: E731
-    np.savez(os.path.join(run_path, "lines.npz"), group=number.astype(np.int64), representative=is_rep,
-             length_m=pick("length"), clearance_m=pick("clearance"), water_m=pick("water_m"),
-             height_max_m=pick("height_max"), anchor1_northing=pick("a1_xy", 1), anchor1_easting=pick("a1_xy", 0),
-             anchor1_wall_angle=pick("angle1"), anchor2_wall_angle=pick("angle2"),
-             anchor1_prominence_m=pick("prom1"), anchor2_prominence_m=pick("prom2"),
-             over_trees_buildings=c["over_obstacles"][order].astype(bool))
-    with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    on_lines(0, "run.json")
-
-
 class Hooks:
-    """The T(L) table assigned as sag.EnvelopeTable (search.py looks it up at call time),
-    search.plan_search wrapped to keep the Plan, and with lean runs.save_results replaced by
-    lean_save_results; uninstall puts them back."""
+    """The T(L) table assigned as sag.EnvelopeTable (search.py looks it up at call time) and
+    search.plan_search wrapped to keep the Plan; uninstall puts them back."""
 
-    def __init__(self, tension: Optional[str], lean: bool = False):
-        import runs as rn
+    def __init__(self, tension: Optional[str]):
         import sag as sg
         import search
-        self.sg, self.search, self.rn = sg, search, rn
+        self.sg, self.search = sg, search
         self.tension = parse_tension(tension) if tension else None
-        self.lean = lean
-        self.table, self.plan_search, self.save_results = sg.EnvelopeTable, search.plan_search, rn.save_results
+        self.table, self.plan_search = sg.EnvelopeTable, search.plan_search
         self.plan = None
 
     def _plan_search(self, *args, **kwargs):
@@ -268,12 +263,9 @@ class Hooks:
         if self.tension:
             self.sg.EnvelopeTable = tension_table(self.tension)
         self.search.plan_search = self._plan_search
-        if self.lean:
-            self.rn.save_results = lean_save_results
 
     def uninstall(self):
         self.sg.EnvelopeTable, self.search.plan_search = self.table, self.plan_search
-        self.rn.save_results = self.save_results
 
 
 def plan_grid(plan) -> Dict:
@@ -314,11 +306,10 @@ def load_samples(path: str) -> Dict:
 
 
 def profile(out: str, name: str, search_args: List[str], cores: Optional[int] = None,
-            tension: Optional[str] = None, lean: bool = False) -> Dict:
-    """One measured search, recorded into <out>/samples.json under name; with lean its run keeps
-    lines.npz instead of lines.csv and lines.geojson (lean_save_results)."""
+            tension: Optional[str] = None) -> Dict:
+    """One measured search, recorded into <out>/samples.json under name."""
     os.makedirs(out, exist_ok=True)
-    hooks = Hooks(tension, lean)
+    hooks = Hooks(tension)
     hooks.install()
     started = time.time()
     try:
@@ -425,44 +416,110 @@ def bench(out: str, processes: Optional[List[int]], n: int) -> Dict:
     return report
 
 
-# ---------------------------------------------------------------- lines.csv
+# ---------------------------------------------------------------- a run's lines
 
-def read_lines(run: str) -> Dict[str, np.ndarray]:
-    """The columns of a run's lines.csv that compare and cube use, as arrays (NaN: empty)."""
-    numbers = ("group", "length_m", "clearance_m", "water_m", "height_max_m", "anchor1_northing",
-               "anchor1_easting", "anchor1_wall_angle", "anchor2_wall_angle", "anchor1_prominence_m",
-               "anchor2_prominence_m")
-    flags = ("representative", "over_trees_buildings")
-    values = {k: [] for k in numbers + flags}
-    if run is None:  # a search without lines (profile saved no run)
-        columns = {k: np.zeros(0, dtype=float) for k in numbers}
-        columns.update({k: np.zeros(0, dtype=bool) for k in flags})
-        columns["group"] = columns["group"].astype(np.int64)
-        return columns
-    packed = os.path.join(run, "lines.npz")
-    if not os.path.exists(packed) and os.path.getsize(os.path.join(run, "lines.csv")) > 200e6:
-        # A big lines.csv of before: its columns packed once with pandas (the csv module would take
-        # minutes and gigabytes of Python floats), the same values lean_save_results writes
-        import pandas as pd
-        table = pd.read_csv(os.path.join(run, "lines.csv"), usecols=list(numbers + flags), encoding="utf-8-sig")
-        np.savez(packed, **{k: (table[k].to_numpy(np.int64) if k == "group" else table[k].to_numpy(bool)
-                                if k in flags else table[k].to_numpy(np.float32)) for k in numbers + flags})
-    if os.path.exists(packed):
-        with np.load(packed) as data:
-            columns = {k: data[k].astype(float) for k in numbers}
-            columns.update({k: data[k].astype(bool) for k in flags})
-        columns["group"] = columns["group"].astype(np.int64)
-        return columns
-    with open(os.path.join(run, "lines.csv"), newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            for k in numbers:
-                values[k].append(float(row[k]) if row[k] else math.nan)
-            for k in flags:
-                values[k].append(row[k] == "True")
-    columns = {k: np.array(values[k], dtype=float) for k in numbers}
-    columns.update({k: np.array(values[k], dtype=bool) for k in flags})
+LINE_NUMBERS = ("group", "length_m", "clearance_m", "water_m", "height_max_m", "anchor1_northing", "anchor1_easting",
+                "anchor1_wall_angle", "anchor2_wall_angle", "anchor1_prominence_m", "anchor2_prominence_m")
+LINE_FLAGS = ("representative", "over_trees_buildings")
+PACK_BYTES = 200e6  # a lines.csv larger than this is packed once with pandas (PACK_FOLDER)
+PACK_FOLDER = "perf_country_cache"  # in the system's temporary folder: never beside a run
+
+
+def lines_from(run: Optional[str]) -> Optional[str]:
+    """Which file read_lines reads of a run: "lines.npz" (profile --lean, until store wave 4), "store" (lines.arrow)
+    or "lines.csv" (a run saved before the store); None for no run."""
+    if run is None:
+        return None
+    if os.path.exists(os.path.join(run, "lines.npz")):
+        return "lines.npz"
+    return "store" if os.path.isfile(os.path.join(run, "lines.arrow")) else "lines.csv"
+
+
+def _from_pack(packed: str) -> Dict[str, np.ndarray]:
+    with np.load(packed) as data:
+        columns = {k: data[k].astype(float) for k in LINE_NUMBERS}
+        columns.update({k: data[k].astype(bool) for k in LINE_FLAGS})
     columns["group"] = columns["group"].astype(np.int64)
     return columns
+
+
+def _read_csv(path: str, key: str) -> Dict[str, np.ndarray]:
+    """The columns of a lines.csv (`key`: what its pack is cached by, the file it stands for with its size and
+    time)."""
+    if os.path.getsize(path) > PACK_BYTES:
+        # A big one: its columns packed once with pandas (the csv module would take minutes and gigabytes of
+        # Python floats), as float32, as profile --lean wrote lines.npz
+        packed = _pack_path(key)
+        if not os.path.exists(packed):
+            import pandas as pd
+            table = pd.read_csv(path, usecols=list(LINE_NUMBERS + LINE_FLAGS), encoding="utf-8-sig")
+            os.makedirs(os.path.dirname(packed), exist_ok=True)
+            partial = packed + f".{os.getpid()}.tmp.npz"
+            np.savez(partial, **{k: (table[k].to_numpy(np.int64) if k == "group" else table[k].to_numpy(bool)
+                                     if k in LINE_FLAGS else table[k].to_numpy(np.float32))
+                                 for k in LINE_NUMBERS + LINE_FLAGS})
+            os.replace(partial, packed)
+        return _from_pack(packed)
+    values = {k: [] for k in LINE_NUMBERS + LINE_FLAGS}
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            for k in LINE_NUMBERS:
+                values[k].append(float(row[k]) if row[k] else math.nan)
+            for k in LINE_FLAGS:
+                values[k].append(row[k] == "True")
+    columns = {k: np.array(values[k], dtype=float) for k in LINE_NUMBERS}
+    columns.update({k: np.array(values[k], dtype=bool) for k in LINE_FLAGS})
+    columns["group"] = columns["group"].astype(np.int64)
+    return columns
+
+
+def _pack_path(key: str) -> str:
+    import hashlib
+    return os.path.join(tempfile.gettempdir(), PACK_FOLDER, hashlib.sha1(key.encode("utf-8")).hexdigest()[:20] + ".npz")
+
+
+def _stamp(path: str) -> str:
+    s = os.stat(path)
+    return f"{os.path.abspath(path)}|{s.st_size}|{s.st_mtime_ns}"
+
+
+def read_lines(run: Optional[str]) -> Dict[str, np.ndarray]:
+    """The columns of a run's lines that compare and cube use, as lines.csv holds them (its order, group by group,
+    the representative first), as arrays (NaN: empty); from the file lines_from names, nothing written into the
+    run."""
+    if run is None:  # a search without lines (profile saved no run)
+        columns = {k: np.zeros(0, dtype=float) for k in LINE_NUMBERS}
+        columns.update({k: np.zeros(0, dtype=bool) for k in LINE_FLAGS})
+        columns["group"] = columns["group"].astype(np.int64)
+        return columns
+    source = lines_from(run)
+    if source == "lines.npz":
+        return _from_pack(os.path.join(run, "lines.npz"))
+    if source == "lines.csv":
+        path = os.path.join(run, "lines.csv")
+        return _read_csv(path, _stamp(path))
+    return _read_store(run)
+
+
+def _read_store(run: str) -> Dict[str, np.ndarray]:
+    """read_lines of a run's store: linestore.read's columns in lines.csv's order (the module docstring says at
+    which precision), as --lean's lean_save_results took them."""
+    import linestore
+    import mapping as mp
+    import runs as rn
+    with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
+        params = json.load(f).get("params") or {}
+    lines, _ = linestore.read(run, profiles=False)
+    groups = mp.group_lines(lines, params["group_distance"], params.get("group_by", "clearance"))
+    order, number, is_rep, _ = rn.row_order(groups, 0, len(groups.members), rn.rep_positions(groups))
+    c = lines.columns
+    pick = lambda name, k=None: np.asarray(c[name][order] if k is None else c[name][order, k], dtype=float)  # noqa: E731
+    return {"group": number.astype(np.int64), "length_m": pick("length"), "clearance_m": pick("clearance"),
+            "water_m": pick("water_m"), "height_max_m": pick("height_max"), "anchor1_northing": pick("a1_xy", 1),
+            "anchor1_easting": pick("a1_xy", 0), "anchor1_wall_angle": pick("angle1"),
+            "anchor2_wall_angle": pick("angle2"), "anchor1_prominence_m": pick("prom1"),
+            "anchor2_prominence_m": pick("prom2"), "representative": np.asarray(is_rep, dtype=bool),
+            "over_trees_buildings": np.asarray(c["over_obstacles"][order], dtype=bool)}
 
 
 def run_crs(run: Optional[str]) -> Optional[str]:
@@ -509,7 +566,8 @@ def compare(samples: Dict, ref: str, others: List[str], cells: List[float],
         raise SystemExit("the runs use different coordinate systems: "
                          + ", ".join(f"{n} {c}" for n, c in crs.items()))
     lines = {n: read_lines(r) for n, r in runs.items()}
-    result = {"ref": ref, "others": others, "crs": next(iter(crs.values()), None), "rows": []}
+    result = {"ref": ref, "others": others, "crs": next(iter(crs.values()), None),
+              "lines_from": {n: lines_from(r) for n, r in runs.items()}, "rows": []}
     for cell in cells:
         for band in [None, *bands]:
             per_run = {}
@@ -612,7 +670,8 @@ def cube(samples: Dict, names: List[str], cell: float, dims: Sequence[str]) -> D
         km2 = sample["grid"]["area_km2"]
         line_keys, spot_keys = keys(cells, values, dims), keys(cells[rep], best, dims)
         per = lambda v: round(v / km2, 4) if km2 else None  # noqa: E731
-        rows.append({"name": name, "cell": cell, "dims": " ".join(dims), "area_km2": km2,
+        rows.append({"name": name, "lines_from": lines_from(sample["run"]), "cell": cell, "dims": " ".join(dims),
+                     "area_km2": km2,
                      "lines": len(ls["length_m"]), "line_keys": line_keys, "line_keys_km2": per(line_keys),
                      "line_bytes_km2": per(line_keys * (KEY_BYTES + COUNT_BYTES)),
                      "spots": len(rep), "spot_keys": spot_keys, "spot_keys_km2": per(spot_keys),
@@ -793,8 +852,10 @@ def relief(inputs: Dict, samples: Dict, data_dir: str) -> Dict:
             scale = (sample["summary"]["lines"] / other["lines"], sample["summary"]["spots"] / max(other["spots"], 1))
             lines = read_lines(samples[source]["run"])
         cells = sample_cells(sample, low, high, blocks, lines, scale)
-        result["samples"][name] = {"place": place, "band": band, "res": float(res[:-1]), "cells_from": source, **cells}
-        print(f"{name}: {len(cells['cells'])} cells" + (f" (from {source})" if source else ""))
+        read = lines_from(samples[source or name]["run"])
+        result["samples"][name] = {"place": place, "band": band, "res": float(res[:-1]), "cells_from": source,
+                                   "lines_from": read, **cells}
+        print(f"{name}: {len(cells['cells'])} cells" + (f" (from {source})" if source else "") + f", lines from {read}")
     for name, s in virtual_cells(result["samples"], samples, inputs).items():
         result["samples"][name] = s
         print(f"{name}: {len(s['cells'])} cells, from {s['cells_from']}")
@@ -1274,8 +1335,8 @@ def main():
     p.add_argument("--name", required=True)
     p.add_argument("--cores", type=int, help="perf_profile.py's --cores")
     p.add_argument("--tension-by-length", help="pretension by span, span:kN points, e.g. 300:2.5,1500:6,5000:15")
-    p.add_argument("--lean", action="store_true", help="the run keeps lines.npz (the columns compare and cube "
-                   "read) instead of lines.csv and lines.geojson")
+    p.add_argument("--lean", action="store_true", help="no longer used (since store wave 4 a run keeps its store, "
+                   "lines.arrow, and no lines.csv); accepted so the commands of before still run")
     p.add_argument("args", nargs=argparse.REMAINDER, help="-- and the options of findaline.py")
     c = sub.add_parser("compare", help="counts per cell against a reference run")
     c.add_argument("--samples", required=True)
@@ -1305,7 +1366,7 @@ def main():
         bench(args.out, args.processes, args.grid)
     elif args.command == "profile":
         search_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        profile(args.out, args.name, search_args, args.cores, args.tension_by_length, args.lean)
+        profile(args.out, args.name, search_args, args.cores, args.tension_by_length)
     elif args.command == "compare":
         result = compare(load_samples(args.samples), args.ref, args.others, args.cells, parse_bands(args.bands))
         write_json(args.json, result)
