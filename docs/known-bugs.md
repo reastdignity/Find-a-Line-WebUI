@@ -312,6 +312,14 @@ Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15,
 - **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
   and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
   CI 43618907225, nothing of store wave 4 in its path.
+- **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
+  first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
+  (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
+  `test_shell_c_download::test_ready_file_is_saved[iphone]` (the GeoJSON row's press waited 30 s for a stable button,
+  WebKit); `test_tuscany::test_catalogue_source` (`src.SOURCES` with tuscany after tinitaly);
+  `test_window_groups::test_a_layer_in_another_crs_fails[1000]` (it read a file in EPSG:32620, as
+  `test_netherlands` serves at the same path `/files/other.tif`; read only: GDAL's `/vsicurl/` cache of a worker
+  process keyed on the URL, when a later test's local server gets the same port).
 - **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
   line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
   back; a column selection in `linestore.read` would cut it.
