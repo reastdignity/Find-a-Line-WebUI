@@ -290,6 +290,15 @@ and its phone frames). Every count below is of the lines that pass the filters.
   of B.9's wave 4. The view's controls under 44 px on a phone and its text under 12 px (docs/DESIGN.md R1, R2) stay
   until step 3c (the user: "2. a"); the design review's other findings are step 3c's list in `docs/roadmap.md`.
 
+**As built in the UX pilot (2026-11-18)** (branch ux-pilot-view; docs/DESIGN.md "The pilot's look"):
+- A press on "Legend" at half lowers the sheet whenever the whole legend does not fit at that stop.
+- A phone held sideways in the phone layout: the zoom and the layers stand in the level switch's row.
+- Landscape touch screens in the desktop layout: the legend folds behind "Legend" when the foot's column would reach
+  the top controls.
+- The legend lists "P1 pick" whenever "Start here" has a pick in view, drawn or not: a stated exception to item 8's
+  "exactly the shapes on the map now", because the pick's line is on the map even when its diamond is left out.
+- The list's follow on a selection: the "Best in view" row when the spot has one there, else the tree's row.
+
 **What the app needs that the mock-up does not have** (the mock-up says "Fake" or "Not here"): loading the run (G-06
 a: `spec-store.md`; the load progress of `RunLoading.tsx` stays); the map's real projection (in-view and squares in
 the run's CRS metres, as the lines are stored); base layers, orthophoto, the shore and coarser overlays (their boxes
