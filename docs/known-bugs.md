@@ -295,6 +295,46 @@ read by share links, the result view behind `?view=b`), none fixed:
   review's other findings are step 3c's list in docs/roadmap.md. Not run: a real phone, presses in WebKit or
   Firefox; the focus rules are tested in Chromium only.
 
+## Line volume, round 5 (store wave 4): known and left (2026-11-18)
+
+Found in the reviews and checks of store wave 4's first deploy (`main` 1b1f2f15, a0c511ac, a86b86e8), none fixed:
+- **R70 has never run with a store, and R17 not on wave 4's code:** basisdata.nl did not answer since round 3 (the
+  user: "3. a", the merges did not wait); Overpass answered 502/504 in both of round 5's passes, so R17 (the Malta
+  extract against Overpass: no run's files involved) was skipped. Run both when the services answer.
+- **Compare's list of other runs goes stale from Home on:** Home's mini maps load the list of runs (`runs.js`, once
+  per page) for every run card, so a run finished in the same tab is not offered by Compare until a reload (it opens
+  and draws through the store's probe); before, the same happened from the first opened result.
+- **Two more cdd_fetch tests race on the CI's runners** (the same fake server as the two above):
+  `test_fetch_resumes_and_records_every_file` on Linux in both runs since 74de19ae (CI 44170732371 and 44243858723:
+  the fake's concurrent connections 2, not 1; read only: the fake counts a request as active until its handler
+  returns, after the client may already have read the answer and sent the next) and, on 74de19ae,
+  `test_a_file_whose_body_always_breaks_fails_and_the_rest_come` (waits [30, 30, 60, 60] on Windows).
+- **The CI's view3d ring job timed out again** (`test_view3d_ring.py::test_ring_drawn_within_its_budget[full-None]`
+  and `[full-edges]`, Edge stopped after 1 500 s, on 74de19ae and a86b86e8): the Windows 3D hang seen since
+  CI 43618907225, nothing of store wave 4 in its path.
+- **Four tests failed once under round 5's loaded full runs on this PC and pass alone** (none in item 5's path; the
+  first two passed 3 of 3 alone on the stack and on `main` a86b86e8): `test_web::test_basic_form_sea_cliffs_fills_the_limit`
+  (twice; the limit's box and the map view's read before it differ by about 400 m north to south);
+  `test_shell_c_download::test_ready_file_is_saved[iphone]` (the GeoJSON row's press waited 30 s for a stable button,
+  WebKit); `test_tuscany::test_catalogue_source` (`src.SOURCES` with tuscany after tinitaly);
+  `test_window_groups::test_a_layer_in_another_crs_fails[1000]` (it read a file in EPSG:32620, as
+  `test_netherlands` serves at the same path `/files/other.tif`; read only: GDAL's `/vsicurl/` cache of a worker
+  process keyed on the URL, when a later test's local server gets the same port).
+- **`tools/perf_country.py` decodes all 29 columns of a store** (`linestore.read`) though it uses 10: about 350 B a
+  line at its peak plus the Arrow table, so a machine smaller than the one that made a very large run may not read it
+  back; a column selection in `linestore.read` would cut it.
+- **`runs remove-old`:** two removals finishing the same `runs/_removing-<id>` at once may report it "Left on disk"
+  although it is gone (cosmetic); the first scan's folder sizes run under the runs lock; a search cancelled or killed
+  while "saving results" leaves a folder without `run.json` that nothing removes (older than store wave 4), as does a
+  tiled search stopped part-way (its `tiles/` and `progress.json` "running": the server kept 7 such folders, the
+  user's "2. a").
+- **A bundle that does not load at all over http** leaves the disk notice of a run's `map.html` shown, as the
+  specification asks ("in the HTML, so it shows without the bundle"); a `map.html` written before store wave 4 has no
+  notice of its own, so from disk without the bundle it stays blank.
+- **Wave 4's second deploy:** a `runs/_viewer/index.css` installed before stays there (`install_viewer` adds files and
+  never deletes; nothing loads it); a run's `map.html` whose store cannot be loaded shows one sentence and no way back
+  to the app (as before wave 4; roadmap "Later").
+
 ## The UI measuring tools: known and left (2026-11-17)
 
 Found in the reviews of `tools/ui_metrics.py` and `tools/ui_walks.py`, none fixed; none changes a count on today's

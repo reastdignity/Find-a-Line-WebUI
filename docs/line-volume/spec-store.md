@@ -7,9 +7,13 @@ Sections: 1 the store (its waves cover the whole part), 2 old runs, 3 the ranges
 5 renaming a run, 6 the goal case, 7 contradictions, 8 the user's word (U1-U12, elsewhere cited as "store U1" …).
 The user's closing answers of 2026-11-14 settle U1 (six ranges), U4 (exports per download), U5 (old runs removed)
 and U12 (brotli); the choices of class "planner" are taken as recommended (section 8).
-**State on 2026-11-17:** waves 1 to 3 are built (`main` 31f16de, 47c5fa7, ef93df5; wave 3 f2f8015), and share links
-and runs outside the page's list read the store (b757bee); "as built" notes stand in 1.2, 1.3, 1.4, 1.8, 1.9 and
-1.10. Open: waves 4, 6, 7, 8.
+**State on 2026-11-18:** waves 1 to 3 are built (`main` 31f16de, 47c5fa7, ef93df5; wave 3 f2f8015), share links
+and runs outside the page's list read the store (b757bee), and wave 4's first deploy is built and on the server
+(1b1f2f15, a0c511ac, a86b86e8: new runs keep no text files, `findaline.py view`, `runs remove-old`, the disk notice);
+old runs were removed on the PC and on the server on the user's word (2026-11-18, section 2 "As run"); "as built"
+notes stand in 1.2, 1.3, 1.4, 1.8, 1.9, 1.10 and 2. Wave 4's second deploy followed in `main` once both hosts were
+cleared (1.9 "Built (round 5)"): the page reads a run from its store alone, and nothing writes or reads `data.js` or
+`lines.js`; on the server on the user's word. Open: waves 6, 7, 8.
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -296,6 +300,24 @@ Download buttons) and, before it, the store read by share links and by runs outs
 which wave 4 waited for. View B1 is built too (39785f8), so wave 4 can be built now; only its removal of old runs
 needs the user's word on each host (section 2).
 
+**Built (round 5):** wave 4's first deploy (`main` 1b1f2f15 the tools, a0c511ac the Python side, a86b86e8 the page;
+tags `history/store-wave4-tools`, `history/store-wave4`, `history/store-wave4-page`; pushed and deployed
+2026-11-18). A new run writes `lines.arrow`, `profiles.arrow`, `ATTRIBUTION.txt`, `map.html` (not with `--no-html`)
+and `run.json` last and whole, nothing else; `saving.py` is gone. A store that cannot be written ends the search with
+`run_not_saved` and no folder (a tiled run keeps its work state); view columns that fail leave a store without them,
+the note `view_columns_failed` and `view_columns_failed` in run.json, and such a run is current (the planner's
+correction of 2026-11-17: never removed). `findaline.py view` (A1, A2 of the round's plan), the disk notice (the
+user's accepted preview, "2. a"), Home's mini maps from `lines.arrow`, and the nine tools of `tools/` reading the
+store (old runs from their files) are in; section 2 has the removal as built and as run.
+Wave 4's second deploy (item 5, after the removal on both hosts): the page reads a run only from its store over
+http(s) (`result/load.ts`, keyed on the run's folder; a store that cannot be fetched or read shows
+`ui.result.store_failed`, "This result could not be loaded. Reload the page to try again.", the user's "b" of
+2026-11-18, with the reason in the console); `mapping.save_map` writes `map.html` alone, `web.RUN_FILES` is `map.html`,
+`ATTRIBUTION.txt` and the two store files, `has_lines` means `lines.arrow`. From disk every `map.html` shows the disk
+notice, one written before wave 4 too (the viewer builds it: the run's id from its folder, its name from `runs.js` or
+the page's title). The old writers of `data.js` and `lines.js` live on, frozen, in `tests/old_scripts.py` for the
+tools' tests of old runs; `index.css` (of the removed `runs/index.html`) is gone.
+
 The view's columns (`spot`, `top`, `by_spot`, the head's `sectors`, `box`, `lengths`) come with view B1, after wave 2.
 Wave 4 waits for view B1, so that from wave 4 on every new run carries them; a run saved between wave 2 and view B1
 has a store without them and counts as an old run (section 2). Nothing converts a run.
@@ -384,7 +406,7 @@ word, no migration".
 | Favourite lines in the run (their key and the values the map sent) | table `favourites` (`run_id`, `line`, `data`); `Jobs.delete_run` deletes them | deleted | **lost**. Before the removal a user can save them with the existing "Export for the trip" (GeoJSON, CSV: `Trip.tsx`, `favourites.exportFavourites`); the dry run counts them per run. Rows left behind would be hidden (`web.all_favourites` lists only runs it finds) yet count toward `FAVOURITES_MAX`, so they are deleted |
 | Folders of favourites | table `favourite_folders` | untouched | kept (a folder may become empty) |
 | The demo run(s) | `runs.visibility` "demo"; the sign-in page's `web.demo_list`, `jobs.demo_runs` | deleted with the row | **lost**; the page shows no demo until an administrator runs the demo search again with the new code and marks the new run (`POST /api/runs/<id>/demo`): a step of the VPS rollout |
-| Jobs | table `jobs` (`request`, `run_id`) | untouched | kept: the card on Home stays without its result (`Home.cardsOf` finds no run); "search again" makes a new run with a new id, by the code of that day (results may differ from the removed run) |
+| Jobs | table `jobs` (`request`, `run_id`) | **as built:** marked removed (`removed_at`, since `main` e88d69f3: `Jobs.delete_run` marks the jobs that saved the run) | kept as rows (they count as before), but the cards leave Home; the dry run counts them ("N searches leave the list on Home") and the README says so (the user, 2026-11-17, Q3: "2. a"). A new search makes a new run with a new id, by the code of that day |
 | `runs.js` and Compare ("Other runs", `others.ts`), thumbnails (`Thumb.tsx`), the 3D view's `&also=` lines | `runs.write_index` locally; `web.runs_js` per user on the public site, both from the folders | rewritten locally; nothing to do on the public site | the removed runs drop out of the lists |
 | Problem reports with a run in their context | table `reports` | untouched | kept; their run link leads nowhere |
 | Audit events naming the run | `audit` (kept `audit.KEEP_DAYS`) | untouched | kept |
@@ -411,6 +433,22 @@ word, no migration".
   with one. Wave 4, part of its effort.
 - **Risks:** the user's own copies of `lines.csv` or of favourites: the dry run's list and the README say what goes
   and how to keep favourites first. A demo missing on the sign-in page until it is made again.
+- **As built** (round 5, `main` a0c511ac): an old run is a folder of `runs/` with `run.json` whose `lines.arrow` is
+  missing, of a lower format, without the view's columns (unless run.json records `view_columns_failed`), or does
+  not parse (listed "(store unreadable)"); skipped and listed apart: no `run.json` (being saved; also a tiled search
+  stopped part-way), a running tiled search, a store that cannot be read now (an OS error), a newer format. The dry
+  run reads `jobs.sqlite` from a checked copy in a temporary folder (a read-only open left `-wal`/`-shm` beside it).
+  `--yes` rechecks each run under `cache.runs_lock`, prints what it deleted and goes on past a failure (exit 1).
+  `Jobs.delete_run` (also the app's Delete…) renames the folder to `runs/_removing-<id>` under the lock, then deletes
+  the rows (renamed back if that fails), then the folder outside the lock; a removal that stopped is finished by the
+  next `--yes` and by the worker's housekeeping after an hour (`Jobs.finish_removals`). The words of the list: the
+  user's accepted draft (Q4: "3. a").
+- **As run** (2026-11-18, each on the user's word after its dry run): on the PC 39 runs (7 874 050 lines, 11.4 GB, 2
+  favourite lines, 23 searches), `runs/index.html` and `findaline_map.html`; `tools/perf_reach.py`'s three named
+  cases moved before into the PC's `local/reference-runs` (the user: "1. a"; `--reference-dir`); the three stopped
+  tiled folders the command skips (836 MB) deleted by hand ("b"). On the server 24 runs (5 504 253 lines, 8.5 GB, 2
+  favourite lines, 22 searches, the demo run) and `runs/index.html`; its 7 stopped tiled folders left ("2. a"); no
+  demo for now ("3.b"). Both dry runs changed no run folder.
 
 ## 3. The ranges of a kept line
 
