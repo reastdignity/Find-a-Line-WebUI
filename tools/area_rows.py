@@ -19,8 +19,10 @@ cached; the whole USA about two days, estimated), a part only its own. A part's 
 source, one cache folder): a tile on a border is found cached by the second part. A settings' `extra` of a part's name
 replaces it (Utah was an extra first, and keeps its name `utah`).
 
-Rows of one source download one at a time (`command_of`: `--queue <source>`, area_download.py's queue), so that
-starting fifty states is fifty downloads in turn, not fifty at once on the eight connections of their host.
+The rows of a source with parts download one at a time (`command_of`: `--queue <source>`, area_download.py's queue;
+the states, the country-wide row and the territories of `usa` alike), so that starting fifty states is fifty
+downloads in turn, in the rows' order (`start`: the ticket), not fifty at once on the eight connections of their
+host. The rows of the other sources start at once, as before.
 
 The settings, a JSON file outside the repository (it may name a contact and a share):
 
@@ -46,6 +48,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -497,11 +500,15 @@ def make_links(links: Sequence[Link], state_dir: str, elevated: Callable = _elev
 # --- starting and stopping --------------------------------------------------------------------------------------
 
 def command_of(row: Row, target: Target, settings: Settings) -> List[str]:
-    """`area_download.py run` of a row, as by hand, in the queue of its source: the rows of one source (the states of
-    the USA) download one after another, in the order they were started."""
+    """`area_download.py run` of a row, as by hand. A row of a source with parts (PARTS: `usa`, `canada`) is in the
+    queue of its source: the states, the country-wide row and the territories of that source download one after
+    another, in the order they were started (they share a host's connections). The rows of every other source
+    start at once, as they always did."""
     command = [sys.executable, os.path.join(HERE, "area_download.py"), "run", row.name, "--area", row.area,
                "--source", row.source, "--resolution", f"{row.resolution:g}", "--data-dir", target.data_dir,
-               "--state-dir", settings.state_dir, "--min-free-gb", f"{target.min_free_gb:g}", "--queue", row.source]
+               "--state-dir", settings.state_dir, "--min-free-gb", f"{target.min_free_gb:g}"]
+    if row.source in {group.source for group in PARTS}:
+        command += ["--queue", row.source]
     for slots in row.host_slots:
         command += ["--host-slots", slots]
     budget = target.max_memory_gb if row.max_memory_gb is None else row.max_memory_gb
@@ -519,9 +526,11 @@ def _detached() -> Dict:
 
 
 def start(row: Row, target: Target, settings: Settings) -> int:
-    """The supervisor of a row, detached; its pid. A row running already says so in its log, `run` itself refuses."""
+    """The supervisor of a row, detached; its pid. A row running already says so in its log, `run` itself refuses.
+    The time of this call is the row's place in its queue (ad.QUEUE_TICKET): rows started in a loop download in
+    that order, however their processes come up."""
     os.makedirs(settings.state_dir, exist_ok=True)
-    env = dict(os.environ)
+    env = dict(os.environ, **{ad.QUEUE_TICKET: repr(time.time())})
     if settings.contact:
         env["FINDALINE_CONTACT"] = settings.contact
     with open(ad.state_file(settings.state_dir, row.name, ".supervisor.out"), "w", encoding="utf-8") as out, \

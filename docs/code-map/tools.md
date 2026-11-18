@@ -566,17 +566,25 @@ disk), `<name>.state.json`, `.history.csv`, `.log`. On a network share: the data
 work over a share) and the tile folders symbolic links to it; `tui --settings <file>` the window below;
 `tests/test_area_download.py`
 
-The queue (`run --queue <key>`, `Area.queue`; the window passes a row's source): the areas of one key download one
-at a time, in the order their supervisors were started. Before each pass a supervisor takes its turn (`_take_turn`:
-the `FileLock` `<key>.queue.lock` of the state folder, an OS lock, so a killed supervisor's is free at once): its
-state says `queued` with its ticket (`queue`, `queued_at`: `_ticket`, the supervisor process's creation time, then
-the name), written again every `STATE_SECONDS`, and it tries the lock only while no area waits in the same queue with
-an earlier ticket (`_ahead`: a state `queued` written within `RUNNING_STATE_S`, so one killed while it waited is
-passed over). The first time it waits `QUEUE_SETTLE_SECONDS` before trying, so supervisors started together have
-written their places. The turn is kept for a pass started again at once (`EXIT_RESTART` with progress) and given up
-for a wait of `RETRY_SECONDS` and at the end (`rest`); the ticket stays, so the area is the next again. The stop file
-ends a queued area as a running one. `summary` gives a queued area no speed or time left; the window calls it live
-(`LIVE`), so Stop works on it and Start does not start it twice.
+The queue (`run --queue <key>`, `Area.queue`; the window passes the source of a row whose source has parts): the
+areas of one key download one at a time, in the order their supervisors were started. Before each pass a supervisor
+takes its turn (`_take_turn`: the `FileLock` `<key>.queue.lock` of the state folder, the key's characters unfit for
+a file name replaced; an OS lock on a local disk, so a killed supervisor's is free at once; the state folder is
+never on a share, where filelock may fall back to a lock file that a kill leaves behind): its state says `queued`
+with its ticket (`queue`, `queued_at`: `_ticket`, the starter's time in `FINDALINE_QUEUE_TICKET`, which
+`area_rows.start` sets so that rows started in a loop keep the rows' order, else the supervisor process's creation
+time; then the name), written again every `STATE_SECONDS`. It tries the lock every `POLL_SECONDS` and, holding it,
+keeps it only when no area waits in the same queue with an earlier ticket (`_ahead`: a state `queued` written within
+`RUNNING_STATE_S`, so one killed while it waited is passed over; the other states are read only with the lock in
+hand, never while another area downloads: fifty waiting supervisors read nothing), else gives it back. With the
+turn its state says `listing`, so no later area takes it for waiting (a state left at `queued` held the next area
+back for `RUNNING_STATE_S` and made the tests pass without the lock: the code review of 2026-11-18). The first time
+it waits `QUEUE_SETTLE_SECONDS` before trying, so supervisors started together have written their places: the
+one-at-a-time rule is the lock's, the order as good as those states. The turn is kept for a pass started again at
+once (`EXIT_RESTART` with progress) and given up for a wait of `RETRY_SECONDS` and at the end (`rest`); the ticket
+stays, so the area is the next again. The stop file ends a queued area as a running one. `summary` gives a queued
+area no speed or time left; the window calls it live (`LIVE`), so Stop works on it and Start does not start it twice,
+and counts it apart ("1 downloading, 49 queued").
 
 ## `tools/area_download_tui.py`, `tools/area_rows.py`
 
@@ -622,8 +630,10 @@ the downloader's default); the target chosen in the window is kept in `tui-targe
 stops that row), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
 `os.symlink`, else one UAC window on Windows without Developer Mode: `_elevated`, a script with its BOM for PowerShell
 5.1), then `start`: `area_download.py run` detached (`_detached`: a hidden console of its own on Windows, a new
-session on Linux, so it outlives the window and its terminal), in the queue of the row's source (`command_of`:
-`--queue <source>`; a row whose turn has not come shows "queued"). State from the state folder (`ad.areas`), as `status`.
+session on Linux, so it outlives the window and its terminal); a row of a source with parts (`usa`, `canada`: the
+states, the country-wide row, Puerto Rico, the US Virgin Islands and an extra of that source) in the queue of its
+source (`command_of`: `--queue <source>`; a row whose turn has not come shows "queued"), the rows of every other
+source at once as before (Finland and Åland, one source, still start together). State from the state folder (`ad.areas`), as `status`.
 Everything has a key (a text console has no mouse); `tests/test_area_rows.py`, `tests/test_area_download_tui.py`
 
 ## `tools/job_stats.py`

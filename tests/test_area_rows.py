@@ -520,9 +520,27 @@ def test_the_command_is_the_one_by_hand(settings, monkeypatch):
     assert area.data_dir == _nas(settings).data_dir and area.state_dir == settings.state_dir
     assert area.min_free_gb == 200 and area.host_slots == (("opendata.geoportal.gov.pl", 2),)
     assert "--number" in passes
-    assert area.queue == "geoportal"   # the rows of one source in turn: the states of the USA all wait for `usa`
-    texas = ar.command_of(_row(ar.rows_of(settings), "united-states-texas"), _nas(settings), settings)
-    assert texas[texas.index("--queue") + 1] == "usa" and "osm:Texas, United States" in texas
+    assert area.queue == "" and "--queue" not in command   # no source with parts: it starts at once, as ever
+
+
+def test_the_rows_of_a_source_with_parts_are_in_its_queue(settings):
+    """The states, the country-wide row, the territories and an extra of `usa` wait for one another, the provinces
+    for `canada`; every other row is in no queue: Finland and Åland (one source) start together as before, and so
+    do British Columbia's and Ontario's own sources beside the provinces of `canada`."""
+    rows = ar.rows_of(settings)
+
+    def queue(name):
+        command = ar.command_of(_row(rows, name), _nas(settings), settings)
+        return command[command.index("--queue") + 1] if "--queue" in command else None
+    assert "osm:Texas, United States" in ar.command_of(_row(rows, "united-states-texas"), _nas(settings), settings)
+    assert {queue(name) for name in ("united-states-texas", "united-states", "puerto-rico", "u-s-virgin-islands",
+                                     "utah")} == {"usa"}
+    assert {queue(name) for name in ("canada-alberta-nrcan", "canada-nunavut-nrcan", "canada")} == {"canada"}
+    queued = {row.source for row in rows if queue(row.name)}
+    assert queued == {"usa", "canada"}
+    assert queue("finland") is None and queue("aland") is None and _row(rows, "aland").source == "finland"
+    assert queue("canada-british-columbia") is None and queue("canada-ontario") is None
+    assert queue("united-states-alaska") is None
 
 
 def test_the_memory_budget_of_a_target_and_a_row(tmp_path):
@@ -572,6 +590,12 @@ def test_start_detached_with_the_contact_in_its_environment(tmp_path, monkeypatc
     assert ar.start(row, settings.targets["cache"], settings) == 1234
     assert seen["env"]["FINDALINE_CONTACT"] == "someone@example.org"
     assert seen["stdin"] == subprocess.DEVNULL and seen["cwd"] == ar.REPO
+    # the row's place in its queue is the time of its start: the next row started is behind it
+    first = float(seen["env"][ad.QUEUE_TICKET])
+    assert abs(first - time.time()) < 60
+    time.sleep(0.02)
+    ar.start(ar.rows_of(settings)[1], settings.targets["cache"], settings)
+    assert float(seen["env"][ad.QUEUE_TICKET]) > first
     if os.name == "nt":
         assert seen["creationflags"] & subprocess.CREATE_NO_WINDOW
     else:

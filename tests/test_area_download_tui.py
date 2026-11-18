@@ -395,8 +395,10 @@ def test_start_with_nothing_ticked_asks_nothing(settings):
     assert started == []
 
 
-def test_a_download_running_is_not_started_again(settings):
-    _state(settings, "austria", "downloading")
+@pytest.mark.parametrize("stage", ["downloading", "queued"])
+def test_a_download_running_is_not_started_again(settings, stage):
+    """Nor one that waits for its turn in its source's queue: its supervisor runs."""
+    _state(settings, "austria", stage)
     app, started = _app(settings)
 
     async def body(pilot):
@@ -477,8 +479,10 @@ def test_tiles_in_the_way_are_named_and_the_others_start(settings):
     assert started == [("austria", "cache")]
 
 
-def test_stop_asks_first_and_leaves_the_stop_file(settings):
-    _state(settings, "austria", "downloading")
+@pytest.mark.parametrize("stage", ["downloading", "queued"])
+def test_stop_asks_first_and_leaves_the_stop_file(settings, stage):
+    """A queued row is stopped as a downloading one."""
+    _state(settings, "austria", stage)
     app, _ = _app(settings)
     stop_file = ad.state_file(settings.state_dir, "austria", ".stop")
 
@@ -514,7 +518,15 @@ def test_the_state_comes_from_the_state_folder(settings):
         app.refresh_states()
         await pilot.pause()
         assert "40 %" in _text(app, "austria")
-        assert "1 downloading" in str(app.query_one("#summary").render())
+        assert str(app.query_one("#summary").render()).endswith("1 downloading")
+        # rows that wait for their turn are not counted as downloading: fifty states started, one downloads
+        _state(settings, "czechia", "queued")
+        _state(settings, "poland", "queued")
+        app.refresh_states()
+        await pilot.pause()
+        assert str(app.query_one("#summary").render()).endswith("1 downloading, 2 queued")
+        _state(settings, "czechia", "done")
+        _state(settings, "poland", "done")
         _state(settings, "austria", "listing", index_done=12, index_total=2288)
         app.refresh_states()
         await pilot.pause()

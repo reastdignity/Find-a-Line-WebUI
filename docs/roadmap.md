@@ -1378,8 +1378,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     Caribbean Netherlands in North America, French Guiana in South America, Réunion and Mayotte in Africa) and under
     its country's group there; the Canary Islands, Madeira, Svalbard and Jan Mayen stay in Europe ("Windows ok",
     gate 0). 84 rows. Since 2026-11-18 also a row per state of the USA (50) and per province and territory of
-    Canada (13), parts of the country-wide sources `usa` and `canada` and no areas of the map, and the rows of one
-    source downloading in turn: 146 rows (docs/country-precompute.md, section 3, "The USA and Canada by state and
+    Canada (13), parts of the country-wide sources `usa` and `canada` and no areas of the map, the rows of each of
+    those two sources downloading in turn: 146 rows (docs/country-precompute.md, section 3, "The USA and Canada by state and
     province").
   - *La Réunion and Mayotte*: `france_reunion` (IGN's LiDAR HD MNT / MNS 0.5 m by WMS-R, fetched at 1 m, gaps from
     `france_reunion_rgealti`, RGE ALTI 1 m), R93 Cilaos (4 226 lines in 50 spots); `france_mayotte` (RGE ALTI 1 m),

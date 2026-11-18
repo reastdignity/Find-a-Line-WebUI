@@ -22,7 +22,8 @@ days or weeks, so it survives what happens in that time, and can be followed.
   started, the others waiting in the stage "queued" (the fifty states of the USA started together: fifty passes
   would list at once and share the eight connections of their host, each holding its memory). A supervisor takes
   its turn for a pass and gives it up while it waits for its next one (RETRY_SECONDS), keeping its place; a pass
-  started again at once keeps the turn.
+  started again at once keeps the turn. One at a time is a lock's rule (_take_turn); the order is the tickets'
+  (_ticket), as good as the waiting supervisors' states.
 
 The state goes to --state-dir: <name>.state.json every STATE_SECONDS (with the pass's memory now and at its peak),
 <name>.history.csv (seconds, tiles, MB, memory GB) and status.html (one page for every area of the folder, for a browser
@@ -646,10 +647,18 @@ def _stopped(area: Area, log) -> int:
     return 0
 
 
+QUEUE_TICKET = "FINDALINE_QUEUE_TICKET"   # the environment's: when what started the supervisor started it
+
+
 def _ticket(area: Area) -> Tuple[float, str]:
-    """The area's place in its queue: when its supervisor was started (the process, not this line: the supervisors
-    of a window's start are made in the rows' order, and reach here in any), then its name."""
-    return psutil.Process().create_time(), area.name
+    """The area's place in its queue: when its supervisor was started, then its name. The time is the starter's
+    (QUEUE_TICKET, seconds: the window's, which starts its rows in a loop, so their order is the rows'), else the
+    process's own creation (not this line: supervisors started together reach here in any order; on Linux that
+    time has a resolution of 10 ms, and a tie goes by name)."""
+    try:
+        return float(os.environ[QUEUE_TICKET]), area.name
+    except (KeyError, ValueError):
+        return psutil.Process().create_time(), area.name
 
 
 def _ahead(area: Area, ticket: Tuple[float, str], now: Optional[float] = None) -> Optional[str]:
@@ -674,9 +683,17 @@ def _ahead(area: Area, ticket: Tuple[float, str], now: Optional[float] = None) -
 
 
 def _take_turn(area: Area, queue: FileLock, ticket: Tuple[float, str], log, settle_seconds: float) -> bool:
-    """Waits until the area holds its queue's lock (<queue>.queue.lock of the state folder: an OS lock, a killed
-    supervisor's is free at once): its state says "queued" meanwhile, with its ticket, and the lock is tried only
-    when no area waits with an earlier one. False when the stop file came first."""
+    """Waits until the area holds its queue's lock (<queue>.queue.lock of the state folder: an OS lock on a local
+    disk, a killed supervisor's is free at once; the state folder is never on a share, where filelock may fall
+    back to a lock file that a kill leaves behind). Its state says "queued" meanwhile, with its ticket, written
+    again every STATE_SECONDS. The lock is tried every POLL_SECONDS and, once held, kept only when no area waits
+    with an earlier ticket (_ahead: the other areas' states are read only then, never while another area holds
+    the turn; fifty waiting supervisors would otherwise read fifty states each, every round, for days); else it
+    is given back for the earlier one. With the turn the state says "listing", as the pass that follows will, so
+    that no later area takes this one for still waiting. False when the stop file came first.
+
+    The one-at-a-time rule is the lock's; the order is as good as the states: a supervisor whose "queued" state is
+    not written yet when a later one finds the queue free (settle_seconds are for that) loses its place."""
     text = f"waiting for its turn among the downloads of the queue {area.queue}"
     state = read_state(area.state_dir, area.name) or {"name": area.name, "area": area.area, "source": area.source}
     state.update(stage="queued", message=text, pid=os.getpid(), queue=area.queue, queued_at=ticket[0])
@@ -686,12 +703,16 @@ def _take_turn(area: Area, queue: FileLock, ticket: Tuple[float, str], log, sett
         return False
     said, written = False, time.monotonic()
     while True:
-        if _ahead(area, ticket) is None:
-            try:
-                queue.acquire(blocking=False)
+        try:
+            queue.acquire(blocking=False)
+            if _ahead(area, ticket) is None:
+                state.update(stage="listing", message="")
+                del state["queued_at"]
+                write_state(area.state_dir, area.name, state)
                 return True
-            except Timeout:
-                pass
+            queue.release()
+        except Timeout:
+            pass
         if not said:
             _say(log, text)
             said = True

@@ -342,8 +342,11 @@ last column of the table in section 2.
   20 M blocks, *est.*) about five. So the window has a row per state (50: the 48, the District of Columbia, Hawaii)
   and per province and territory (13) of the country-wide sources `usa` and `canada` (`tools/area_rows.py`
   `PARTS`): a part pays for its own tiles only, is usable when it is done and restarts alone. The sum of the
-  downloads does not get shorter: the passes of a data folder share the 8 connections of a host, so the rows of one
-  source download in turn (`area_download.py run --queue`). Scaled from Utah by land area, an upper bound where a
+  downloads does not get shorter: the passes of a data folder share the 8 connections of a host, so the rows of
+  each of these two sources download in turn (`area_download.py run --queue`; checked for real on 2026-11-18: the
+  District of Columbia, Rhode Island and Maryland started together ran one after another, Prince Edward Island
+  beside them; Maryland found the District's 61 border tiles cached; Rhode Island's 3,929 tiles, 2.43 GB, took
+  9 min). Scaled from Utah by land area, an upper bound where a
   state has less 1 m data (*est.*): Texas 35 h and 590 GB, California 21 h, the small north-eastern states about an
   hour, all 50 about 16.6 days and 6.7 TB received. Canada's are not measured: a `canada` row asks every 1 km block
   of its outline twice, with lidar or not. A row downloads its source's own layers and its stand-in

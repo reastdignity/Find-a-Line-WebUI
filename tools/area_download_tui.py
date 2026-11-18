@@ -345,10 +345,12 @@ class Downloads(App):
             return
         rows = self.area_rows()
         ticked = [row for row in rows if row.ticked]
-        running = sum(is_live(row.state) for row in rows)
+        queued = sum(is_live(row.state) and row.state["stage"] == "queued" for row in rows)
+        running = sum(is_live(row.state) for row in rows) - queued
         size = sum(row.row.km2 for row in ticked)
         chosen = f"{len(ticked)} ticked ({km2_text(size)})" if size else f"{len(ticked)} ticked"
-        summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading")
+        waiting = f", {queued} queued" if queued else ""   # fifty states started: one downloads, the others wait
+        summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading{waiting}")
         for group in self.query(Group):
             members = list(group.query(AreaRow))
             if not members:   # its rows already removed while shutting down
