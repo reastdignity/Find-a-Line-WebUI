@@ -169,6 +169,15 @@ VIEW_CONTROLS = ("(() => { document.querySelector('.leaflet-control-layers')?.cl
 VIEW_PRESS = "document.querySelector(%r)?.click()"
 VIEW_SELECT = VIEW_DO % "view.select(view.inView.best[0] ?? view.order[0])"
 VIEW_SELECTED = "wait:document.querySelector('.vl-spot-title')"
+# A best spot in view whose shown line is tight (under 1 m clear: tight.ts) selected, else the best one
+VIEW_TIGHT = VIEW_DO % ("const best = Array.from(view.inView.best), tight = best.find((s) => view.values.clr[view.shownOf(s)] < 1); "
+                        "view.select(tight ?? best[0] ?? view.order[0])")
+# The clip's run has no line over trees or buildings: the shown lines of the list's first two spots (VIEW_AT centres
+# the map on the first) are marked so in the page's own columns (the picture's stand-in for a run with such lines; the
+# map and the panels are drawn again: the view's listeners), the first of them selected where `%s` is "true"
+VIEW_TREES = VIEW_DO % ("const c = view.model.data.columns, first = Array.from(view.order).slice(0, 2); "
+                        "for (const s of first) c.over[view.shownOf(s)] = 1; map.refresh(); view.notify(); "
+                        "if (%s && first.length) view.select(first[0])")
 CLICK_MS = 10000  # the pages' default timeout (a click; Playwright's own is 30 s)
 LOAD_MS = 30000  # a page's load and its screenshot (Playwright's default, kept)
 # The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
@@ -308,6 +317,14 @@ PAGES = {
                                               "wait:window.FINDALINE_VIEW.view.topOnly === false"]),
     "c-view-why": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_PRESS % ".r-why-link"]),
     "c-view-start": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_AT % 2.6]),
+    # the pilot's states (the UX task, 2026-11-18): a tight line selected (its clearance tile in the warning colour,
+    # "Tight" under its label); the two best spots' lines over trees or buildings (VIEW_TREES: marked in the page) with
+    # the first selected ("Clearance of terrain"), and in the list (a phone: the sheet at full height)
+    "c-view-tight": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_TIGHT, VIEW_SELECTED]),
+    "c-view-trees": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_TREES % "true",
+                                         VIEW_SELECTED]),
+    "c-view-trees-list": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1,
+                                              "js:" + VIEW_TREES % "false"]),
     # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
     # opened (scrolling inside the box); a desktop shows the box, always open
     "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
@@ -411,7 +428,7 @@ LAYOUTS = {
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
                                 "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half",
                                 "c-view-selected", "c-view-selected-half", "c-view-fan", "c-view-sector", "c-view-all-levels",
-                                "c-view-why", "c-view-start")}
+                                "c-view-why", "c-view-start", "c-view-tight", "c-view-trees", "c-view-trees-list")}
 
 # The pages that show something only some runs have (run_features, read from the run's run.json before any browser
 # starts): a page whose feature the run lacks is left out without a load
