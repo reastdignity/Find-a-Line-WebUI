@@ -411,7 +411,11 @@ CARD_CUT = """() => { const card = document.querySelector('.v3-card');
     const top = r.top - c.top + pcard.scrollTop, bottom = r.bottom - c.top + pcard.scrollTop;
     return !inProfile || top < -1 || bottom > pcard.scrollHeight + 1 || r.left < c.left - 1 || r.right > c.right + 1; })
     .map((e) => e.textContent.trim().slice(0, 40));
-  return {cut, outside, chart: Math.round(chart.height), readout: card.querySelector('.fal-profile-readout').textContent}; }"""
+  // the card's box beyond the stage's (top, bottom, left, right; px), which clips: no scroll reaches what lies there
+  const s = document.querySelector('.v3-stage').getBoundingClientRect();
+  const stage = [s.top - c.top, c.bottom - s.bottom, s.left - c.left, c.right - s.right].map(Math.round);
+  return {cut, outside, stage, chart: Math.round(chart.height),
+          readout: card.querySelector('.fal-profile-readout').textContent}; }"""
 # The chart has measured its box (Profile.tsx `measure`: the svg as wide as the chart's box, as high as it but at least
 # 120 px). The chart comes in at its first size, 800 × 170 px, and measures in an effect, which Preact runs a frame
 # later: read before it, a phone's card had the chart's right-hand labels beyond its edge (a full parallel run,
@@ -428,8 +432,11 @@ def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
     """The 3D view's profile card in Playwright's Edge, on a desktop and on a touch phone in portrait (390 × 844) and in
     landscape (844 × 390): the line's facts on a row of their own and the readout wrapping, nothing of the head or the
     readout cut short, and no text of the card outside what it shows (the profile's box grows with its readout, the
-    card scrolls inside at its highest; code review 3 F2), with the summary and with the long readout under the
-    cursor, for the clip's first line and its longest (report defect 8, the user's "b"); the chart keeps its 120 px."""
+    card scrolls inside at its highest; code review 3 F2), with the summary, with the long readout under the cursor
+    and with "Rigging and layers" open, for the clip's first line and its longest (report defect 8, the user's "b");
+    the chart keeps its 120 px and the card lies inside the stage. Held sideways the stage is 219 px high: the box
+    shrank to the card's 60 % limit with the controls open (149 px of 224, the chart's foot and the readout clipped)
+    and the card's head lay above the stage."""
     pytest.importorskip("playwright")
     from playwright.sync_api import sync_playwright
     from test_web import DESKTOP, PHONE
@@ -461,10 +468,18 @@ def test_view3d_card_text_whole(clip_data, tmp_path, monkeypatch):
                     page.wait_for_function("() => / from A1 /.test(document.querySelector('.v3-card .fal-profile-readout').textContent)",
                                            timeout=30000)
                     found[(kind, which, "cursor")] = page.evaluate(CARD_CUT)
+                    # "Rigging and layers" open: the controls above the chart, the box higher than the card's limit
+                    # held sideways (the chart measures its box again)
+                    page.click(".v3-pcard-head .u-chip")
+                    page.wait_for_function("() => !!document.querySelector('.v3-card .v3-pcard.r-rigging')", timeout=30000)
+                    page.wait_for_function(CARD_FITTED, timeout=30000)
+                    found[(kind, which, "rigging")] = page.evaluate(CARD_CUT)
                     page.close()
         finally:
             browser.close()
-    print({"|".join(k): (v["chart"], v["cut"]) for k, v in found.items()})
-    for key, value in found.items():
-        assert value["cut"] == [] and value["outside"] == [] and value["chart"] >= 120, (key, value)
+    print({"|".join(k): (v["chart"], v["cut"], v["stage"]) for k, v in found.items()})
+    failed = [f"{'|'.join(k)}: cut {v['cut']}, outside {v['outside']}, chart {v['chart']} px, beyond the stage "
+              f"{v['stage']} px" for k, v in found.items()
+              if v["cut"] or v["outside"] or v["chart"] < 120 or max(v["stage"]) > 1]
+    assert not failed, "\n".join(failed)
 
