@@ -927,7 +927,8 @@ def test_view3d_credits_and_pill(clip_data, tmp_path, monkeypatch, level):
     assert start["toggle"] and start["expanded"] == "true" and start["body"] and start["stored"] is None, result
     assert start["text"].startswith("Data: Test survey"), result
     box = result["box"]
-    assert box["fontSize"] == "12.5px" and box["border"] == "1px" and box["shadow"] and box["first"], result
+    # 13 px (R5's step for 12.5) and raised without an edge (docs/DESIGN.md, the pilot's look, rows 41 and 46)
+    assert box["fontSize"] == "13px" and box["border"] == "0px" and box["shadow"] and box["first"], result
     assert box["parent"] == "v3-bottom" and box["inStage"], result
     assert box["background"].startswith("rgb("), result  # the surface's full colour, not a translucent one
     folded = result["folded"]
