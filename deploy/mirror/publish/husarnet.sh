@@ -68,9 +68,17 @@ case ${1:-} in
             s=""
             sleep 1
         done
+        joined() { printf '%s' "$1" | jq -e "$CLAIMED" > /dev/null 2>&1 || [ -n "$(printf '%s' "$1" | jq -r "$USER_PEERS" 2> /dev/null)" ]; }
+        # The daemon reads its kept state (config.json, cache.json) in a thread of its own: a status taken
+        # at once may not show it yet, so "not joined" is asked again for up to 10 s before it counts
+        for _ in $(seq 10); do
+            [ -n "$s" ] && joined "$s" && break
+            sleep 1
+            s=$(status) || s=""
+        done
         if [ -z "$s" ]; then
             echo "husarnet.sh: the daemon's API did not answer; no join" >&2
-        elif printf '%s' "$s" | jq -e "$CLAIMED" > /dev/null 2>&1 || [ -n "$(printf '%s' "$s" | jq -r "$USER_PEERS" 2> /dev/null)" ]; then
+        elif joined "$s"; then
             echo "husarnet.sh: joined before (claimed, or a peer on the allow list): no join" >&2
         elif [ -n "$code" ]; then
             out=$(timeout 30 husarnet claim "$code" --hostname "${HUSARNET_HOSTNAME:-findaline-mirror-door}" 2>&1)
