@@ -446,9 +446,13 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
     <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
         <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
-          <button type="button" data-field={p.field} title={t("basic.receipt.open")}
-                  onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button></span>)}
+          {/* a phone: plain words (one button into Advanced stands under them); a desktop: each part opens its setting */}
+          {phone ? <span data-field={p.field}>{p.text}</span>
+            : <button type="button" data-field={p.field} title={t("basic.receipt.open")}
+                      onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button>}</span>)}
     </p>
+    {phone && !problem && <button type="button" class="u-btn s-change" onClick={() => { setOpen(false); s.toAdvanced(); }}>
+      {t("basic.receipt.change")}<Icon name="next" /></button>}
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
         {line}{warnings.length > 0 && `${line ? "; " : ""}${warnings.length} warning(s)`}

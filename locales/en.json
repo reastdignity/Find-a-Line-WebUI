@@ -273,6 +273,7 @@
   "basic.receipt.access_skipped_wide": ": area too wide",
   "basic.receipt.named": "named “{{name}}”",
   "basic.receipt.open": "Open in Advanced",
+  "basic.receipt.change": "Change settings",
   "basic.receipt.toggle": "Show what this search will do",
   "basic.size.light": "Light",
   "basic.size.heavier": "Heavier",

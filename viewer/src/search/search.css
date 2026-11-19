@@ -195,7 +195,15 @@
 .ui .s-bar.s-compact .s-stat b { font-size: var(--fs-3); }
 .ui .s-bar.s-compact .s-receipt, .ui .s-bar.s-compact .s-stat-source,
 .ui .s-bar.s-compact .s-bar-line.s-quiet { display: none; }
-.ui .s-bar.s-compact.s-open .s-receipt { display: block; flex: 1 1 100%; order: -3; }
+/* the unfolded bar of a phone (the user's pick of 2026-11-19): the summary a plain sentence, then the source's row
+   with one button into Advanced. The summary never pushes "Start search" off the screen: with a long one it
+   scrolls inside what the screen leaves under the top bar (52 px) and the map (34vh) after the bar's own rows
+   (the line, the source's row, the size's row: 160 px) */
+.ui .s-bar.s-compact.s-open .s-receipt { display: block; flex: 1 1 100%; order: -3; overflow-y: auto; overscroll-behavior: contain;
+  max-height: max(40px, calc(100dvh - 34vh - 212px)); }
+.ui .s-bar .s-change { display: none; }
+.ui .s-bar.s-compact.s-open .s-change { display: inline-flex; order: -2; margin-left: auto; min-height: 44px; }
+.ui .s-bar.s-compact.s-open .s-change .u-ic { width: 16px; height: 16px; }
 .ui .s-bar.s-compact.s-open .s-stat-source { display: flex; order: -2; }
 .ui .s-bar.s-compact.s-open .s-bar-line { display: block; order: -2; }
 .ui .s-bar.s-compact .s-wide-only { display: none; }
