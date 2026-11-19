@@ -284,6 +284,8 @@ GIVE_UP = {READY[5:]: ("['unavailable', 'refused'].includes(document.querySelect
 # cannot construct one)
 MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
                "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
+# A server-rendered page (sign-in, privacy, about) scrolled to its end: its body or the document scrolls (pages.css)
+PAGE_END = "for (const e of [document.scrollingElement, document.body]) e.scrollTop = e.scrollHeight"
 PAGES = {
     "c-home": ("c", "", None),
     "c-home-limited": ("c", "", None, "walker"),  # the usage meters of a user with the site's limits
@@ -300,6 +302,9 @@ PAGES = {
     "c-new-limited-hint": ("c", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
     "c-favourites": ("c", "#favourites", None),
     "c-admin": ("c", "#admin", None),
+    # its lower sections: the problem report and the runs at the top of the view; the page's end (the extracts)
+    "c-admin-reports": ("c", "#admin", "js:document.querySelector('.c-report')?.scrollIntoView({block: 'start'})"),
+    "c-admin-end": ("c", "#admin", "scroll:.c-main"),
     "c-layer-cell": ("c", "#layer", "js:" + CELL_AT_CENTRE),  # the highline layer's cell under the map's centre selected
     "c-osm": ("c", "#osm", None),
     "c-result": ("c", "#run={run}", None),
@@ -415,6 +420,9 @@ PAGES = {
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
+    # their ends (the footer): the page scrolls as a document
+    "page-privacy-end": ("/privacy", "", "js:" + PAGE_END),
+    "page-about-end": ("/about", "", "js:" + PAGE_END),
     # the coverage map (viewer/src/coverage/page): a visitor, its three views, a card, the table, Polish
     "page-coverage": ("/coverage?lang=en", "", None, "visitor"),
     "page-coverage-full": ("/coverage?lang=en", "", "full", "visitor"),
