@@ -28,7 +28,7 @@ const MAX_ZOOM = 21;
 export const PHONE = "(max-width: 767px), (pointer: coarse) and (max-height: 480px)";
 
 /** The layers' control: opened at the map's top it never grows past the map's bottom edge (Leaflet leaves 50 px
- *  under it and counts the list before the box's padding): it scrolls inside, 8 px above the edge. After every
+ *  under it and counts the list before the box's padding): it scrolls inside, above the map's credits. After every
  *  redraw of its rows (Leaflet draws them again at each change) it calls `options.afterUpdate`: the coverage's row
  *  gets its link again (coverageLayer.ts). */
 const Layers = L.Control.Layers.extend({
@@ -44,7 +44,9 @@ const Layers = L.Control.Layers.extend({
     section.style.height = "";
     const container: HTMLElement = this._container;
     const around = container.offsetHeight - section.offsetHeight;  // the box's padding and edge
-    const room = this._map.getSize().y - container.offsetTop - around - 8;
+    // down to 4 px above the map's credits (a phone's take one or two lines at the map's bottom), 8 px above its edge
+    const credits = (this._map.getContainer() as HTMLElement).querySelector<HTMLElement>(".leaflet-control-attribution");
+    const room = this._map.getSize().y - container.offsetTop - around - Math.max(8, 4 + (credits?.offsetHeight ?? 0));
     const scrolls = section.scrollHeight > room;
     section.classList.toggle("leaflet-control-layers-scrollbar", scrolls);
     if (scrolls) section.style.height = `${Math.max(room, 44)}px`;
@@ -63,6 +65,7 @@ export class PlaceMap {
   private mode: Mode = "point";
   private hidden = false;    // setSearchVisible(false)
   private controls: L.ControlPosition;  // of the zoom buttons, the layers and the drawing tools
+  private phone = false;     // the phone's arrangement (PHONE): the drawing tools under the zoom at the top left
   coverage: CoverageLayer;   // where the elevation data is detailed (its own button)
   onPoint: (lat: number, lon: number) => void = () => {};
   onDrawn: () => void = () => {};
@@ -84,11 +87,12 @@ export class PlaceMap {
     // the arrangement follows the window (a phone turned, a window made narrow)
     const media = typeof matchMedia === "function" ? matchMedia(PHONE) : null;
     const arrange = () => {
-      const phone = !!media?.matches;
+      const phone = this.phone = !!media?.matches;
       element.classList.toggle("c-map-phone", phone);
       zoom.setPosition(phone ? "topleft" : options.controls);
       layersControl.setPosition(phone ? "topright" : options.controls);
       this.coverage.place(phone ? "row" : "box");
+      if (this.mode === "draw" && !this.hidden) this.setMode("draw");  // the drawing tools to their corner
     };
     arrange();
     media?.addEventListener("change", arrange);
@@ -146,7 +150,9 @@ export class PlaceMap {
     this.mode = mode;
     if (this.hidden) return;  // setSearchVisible(true) applies it
     if (mode === "draw") {
-      this.map.pm.addControls({position: this.controls, drawMarker: false, drawCircleMarker: false,
+      // a phone: under the zoom at the top left (at the bottom right their column reaches the layers' button)
+      this.map.pm.removeControls();
+      this.map.pm.addControls({position: this.phone ? "topleft" : this.controls, drawMarker: false, drawCircleMarker: false,
                                drawPolyline: false, drawText: false, drawCircle: false, cutPolygon: false,
                                rotateMode: false});
     } else this.stopTools();
