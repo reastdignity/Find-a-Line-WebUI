@@ -14,7 +14,7 @@
 
 /* The header */
 .ui .c-top { flex: none; display: flex; align-items: center; gap: 18px; min-height: 58px; padding: 0 20px; background: var(--surface);
-  border-bottom: 1px solid var(--line); position: relative; z-index: 10; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; }
 .ui .c-top-phone { min-height: 52px; padding: 0 16px; }
 .ui .c-logo { text-decoration: none; display: inline-flex; }
 .ui .c-top:not(.c-top-phone) .c-logo .u-logo { font-size: 24px; }  /* the desktop header: the logo 10% larger */
@@ -59,7 +59,7 @@
 .ui .c-new-title { font-size: 26px; display: block; color: inherit; }
 .ui .c-new-text { display: block; opacity: .9; }
 .ui .c-example { flex: 1; display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 14px; background: var(--surface);
-  border: 1px solid var(--line); color: var(--ink); text-decoration: none; box-shadow: var(--shadow); min-width: 0; }
+  border: 1px solid var(--rule); color: var(--ink); text-decoration: none; box-shadow: var(--shadow); min-width: 0; }
 .ui .c-example:hover { background: var(--surface-2); }
 .ui .c-example > span:last-child { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-example .u-small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -72,10 +72,10 @@
 
 /* Cards */
 .ui .c-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-.ui .c-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+.ui .c-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   box-shadow: var(--shadow); min-width: 0; }
 .ui .c-card-new { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
-.ui .c-card-thumb { display: block; aspect-ratio: 16 / 9; border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0;
+.ui .c-card-thumb { display: block; aspect-ratio: 16 / 9; border-bottom: 1px solid var(--rule); border-radius: 14px 14px 0 0;
   overflow: hidden; background: var(--map-bg); }
 .ui .c-card-body { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ui .c-card-head { display: flex; align-items: center; gap: 8px; min-height: 30px; }
@@ -111,7 +111,7 @@
 .ui .c-trip-sort select { min-height: 32px; flex: 1; min-width: 0; }
 .ui .c-up .u-ic { transform: rotate(180deg); }
 .ui .c-trip-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ui .c-fav { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); }
+.ui .c-fav { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--rule); }
 .ui .c-fav-star { width: 36px; height: 36px; flex: none; border: 0; border-radius: 50%; background: none; cursor: pointer; display: inline-flex;
   align-items: center; justify-content: center; padding: 0; }
 .ui .c-fav-star:hover { background: var(--surface-2); }
@@ -129,7 +129,7 @@
 .ui .c-shelf { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; align-items: start; }
 .ui .c-shelf-phone { display: block; }
 .ui .c-shelf-tree { position: sticky; top: 12px; max-height: calc(100vh - 160px); overflow-y: auto; padding-right: 8px;
-  border-right: 1px solid var(--line); }
+  border-right: 1px solid var(--rule); }
 .ui .c-shelf-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ui .c-tree { list-style: none; margin: 0; padding: 0; }
 .ui .c-tree-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; min-width: 0; }
@@ -158,13 +158,13 @@
 
 /* Focused pages: their own top bar */
 .ui .c-subtop { flex: none; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 16px; background: var(--surface);
-  border-bottom: 1px solid var(--line); position: relative; z-index: 10; min-width: 0; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; min-width: 0; }
 .ui .c-subtitle { margin: 0; font-size: 17px; font-weight: 600; }
 
 /* New search (c2) */
 .ui .c-newsearch { flex: 1; min-width: 0; display: grid; grid-template: "top top" auto "form map" minmax(0, 1fr) "bar bar" auto / 460px minmax(0, 1fr); }
 .ui .c-newsearch .c-subtop { grid-area: top; }
-.ui .c-newsearch .c-form { grid-area: form; overflow-y: auto; padding: 20px 24px; background: var(--surface); border-right: 1px solid var(--line); }
+.ui .c-newsearch .c-form { grid-area: form; overflow-y: auto; padding: 20px 24px; background: var(--surface); border-right: 1px solid var(--rule); }
 .ui .c-newsearch .c-newmap { grid-area: map; }
 .ui .c-newsearch .c-bar { grid-area: bar; position: relative; z-index: 10; box-shadow: 0 -6px 18px rgb(0 0 0 / .06); }
 
@@ -173,7 +173,7 @@
 /* Admin (AdminC) and the OSM extracts (OsmC, a panel beside its map: MapPage) */
 .ui .c-admin { max-width: 960px; }
 .ui .c-admin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ui .c-admin-row { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+.ui .c-admin-row { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--rule); min-width: 0; }
 .ui .c-admin-row:first-child { border-top: 0; }
 .ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .ui .c-admin-head b { overflow-wrap: anywhere; }
@@ -186,7 +186,7 @@
 .ui .c-user-approved { background: var(--ok); }
 .ui .c-mappage { flex: 1; min-width: 0; display: flex; }
 .ui .c-sidepanel { width: 440px; flex: none; overflow-y: auto; padding: 16px 20px; background: var(--surface);
-  border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 10px; }
 .ui .c-osm { display: flex; flex-direction: column; gap: 10px; }
 .ui .c-mappage .c-newmap { flex: 1; }
 /* Two side panels and the map between them (MapPage with `aside`: the highline layer's filters and histograms): the
@@ -207,7 +207,7 @@
 .ui .c-layer-filters > .u-field:first-child, .ui .c-layer-filters > .c-layer-note { grid-column: 1 / -1; }
 .ui .c-layer-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ui .c-layer-note { margin: 0; }
-.ui .c-layer-more { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ui .c-layer-more { border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
 .ui .c-layer-more > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch); padding: 0 12px;
   cursor: pointer; font-weight: 500; border-radius: 10px; }
 .ui .c-layer-more > summary::-webkit-details-marker { display: none; }
@@ -222,9 +222,9 @@
 /* a topic's name with a rule after it: the fold's and the charts' */
 .ui .c-layer-topic-name { font: 600 12.5px/1.2 var(--display); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2);
   margin: 4px 0 0; display: flex; align-items: center; gap: 8px; }
-.ui .c-layer-topic-name::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.ui .c-layer-topic-name::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
 /* on --surface: the class colours were checked against it (the dataviz skill's validator) */
-.ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line);
+.ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--rule);
   border-radius: 10px; background: var(--surface); }
 .ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
 .ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
@@ -253,7 +253,7 @@
 .ui .c-layer-warn { color: var(--warn); font-weight: 500; }
 .ui .c-layer-credits { margin: 0; overflow-wrap: anywhere; }
 .ui .c-layer-link { display: flex; align-items: center; gap: 10px; }
-.ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 1px solid var(--line);
+.ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 1px solid var(--rule);
   border-radius: 6px; padding: 2px 6px; font-size: 12px; font-weight: 600; box-shadow: none; }
 .ui .c-layer-outline-label::before { display: none; }
 /* The right panel (LayerHistograms.tsx): the totals in view, then the charts of every dimension by topic: on a desktop
@@ -278,7 +278,7 @@
 .ui .c-layer-hist { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-layer-hist p { margin: 6px 0 0; }
 .ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 120px;
-  border-bottom: 1px solid var(--line); }
+  border-bottom: 1px solid var(--rule); }
 .ui .c-layer-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; min-width: 0; min-height: 0;
   margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
 .ui .c-layer-bar-off { cursor: default; }
@@ -308,7 +308,7 @@
 .ui.c-narrow .c-example { padding: 12px 14px; }
 .ui.c-narrow .c-cards { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .ui.c-narrow .c-card { flex-direction: row; min-height: 96px; }
-.ui.c-narrow .c-card-thumb { width: 116px; flex: none; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--line);
+.ui.c-narrow .c-card-thumb { width: 116px; flex: none; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--rule);
   border-radius: 14px 0 0 14px; }
 .ui.c-narrow .c-card-body { flex: 1; padding: 8px 10px 10px 12px; }
 /* a panel takes a row of its own under the mini map and the body: the mini map keeps its size */
@@ -321,14 +321,14 @@
 /* the bar on phones: search.css's compact bar (EstimateBar phone) */
 /* A map page on phones as the new search: the map on top (it stays), the panel scrolls under it */
 .ui.c-narrow .c-mappage { flex-direction: column; overflow: hidden; }
-.ui.c-narrow .c-mappage .c-newmap { order: -1; flex: none; height: 34vh; border-bottom: 1px solid var(--line); }
+.ui.c-narrow .c-mappage .c-newmap { order: -1; flex: none; height: 34vh; border-bottom: 1px solid var(--rule); }
 .ui.c-narrow .c-sidepanel { width: auto; flex: 1; min-height: 0; border-right: 0; overflow-y: auto; }
 /* phones: the map on top, then the panel, then the histograms, in one scrolling column (no edges, no rails) */
 .ui.c-narrow .c-mappage-3 { overflow-y: auto; }
 .ui.c-narrow .c-mappage-3 > .c-newmap { flex: none; }
 .ui.c-narrow .c-mappage-3 > .c-col-side { width: auto; flex: none; border: 0; }
 .ui.c-narrow .c-mappage-3 .c-col-scroll { flex: none; overflow: visible; padding: 16px; }
-.ui.c-narrow .c-mappage-3 > .c-col-right { border-top: 1px solid var(--line); }
+.ui.c-narrow .c-mappage-3 > .c-col-right { border-top: 1px solid var(--rule); }
 .ui.c-narrow .c-mappage-3 .c-split, .ui.c-narrow .c-mappage-3 .c-col-tab { display: none; }
 /* the charts: a swiped strip of small multiples per topic, the open one enlarged in place and ringed */
 .ui.c-narrow .c-layer-charts { display: flex; align-items: flex-end; gap: 12px; overflow-x: auto; padding: 8px 16px 10px; margin: 0 -16px;
@@ -359,10 +359,10 @@
 .ui .c-searched-chart { display: flex; flex-direction: column; gap: 4px; }
 .ui .c-searched-readout { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
 .ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;
-  border-bottom: 1px solid var(--line); touch-action: pan-y; cursor: default; border-radius: 2px; }
+  border-bottom: 1px solid var(--rule); touch-action: pan-y; cursor: default; border-radius: 2px; }
 .ui .c-searched-bars:focus-visible { outline: none; box-shadow: var(--focus); }
 /* A recessive line at the top of the scale (the largest day), its value above it */
-.ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--line); }
+.ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--rule); }
 .ui .c-searched-top { position: absolute; top: 0; left: 0; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
 .ui .c-searched-day { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
 .ui .c-searched-day i { display: block; width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; }

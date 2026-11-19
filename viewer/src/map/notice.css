@@ -17,7 +17,7 @@
 /* The command wraps at the box's edge, never preferably at the id's hyphens (a line-end hyphen read as a hyphenation
    when typed by hand): the whole command stays in view, and a click selects all of it (Safari needs the prefix) */
 .fal-disk-command {
-  margin: 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  margin: 0; padding: 12px 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface);
   font: 14px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all;
   -webkit-user-select: all; user-select: all;
 }

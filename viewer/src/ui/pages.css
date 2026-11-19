@@ -9,7 +9,7 @@
 .ui .p-doc .p-brand { align-items: flex-start; }
 .ui .p-doc .p-brand .u-logo { font-size: 22px; }
 .ui .p-lead { margin: 0; color: var(--ink-2); font-size: 15px; }
-.ui .p-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+.ui .p-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--shadow);
   padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .ui .p-card > * { margin: 0; }
 .ui .p-signin .p-card { align-self: center; width: 100%; max-width: 400px; align-items: stretch; text-align: center; }
@@ -43,7 +43,7 @@
 .ui .p-examples { display: flex; flex-direction: column; gap: 10px; }
 .ui .p-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .ui .p-ex { height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-decoration: none; min-width: 0; }
+  border: 1px solid var(--rule); border-radius: 14px; color: var(--ink); text-decoration: none; min-width: 0; }
 .ui .p-ex b { overflow-wrap: anywhere; }
 .ui a.p-ex:hover { border-color: var(--accent); box-shadow: var(--shadow); }
 .ui .p-open { margin-top: auto; padding-top: 6px; color: var(--accent); font-weight: 500; }
@@ -56,6 +56,6 @@
 .ui .p-facts dt:first-child { margin-top: 0; }
 .ui .p-facts dd { margin: 2px 0 0; color: var(--ink-2); }
 
-.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding-top: 12px; border-top: 1px solid var(--line);
+.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding-top: 12px; border-top: 1px solid var(--rule);
   color: var(--muted); font-size: 12.5px; }
 .ui .p-footer a { color: var(--ink-2); }

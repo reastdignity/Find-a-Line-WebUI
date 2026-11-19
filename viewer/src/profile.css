@@ -26,7 +26,7 @@
 @media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) { --r-terrain-fill: #4d4433; } }
 .ui[data-theme="dark"] { --r-terrain-fill: #4d4433; }
 .ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
-.ui .r-profile svg line[stroke="#eee"] { stroke: var(--line); }
+.ui .r-profile svg line[stroke="#eee"] { stroke: var(--rule); }
 .ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
 .ui .r-profile svg text:not([fill]) { fill: var(--ink); }
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }

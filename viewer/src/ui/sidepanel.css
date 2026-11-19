@@ -5,8 +5,8 @@
    drawn, hidden. */
 .ui .c-col-side { position: relative; z-index: 1; width: var(--c-w); flex: none; display: flex; flex-direction: column; min-height: 0;
   background: var(--surface); }
-.ui .c-col-left { border-right: 1px solid var(--line); }
-.ui .c-col-right { border-left: 1px solid var(--line); }
+.ui .c-col-left { border-right: 1px solid var(--rule); }
+.ui .c-col-right { border-left: 1px solid var(--rule); }
 /* The edge (Splitter) over the map's edge, and the collapse tab at the middle of the edge (beside it) */
 .ui .c-col-left > .c-split { right: calc(var(--u-split) / -2); }
 .ui .c-col-right > .c-split { left: calc(var(--u-split) / -2); }

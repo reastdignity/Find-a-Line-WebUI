@@ -12,7 +12,7 @@
 
 /* The header (as c.css's .c-subtop of C's focused pages) */
 .ui .c-result-top { flex: none; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 16px; background: var(--surface);
-  border-bottom: 1px solid var(--line); position: relative; z-index: 10; min-width: 0; }
+  border-bottom: 1px solid var(--rule); position: relative; z-index: 10; min-width: 0; }
 .ui .c-run-title { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-run-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-result-top .c-back { flex: none; }
@@ -22,7 +22,7 @@
 /* The columns: the side panels (ui/SidePanel.tsx and its sidepanel.css: their widths, edges and rails) beside the
    map's column (which holds the card and Leaflet's panes in a stacking context of its own) */
 .ui .c-cols { flex: 1; min-height: 0; display: flex; }
-.ui .c-col-head { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
+.ui .c-col-head { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--rule); }
 .ui .c-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 8px; }
 .ui .c-col-body > .r-more { margin: 6px 4px 10px; }
 .ui .c-col-map { flex: 1; min-width: 0; position: relative; isolation: isolate; }

@@ -19,7 +19,7 @@
    credits and the card), it scrolls inside itself and is never wider than the stage less the tool strip */
 .v3-optlist { position: absolute; top: 52px; right: 8px; z-index: 1; box-sizing: border-box; display: flex;
               flex-direction: column; width: min(340px, calc(100% - 76px)); min-height: 0; overflow: hidden;
-              background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+              background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow);
               font-size: 13px; line-height: 1.4; }
 .v3-optlist-title { margin: 0; padding: 8px 12px 6px; font: 600 14px/1.3 var(--font); flex: none; }
 .v3-optlist-note { margin: 0; padding: 8px 12px; color: var(--muted); flex: none; }
@@ -27,14 +27,14 @@
 .v3-optlist-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
 .v3-optlist-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .v3-optlist-table th { position: sticky; top: 0; z-index: 1; padding: 0; text-align: left; font-weight: 500;
-                       background: var(--surface); border-bottom: 1px solid var(--line); }
+                       background: var(--surface); border-bottom: 1px solid var(--rule); }
 .v3-opt-sort { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 4px 8px; cursor: pointer;
                color: var(--ink-2); font-size: 12px; line-height: 1.25; }
 .v3-opt-sort:hover, .v3-opt-sort:focus-visible { color: var(--ink); background: var(--accent-soft); }
 .v3-optlist-table th[aria-sort] .v3-opt-sort { color: var(--accent); font-weight: 600; }
 .v3-optlist-table th[aria-sort="ascending"] .v3-opt-sort::after { content: " ▲"; font-size: 9px; }
 .v3-optlist-table th[aria-sort="descending"] .v3-opt-sort::after { content: " ▼"; font-size: 9px; }
-.v3-optlist-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.v3-optlist-table td { padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .v3-opt-row { cursor: pointer; }
 .v3-opt-row:hover, .v3-opt-row:focus-visible, .v3-opt-row.v3-on { background: var(--accent-soft); outline: none; }
 .v3-opt-row.v3-on td:first-child, .v3-opt-row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--accent); }

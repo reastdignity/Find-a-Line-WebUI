@@ -1,6 +1,6 @@
 /* The data coverage on the place map (coverageLayer.ts): its button and small legend among the map's
    controls; the areas' colours come from coverage/palette.ts through the CSSOM. */
-.n-coverage { background: var(--surface, #fff); color: var(--ink, #17201c); max-width: 230px; border: 1px solid var(--line, #d2dad4);
+.n-coverage { background: var(--surface, #fff); color: var(--ink, #17201c); max-width: 230px; border: 1px solid var(--rule, #d2dad4);
   border-radius: 8px; box-shadow: var(--shadow, 0 1px 5px rgb(0 0 0 / .3)); overflow: hidden; }
 /* .n-coverage before it: one class more than the base rule `.ui button { font: inherit }` (ui.css), which took its
    size otherwise (the map's controls' 9.75 px) */
@@ -10,7 +10,7 @@
 .n-coverage-btn.n-on::before { background: var(--accent); border-color: var(--accent);
   box-shadow: inset 0 0 0 2px var(--surface, #fff); }
 .n-coverage-btn:hover { background: var(--surface-2, #e9eee9); }
-.n-coverage-legend { padding: 4px 10px 8px; border-top: 1px solid var(--line, #d2dad4); font-size: 12px; line-height: 1.35; }
+.n-coverage-legend { padding: 4px 10px 8px; border-top: 1px solid var(--rule, #d2dad4); font-size: 12px; line-height: 1.35; }
 .n-coverage-legend[hidden] { display: none; }
 .n-coverage-legend ul { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .n-coverage-legend li { display: flex; align-items: center; gap: 6px; }

@@ -8,6 +8,9 @@
 @import "./fonts.css";
 .ui {
   --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #626e68; --line: #d2dad4;
+  /* --rule the thin rules between parts and a container's edge, --line a control's edge; --hover a row or a control
+     under the mouse; --value the colour of a line's values (the ink, or var(--accent) to show them in the accent) */
+  --rule: #d2dad4; --hover: #e9eee9; --value: var(--ink);
   --accent: #14676f; --accent-ink: #0f5a61; --accent-soft: #dfeeee; --on-accent: #ffffff;
   /* what is drawn on the map's tiles in the accent (the crowded tap's flash): the light value in every theme, as the
      tiles stay light (as --acc-map-*); the running status's own fill (its ink --accent-ink) */
@@ -42,7 +45,7 @@
 
 @media (prefers-color-scheme: dark) {
   .ui:not([data-theme="light"]) {
-    --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+    --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631; --rule: #2c3631; --hover: #1f2723;
     --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
     --accent-map: #14676f; --status-run: #1a4f57;
     --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
@@ -57,7 +60,7 @@
   }
 }
 .ui[data-theme="dark"] {
-  --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+  --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631; --rule: #2c3631; --hover: #1f2723;
   --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
   --accent-map: #14676f; --status-run: #1a4f57;
   --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
