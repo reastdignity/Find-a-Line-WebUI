@@ -205,6 +205,10 @@
 .ui .c-check { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-2); color: var(--ink-2);
   cursor: pointer; }
 @media (pointer: coarse) { .ui .c-check { min-height: 44px; } }
+/* the page's badges (a user's state, "without limits", a report's kind, "demo") start with a capital, as the status
+   chips (.u-st-word): the words come in lower case from the server and the code; ::first-letter needs a block */
+.ui .c-admin .u-badge { display: inline-block; }
+.ui .c-admin .u-badge::first-letter { text-transform: uppercase; }
 .ui .c-user-pending { background: var(--warn); }
 .ui .c-user-blocked { background: var(--bad); }
 .ui .c-user-approved { background: var(--ok); }
