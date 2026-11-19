@@ -30,6 +30,27 @@ export function place(element: HTMLElement, at: {x: number; y: number} | null) {
   if (at) element.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px)`;
 }
 
+/** Half of a mark's target on a touch screen (44 px, view3d.css) and the most a target is moved off its mark's
+ *  centre (so it still covers the drawn mark: 18 px). */
+export const TARGET_HALF_PX = 22;
+export const TARGET_SHIFT_MAX_PX = 13;
+
+/** How far a target centred at `v` is moved to lie inside 0..`size` (CSS pixels; positive: towards larger values),
+ *  at most TARGET_SHIFT_MAX_PX either way. */
+export function targetShift(v: number, size: number): number {
+  const shift = Math.max(0, TARGET_HALF_PX - v) - Math.max(0, v + TARGET_HALF_PX - size);
+  return Math.min(TARGET_SHIFT_MAX_PX, Math.max(-TARGET_SHIFT_MAX_PX, shift));
+}
+
+/** Keep the touch target of the mark `element`, placed at `at`, inside the stage: `--v3-tx` and `--v3-ty` on the
+ *  mark move its target (the mark's own place stays; point.css uses them on a touch screen only). */
+export function targetInside(scene: SceneCore, element: HTMLElement, at: {x: number; y: number} | null) {
+  if (!at) return;
+  const canvas = scene.renderer.domElement;
+  element.style.setProperty("--v3-tx", `${targetShift(at.x, canvas.clientWidth).toFixed(1)}px`);
+  element.style.setProperty("--v3-ty", `${targetShift(at.y, canvas.clientHeight).toFixed(1)}px`);
+}
+
 /** Of the shown marks `among` (fan dots, other lines' labels), the one whose centre lies nearest to the press at
  *  (clientX, clientY), else null: a mark's target is larger than the mark (24 px, 44 px on a touch screen:
  *  view3d.css) and two may overlap, where the nearer mark's centre wins, not the order they are drawn in. */

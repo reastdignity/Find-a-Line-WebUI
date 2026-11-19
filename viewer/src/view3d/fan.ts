@@ -15,7 +15,7 @@ import type { Anchor3d } from "./decode";
 import type { InterleavedBufferAttribute } from "three";
 import type { Option } from "./options";
 import type { SceneCore } from "./scene";
-import { overlayOf, place, pressedMark, toScreen } from "./screen";
+import { overlayOf, place, pressedMark, targetInside, toScreen } from "./screen";
 import { raised } from "./geometry";
 import { CURVE_POINTS, resample, webbing, writeSegments } from "./webbing";
 import "./point.css";
@@ -89,7 +89,9 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
     if (!shown) return;
     dots.forEach((dot, k) => {
       const a = shown!.anchors[k];
-      place(dot, toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h))));
+      const on = toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)));
+      place(dot, on);
+      targetInside(scene, dot, on);  // a dot at the stage's edge keeps its whole target on a touch screen
     });
   };
   scene.view.onDrawn(reposition);

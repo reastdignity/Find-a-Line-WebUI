@@ -14,7 +14,12 @@
 /* its target (row 43): 24 px with a mouse, 44 px on a touch screen, invisible and centred on the dot; where two
    overlap, the dot whose centre is nearer to the press takes it (fan.ts) */
 .v3-opt-dot::after { content: ""; position: absolute; inset: -3px; }
-@media (pointer: coarse) { .v3-opt-dot::after { inset: -13px; } }
+/* on a touch screen the target of a dot near the stage's edge is moved inside by --v3-tx/--v3-ty (fan.ts, screen.ts
+   targetInside), so the whole 44 px can be pressed: a dot 19 px from a phone's right edge had 41.4 px of it */
+@media (pointer: coarse) {
+  .v3-opt-dot::after { left: calc(-13px + var(--v3-tx, 0px)); right: calc(-13px - var(--v3-tx, 0px));
+                       top: calc(-13px + var(--v3-ty, 0px)); bottom: calc(-13px - var(--v3-ty, 0px)); }
+}
 .v3-opt-dot.v3-over::before { background: var(--trees); }
 .v3-opt-dot.v3-on::before { left: 1px; top: 1px; width: 16px; height: 16px; border-width: 3px; }
 #view3d:not([data-view="orbit"]) .v3-opt-dot, #view3d:not([data-view="orbit"]) .v3-point-marker { display: none; }

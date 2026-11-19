@@ -335,3 +335,37 @@ def test_view3d_sideways_credits_start_folded(clip_data, monkeypatch):
                 browser.close()
     finally:
         run_json.write_text(saved, encoding="utf-8")
+
+
+def test_view3d_dot_target_inside_the_stage(clip_data, monkeypatch):
+    """A fan dot near the stage's edge keeps its whole 44 px target on a touch screen (screen.ts targetInside): at
+    412 x 839 (ui_shots' Pixel) the dot of the 312 m line stands 19 px from the right edge since the notes left the
+    bar (the stage is 82 px higher there and the scene drawn larger), and the screen's edge cut its target to
+    41.4 px. Every dot's target lies inside the stage, 44 px each way, and still covers the dot."""
+    from playwright.sync_api import sync_playwright
+    from test_view3d_touch import BOXES, POINT_CLICK
+    data, path, line = _site(clip_data, monkeypatch, "view3ddots")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}?level=full{line}", _phone(p, 412, 839))
+            page.evaluate("() => document.querySelector('.v3-tool[data-tool=point]').click()")
+            page.evaluate(POINT_CLICK)
+            page.wait_for_function("() => Number(document.getElementById('view3d').dataset.point) > 0", timeout=WAIT * 2)
+            page.evaluate(FRAMES)
+            dots = page.evaluate(BOXES, ".v3-opt-dot")
+            stage = page.evaluate("() => { const r = document.querySelector('.v3-stage').getBoundingClientRect(); "
+                                  "return [r.left, r.top, r.right, r.bottom]; }")
+            assert dots, dots
+            near = [d for d in dots if min((d["own"][0] + d["own"][2]) / 2 - stage[0],
+                                           stage[2] - (d["own"][0] + d["own"][2]) / 2) < 22]
+            assert near, (stage, dots)  # the case: a dot nearer to the edge than half a target
+            for d in dots:
+                own, target = d["own"], d["target"]
+                assert target[2] - target[0] >= 43.5 and target[3] - target[1] >= 43.5, d
+                assert target[0] >= stage[0] - 0.5 and target[2] <= stage[2] + 0.5, (stage, d)
+                assert target[1] >= stage[1] - 0.5 and target[3] <= stage[3] + 0.5, (stage, d)
+                assert target[0] <= own[0] and target[2] >= own[2] and target[1] <= own[1] and target[3] >= own[3], d
+            page.context.close()
+        finally:
+            browser.close()
