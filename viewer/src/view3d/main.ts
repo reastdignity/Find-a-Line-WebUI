@@ -20,6 +20,7 @@ import { measure, timed } from "../perf";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createCanopy } from "./canopy";
+import { stepAside } from "./chrome";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
@@ -242,6 +243,10 @@ async function start() {
     console.error(e);
     return;
   }
+  // the profile's card steps aside where it would reach the tool strip (chrome.ts); a frame after a change, so
+  // the list of "Lines from a point" fits the bottom column again
+  const aside = stepAside(ui.stage, ui.tools, ui.card, () => scene?.invalidate());
+  scene.onDispose(() => aside.dispose());
   const line = createLine(scene, ui.readout);
   let edit: Edit | null = null;
   if (line) {

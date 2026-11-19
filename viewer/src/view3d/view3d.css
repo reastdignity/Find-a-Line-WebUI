@@ -49,17 +49,20 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-activity.v3-activity-notice { width: max-content; max-width: min(680px, calc(100% - 16px)); white-space: normal;
                                   border-radius: var(--r-2); border: 1px solid var(--warn); background: var(--warn-soft);
                                   font-weight: 500; }
-/* at the phone level and on narrow screens the notice starts right of the tool strip's icons */
-#view3d.v3-phone .v3-activity.v3-activity-notice { left: 60px; right: 8px; transform: none; width: auto; max-width: none; }
+/* at the phone level and on narrow screens the notice starts right of the tool strip's icons (--v3-strip: the
+   strip's measured right edge and 8 px, chrome.ts stepAside; 60 px until it is measured) */
+#view3d.v3-phone .v3-activity.v3-activity-notice { left: var(--v3-strip, 60px); right: 8px; transform: none; width: auto; max-width: none; }
 @media (max-width: 600px) {
-  #view3d .v3-activity.v3-activity-notice { left: 60px; right: 8px; transform: none; width: auto; max-width: none; }
+  #view3d .v3-activity.v3-activity-notice { left: var(--v3-strip, 60px); right: 8px; transform: none; width: auto; max-width: none; }
 }
 #view3d .v3-activity-action { flex: none; min-height: 28px; padding: 0 12px; white-space: nowrap; }
 #view3d .v3-activity-dismiss { flex: none; min-width: 28px; min-height: 28px; padding: 0; border-color: transparent;
                                background: transparent; color: var(--ink-2); }
 #view3d .v3-activity-dismiss .u-ic { width: 16px; height: 16px; }
-.v3-tools { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; align-items: flex-start;
-            gap: 4px; }
+/* a strip higher than the stage (five tools on a phone held sideways) goes on in a second column: no tool is cut by
+   the stage's foot or lies over the bar */
+.v3-tools { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-flow: column wrap;
+            align-items: flex-start; align-content: flex-start; gap: 4px; max-height: calc(100% - 16px); }
 .v3-tools:empty { display: none; }
 /* The tool strip's buttons in the raised look of the map's controls (row 42): no edge, the shadow, 8 px corners;
    the keyboard's ring beside the shadow (the button's own shadow outranks the kit's ring) */
@@ -79,6 +82,10 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-bottom > * { pointer-events: auto; }
 .v3-card { align-self: stretch; margin: 0 8px 8px; min-height: 0; display: flex; flex-direction: column; }
 .v3-card:empty { display: none; }
+/* The card steps aside (row 38; the user, 2026-11-19: "A: the card steps aside"): where the open card would reach
+   the tool strip's icons, its slot starts right of the strip (chrome.ts stepAside sets the class and --v3-strip);
+   where it does not reach it, the card keeps its full width */
+.v3-stage.v3-aside .v3-card { margin-left: var(--v3-strip, 60px); }
 /* The credits box (scene.ts creditsBox): readable type (13 px, R5) on the surface's full colour, raised (no edge),
    inside the stage's corner. The run's data credits fold behind their button at every width (ui.css shows the
    button and folds only under 768 px), the imagery's and the ring's credits beside it never */

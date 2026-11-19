@@ -65,6 +65,57 @@ export function createActivity(box: HTMLElement): Activity {
   };
 }
 
+/** The gap the card's slot keeps from the tool strip (CSS pixels). */
+export const ASIDE_GAP_PX = 8;
+
+/** The card steps aside (docs/3d-view-contract.md, "Step 3c, group B: the phone's layout"): where the open card in
+ *  `card` (its slot) would reach the tool strip `tools` (its top less than ASIDE_GAP_PX under the strip's foot) and
+ *  the strip shows icons alone, `stage` gets the class `v3-aside` and the slot starts right of the strip
+ *  (view3d.css); `--v3-strip` on the stage is the strip's right edge and the gap whenever the strip has a tool (the
+ *  tools' own boxes are measured: a second column lies outside the strip's box). The test is made with the class
+ *  off, in one pass without a frame between: at the card's full width, so the narrower, higher card never feeds the
+ *  test that narrows it and the choice cannot undo itself; a card that becomes lower ("Rigging and layers" closed)
+ *  gets its width back. Run when the stage, the strip or the slot changes its size (its own change of the slot
+ *  brings one more run with the same answer), when a tool or the card comes or goes, and by `fit()`; `changed`
+ *  after a change (the
+ *  caller draws a frame, so what is placed by the bottom column's box is placed again). */
+export function stepAside(stage: HTMLElement, tools: HTMLElement, card: HTMLElement, changed: () => void):
+    {fit(): void; dispose(): void} {
+  let was = "";
+  const fit = () => {
+    const box = stage.getBoundingClientRect();
+    let foot = 0, right = 0, icons = true;
+    for (const tool of tools.children) {
+      const r = tool.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      foot = Math.max(foot, r.bottom - box.top);
+      right = Math.max(right, r.right - box.left);
+      if (tool.querySelector(".v3-tool-label")?.getClientRects().length) icons = false;
+    }
+    const strip = right ? Math.round(right + ASIDE_GAP_PX) : 0;
+    if (strip) stage.style.setProperty("--v3-strip", `${strip}px`); else stage.style.removeProperty("--v3-strip");
+    stage.classList.remove("v3-aside");
+    const aside = icons && strip > 0 && !!card.firstElementChild &&
+      card.getBoundingClientRect().top - box.top < foot + ASIDE_GAP_PX;
+    stage.classList.toggle("v3-aside", aside);
+    const now = `${aside}:${strip}`;
+    if (now !== was) { was = now; changed(); }
+  };
+  // A change of size is answered before the next frame's layout, never inside the observer's own call (changing the
+  // slot there ends the observer's round with "ResizeObserver loop completed with undelivered notifications"); a
+  // card opened or closed and a tool added or removed are answered at once, before any frame shows them (the strip's
+  // box does not grow with a second column, so its size alone would miss that tool)
+  let frame = 0;
+  const later = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; fit(); }); };
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(later) : null;
+  for (const e of [stage, tools, card]) sizes?.observe(e);
+  const children = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
+  // a tool shown or hidden by its class too ("Other saved lines"): WebKit kept the one column's 60 px beside two
+  children?.observe(tools, {childList: true, subtree: true, attributes: true, attributeFilter: ["class"]});
+  children?.observe(card, {childList: true});
+  return {fit, dispose() { sizes?.disconnect(); children?.disconnect(); if (frame) cancelAnimationFrame(frame); }};
+}
+
 /** The tool strip in `box`: buttons of an icon and a label, in their `order`. */
 export function createTools(box: HTMLElement): Tools {
   return {

@@ -162,3 +162,70 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
                 page.context.close()
         finally:
             browser.close()
+
+
+def test_view3d_card_steps_aside(clip_data, monkeypatch):
+    """Row 38 ("A: the card steps aside"): at 390 x 664 with five tools (the full level) the open profile card would
+    reach the strip, so its slot starts 8 px right of the strip (60 px in) and no tool lies over the card; the chart
+    fills the narrower card without a resize of the window; at 390 x 844 with three tools the card does not reach
+    the strip and keeps its full width; held sideways with five tools the strip stands in two columns inside the
+    stage and the card starts right of both. The choice is made at the card's full width and settles: no
+    ResizeObserver error, the same answer two frames later."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3daside")
+    card = "() => document.querySelector('.v3-tool[data-tool=profile]').click()"
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            base = f"http://127.0.0.1:{port}/{path}"
+            # 390 x 664, five tools: aside
+            page = _open(browser, f"{base}?level=full{line}", _phone(p, 390, 664))
+            page.evaluate(FIFTH)
+            before = page.evaluate(CARD)
+            assert len(before["tools"]) == 5 and not before["aside"] and before["card"] is None, before
+            page.evaluate(card)
+            page.wait_for_function(CHART, timeout=WAIT)
+            page.evaluate(FRAMES)
+            found = page.evaluate(CARD)
+            right = max(t[2] for t in found["tools"])
+            assert found["aside"] and found["strip"] == "60px" and found["margin"] == "60px", found
+            assert abs(found["card"][0] - (right + 8)) <= 0.5 and all(_apart(t, found["card"]) for t in found["tools"]), found
+            assert abs(found["card"][2] - (found["stage"][2] - 8)) <= 0.5, found
+            # the chart as wide as the card's inside (its 12 px of padding each side): Profile.tsx took the new slot
+            assert abs(found["chart"] - (found["inner"] - 24)) <= 1, found
+            page.evaluate(FRAMES)
+            again = page.evaluate(CARD)
+            assert again["aside"] and again["card"] == found["card"] and again["errors"] == [], again
+            # the card hidden: the class goes with it
+            page.evaluate("() => document.querySelector('.v3-pcard-hide').click()")
+            page.evaluate(FRAMES)
+            assert not page.evaluate(CARD)["aside"]
+            assert page.errors == [], page.errors
+            page.context.close()
+            # 390 x 844, three tools: the card clear of the strip keeps its width
+            page = _open(browser, f"{base}{line}", _phone(p, 390, 844))
+            page.evaluate(FIFTH)  # three tools, as a run with a surface model has at the phone level
+            page.evaluate(card)
+            page.wait_for_function(CHART, timeout=WAIT)
+            page.evaluate(FRAMES)
+            found = page.evaluate(CARD)
+            assert len(found["tools"]) == 3 and not found["aside"] and found["margin"] == "8px", found
+            assert abs(found["card"][0] - 8) <= 0.5 and all(_apart(t, found["card"]) for t in found["tools"]), found
+            assert found["errors"] == [] and page.errors == [], (found, page.errors)
+            page.context.close()
+            # held sideways, five tools: two columns inside the stage, the card right of both
+            page = _open(browser, f"{base}?level=full{line}", _phone(p, 844, 390))
+            page.evaluate(FIFTH)
+            page.evaluate(card)
+            page.wait_for_function(CHART, timeout=WAIT)
+            page.evaluate(FRAMES)
+            found = page.evaluate(CARD)
+            assert len({round(t[0]) for t in found["tools"]}) == 2, found
+            assert all(t[3] <= found["stage"][3] + 0.5 for t in found["tools"]), found  # none cut by the stage's foot
+            right = max(t[2] for t in found["tools"])
+            assert found["aside"] and found["strip"] == f"{round(right + 8)}px", found
+            assert all(_apart(t, found["card"]) for t in found["tools"]), found
+            assert found["errors"] == [] and page.errors == [], (found, page.errors)
+            page.context.close()
+        finally:
+            browser.close()
