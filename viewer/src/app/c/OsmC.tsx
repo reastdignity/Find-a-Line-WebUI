@@ -42,7 +42,7 @@ export function OsmC({place, onStarted}: {place: PlaceMap; onStarted(): void}) {
     {state && (state.extracts.length ? <ul class="c-admin-list">{state.extracts.map((e) => <li key={e.id} class="c-admin-row">
       <div class="c-admin-head"><b>{e.id}</b>
         <Button kind="ghost" icon="refresh" onClick={() => start("update", e.id)}>Update</Button></div>
-      <div class="u-small">{e.mb} MB · data of {day(e.data, "?")} · checked {day(e.checked, "?")}</div>
+      <div class="u-small">{e.mb} MB, data of {day(e.data, "?")}, checked {day(e.checked, "?")}</div>
     </li>)}</ul> : <p class="u-small">None yet.</p>)}
   </div>;
 }

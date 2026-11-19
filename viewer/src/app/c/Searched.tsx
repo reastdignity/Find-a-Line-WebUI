@@ -17,7 +17,7 @@ export function SearchedLine({usage}: {usage: Usage | null | undefined}) {
   const today = area ? todayKm2(area) : 0;
   return <div class="c-searched-line u-small">
     {!!area?.searches && <span>
-      {today > 0 && <>{t("ui.searched.today", {area: km2Text(today)})} · </>}
+      {today > 0 && <>{t("ui.searched.today", {area: km2Text(today)})}, </>}
       {t("ui.searched.total", {count: area.searches, area: km2Text(area.total_km2), searches: countText(area.searches)})}
     </span>}
     {country && <span>{t("ui.searched.country", {country: countryName(country)})}</span>}

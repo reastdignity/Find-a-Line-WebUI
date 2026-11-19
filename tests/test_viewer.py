@@ -3539,7 +3539,7 @@ def test_search_form_css_on_the_scales():
     assert "@media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }" in kit
     assert "@media (pointer: coarse) { .ui .u-chip { min-height: 44px;" in kit
     with open(os.path.join(src, "ui", "components.tsx"), encoding="utf-8") as f:
-        assert 'cx("u-panel u-ground"' in f.read()
+        assert 'cx("u-panel", !raised && "u-ground"' in f.read()  # `raised`: the one over the kit demo's map
 
 
 def test_placeholder_contrast():

@@ -58,7 +58,7 @@ function Demo({place, schema, rigs}: {place: PlaceMap; schema: Schema; rigs: Rig
       {!wide && <section class="s-form-jobs"><h2 class="u-h">Your searches</h2><Searches jobs={jobs} usage={usage} /></section>}
     </aside>
     {wide && <div class="s-kit-over">
-      <aside class="s-kit-jobs"><Panel title="Your searches"><Searches jobs={jobs} usage={usage} /></Panel></aside>
+      <aside class="s-kit-jobs"><Panel raised title="Your searches"><Searches jobs={jobs} usage={usage} /></Panel></aside>
     </div>}
     <footer class="s-c-bar"><EstimateBar search={search} usage={usage.usage} phone={!wide} /></footer>
   </>;

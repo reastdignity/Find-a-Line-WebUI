@@ -63,7 +63,7 @@
   color: var(--accent); cursor: pointer; text-decoration: underline; }
 /* a touch screen: a 44 px target that keeps the row's height: more of it above the word than under it, down to
    the field's box (as the "?": ui.css .u-hint) */
-@media (pointer: coarse) { .ui .s-reset { min-width: 44px; justify-content: flex-end; padding: 16px 0 4px; margin: -16px 0 -4px; } }
+@media (pointer: coarse) { .ui .s-reset { min-width: 44px; min-height: 44px; justify-content: flex-end; padding: 14px 0 6px; margin: -14px 0 -6px; } }
 /* A unit at the end of a field's box */
 .ui .s-unit-box { position: relative; display: block; }
 .ui .s-unit-box > .u-input { padding-right: calc(20px + var(--s-unit, 1ch)); }
@@ -167,9 +167,8 @@
 /* The compact bar of a phone: one line that unfolds the receipt and the source */
 .ui .s-sum { display: none; }
 /* the bar's height stays under the form's room on a phone (spec-search 1.8: 396 px of form at 390 x 844): no gap
-   between its line and the row under it; the size word's "?" has its 44 px target centred there (the row's height) */
+   between its line and the row under it (the size word's "?" has the kit's centred 44 px target: the row's height) */
 .ui .s-bar.s-compact { gap: 0 12px; padding: 0 12px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
-@media (pointer: coarse) { .ui .s-bar .u-hint::after { inset: -14px; } }
 .ui .s-bar.s-compact .s-sum { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; order: -1; min-width: 0; min-height: 44px;
   padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: var(--fs-2); text-align: left; cursor: pointer; }
 .ui .s-sum .u-grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -195,6 +194,10 @@
 @media (pointer: coarse) {
   .ui .s-panel, .ui .s-pane, .ui .s-keys, .ui .s-where, .ui .s-topic-body { gap: 24px; }
   .ui .s-topic-body { padding-top: 24px; }
+  /* the "?" of a row of the form: its 44 px target covers no other control (probed on both phones, 2026-11-19):
+     22 px of it above the "?", 6 px under it (the field's box begins 8 px under the label), 20 px before it (the
+     label's words) and 8 px after it */
+  .ui .s-panel .u-hint::after { inset: -22px -8px -6px -20px; }
 }
 
 /* Usage meters */

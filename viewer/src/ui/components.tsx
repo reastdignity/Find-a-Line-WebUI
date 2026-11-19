@@ -111,11 +111,12 @@ export function Segmented<T extends string>({options, value, onChange, label}:
 // ---- panels and fields -----------------------------------------------------------------------
 
 /** A section of a page, on the ground (R8: no box; a thin rule parts it from the section above; ui.css .u-ground);
- *  `padded` lays its children out in a column with gaps. The raised look is the class u-panel alone (popovers). */
-export function Panel({title, actions, padded = true, class: cls, children}:
-                      {title?: ComponentChildren; actions?: ComponentChildren; padded?: boolean; class?: string;
-                       children?: ComponentChildren}) {
-  return <section class={cx("u-panel u-ground", padded && "u-pad", cls)}>
+ *  `padded` lays its children out in a column with gaps. `raised` for one that lies over a map or other content (the
+ *  class u-panel alone: the surface and its shadow, as the popovers). */
+export function Panel({title, actions, padded = true, raised = false, class: cls, children}:
+                      {title?: ComponentChildren; actions?: ComponentChildren; padded?: boolean; raised?: boolean;
+                       class?: string; children?: ComponentChildren}) {
+  return <section class={cx("u-panel", !raised && "u-ground", padded && "u-pad", cls)}>
     {(title || actions) && <div class="u-panel-head">
       {title && <h2 class="u-h">{title}</h2>}{actions && <div class="u-row">{actions}</div>}</div>}
     {children}
