@@ -54,7 +54,8 @@
   border: 1px solid var(--rule); border-radius: var(--r-3); color: var(--ink); text-decoration: none; min-width: 0; }
 .ui .p-ex b { overflow-wrap: anywhere; }
 .ui a.p-ex:hover { border-color: var(--accent); background: var(--hover); }
-.ui .p-open { margin-top: auto; padding-top: 8px; color: var(--accent); font-weight: 500; }
+.ui .p-open { margin-top: auto; padding-top: 8px; color: var(--accent); font-weight: 500; display: flex; align-items: center; gap: 4px; }
+.ui .p-open .u-ic { width: 16px; height: 16px; }  /* the kit's arrow (web.py NEXT_ICON), not the character "›" (R9) */
 
 /* Privacy and about: text (PAGE_HTML's .p-doc; the sign-in page shares this file and none of these rules). Headings
    on the type scale: about's sections as the app's section titles (the display font, 20 px), privacy's facts named

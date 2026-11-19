@@ -2571,6 +2571,11 @@ def about_page(contact: str, esri: bool = False, ring: bool = False) -> str:
                             footer=PAGE_FOOTER)
 
 
+# The kit's drawn arrow after "Open map" (viewer/src/ui/icons.tsx ICONS.next, its class u-ic: ui.css): static markup
+# without a style attribute, which the pages' CSP (style-src 'self') allows
+NEXT_ICON = '<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>'
+
+
 def demo_list(demos: List[Dict]) -> str:
     """The demo runs of the anonymous page: links to their maps (read-only)."""
     import runs as rn
@@ -2584,7 +2589,7 @@ def demo_list(demos: List[Dict]) -> str:
         inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{summary.get('spots', 0)} spots · "
                  f"{summary.get('lines', 0)} lines</span><span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
-                     f"<span class='p-open'>Open map ›</span></a></li>" if run.get("has_map")
+                     f"<span class='p-open'>Open map{NEXT_ICON}</span></a></li>" if run.get("has_map")
                      else f"<li><div class='p-ex'>{inner}</div></li>")
     return ("<section class='p-examples'><h2 class='u-h'>Examples</h2><ul class='p-cards'>" + "".join(items)
             + "</ul></section>")
