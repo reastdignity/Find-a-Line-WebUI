@@ -84,7 +84,10 @@ export class CoverageLayer {
     (layers.options as any).afterUpdate = () => this.dress();
     // the group on the map is the layer switched on, whoever put it there (the button, the layers' checkbox)
     this.areas.on("add", () => this.switched(true));
-    this.areas.on("remove", () => this.switched(false));
+    // not the map's own removal (a page left): Leaflet takes every layer off then, and the choice must stay
+    let leaving = false;
+    map.on("unload", () => { leaving = true; });
+    this.areas.on("remove", () => { if (!leaving) this.switched(false); });
     map.on("zoomend", () => { if (this.on) this.paint(); });
     // a short map (a phone's search panel) keeps only the button or the row, and the link
     const fit = () => this.legend.classList.toggle("n-compact", map.getSize().y < 420);
