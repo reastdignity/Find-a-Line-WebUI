@@ -89,7 +89,7 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
       select: key => setSelected(key),
       label: key => {
         const {id, rest} = parseKey(key), area = rest ? null : areaOf(id);
-        return `${areaName(id, now.current.lang)} · ${resText(area ? area.res : COVERAGE.world.res, now.current.lang)}`;
+        return `${areaName(id, now.current.lang)}: ${resText(area ? area.res : COVERAGE.world.res, now.current.lang)}`;
       },
       credit: () => ct(now.current.lang, "map.credit"),
       reducedMotion: () => now.current.reduced,
