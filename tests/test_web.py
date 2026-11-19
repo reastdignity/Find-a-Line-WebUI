@@ -2845,9 +2845,12 @@ PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.
 FOCUS_JS = """() => { const a = document.activeElement; return [a.matches('.s-placebox input'),
   a.matches('input[type=text], input[type=search], textarea'), a.matches('.s-where [role=radio][aria-checked=true]'),
   a === document.body, [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place')]; }"""
+# (the last item: the font of the "Data coverage" button, null where there is none: on a phone since step 3c, whose
+# coverage is a row of the layers' box (PlaceMap.ts' phone arrangement, the user's pick A2 of 2026-11-19; the row's
+# words: tests/test_shell_c_search_page.py))
 WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), document.querySelector('.s-placebox input').placeholder,
   [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place'),
-  document.querySelector('.s-bar').textContent, getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
+  document.querySelector('.s-bar').textContent, document.querySelector('.n-coverage-btn') && getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
@@ -2859,7 +2862,8 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     a click of detail 0 as a screen reader's: no text field, no on-screen keyboard); on the desktop the scale is
     raised once its line (as a zoom widens it) reaches under the credits and back once clear; the place map's scale right above its credits on the phone, where the two lines of credits
     run under the scale's corner, also after a zoom out and in (the scale's width changes); the "Data coverage" button
-    at its own 13 px, and no control whose own font rule loses to the base rule."""
+    at its own 13 px on the desktop (the phone has none since step 3c: WHERE_JS), and no control whose own font rule
+    loses to the base rule."""
     from playwright.sync_api import sync_playwright
     _search_page(tmp_path, "", folder_name="basictest")
     r = {}
@@ -2928,7 +2932,8 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     assert "Select the centre of the search: click the map." in bar and size == "13px", r
     hint, placeholder, clear, bar, size = r["phone_empty"]
     assert (hint, placeholder, clear) == ("Tap the map to set the centre of the search.", "Go to a place", False)
-    assert "Select the centre of the search: tap the map." in bar and size == "13px", r
+    # no "Data coverage" button on a phone since step 3c (its row in the layers' box; was: the button at 13px)
+    assert "Select the centre of the search: tap the map." in bar and size is None, r
     assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
     assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
     # [place box, a text field, the chosen mode, body, button shown]
