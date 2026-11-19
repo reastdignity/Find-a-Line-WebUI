@@ -23,13 +23,14 @@
 .n-coverage-status { color: var(--muted, #56686c); padding-top: 4px; }
 .leaflet-container .n-coverage-link { display: inline-flex; align-items: center; min-height: 24px; color: var(--accent); font-weight: 500; }
 .leaflet-interactive.n-coverage-area { cursor: inherit; }
-/* In the layers' box (a phone): the link stands at the end of the coverage's row while the layer is ticked (the
-   row's words keep their place, the box grows wider); the legend under the row where the map is high enough for
-   it (not .n-compact) */
+/* In the layers' box (a phone): the link stands at the end of the coverage's row while the layer is ticked; its
+   room is kept while it is not (hidden, not gone), so the box has one width ticked or not; the legend under the
+   row where the map is high enough for it (not .n-compact) */
 .leaflet-control-layers-overlays:has(> .n-coverage-link) { display: flex; align-items: center; gap: 8px; }
 .leaflet-control-layers-overlays:has(> .n-coverage-link) > label { flex: 1; }
 .leaflet-container .leaflet-control-layers-overlays .n-coverage-link { flex: none; }
-.leaflet-control-layers-overlays .n-coverage-link[hidden], .n-coverage-extra .n-coverage-legend[hidden] { display: none; }
+.leaflet-control-layers-overlays .n-coverage-link[hidden] { visibility: hidden; }
+.n-coverage-extra .n-coverage-legend[hidden] { display: none; }
 .n-coverage-extra .n-coverage-legend { padding: 0 0 4px; border-top: 0; }
 .n-coverage-extra .n-coverage-legend.n-compact:has(.n-coverage-status:empty) { display: none; }
 @media (pointer: coarse) { .leaflet-container .leaflet-control-layers-overlays .n-coverage-link { min-height: 44px; } }
