@@ -66,3 +66,7 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   desktop's `?level=phone` has a mouse, a phone's `?level=full` a finger). A mark over the stage (fan dot, label, handle)
   grows its target with a positioned `::after`, never its own size or margins: those place it on its point
   (`screen.ts` `place`; `tests/test_view3d_touch.py`).
+- **A new note in the bar** (DESIGN.md row 39): one that explains goes behind the phone's "About this view" button by
+  itself (`info.ts` `INFO_NOTES`); one that says what failed or answers a tap gets the class `v3-alert` and stays in
+  sight. A size that depends on the card (`chrome.ts` `stepAside`) is tested with its own effect off, never from the
+  state it made (`tests/test_view3d_layout.py`).

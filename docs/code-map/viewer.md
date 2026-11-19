@@ -269,4 +269,7 @@ point's reach, its representatives the result's spots through `grouping.ts` with
 3c, group B (2026-11-19; docs/DESIGN.md rows 40 to 49): `icon.ts` the kit's icons for the plain DOM (`kitIcon`: the
 notice's dismiss, the sorted head, a favourite's star); `screen.ts` `nearestMark`/`pressedMark`, the mark whose centre is
 nearest to a press where the marks' invisible targets (44 px on a touch screen) overlap (the fan's dots, the labels). The
+phone's layout (rows 37 to 39): `chrome.ts` `stepAside`, the profile card's slot right of the tool strip where the
+card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes; the bar of a
+phone held sideways is one block of `view3d.css` (`tests/test_view3d_layout.py`). The
 contract of its waves and every decision: docs/3d-view-contract.md; the research: docs/3d-view.md

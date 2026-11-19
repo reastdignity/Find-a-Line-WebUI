@@ -473,16 +473,19 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
   text under 12 px left in the 3D view's states), the card's facts joined by " · ", "→" and "Δh" (R9), and on a
   touch screen the controls of "Rigging and layers" under 44 px (five number fields, three or four checkboxes by
   their labels, the "1:1 scale" button: R2; measured in the probe with that box open on both phones, sideways too).
-- **The phone's three layout questions** (waiting for their mock-up; the user, 2026-11-19: "Fix all three, mock-up
-  first"), measured: held sideways (844 x 390) at the phone level the speed's "×1" lies under the imagery's segment
-  by 14 px (16 px before; a tap on its centre reaches it), in the athlete's views by 40 px (30 px before, and 10 px
-  under "Edges"), where a tap on it reaches the segment, as before; at the full level the tool strip (five tools of
-  44 px) is taller than the 131 px stage, so "Profile" and "Save line" lie over the bar's switch, "Walk" and the speed
-  and the last tool is cut to 27 px by the stage (as before, with 36 px tools); the strip lies over the profile's
-  card (three tools sideways, two before; three at the full level in portrait, as before); three or four notes stand
-  under the bar on a phone (four or five lines at 12 px; the bar's rows lost their 2 px gap, so the stage keeps its
-  height on an iPhone 13 at the phone level and is 1.3 px lower at the full level; on a 360 px wide phone 15.6 px
-  lower, as the preview note takes one more line).
+- **The phone's three layout questions** were answered on a mock-up and built (DESIGN.md rows 37 to 39; the bar in
+  one row held sideways, the card stepping aside, the notes behind "About this view"). What they leave, measured
+  (`local/ux-design-2026-11-16/3c-b/layout/`): held sideways the open card still covers most of the stage and
+  scrolls inside (181 of 244 px shown at 844 x 390, 166 of 244 px at 667 x 375; the mock-up's extra option A2 was
+  not picked); the list of "Lines from a point" (the full level asked for on a phone) keeps its least height of
+  80 px, so with the card open it lies over the credits' box by 20 px at 390 x 664 (the card is 37 px higher beside
+  the strip) and over the card by 72 px held sideways, where it lay before too; on a touch screen 601 to about
+  615 px wide and at most 480 px high the row wraps in the athlete's views with four kinds of imagery (the bar a row
+  higher there than in the orbit); a strip with its labels (a touch tablet or a short window at `?level=full`) still
+  lies over a card that reaches it (1024 x 600: four tools over the card); the open "About this view" box lies over
+  its own button and "Data credits" until closed. In `ui_metrics`' "view3d-point" on the Pixel one fan dot's target
+  counts 41.4 x 44 px (44 x 44 before): the stage is 62 px higher without the notes, the scene is drawn larger, and
+  the list of lines now covers 2.6 px of that dot's target ("Dots under the list" below).
 - **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
   3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
   pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
