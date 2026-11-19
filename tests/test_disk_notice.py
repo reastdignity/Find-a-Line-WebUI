@@ -140,7 +140,7 @@ def test_disk_notice_from_disk(disk_data, tmp_path):
     r = _result_in(_edge_file(folder / page, tmp_path / "edge-disk"))
     _shown_from_disk(r, RUN, NAME)
     assert r["notice"]["theme"] is None, r
-    for theme, background in (("light", "rgb(243, 245, 242)"), ("dark", "rgb(14, 19, 17)")):  # ui/tokens.css --bg
+    for theme, background in (("light", "rgb(242, 245, 245)"), ("dark", "rgb(18, 26, 27)")):  # ui/tokens.css --bg
         themed = _page_with(folder, theme, INTROS_SEEN + f'localStorage.setItem("findaline-theme", "{theme}");'
                             + RECORDER, DISK_END)
         t = _result_in(_edge_file(folder / themed, tmp_path / f"edge-{theme}"))
