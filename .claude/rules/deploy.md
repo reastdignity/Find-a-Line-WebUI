@@ -45,8 +45,9 @@ loads with `deploy/monitoring/` too.
 ## The project's data server (`deploy/mirror/`, docs/mirror-hosting/spec.md)
 
 - Not on the VPS: the home server, two projects (`findaline-mirror`: one service, no port; `findaline-mirror-publish`:
-  the SFTP door). The repository names its host (`mirror.findaline.lukawski.org`) and SWAG and Unraid as setups it
-  supports, never a fact of the user's own server (platform, uplink, addresses, other services, power).
+  the SFTP door in a Husarnet sidecar's namespace, no port either). The repository names its host
+  (`mirror.findaline.lukawski.org`) and SWAG and Unraid as setups it supports, never a fact of the user's own
+  server (platform, uplink, addresses, other services, power).
 - Must stay in step (`tests/test_mirror_deploy.py`, `tests/test_mirror_pairs.py`): the base images' digests of
   `Dockerfile`, `test/*`, `publish/Dockerfile`, `test/sshclient.Dockerfile` and `mirror_check.sh`'s `CURL_IMAGE`; the
   served patterns and `grid_tile_name`, `res_name`, the publish tool's layout and `DATASET_NAME`; the limits of
@@ -56,8 +57,21 @@ loads with `deploy/monitoring/` too.
   user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form; the door's
   rclone settings in `deploy/mirror/README.md` (`shell_type`, `hashes`, `sha256sum_command`, `known_hosts_file`, the
   top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
+- The door (`publish/`, U68): `sftp` runs in the namespace of the sidecar `husarnet` (`network_mode:
+  service:husarnet`). The check never runs the real sidecar: `test/compose.door-check.yaml` replaces it with a
+  stand-in (`test/door-standin.Dockerfile`: socat holds a tun `hnet0` with D36's fc94 address, gone with the process
+  like the daemon's) by `!override`/`!reset` (its `build` too) and keeps its `ports`, `networks` and sysctl (D29 reads
+  the ports; D37 the namespace's IPv6 switch, the sysctl's presence only the static test). sftp's healthcheck judges
+  a lost namespace by `hnet0` by name, never "anything but lo" (fallback tunnel devices stay: D35, D38). A change to
+  the sidecar's network, its interface or the door's namespace changes the stand-in, D28/D29/D34-D38 and the static
+  test together. The code goes only to the
+  CLI's `husarnet claim`, never into the daemon's environment; its status needs no token. `publish/husarnet.sh`
+  reads the nightly daemon's (2.0.349, U80) status keys with jq; `_daemon_status` in tests/test_mirror_deploy.py
+  copies them: a new HUSARNET_VERSION changes both, after the door's real-daemon checks. The image is built by
+  `publish/husarnet-sidecar.Dockerfile` (Debian digest, key fingerprint, nightly version), updated with the door's
+  base; its daemon is never started in CI.
 - SWAG is attached by `docker network connect findaline-mirror_mirror swag`, again after every SWAG update (the
-  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 75 min: `--timeout 7200` under the lock;
+  monthly item of docs/deployment.md). `mirror_check.sh --self-test` takes about 90 min: `--timeout 7200` under the lock;
   in CI it is the job `mirror` of its own workflow `.github/workflows/mirror.yml` (when the mirror's files, the
   script, `tests/test_mirror_deploy.py` or the workflow change, and by hand; 150 minutes).
 - Test stacks never ask the real data server: CI's docker job appends `FINDALINE_MIRROR_URL=off` to its findaline.env

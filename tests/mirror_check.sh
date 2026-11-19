@@ -10,8 +10,10 @@
 #                                       volumes, test clients with fixed addresses), run every
 #                                       check, the --live checks against the stand-in's published
 #                                       port, then the publishing door (publish/compose.yaml +
-#                                       test/compose.door-check.yaml, an SSH client in a container,
-#                                       key pairs made at run time), then remove everything it made
+#                                       test/compose.door-check.yaml: a stand-in for its Husarnet
+#                                       sidecar, no join code, never Husarnet; an SSH client in a
+#                                       container, key pairs made at run time), then remove
+#                                       everything it made
 #   tests/mirror_check.sh --self-test   the same, then each behaviour switched off in a variant of
 #                                       the config (nginx.conf, start.sh, the landing page, the SWAG
 #                                       conf) and the checks that must FAIL then: a check that
@@ -27,7 +29,8 @@
 # Settings (environment): MIRROR_CHECK_PROJECT (the compose project and the prefix of every Docker
 # object it makes, default mirror-check), MIRROR_CHECK_SUBNET and MIRROR_CHECK_FRONT_SUBNET (two
 # free /24 networks, defaults 172.29.142.0/24 and 172.29.143.0/24), MIRROR_CHECK_PORT (the stand-in's
-# port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the door's, default 8793); with --live,
+# port on 127.0.0.1, default 8792), MIRROR_CHECK_DOOR_PORT (the port the self-test's variants publish
+# the door on, which the real one never does, default 8793); with --live,
 # MIRROR_LIVE_PRODUCTS (a pattern of product paths LV15 and LV17 take their tile from, default all).
 set -u
 export MSYS_NO_PATHCONV=1
@@ -930,6 +933,7 @@ run_checks() {  # the groups named, against the running stack
 DOOR="$MIRROR/publish"
 DOOR_COMPOSE=""     # a variant's compose.yaml (the self-test); empty: the real one
 DOOR_OVERLAY=""     # a variant's test layer (the self-test); empty: test/compose.door-check.yaml
+DOOR_HOST=husarnet  # the stand-in for the Husarnet sidecar (test/compose.door-check.yaml): sshd is in its namespace
 SSH_OPTS=(-o Port=2222 -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/known_hosts
     -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=10)
 
@@ -945,14 +949,21 @@ door_up() {
     {
         echo "MIRROR_ROOT=/nonexistent-mirror-root"
         echo "PUBLISH_KEYS=/nonexistent-keys"
-        echo "PUBLISH_ADDRESS=127.0.0.1"
-        echo "PUBLISH_PORT=$DOOR_PORT"
+        # compose.yaml requires HUSARNET_STATE (the code only a first join needs); the stand-in takes
+        # neither (no join code reaches a container)
+        echo "HUSARNET_JOIN_CODE=not-a-join-code"
+        echo "HUSARNET_STATE=/nonexistent-husarnet-state"
+        echo "DOOR_STANDIN_IMAGE=$PROJECT-door-standin"
+        echo "DOOR_TEST_PORT=$DOOR_PORT"      # only the self-test's variants publish it
         echo "DOOR_ROOT_VOLUME=$PROJECT-door-root"
         echo "DOOR_KEYS_VOLUME=$PROJECT-door-keys"
     } > "$WORK/door.env"
     docker volume create "$PROJECT-door-root" > /dev/null && docker volume create "$PROJECT-door-keys" > /dev/null || return 1
     door_compose build --quiet sftp || return 1
     docker tag "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig"
+    # The stand-in for the Husarnet sidecar: the door's image with socat holding a tun hnet0
+    docker build -q --label "mirror-check=$PROJECT" --build-arg "DOOR_IMAGE=$PROJECT-door-sftp:orig" -t "$PROJECT-door-standin" \
+        -f "$(hostpath "$MIRROR/test/door-standin.Dockerfile")" "$(hostpath "$MIRROR/test")" > /dev/null || return 1
     docker build -q --label "mirror-check=$PROJECT" -t "$PROJECT-sshclient" -f "$(hostpath "$MIRROR/test/sshclient.Dockerfile")" \
         "$(hostpath "$MIRROR/test")" > /dev/null || return 1
     # The host key, made once (owned by the account, mode 600), as the README's install step does
@@ -970,7 +981,7 @@ door_up() {
     docker exec "$PROJECT-sshc" sh -c 'ssh-keygen -q -t ed25519 -N "" -C check -f /root/k && ssh-keygen -q -t ed25519 -N "" -C wrong -f /root/wrong' || return 1
     docker exec "$PROJECT-sshc" cat /root/k.pub | as_root "$PROJECT-door-keys" 'cat > /v/authorized_keys' || return 1
     DOOR_HOSTKEY=$(as_root "$PROJECT-door-keys" 'cat /v/ssh_host_ed25519_key.pub')
-    docker exec "$PROJECT-sshc" sh -c "echo '[sftp]:2222 $DOOR_HOSTKEY' > /root/known_hosts"
+    docker exec "$PROJECT-sshc" sh -c "echo '[$DOOR_HOST]:2222 $DOOR_HOSTKEY' > /root/known_hosts"
 }
 door_down() {
     docker rm -f "$PROJECT-sshc" > /dev/null 2>&1
@@ -979,7 +990,7 @@ door_down() {
     docker ps -aq --filter "label=com.docker.compose.project=$PROJECT-door" | xargs -r docker rm -f > /dev/null 2>&1
     docker network rm "$PROJECT-door_publish" > /dev/null 2>&1
     docker volume rm "$PROJECT-door-root" "$PROJECT-door-keys" > /dev/null 2>&1
-    docker image rm "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig" "$PROJECT-sshclient" > /dev/null 2>&1
+    docker image rm "$PROJECT-door-sftp" "$PROJECT-door-sftp:orig" "$PROJECT-door-standin" "$PROJECT-sshclient" > /dev/null 2>&1
 }
 
 dssh() {  # <ssh arguments...>: through the door; prints "<exit status>|<output, stdout and stderr>"
@@ -990,14 +1001,14 @@ dssh() {  # <ssh arguments...>: through the door; prints "<exit status>|<output,
 }
 dsftp() {  # <batch>: an sftp batch through the door; "<exit status>|<output>"
     local out rc
-    out=$(printf '%s\n' "$1" | docker exec -i "$PROJECT-sshc" timeout 25 sftp "${SSH_OPTS[@]}" -o IdentityFile=/root/k -b - publish@sftp 2>&1)
+    out=$(printf '%s\n' "$1" | docker exec -i "$PROJECT-sshc" timeout 25 sftp "${SSH_OPTS[@]}" -o IdentityFile=/root/k -b - publish@$DOOR_HOST 2>&1)
     rc=$?
     printf '%s|%s' "$rc" "$out"
 }
 esc() { printf '%s' "$1" | sed 's/[^A-Za-z0-9_.,:/@-]/\\&/g'; }   # rclone's escaping (shell_type unix)
 refused() {  # <id> <what> <request>: the gate refuses it (status not 0, "refused", no hash)
     local r
-    r=$(dssh publish@sftp "$3")
+    r=$(dssh publish@$DOOR_HOST "$3")
     if [ "${r%%|*}" != 0 ] && printf '%s' "$r" | grep -q 'refused' && ! printf '%s' "$r" | grep -qE '[0-9a-f]{64}'; then
         result "$1" PASS "the gate refuses $2"
     else
@@ -1013,20 +1024,20 @@ g_door() {
     sum=$(docker exec "$PROJECT-sshc" sha256sum /root/a.bin | cut -d' ' -f1)
     r=$(dsftp "ls /mirror")
     check D01 "the right key logs in over SFTP and sees the mirror folder" eval '[ "${r%%|*}" = 0 ] && printf "%s" "$r" | grep -q "/mirror/staging"'
-    r=$(KEY=/root/wrong dssh publish@sftp "sha256sum /mirror/logs/access-2000-01-01.log")
+    r=$(KEY=/root/wrong dssh publish@$DOOR_HOST "sha256sum /mirror/logs/access-2000-01-01.log")
     check D02 "a wrong key is refused" eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Permission denied"'
-    r=$(dssh -v -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive publish@sftp true)
+    r=$(dssh -v -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive publish@$DOOR_HOST true)
     check D03 "no password or keyboard-interactive login offered (publickey only)" \
         eval '[ "${r%%|*}" = 255 ] && printf "%s" "$r" | grep -q "Authentications that can continue: publickey$" && ! printf "%s" "$r" | grep -qE "can continue: .*(password|keyboard)"'
-    r=$(dssh publish@sftp id)
+    r=$(dssh publish@$DOOR_HOST id)
     check D04 "a command (id) is refused" eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -q refused && ! printf "%s" "$r" | grep -q "uid="'
-    r=$(dssh publish@sftp)
+    r=$(dssh publish@$DOOR_HOST)
     check D05 "no command (a shell) is refused" eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -q refused'
     refused D06 "df" "df /mirror"
-    r=$(dssh -tt publish@sftp "sha256sum /mirror/logs/access-2000-01-01.log")
+    r=$(dssh -tt publish@$DOOR_HOST "sha256sum /mirror/logs/access-2000-01-01.log")
     check D07 "no TTY" eval 'printf "%s" "$r" | grep -q "PTY allocation request failed"'
-    r=$(dssh -W 1.1.1.1:80 publish@sftp)
-    out=$(dssh -o ExitOnForwardFailure=yes -R 9000:127.0.0.1:22 -N publish@sftp)
+    r=$(dssh -W 1.1.1.1:80 publish@$DOOR_HOST)
+    out=$(dssh -o ExitOnForwardFailure=yes -R 9000:127.0.0.1:22 -N publish@$DOOR_HOST)
     check D08 "no forwarding: -W and -R refused" \
         eval '[ "${r%%|*}" != 0 ] && printf "%s" "$r" | grep -qiE "prohibited|open failed" && [ "${out%%|*}" != 0 ] && printf "%s" "$out" | grep -qi "forwarding failed"'
     # Files written through the door; hashes asked as rclone asks them
@@ -1045,11 +1056,11 @@ put /root/a.bin \"/mirror/staging/x/$name\"")
     # Links the host's owner could make (the account cannot): the gate resolves them
     as_root "$PROJECT-door-root" 'cd /v/staging/x && ln -s /etc/passwd out.bin && ln -s /dev/zero zero.bin &&
         ln -s /mirror/staging/x/a.bin in.bin && chown -h 1000:1000 out.bin zero.bin in.bin'
-    r=$(dssh publish@sftp "sha256sum $(esc /mirror/staging/x/a.bin)")
+    r=$(dssh publish@$DOOR_HOST "sha256sum $(esc /mirror/staging/x/a.bin)")
     eq D09 "sha256sum of a file under the folder through the gate: the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
-    r=$(dssh publish@sftp "sha256sum $(esc "/mirror/staging/x/$name")")
+    r=$(dssh publish@$DOOR_HOST "sha256sum $(esc "/mirror/staging/x/$name")")
     eq D10 "sha256sum of \"$name\" (escaped as rclone does): the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
-    r=$(dssh publish@sftp "sha256sum $(esc /mirror/staging/x/in.bin)")
+    r=$(dssh publish@$DOOR_HOST "sha256sum $(esc /mirror/staging/x/in.bin)")
     eq D11 "sha256sum through a symlink that stays in the folder: the local sha256" "$(printf '%s' "${r#*|}" | cut -d' ' -f1)" "$sum"
     refused D12 "a path outside the folder (/etc/passwd)" "sha256sum /etc/passwd"
     refused D13 "/mirror/../etc/passwd" "sha256sum /mirror/../etc/passwd"
@@ -1086,22 +1097,72 @@ rename /mirror/staging/x /mirror/public/v1/tiles/x")
     r=$(dsftp "get /mirror/logs/access-2000-01-01.log /root/log.txt")
     check D27 "the account reads a log file uid 101 wrote (logs 0750, group 101)" \
         eval '[ "${r%%|*}" = 0 ] && docker exec "$PROJECT-sshc" grep -q 2000-01-01 /root/log.txt'
-    # The container
-    i=$(docker inspect "$PROJECT-door-sftp-1" --format '{{.HostConfig.ReadonlyRootfs}}|{{.HostConfig.CapDrop}}|{{.HostConfig.SecurityOpt}}|{{.Config.User}}|{{.HostConfig.GroupAdd}}|{{.HostConfig.Memory}}={{.HostConfig.MemorySwap}}|{{.HostConfig.PidsLimit}}|{{range $p, $b := .HostConfig.PortBindings}}{{$p}}>{{range $b}}{{.HostIp}}:{{.HostPort}}{{end}} {{end}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}|{{.HostConfig.RestartPolicy.Name}}')
-    info "the door's container: $i"
-    eq D28 "the door's container: read-only, no capability, no new privileges, uid 1000 with group 101, memory = swap, pids, restart" \
-        "$(echo "$i" | cut -d'|' -f1-7,10)" "true|[ALL]|[no-new-privileges:true]|1000:1000|[101]|134217728=134217728|128|unless-stopped"
-    eq D29 "the port on the address given only; its own network, not the mirror's" "$(echo "$i" | cut -d'|' -f8-9)" \
-        "2222/tcp>127.0.0.1:$DOOR_PORT |$PROJECT-door_publish "
+    # The containers: sftp in the sidecar's network namespace, no port published by either
+    local ports='{{range $p, $b := .HostConfig.PortBindings}}{{$p}}>{{range $b}}{{.HostIp}}:{{.HostPort}}{{end}} {{end}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+    i=$(docker inspect "$PROJECT-door-sftp-1" --format '{{.HostConfig.ReadonlyRootfs}}|{{.HostConfig.CapDrop}}|{{.HostConfig.SecurityOpt}}|{{.Config.User}}|{{.HostConfig.GroupAdd}}|{{.HostConfig.Memory}}={{.HostConfig.MemorySwap}}|{{.HostConfig.PidsLimit}}|'"$ports"'|{{.HostConfig.RestartPolicy.Name}}|{{.HostConfig.NetworkMode}}')
+    out=$(docker inspect "$PROJECT-door-husarnet-1" --format '{{.Id}}|'"$ports")
+    info "the door's container: $i; the sidecar's (the stand-in): $out"
+    eq D28 "the door's container: read-only, no capability, no new privileges, uid 1000 with group 101, memory = swap, pids, restart, in the sidecar's network namespace" \
+        "$(echo "$i" | cut -d'|' -f1-7,10-11)" "true|[ALL]|[no-new-privileges:true]|1000:1000|[101]|134217728=134217728|128|unless-stopped|container:${out%%|*}"
+    eq D29 "no port published by the door or the sidecar (bindings and docker port); the door without a network of its own; the sidecar on the project's own network, not the mirror's" \
+        "$(echo "$i" | cut -d'|' -f8-9)|${out#*|}|$(docker port "$PROJECT-door-sftp-1" 2>&1; docker port "$PROJECT-door-husarnet-1" 2>&1)" \
+        "|||$PROJECT-door_publish |"
+    # sshd on every address of the namespace, IPv6 too (the Husarnet address is IPv6 only)
+    info "listening in the door's namespace: $(docker exec "$PROJECT-door-sftp-1" netstat -ltn 2>&1 | awk 'NR > 2 { printf "%s ", $4 }')"
+    out=$(docker exec "$PROJECT-door-sftp-1" sh -c 'sleep 1 | nc -w 3 ::1 2222 | head -c 8' 2>&1)
+    eq D34 "sshd answers on the namespace's IPv6 loopback ([::1]:2222)" "$out" "SSH-2.0-"
+    # ... and at an address like the door's Husarnet one: the stand-in's fc94:dead:beef::1234 on its
+    # tun interface hnet0 (test/door-standin.Dockerfile)
+    info "the stand-in's hnet0: $(docker exec "$PROJECT-door-sftp-1" sh -c 'grep hnet0 /proc/net/if_inet6 | cut -c1-32' 2>&1 | tr '\n' ' ')"
+    out=$(docker exec "$PROJECT-door-sftp-1" sh -c 'sleep 1 | nc -w 3 fc94:dead:beef::1234 2222 | head -c 8' 2>&1)
+    eq D36 "sshd answers at a Husarnet-like IPv6 address of the namespace ([fc94:dead:beef::1234]:2222)" "$out" "SSH-2.0-"
+    # IPv6 on in the namespace (the sidecar's sysctl: the Husarnet address is IPv6 only)
+    out=$(docker exec "$PROJECT-door-sftp-1" cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>&1)
+    eq D37 "IPv6 is on in the door's namespace (net.ipv6.conf.all.disable_ipv6 = 0)" "$out" "0"
     out=$(docker exec "$PROJECT-door-sftp-1" /usr/sbin/sshd -T -f /etc/ssh/sshd_config 2>&1 | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permittty|permituserrc|disableforwarding|allowtcpforwarding|forcecommand|permitrootlogin|authenticationmethods) ' | sort | tr '\n' ';')
     eq D30 "sshd's effective settings" "$out" "allowtcpforwarding no;authenticationmethods publickey;disableforwarding yes;forcecommand /usr/local/bin/gate;kbdinteractiveauthentication no;passwordauthentication no;permitrootlogin no;permittty no;permituserrc no;"
     # The host key survives a recreate (the client pins it: StrictHostKeyChecking)
     door_compose up -d --no-build --force-recreate --wait --wait-timeout 120 sftp > /dev/null 2>&1
     r=$(dsftp "ls /mirror")
-    out=$(docker exec "$PROJECT-sshc" ssh-keyscan -p 2222 -t ed25519 sftp 2> /dev/null | grep -v '^#' | cut -d' ' -f2-)
+    out=$(docker exec "$PROJECT-sshc" ssh-keyscan -p 2222 -t ed25519 "$DOOR_HOST" 2> /dev/null | grep -v '^#' | cut -d' ' -f2-)
     info "after the recreate: login ${r%%|*}; host key $out"
     check D31 "the host key is the same after the container is recreated" \
         eval '[ "${r%%|*}" = 0 ] && [ "$out" = "$(printf "%s" "$DOOR_HOSTKEY" | cut -d" " -f1-2)" ]'
+}
+
+g_doorheal() {  # a group of its own: it waits for the door's healthcheck interval (30 s), once per run
+    local r out before after
+    # The sidecar restarted on its own (an update, a crash and Docker's restart): the door is left in
+    # the old namespace, which has lost the sidecar's hnet0 (a tun goes with its process; seen
+    # 2026-11-19: login refused, a loopback check still healthy, `compose up -d` no help). Its
+    # healthcheck ends sshd then, and Docker's restart policy starts it in the sidecar's new namespace.
+    # An interface that outlives the sidecar stays in that old namespace (a kernel's fallback tunnel
+    # devices, tunl0, sit0, ...: G1 of the second review): one, a dummy leftover0, is put there first
+    # (not named tunl0: looking that name up loads the kernel's ipip module), and the door must still
+    # come back.
+    docker exec --privileged --user 0 "$PROJECT-door-husarnet-1" sh -c 'ip link add leftover0 type dummy' > /dev/null 2>&1
+    docker restart "$PROJECT-door-husarnet-1" > /dev/null 2>&1
+    sleep 3
+    r=$(dsftp "ls /mirror")
+    info "right after the sidecar's restart: login ${r%%|*}; the door sees: $(docker exec "$PROJECT-door-sftp-1" cat /proc/net/dev 2>&1 | awk -F: 'NR > 2 { printf "%s ", $1 }')"
+    out=$SECONDS
+    poll 120 'r=$(dsftp "ls /mirror"); [ "${r%%|*}" = 0 ]'
+    r=$(dsftp "ls /mirror")
+    info "the door after the sidecar's restart: login ${r%%|*} after $((SECONDS - out)) s; restarts $(docker inspect "$PROJECT-door-sftp-1" --format '{{.RestartCount}}')"
+    check D35 "after the sidecar is restarted alone (another interface left in the old namespace), the door comes back by itself within 2 minutes (its healthcheck misses hnet0, ends sshd, Docker restarts it in the new namespace)" \
+        eval '[ "${r%%|*}" = 0 ] && printf "%s" "$r" | grep -q "/mirror/staging"'
+    door_compose up -d --no-build --force-recreate --wait --wait-timeout 120 sftp > /dev/null 2>&1
+    # The sidecar offline (its network gone, its daemon and hnet0 still there): the door must not be
+    # restarted (45 s: more than one healthcheck interval)
+    before=$(docker inspect "$PROJECT-door-sftp-1" --format '{{.RestartCount}} {{.State.StartedAt}}')
+    docker network disconnect "$PROJECT-door_publish" "$PROJECT-door-husarnet-1" > /dev/null 2>&1
+    sleep 45
+    after=$(docker inspect "$PROJECT-door-sftp-1" --format '{{.RestartCount}} {{.State.StartedAt}}')
+    info "the sidecar offline 45 s: the door sees: $(docker exec "$PROJECT-door-sftp-1" cat /proc/net/dev 2>&1 | awk -F: 'NR > 2 { printf "%s ", $1 }'); restarts and start before: $before; after: $after"
+    docker network connect --alias husarnet "$PROJECT-door_publish" "$PROJECT-door-husarnet-1" > /dev/null 2>&1
+    check D38 "the sidecar offline (no network, hnet0 kept) for 45 s: the door is not restarted" \
+        eval '[ -n "$before" ] && [ "$before" = "$after" ]'
+    door_compose up -d --no-build --force-recreate --wait --wait-timeout 120 husarnet sftp > /dev/null 2>&1
 }
 
 # ---------------------------------------------------------------- the self-test
@@ -1178,7 +1239,15 @@ VARIANTS=(
     'a shell without a command @@ publish/gate.sh @@ s#^request=${SSH_ORIGINAL_COMMAND-}$#&; [ -n "$request" ] || exec /bin/sh -c "echo a shell"# @@ door @@ D05'
     'escapes not removed @@ publish/gate.sh @@ /^        path=\$(printf/s#.*#        path=$escaped# @@ door @@ D10'
     'not in the log group @@ publish/compose.yaml @@ /group_add:/d @@ door @@ D27 D28'
-    'the port on every address @@ publish/compose.yaml @@ s#"${PUBLISH_ADDRESS:?[^}]*}:#"# @@ door @@ D29'
+    'a port published on the sidecar @@ publish/compose.yaml @@ s#^    networks: \[publish\]$#&\n    ports: ["127.0.0.1:${DOOR_TEST_PORT}:2222"]# @@ door @@ D29'
+    'the door in a namespace of its own @@ publish/compose.yaml @@ s#^    network_mode: service:husarnet$#    networks: [publish]#; s#hnet0:#eth0:# @@ door @@ D01 D28 D29'
+    'the door in a namespace of its own with its port published @@ publish/compose.yaml @@ s#^    network_mode: service:husarnet$#    networks: [publish]\n    ports: ["127.0.0.1:${DOOR_TEST_PORT}:2222"]#; s#hnet0:#eth0:# @@ door @@ D28 D29'
+    'sshd on IPv4 only @@ publish/sshd_config @@ s#^Port 2222$#&\nAddressFamily inet# @@ door @@ D34'
+    'sshd on 0.0.0.0 and ::1 only @@ publish/sshd_config @@ s#^Port 2222$#&\nListenAddress 0.0.0.0\nListenAddress ::1# @@ door @@ D36'
+    'IPv6 off in the namespace @@ publish/compose.yaml @@ s#net.ipv6.conf.all.disable_ipv6: 0#net.ipv6.conf.all.disable_ipv6: 1# @@ door @@ D37'
+    'the door stays in a lost namespace @@ publish/compose.yaml @@ s#grep -q [^;]*|| kill -TERM 1; ## @@ doorheal @@ D35'
+    'lost judged by anything but lo @@ publish/compose.yaml @@ s#grep -q .^ \*hnet0:. /proc/net/dev#grep -qv -e \x27^ *lo:\x27 -e \x27|\x27 /proc/net/dev# @@ doorheal @@ D35'
+    'lost judged by the network interface @@ publish/compose.yaml @@ s#hnet0:#eth0:# @@ doorheal @@ D38'
     'a new host key at each start @@ publish/Dockerfile @@ s#^ENTRYPOINT .*#ENTRYPOINT ssh-keygen -q -t ed25519 -N "" -f /tmp/hk \&\& sed "s|^HostKey .*|HostKey /tmp/hk|" /etc/ssh/sshd_config > /tmp/c \&\& exec /usr/sbin/sshd -D -e -f /tmp/c# @@ door @@ D31'
     'two mounts (staging and public) @@ test/compose.door-check.yaml @@ s#- {type: volume, source: root, target: /mirror}#&\n      - {type: tmpfs, target: /mirror/public, tmpfs: {mode: 01777}}# @@ door @@ D25'
     'keys writable @@ test/compose.door-check.yaml @@ s#read_only: true#read_only: false# @@ door @@ D24'
@@ -1304,7 +1373,7 @@ while [ $# -gt 0 ]; do
         --live) MODE=live; LIVE_URL=${2:?--live needs an address}; shift ;;
         --master) MASTER=${2:?--master needs a folder}; shift ;;
         --keep) KEEP=1 ;;
-        -h | --help) sed -n '2,31p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,34p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
@@ -1346,7 +1415,7 @@ fi
 info "image: $(docker exec "$FILES" nginx -v 2>&1)"
 # MIRROR_CHECK_GROUPS: only these groups (for working on the script), no live and no cleanup run
 if [ -n "${MIRROR_CHECK_GROUPS:-}" ]; then
-    case " $MIRROR_CHECK_GROUPS " in *" door "*) door_down; door_up || exit 100 ;; esac
+    case " $MIRROR_CHECK_GROUPS " in *" door "* | *" doorheal "*) door_down; door_up || exit 100 ;; esac
     # shellcheck disable=SC2086
     run_checks $MIRROR_CHECK_GROUPS
     if [ "$MODE" = selftest ]; then
@@ -1379,7 +1448,7 @@ for id in "${!OUT[@]}"; do MAIN[$id]=${OUT[$id]}; done
 echo "== the publishing door: project $PROJECT-door, port $DOOR_PORT"
 door_down
 if door_up; then
-    run_checks door
+    run_checks door doorheal
 else
     result D00 FAIL "the publishing door did not start"
     door_compose logs --no-color 2>&1 | tail -20

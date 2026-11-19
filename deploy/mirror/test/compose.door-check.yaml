@@ -1,7 +1,31 @@
 # tests/mirror_check.sh's layer on top of publish/compose.yaml (the publishing door): the mirror
 # folder and the keys in volumes the script prepares (volumes are merged by their target), so that
-# the keys have the owner and modes sshd demands on any host. Port and address from the script.
+# the keys have the owner and modes sshd demands on any host; and a stand-in for the Husarnet
+# sidecar. The check has no join code and never reaches Husarnet: the stand-in is built from
+# test/door-standin.Dockerfile (DOOR_STANDIN_IMAGE: the door's own image with socat holding a tun
+# interface hnet0 that carries fc94:dead:beef::1234, as Husarnet's daemon holds its own), as root
+# with the sidecar's NET_ADMIN and tun device, without its build, environment and state folder,
+# healthy once hnet0 is up (with `build` reset nothing here ever builds the real sidecar under the
+# stand-in's name). It holds the namespace `sftp` joins (network_mode: service:husarnet, kept from
+# compose.yaml) on the project's network `publish`, where the check's SSH client reaches the door by
+# the name `husarnet`. Its `ports`, `networks` and IPv6 sysctl are left as compose.yaml has them: a
+# port published there must show in D29; D37 reads the namespace's IPv6 switch.
 services:
+  husarnet:
+    build: !reset null
+    image: !override ${DOOR_STANDIN_IMAGE:?}
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    environment: !reset {}
+    volumes: !reset []
+    healthcheck: !override
+      test: ["CMD", "sh", "-c", "grep -q '^ *hnet0:' /proc/net/dev"]
+      interval: 60s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 3
   sftp:
     volumes:
       - {type: volume, source: root, target: /mirror}

@@ -40,7 +40,10 @@ hourly cleanup by 14 days and `LOG_CAP_BYTES`, 2 GB, the heartbeat), `landing/in
 internal network that SWAG joins by `docker network connect findaline-mirror_mirror swag`;
 `swag/findaline-mirror.subdomain.conf` for SWAG; `compose.test.yaml` a stand-in for SWAG on `127.0.0.1:8790`; `test/`
 the check script's fixture, stand-in and door-check files) and `findaline-mirror-publish` (`publish/`: the SFTP door,
-Alpine + OpenSSH with a command gate `gate.sh`, its port on one LAN address). `tests/mirror_check.sh` runs every
+Alpine + OpenSSH with a command gate `gate.sh`, in the network namespace of a Husarnet sidecar `husarnet`, built by
+`husarnet-sidecar.Dockerfile` (Husarnet's nightly apt package, the 3.0 daemon, on Debian slim), entry point and
+healthcheck `husarnet.sh` (claims once, healthy when up with a peer of the user's on its allow list): no published port, reached
+over the door's own Husarnet network; the check script replaces the sidecar with a stand-in, `test/door-standin.Dockerfile`, holding a tun hnet0). `tests/mirror_check.sh` runs every
 behaviour and, with `--self-test`, each switched off (CI's job `mirror` of its own workflow
 `.github/workflows/mirror.yml`: when the mirror's files, the script, its static test or the workflow change, and by
 hand; 150 minutes; `--live <url>` against a running mirror: LV15's cap check from 1 MB tiles, LV17's held
