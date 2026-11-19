@@ -3554,23 +3554,47 @@ def test_search_form_css_on_the_scales():
 def test_admin_and_doc_pages_css():
     """Group D of step 3c (2026-11-19): the admin page's checkbox and its words are one target, 24 px and 44 px on a
     touch screen (R2), its badges start with a capital (as the status chips); the privacy and about pages' text rules
-    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens."""
+    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens,
+    also inside an @media block. The row is the checkbox's target only while the input sits inside its label
+    (AdminC.tsx): every .c-check label holds its checkbox. On a touch screen the checkbox takes a line of its own
+    (the user's "Both", 2026-11-19; tests/test_shell_c.py::test_admin_block_asks_and_checkbox_apart taps it)."""
     src = os.path.join(VIEWER, "src")
     with open(os.path.join(src, "app", "c", "c.css"), encoding="utf-8") as f:
         c = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
     check = re.search(r"\.ui \.c-check \{([^}]*)\}", c)
     assert check and "min-height: 24px" in check.group(1) and "var(--fs-2)" in check.group(1)
-    assert "@media (pointer: coarse) { .ui .c-check { min-height: 44px; } }" in c
+    coarse = {s: b for s, b, m in _css_rules(c) if "pointer: coarse" in m}
+    assert "min-height: 44px" in coarse.get(".ui .c-check", ""), coarse
+    assert "flex-basis: 100%" in coarse.get(".ui .c-admin-tools > .c-check", ""), coarse
     assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in c
+    with open(os.path.join(src, "app", "c", "AdminC.tsx"), encoding="utf-8") as f:
+        labels = re.findall(r'<label class="c-check">(.*?)</label>', f.read(), flags=re.S)
+    assert len(labels) == 2 and all('<input type="checkbox"' in label for label in labels), labels
     with open(os.path.join(src, "ui", "pages.css"), encoding="utf-8") as f:
         pages = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
-    prose = [m for m in re.finditer(r"([^{}]+)\{([^}]*)\}", pages) if re.search(r"p-prose|p-facts", m.group(1))]
+    prose = [(s, b) for s, b, _ in _css_rules(pages) if re.search(r"p-prose|p-facts", s)]
     assert len(prose) >= 5
-    for m in prose:
-        assert m.group(1).strip().startswith(".ui .p-doc "), m.group(1)
-        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", m.group(2)):
-            assert "var(--fs-" in font, (m.group(1), font)
-    assert "overflow-wrap: anywhere" in re.search(r"\.ui \.p-doc \.p-prose \{([^}]*)\}", pages).group(1)
+    for selector, body in prose:
+        assert all(part.strip().startswith(".ui .p-doc ") for part in selector.split(",")), selector
+        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", body):
+            assert "var(--fs-" in font, (selector, font)
+    assert "overflow-wrap: anywhere" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+
+
+def _css_rules(text: str) -> list:
+    """The style rules of a stylesheet without comments, also those inside @media (or any @-block): (selector, body,
+    the enclosing @-rules' preludes joined)."""
+    rules, stack, start = [], [], 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            stack.append(text[start:i].strip())
+            start = i + 1
+        elif ch == "}":
+            prelude = stack.pop() if stack else ""
+            if not prelude.startswith("@"):
+                rules.append((prelude, text[start:i], " ".join(stack)))
+            start = i + 1
+    return rules
 
 
 def test_placeholder_contrast():

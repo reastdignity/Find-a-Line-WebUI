@@ -2134,8 +2134,205 @@ def test_shell_c_public_remove_and_delete(tmp_path, clip_run, monkeypatch):
     assert not (data / "runs" / RUN_A).exists() and jobs.get(saved)["status"] == "done"
 
 
+# The admin page's checkbox rows: per row with a checkbox, the label's box, its words' box, the box of every other
+# control of its tools' row, and whether the label holds its input (the row is the input's target only then)
+ADMIN_ROWS_JS = """() => [...document.querySelectorAll('.c-admin-row .c-check')].map((l) => {
+  const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const range = document.createRange(); range.selectNodeContents(l);
+  return {name: l.closest('.c-admin-row').querySelector('.c-admin-head b').textContent, label: box(l),
+          words: ((w) => [w.left, w.top, w.right, w.bottom])([...range.getClientRects()].pop()), holds: !!l.querySelector('input[type=checkbox]'),
+          pad: parseFloat(getComputedStyle(l).paddingTop) || 0,
+          checked: l.querySelector('input').checked,
+          others: [...l.parentElement.children].filter((c) => c !== l).map((c) => [c.textContent.trim(), ...box(c)])}; })"""
+# An icon's look as drawn: its box, its viewBox and path, and the computed fill, stroke and stroke width
+ICON_JS = """(svg) => { const s = getComputedStyle(svg), r = svg.getBoundingClientRect();
+  return {w: r.width, h: r.height, viewBox: svg.getAttribute('viewBox'), d: svg.querySelector('path').getAttribute('d'),
+          fill: s.fill, strokeWidth: s.strokeWidth, cls: svg.getAttribute('class'),
+          sameColour: s.stroke === getComputedStyle(svg.parentElement).color}; }"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
+    """The admin page on the public site in Playwright's Edge (step 3c, group D's fix round; the user's "Both",
+    2026-11-19). On a touch screen each checkbox ("Without limits", the Runs row's "Demo") stands on a line of its own
+    under its row's buttons, and a finger's tap beside it (6 px above and under its line, the line's end) presses no
+    button: no user's status or sessions change, no question opens, the page stays; a tap on its words ticks it. With
+    a mouse it stays in its row. "Block…" and "Unblock…" ask first: "Keep" leaves the user as they were, the second
+    press acts. The sign-in page's "Open map" draws the arrow the kit's "next" icon draws (the Runs row's "Open")."""
+    import socket
+    import threading
+
+    import uvicorn
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    from playwright.sync_api import sync_playwright
+
+    import accounts as ac
+    from jobs import Jobs
+    from settings import AccountSettings, PublicSettings
+    for key, value in ACCOUNTS.items():
+        monkeypatch.setenv(key, value)
+    account_settings = AccountSettings.load()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    providers = FakeProviders(site)
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(clip_run, data, RUN_A, "A's run")
+    users = ac.Accounts(str(data), account_settings)
+    made = {}
+    for subject, name, status, session in (("41", "pending one", "pending", True), ("42", "approved one", "approved", True),
+                                           ("43", "blocked one", "blocked", False), ("44", "quiet one", "approved", False)):
+        user = users.sign_in("github", subject, name)
+        users.set_status(user.id, status)
+        if session:
+            users.new_session(user.id)
+        made[name] = user.id
+    jobs = Jobs(str(data))
+    jobs.add_run(RUN_A, None, 1)
+    jobs.set_visibility(RUN_A, "demo")
+
+    def state() -> dict:  # every user's status and sessions, by id
+        return {u["id"]: (u["status"], u["sessions"]) for u in users.listing()}
+
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings, oauth_transport=providers.transport)
+
+    @app.get("/test-provider/authorize")
+    def authorize(request: Request):  # the provider's page: the administrator agrees at once
+        return RedirectResponse(providers.authorize(str(request.url), {"id": 1, "login": "admin"}), 302)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    r = {"beside": [], "words": []}
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "the public site did not start"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                def admin_page(**options):
+                    context = browser.new_context(**options)
+                    context.add_init_script(C_STUBS)
+                    page = context.new_page()
+                    page.goto(f"{site}/login/github?next=" + "/%3Fui%3Dc")
+                    page.wait_for_selector(".c-cards, .c-empty", timeout=30000)
+                    if page.locator("dialog.n-beta[open]").count():
+                        page.keyboard.press("Escape")
+                        page.wait_for_function("() => !document.querySelector('dialog.n-beta[open]')", timeout=30000)
+                    page.evaluate("location.hash = '#admin'")
+                    page.wait_for_function("() => document.querySelectorAll('.c-admin-row .c-check').length >= 5",
+                                           timeout=30000)
+                    return context, page
+
+                # a phone: the checkbox on its own line, taps beside it press nothing
+                context, page = admin_page(viewport={"width": 390, "height": 664}, device_scale_factor=3,
+                                           is_mobile=True, has_touch=True)
+                rows = page.evaluate(ADMIN_ROWS_JS)
+                r["phone_rows"] = rows
+                for i, row in enumerate(rows):
+                    page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check')[{i}].scrollIntoView({{block: 'center'}})")
+                    row = page.evaluate(ADMIN_ROWS_JS)[i]
+                    left, top, right, bottom = row["label"]
+                    x = (row["words"][0] + row["words"][2]) / 2
+                    line = top + row["pad"]  # the line's top as drawn: the target reaches higher, up to the buttons
+                    buttons = (row["others"][-1][2] + row["others"][-1][4]) / 2  # the buttons' middle
+                    for where, point in (("above", (x, line - 6)), ("under", (x, bottom + 6)),
+                                         ("end", (right - 4, (line + bottom) / 2)), ("right of buttons", (right - 4, buttons))):
+                        before = state()
+                        page.touchscreen.tap(*point)
+                        page.wait_for_timeout(700)
+                        asked = page.locator(".c-user-block, .c-user-unblock").count()
+                        stayed = page.url.endswith("#admin")
+                        ticked = stayed and page.evaluate(ADMIN_ROWS_JS)[i]["checked"] != row["checked"]
+                        r["beside"].append([row["name"], where, state() == before, asked, stayed, ticked])
+                        if ticked:  # put back (the line's end is the label's: it ticks)
+                            page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check input')[{i}].click()")
+                            page.wait_for_function(f"() => document.querySelectorAll('.c-admin-row .c-check input')[{i}]"
+                                                   f".checked === {str(row['checked']).lower()}", timeout=30000)
+                            page.wait_for_timeout(700)
+                        if asked:
+                            page.get_by_role("button", name="Keep").click()
+                        if not page.url.endswith("#admin"):
+                            page.evaluate("location.hash = '#admin'")
+                            page.wait_for_function("() => document.querySelectorAll('.c-admin-row .c-check').length >= 5")
+                # a tap on the words of the quiet user's "Without limits" ticks it (and again: unticks)
+                quiet = next(i for i, row in enumerate(rows) if row["name"] == "quiet one")
+                for _ in range(2):
+                    page.evaluate(f"document.querySelectorAll('.c-admin-row .c-check')[{quiet}].scrollIntoView({{block: 'center'}})")
+                    words = page.evaluate(ADMIN_ROWS_JS)[quiet]["words"]
+                    page.touchscreen.tap((words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
+                    page.wait_for_timeout(700)
+                    r["words"].append(next(u["unlimited"] for u in users.listing() if u["id"] == made["quiet one"]))
+                context.close()
+
+                # a desktop: the checkbox in its row; Block… and Unblock… ask first
+                context, page = admin_page(viewport={"width": 1280, "height": 800})
+                r["desk_rows"] = page.evaluate(ADMIN_ROWS_JS)
+                approved = page.locator(".c-admin-row", has_text="approved one")
+                approved.get_by_role("button", name="Block…").click()
+                r["asked"] = approved.locator(".c-user-block").text_content()
+                r["after_ask"] = state()[made["approved one"]]
+                approved.get_by_role("button", name="Keep").click()
+                approved.get_by_role("button", name="Block…").wait_for(timeout=30000)
+                r["after_keep"] = state()[made["approved one"]]
+                approved.get_by_role("button", name="Block…").click()
+                approved.locator(".c-user-block").click()
+                page.wait_for_function("() => [...document.querySelectorAll('.c-admin-row')].some((row) => "
+                                       "row.textContent.includes('approved one') && row.textContent.includes('Unblock…'))",
+                                       timeout=30000)
+                r["blocked"] = state()[made["approved one"]]
+                blocked = page.locator(".c-admin-row", has_text="blocked one")
+                blocked.get_by_role("button", name="Unblock…").click()
+                r["unblock_asked"] = blocked.locator(".c-user-unblock").text_content()
+                blocked.get_by_role("button", name="Keep").click()
+                r["unblock_keep"] = state()[made["blocked one"]]
+                blocked.get_by_role("button", name="Unblock…").click()
+                blocked.locator(".c-user-unblock").click()
+                page.wait_for_function("() => [...document.querySelectorAll('.c-admin-row')].some((row) => "
+                                       "row.textContent.includes('blocked one') && row.textContent.includes('Block…'))",
+                                       timeout=30000)
+                r["unblocked"] = state()[made["blocked one"]]
+                r["kit_icon"] = page.locator(".c-admin-row", has_text="A's run").locator("a.u-btn svg").evaluate(ICON_JS)
+                context.close()
+
+                # the sign-in page, a visitor: the example card's arrow
+                context = browser.new_context(viewport={"width": 1280, "height": 800})
+                page = context.new_page()
+                page.goto(f"{site}/")
+                r["card_icon"] = page.locator(".p-open svg").evaluate(ICON_JS)
+                r["card_text"] = page.locator(".p-open").text_content()
+                context.close()
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(10)
+    assert len(r["phone_rows"]) == 5 and all(row["holds"] for row in r["phone_rows"] + r["desk_rows"]), r
+    for row in r["phone_rows"]:  # its own line, under every other control of its row
+        assert all(row["label"][1] >= other[4] for other in row["others"]), row
+    assert all(beside[2:5] == [True, 0, True] for beside in r["beside"]), r["beside"]
+    assert all(beside[5] for beside in r["beside"] if beside[1] == "end"), r["beside"]  # the line is the label's
+    assert r["words"] == [True, False], r
+    for row in r["desk_rows"]:  # a mouse: in the row, beside its buttons
+        assert any(other[2] <= row["label"][1] + 24 and row["label"][3] >= other[2] for other in row["others"]), row
+    assert r["asked"] == "Block them" and r["after_ask"] == r["after_keep"] == ("approved", 1), r
+    assert r["blocked"][0] == "blocked", r
+    assert r["unblock_asked"] == "Unblock them" and r["unblock_keep"] == ("blocked", 0) and r["unblocked"][0] == "approved", r
+    kit, card = r["kit_icon"], r["card_icon"]
+    assert r["card_text"] == "Open map", r
+    assert (card["cls"], card["viewBox"], card["d"], card["fill"], card["strokeWidth"]) == \
+        (kit["cls"], kit["viewBox"], kit["d"], kit["fill"], kit["strokeWidth"]) and card["sameColour"], r
+    assert (card["w"], card["h"]) == (16, 16) and card["fill"] == "none", r
+
+
 # The phone's sheet: the head's shadow and the boxes of the head and the body
-SHEET_JS = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+SHEET_JS ="""() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const head = document.querySelector('.u-sheet .u-sheet-head'), body = document.querySelector('.u-sheet .u-sheet-body');
   return {shadow: getComputedStyle(head).boxShadow, head: box(head), body: box(body), top: body.scrollTop}; }"""
 # The result's profile card: every leaf of its bar and readout whose text is wider than its box, the chart's height,
