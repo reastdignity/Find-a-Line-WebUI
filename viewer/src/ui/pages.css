@@ -61,7 +61,7 @@
 .ui .p-facts dt:first-child { margin-top: 0; }
 .ui .p-facts dd { margin: 2px 0 0; color: var(--ink-2); }
 
-.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 16px; padding-top: 12px; border-top: 1px solid var(--rule);
+.ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 8px; padding-top: 12px; border-top: 1px solid var(--rule);
   color: var(--muted); font-size: var(--fs-2); }
 .ui .p-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; color: var(--ink-2); }
 /* the brand's link and the line's one link under the lead ("Where the data is detailed"): controls of their own */
