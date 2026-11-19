@@ -135,6 +135,11 @@
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > span,
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > div { display: flex; align-items: center; gap: 8px; }
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-separator { border-top-color: var(--rule); }
+/* the place map's layers button: the kit's "layers" icon (PlaceMap.ts puts it in), not Leaflet's grey picture; no
+   picture to turn over in the dark theme (ui.css) */
+.ui .c-placemap .leaflet-control-layers .leaflet-control-layers-toggle { display: flex; align-items: center; justify-content: center;
+  background-image: none; filter: none; color: var(--ink); }
+.ui .c-placemap .leaflet-control-layers.leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none; }
 /* the rows' own radio and checkbox in the accent (the browser's blue otherwise) */
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { accent-color: var(--accent); }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */

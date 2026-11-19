@@ -32,6 +32,12 @@ export const PHONE = "(max-width: 767px), (pointer: coarse) and (max-height: 480
  *  redraw of its rows (Leaflet draws them again at each change) it calls `options.afterUpdate`: the coverage's row
  *  gets its link again (coverageLayer.ts). */
 const Layers = L.Control.Layers.extend({
+  // the button with the kit's "layers" icon instead of Leaflet's grey picture (static markup: the CSP allows it;
+  // mapbar.css takes the picture off)
+  _initLayout(this: any) {
+    (L.Control.Layers.prototype as any)._initLayout.call(this);
+    this._layersLink.innerHTML = `<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS.layers}</svg>`;
+  },
   _update(this: any) {
     const done = (L.Control.Layers.prototype as any)._update.call(this);
     if (this._container) this.options.afterUpdate?.();
