@@ -180,7 +180,7 @@ const STATUS: Record<Status, [string, IconName]> = {
 /** The state of a search or run as a small coloured label. */
 export function StatusChip({status, children}: {status: Status; children?: ComponentChildren}) {
   const [text, icon] = STATUS[status];
-  return <span class={`u-st u-${status}`}><Icon name={icon} />{children ?? text}</span>;
+  return <span class={`u-st u-${status}`}><Icon name={icon} /><span class="u-st-word">{children ?? text}</span></span>;
 }
 
 /** A progress bar: `value` from 0 to 1, or null while the amount is unknown. */

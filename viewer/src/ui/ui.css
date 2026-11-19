@@ -83,6 +83,8 @@
   border: 0; border-radius: var(--r-1); background: transparent; font-size: var(--fs-3); color: var(--ink-2); font-weight: 500; white-space: nowrap; cursor: pointer; padding: 0 8px; }
 @media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }
 .ui .u-seg button.u-on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+/* its own shadow and the keyboard's ring together (the ring is a shadow too: one alone would replace the other) */
+.ui .u-seg button.u-on:focus-visible { box-shadow: 0 1px 3px rgb(0 0 0 / .12), var(--focus); }
 
 /* Panels, by R8's levels of container: .u-panel alone is "raised" (a popover, a table under a press: the surface
    and its shadow, no edge); a page's own section (components.tsx Panel: .u-ground) lies on the ground, with no box,
@@ -158,6 +160,10 @@
 .ui .u-st { display: inline-flex; align-items: center; gap: 4px; font: 500 var(--fs-1)/16px var(--font); padding: 2px 8px;
   border-radius: var(--r-full); white-space: nowrap; }
 .ui .u-st .u-ic { width: 12px; height: 12px; }
+/* the word starts with a capital whatever its source (the server's states are lower case); a block of its own:
+   ::first-letter does not apply to the chip, a flex container */
+.ui .u-st-word { display: inline-block; }
+.ui .u-st-word::first-letter { text-transform: uppercase; }
 .ui .u-st.u-done { background: var(--ok-soft); color: var(--ok); }
 .ui .u-st.u-running { background: var(--status-run); color: var(--accent-ink); }  /* apart from done's green (the user's c) */
 .ui .u-st.u-waiting, .ui .u-st.u-cancelled { background: var(--surface-2); color: var(--ink-2); }
@@ -258,6 +264,8 @@
 .ui .u-shore-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .ui .u-shore-head b { flex: 1 1 auto; }
 .ui .u-shore-help { font: inherit; cursor: pointer; }
+/* the note's "?" on a touch screen: its 44 px target grows away from the fold button 8 px before it */
+@media (pointer: coarse) { .ui .u-shore-head .u-hint::after { inset: -14px -21px -14px -7px; } }
 .ui .u-shore-row { display: flex; align-items: center; gap: 8px; }
 .ui .u-shore-swatch { flex: none; width: 18px; height: 0; border-top: 3px solid #e3912f; }
 .ui .u-shore-surface { border-top-style: dashed; }
