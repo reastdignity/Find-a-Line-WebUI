@@ -86,7 +86,7 @@ export function createValid(scene: SceneCore, root: HTMLElement, options: ValidO
   let switchOn = false, pointOn = false, pointShown: Reach | null = null;
   let pointAsk: {lonLat: [number, number]; got(reach: Reach): void; failed(error: unknown): void} | null = null;
   const hint = el("p", "v3-note v3-valid-note v3-hidden", t("ui.view3d.valid_hint"));
-  const failure = el("p", "v3-note v3-valid-note v3-reach-failed v3-hidden");
+  const failure = el("p", "v3-note v3-alert v3-valid-note v3-reach-failed v3-hidden");
   failure.setAttribute("role", "alert");
   notes.parent.insertBefore(hint, notes.before);
   notes.parent.insertBefore(failure, notes.before);

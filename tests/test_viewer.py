@@ -3464,7 +3464,7 @@ def test_view3d_icons_are_the_kits():
     kit = open(os.path.join(VIEWER, "src", "ui", "icons.tsx"), encoding="utf-8").read()
     copy = open(os.path.join(VIEWER, "src", "view3d", "icon.ts"), encoding="utf-8").read()
     copies = dict(re.findall(r"^  (\w+): '([^']*)',$", copy.split("KIT_ICONS = {")[1].split("}")[0], re.M))
-    assert set(copies) == {"close", "sort", "star"}, copies
+    assert set(copies) == {"close", "info", "sort", "star"}, copies
     for name, path in copies.items():
         assert f"  {name}: '{path}'," in kit, name
 

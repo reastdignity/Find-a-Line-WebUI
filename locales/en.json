@@ -936,6 +936,8 @@
   "ui.view3d.imagery_refused": "The imagery service does not answer: the terrain is shaded where its tiles are missing.",
   "ui.view3d.imagery_retry": "Try again",
   "ui.view3d.dismiss": "Dismiss",
+  "ui.view3d.info": "About this view",
+  "ui.view3d.info_close": "Close",
   "ui.view3d.no_imagery":"No imagery for this result: the terrain is shaded.",
   "ui.view3d.walker": "Athlete",
   "ui.view3d.walker_position": "Athlete's position along the line",

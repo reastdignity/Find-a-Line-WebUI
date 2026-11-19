@@ -88,7 +88,7 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
 
   const container = el("div", "v3-others");
   overlayOf(scene).prepend(container);  // first, so the anchors' handles stand over the labels
-  const note = el("p", "v3-note v3-others-note v3-hidden", t("ui.view3d.others_none"));
+  const note = el("p", "v3-note v3-alert v3-others-note v3-hidden", t("ui.view3d.others_none"));
   note.setAttribute("role", "status");
   notes.parent.insertBefore(note, notes.before);
 

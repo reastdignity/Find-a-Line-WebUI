@@ -260,6 +260,41 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 @media (max-width: 600px) and (pointer: coarse) {
   #view3d .v3-speed { min-width: 44px; }
 }
+/* "About this view" (row 39; the user, 2026-11-19: "A: info button beside \"Data credits\""; info.ts): where the
+   compact bar shows (the phone level, under 600 px, a touch screen at most 480 px high) the bar's notes that explain
+   are not shown in it; a button in the credits' box (shown there even without credits) opens a box with them over
+   the stage's bottom. What failed (.v3-alert), the walk's and the motion's notes stay in the bar. The desktop keeps
+   its lines. The same rules three times: the level's class, the two media */
+#view3d .v3-infobox { display: none; }
+#view3d .v3-info { display: none; flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
+                   color: var(--ink-2); }
+#view3d .v3-info:hover, #view3d .v3-infobox-close:hover { background: var(--hover); }
+#view3d .v3-info[aria-expanded="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.v3-infobox { position: absolute; z-index: 3; right: 8px; bottom: 8px; box-sizing: border-box;
+              width: min(400px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow-y: auto;
+              overscroll-behavior: contain; padding: 4px 4px 12px 16px; font-size: var(--fs-2); line-height: 1.5;
+              color: var(--ink-2); background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow); }
+.v3-infobox-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#view3d .v3-infobox-title { margin: 0; font: 600 var(--fs-3)/1.4 var(--font); color: var(--ink); }
+#view3d .v3-infobox-close { flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
+                            color: var(--ink-2); }
+/* a line of the box: a copy of a note with the note's classes (the views' rules and .v3-hidden hide it as they hide
+   the note), in the box's own type */
+#view3d .v3-infobox .v3-infobox-line { flex: none; margin: 0 12px 8px 0; font-size: var(--fs-2); line-height: 1.5;
+                                       color: var(--ink-2); }
+#view3d .v3-infobox .v3-infobox-line:last-child { margin-bottom: 0; }
+#view3d.v3-phone .v3-bar > .v3-note:not(.v3-alert), #view3d.v3-phone .v3-bar .v3-imagery-note { display: none; }
+#view3d.v3-phone .v3-info { display: inline-flex; }
+#view3d.v3-phone .v3-infobox:not(.v3-hidden) { display: block; }
+#view3d.v3-phone .v3-credits { display: flex; align-items: center; gap: 4px; padding: 0 12px 0 0; }
+#view3d.v3-phone .v3-credits.v3-hidden { padding: 0; }
+@media (max-width: 600px), (pointer: coarse) and (max-height: 480px) {
+  #view3d .v3-bar > .v3-note:not(.v3-alert), #view3d .v3-bar .v3-imagery-note { display: none; }
+  #view3d .v3-info { display: inline-flex; }
+  #view3d .v3-infobox:not(.v3-hidden) { display: block; }
+  #view3d .v3-credits { display: flex; align-items: center; gap: 4px; padding: 0 12px 0 0; }
+  #view3d .v3-credits.v3-hidden { padding: 0; }
+}
 /* A phone held sideways (row 37; the user, 2026-11-19: "A: one row"): a touch screen at most 480 px high (the height
    of app/PlaceMap.ts PHONE) and wider than 600 px, at both levels. The readout's sentences on a line, under it ONE
    row of the phone's own pieces: the views' switch as icons, in the athlete's views the zoom and the phone's motion,

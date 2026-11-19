@@ -67,8 +67,13 @@ function browserStore(): Store | null {
   try { return window.localStorage; } catch { return null; }
 }
 
+/** Wide enough for the open credits: not a phone held sideways (a touch screen at most 480 px high, view3d.css's
+ *  one-row bar: 844 x 390 is "wide", and the open credits covered 139 of the stage's 248 px there). */
 function wideScreen(): boolean {
-  try { return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches; } catch { return false; }
+  try {
+    return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches &&
+      !matchMedia("(pointer: coarse) and (max-height: 480px)").matches;
+  } catch { return false; }
 }
 
 /** The credits box: entries sorted by their order, hidden while empty. The run's data credits (DATA_CREDITS) fold
@@ -83,9 +88,12 @@ export function creditsBox(box: HTMLElement, store: Store | null = browserStore(
   try { stored = store?.getItem(CREDITS_KEY) ?? null; } catch { /* storage refused: the default */ }
   let open = creditsStartOpen(stored, wide());
   const label = t("ui.credits.toggle").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  // the entries' own part of the box where the page made one (main.ts frame: after the phone's "About this view"
+  // button), else the box itself; the box is marked hidden while it has no entry
+  const body = box.querySelector<HTMLElement>(".v3-credits-list") ?? box;
   const render = () => {
     const list = [...entries.entries()].sort((a, b) => a[1].order - b[1].order);
-    box.innerHTML = list.map(([id, e]) => id !== DATA_CREDITS ? `<span class="v3-credit">${e.html}</span>`
+    body.innerHTML = list.map(([id, e]) => id !== DATA_CREDITS ? `<span class="v3-credit">${e.html}</span>`
       : `<span class="v3-credit"><button type="button" class="u-credits-toggle" aria-expanded="${open}">${label}` +
         `</button><span class="u-credits${open ? " u-open" : ""}">${e.html}</span></span>`).join(" ");  // trusted HTML only
     box.classList.toggle("v3-hidden", !list.length);

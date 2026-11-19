@@ -229,3 +229,68 @@ def test_view3d_card_steps_aside(clip_data, monkeypatch):
             page.context.close()
         finally:
             browser.close()
+
+
+def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
+    """Row 39 ("A: info button beside \"Data credits\""): on a phone (390 x 664) no note that explains stands in the
+    bar; the button "About this view" stands in the credits' box, 44 px, and a tap opens a box inside the stage with
+    the preview's note (its sentence "Check every line on the spot") and the phone level's; the bar keeps its height
+    when the box opens and when the view changes, and the box then shows the look hint in place of the phone
+    level's note; the button says whether the box is open, the focus goes into the box, Escape closes it and gives
+    the focus back, and so does the box's own button; a failure's note stays in the bar. A desktop keeps its lines
+    in the bar and has no button."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dinfo")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"http://127.0.0.1:{port}/{path}{line}"
+            page = _open(browser, url, _phone(p, 390, 664))
+            closed = page.evaluate(INFO)
+            assert closed["inBar"] == [] and closed["box"] is None and closed["copies"] == 0, closed
+            button = closed["button"]
+            assert button and closed["inCredits"] and closed["name"] == "About this view", closed
+            assert min(button[2] - button[0], button[3] - button[1]) >= 43.5, closed
+            assert closed["expanded"] == "false" and closed["controls"] and closed["role"] == "dialog", closed
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function("() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'true'",
+                                   timeout=WAIT)
+            opened = page.evaluate(INFO)
+            box, stage = opened["box"], opened["stage"]
+            assert box and box[0] >= stage[0] and box[1] >= stage[1] and box[2] <= stage[2] and box[3] <= stage[3], opened
+            assert any("Check every line on the spot." in text for text in opened["lines"]), opened
+            assert "Simplified view on phones: anchors cannot be dragged." in opened["lines"], opened
+            assert not any("pinch to zoom" in text for text in opened["lines"]), opened
+            assert "v3-infobox-close" in opened["focus"] and opened["bar"] == closed["bar"], opened
+            # the view changed with the box open: the look hint in the phone note's place, the bar as high
+            page.evaluate(VIEW, "eyes")
+            page.wait_for_function(VIEWED, arg="eyes", timeout=WAIT)
+            eyes = page.evaluate(INFO)
+            assert "Drag to look around, pinch to zoom." in eyes["lines"], eyes
+            assert "Simplified view on phones: anchors cannot be dragged." not in eyes["lines"], eyes
+            assert eyes["bar"] == closed["bar"] and eyes["inBar"] == [], eyes
+            page.keyboard.press("Escape")
+            shut = page.evaluate(INFO)
+            assert shut["box"] is None and shut["copies"] == 0 and shut["expanded"] == "false", shut
+            assert "v3-info" in shut["focus"].split(), shut
+            # opened by the keyboard (the focus is on the button), closed by the box's own button
+            page.keyboard.press("Enter")
+            assert page.evaluate(INFO)["box"], "Enter on the button opens the box"
+            page.keyboard.press("Enter")  # the focus is on the box's close button
+            shut = page.evaluate(INFO)
+            assert shut["box"] is None and "v3-info" in shut["focus"].split(), shut
+            # what answers a tap or failed stays in sight in the bar (here: "No other saved lines in this result.")
+            page.evaluate(VIEW, "orbit")  # the note of the other lines shows in the orbit only (others.css)
+            page.wait_for_function(VIEWED, arg="orbit", timeout=WAIT)
+            page.evaluate("() => document.querySelector('.v3-bar > .v3-others-note').classList.remove('v3-hidden')")
+            assert any("v3-alert" in cls for cls in page.evaluate(INFO)["inBar"])
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+            # a desktop: the lines in the bar, no button
+            page = _open(browser, url, {"viewport": {"width": 1200, "height": 800}})
+            desk = page.evaluate(INFO)
+            assert desk["button"] is None and desk["box"] is None, desk
+            assert "v3-note" in desk["inBar"] and any("v3-imagery-note" in cls for cls in desk["inBar"]), desk
+            page.context.close()
+        finally:
+            browser.close()

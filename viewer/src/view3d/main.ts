@@ -23,6 +23,7 @@ import { createCanopy } from "./canopy";
 import { stepAside } from "./chrome";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
+import { createInfo } from "./info";
 import { createLine } from "./line";
 import { createOthers } from "./otherlines";
 import { createPin } from "./pin";
@@ -72,6 +73,10 @@ function frame(root: HTMLElement, page: PageRequest) {
   const note = el("p", "v3-note", t("ui.view3d.preview_note"));
   bar.append(readout, toolbar, note);
   if (page.level === "phone") bar.append(el("p", "v3-note v3-phone-note", t("ui.view3d.phone_level")));
+  // On a phone the notes are behind the "About this view" button in the credits' box (info.ts; view3d.css shows
+  // the button and hides the bar's notes where the compact bar shows)
+  const info = createInfo(stage, bar);
+  credits.append(info.button, el("span", "v3-credits-list"));
   root.append(top, stage, bar);
   root.classList.toggle("v3-phone", page.level === "phone");
   // The loading's message and bar while the status shows a stage (progress), made once and changed in place
