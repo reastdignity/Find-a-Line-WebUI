@@ -410,7 +410,7 @@ console.log(JSON.stringify(out));""")
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
     assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
-    assert found["short"] == ["Long and exposed, 100–600 m, My rig", "Custom, 30–300 m, Rig for this search"]
+    assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
     assert found["size"] == [["Heavy", 2, "sag, no-fall zone 5 m", 3],
                              ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3],
@@ -3502,6 +3502,11 @@ def test_neutrals_copies_in_step():
                             assert colour == light[token], (name, token, colour)
                             fallbacks += 1
     assert fallbacks >= 6, fallbacks  # app/coverageLayer.css
+    # the dark halo is the dark ground; the profile chart's frame colour (Profile.tsx PROFILE, the value outside .ui,
+    # where profile.css gives --r-frame: var(--ink-2)) is the light second ink
+    assert all(d["--halo"] == d["--bg"] for d in darks)
+    with open(os.path.join(VIEWER, "src", "Profile.tsx"), encoding="utf-8") as f:
+        assert re.findall(r'frame: "(#[0-9a-f]{6})"', f.read()) == [light["--ink-2"]]
     with open(os.path.join(VIEWER, "src", "app", "c", "cellsLayer.ts"), encoding="utf-8") as f:
         assert re.findall(r'getPropertyValue\("--ink"\)\.trim\(\) \|\| "(#[0-9a-f]{6})"', f.read()) == [light["--ink"]] * 2
 
@@ -3536,6 +3541,10 @@ def test_search_form_css_on_the_scales():
     assert "background: none" in ground and "box-shadow: none" in ground and "border-top: 1px solid var(--rule)" in ground
     assert "border:" not in rule(".ui .u-panel ") and "var(--shadow)" in rule(".ui .u-panel ")  # raised: no edge
     assert "uppercase" not in rule(".ui .u-st ") and "var(--mono)" not in rule(".ui .u-st ")
+    # the keyboard's ring beside a selected control's own shadow (the design review's F2: one replaced the other)
+    assert "var(--focus)" in rule(".ui .u-seg button.u-on:focus-visible")
+    with open(os.path.join(src, "search", "search.css"), encoding="utf-8") as f:
+        assert ".ui .s-card.u-on:focus-visible { box-shadow: inset 0 0 0 1px var(--accent), var(--focus); }" in f.read()
     assert "@media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }" in kit
     assert "@media (pointer: coarse) { .ui .u-chip { min-height: 44px;" in kit
     with open(os.path.join(src, "ui", "components.tsx"), encoding="utf-8") as f:
