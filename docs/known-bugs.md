@@ -376,6 +376,65 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 - `tests/test_web.py::test_basic_form_on_a_phone` failed once in a parallel run of the affected files and passed
   alone on the same tree; run it alone before calling a failure of it a regression.
 
+## Step 3c, group A (the first-timer's screens): controls left under R2, and what the probes found (2026-11-19)
+
+Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
+rules. On a phone one control stays under R2's 44 px (the place map's zoom and "Data coverage", the receipt's
+parts in the phone's unfolded bar and the drawing tools were more until the user's picks of 2026-11-19: DESIGN.md
+"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the
+coverage's own button (32 px) and the drawing tools (30 px):
+
+- **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
+  itself needs no press.
+
+Outside group A, by the kit's sizes and accepted (that page is being replaced by the new result view): on today's
+result page on a phone the filter chips are 44 px high and "More filters" stands on a row of its own, so the list
+starts about 40 px lower.
+
+With the place map's phone arrangement (choice 34): on a phone held sideways in the narrow frame (667 x 375, a
+128 px map) the opened layers' box ends 4 px above the credits and shows 90 px of its 143 px of rows (two rows;
+measured): it scrolls inside, and "Data coverage", its last row, is reached by that scroll; the list ends in the
+middle of a row (66 px), so that more is seen to be there. The drawing tools (Advanced, "Area") stand in one row
+beside the zoom on a phone, 44 px each (as Geoman's column under the zoom two lay over the scale and the credits
+at 390 x 664 and three under the map held sideways; on main all five were above the map's top); at 844 x 390 the
+row's last tool ends where the layers' button begins (0 px between them, no overlap), and on a map narrower than
+338 px the row wraps under the zoom (measured at 360 x 640: the last three tools on a second row; there a drawing
+tool's actions, which open under the first row, lie over the last of them by 36 x 40 px, and the polygon's three
+actions reach 10 px past the map's right edge). The tools are links without a name for a screen reader
+(Leaflet-Geoman's own markup: axe `link-name`, 5 nodes, in the new `ui_shots` state `c-new-area`; the same
+markup on main). On a tablet in the columns with a finger the coverage's own box keeps its
+32 px button and the tools Geoman's 30 px column (the desktop's arrangement: the user picked on phone frames); a tap
+on the coverage button while the layers' box is open closes the box and misses the button, which moves 56 px down
+as the box (rows of 44 px now) closes: the second tap takes. An earlier note here, that the layers' box does not
+open while the tools are shown, was the test harness's doing (the emulated mouse left over the Advanced tab makes
+Leaflet close the box on a late mouseout; with taps only it opens, on main too: `3c-a/probes-r5`).
+
+The layers' box and the keyboard, Leaflet's own and the same on main (measured on both codes, 2026-11-19; for
+step 3d): Escape does not close the open box; Enter on the layers' button opens it and the focus falls to the
+page (the next Tab reaches the first row); on a touch screen a second tap where the button was lands on the row
+under it and can switch the base map (main: at every size; the branch: on a tablet); with the coverage on, its 83
+outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
+layers, zoom (their order in the corner).
+
+The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
+90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways.
+
+Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
+`local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
+bottom bar before the page is scrolled (the account's "Sign out", Home's cards); "Stay in Advanced" in the dialog
+of going back to Basic is cut on the left on a 390 px phone (5.6 px; 19.6 px on main); the keyboard's ring is cut
+where a control stands at the edge of a scrolling column (an input at the form's bottom edge after the focus's
+scroll, the map's credits' links by 2 px, the map itself on its right edge): step 3d's item on `scroll-margin`.
+The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
+are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
+and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
+
+Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
+(`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
+x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
+between a path's folders in Favourites, "Open map ›" on the sign-in page's example cards (`web.py`: outside the
+viewer).
+
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
 On a phone held sideways in the phone's layout (667 x 375) the zoom and the layers stand in the level switch's row

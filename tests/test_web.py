@@ -2382,7 +2382,7 @@ def test_search_panel(tmp_path):
     started = r["started"]
     assert started["id"] == started["job"] and "waiting" in started["card"], started
     assert started["meters"] == ["runs_gb", "jobs_day", "jobs_active"], started  # locally: no km² counted
-    assert "No daily limits" in started["usage"] and "Searches today · 1" in started["usage"], started
+    assert "No daily limits" in started["usage"] and "Searches today: 1" in started["usage"], started
     queued = Jobs(str(tmp_path)).get(started["id"])
     assert json.loads(queued["request"])["params"] == r["again"]["body"]
     assert _violations(dom) == []
@@ -2728,7 +2728,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["saved"][2] == r["saved"][3], r  # the new rig is in use, kept in this browser
     assert r["edit_title"] == "Change a rig" and r["escaped"] == ("My rig", "u-btn s-rig-change"), r
     assert r["inside"] == 1, r
-    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag · no-fall zone 3 m · no A-frames"), r
+    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag, no-fall zone 3 m, no A-frames"), r
     assert r["taken"] == "Give the copy a new name: “Light” is taken.", r
     assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
     assert r["chosen"] == str(light), r
@@ -2845,9 +2845,12 @@ PLACE_ZOOM = "(by) => window.FINDALINE_PLACE.map.setZoom(window.FINDALINE_PLACE.
 FOCUS_JS = """() => { const a = document.activeElement; return [a.matches('.s-placebox input'),
   a.matches('input[type=text], input[type=search], textarea'), a.matches('.s-where [role=radio][aria-checked=true]'),
   a === document.body, [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place')]; }"""
+# (the last item: the font of the "Data coverage" button, null where there is none: on a phone since step 3c, whose
+# coverage is a row of the layers' box (PlaceMap.ts' phone arrangement, the user's pick A2 of 2026-11-19; the row's
+# words: tests/test_shell_c_search_page.py))
 WHERE_JS = """() => [document.querySelector('.s-point')?.textContent.trim(), document.querySelector('.s-placebox input').placeholder,
   [...document.querySelectorAll('.s-where button')].some((b) => b.textContent.trim() === 'Clear the place'),
-  document.querySelector('.s-bar').textContent, getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
+  document.querySelector('.s-bar').textContent, document.querySelector('.n-coverage-btn') && getComputedStyle(document.querySelector('.n-coverage-btn')).fontSize]"""
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
@@ -2859,7 +2862,8 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     a click of detail 0 as a screen reader's: no text field, no on-screen keyboard); on the desktop the scale is
     raised once its line (as a zoom widens it) reaches under the credits and back once clear; the place map's scale right above its credits on the phone, where the two lines of credits
     run under the scale's corner, also after a zoom out and in (the scale's width changes); the "Data coverage" button
-    at its own 13 px, and no control whose own font rule loses to the base rule."""
+    at its own 13 px on the desktop (the phone has none since step 3c: WHERE_JS), and no control whose own font rule
+    loses to the base rule."""
     from playwright.sync_api import sync_playwright
     _search_page(tmp_path, "", folder_name="basictest")
     r = {}
@@ -2928,7 +2932,8 @@ def test_search_form_words_and_corners_by_device(tmp_path):
     assert "Select the centre of the search: click the map." in bar and size == "13px", r
     hint, placeholder, clear, bar, size = r["phone_empty"]
     assert (hint, placeholder, clear) == ("Tap the map to set the centre of the search.", "Go to a place", False)
-    assert "Select the centre of the search: tap the map." in bar and size == "13px", r
+    # no "Data coverage" button on a phone since step 3c (its row in the layers' box; was: the button at 13px)
+    assert "Select the centre of the search: tap the map." in bar and size is None, r
     assert r["desktop_point"][0].endswith("click elsewhere to move it") and r["desktop_point"][2] is True, r
     assert r["phone_point"][0].endswith("tap elsewhere to move it") and r["phone_point"][2] is True, r
     # [place box, a text field, the chosen mode, body, button shown]

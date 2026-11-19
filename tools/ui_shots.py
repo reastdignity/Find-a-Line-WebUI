@@ -111,6 +111,29 @@ COVERAGE_CLICK = "document.querySelector('.cov-shape[data-key=\"{key}\"]').dispa
 GLOBE = ".cov-bar .u-seg button:nth-child(3)"  # the globe view: it turns by itself until touched (SPINS)
 # The place map zoomed out (its zoom's animation and tiles: settled)
 ZOOM_OUT = "window.FINDALINE_PLACE.map.setZoom(5)"
+# The place map's layers' box opened by a press on its button: a script's click, which Leaflet's own handler of the
+# toggle answers with expand() on every device. Not Playwright's click: its pointer reaches the box first, whose
+# "mouseenter" opens it and hides the button, so the click waits for the button until its timeout (2026-11-19, every
+# device). Not LAYERS_OPEN either: that skips expand()'s sizing, which these pictures review (an opened box scrolls
+# inside a low map)
+PLACE_LAYERS = "js:document.querySelector('.c-placemap .leaflet-control-layers-toggle').click()"
+# The phone's coverage row (Leaflet's checkbox of an overlay) ticked by a script's click; nothing where there is no
+# such row (a desktop). A step of its own after the box opened: the box ignores presses on its list until a 0 ms
+# timer after it opened (Leaflet's _expandSafely; the settled wait between the steps waits for it). Playwright's click
+# on the row lost to that timer in 13 of 16 tries (2026-11-19: its pointer entering the box opens it again)
+COVERAGE_ROW = "js:document.querySelector('.c-map-phone .leaflet-control-layers-overlays input:not(:checked)')?.click()"
+# The data coverage switched on (app/PlaceMap.ts, coverageLayer.ts): on a desktop a press on its own button (a
+# script's click since step 3c: Playwright's pointer no longer rests on the button when it is shot); in the phone's
+# arrangement (.c-map-phone, no such button) the layers' box opened, then its coverage row ticked
+COVERAGE_ON = ["js:(document.querySelector('.n-coverage-btn') || document.querySelector('.c-map-phone .leaflet-control-layers-toggle')).click()",
+               COVERAGE_ROW]
+# The place map's drawing tools shown (Leaflet-Geoman's toolbar: Advanced, the place kind "Area"; a phone: one row
+# beside the zoom, mapbar.css): the tab and the kind each by a script's click (not Playwright's click, as ADVANCED is:
+# its pointer stays over the tab, and Leaflet closes an opened layers' box on that pointer's late "mouseout"), then
+# the five tools waited for
+AREA_TOOLS = ["js:document.querySelector('.s-tabs [data-tab=advanced]').click()",
+              "js:[...document.querySelectorAll('.s-where .u-seg [role=radio]')].find((b) => b.textContent.trim() === 'Area')?.click()",
+              "wait:document.querySelectorAll('.c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button').length === 5"]
 # The section "Anchors" of a result's More filters in view: its terrain line in the middle (the anchors'
 # heights and percentiles around it), else its heading at the top
 ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
@@ -360,7 +383,13 @@ PAGES = {
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
     "map-shared-credits": ("shared", "", ".u-credits-toggle"),
-    "c-new-coverage": ("c", "#new", [".n-coverage-btn", "js:" + ZOOM_OUT]),  # the data coverage on the place map
+    # the data coverage on the place map, zoomed out (a phone: the layers' box open with the coverage's row ticked)
+    "c-new-coverage": ("c", "#new", COVERAGE_ON + ["js:" + ZOOM_OUT]),
+    "c-new-layers": ("c", "#new", PLACE_LAYERS),  # the place map's layers' box opened (every device)
+    "c-new-area": ("c", "#new", AREA_TOOLS),  # the place map's drawing tools (Advanced, "Area"; every device)
+    # the OSM page's place map with its layers' box open and, on a phone, the coverage's row ticked (a desktop has no
+    # such row, its coverage is a box of its own: the box shows the base layers only)
+    "c-osm-layers": ("c", "#osm", [PLACE_LAYERS, COVERAGE_ROW]),
     # The Basic search form (spec-search 1.6): the first visit (no rig saved: the starting rig), a saved rig, three
     # rigs, the rig chooser, ten rigs, each goal, the rig's window (the first, a change), Advanced, the dialog of going
     # back to Basic, the size word's "?", the phones' compact bar unfolded

@@ -26,7 +26,7 @@
 @media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) { --r-terrain-fill: #4d4433; } }
 .ui[data-theme="dark"] { --r-terrain-fill: #4d4433; }
 .ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
-.ui .r-profile svg line[stroke="#eee"] { stroke: var(--line); }
+.ui .r-profile svg line[stroke="#eee"] { stroke: var(--rule); }
 .ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
 .ui .r-profile svg text:not([fill]) { fill: var(--ink); }
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
@@ -58,9 +58,9 @@
    which stays the curves' colour), as text at 4.5:1 or more on the card's --surface in each theme */
 .ui { --r-highest-label: #6a3d9a; --r-trees-label: #3b8632; --r-min-label: #877454; }
 @media (prefers-color-scheme: dark) {
-  .ui:not([data-theme="light"]) { --r-highest-label: #9a70c6; --r-trees-label: #419437; --r-min-label: #957f5d; }
+  .ui:not([data-theme="light"]) { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
 }
-.ui[data-theme="dark"] { --r-highest-label: #9a70c6; --r-trees-label: #419437; --r-min-label: #957f5d; }
+.ui[data-theme="dark"] { --r-highest-label: #a078c9; --r-trees-label: #459c3a; --r-min-label: #9d8662; }
 .ui .r-profile svg .fal-label-highest { fill: var(--r-highest-label); }
 .ui .r-profile svg .fal-label-trees { fill: var(--r-trees-label); }
 .ui .r-profile svg .fal-label-min { fill: var(--r-min-label); }

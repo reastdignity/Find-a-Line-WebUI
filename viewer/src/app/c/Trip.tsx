@@ -56,9 +56,9 @@ export function Trip({full = false, limit}: {full?: boolean; limit?: number}) {
                 onClick={() => remove(r)}><Icon name="star" fav /></button>
         <a class="c-fav-open" href={runHash(r.fav.run_id, r.fav.line)}>
           <span class="u-grow">
-            <b>{formatValue(sortKey("len"), r)} m</b> · {formatValue(sortKey("clr"), r)} m clear
-            {extra && <span class="u-small"> · {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
-            {r.line.over && <span class="c-fav-over"> · over trees</span>}
+            <b>{formatValue(sortKey("len"), r)} m</b>, {formatValue(sortKey("clr"), r)} m clear
+            {extra && <span class="u-small">, {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
+            {r.line.over && <span class="c-fav-over">, over trees</span>}
             <span class="u-small c-fav-run">{r.fav.run_name} · {day(r.fav.run_created)}</span>
           </span>
           <Icon name="next" />

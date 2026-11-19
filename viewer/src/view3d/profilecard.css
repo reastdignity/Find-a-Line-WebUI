@@ -2,7 +2,7 @@
    root #view3d.ui: the chart's own rules are ../profile.css, shared with the result view. The card lies over the
    canvas in the slot .v3-card (view3d.css): the canvas keeps its size whether it is open or folded. */
 #view3d .v3-pcard { display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; padding: 6px 12px 8px;
-  max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   box-shadow: var(--shadow); }
 #view3d .v3-pcard-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 #view3d .v3-pcard-head > b { flex: none; }

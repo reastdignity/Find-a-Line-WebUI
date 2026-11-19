@@ -3,8 +3,8 @@
    the card a bottom sheet below 700 px, the legend under the map there. No style attributes (the CSP). */
 
 html, body { margin: 0; }
-body.cov-body { background: #f3f5f2; }
-@media (prefers-color-scheme: dark) { body.cov-body { background: #0e1311; } }
+body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
+@media (prefers-color-scheme: dark) { body.cov-body { background: #121a1b; } }
 
 .ui.cov { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
 .cov-inner { width: 100%; max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -21,7 +21,7 @@ body.cov-body { background: #f3f5f2; }
 .cov .cov-link:hover { text-decoration-color: currentColor; }
 
 /* header */
-.cov-top { position: sticky; top: 0; z-index: 1300; background: var(--surface); border-bottom: 1px solid var(--line);
+.cov-top { position: sticky; top: 0; z-index: 1300; background: var(--surface); border-bottom: 1px solid var(--rule);
   padding-top: env(safe-area-inset-top, 0px); }
 .cov-top-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-height: 56px; padding-block: 8px; }
 .cov .cov-brand { display: inline-flex; text-decoration: none; }
@@ -44,7 +44,7 @@ body.cov-body { background: #f3f5f2; }
 /* the map */
 .cov-stage { position: relative; scroll-margin-top: 72px; }
 .cov-mapbox { position: relative; isolation: isolate; height: min(68vh, 640px); min-height: 380px; border-radius: 14px;
-  overflow: hidden; border: 1px solid var(--line); background: var(--cov-sea); }
+  overflow: hidden; border: 1px solid var(--rule); background: var(--cov-sea); }
 .cov-view { position: absolute; inset: 0; }
 .cov-svg, .cov-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .cov-canvas { cursor: grab; }
@@ -75,7 +75,7 @@ body.cov-body { background: #f3f5f2; }
 .cov .leaflet-control-attribution { font-size: 11px; }
 
 /* the legend: over the map's corner on wide screens, under it on phones */
-.cov-legend { position: absolute; left: 10px; bottom: 10px; z-index: 1100; background: var(--surface); border: 1px solid var(--line);
+.cov-legend { position: absolute; left: 10px; bottom: 10px; z-index: 1100; background: var(--surface); border: 1px solid var(--rule);
   border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); max-width: min(320px, calc(100% - 20px)); }
 .cov-legend-body { display: flex; flex-direction: column; gap: 8px; }
 .cov-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -94,7 +94,7 @@ body.cov-body { background: #f3f5f2; }
 
 /* the card: beside the map on wide screens, a bottom sheet on phones */
 .cov-card { position: absolute; top: 10px; right: 10px; max-height: calc(100% - 20px); width: min(350px, calc(100% - 20px)); z-index: 1200;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px;
   overflow: auto; overscroll-behavior: contain; }
 .cov-card:focus-visible { box-shadow: var(--focus), var(--shadow); }
 .cov-card-body { display: flex; flex-direction: column; gap: 12px; }
@@ -146,9 +146,9 @@ body.cov-body { background: #f3f5f2; }
 
 /* the table of the areas: rows of blocks on phones (no sideways scrolling) */
 .cov-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.cov-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+.cov-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   overflow: hidden; font-size: 13.5px; }
-.cov-table th, .cov-table td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.cov-table th, .cov-table td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
 .cov-table thead th { font: 500 11.5px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--surface-2); }
 .cov-table tbody th { font-weight: 600; }
 .cov-table tbody tr:last-child > * { border-bottom: 0; }
@@ -159,7 +159,7 @@ body.cov-body { background: #f3f5f2; }
 @media (max-width: 699px) {
   .cov-table, .cov-table tbody, .cov-table tr, .cov-table th, .cov-table td { display: block; }
   .cov-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .cov-table tr { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .cov-table tr { padding: 10px 12px; border-bottom: 1px solid var(--rule); }
   .cov-table tbody tr:last-child { border-bottom: 0; }
   .cov-table th, .cov-table td { padding: 2px 0; border: 0; }
   .cov-table td { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px; }
@@ -170,5 +170,5 @@ body.cov-body { background: #f3f5f2; }
 
 .cov-cta { display: flex; justify-content: center; padding-top: 8px; }
 .cov-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding-top: 12px; padding-bottom: 24px;
-  border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+  border-top: 1px solid var(--rule); color: var(--muted); font-size: 12.5px; }
 .cov-footer a { color: var(--ink-2); }

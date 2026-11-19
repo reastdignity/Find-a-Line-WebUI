@@ -24,7 +24,7 @@ export const PROFILE = {terrain: "#8a7656", terrainFill: "#e3d8c3", trees: "#3f8
                         treesFill: "rgba(76,153,60,0.45)", limit: "#d62728", envelope: "#6a3d9a",
                         fallFill: "rgba(214,39,40,0.12)", athlete: "#222", water: "#2f6fc0",
                         waterFill: "rgba(47,111,192,0.45)", zone: "#2350c8", zoneFill: "rgba(35,80,200,0.11)",
-                        frame: "#45524b"};
+                        frame: "#3c4e52"};
 const RIGGING: [keyof Rigging, string, number][] = [
   ["pretension", "kN pretension", 0.1], ["stretch", "% stretch @ 10 kN", 0.5],
   ["webbing_weight", "g/m webbing", 5], ["athlete_mass", "kg athlete", 5], ["fall_zone", "m fall zone", 0.5]];

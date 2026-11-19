@@ -182,8 +182,8 @@ export function rigInUse(rigs: Rig[], stored: number | null): Rig | null {
 /** A number as the form writes it: at most two decimals ("2.5", "6"). */
 export const num = (v: unknown) => String(+(+(v as number)).toFixed(2));
 
-/** "sag · no-fall zone 5 m · A-frames 2 m" (`sep` between the parts). */
-export function rigSummary(rig: RigValues, sag = true, sep = " · "): string {
+/** "sag, no-fall zone 5 m, A-frames 2 m" (`sep` between the parts). */
+export function rigSummary(rig: RigValues, sag = true, sep = ", "): string {
   return [sag ? t("rig.sum.sag") : t("rig.sum.formula"),
           rig.end_zone > 0 ? t("rig.sum.zone", {value: num(rig.end_zone)}) : t("rig.sum.no_zone"),
           rig.anchor_lift > 0 ? t("rig.sum.lift", {value: num(rig.anchor_lift)}) : t("rig.sum.no_lift")].join(sep);

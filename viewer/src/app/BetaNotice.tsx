@@ -56,8 +56,8 @@ export function BetaNotice() {
       <button type="button" class="c-link" onClick={() => { close(); openReport(); }}>
         <Icon name="warn" />Report a problem here</button>
     </p>
-    <p class="u-small">You find Report a problem later in the account menu, in a line's details and in a search's ⋯
-      menu.</p>
+    <p class="u-small">You find Report a problem later in the account menu, in a line's details and in a search's
+      menu of actions.</p>
     <div class="n-actions"><Button kind="primary" onClick={close}>Understood</Button></div>
   </dialog>;
 }

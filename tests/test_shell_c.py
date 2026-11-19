@@ -380,7 +380,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert r["newPage"] == ["#new", "The best lines here", True], r
     assert r["ready"][0] == "ready" and r["ready"][1] is False and r["ready"][2] >= 1, r
     assert r["started"][0] and r["started"][1] == "waiting", r
-    assert r["running"][0].upper().startswith("RUNNING · ") and r["running"][1], r
+    assert r["running"][0].startswith("Running ") and r["running"][0].endswith("%") and r["running"][1], r
     assert r["done"][1] == 1 and "spots" in r["done"][0], r
     columns = r["columns"]
     assert columns[0] and columns[1] and columns[2].startswith("Select a line"), r
@@ -1874,13 +1874,13 @@ def test_shell_c_cancelled_search(tmp_path):
     r["admin"] = r_admin["admin"]
     for name in ("waiting", "running"):
         found = r["cards"][name]
-        assert found["status"] == "cancelled" and found["chip"] == "cancelled", r
+        assert found["status"] == "cancelled" and found["chip"] == "Cancelled", r
         assert re.fullmatch(DATE, found["meta"]), r  # the chip says "cancelled" once: under the name the date only
         assert "u-cancelled" in found["chipClass"] and "u-failed" not in found["chipClass"], r
         assert (found["colour"], found["background"]) != (r["cards"]["failed"]["colour"],
                                                          r["cards"]["failed"]["background"]), r
     failed = r["cards"]["failed"]
-    assert failed["status"] == "failed" and failed["chip"] == "failed" and "u-failed" in failed["chipClass"], r
+    assert failed["status"] == "failed" and failed["chip"] == "Failed" and "u-failed" in failed["chipClass"], r
     assert re.fullmatch("the server stopped · " + DATE, failed["meta"]), r
     assert r["gone"] == [False, False], r
     assert r["failedMenu"] == ["Edit & run again"], r

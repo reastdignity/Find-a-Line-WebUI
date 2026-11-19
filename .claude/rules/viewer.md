@@ -49,7 +49,7 @@ catalogue), `browser-tests.md`.
   a number is placed clear of every `[data-map-control]`, `.leaflet-control` and the frame's obstacles: a new box
   over the map carries `data-map-control`, and one that takes no press (a desktop's toast, the bar's rows) has
   `pointer-events: none`; on a phone the map's message is the status line's first line (`MapBar` `message`). The
-  view's look lives in tokens (`ui/tokens.css`: the accent, `.ui .v-result`'s neutrals, `--fs-*`, `--r-*`) and single
+  view's look lives in tokens (`ui/tokens.css`: the accent, the neutrals (the whole app's since step 3c), `--fs-*`, `--r-*`) and single
   rules, each listed in docs/DESIGN.md "The pilot's look": change a choice there, not by a copy of its value. No
   control may cover another at any stop of a phone's sheet
   (`tests/test_shell_c_view_map.py::test_phone_controls_apart` names them by their own classes: add a new one there);
@@ -90,8 +90,8 @@ catalogue), `browser-tests.md`.
   font rule needs two classes (`.n-coverage .n-coverage-btn`), or the control is drawn at its parent's size.
 - **Touch texts**: a text that names a click or a key has a `<key>_touch` twin in the catalogue, chosen by
   `ui/components.tsx` `TOUCH` (`(pointer: coarse)`; code without Preact asks `matchMedia` itself). Secondary text and
-  placeholders use `--muted`, which holds 4.5:1 on every light and dark surface (`test_secondary_text_contrast`), but
-  not on the selected fill `--accent-soft`: secondary text on it takes `--ink-2` (one rule per place). What the
+  placeholders use `--muted`, which holds 4.5:1 on every light and dark surface and on the selected fill `--accent-soft`
+  (4.90 / 4.56:1; `test_secondary_text_contrast`): compute a text's pair on a fill before using it. What the
   canvas draws on the tiles in the accent takes `--accent-map` (the light value in every theme: the tiles stay light).
 - **The map's corners** (`result/view/corners.ts`): the scale goes above the credits wherever they run under it,
   re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or

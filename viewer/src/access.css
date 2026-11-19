@@ -31,7 +31,7 @@
 /* The "?" of the mark (a .u-hint that opens a panel in place) and its panel */
 .ui .ac-hint[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ui .ac-help { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: 8px; background: var(--surface);
-  border: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; color: var(--ink-2); font-weight: 400; }
+  border: 1px solid var(--rule); font-size: 12.5px; line-height: 1.45; color: var(--ink-2); font-weight: 400; }
 .ui .ac-help p { margin: 0; }
 .ui .ac-key { display: flex; flex-direction: column; gap: 4px; color: var(--ink); }
 .ui .ac-key-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }

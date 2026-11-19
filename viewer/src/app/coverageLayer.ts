@@ -1,8 +1,12 @@
-// The data coverage on the app's place map (PlaceMap): a button "Data coverage" (remembered in
-// localStorage), the outlines of the areas with detailed data (coverage-shapes.json next to the bundle,
-// fetched the first time it is switched on) filled by level, fainter as the map zooms in so the tiles
-// stay readable; the 30 m rest of the world is left unfilled. A tooltip names the area and its level, a
-// small legend links to the coverage page. The app is English: the coverage catalogue's English texts.
+// The data coverage on the app's place map (PlaceMap): "Data coverage" (remembered in localStorage), the
+// outlines of the areas with detailed data (coverage-shapes.json next to the bundle, fetched the first time it
+// is switched on) filled by level, fainter as the map zooms in so the tiles stay readable; the 30 m rest of the
+// world is left unfilled. A tooltip names the area and its level, a small legend links to the coverage page. The
+// app is English: the coverage catalogue's English texts.
+// Two places (PlaceMap's arrangements; `place`): a box of its own among the map's controls with a button (a
+// desktop, a tablet), or a row of the layers' box (a phone: Leaflet's own checkbox of an overlay, with the link to
+// the coverage page at the row's end while it is ticked: put there again after each redraw of the box's rows). Either way the layer is on while its outlines' group is
+// on the map: the button and the checkbox only add or remove the group.
 import L from "leaflet";
 import { areaOf, loadShapes, SHAPES_FILE, type Shape } from "../coverage/data";
 import { areaName, ct, resText } from "../coverage/i18n";
@@ -26,54 +30,98 @@ function remember(on: boolean) {
 /** The fill's opacity at a zoom: strong on a continent, faint over a valley. */
 const opacity = (zoom: number, partial: boolean) => (partial ? 0.6 : 1) * Math.max(0.1, Math.min(0.45, 0.45 - (zoom - 5) * 0.06));
 
+export type CoveragePlace = "box" | "row";
+
 export class CoverageLayer {
   private areas = L.featureGroup();
   private control: L.Control;
+  private box!: HTMLElement;
   private button!: HTMLButtonElement;
-  private legend!: HTMLElement;
-  private status!: HTMLElement;
+  private legend: HTMLElement;   // the status line and the three levels
+  private status: HTMLElement;
+  private link: HTMLAnchorElement;
+  private extra: HTMLElement;    // in the layers' box: the legend under the coverage's row
+  private placed: CoveragePlace | null = null;
   private filled = false;
   on = false;
 
-  constructor(private map: L.Map, position: L.ControlPosition) {
+  constructor(private map: L.Map, position: L.ControlPosition, private layers: L.Control.Layers) {
     const layer = this;
+    this.legend = L.DomUtil.create("div", "n-coverage-legend");
+    this.legend.hidden = true;
+    this.status = L.DomUtil.create("div", "n-coverage-status", this.legend);
+    this.status.setAttribute("role", "status");
+    const list = L.DomUtil.create("ul", "", this.legend);
+    for (const level of [1, 2] as Level[]) {
+      const item = L.DomUtil.create("li", "", list);
+      L.DomUtil.create("span", `n-coverage-sw n-coverage-sw${level}`, item);
+      item.append(`${ct("en", `level.${level}`)} (${level === 1 ? "≤ 1 m" : "2–5 m"})`);
+    }
+    const rest = L.DomUtil.create("li", "", list);
+    L.DomUtil.create("span", "n-coverage-sw n-coverage-sw3", rest);
+    rest.append(ct("en", "legend.rest"));
+    this.link = L.DomUtil.create("a", "n-coverage-link") as HTMLAnchorElement;
+    this.link.href = "/coverage?lang=en";
+    this.link.target = "_blank";
+    this.link.rel = "noopener";
+    this.link.textContent = t("ui.coverage.open");
+    this.link.hidden = true;
+    this.extra = L.DomUtil.create("div", "n-coverage-extra");
     const Control = L.Control.extend({
       onAdd() {
-        const box = L.DomUtil.create("div", "n-coverage");
+        if (layer.box) return layer.box;
+        const box = layer.box = L.DomUtil.create("div", "n-coverage");
         L.DomEvent.disableClickPropagation(box);
         L.DomEvent.disableScrollPropagation(box);
         layer.button = L.DomUtil.create("button", "n-coverage-btn", box);
         layer.button.type = "button";
         layer.button.textContent = t("ui.coverage.layer");
         layer.button.addEventListener("click", () => layer.set(!layer.on));
-        layer.legend = L.DomUtil.create("div", "n-coverage-legend", box);
-        layer.legend.hidden = true;
-        layer.status = L.DomUtil.create("div", "n-coverage-status", layer.legend);
-        layer.status.setAttribute("role", "status");
-        const list = L.DomUtil.create("ul", "", layer.legend);
-        for (const level of [1, 2] as Level[]) {
-          const item = L.DomUtil.create("li", "", list);
-          L.DomUtil.create("span", `n-coverage-sw n-coverage-sw${level}`, item);
-          item.append(`${ct("en", `level.${level}`)} (${level === 1 ? "≤ 1 m" : "2–5 m"})`);
-        }
-        const rest = L.DomUtil.create("li", "", list);
-        L.DomUtil.create("span", "n-coverage-sw n-coverage-sw3", rest);
-        rest.append(ct("en", "legend.rest"));
-        const link = L.DomUtil.create("a", "n-coverage-link", layer.legend) as HTMLAnchorElement;
-        link.href = "/coverage?lang=en";
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.textContent = t("ui.coverage.open") + " ›";
         return box;
       },
     });
-    this.control = new Control({position}).addTo(map);
+    this.control = new Control({position});
+    (layers.options as any).afterUpdate = () => this.dress();
+    // the group on the map is the layer switched on, whoever put it there (the button, the layers' checkbox)
+    this.areas.on("add", () => this.switched(true));
+    // not the map's own removal (a page left): Leaflet takes every layer off then, and the choice must stay
+    let leaving = false;
+    map.on("unload", () => { leaving = true; });
+    this.areas.on("remove", () => { if (!leaving) this.switched(false); });
     map.on("zoomend", () => { if (this.on) this.paint(); });
-    // a short map (a phone's search panel) keeps only the button and the link
+    // a short map (a phone's search panel) keeps only the button or the row, and the link
     const fit = () => this.legend.classList.toggle("n-compact", map.getSize().y < 420);
     map.on("resize", fit);
     fit();
     if (remembered()) this.set(true);
+  }
+
+  /** Where the coverage is switched: its own box among the map's controls, or a row of the layers' box. */
+  place(place: CoveragePlace) {
+    if (place === this.placed) return;
+    this.placed = place;
+    if (place === "box") {
+      this.layers.removeLayer(this.areas);
+      this.extra.remove();
+      this.control.addTo(this.map);
+      this.box.append(this.legend);
+      this.legend.append(this.link);
+    } else {
+      this.control.remove();
+      this.extra.append(this.legend);
+      this.layers.addOverlay(this.areas, t("ui.coverage.layer"));  // draws the rows: dress() follows
+      this.dress();
+    }
+    this.show();
+  }
+
+  /** In the layers' box: the link at the end of the coverage's row (its only overlay), the legend under the rows. */
+  private dress() {
+    if (this.placed !== "row") return;
+    const box = this.layers.getContainer();
+    // beside the row's label, not inside it: the checkbox keeps its name "Data coverage"
+    box?.querySelector(".leaflet-control-layers-overlays")?.append(this.link);
+    box?.querySelector(".leaflet-control-layers-list")?.append(this.extra);
   }
 
   private theme(): Theme {
@@ -96,18 +144,25 @@ export class CoverageLayer {
     }
   }
 
+  /** What shows that the layer is on: the button's state, the legend, the link. */
+  private show() {
+    this.button?.setAttribute("aria-pressed", String(this.on));
+    this.button?.classList.toggle("n-on", this.on);
+    this.legend.hidden = !this.on;
+    this.link.hidden = !this.on;
+  }
+
   /** Switches the coverage on or off (remembered); the outlines are fetched the first time. */
   set(on: boolean) {
+    if (on) this.areas.addTo(this.map); else this.areas.remove();
+  }
+
+  /** The group was put on the map or taken off it. */
+  private switched(on: boolean) {
     this.on = on;
     remember(on);
-    this.button.setAttribute("aria-pressed", String(on));
-    this.button.classList.toggle("n-on", on);
-    this.legend.hidden = !on;
-    if (!on) {
-      this.areas.remove();
-      return;
-    }
-    this.areas.addTo(this.map);
+    this.show();
+    if (!on) return;
     this.paint();
     if (this.filled) return;
     this.status.textContent = t("ui.coverage.loading");
@@ -131,6 +186,8 @@ export class CoverageLayer {
 
   remove() {
     this.areas.remove();
+    this.layers.removeLayer(this.areas);
+    this.extra.remove();
     this.control.remove();
   }
 }

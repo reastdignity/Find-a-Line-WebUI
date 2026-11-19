@@ -4,9 +4,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
 <style>
-/* Layout: one reading column with a wide band for tables; Find-a-Line's own tokens (viewer/src/ui/tokens.css). */
+/* Layout: one reading column with a wide band for tables; Find-a-Line's own tokens (viewer/src/ui/tokens.css; this
+   page draws only rules and boxes' edges with --line, so it holds the app's --rule). */
 :root {
-  --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #6c7a73; --line: #d2dad4;
+  --bg: #f2f5f5; --surface: #ffffff; --surface-2: #e5ebeb; --ink: #16262a; --ink-2: #3c4e52; --muted: #56686c; --line: #d3dcdc;
   --accent: #14676f; --accent-soft: #dfeeee;
   --ok: #1d7a47; --ok-soft: #e0f1e6; --warn: #995500; --warn-soft: #fbefd9; --bad: #b3261e; --bad-soft: #fbe4e1;
   --clear: #e10fd6; --trees: #ef8300; --terrain: #bba680; --rock: #8a7b63; --tree-fill: #80ae6b; --sky: #e6eef5;
@@ -16,7 +17,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+    --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --line: #2a3738;
     --accent: #62c3cc; --accent-soft: #173a3d;
     --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
     --clear: #ff4cf4; --trees: #ff9f30; --terrain: #6e5f44; --rock: #948a72; --tree-fill: #3f6b36; --sky: #16202a;
@@ -24,7 +25,7 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+  --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --line: #2a3738;
   --accent: #62c3cc; --accent-soft: #173a3d;
   --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
   --clear: #ff4cf4; --trees: #ff9f30; --terrain: #6e5f44; --rock: #948a72; --tree-fill: #3f6b36; --sky: #16202a;

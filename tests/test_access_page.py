@@ -177,7 +177,15 @@ LEGEND = """() => { const $ = (s) => document.querySelector(s), $$ = (s) => [...
           hint: [hint.getAttribute('aria-label'), hint.getAttribute('aria-expanded'), hint.textContent],
           // the "?" stands in the last state's item and on its line: never alone on a line of its own
           hintWithLast: last.contains(hint) && Math.abs(top(hint) - top(last.querySelector('svg.ac'))) <= 4,
-          lines: new Set(items.map((e) => Math.round(e.getBoundingClientRect().top / 8))).size,
+          // the row's visual lines: items whose vertical ranges overlap stand on one line. (Until 2026-11-19 the
+          // count was the distinct Math.round(top / 8): the label's top is 0.94 px under the dots' on the same line,
+          // and with the row 0.72 px lower (step 3c's sizes: tops 132.09 and 131.16) the two fell on both sides of a
+          // rounding, 3 for a row of 2 lines; measured on both codes, local/ux-design-2026-11-16/3c-a/legend.)
+          lines: (() => { let n = 0, bottom = -1e9;
+            for (const b of items.map((e) => e.getBoundingClientRect()).sort((a, c) => a.top - c.top)) {
+              if (b.top >= bottom - 1) n++;
+              bottom = Math.max(bottom, b.bottom); }
+            return n; })(),
           beforeFilters: !!(filters && (legend.compareDocumentPosition(filters) & 4)), beforeList: !!(legend.compareDocumentPosition(table) & 4),
           inSheet: !!sheet, inHead: !!head, inSummary: !!legend.closest('.r-summary'),
           colours: $$('.r-legend:not(.r-legend-acc)').filter((e) => e.getClientRects().length).length,
