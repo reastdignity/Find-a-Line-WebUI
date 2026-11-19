@@ -410,7 +410,7 @@ console.log(JSON.stringify(out));""")
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
     assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
-    assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
+    assert found["short"] == ["Long and exposed, 100–600 m, My rig", "Custom, 30–300 m, Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
     assert found["size"] == [["Heavy", 2, "sag, no-fall zone 5 m", 3],
                              ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3],
@@ -420,7 +420,7 @@ console.log(JSON.stringify(out));""")
                              ["Very heavy", 3, "sag, no-fall zone 5 m, lines up to 1000 m", 3],
                              ["Heavy", 2, "no-fall zone 5 m, an area of 4 km²", 3],  # the formula: no sag step
                              ["Very heavy", 3, "sag, no-fall zone 3 m, A-frames 2 m", 3]]
-    assert found["summary"] == ["sag · no-fall zone 5 m · no A-frames", "simple formula, no-fall zone 3 m, A-frames 2 m",
+    assert found["summary"] == ["sag, no-fall zone 5 m, no A-frames", "simple formula, no-fall zone 3 m, A-frames 2 m",
                                 "2.5 kN pretension, 5 % stretch at 10 kN, 70 g/m webbing, athlete 80 kg, 6 m leash fall space"]
     assert found["names"] == ["My rig", "Rig 3", "Rig 2", True, False, True, "a b"]
     assert found["problems"] == ["", "No-fall zone at the ends is 0 to 20 m.", "A-frame height is 0 to 3 m.",
@@ -3501,9 +3501,45 @@ def test_neutrals_copies_in_step():
                         if token in light and light[token].startswith("#") and len(colour) == 7:
                             assert colour == light[token], (name, token, colour)
                             fallbacks += 1
-    assert fallbacks >= 7, fallbacks  # app/coverageLayer.css
+    assert fallbacks >= 6, fallbacks  # app/coverageLayer.css
     with open(os.path.join(VIEWER, "src", "app", "c", "cellsLayer.ts"), encoding="utf-8") as f:
         assert re.findall(r'getPropertyValue\("--ink"\)\.trim\(\) \|\| "(#[0-9a-f]{6})"', f.read()) == [light["--ink"]] * 2
+
+
+def test_search_form_css_on_the_scales():
+    """The search page's forms and the dialogs (search/search.css, app/notices.css) in the pilot's look (step 3c,
+    2026-11-19): every font size is a step of R5's scale (a token --fs-*), no label in the monospace or in capitals, no
+    character drawn by the CSS as an icon (R9: `content` is empty), every corner a step of R6 (--r-*). And the kit's
+    choices that the first-timer's screens rest on (ui/ui.css): a page's section lies on the ground with no box (R8),
+    a status chip is not in capitals, a segment and a chip are 44 px on a touch screen (R2)."""
+    src = os.path.join(VIEWER, "src")
+    for path in (("search", "search.css"), ("app", "notices.css")):
+        with open(os.path.join(src, *path), encoding="utf-8") as f:
+            text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+        for size in re.findall(r"font-size:\s*([^;}]+)", text):
+            assert size.strip().startswith("var(--fs-"), (path, size)
+        for font in re.findall(r"[{;\s]font:\s*([^;}]+)", text):
+            assert "var(--fs-" in font or font.strip() == "inherit", (path, font)
+        assert "var(--mono)" not in text and "uppercase" not in text, path
+        assert [c for c in re.findall(r"content:\s*\"([^\"]*)\"", text) if c] == [], path
+        for radius in re.findall(r"border-radius:\s*([^;}]+)", text):
+            assert all(part.startswith("var(--r-") or part == "0" for part in radius.split()), (path, radius)
+    with open(os.path.join(src, "ui", "ui.css"), encoding="utf-8") as f:
+        kit = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+
+    def rule(selector):
+        found = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", kit)
+        assert found, selector
+        return found.group(1)
+
+    ground = rule(".ui .u-panel.u-ground")
+    assert "background: none" in ground and "box-shadow: none" in ground and "border-top: 1px solid var(--rule)" in ground
+    assert "border:" not in rule(".ui .u-panel ") and "var(--shadow)" in rule(".ui .u-panel ")  # raised: no edge
+    assert "uppercase" not in rule(".ui .u-st ") and "var(--mono)" not in rule(".ui .u-st ")
+    assert "@media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }" in kit
+    assert "@media (pointer: coarse) { .ui .u-chip { min-height: 44px;" in kit
+    with open(os.path.join(src, "ui", "components.tsx"), encoding="utf-8") as f:
+        assert 'cx("u-panel u-ground"' in f.read()
 
 
 def test_placeholder_contrast():

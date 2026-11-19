@@ -2377,12 +2377,12 @@ def test_search_panel(tmp_path):
                              "geometry": None}, point
     assert "0.07 km²" in point["stats"] and "test-1" in point["stats"], point  # π × 150² for a circle
     assert r["preset"]["on"] == "First highline", r
-    assert r["preset"]["receipt"].startswith("15–60 m · anchors within 3 m of height · clear of trees · Rig: sag"), r
+    assert r["preset"]["receipt"].startswith("15–60 m, anchors within 3 m of height, clear of trees, Rig: sag"), r
     assert r["again"]["body"] == {**FIRST, **BASIC_RIG, "lat": 50.1559508, "lon": 19.7562722, "radius": 150}, r
     started = r["started"]
     assert started["id"] == started["job"] and "waiting" in started["card"], started
     assert started["meters"] == ["runs_gb", "jobs_day", "jobs_active"], started  # locally: no km² counted
-    assert "No daily limits" in started["usage"] and "Searches today · 1" in started["usage"], started
+    assert "No daily limits" in started["usage"] and "Searches today: 1" in started["usage"], started
     queued = Jobs(str(tmp_path)).get(started["id"])
     assert json.loads(queued["request"])["params"] == r["again"]["body"]
     assert _violations(dom) == []
@@ -2728,13 +2728,13 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
     assert r["saved"][2] == r["saved"][3], r  # the new rig is in use, kept in this browser
     assert r["edit_title"] == "Change a rig" and r["escaped"] == ("My rig", "u-btn s-rig-change"), r
     assert r["inside"] == 1, r
-    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag · no-fall zone 3 m · no A-frames"), r
+    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag, no-fall zone 3 m, no A-frames"), r
     assert r["taken"] == "Give the copy a new name: “Light” is taken.", r
     assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
     assert r["chosen"] == str(light), r
     assert r["ask"] == "Delete “Light”?" and r["deleted"] == ["Heavy"], r
-    assert r["receipt"] == ("30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, "
-                            "A-frames 2 m · access marked, no line filtered out"), r
+    assert r["receipt"] == ("30–300 m, anchors within 10 m of height, trees marked, Heavy: sag, no-fall zone 3 m, "
+                            "A-frames 2 m, access marked, no line filtered out"), r
     assert r["size"] == ["Very heavy", False], r
     heavy_values = {**STARTING_RIG, "end_zone": 3, "anchor_lift": 2}
     assert r["request"] == {**BEST, "model": "sag", **heavy_values, "same_line_square": 5, "access": True,
@@ -3213,7 +3213,7 @@ def test_basic_form_on_a_phone(tmp_path):
         finally:
             browser.close()
     assert r["form"] >= 396 and r["bar"] < 110, r
-    assert r["line"] == "The best lines here · 30–300 m · Rig" and r["receipt"] == "none", r  # no "▴" or "▾" in it
+    assert r["line"] == "The best lines here, 30–300 m, Rig" and r["receipt"] == "none", r  # no "▴" or "▾" in it
     # its fold mark is the side panels' chevron (icons.tsx "next", 14 px), turned: up while the receipt is folded (it
     # opens above the line), down when it is unfolded
     assert r["mark"] == ["M9 5l7 7-7 7", "matrix(0, -1, 1, 0, 0, 0)", 14, "false"], r
@@ -3222,7 +3222,7 @@ def test_basic_form_on_a_phone(tmp_path):
     assert r["lefts"][0] == r["lefts"][1] == r["lefts"][2] < r["lefts"][3], r
     assert r["scroll"] <= r["width"], r
     # no "trees marked" on a phone, and "access marked" without its desktop tail
-    assert r["open"][0] == "30–300 m · anchors within 10 m of height · Rig: sag, no-fall zone 5 m, no A-frames · access marked", r
+    assert r["open"][0] == "30–300 m, anchors within 10 m of height, Rig: sag, no-fall zone 5 m, no A-frames, access marked", r
     assert r["open"][1] == "test-1" + "1 m grid", r
 
 
@@ -3307,7 +3307,7 @@ def test_access_mark_in_the_form(tmp_path):
     assert keys == [["ac ac-2", "easy access:"], ["ac ac-1", "cannot tell:"], ["ac ac-0", "hard access:"]], r
     assert text.startswith("The site judges from the terrain if you can walk to an anchor") and expanded == "true", r
     assert controls is True, r
-    assert r["receipt"][0].endswith("Rig: sag, no-fall zone 5 m, no A-frames · access marked, no line filtered out"), r
+    assert r["receipt"][0].endswith("Rig: sag, no-fall zone 5 m, no A-frames, access marked, no line filtered out"), r
     assert r["receipt"][1:] == [True, True], r
     assert r["advanced"] == ["advanced", True, False, True, "anchors", True, True], r
     assert r["field"] == ["Mark anchors you can walk to", "About Mark anchors you can walk to", 3, text, 0], r
