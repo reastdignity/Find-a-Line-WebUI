@@ -37,6 +37,13 @@ CATCH = """() => { window.CLICKS = []; window.CATCHING = true; document.addEvent
   if (!window.CATCHING) return;
   const c = e.target.closest('button, .v3-handle'); window.CLICKS.push(c ? c.className : e.target.tagName);
   e.preventDefault(); e.stopPropagation(); }, true); }"""
+# The second shown label set 30 px under the first (its place, through the CSSOM as screen.ts place: no frame is drawn
+# meanwhile, so it stays); the keys and boxes of both
+PAIR = r"""() => { const ats = [...document.querySelectorAll('.v3-other-at')].filter((a) => !a.classList.contains('v3-hidden'));
+  const [a, b] = ats, m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(a.style.transform);
+  b.style.transform = `translate(${m[1]}px, ${+m[2] + 30}px)`;
+  const box = (e) => { const r = e.firstElementChild.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  return {first: a.firstElementChild.dataset.other, second: b.firstElementChild.dataset.other, a: box(a), b: box(b)}; }"""
 POINT_CLICK = """() => { const r = document.querySelector('.v3-handle').getBoundingClientRect(),
   c = document.querySelector('.v3-canvas'), at = {clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
   pointerId: 7, button: 0, bubbles: true, isPrimary: true};
@@ -132,6 +139,22 @@ def _touch_targets(data, meta, keys, page_path):
             assert "v3-opt-dot" in _tapped(page, (own[0] + own[2]) / 2 + 16, (own[1] + own[3]) / 2)
             # the synthetic press on the terrain (POINT_CLICK) has no pointer for the page's capture: its error only
             assert [e for e in page.errors if "setPointerCapture" not in e] == [], page.errors
+            page.context.close()
+            # a fresh page (the line made active changes what the lines from a point ask for):
+            page = _open(browser, url, phone)
+            page.wait_for_function("() => Number(document.getElementById('view3d').dataset.others) > 1", timeout=WAIT)
+            # two labels 30 px apart, the later one's target over the earlier one's drawn box: a finger's tap inside
+            # the earlier box, nearer to its centre (12 px) than to the later one's (18 px), reaches the later label's
+            # element but makes the earlier label's line the active one (screen.ts pressedMark)
+            pair = page.evaluate(PAIR)
+            x, y = (pair["a"][0] + pair["a"][2]) / 2, pair["a"][3] - 2
+            hit = page.evaluate("([x, y]) => document.elementFromPoint(x, y).closest('.v3-other')?.dataset.other", [x, y])
+            assert hit == pair["second"], (pair, hit)  # the case: the later target lies over the earlier box
+            _tap(page, x, y)
+            page.wait_for_function("(key) => !document.querySelector(`[data-other=\"${key}\"]`)", arg=pair["first"],
+                                   timeout=WAIT)
+            assert page.evaluate("(key) => !!document.querySelector(`[data-other=\"${key}\"]`)", pair["second"])
+            assert page.errors == [], page.errors
             page.context.close()
             # a desktop: the marks' targets 24 px, the labels as drawn (28 px)
             page = _open(browser, url, {"viewport": {"width": 1200, "height": 800}})
