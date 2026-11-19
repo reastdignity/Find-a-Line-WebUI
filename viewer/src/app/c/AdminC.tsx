@@ -24,7 +24,10 @@ function jobStatus(job: Job): [Status, string] {
 }
 
 function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void; onError(e: Error): void}) {
+  // Block and Unblock ask first, as a report's "Delete…" does: the question of one user at a time ("<id> <act>")
+  const [asking, setAsking] = useState<string | null>(null);
   const change = (p: Promise<unknown>) => p.then(onChange, onError);
+  const status = (u: AdminUser, to: "approved" | "blocked") => { setAsking(null); change(api.adminSetUser(u.id, {status: to})); };
   if (!users.length) return <p class="u-small">No users.</p>;
   return <ul class="c-admin-list">{users.map((u) => <li key={u.id} class="c-admin-row">
     <div class="c-admin-head">
@@ -35,10 +38,17 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
     <div class="u-small">since {day(u.created, "?")} · last sign-in {at(u.last_login, "never")}
       {" · "}{u.sessions} {u.sessions === 1 ? "session" : "sessions"}</div>
     {!u.admin && <div class="c-admin-tools">
-      {u.status !== "approved" && <Button kind="primary" onClick={() => change(api.adminSetUser(u.id, {status: "approved"}))}>
-        {u.status === "blocked" ? "Unblock" : "Approve"}</Button>}
-      {u.status !== "blocked" && <Button kind="danger" title="ends their sessions; their share links stop working"
-        onClick={() => change(api.adminSetUser(u.id, {status: "blocked"}))}>Block</Button>}
+      {u.status === "pending" && <Button kind="primary" onClick={() => status(u, "approved")}>Approve</Button>}
+      {u.status === "blocked" && (asking === `${u.id} unblock`
+        ? <><Button kind="primary" class="c-user-unblock" onClick={() => status(u, "approved")}>Unblock them</Button>
+            <Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
+        : <Button kind="primary" onClick={() => setAsking(`${u.id} unblock`)}>Unblock…</Button>)}
+      {u.status !== "blocked" && (asking === `${u.id} block`
+        ? <><Button kind="danger" class="c-user-block" title="ends their sessions; their share links stop working"
+                    onClick={() => status(u, "blocked")}>Block them</Button>
+            <Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
+        : <Button kind="danger" title="ends their sessions; their share links stop working"
+                  onClick={() => setAsking(`${u.id} block`)}>Block…</Button>)}
       <label class="c-check"><input type="checkbox" checked={u.unlimited}
         onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />Without limits</label>
       {u.sessions > 0 && <Button kind="ghost" title="they have to sign in again"
