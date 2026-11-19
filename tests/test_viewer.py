@@ -3551,6 +3551,28 @@ def test_search_form_css_on_the_scales():
         assert 'cx("u-panel", !raised && "u-ground"' in f.read()  # `raised`: the one over the kit demo's map
 
 
+def test_admin_and_doc_pages_css():
+    """Group D of step 3c (2026-11-19): the admin page's checkbox and its words are one target, 24 px and 44 px on a
+    touch screen (R2), its badges start with a capital (as the status chips); the privacy and about pages' text rules
+    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens."""
+    src = os.path.join(VIEWER, "src")
+    with open(os.path.join(src, "app", "c", "c.css"), encoding="utf-8") as f:
+        c = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    check = re.search(r"\.ui \.c-check \{([^}]*)\}", c)
+    assert check and "min-height: 24px" in check.group(1) and "var(--fs-2)" in check.group(1)
+    assert "@media (pointer: coarse) { .ui .c-check { min-height: 44px; } }" in c
+    assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in c
+    with open(os.path.join(src, "ui", "pages.css"), encoding="utf-8") as f:
+        pages = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    prose = [m for m in re.finditer(r"([^{}]+)\{([^}]*)\}", pages) if re.search(r"p-prose|p-facts", m.group(1))]
+    assert len(prose) >= 5
+    for m in prose:
+        assert m.group(1).strip().startswith(".ui .p-doc "), m.group(1)
+        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", m.group(2)):
+            assert "var(--fs-" in font, (m.group(1), font)
+    assert "overflow-wrap: anywhere" in re.search(r"\.ui \.p-doc \.p-prose \{([^}]*)\}", pages).group(1)
+
+
 def test_placeholder_contrast():
     """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
     Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both

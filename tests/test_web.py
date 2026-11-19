@@ -2791,6 +2791,20 @@ def test_pages_say_their_language(tmp_path):
         assert '<html lang="en">' in client.get("/").text
 
 
+def test_example_card_open_map_arrow():
+    """The sign-in page's example card says "Open map" with the kit's drawn arrow (web.NEXT_ICON, a copy of
+    viewer/src/ui/icons.tsx ICONS.next), not the character "›" (R9; step 3c, group D); the arrow is static markup
+    without a style attribute (the pages' CSP: style-src 'self')."""
+    with open(os.path.join(REPO, "viewer", "src", "ui", "icons.tsx"), encoding="utf-8") as f:
+        assert "next: '" + web.NEXT_ICON.split('aria-hidden="true">')[1][:-len("</svg>")] + "'," in f.read()
+    run = {"id": "r1", "name": "A run", "summary": {"spots": 1, "lines": 2}, "has_map": True,
+           "params": {"nmpt": None, "radius": 300, "resolution": 1, "slope_threshold": 60, "min_length": 20,
+                      "max_length": 200}}
+    html = web.demo_list([run])
+    assert f"<span class='p-open'>Open map{web.NEXT_ICON}</span>" in html
+    assert "›" not in html and "style=" not in html
+
+
 # The controls whose own font rule loses to the base rule `.ui button, .ui input, ...` (ui.css): their computed font
 # with the base rule weakened to :where(.ui) in the CSSOM differs from the font the page shows
 SHRUNK_JS = """() => {
