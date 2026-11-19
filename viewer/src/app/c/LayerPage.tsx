@@ -221,7 +221,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     else fitCountry(first.country && cubes.some((c) => c.id === first.country) ? first.country : cube0.id);
     const noun = () => stateRef.current.mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
     layer.current = new CellsLayer(map, choose, fitCountry, (count, density, side) =>
-      `${count.toLocaleString("en")} ${noun()} · ${densityText(density)} ${t("ui.layer.per_km2")}${side ? ` · ${t("ui.layer.beyond_short")}` : ""}`);
+      `${count.toLocaleString("en")} ${noun()}, ${densityText(density)} ${t("ui.layer.per_km2")}${side ? `, ${t("ui.layer.beyond_short")}` : ""}`);
     const moved = () => {
       const c = map.getCenter();
       set({view: {lat: c.lat, lon: c.lng, zoom: map.getZoom()}});
@@ -657,7 +657,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
         <Icon name="down" /></summary>
       <div class="c-layer-more-body">
         {fold.map((topic) => <div key={topic.id} class="c-layer-fold-topic">
-          <h3 class="c-layer-topic-name">{t(`ui.layer.topic.${topic.id}`)}</h3>
+          <h2 class="c-layer-topic-name">{t(`ui.layer.topic.${topic.id}`)}</h2>
           <div class="c-layer-filters c-layer-fold">{topic.dims.map((d) =>
             <div key={d} class={WIDE.has(d) ? "c-layer-wide" : undefined}>{foldField(d)}</div>)}</div>
         </div>)}
@@ -690,7 +690,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     <section class="c-layer-view" aria-live="polite">
       <div class="c-layer-total">
         {status === "ready" && outlineMode ? <span><b>{inView.length.toLocaleString("en")}</b> {t("ui.layer.countries_in_view", {count: inView.length})}
-            {histStatus === "ready" && hist && <> · <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
+            {histStatus === "ready" && hist && <>, <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
           : status === "ready" ? <>
               <span><b>{total.toLocaleString("en")}</b> {noun}, <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
                 {mode === "lines" ? t("ui.layer.spots_in_view") : t("ui.layer.lines_in_view")}</span>
@@ -714,7 +714,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
         <Segmented label={t("ui.layer.cells")} value={state.level} onChange={(l) => set({level: l})} options={levels} />
       </Field>
       <p class="u-small c-layer-note">{t("ui.layer.sizes", {sizes: levelValues.map((l) =>
-        `${levelName(cellDeg(cube0, l))} ≈ ${sizeText(cellDeg(cube0, l), centreLat)}`).join(" · "), lat: Math.round(centreLat)})}</p>
+        t("ui.layer.size_of", {name: levelName(cellDeg(cube0, l)), size: sizeText(cellDeg(cube0, l), centreLat)})).join(", "), lat: Math.round(centreLat)})}</p>
       <div class="c-layer-link">
         <Button icon="link" onClick={copyLink}>{t("ui.layer.copy_link")}</Button>
         {copied === "ok" && <span class="u-small">{t("ui.layer.copied")}</span>}
@@ -732,18 +732,18 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
             : t("ui.layer.where_border", {country: pickedCube.name}))
           : pickedCube.name}</div>
       <div>{t("ui.layer.cell_size", {name: levelName(picked.deg), size: sizeText(picked.deg, centre ? centre[0] : centreLat)})}
-        {" · "}{picked.km2 < picked.whole * 0.999
+        {", "}{picked.km2 < picked.whole * 0.999
           ? (picked.side ? t("ui.layer.cell_beyond", {km2: picked.km2.toFixed(2)}) : t("ui.layer.cell_inside", {km2: picked.km2.toFixed(2), name: pickedCube.name}))
           : `${picked.km2.toFixed(2)} km²`}</div>
       <div><b>{picked.count.toLocaleString("en")}</b> {noun}
-        {otherInCell !== null && <> · <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
-        {" · "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
+        {otherInCell !== null && <>, <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
+        {", "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
       {picked.side ? <div class="c-layer-cell-border">{t("ui.layer.cell_partner")}</div>
         : acrossInCell ? <div class="c-layer-cell-border">{t("ui.layer.cell_across", {n: acrossInCell.toLocaleString("en")})}</div> : null}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}
       <div class="c-layer-search">
         {pickedBands.map((b) => <Button key={b.name} icon="search" href={cellHash(pickedCube.id, b.name, picked.level, picked.i, picked.j)}>
-          {t("ui.layer.search_here")}: {b.name} · {range(b.lengths[0], b.lengths[1])}</Button>)}
+          {t("ui.layer.search_here")}: {b.name}, {range(b.lengths[0], b.lengths[1])}</Button>)}
       </div>
       {cardHint ? <p class="c-layer-search-hint"><Icon name="info" /><span>{cardHint}</span></p>
         : <p class="u-small">{t("ui.layer.search_note")}</p>}

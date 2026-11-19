@@ -6,7 +6,9 @@
 // shift-click extends the range to it); the others set a limit by their kind (a floor: the bin's lower edge; a
 // "below": the bin's upper edge, the last bin "any"; an at_most: the bin's upper edge, the last bin "any"); the
 // unknown bin ("?") cannot be picked. The chart of the dimension changed last (`open`) is ringed on a desktop, where
-// the charts stand two a row while the panel holds two of 220 px (a container query, c.css), and scrolled into view;
+// the charts stand two a row while the panel holds two of 210 px (a container query, c.css; the length chart across
+// both), and scrolled into view; a chart with 32 px or more of its width per bar shows each bar's count and every
+// tick, a narrower one no counts and every other tick (c.css, by `data-bars`: the user's pick L3 b, 2026-11-19);
 // on phones each topic is a swiped strip of small charts and that chart is enlarged in place (its strip scrolls to
 // it, the column does not move; a tap on a chart's title enlarges it).
 
@@ -106,7 +108,7 @@ export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle,
   const max = Math.max(1, ...bars.map((b) => b.value));
   const height = (v: number) => `${Math.round(100 * Math.log10(1 + v) / Math.log10(1 + max))}%`;
   const edges = axis.length === bars.length + 1;
-  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} aria-label={title}>
+  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
       : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
@@ -232,11 +234,11 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       {status !== "error" && hist
         ? <>
             <div class="c-layer-stat"><span class="c-layer-stat-n" title={hist.total.toLocaleString("en")}>{short(hist.total)}</span>
-              <span class="c-layer-stat-u">{noun}{mode === "spots" ? ` · ${t("ui.layer.upper_bound")}` : ""}
-                {countries > 1 ? ` · ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
+              <span class="c-layer-stat-u">{noun}{mode === "spots" ? `, ${t("ui.layer.upper_bound")}` : ""}
+                {countries > 1 ? `, ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
             {other !== undefined && <div class="c-layer-inview-more">
               <b>{short(other)}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}
-              {border && cross !== null && cross > 0 && <> · <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
+              {border && cross !== null && cross > 0 && <>, <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
           </>
         : status === "error" ? <p class="c-error u-small" role="alert">{t("ui.layer.hist.failed")} {error}</p>
         : <p class="u-small">{t("ui.layer.counting")}</p>}

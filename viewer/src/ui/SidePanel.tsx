@@ -70,7 +70,7 @@ export function SidePanel({side, name, label, column, min, max, railWidth, onWid
       <button type="button" class="u-split-tab c-col-tab" aria-label={`Collapse the ${name}`}
               title={`Collapse the ${name}`} onClick={() => onOpen(false)}>
         <Icon name={left ? "back" : "next"} /></button>
-    </> : <button type="button" class="c-rail" aria-label={`Expand the ${name}`} title={`Expand the ${name}`}
+    </> : <button type="button" class="c-rail" aria-label={`${rail.text}${column.forced ? ", auto" : ""}: expand the ${name}`} title={`Expand the ${name}`}
                   onClick={() => onOpen(true)}>
       <Icon name={rail.icon} />
       <span class="c-rail-text">{rail.text}</span>
