@@ -67,21 +67,21 @@ function stateOf(card: Card): CardState {
       return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: "", fraction: null, step: ""};
     }
     if (p.state === "failed") {
-      return {status: "failed", chip: "failed", unfinished: false, meta: jobError(job) || "Failed", fraction: null,
+      return {status: "failed", chip: "Failed", unfinished: false, meta: jobError(job) || "Failed", fraction: null,
               step: ""};
     }
-    const pct = p.fraction === null ? "" : ` · ${Math.round(p.fraction * 100)}%`;
+    const pct = p.fraction === null ? "" : ` ${Math.round(p.fraction * 100)}%`;
     return {status: p.state === "running" ? "running" : "waiting", unfinished: true,
-            chip: p.state === "running" ? "running" + pct : "waiting",
+            chip: p.state === "running" ? "Running" + pct : "Waiting",
             meta: p.state === "running" ? p.label : job.status === "ready" ? p.label : "waiting in the queue",
             fraction: p.fraction, step: p.step};
   }
   if (run) {
-    return {status: run.shared ? "shared" : "done", chip: run.shared ? "shared" : "done", unfinished: false,
+    return {status: run.shared ? "shared" : "done", chip: run.shared ? "Shared" : "Done", unfinished: false,
             meta: `${plural(run.summary.spots, "spot", "spots")} · ${plural(run.summary.lines, "line", "lines")}`,
             fraction: null, step: ""};
   }
-  return {status: "done", chip: "done", meta: job?.run_id ? "Saved" : "Finished", fraction: null, step: "",
+  return {status: "done", chip: "Done", meta: job?.run_id ? "Saved" : "Finished", fraction: null, step: "",
           unfinished: false};
 }
 
@@ -295,8 +295,8 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         <span class="u-grow" />
         {wide ? <Chips>
           <Chip on={show === "all"} onClick={() => setShow("all")}>All</Chip>
-          <Chip on={show === "running"} onClick={() => setShow("running")}>Running{running.length ? ` · ${running.length}` : ""}</Chip>
-          <Chip on={show === "shared"} onClick={() => setShow("shared")}>Shared{shared.length ? ` · ${shared.length}` : ""}</Chip>
+          <Chip on={show === "running"} onClick={() => setShow("running")}>Running{running.length ? ` (${running.length})` : ""}</Chip>
+          <Chip on={show === "shared"} onClick={() => setShow("shared")}>Shared{shared.length ? ` (${shared.length})` : ""}</Chip>
         </Chips> : <select class="u-input c-show" aria-label="Show" value={show}
                            onChange={(e) => setShow(e.currentTarget.value as Show)}>
           <option value="all">All</option><option value="running">Running</option><option value="shared">Shared</option>

@@ -182,9 +182,9 @@ function FavRow({shelf, r, extra}: {shelf: Shelf; r: FavouriteRow; extra: Return
             onClick={() => shelf.removeFav(f)}><Icon name="star" fav /></button>
     <a class="c-fav-open" href={runHash(f.run_id, f.line)} draggable={false}>
       <span class="u-grow">
-        <b>{formatValue(sortKey("len"), r)} m</b> · {formatValue(sortKey("clr"), r)} m clear
-        {extra && <span class="u-small"> · {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
-        {r.line.over && <span class="c-fav-over"> · over trees</span>}
+        <b>{formatValue(sortKey("len"), r)} m</b>, {formatValue(sortKey("clr"), r)} m clear
+        {extra && <span class="u-small">, {extra.head} {formatValue(extra, r)}{extra.unit}</span>}
+        {r.line.over && <span class="c-fav-over">, over trees</span>}
         <span class="u-small c-fav-run">{f.run_name} · {day(f.run_created)}</span>
       </span>
     </a>
