@@ -949,7 +949,8 @@ door_up() {
     {
         echo "MIRROR_ROOT=/nonexistent-mirror-root"
         echo "PUBLISH_KEYS=/nonexistent-keys"
-        # compose.yaml requires these; the stand-in takes neither (no join code reaches a container)
+        # compose.yaml requires HUSARNET_STATE (the code only a first join needs); the stand-in takes
+        # neither (no join code reaches a container)
         echo "HUSARNET_JOIN_CODE=not-a-join-code"
         echo "HUSARNET_STATE=/nonexistent-husarnet-state"
         echo "DOOR_STANDIN_IMAGE=$PROJECT-door-sftp:orig"

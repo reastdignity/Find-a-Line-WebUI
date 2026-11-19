@@ -194,8 +194,9 @@ What the door is:
   home server itself (and from a container attached to that network, none besides the sidecar), not from the
   LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker host",
   and "By default, remote hosts are not allowed direct access to container IP addresses in Docker's Linux bridge
-  networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19). That holds from Docker Engine 28.0
-  (its release notes: direct routed access to container ports that are not exposed is blocked from 28.0); an older
+  networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19). That holds from Docker Engine 28.0:
+  "Direct routed access to container ports that are not exposed using `p`/`-publish` is now blocked"
+  (docs.docker.com/engine/release-notes/28/, 28.0.0, moby/moby#48724, read 2026-11-19); an older
   engine lets a LAN host with a route to that network reach sshd there (the key is still required). Check the
   engine: `docker version --format '{{.Server.Version}}'` (28.0 or newer);
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
@@ -238,13 +239,14 @@ by its version; the user's U75):
   when the state folder already holds a peer on the whitelist (the door joined before), the sidecar starts without
   a join, so **the join code may be removed from `.env` after the first join** (a later start without it and
   without that state says in `docker compose logs husarnet` that it needs the code, and stops). Until it is
-  removed, root of the home server sees it: in `docker inspect` (the container's environment) and, for up to 30 s
-  at a join, in the process list (`husarnet join <code>`). What stays readable
+  removed, it is seen on the home server: by root in `docker inspect` (the container's environment), and, for up
+  to 30 s at a join, by every user of the home server in its process list (`husarnet join <code>`). What stays readable
   there without the token: the door's Husarnet address, its whitelist and the addresses its peers were reached at
   (the PC's public address among them). The key's holder cannot ask for it (the gate allows no command and
   forwarding is off); only code running inside `sftp` could;
-- it prints nothing to Docker's log but `husarnet.sh`'s own lines when the API does not answer or the join request
-  fails (the daemon's output goes nowhere: never set `HUSARNET_DEBUG`, which prints the join code there);
+- it prints to Docker's log only `husarnet.sh`'s own lines: "joined before ... no join" at a start on a joined
+  state, the refusal without a code, and when the API does not answer or the join request fails (the daemon's
+  output goes nowhere: never set `HUSARNET_DEBUG`, which prints the join code there);
 - `sftp` starts only when the sidecar is healthy, which here means joined and up: a base server connection, the
   daemon joined, its whitelist switched on (the daemon's status shows it as `enableWhitelist`; the dashboard can
   switch it off, and then any Husarnet device reaches the door: the sidecar turns unhealthy, `docker compose ps`
@@ -334,7 +336,8 @@ door is not joined or the PC is not in its network yet: `docker compose exec hus
 it at once (`docker compose down`) and use this folder's `compose.yaml` unchanged. The door's Husarnet address
 stays the same as long as `HUSARNET_STATE` is kept. Once `up` has succeeded, the door is joined: the line
 `HUSARNET_JOIN_CODE=` may be emptied in `.env` (then `docker compose up -d` once more, so the container's
-environment no longer holds it). Both images of this project that are built (the file
+environment no longer holds it, and `docker compose ps`: both healthy again; the recreated sidecar starts without
+a join). Both images of this project that are built (the file
 server's, `compose.yaml`, and the door's, `publish/compose.yaml`) are built on the server from this folder (no
 registry): a compose tool that pulls but does not build needs `docker compose build` first (the door's
 project builds both of its images).
