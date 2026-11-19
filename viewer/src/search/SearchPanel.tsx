@@ -451,7 +451,13 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
             : <button type="button" data-field={p.field} title={t("basic.receipt.open")}
                       onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button>}</span>)}
     </p>
-    {phone && !problem && <button type="button" class="u-btn s-change" onClick={() => { setOpen(false); s.toAdvanced(); }}>
+    {phone && !problem && <button type="button" class="u-btn s-change" onClick={(e) => {
+      // Advanced at its top, also when the form was scrolled (the form's column beside this bar)
+      const form = e.currentTarget.closest(".c-newsearch, .s-kit")?.querySelector<HTMLElement>(".c-form, .s-c-form");
+      setOpen(false);
+      s.toAdvanced();
+      setTimeout(() => form?.scrollTo({top: 0}));
+    }}>
       {t("basic.receipt.change")}<Icon name="next" /></button>}
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
