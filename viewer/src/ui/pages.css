@@ -7,7 +7,7 @@
 .ui .p-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
 .ui .p-brand .u-logo { font-size: 30px; text-decoration: none; }
 .ui .p-doc .p-brand { align-items: flex-start; }
-.ui .p-doc .p-brand .u-logo { font-size: 22px; }
+.ui .p-doc .p-brand .u-logo { font-size: 22px; }  /* off R5: the logo is a drawing sized by its font size, not text */
 .ui .p-lead { margin: 0; color: var(--ink-2); font-size: var(--fs-4); }
 .ui .p-card { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-3); box-shadow: var(--shadow);
   padding: 24px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -53,13 +53,16 @@
 .ui a.p-ex:hover { border-color: var(--accent); background: var(--hover); }
 .ui .p-open { margin-top: auto; padding-top: 8px; color: var(--accent); font-weight: 500; }
 
-/* Privacy and about: text */
-.ui .p-prose { line-height: 1.55; }
-.ui .p-prose h2 { font: 600 18px/1.2 var(--display); margin: 10px 0 0; }
-.ui .p-prose ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
-.ui .p-facts dt { font-weight: 600; margin-top: 10px; }
-.ui .p-facts dt:first-child { margin-top: 0; }
-.ui .p-facts dd { margin: 2px 0 0; color: var(--ink-2); }
+/* Privacy and about: text (PAGE_HTML's .p-doc; the sign-in page shares this file and none of these rules). Headings
+   on the type scale: about's sections as the app's section titles (the display font, 20 px), privacy's facts named
+   as the pilot's section heads (the display font, 16 px); a long address in the text wraps inside the line */
+.ui .p-doc .p-prose { line-height: 1.55; }
+.ui .p-doc .p-prose h2 { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; margin: 12px 0 0; }
+.ui .p-doc .p-prose ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.ui .p-doc .p-prose a { overflow-wrap: anywhere; }
+.ui .p-doc .p-facts dt { font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; margin-top: 16px; }
+.ui .p-doc .p-facts dt:first-child { margin-top: 0; }
+.ui .p-doc .p-facts dd { margin: 4px 0 0; color: var(--ink-2); }
 
 .ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 8px; padding-top: 12px; border-top: 1px solid var(--rule);
   color: var(--muted); font-size: var(--fs-2); }
