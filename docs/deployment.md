@@ -1144,8 +1144,10 @@ before the VPS gets the update whose Telegraf checks it: otherwise "Mirror down"
 
 **The monthly item** (nothing reminds of it):
 1. The base images: the file server's (`deploy/mirror/Dockerfile`, `ARG NGINX_IMAGE`) and the
-   door's (`deploy/mirror/publish/Dockerfile`, `ARG ALPINE_IMAGE`) are pinned by digest, so they
-   get no automatic updates. Check each for a newer digest, change it in the repository with the
+   door's (`deploy/mirror/publish/Dockerfile`, `ARG ALPINE_IMAGE`) are pinned by digest, and so is
+   the door's Husarnet sidecar (`deploy/mirror/publish/compose.yaml`, `husarnet/husarnet`: a newer
+   stable tag, its `husarnet.sh` reasons checked against that version), so they get no automatic
+   updates. Check each for a newer digest, change it in the repository with the
    test images that go with it (`.claude/rules/deploy.md`), let CI's workflow `mirror`
    (`.github/workflows/mirror.yml`) pass, then
    rebuild on the home server (`deploy/mirror/README.md`, "Updating").

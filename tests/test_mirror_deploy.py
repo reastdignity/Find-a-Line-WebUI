@@ -323,13 +323,15 @@ def test_ci_job():
 
 
 def test_publishing_door_compose():
-    """The publishing door (publish/, the user's U32/U33): a second project with one service, its port
-    on the LAN address only (required, never bare), <root> as one read-write mount, the keys
-    read-only, nothing else of the host, a network of its own, the hardening list; the mirror's own
-    project stays one service without a port."""
+    """The publishing door (publish/, the user's U32/U33, U68): a second project with the door `sftp`
+    in the network namespace of a Husarnet sidecar, started when the sidecar is healthy; no port
+    published by either; <root> as one read-write mount, the keys read-only, nothing else of the
+    host, the hardening list; the mirror's own project stays one service without a port."""
     compose = _compose(os.path.join("publish", "compose.yaml"))
     assert compose["name"] == "findaline-mirror-publish"
-    assert set(compose["services"]) == {"sftp"}
+    assert set(compose["services"]) == {"sftp", "husarnet"}
+    for name, svc in compose["services"].items():
+        assert "ports" not in svc and "expose" not in svc, name
     service = compose["services"]["sftp"]
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
@@ -341,9 +343,10 @@ def test_publishing_door_compose():
     assert service["healthcheck"]["test"]
     assert service["restart"] == "unless-stopped"
     assert service["build"] == {"context": "."} and "image" not in service
-    # The port: exactly on the address given, which compose requires
-    assert len(service["ports"]) == 1
-    assert re.fullmatch(r"\$\{PUBLISH_ADDRESS:\?[^}]*\}:\$\{PUBLISH_PORT:-2222\}:2222", service["ports"][0])
+    # In the sidecar's namespace, after it is healthy (joined and up); no network of its own
+    assert service["network_mode"] == "service:husarnet"
+    assert "networks" not in service and "sysctls" not in service
+    assert service["depends_on"] == {"husarnet": {"condition": "service_healthy", "restart": True}}
     volumes = {v["target"]: v for v in service["volumes"]}
     assert set(volumes) == {"/mirror", "/keys/authorized_keys", "/keys/host/ssh_host_ed25519_key", "/tmp"}
     root = volumes["/mirror"]
@@ -354,12 +357,36 @@ def test_publishing_door_compose():
         assert key["type"] == "bind" and key["read_only"] is True and key["source"].startswith("${PUBLISH_KEYS:?")
         assert key["bind"] == {"create_host_path": False}
     assert volumes["/tmp"]["type"] == "tmpfs"
-    assert service["networks"] == ["publish"]
+    # The sidecar: pinned by digest, NET_ADMIN its one added capability, the tun device, IPv6 on in
+    # the namespace, the join code and the state folder required, on the project's own network
+    husarnet = compose["services"]["husarnet"]
+    assert re.fullmatch(DIGEST, husarnet["image"]) and husarnet["image"].startswith("husarnet/husarnet:")
+    assert husarnet["cap_add"] == ["NET_ADMIN"] and "privileged" not in husarnet
+    assert husarnet["devices"] == ["/dev/net/tun"]
+    assert husarnet["sysctls"] == {"net.ipv6.conf.all.disable_ipv6": 0}
+    assert re.fullmatch(r"\$\{HUSARNET_JOIN_CODE:\?[^}]*\}", husarnet["environment"]["HUSARNET_JOIN_CODE"])
+    assert re.fullmatch(r"\$\{HUSARNET_HOSTNAME:-[a-z0-9-]+\}", husarnet["environment"]["HUSARNET_HOSTNAME"])
+    # never HUSARNET_DEBUG: with it the daemon prints the join code to Docker's log
+    assert set(husarnet["environment"]) == {"HUSARNET_JOIN_CODE", "HUSARNET_HOSTNAME"}
+    assert not re.search(r"^\s+HUSARNET_DEBUG", _load("publish", "compose.yaml"), re.M)
+    hvolumes = {v["target"]: v for v in husarnet["volumes"]}
+    assert set(hvolumes) == {"/var/lib/husarnet", "/door/husarnet.sh"}
+    state = hvolumes["/var/lib/husarnet"]
+    assert state["type"] == "bind" and re.fullmatch(r"\$\{HUSARNET_STATE:\?[^}]*\}", state["source"])
+    assert state["bind"] == {"create_host_path": False} and not state.get("read_only")
+    script = hvolumes["/door/husarnet.sh"]
+    assert script["source"] == "./husarnet.sh" and script["read_only"] is True
+    assert husarnet["entrypoint"] == ["bash", "/door/husarnet.sh", "start"]
+    assert husarnet["healthcheck"]["test"] == ["CMD", "bash", "/door/husarnet.sh", "health"]
+    assert husarnet["restart"] == "unless-stopped"
+    assert husarnet["logging"]["driver"] == "json-file" and "max-size" in husarnet["logging"]["options"]
+    assert husarnet["networks"] == ["publish"]
     assert set(compose["networks"]) == {"publish"} and not compose["networks"]["publish"].get("internal")
     assert "external" not in compose["networks"]["publish"] and "name" not in compose["networks"]["publish"]
-    keys = set(re.findall(r"^([A-Z_]+)=", _load("publish", ".env.example"), re.M))
-    assert keys == {"MIRROR_ROOT", "PUBLISH_KEYS", "PUBLISH_ADDRESS", "PUBLISH_PORT"}
-    assert re.search(r"^PUBLISH_ADDRESS=$", _load("publish", ".env.example"), re.M)
+    example = _load("publish", ".env.example")
+    keys = set(re.findall(r"^([A-Z_]+)=", example, re.M))
+    assert keys == {"MIRROR_ROOT", "PUBLISH_KEYS", "HUSARNET_JOIN_CODE", "HUSARNET_HOSTNAME", "HUSARNET_STATE"}
+    assert re.search(r"^HUSARNET_JOIN_CODE=$", example, re.M) and "SECRET" in example
     dockerfile = _load("publish", "Dockerfile")
     arg = re.search(r"^ARG ALPINE_IMAGE=(\S+)$", dockerfile, re.M)
     assert arg and re.fullmatch(DIGEST, arg.group(1)) and arg.group(1).startswith("alpine:")
@@ -368,6 +395,76 @@ def test_publishing_door_compose():
     # The mirror's own project is untouched by the door
     mirror = _compose()
     assert set(mirror["services"]) == {"files"} and "ports" not in mirror["services"]["files"]
+
+
+def _bash():
+    """bash for running publish/husarnet.sh: Git's on Windows (`bash` there may be WSL's)"""
+    import shutil
+    import sys
+    if sys.platform == "win32":
+        git_bash = r"C:\Program Files\Git\bin\bash.exe"
+        return git_bash if os.path.isfile(git_bash) else None
+    return shutil.which("bash")
+
+
+def _daemon_status(whitelist: list, base: bool = True, joined: bool = True) -> bytes:
+    """An answer of the Husarnet daemon's GET /api/status in its form (nlohmann's dump(4), v2.0.180's
+    core/api_server/server.cpp), with the fields husarnet.sh reads; the websetup address is Husarnet's."""
+    import json
+    websetup = "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a"
+    result = {"base_connection": {"address": "192.0.2.1", "port": 443, "type": "TCP" if base else "NONE"},
+              "connection_status": {"base": base, "websetup": base}, "is_joined": joined, "is_ready": base,
+              "local_ip": "fc94:1111:2222:3333:4444:5555:6666:7777", "user_settings": {"enableWhitelist": "true", "joinCode": ""},
+              "websetup_address": websetup, "whitelist": [websetup] + whitelist}
+    return json.dumps({"result": result, "status": "success"}, indent=4, sort_keys=True).encode()
+
+
+def test_husarnet_health_means_joined_and_up():
+    """publish/husarnet.sh health against a stand-in for the daemon's API: healthy only with a base
+    server connection, is_joined and a peer on the whitelist besides Husarnet's websetup server. The
+    daemon reported is_joined with a refused dummy join code, and then its whitelist held websetup
+    alone (the build's smoke test): that case must stay unhealthy; no daemon at all too."""
+    import http.server
+    import subprocess
+    import threading
+
+    bash = _bash()
+    if not bash:
+        pytest.skip("no bash")
+    answer = {"body": b""}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            assert self.path == "/api/status"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/json")
+            self.send_header("Content-Length", str(len(answer["body"])))
+            self.end_headers()
+            self.wfile.write(answer["body"])
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    script = os.path.join(MIRROR, "publish", "husarnet.sh")
+
+    def health(port: int) -> int:
+        env = dict(os.environ, HUSARNET_DAEMON_API_PORT=str(port))
+        return subprocess.run([bash, script, "health"], env=env, capture_output=True, timeout=60).returncode
+
+    peer = "fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"
+    try:
+        port = server.server_address[1]
+        for body, want in [(_daemon_status([peer]), 0), (_daemon_status([]), 1),
+                           (_daemon_status([peer], base=False), 1), (_daemon_status([peer], joined=False), 1),
+                           (b"", 1)]:
+            answer["body"] = body
+            assert health(port) == want, body[:200]
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert health(port) == 1   # nothing listening
 
 
 def test_publishing_door_sshd_and_gate():
@@ -437,11 +534,20 @@ def test_log_dataset_and_version_forms():
 
 
 def test_publishing_door_readme_checks_the_binding():
-    """Code review F6: the README's install shows where the door's port is really bound, and what
-    0.0.0.0 or :: there means."""
-    readme = _load("README.md")
-    assert "docker compose port sftp 2222" in readme
-    assert "`0.0.0.0:<port>` or `[::]:<port>`" in readme and "docker compose down" in readme
+    """Code review F6, after U68: the README's install shows that neither of the door's containers
+    publishes a port, and what to do if one does; the Husarnet network for the door alone, the
+    whitelist's role quoted with its source, the join code a secret, the state folder 0700, the
+    door's Husarnet address, the rclone host and known_hosts line for it."""
+    readme = " ".join(_load("README.md").split())
+    for words in ["docker port findaline-mirror-publish-sftp-1", "docker port findaline-mirror-publish-husarnet-1",
+                  "docker compose down", "only the publishing PC and the door",
+                  "it can send packets to current device", "husarnet.com/docs/cli-guide/, read 2026-11-19",
+                  "Keep your join code secret!", 'install -d -m 0700 "$HSTATE"',
+                  "docker compose exec husarnet husarnet status", "host = [<the door's Husarnet IP>]",
+                  "[<the door's Husarnet IP>]:2222 ssh-ed25519", "never set `HUSARNET_DEBUG`",
+                  "docker compose restart sftp", "husarnet/husarnet:<tag>"]:
+        assert words in readme, words
+    assert "docker compose port sftp" not in readme and "PUBLISH_ADDRESS" not in readme
 
 
 def test_log_size_bound_and_readme_part_b():
@@ -454,6 +560,6 @@ def test_log_size_bound_and_readme_part_b():
     readme = " ".join(_load("README.md").split())
     for words in ["docker network connect findaline-mirror_mirror swag", "NOT ATTACHED",
                   "cannot start while that network is missing", "502",
-                  "the publishing PC's LAN address and the key's fingerprint",
+                  "the publishing PC's Husarnet address and the key's fingerprint",
                   "covers both the address's 4 and all visitors' 8", "fewer than 14 days"]:
         assert words in readme, words

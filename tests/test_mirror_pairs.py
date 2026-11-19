@@ -127,7 +127,8 @@ def test_conftest_keeps_the_rates_for_this_module():
 # Names a mirror file may hold where a host is expected beside the data server's: examples and third parties; the
 # site's own host only where a file means the site (SITE_PLACES: the landing page's link to the site)
 SITE = "findaline.lukawski.org"
-OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com"}
+OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com",
+               "app.husarnet.com"}   # the door's Husarnet sidecar fetches its licence there (README)
 SITE_PLACES = {os.path.join("deploy", "mirror", "landing", "index.html")}
 # Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
 FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",

@@ -153,8 +153,10 @@ settings, so it revokes and deletes the production certificate, and switching it
 ## The publishing account
 
 The PC that publishes (`tools/mirror_publish.py`, through rclone over SFTP) reaches `<root>` through a door of its
-own: a second compose project, `findaline-mirror-publish` in `publish/`, one service `sftp` (OpenSSH on Alpine,
-built from `publish/Dockerfile`). The mirror's own project stays as it is (one service, no published port).
+own: a second compose project, `findaline-mirror-publish` in `publish/`, with two services: `sftp` (OpenSSH on
+Alpine, built from `publish/Dockerfile`) and `husarnet`, a Husarnet sidecar whose network namespace `sftp` runs in
+(`network_mode: service:husarnet`). The PC need not be on the home server's LAN: it reaches the door over a
+Husarnet network of its own. The mirror's own project stays as it is (one service, no published port).
 
 What the door is:
 - one account, `publish` (uid 1000, also in group 101, the file server's group), key only: no password, no
@@ -163,8 +165,14 @@ What the door is:
 - a command gate (`publish/gate.sh`, sshd's `ForceCommand`): the key can run the SFTP server and `sha256sum` of
   one regular file whose resolved path lies under the mirror folder, nothing else (no shell; a symlink out of the
   folder, a device, `..`, two paths, shell syntax are refused);
-- its port published on the server's **LAN address only** (`PUBLISH_ADDRESS`, required; never `0.0.0.0`; the
-  router forwards nothing to it), on a network of its own, never the mirror's internal one;
+- **no port published on the home server at all**. sshd's port 2222 is reached at the door's Husarnet address (an
+  IPv6 address in `fc94::/16`), by the devices the door's Husarnet whitelist lets in (below): the publishing PC,
+  and Husarnet's websetup server. sshd listens on every address of the namespace, so also on the address the door
+  has on the project's network `publish` (Husarnet's way out to its servers); that address is reached from the
+  home server itself (and from a container attached to that network, none besides the sidecar), not from the
+  LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker host",
+  and "By default, remote hosts are not allowed direct access to container IP addresses in Docker's Linux bridge
+  networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19);
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
   mounts fails: tried with `public` as a mount of its own in the check script's self-test, the rename fails; the
   research for this door saw rclone 1.76 then exit 1 with "Failure" and leave the files in `staging`),
@@ -176,15 +184,64 @@ What the door is:
   user of the home server runs it. Whoever wants that closed mounts the file system of `<root>` with `nosuid`.
 - no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
 
-The door's own log (Docker's json-file log of `findaline-mirror-publish-sftp-1`, `docker compose logs` in
-`publish/`) is kept: sshd writes there the publishing PC's LAN address and the key's fingerprint at each login,
-and refused attempts. It is the record of when the publishing key was used. It is bounded by the json-file size
-cap of `publish/compose.yaml` (3 files of 1 MB) and goes with the container when it is removed.
+**The Husarnet sidecar** (`husarnet` in `publish/compose.yaml`; the image `husarnet/husarnet`, pinned by digest):
+- it runs as root in its container, with Docker's default capabilities plus `NET_ADMIN` (its tun interface
+  `hnet0`), the device `/dev/net/tun`, IPv6 switched on in the namespace and a writable root, as the image comes
+  (with every capability dropped but `NET_ADMIN` its daemon exits at start; a read-only root alone was not tried). Its state folder `/var/lib/husarnet`
+  is a bind of `HUSARNET_STATE`: the device's private key (its Husarnet address follows from it), the licence
+  file and the daemon's API token. It is not mounted into `sftp`;
+- it needs Husarnet's servers: at its first start (an empty state folder) the daemon fetches its licence from
+  `app.husarnet.com` and exits without it (later starts with the licence file kept were not tried), and it keeps a connection to one of Husarnet's base servers, which relay the traffic when a
+  direct connection between the PC and the door cannot be made. Their traffic is encrypted ("The connections are also
+  always encrypted", husarnet.com/docs/how-husarnet-works/, read 2026-11-19);
+- its entry point and healthcheck are `publish/husarnet.sh`, not the image's own. The daemon's local API
+  (`127.0.0.1:16216`, inside the namespace `sftp` shares) answers its read requests to any process there without
+  its token; only its changes need the token, which only root of the sidecar reads. Started the image's way (the
+  join code in the daemon's environment), its status (`user_settings.joinCode`) and its log ("Sending join request
+  to websetup (joincode: ...)") carry the join code to whoever asks, uid 1000 of `sftp` too: shown with a dummy
+  code in the build's checks. `husarnet.sh` starts the daemon without the code, raises its log level to warnings,
+  then hands it the code through the CLI (with the token); the code is then in neither answer. What stays readable
+  there without the token: the door's Husarnet address, its whitelist and the addresses its peers were reached at
+  (the PC's public address among them). The key's holder cannot ask for it (the gate allows no command and
+  forwarding is off); only code running inside `sftp` could;
+- it prints nothing to Docker's log but `husarnet.sh`'s own lines when the API does not answer or the join request
+  fails (the daemon's output goes nowhere: never set `HUSARNET_DEBUG`, which prints the join code there);
+- `sftp` starts only when the sidecar is healthy, which here means joined and up: a base server connection, the
+  daemon joined, and at least one address on its whitelist besides Husarnet's websetup server, the one the
+  dashboard puts there for the PC. The daemon's own "joined" flag is no proof: it was true with a refused dummy
+  code. So the PC joins the network first (Install below);
+- when the sidecar is restarted on its own (`docker restart`, a crash and Docker's restart), `sftp` is left in a
+  network namespace with its loopback only (seen in the check script: the login refused, and `docker compose up
+  -d` does not mend it). Its healthcheck sees that and ends sshd, and Docker's restart policy starts `sftp` again
+  in the sidecar's new namespace, within about 30 s (`docker compose restart sftp` does it at once; compose's own
+  `docker compose restart husarnet` restarts `sftp` too: `depends_on`'s `restart: true`). That holds when the
+  sidecar is back by then: if it is still stopped when `sftp` restarts, `sftp` ends Exited ("cannot join network
+  namespace of a non running container") and Docker does not try again; `docker compose up -d` in `publish/`
+  brings it back (both seen in the check script's test stack). After a reboot of the home server, check
+  `docker compose ps` in `publish/` (not tried: the order in which Docker starts the two at boot).
+
+**The Husarnet network**: make a network in Husarnet's dashboard for the door alone and put into it only the
+publishing PC and the door; do not add the door to any other network, nor other devices to this one. Husarnet's
+whitelist decides who may reach a device at all: "if given IPv6 address is on the whitelist, then it can send
+packets to current device", and "Typically whitelist is managed by the Dashboard (i.e. if you add your device to a
+group in the Dashboard, all of the devices are notified of new member and will add it to their own whitelists)";
+"our Websetup Server will always be on your whitelist"; "Disabling whitelist is highly discouraged, as it makes
+our device open for connections from any other Husarnet device" (husarnet.com/docs/cli-guide/, read 2026-11-19).
+So in a network of its own the door accepts packets from the PC and from Husarnet's websetup server only; every
+other device of the account, and the PC's other networks, stay out. The join code admits any device to the
+network: it is a secret ("Keep your join code secret!", the same page), kept only in the door's `.env`; whoever
+had it could add a device that the door then lets in (sshd still asks for the publishing key).
+
+The door's own logs (Docker's json-file logs of `findaline-mirror-publish-sftp-1` and `-husarnet-1`, `docker
+compose logs` in `publish/`) are kept: sshd writes there the publishing PC's Husarnet address and the key's
+fingerprint at each login, and refused attempts: the record of when the publishing key was used. They are
+bounded by the json-file size cap of `publish/compose.yaml` (3 files of 1 MB each) and go with the containers
+when they are removed.
 
 What the key can still read, accepted: the container's own read-only files (an Alpine system, no secret) and the
 door's host key (sshd runs as the account and needs it). Whoever holds the publishing key could therefore copy the
-door's host key and pose as the door on the LAN; and whoever holds it decides what every installation downloads
-(spec S17). So:
+door's host key (posing as the door at its address would also take the sidecar's device key, which the account
+cannot read); and whoever holds it decides what every installation downloads (spec S17). So:
 - **the key pair is made on the PC that publishes, used for publishing only, and never placed on the VPS or in
   the repository**:
   ```sh
@@ -193,17 +250,29 @@ door's host key and pose as the door on the LAN; and whoever holds it decides wh
   (a passphrase is possible; rclone then needs it as `key_file_pass`, obscured, in its config:
   `rclone obscure <passphrase>` prints that form).
   Only its public half, `findaline-publish.pub`, goes to the server: copy it there by any way you trust (a USB
-  stick, `scp <keys folder on the PC>/findaline-publish.pub <you>@<the server's LAN address>:`), into the folder
-  you run the install's `install -m 0644 findaline-publish.pub ...` from. On the server,
-  `ssh-keygen -l -f findaline-publish.pub` must show the same fingerprint as on the PC. The private half never
-  leaves the PC.
+  stick, your own copy to the server), into the folder you run the install's `install -m 0644
+  findaline-publish.pub ...` from. On the server, `ssh-keygen -l -f findaline-publish.pub` must show the same
+  fingerprint as on the PC. The private half never leaves the PC.
 
-**Install** (on the server; `ROOT` as in the mirror's install, `KEYS` a folder outside the copy of this folder):
+**The PC's side of Husarnet** (once): install Husarnet's Windows client ("Download the latest Husarnet Windows
+installer and run it", it then runs as a Windows service; "Some commands need Administrator-level privileges":
+husarnet.com/docs/platform-windows-install/, read 2026-11-19), then, in a terminal opened as Administrator (the
+CLI reads the daemon's token, which only an administrator can read), join the door's network:
+```sh
+husarnet join <the network's join code> <a name for the PC>
+husarnet status                 # Is joined? yes; Husarnet IP: the PC's address
+```
+
+**Install** (on the server; `ROOT` as in the mirror's install, `KEYS` and `HSTATE` folders outside the copy of
+this folder; the PC joined first):
 ```sh
 KEYS=/path/to/findaline-mirror-keys
+HSTATE=/path/to/findaline-mirror-husarnet
 install -d -m 0755 "$KEYS"
-cd publish && cp .env.example .env    # MIRROR_ROOT (the mirror's), PUBLISH_KEYS="$KEYS", PUBLISH_ADDRESS (LAN), PUBLISH_PORT
-docker compose build                  # the image findaline-mirror-publish-sftp
+install -d -m 0700 "$HSTATE"           # owned by root: the device's private key and the API token
+cd publish && cp .env.example .env     # MIRROR_ROOT (the mirror's), PUBLISH_KEYS="$KEYS", HUSARNET_JOIN_CODE, HUSARNET_HOSTNAME, HUSARNET_STATE="$HSTATE"
+chmod 600 .env                         # it holds the join code
+docker compose build                   # the image findaline-mirror-publish-sftp
 # The door's host key, made once (owned by the account, mode 600); note its fingerprint
 docker run --rm --user 0 --network none -v "$KEYS:/v" --entrypoint ssh-keygen findaline-mirror-publish-sftp -q -t ed25519 -N '' -C findaline-mirror-publish -f /v/ssh_host_ed25519_key
 chown 1000:1000 "$KEYS/ssh_host_ed25519_key" && chmod 600 "$KEYS/ssh_host_ed25519_key"
@@ -212,22 +281,27 @@ docker run --rm --network none -v "$KEYS:/v:ro" --entrypoint ssh-keygen findalin
 install -m 0644 findaline-publish.pub "$KEYS/authorized_keys"
 # The folders the account writes
 chown -R 1000:1000 "$ROOT/staging" "$ROOT/public" "$ROOT/trash"       # logs/ stays 101:101, 0750
-docker compose up -d --wait
-docker compose port sftp 2222        # must show the LAN address (<address>:<port>)
+docker compose up -d --wait            # husarnet: healthy (joined, the PC on its whitelist), then sftp: healthy
+docker compose exec husarnet husarnet status        # the door's Husarnet IP; the whitelist: the PC and websetup
+docker port findaline-mirror-publish-sftp-1         # nothing: no published port
+docker port findaline-mirror-publish-husarnet-1     # nothing
 ```
-If `docker compose port sftp 2222` shows `0.0.0.0:<port>` or `[::]:<port>`, the door listens on every address:
-stop it at once (`docker compose down`), put the server's LAN address into `PUBLISH_ADDRESS` and start it again.
-Both images are built on the server from this folder (no registry): a compose tool that pulls but does not build
-needs `docker compose build` first, for the file server's image (`compose.yaml`) and for the door's
-(`publish/compose.yaml`).
+If `up` stops with "dependency failed to start: container findaline-mirror-publish-husarnet-1 is unhealthy", the
+door is not joined or the PC is not in its network yet: `docker compose exec husarnet husarnet status` shows which
+(and Husarnet's dashboard). If either `docker port` line prints a port, the door is published on the server: stop
+it at once (`docker compose down`) and use this folder's `compose.yaml` unchanged. The door's Husarnet address
+stays the same as long as `HUSARNET_STATE` is kept. Both images of this project that are built (the file
+server's, `compose.yaml`, and the door's, `publish/compose.yaml`) are built on the server from this folder (no
+registry): a compose tool that pulls but does not build needs `docker compose build` first; the sidecar's image
+is pulled.
 
 **The rclone remote on the PC**, in a config file of its own (rclone writes into the config file it is given, e.g.
 settings it detects; keep the file private, out of the repository). The values in angle brackets are yours:
 ```ini
 [findaline-mirror]
 type = sftp
-host = <the server's LAN address>
-port = <PUBLISH_PORT>
+host = [<the door's Husarnet IP>]
+port = 2222
 user = publish
 key_file = <keys folder on the PC>/findaline-publish
 known_hosts_file = <a known_hosts file on the PC>
@@ -237,17 +311,20 @@ sha256sum_command = sha256sum
 md5sum_command = none
 sha1sum_command = none
 ```
-- `known_hosts_file` holds one line, `[<address>]:<port> ssh-ed25519 AAAA...`, the content of the server's
-  `$KEYS/ssh_host_ed25519_key.pub` (public; bring it to the PC as you brought the other key the other way, or
-  copy its text from the server's screen). Before using it, on the PC: `ssh-keygen -l -f <a known_hosts file on
-  the PC>` must show the fingerprint noted at the install (`SHA256:...`, the line printed after the host key was
-  made); a different one means it is not the door's key. Without the file rclone checks no host key at all.
+- `host` is the door's Husarnet IP as `husarnet status` prints it, in brackets: rclone 1.76 refuses a bare IPv6
+  address ("dial tcp: address ::1:2299: too many colons in address"; `[::1]` dials).
+- `known_hosts_file` holds one line, `[<the door's Husarnet IP>]:2222 ssh-ed25519 AAAA...`, the content of the
+  server's `$KEYS/ssh_host_ed25519_key.pub` after the address (public; bring it to the PC as you brought the other
+  key the other way, or copy its text from the server's screen); the address written exactly as in `host`, inside the brackets. Before
+  using it, on the PC: `ssh-keygen -l -f <a known_hosts file on the PC>` must show the fingerprint noted at the
+  install (`SHA256:...`, the line printed after the host key was made); a different one means it is not the
+  door's key. Without the file rclone checks no host key at all.
 - `shell_type`, `hashes` and `sha256sum_command` must be set: rclone's detection would set the hashes to `none`
   behind the gate.
 - The remote's top folder is the mirror folder as the container shows it: `findaline-mirror:/mirror` (so
   `--to findaline-mirror:/mirror`, `--from findaline-mirror:/mirror/logs`).
 
-**Checking it**, from the PC (works before the first publish too):
+**Checking it**, from the PC (works before the first publish too; Husarnet's client running):
 ```sh
 rclone --config <file> lsd findaline-mirror:/mirror                                  # logs, public, staging, trash
 echo door-check | rclone --config <file> rcat findaline-mirror:/mirror/staging/door-check.txt
@@ -258,12 +335,19 @@ rclone --config <file> deletefile findaline-mirror:/mirror/staging/door-check.tx
 The hash must come from the server (the publish tool's check of every copied file needs it): "hash unsupported:
 hash type not supported" means the `hashes` and `sha256sum_command` lines above are missing. Hashing
 `public/v1` instead works only after the first publish (before it the folder does not exist: "directory not
-found"). `tests/mirror_check.sh` checks the door (the D lines) on a PC or in CI.
+found"). On the server, nothing is published: `docker port findaline-mirror-publish-sftp-1` and `docker port
+findaline-mirror-publish-husarnet-1` print nothing. `tests/mirror_check.sh` checks the door (the D lines) on a PC
+or in CI, with a stand-in for the sidecar (it has no join code and never reaches Husarnet).
 
-**Updating**: monthly, with the file server's image: the base is pinned by digest (`ARG ALPINE_IMAGE` in
+**Updating**: monthly, with the file server's image: the door's base is pinned by digest (`ARG ALPINE_IMAGE` in
 `publish/Dockerfile`); the packages are not pinned, so a rebuild takes the newest OpenSSH of that Alpine branch.
-Edit the digest, then `docker compose build --pull` and `docker compose up -d --wait` in `publish/`. The host key
-and `authorized_keys` stay in `PUBLISH_KEYS`, so the PC's `known_hosts` stays valid.
+The sidecar's image is pinned by tag and digest in `publish/compose.yaml`; 2.0.180 (October 2023, on Ubuntu 22.04
+of then) is Husarnet's newest stable image, only `husarnet/husarnet-nightly` is newer: look for a newer stable tag,
+read its digest with `docker buildx imagetools inspect husarnet/husarnet:<tag>`, check `publish/husarnet.sh`'s
+reasons against that version (its header). Edit the digests, then `docker compose build --pull`, `docker compose
+pull husarnet` and `docker compose up -d --wait` in `publish/`. The host key and `authorized_keys` stay in
+`PUBLISH_KEYS` and the device key in `HUSARNET_STATE`, so the PC's `known_hosts` and the door's Husarnet address
+stay valid.
 
 ## Settings
 
@@ -354,7 +438,7 @@ A new key or another period changes this text, with the user's yes (docs/mirror-
 
 ## Updating
 
-- **The base images** (a monthly item; the door's: "The publishing account"): the file server's is pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
+- **The base images** (a monthly item; the door's and its Husarnet sidecar's: "The publishing account"): the file server's is pinned by tag and digest in `Dockerfile` (`ARG NGINX_IMAGE`), so it gets
   no automatic updates and compose tools that check for updates skip it. Pick the newest tag of the stable
   Alpine line, read its digest with `docker buildx imagetools inspect nginx/nginx-unprivileged:<tag>`, change
   the `ARG`, run `tests/mirror_check.sh --self-test` on a PC (or let CI's job `mirror` run it: the workflow

@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 2026-11-18/19)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -92,6 +92,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U55 | The islets' three `PUBLISHABLE` rows (the basis of Madeira's row, U11; against it the regional order's price of Porto Santo's 5 m model) | "a": all three approved as drafted (porto-santo, desertas, selvagens), 2026-11-17 |
 | U56 | The islets' served cards (two left out a change under "Changes made": the Desertas' replaced reference-system label, Porto Santo's float64 to float32) | "a": both fixed first; the new card texts shown to the user before anything is published |
 | U57 | Keeping the master's `README.md` files in step with the served cards (Porto Santo's and the Desertas' on the master are older than their cards of U56) | both: the publish tool notes a dataset's `README.md` that is missing or differs from the card it serves, at every `publish` and every `verify` of a master folder; the two files are rewritten once on the master by the cutting tool (`mirror_tiles.py cut`, which cuts nothing for a finished dataset), on the user's word |
+| U68 | The door's path from the publishing PC | "a": Husarnet as a sidecar in the door's own compose project; `sftp` runs in its network namespace (`network_mode: service:husarnet`); no port published on the home server at all; `PUBLISH_ADDRESS` and `PUBLISH_PORT` dropped; only the door's port 2222 reached, by the user's Husarnet peers |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -154,7 +155,9 @@ PC (cuts datasets, master on Z:) ── tools/mirror_publish.py + rclone (SFTP) 
 
 - The PC that holds `FINDALINE_MIRROR` keeps reading the folder; HTTP serves every machine without it.
 - The PC reaches `<root>` through the publishing door: a second compose project on the home server
-  (`deploy/mirror/publish/`, an SFTP container with a command gate, its port on one LAN address; U27, U32, U33).
+  (`deploy/mirror/publish/`, an SFTP container with a command gate in the network namespace of a Husarnet
+  sidecar, no published port: the PC reaches it over a Husarnet network of the PC and the door alone; U27, U32,
+  U33, U68).
 - The VPS's worker has no local copy any more (U4): it is the mirror's heaviest correct client and gets a class
   of its own in the limits.
 - One host name under the project's domain (U10), pointing straight at the home address (U9). No AAAA record
@@ -178,7 +181,11 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    The publishing door is a project of its own (`findaline-mirror-publish` in `deploy/mirror/publish/`, one service
    `sftp`: Alpine and OpenSSH, key only, a command gate allowing the SFTP server and `sha256sum` of one file under the
    mounted `<root>`; U27, U32, U33); "one service, no published port" holds for the mirror's project, and the door
-   publishes one port on one LAN address (`PUBLISH_ADDRESS`, required). Hardening as the site's containers: the non-root user,
+   publishes none either: `sftp` runs in the network namespace of a Husarnet sidecar (`husarnet`, the image
+   `husarnet/husarnet` pinned by digest, its entry point and healthcheck `publish/husarnet.sh`) and is reached at the
+   door's Husarnet address by the devices of its dedicated Husarnet network (U68); the sidecar is the one exception
+   to the hardening below (root, a writable root, Docker's default capabilities plus `NET_ADMIN`, as its image runs;
+   with every capability but `NET_ADMIN` dropped it exits). Hardening as the site's containers: the non-root user,
    read-only root, a tmpfs for `/tmp`, all capabilities dropped, no-new-privileges, memory and pid limits with
    `memswap_limit` equal to `mem_limit`, json-file logs with a size cap, a healthcheck, `restart: unless-stopped`,
    `init: true` (the start script's loop is reaped). The start script is the image's entry point: it writes what
@@ -277,14 +284,15 @@ The service stores only its log. `deploy/mirror/.env.example`: `MIRROR_ROOT` (th
 `logs`), `MIRROR_SUBNET` (with a default), `MIRROR_TRUSTED_ADDRESSES`, `MIRROR_CONTACT` (required), `MIRROR_MEMORY`.
 The limits' numbers are constants of the config in the repo, not settings; so is the log's size bound
 (`LOG_CAP_BYTES` in the start script, U45). The door's `publish/.env.example`: `MIRROR_ROOT`, `PUBLISH_KEYS`,
-`PUBLISH_ADDRESS`, `PUBLISH_PORT`.
+`HUSARNET_JOIN_CODE` (required, a secret), `HUSARNET_HOSTNAME`, `HUSARNET_STATE` (required: the sidecar's state
+folder, the device's private key and the daemon's API token, mode 0700 outside the copy of the folder; U68).
 
 ### Files and pairs
 New: `deploy/mirror/Dockerfile`, `compose.yaml`, `compose.test.yaml`, `.env.example`, the server's config and
 start script, `swag/findaline-mirror.subdomain.conf`, `landing/index.html`, `robots.txt`, `README.md` (install on
 a server that runs plain docker compose, the attachment of SWAG to the project's network and how to make it
 lasting, the certificate step, the pinned image's update, the check commands, the publishing door), the door's
-`publish/` (Dockerfile, `sshd_config`, `gate.sh`, `compose.yaml`, `.env.example`; U32, U33), the check script's
+`publish/` (Dockerfile, `sshd_config`, `gate.sh`, `compose.yaml`, `husarnet.sh`, `.env.example`; U32, U33, U68), the check script's
 `test/` files; `tests/test_mirror_deploy.py`;
 `tests/mirror_check.sh`; a CI job `mirror`. The site's `compose.yaml` services and `tests/test_deploy.py` are not
 touched. Pairs: the served patterns ↔ `grid_tile_name`, `res_name` and the publish tool's layout; the log's keys
@@ -775,17 +783,17 @@ Nothing before the build.
 | S4 | Slow readers hold connections | A.6 timeouts; the caps bound what one address and all together can hold; SWAG's shared connections are far above the totals | a reader just above the timeouts holds its slots; no minimum-speed rule exists |
 | S5 | Range and query tricks | A.4 one range; A.2 a query is refused; no cache in front | - |
 | S6 | Reading outside the data | only `<root>/public` served, read-only; A.2's patterns; symlinks, dot-files, `.part` refused; staging and trash outside the served tree | - |
-| S7 | The home network | no published port of the mirror's project (the publishing door: one port on the LAN address alone, U27, U33); an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9) |
+| S7 | The home network | no published port of the mirror's project, nor of the publishing door (its sshd reached only over Husarnet, by the devices of the door's own Husarnet network and Husarnet's websetup server, U68); an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9); the door's sidecar keeps a connection out to Husarnet's servers (its licence at the first start, a base server), and Husarnet's websetup server is always on its whitelist |
 | S8 | A dataset without the right to redistribute | B's `PUBLISHABLE` with the user's approval is the only way in; cards and the landing page carry the credits; `unpublish` | a wrong row, reviewed like code; Madeira's weak basis (U11) |
 | S9 | Damaged, cut-short or mixed tiles | C.2: sha256 before any use; B: staging, verify, moves | a re-encoding published with `--same-values` that does change values: the promise is the publisher's |
 | S10 | The home server taken over serves crafted tiles | U8: the mirror is trusted as every provider is; TLS; the worker on the VPS runs in its hardened container | every installation trusts the home server's files (the user's decision; pinning hashes in the repo was the alternative) |
-| S11 | Privacy of those who download | A.7's log; SWAG's access log off for the host; the texts of D | the operator can see live traffic; said in the text; the door's own log holds the publishing PC's LAN address and the key's fingerprint (U43) |
+| S11 | Privacy of those who download | A.7's log; SWAG's access log off for the host; the texts of D | the operator can see live traffic; said in the text; the door's own log holds the publishing PC's Husarnet address and the key's fingerprint (U43, U68) |
 | S12 | The site depends on a home server | U6, U7; later phases and finished runs work from the cache (C.3); D's alert | coarser results on mirrored ground while it is down |
 | S13 | A limit set wrong throttles the site or opens the line | the site's class; the client at half the limits; the pair's test; the start script refuses a bad trusted list | several installations behind one address share one allowance; a fifth installation at the same time fails its phase and repeats it |
 | S14 | An old image nobody updates | digest pin; the monthly item (D.4) | a manual step at home |
 | S15 | The public copy fills the storage | B: the free-space check before a publish; `clean` | - |
 | S16 | A request body or an odd method reaches SWAG's disk | A.8: SWAG refuses other methods and bodies above 1 KB itself; the mirror answers 413 to a body above 1 KB sent to it directly (A.2) | - |
-| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository; the key opens only the publishing door (U27, U32, U33): SFTP and `sha256sum` under `<root>`, nothing else of the server, its port on the LAN address alone; the public folder is read-only for the container | the PC that publishes is a trusted machine; the key can read the door container's own host key; the setuid bit over SFTP is not refused by the door (the README names `nosuid`: the planner's ruling) |
+| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository; the key opens only the publishing door (U27, U32, U33): SFTP and `sha256sum` under `<root>`, nothing else of the server, no published port: reached only over the door's own Husarnet network (U68), its join code a secret kept in the door's `.env` and out of what the sidecar's API shows without its token (`publish/husarnet.sh`); the public folder is read-only for the container | the PC that publishes is a trusted machine; the key can read the door container's own host key; code running inside `sftp` (not the key: the gate, no forwarding) could read the sidecar's status without its token (the door's and its peers' addresses); the setuid bit over SFTP is not refused by the door (the README names `nosuid`: the planner's ruling) |
 
 ## 9. Still open
 
@@ -831,8 +839,10 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
 
 1. The DNS record of `<host>`; the stack on the home server from A's README; SWAG attached to its network
    (`docker network connect findaline-mirror_mirror swag`, U42); the name added to SWAG's certificate in a
-   maintenance stop (A's Risks); the publishing door (`PUBLISH_ADDRESS`, `PUBLISH_PORT`, `PUBLISH_KEYS`; its
-   binding checked with `docker compose port sftp 2222`; one mount for `<root>`, U34); `mirror_check.sh --live`
+   maintenance stop (A's Risks); the publishing door (a Husarnet network of the PC and the door alone, the PC joined
+   first with Husarnet's Windows client; `HUSARNET_JOIN_CODE`, `HUSARNET_STATE`, `PUBLISH_KEYS`; `up --wait` waits for
+   the sidecar joined and up; nothing published: `docker port` of both containers empty; the door's Husarnet address
+   into the PC's rclone remote; one mount for `<root>`, U34, U68); `mirror_check.sh --live`
    with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about
    1.8 MB); LV17 (held downloads: SWAG streams instead of buffering) needs tiles of 16 MB, which no dataset has
@@ -877,7 +887,7 @@ The build is done when every line below holds; each names its test or command.
 - [ ] `tests/mirror_check.sh --live https://<host>`: every line PASS (the cap through the real SWAG among them,
       LV15, from 1 MB tiles); LV17 a SKIP until a dataset has tiles of 16 MB (M2).
 - [ ] On the home server the README's check commands: read-only root, no capability, no published port, no route
-      out, no log file older than 14 days; SWAG attached (U42); the door's port on the LAN address only.
+      out, no log file older than 14 days; SWAG attached (U42); the door publishes no port (`docker port` of both its containers empty, U68).
 
 **The address contract and the publish tool (B)**
 - [ ] `pytest tests/test_mirror_publish.py` green on the PC and in CI's Linux and Windows jobs with rclone.

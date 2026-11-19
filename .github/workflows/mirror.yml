@@ -51,12 +51,16 @@ jobs:
           docker compose --env-file ci.env config --quiet
           docker compose --env-file ci.env -f compose.yaml -f compose.test.yaml config --quiet
           test -z "$(docker compose --env-file ci.env config --format json | python3 -c 'import json,sys; print(*[n for n, s in json.load(sys.stdin)["services"].items() if s.get("ports")])')"
-          printf 'MIRROR_ROOT=/srv/findaline-mirror\nPUBLISH_KEYS=/srv/keys\nPUBLISH_ADDRESS=192.0.2.10\n' > publish/ci.env
+          # the door: a dummy join code (no container runs here); sftp in the sidecar's namespace, no port
+          printf 'MIRROR_ROOT=/srv/findaline-mirror\nPUBLISH_KEYS=/srv/keys\nHUSARNET_JOIN_CODE=not-a-join-code\nHUSARNET_STATE=/srv/husarnet\n' > publish/ci.env
           docker compose -f publish/compose.yaml --env-file publish/ci.env config --quiet
-          # the same settings without PUBLISH_ADDRESS: compose refuses the door's file, naming it
-          grep -v '^PUBLISH_ADDRESS=' publish/ci.env > publish/ci-noaddr.env
-          if docker compose -f publish/compose.yaml --env-file publish/ci-noaddr.env config --quiet 2> noaddr.txt; then exit 1; fi
-          grep -q 'PUBLISH_ADDRESS missing' noaddr.txt
+          docker compose -f publish/compose.yaml --env-file publish/ci.env config --format json | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; assert sorted(s) == ["husarnet", "sftp"]; assert not [n for n, v in s.items() if v.get("ports")], "a port published"; assert s["sftp"]["network_mode"] == "service:husarnet" and not s["sftp"].get("networks")'
+          # the same settings without HUSARNET_JOIN_CODE, then without HUSARNET_STATE: compose refuses, naming it
+          for name in HUSARNET_JOIN_CODE HUSARNET_STATE; do
+            grep -v "^$name=" publish/ci.env > publish/ci-without.env
+            if docker compose -f publish/compose.yaml --env-file publish/ci-without.env config --quiet 2> without.txt; then exit 1; fi
+            grep -q "$name missing" without.txt
+          done
 
       - name: The checks and their self-test
         run: bash tests/mirror_check.sh --self-test
