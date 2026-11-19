@@ -63,7 +63,7 @@ export class CoverageLayer {
         link.href = "/coverage?lang=en";
         link.target = "_blank";
         link.rel = "noopener";
-        link.textContent = t("ui.coverage.open") + " ›";
+        link.textContent = t("ui.coverage.open");
         return box;
       },
     });
