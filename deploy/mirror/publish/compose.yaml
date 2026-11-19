@@ -20,11 +20,11 @@
 #   the project's network `publish` for its way out to Husarnet's servers, memory and processes
 #   bounded. Its entry point and healthcheck are husarnet.sh.
 # - `sftp` starts only when `husarnet` is healthy (up, the PC on its allow list; the user's U79). If
-#   `husarnet` is restarted on its own, `sftp` is left in a namespace with its loopback only: its
-#   healthcheck sees that and ends
-#   sshd, and the restart policy starts it in the new namespace (within about 30 s; at once with
-#   `docker compose restart sftp`; compose's own restart of husarnet restarts sftp: depends_on). If
-#   the sidecar is still stopped then, sftp stays Exited: `docker compose up -d` starts it.
+#   `husarnet` is restarted on its own, `sftp` is left in the old namespace, which has lost the
+#   daemon's interface hnet0; its healthcheck sees that and ends sshd, and the restart policy starts
+#   it in the new namespace (within about 30 s; at once with `docker compose restart sftp`; compose's
+#   own restart of husarnet restarts sftp: depends_on). If the sidecar is still stopped then, sftp
+#   stays Exited: `docker compose up -d` starts it.
 # - <root> (MIRROR_ROOT, the mirror's) is one read-write mount at /mirror: staging, public and
 #   trash must be one mount, as the publish tool's swap is two renames and a rename across two
 #   mounts fails. authorized_keys and the host key are mounted read-only; nothing else of the host.
@@ -112,10 +112,13 @@ services:
         target: /tmp
         tmpfs: {size: 1048576}
     healthcheck:
-      # The namespace still the sidecar's (an interface besides the loopback): after the sidecar is
-      # restarted alone, the door is left with the loopback only; then sshd is ended and the restart
-      # policy starts the door again in the sidecar's new namespace. Then sshd's banner on the loopback.
-      test: ["CMD", "sh", "-c", "grep -qv -e '^ *lo:' -e '|' /proc/net/dev || kill -TERM 1; sleep 1 | nc -w 3 127.0.0.1 2222 | head -c 8 | grep -q SSH-2.0"]
+      # The namespace still the sidecar's: its daemon's tun interface hnet0 is there (the daemon's
+      # default name; a tun device goes with the process that holds it, so a namespace left behind by a
+      # restarted sidecar has lost it, while an offline daemon keeps it). Without it sshd is ended and
+      # the restart policy starts the door again in the sidecar's new namespace. Not "anything but lo":
+      # a kernel with fallback tunnel devices (tunl0, sit0, ...) puts them into every namespace, and
+      # they stay. Then sshd's banner on the loopback.
+      test: ["CMD", "sh", "-c", "grep -q '^ *hnet0:' /proc/net/dev || kill -TERM 1; sleep 1 | nc -w 3 127.0.0.1 2222 | head -c 8 | grep -q SSH-2.0"]
       interval: 30s
       timeout: 10s
       start_period: 10s

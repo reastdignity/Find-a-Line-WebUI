@@ -345,6 +345,7 @@ def test_publishing_door_compose():
     assert service["build"] == {"context": "."} and "image" not in service
     # In the sidecar's namespace, after it is healthy (joined and up); no network of its own
     assert service["network_mode"] == "service:husarnet"
+    assert "environment" not in service and "env_file" not in service   # the join code never reaches the door
     assert "networks" not in service and "sysctls" not in service
     assert service["depends_on"] == {"husarnet": {"condition": "service_healthy", "restart": True}}
     volumes = {v["target"]: v for v in service["volumes"]}
@@ -397,6 +398,11 @@ def test_publishing_door_compose():
     stand_in = overlay[overlay.index("  husarnet:\n"):overlay.index("  sftp:\n")]
     assert "    build: !reset null\n" in stand_in and "    image: !override ${DOOR_STANDIN_IMAGE:?}\n" in stand_in
     assert "sysctls" not in stand_in and "ports" not in stand_in and "networks" not in stand_in
+    assert "cap_add" not in stand_in and "devices" not in stand_in   # the sidecar's NET_ADMIN and tun: it holds hnet0
+    standin = _load("test", "door-standin.Dockerfile")
+    assert re.search(r"^FROM \$\{DOOR_IMAGE\}$", standin, re.M) and "TUN,tun-name=hnet0" in standin
+    # sftp's lost-namespace test reads the sidecar's interface by name, not "anything but lo" (G1)
+    assert "grep -q '^ *hnet0:' /proc/net/dev || kill -TERM 1" in service["healthcheck"]["test"][3]
     assert husarnet["restart"] == "unless-stopped"
     assert husarnet["logging"]["driver"] == "json-file" and "max-size" in husarnet["logging"]["options"]
     assert husarnet["networks"] == ["publish"]
@@ -468,18 +474,22 @@ def _daemon_status(peers: list = (), local: list = (), summary: bool = True, das
 
 
 def _fake_api(answer: dict):
-    """A stand-in for the daemon's API on 127.0.0.1:<free port>, answering answer["body"]."""
+    """A stand-in for the daemon's API on 127.0.0.1:<free port>, answering answer["body"]; with
+    answer["seq"], each request after the first takes the next body of that list (the last one stays)."""
     import http.server
     import threading
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
             assert self.path == "/api/status"
+            body = answer["body"]
+            if answer.get("seq"):
+                answer["body"] = answer["seq"].pop(0)
             self.send_response(200)
             self.send_header("Content-Type", "text/json")
-            self.send_header("Content-Length", str(len(answer["body"])))
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(answer["body"])
+            self.wfile.write(body)
 
         def log_message(self, *args):
             pass
@@ -514,6 +524,8 @@ def test_husarnet_health_means_up_with_a_peer_of_the_user():
                            (_daemon_status(peers=[API_SERVER, "fc94:62c3:cda:7e0:1cd4:64e1:a323:f0de"], local=[WEBSETUP]), 1),
                            (_daemon_status(peers=[peer], summary=False), 1), (_daemon_status(peers=[peer], dashboard=False), 1),
                            (_daemon_status(peers=[peer], base="None"), 1), (_daemon_status(claimed=True), 1),
+                           # the door's own address among the dashboard's peers: not a peer of the user's
+                           (_daemon_status(peers=["fc94:1111:2222:3333:4444:5555:6666:7777"]), 1),
                            (b"", 1), (b"not json", 1)]:
             answer["body"] = body
             assert health(port) == want, body[:300]
@@ -531,51 +543,74 @@ def _stub(folder: str, name: str, body: str) -> None:
 
 
 CODE = "dummy@example.com/NOTAJOINCODEdummy00000"
+PEER = "fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"
+FAILED_CLAIM = "ERROR:  API request failed. Message: invalid code"   # what the nightly CLI printed, exit status 0
 
 
-@pytest.mark.parametrize("state, code, want_rc, want_join, want_line", [
-    ("peer", "", 0, False, "joined before (claimed, or a peer on the allow list): no join"),
-    ("claimed", "", 0, False, "joined before"),
-    ("peer", CODE, 0, False, "joined before"),
-    ("new", CODE, 0, True, ""),
-    ("new", "", 1, False, "not joined (not claimed, no peer on the allow list) and no HUSARNET_JOIN_CODE"),
-], ids=["peer-no-code", "claimed-no-code", "peer-with-code", "first-join", "neither"])
-def test_husarnet_start_joins_once(tmp_path, state, code, want_rc, want_join, want_line):
+@pytest.mark.parametrize("answers, code, claim_says, want_rc, want_join, want_line", [
+    ("peer", "", "", 0, False, "joined before (claimed, or a peer on the allow list): no join"),
+    ("claimed", "", "", 0, False, "joined before"),
+    ("peer", CODE, "", 0, False, "joined before"),
+    ("new", CODE, "", 0, True, ""),
+    ("new", "", "", 1, False, "not joined (not claimed, no peer on the allow list) and no HUSARNET_JOIN_CODE"),
+    # the daemon's kept state shows only from the third answer on (it is read in a thread of its own):
+    # the 10 s re-check must see it, so no claim and no refusal
+    ("late", "", "", 0, False, "joined before"),
+    ("late", CODE, "", 0, False, "joined before"),
+    # a refused claim (the CLI says so and exits 0): one line of husarnet.sh's own, never the CLI's text
+    ("new", CODE, FAILED_CLAIM, 0, True, "husarnet.sh: the join request failed (husarnet claim)"),
+    # no API at all (a short wait set by the test): no claim
+    ("none", CODE, "", 0, False, "husarnet.sh: the daemon's API did not answer; no join"),
+], ids=["peer-no-code", "claimed-no-code", "peer-with-code", "first-join", "neither", "late-state-no-code",
+        "late-state-with-code", "claim-refused", "no-api"])
+def test_husarnet_start_joins_once(tmp_path, answers, code, claim_says, want_rc, want_join, want_line):
     """publish/husarnet.sh start with stubs of husarnet-daemon and the husarnet CLI on PATH and a stand-in
     for the nightly daemon's API: a kept state (claimed, or a peer of the user's on the allow list) starts
-    without a join, with or without the code; a new state and a code: one `husarnet claim <code>
-    --hostname <name>`, the code never in the daemon's environment; neither: the refusal line, exit 1.
-    The real nightly daemon did the same with a dummy code (the build's fix round 2, worker-report-fix2)."""
+    without a join, with or without the code, also when the daemon shows it only after a few answers (the
+    10 s re-check); a new state and a code: one `husarnet claim <code> --hostname <name>`, the code never
+    in the daemon's environment, a refused claim reported by husarnet.sh's own line; neither: the refusal
+    line, exit 1; no API: no claim. The real nightly daemon did the joined, first-join and neither cases
+    with a dummy code (the build's fix rounds 2 and 3)."""
     import subprocess
 
     bash = _bash_with_jq()
-    answer = {"body": _daemon_status(peers=["fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"] if state == "peer" else [],
-                                     claimed=state == "claimed")}
+    new, joined = _daemon_status(), _daemon_status(peers=[PEER])
+    bodies = {"peer": [joined], "claimed": [_daemon_status(claimed=True)], "new": [new], "late": [new, new, joined],
+              "none": [new]}[answers]
+    answer = {"body": bodies[0], "seq": bodies[1:]}
     server = _fake_api(answer)
+    port = server.server_address[1]
+    if answers == "none":   # a port where nothing listens
+        server.shutdown()
+        server.server_close()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     calls = (tmp_path / "calls.txt").as_posix()
     # the daemon: counts the code's names and its secret part in its environment, lives 3 s; the CLI:
-    # writes down its arguments
+    # writes down its arguments and says what the test gives it
     _stub(str(bin_dir), "husarnet-daemon",
           'env | grep -cE "^(HUSARNET_JOIN_CODE|HUSARNET_JOINCODE|JOINCODE)=|NOTAJOINCODE" > '
           f'"{(tmp_path / "daemon-env.txt").as_posix()}"\nsleep 3\n')
-    _stub(str(bin_dir), "husarnet", f'echo "$*" >> "{calls}"\n')
+    _stub(str(bin_dir), "husarnet", f'echo "$*" >> "{calls}"\necho "{claim_says}"\n')
     script = os.path.join(MIRROR, "publish", "husarnet.sh")
     env = {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}   # it would name the test's code
-    env.update(HUSARNET_DAEMON_API_PORT=str(server.server_address[1]), HUSARNET_JOIN_CODE=code,
-               HUSARNET_HOSTNAME="door-test")
+    env.update(HUSARNET_DAEMON_API_PORT=str(port), HUSARNET_JOIN_CODE=code, HUSARNET_HOSTNAME="door-test",
+               HUSARNET_SH_API_WAIT="2")
     prefix = f'export PATH="$(cygpath -u "{bin_dir.as_posix()}" 2>/dev/null || echo "{bin_dir.as_posix()}"):$PATH"; '
     try:
         done = subprocess.run([bash, "-c", prefix + f'exec bash "{script}" start'.replace("\\", "/")], env=env,
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=90)
     finally:
-        server.shutdown()
-        server.server_close()
+        if answers != "none":
+            server.shutdown()
+            server.server_close()
     lines = open(calls, encoding="utf-8").read().splitlines() if os.path.exists(calls) else []
     assert done.returncode == want_rc, (done.returncode, done.stderr)
     assert lines == ([f"claim {code} --hostname door-test"] if want_join else []), lines
     assert want_line in done.stderr
+    assert "invalid code" not in done.stderr and "NOTAJOINCODE" not in done.stderr
+    if not claim_says:
+        assert "the join request failed" not in done.stderr
     assert open(tmp_path / "daemon-env.txt", encoding="utf-8").read().strip() == "0"   # no JOIN name reached the daemon
 
 

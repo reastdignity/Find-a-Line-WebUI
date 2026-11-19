@@ -111,8 +111,12 @@ that line, `resolver 127.0.0.11 valid=30s;` (only that one: nginx asks its resol
 ```sh
 docker exec swag cat /config/nginx/resolver.conf          # must name 127.0.0.11
 ```
-Do so only while SWAG is attached to a user-defined network, as the default way above keeps it (127.0.0.11 exists
-only there); other sites whose upstreams are IP addresses are unaffected. (Not tried with the test stack.)
+Do so only while SWAG is attached to a user-defined network (127.0.0.11 exists only there). The default way above
+loses that attachment at every update of SWAG until `docker network connect` is run again; in that window
+127.0.0.11 does not exist in SWAG, so every site whose upstream is a host name set through a variable (resolved
+by nginx at request time, as SWAG's sample confs do) answers 502, not only the mirror; upstreams written as IP
+addresses, or names in a plain `proxy_pass`, are unaffected. So run the `docker network connect` right after
+every update of SWAG. (Not tried with the test stack.)
 
 `swag/findaline-mirror.subdomain.conf` answers `mirror.findaline.lukawski.org`, passes requests on with SWAG's
 own `proxy.conf`, refuses every method but GET and HEAD and any body over 1 KB itself (405 and 413, never 403,
@@ -245,7 +249,11 @@ fingerprint and the package by its version; the user's U75, U80):
   forwarding is off); only code running inside `sftp` could. The join runs once: when the door is claimed or a
   peer of the user's is on its allow list (both kept in the state folder), the sidecar starts without a join, so
   **the join code may be removed from `.env` after the first join** (a later start without it and without that
-  state says in `docker compose logs husarnet` that it needs the code, and stops). Until it is removed, it is seen
+  state says in `docker compose logs husarnet` that it needs the code and exits: with the restart policy that is a
+  restart loop, Docker's backoff up to about once a minute, until the code is given). A first join that did not
+  happen (no network yet, a refused or timed-out claim: "the join request failed" or "the daemon's API did not
+  answer" in that log) is not tried again by itself: fix the cause, then `docker compose restart husarnet` and
+  `docker compose up -d`. Until it is removed, it is seen
   on the home server: by root in `docker inspect` (the container's environment), and, for up to 30 s at a join, by
   every user of the home server in its process list (`husarnet claim <code>`);
 - it prints to Docker's log only `husarnet.sh`'s own lines: "joined before ... no join" at a start on a joined
@@ -258,12 +266,16 @@ fingerprint and the package by its version; the user's U75, U80):
   a device shares the door's network (the PC), or one added to its local whitelist. The 3.0 daemon has no
   whitelist switch the dashboard could turn off (the CLI's `husarnet daemon whitelist disable` fails: the daemon
   has no such call); it lets every peer through only when its control plane is switched off locally
-  (`HUSARNET_ENABLE_CONTROL_PLANE=false`, never set here), and then it has no control plane connection and the
-  sidecar is unhealthy. So the PC joins the network first (Install below). After a restart of the sidecar with
+  (`HUSARNET_ENABLE_CONTROLPLANE=false` in its environment, or `enable_controlplane=false` in a defaults.ini file in
+  the state folder: neither is set here, and only root of the home server could), and then it has no control
+  plane connection and the sidecar is unhealthy. So the PC joins the network first (Install below). After a restart of the sidecar with
   the state kept, it was healthy again within 5-7 s (three restarts in the build's checks);
-- when the sidecar is restarted on its own (`docker restart`, a crash and Docker's restart), `sftp` is left in a
-  network namespace with its loopback only (seen in the check script: the login refused, and `docker compose up
-  -d` does not mend it). Its healthcheck sees that and ends sshd, and Docker's restart policy starts `sftp` again
+- when the sidecar is restarted on its own (`docker restart`, a crash and Docker's restart), `sftp` is left in the
+  old network namespace, which has lost the daemon's interface `hnet0` (a tun device goes with the daemon that
+  holds it; seen with the real daemon: the login refused, and `docker compose up -d` does not mend it). Its
+  healthcheck looks for `hnet0` by name (not for "anything but the loopback": a kernel with fallback tunnel devices
+  such as `tunl0` or `sit0` puts them into every namespace, and they stay), and an offline daemon keeps its `hnet0`,
+  so the door is not restarted then. Without `hnet0` it ends sshd, and Docker's restart policy starts `sftp` again
   in the sidecar's new namespace, within about 30 s (`docker compose restart sftp` does it at once; compose's own
   `docker compose restart husarnet` restarts `sftp` too: `depends_on`'s `restart: true`). That holds when the
   sidecar is back by then: if it is still stopped when `sftp` restarts, `sftp` ends Exited ("cannot join network
@@ -274,8 +286,8 @@ fingerprint and the package by its version; the user's U75, U80):
 **The Husarnet network**: make a network in Husarnet's dashboard for the door alone and put into it only the
 publishing PC and the door; do not add the door to any other network, nor other devices to this one. The daemon
 lets a device reach the door only when it is on its allow list: the devices the dashboard says share a network
-with the door, the addresses of its local whitelist, and Husarnet's own servers (its API and event bus servers,
-the websetup host) (the 3.0 daemon's sources, `core/husarnet/config_manager.cpp`, `isPeerAllowed`; Husarnet's
+with the door, the addresses of its local whitelist, and Husarnet's own API and event bus servers (2.0's websetup
+host is not on the 3.0 list) (the 3.0 daemon's sources, `core/husarnet/config_manager.cpp`, `isPeerAllowed`; Husarnet's
 2.0 guide said the same of its whitelist: "if given IPv6 address is on the whitelist, then it can send packets to
 current device", husarnet.com/docs/cli-guide/, read 2026-11-19). So in a network of its own the door accepts
 packets from the PC and from Husarnet's servers only; every other device of the account, and the PC's other
@@ -317,6 +329,8 @@ CLI reads the daemon's token, which only an administrator can read), join the do
 husarnet join <the network's join code> --hostname <a name for the PC>
 husarnet status                 # Claimed by: your account; This device IP: the PC's address; Peers: the door, once it joined
 ```
+PowerShell keeps that line, with the code, in its history file: clear it afterwards (`Clear-History` for the
+session, and the line in the file `(Get-PSReadLineOption).HistorySavePath` names, or the file itself).
 
 **Install** (on the server; `ROOT` as in the mirror's install, `KEYS` and `HSTATE` folders outside the copy of
 this folder; the PC joined first):
@@ -348,7 +362,11 @@ it at once (`docker compose down`) and use this folder's `compose.yaml` unchange
 stays the same as long as `HUSARNET_STATE` is kept. Once `up` has succeeded, the door is joined: the line
 `HUSARNET_JOIN_CODE=` may be emptied in `.env` (then `docker compose up -d` once more, so the container's
 environment no longer holds it, and `docker compose ps`: both healthy again; the recreated sidecar starts without
-a join). Both images of this project that are built (the file
+a join). **After the first join**, `docker compose exec husarnet husarnet status` must list exactly the PC under
+Peers, and the door's network in Husarnet's dashboard exactly the PC and the door (the health counts one peer of
+yours, not how many: further devices would leave it healthy); check it again after any change in the dashboard.
+Once both have joined, reset the network's join code in the dashboard (where it offers that; not checked), so
+the old code admits nothing. Both images of this project that are built (the file
 server's, `compose.yaml`, and the door's, `publish/compose.yaml`) are built on the server from this folder (no
 registry): a compose tool that pulls but does not build needs `docker compose build` first (the door's
 project builds both of its images).
@@ -386,6 +404,7 @@ sha1sum_command = none
 ```sh
 docker compose ps            # sftp and husarnet: running (healthy)
 docker compose up -d         # sftp Exited (after the sidecar was down for more than about 30 s, or a reboot): starts it
+docker compose restart sftp  # both healthy and still no answer: the door started anew in the sidecar's namespace
 ```
 `up -d` waits for the sidecar to be healthy; if it says the sidecar is unhealthy, `docker compose exec husarnet
 husarnet status` shows what is missing (Health, Claimed by, the PC among the Peers).

@@ -21,15 +21,18 @@
 # Health, read from GET /api/status (no token needed) with jq:
 # - up: live.health.summary true, which the daemon sets from a base server connection AND its event bus
 #   connection to Husarnet's control plane; that connection exists only while the control plane is on,
-#   and only then does the daemon enforce its allow list (with HUSARNET_ENABLE_CONTROL_PLANE=false it
-#   lets every peer through and starts no event bus: config_manager.cpp allowEveryone);
+#   and only then does the daemon enforce its allow list (with HUSARNET_ENABLE_CONTROLPLANE=false, in
+#   the environment or as enable_controlplane in the state folder's defaults.ini, it lets every peer
+#   through and starts no event bus: config_manager.cpp allowEveryone, ports/fat/port.cpp);
 # - a peer of the user's on the allow list: an address of config.dashboard.peers (the devices the
 #   dashboard puts there because they share the door's network, the publishing PC) or of
 #   config.user_config.local-whitelist, other than Husarnet's own servers, which the daemon always lets
-#   in (config.license.api_servers, eb_servers, websetup_host).
+#   in (config.license.api_servers, eb_servers; the websetup host, not on the 3.0 allow list, is left
+#   out too) and other than the door's own address (live.local_ip).
 set -u
 
 API=${HUSARNET_DAEMON_API_HOST:-127.0.0.1}:${HUSARNET_DAEMON_API_PORT:-16216}   # the daemon's defaults (its settings of these names)
+API_WAIT=${HUSARNET_SH_API_WAIT:-60}   # seconds for the daemon's API to answer at start (a test sets it shorter)
 
 status() {  # the body of the daemon's GET /api/status (no token needed), nothing on failure
     { exec 3<> "/dev/tcp/${API%:*}/${API#*:}"; } 2> /dev/null || return 1   # quiet while the daemon starts
@@ -49,7 +52,8 @@ USER_PEERS='def norm: ascii_downcase | split("::") as $p
         | map(("0000" + .)[-4:]) | join(":");
     .result.config as $c
     | ([($c.dashboard.peers // [])[].address] + ($c.user_config["local-whitelist"] // []) | map(select(. != null) | norm))
-    - (($c.license.api_servers // []) + ($c.license.eb_servers // []) + [$c.license.websetup_host] | map(select(. != null) | norm))
+    - (($c.license.api_servers // []) + ($c.license.eb_servers // []) + [$c.license.websetup_host, .result.live.local_ip]
+       | map(select(. != null) | norm))
     | unique | .[]'
 UP='.result.live.health.summary == true and .result.live.dashboard_connection == true
     and (.result.live.base_connection.type == "UDP" or .result.live.base_connection.type == "TCP")'
@@ -63,7 +67,7 @@ case ${1:-} in
         daemon=$!
         trap 'kill -TERM "$daemon" 2> /dev/null' TERM INT
         s=""
-        for _ in $(seq 60); do
+        for _ in $(seq "$API_WAIT"); do
             s=$(status) && printf '%s' "$s" | jq -e '.result.version' > /dev/null 2>&1 && break
             s=""
             sleep 1
@@ -74,7 +78,7 @@ case ${1:-} in
         for _ in $(seq 10); do
             [ -n "$s" ] && joined "$s" && break
             sleep 1
-            s=$(status) || s=""
+            n=$(status) && [ -n "$n" ] && s=$n   # a failed read keeps the last answer
         done
         if [ -z "$s" ]; then
             echo "husarnet.sh: the daemon's API did not answer; no join" >&2

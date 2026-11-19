@@ -59,9 +59,12 @@ loads with `deploy/monitoring/` too.
   top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
 - The door (`publish/`, U68): `sftp` runs in the namespace of the sidecar `husarnet` (`network_mode:
   service:husarnet`). The check never runs the real sidecar: `test/compose.door-check.yaml` replaces it with a
-  stand-in by `!override`/`!reset` (its `build` too) and keeps its `ports`, `networks` and sysctl (D29 reads the
-  ports, D37 the sysctl; D36 puts an fc94 address in the namespace), so a change to the sidecar's network or the
-  door's namespace changes the stand-in, D28/D29/D34-D37 and the static test together. The code goes only to the
+  stand-in (`test/door-standin.Dockerfile`: socat holds a tun `hnet0` with D36's fc94 address, gone with the process
+  like the daemon's) by `!override`/`!reset` (its `build` too) and keeps its `ports`, `networks` and sysctl (D29 reads
+  the ports; D37 the namespace's IPv6 switch, the sysctl's presence only the static test). sftp's healthcheck judges
+  a lost namespace by `hnet0` by name, never "anything but lo" (fallback tunnel devices stay: D35, D38). A change to
+  the sidecar's network, its interface or the door's namespace changes the stand-in, D28/D29/D34-D38 and the static
+  test together. The code goes only to the
   CLI's `husarnet claim`, never into the daemon's environment; its status needs no token. `publish/husarnet.sh`
   reads the nightly daemon's (2.0.349, U80) status keys with jq; `_daemon_status` in tests/test_mirror_deploy.py
   copies them: a new HUSARNET_VERSION changes both, after the door's real-daemon checks. The image is built by
