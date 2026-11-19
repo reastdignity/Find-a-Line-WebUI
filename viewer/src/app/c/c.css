@@ -3,7 +3,8 @@
    The header, Home, the cards, Favourites, the account and the search page's frame are in the pilot's look since
    step 3c (2026-11-19; docs/DESIGN.md "The pilot's look"): the header and the forms' columns on the ground (--bg),
    thin rules (--rule) between parts, sizes from the scales (--fs-*, --r-*; spacing on the 4 px grid), controls 24 px
-   or more on a desktop and 44 px on a touch screen (R2). The highline layer and the admin page: not yet. */
+   or more on a desktop and 44 px on a touch screen (R2). The highline layer: not yet; the admin page took only the
+   kit's sections and sizes. */
 
 .ui.c-app { flex-direction: column; }
 .ui .c-main { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
@@ -69,7 +70,7 @@
 .ui .c-new-title { font-size: var(--fs-6); display: block; color: inherit; }
 .ui .c-new-text { display: block; opacity: .9; }
 .ui .c-example { flex: 1; display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-radius: var(--r-3); background: var(--surface);
-  border: 1px solid var(--line); color: var(--ink); text-decoration: none; min-width: 0; }
+  border: 1px solid var(--rule); color: var(--ink); text-decoration: none; min-width: 0; }
 .ui .c-example:hover { background: var(--hover); }
 .ui .c-example > span:last-child { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-example .u-small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -79,6 +80,9 @@
 .ui .c-show { width: auto; }
 .ui .c-empty { padding: 24px 0; }
 .ui .c-favs .u-h { font-size: var(--fs-5); }
+/* "Today" beside the searches: its meters one under the other, as before the section lost its side padding (the
+   meters' grid would fit two in the 340 px column) */
+.ui:not(.c-narrow) .c-home-aside .s-meters { grid-template-columns: minmax(0, 1fr); }
 
 /* Cards */
 /* a card is an object with its picture, lying on the ground: the surface and a thin edge, no shadow (R8) */
@@ -189,9 +193,9 @@
 /* Admin (AdminC) and the OSM extracts (OsmC, a panel beside its map: MapPage) */
 .ui .c-admin { max-width: 960px; }
 .ui .c-admin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ui .c-admin-row { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--rule); min-width: 0; }
+.ui .c-admin-row { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border-top: 1px solid var(--rule); min-width: 0; }
 .ui .c-admin-row:first-child { border-top: 0; }
-.ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .ui .c-admin-head b { overflow-wrap: anywhere; }
 .ui .c-admin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 4px; }
 .ui .c-admin-workers { margin: 10px 0 0; padding-left: 18px; }
