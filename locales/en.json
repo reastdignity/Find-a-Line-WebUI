@@ -203,7 +203,7 @@
   "goal.everything.text": "Every line your rig allows, 30–1000 m.",
   "goal.everything.warning": "Can be very large: slow, may not open on a phone.",
   "goal.custom.text": "your own values",
-  "goal.heavy": "heavy",
+  "goal.heavy": "Heavy",
 
   "basic.tabs": "Basic or Advanced",
   "basic.tab.basic": "Basic",
@@ -565,7 +565,7 @@
   "ui.coverage.open": "Coverage map",
   "ui.coverage.loading": "Loading the coverage…",
   "ui.coverage.failed": "The coverage could not be loaded.",
-  "ui.card.cancelled": "cancelled",
+  "ui.card.cancelled": "Cancelled",
   "ui.card.remove": "Remove…",
   "ui.card.remove_title": "Remove the search",
   "ui.card.remove_ask": "Remove “{{name}}” from your searches? It was cancelled, so it has no result.",

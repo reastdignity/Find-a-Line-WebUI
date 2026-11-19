@@ -88,7 +88,7 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
     <Segmented label="Where" options={phone ? PHONE_MODES : MODES} value={s.mode} onChange={s.setMode} />
     {s.mode === "point" && <>
       <p class="s-hint s-point">{s.point ? <><Icon name="pin" />Centre {s.point[0].toFixed(5)}, {s.point[1].toFixed(5)}
-        {" · "}{touch ? t("ui.search.point_move_touch") : t("ui.search.point_move")}</>
+        {"; "}{touch ? t("ui.search.point_move_touch") : t("ui.search.point_move")}</>
         : touch ? t("ui.search.point_hint_touch") : t("ui.search.point_hint")}</p>
       {radiusField && <Field label={label("radius")} value={`${s.radius} m`} htmlFor={id} hint={hintOf(radiusField)}>
         <Range id={id} label={label("radius")} value={s.radius} min={50} step={50}
@@ -180,7 +180,7 @@ function KeyFields({s}: {s: SearchState}) {
     {source && <div data-field="source"><Field label={<Dotted on={s.differs("source")}>{label("source")}</Dotted>} htmlFor={sourceId}
                       hintLabel={label("source")} hint={hintOf(source)}
                       value={<ResetButton s={s} names={["source"]} focusId={sourceId} />}
-                      help={<a href="/coverage" target="_blank" rel="noopener">{t("ui.coverage.where")}</a>}>
+                      help={<a class="s-help-link" href="/coverage" target="_blank" rel="noopener">{t("ui.coverage.where")}</a>}>
       <select id={sourceId} class="u-input" value={String(s.value("source"))}
               onChange={(e) => s.setValue("source", e.currentTarget.value)}>
         {source.choices!.map((c) => <option value={c}>{source.choice_labels?.[c] ?? c}</option>)}
@@ -302,7 +302,8 @@ function Topic({s, topic, title, fields, onRig}:
   useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);  // before AdvancedPane focuses the field
   return <details class="s-topic" open={open} data-topic={topic}
                   onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
-    <summary><span class="u-grow">{title}</span>{count > 0 && <span class="u-badge">{count}</span>}</summary>
+    <summary><Icon name="next" class="s-topic-mark" /><span class="u-grow">{title}</span>
+      {count > 0 && <span class="u-badge">{count}</span>}</summary>
     <div class="s-topic-body">
       {fields.map((f) => <Setting key={f.name} s={s} field={f} />)}
       {topic === "rigging" && <SaveRig s={s} onRig={onRig} />}
@@ -319,7 +320,7 @@ function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);
   return <div class="s-more" data-field="more">
     <button type="button" class="s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Icon name="filter" /><span class="u-grow">More settings · height, anchors, data, rigging model, output</span>
+      <Icon name="filter" /><span class="u-grow">More settings: height, anchors, data, rigging model, output</span>
       {changed > 0 && <span class="u-badge">{t("basic.changed", {count: changed})}</span>}
       <span class="u-badge u-n">{fields.length}</span><Icon name={open ? "down" : "next"} />
     </button>
@@ -435,7 +436,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {!problem && <Icon name="next" class="s-sum-mark" />}</button>}
     {/* On a phone the receipt may be folded away (display: none): what it says is read out from here */}
     {phone && <p class="u-sr" aria-live="polite">
-      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
+      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(", ")}</p>}
     {s.error && <p class="s-problem s-bar-error" role="alert">{s.error}</p>}
     <SizeWord s={s} phone={phone} />
     {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>area</span>}</div>}
@@ -444,13 +445,13 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
     {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b><span>tiles</span></div>}
     <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
-        <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
+        <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && ", "}
           <button type="button" data-field={p.field} title={t("basic.receipt.open")}
                   onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button></span>)}
     </p>
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
-        {line}{warnings.length > 0 && `${line ? " · " : ""}${warnings.length} warning(s)`}
+        {line}{warnings.length > 0 && `${line ? "; " : ""}${warnings.length} warning(s)`}
         {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
           <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
@@ -466,7 +467,7 @@ const METERS: Record<keyof Usage["usage"], [string, (v: number) => string, strin
   nominatim: ["Place lookups today", String, ""],
 };
 
-/** The user's quotas as meters ("Area today at 1 m · 3.1 of 250 km²"); without quotas, what is used
+/** The user's quotas as meters ("Area today at 1 m: 3.1 of 250 km²"); without quotas, what is used
  *  (a quota of USAGE counts nothing without it: not shown). */
 export function UsageMeters({usage, items = ["mpx", "km2", "runs_gb", "jobs_day", "jobs_active"]}:
                             {usage: Usage | null; items?: (keyof Usage["usage"])[]}) {
@@ -474,8 +475,8 @@ export function UsageMeters({usage, items = ["mpx", "km2", "runs_gb", "jobs_day"
   const meter = (key: keyof Usage["usage"], item: UsageItem) => {
     const [title, show, unit] = METERS[key];
     if (!item || item.used === null) return null;
-    const text = item.limit === null ? `${title} · ${show(item.used)}${unit}`
-      : `${title} · ${show(item.used)} of ${show(item.limit)}${unit}`;
+    const text = item.limit === null ? `${title}: ${show(item.used)}${unit}`
+      : `${title}: ${show(item.used)} of ${show(item.limit)}${unit}`;
     return <div class="s-meter" key={key} data-usage={key}>
       {item.limit === null ? <span>{text}</span> : <Progress value={item.limit ? item.used / item.limit : 1} label={text} />}
     </div>;

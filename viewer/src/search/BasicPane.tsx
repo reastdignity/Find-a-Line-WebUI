@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, user } from "../app/api";
 import { errorText, label, t } from "../i18n";
 import { Button } from "../ui/components";
+import { Icon } from "../ui/icons";
 import { useAccessHelp } from "../access";
 import {
   BASIC_ACCESS, cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG,
@@ -90,7 +91,7 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
       <div class="s-rig-row">
         <button type="button" class="u-btn s-rig-pick u-grow" aria-expanded={open} aria-controls={listId}
                 title={t("basic.choose_rig")} onClick={() => setOpen(!open)}>
-          <span>{r.inUse.name}</span><span aria-hidden="true">▾</span></button>
+          <span>{r.inUse.name}</span><Icon name="down" /></button>
         <button type="button" ref={change} class="u-btn s-rig-change" onClick={() => onOpen({mode: "edit", values: null})}>
           {t("basic.change")}</button>
       </div>
@@ -144,7 +145,7 @@ export function BasicBottom({s, onRig, onEvery}: {s: SearchState; onRig(ask: Rig
   return <>
     <AccessRow s={s} />
     <RigRow s={s} onOpen={onRig} />
-    <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")} ›</button></div>
+    <div><button type="button" class="s-link s-every" onClick={onEvery}>{t("basic.show_every")}<Icon name="next" /></button></div>
   </>;
 }
 
