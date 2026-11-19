@@ -474,3 +474,37 @@ status line, with the scale at its right end. With a level held, the status line
 by you. Back to Auto") reaches under the chip. Measured with the test's stand-in on the test site's run: the
 status line at 159-387 x 137-165 px, the chip at 347-542 x 112-156. `test_phone_on_its_side` excepts this pair
 by name. Under Auto, and at the low stop, nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).
+
+## Step 3c, group C (the coverage page, the highline layer): what is left, and what the probes found (2026-11-19)
+
+Group C brought the coverage page and the layer explorer to DESIGN.md's rules with the user's seven picks ("The
+pilot's look", choices 60 to 74). Measured after (`tools/ui_metrics.py pages`, 19 states a device): no text under
+12 px outside a map's credits and scale; no control under the bound on the desktop; on the phones the layer's chart
+bars only (774, excepted by name in R2). Known and left:
+
+- **The stars in the images and videos**: `coverage/draw/layout.ts` writes "★★★ Best" as text for the canvas, so the
+  images and videos of `tools/coverage_*.py` keep the character while the page draws its stars (the user's pick,
+  2026-11-19: the page first).
+- **The legend's "≤ 1 m"** (`card.tsx` `LEVEL_TAGS`): R9 allows ≤ in a filter's chip only; the charts' ticks ("≥10",
+  "<2") and "0.6 × 0.9 km" are the same kind. Left for the planner.
+- **Texts over R10's limits**, listed and not rewritten: the coverage page's `page.lead` (35 words; 30); the layer's
+  `scale_fit_note` (35; 25), `hist.strip_note` (38), `search_border` (27), `search_partner` and `_any` (31, 32).
+- **axe's `skip-link` on the layer's selected cell** (3 nodes): its "Search here" links are hash links
+  (`#new&cell=…`), which the rule takes for skip links to a missing target. A false finding.
+- **A touch tablet and a phone held sideways at 768 px or more keep the desktop's arrangement** of the layer: the
+  panels' collapse tab is 24 x 44 px and a rail 36 px wide there (under 44 px in one direction), as in the result
+  view. On the coverage page at 844 x 390 a list row's press scrolls the map under the sticky header (the map box
+  is as high as the screen), so the card's close button lies under the header until the page is scrolled; the
+  card opened from the map is taller than what is left of the screen and scrolls inside. Both as before the change.
+- **A row's press on the coverage list scrolls the page to the map** (`CoveragePage.tsx` `pick`), on a phone too,
+  where the card is a sheet over the list: the place in the list is lost (scrollY 1014 to 268 at 390 x 664). The
+  mock-up kept the place; that is a change of behaviour the user has not picked.
+- **A collapsed panel's rail**: the tab at its middle lies over a long label ("Histograms, 62 M lines in view" at
+  390 px of height), as before.
+- **A chart with more than ten bars** cannot show its counts on a phone even enlarged (34 px a bar does not fit 358
+  px); the cubes of today have 6, 7 and 9.
+- **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
+  above their names (the build's `align-items: flex-end`, as before).
+- **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest (the map is narrower in
+  headless Edge's window since the panels' new widths); its points lie 2 px inside their parts, so another change
+  of the map's size may need new points.

@@ -3406,7 +3406,9 @@ def test_secondary_text_contrast():
         assert contrast(tokens["--ink-2"], tokens["--accent-soft"]) >= 4.5, theme
     for path, rule in ((("app", "c", "c.css"), ".ui .c-tree-row.u-on .u-small, .ui .c-drop-over .u-small { color: var(--ink-2); }"),
                        (("result", "view", "result.css"), ".ui .r-row.r-sel .r-muted { color: var(--ink-2); }"),
-                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted, .cov .cov-row-on td::before { color: var(--ink-2); }"),
+                       # the table's selected row; no `td::before` since step 3c, group C (a phone's list is rows of
+                       # buttons, AreaList.tsx, whose grey words are --ink-2 always: .cov-rdet, .cov-rparent)
+                       (("coverage", "page", "page.css"), ".cov .cov-row-on .cov-muted { color: var(--ink-2); }"),
                        (("search", "search.css"), ".ui .s-placebox-list li.u-on .u-small, .ui .s-placebox-list li:hover .u-small { color: var(--ink-2); }")):
         with open(os.path.join(VIEWER, "src", *path), encoding="utf-8") as f:
             assert rule in f.read(), (path, rule)

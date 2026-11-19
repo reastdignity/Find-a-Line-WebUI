@@ -357,6 +357,7 @@
 .ui .c-layer-bar:hover .c-layer-bar-fill { background: var(--layer-4); }
 /* the keyboard's ring: the kit's (--focus), above the bars beside it */
 .ui .c-layer-bar:focus-visible { position: relative; z-index: 1; border-radius: var(--r-1); }
+.ui .c-layer-bar { scroll-margin: 8px; }  /* the ring's 4 px stay inside the panel when the keyboard scrolls to a bar */
 .ui .c-layer-hist-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); font-size: var(--fs-1); color: var(--muted);
   text-align: center; font-variant-numeric: tabular-nums; margin-top: 4px; }
 .ui .c-layer-hist-axis span { display: flex; justify-content: center; white-space: nowrap; }
@@ -411,9 +412,9 @@
 .ui.c-narrow .c-mappage-3 > .c-newmap { flex: none; }
 /* the map stays in view while the column scrolls under it, on a screen 600 px high or more (the user's pick L4 b,
    2026-11-19; choice 72): held sideways it scrolls away, as the column would keep about 130 px. What is scrolled
-   into view stops under the map (scroll-padding: the map's 34vh) */
+   into view stops under the map (scroll-padding: the map's 34vh and 8 px) */
 @media (min-height: 600px) {
-  .ui.c-narrow .c-mappage-3 { scroll-padding-top: 34vh; }
+  .ui.c-narrow .c-mappage-3 { scroll-padding-top: calc(34vh + 8px); }
   .ui.c-narrow .c-mappage-3 > .c-newmap { position: sticky; top: 0; z-index: 2; }
 }
 .ui.c-narrow .c-mappage-3 > .c-col-side { width: auto; flex: none; border: 0; }
@@ -426,7 +427,8 @@
   scroll-snap-type: x proximity; scroll-padding-inline: 16px; }
 .ui.c-narrow .c-layer-hist { flex: none; width: 148px; scroll-snap-align: start; }
 .ui.c-narrow .c-layer-hist[data-hist="length"] { width: 236px; }
-.ui.c-narrow .c-layer-hist-open { width: 272px; box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
+/* enlarged: 272 px, or 34 px a bar where the cube has more bars (--bars, LayerHistograms.tsx), up to the screen's width */
+.ui.c-narrow .c-layer-hist-open { width: min(calc(100vw - 32px), max(272px, calc(var(--bars) * 34px))); box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
   border-radius: var(--r-1); }
 .ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: 300px; }
 .ui.c-narrow .c-layer-hist .c-layer-hist-bars { height: 64px; }

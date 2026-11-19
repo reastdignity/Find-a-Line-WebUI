@@ -129,7 +129,9 @@ def test_fit_panels_of_the_layer(tmp_path):
     """The generalised fitting (fitPanels, maxPanelWidth: two panels with their own limits) gives the result's columns
     as fitColumns did, and the highline layer's panels (LAYER_LIMITS: left 320-560, right 300-640, the map 360): shrunk
     in proportion, then the right collapsed, then the left; `prefer` the other first. The layer's kept value under its
-    own key, made safe as the result's."""
+    own key, made safe as the result's. Its defaults are 340 and 485 px (the user's pick L5 a, 2026-11-19) and its
+    version 2; a kept value of version 1 is read: a width equal to that version's default (400 left, 620 right) becomes
+    today's, any other width and both open flags stay; a value of version 2 keeps 400 and 620 as the user's."""
     out = run_layout(tmp_path, """
 const R = m.DEFAULT_LAYOUT, L = m.DEFAULT_LAYER_LAYOUT, LIM = m.LAYER_LIMITS;
 const result = {left: m.LIMITS.list, right: m.LIMITS.details, rail: m.LIMITS.rail, map: m.LIMITS.map};
@@ -144,33 +146,75 @@ const fit = (w, prefer = null, layout = L) => m.fitPanels(layout.left, layout.ri
 const store = {};
 globalThis.localStorage = {getItem: (k) => k in store ? store[k] : null, setItem: (k, v) => { store[k] = String(v); }};
 const empty = m.loadLayerLayout();
-m.saveLayerLayout({v: 1, left: {w: 999, open: false}, right: {w: 450, open: true}});
+m.saveLayerLayout({v: 2, left: {w: 999, open: false}, right: {w: 450, open: true}});
 const keys = Object.keys(store), back = m.loadLayerLayout();
+const kept = (value) => { store[m.LAYER_LAYOUT_KEY] = JSON.stringify(value); return m.loadLayerLayout(); };
 console.log(JSON.stringify({
-  same, defaults: L, limits: LIM, w1440: fit(1440), w1280: fit(1280), w1000: fit(1000), w750: fit(750),
-  prefer: fit(1000, "right"), closed: fit(1000, null, {v: 1, left: {w: 400, open: false}, right: {w: 620, open: true}}),
+  same, defaults: L, limits: LIM, w1440: fit(1440), w1280: fit(1280), w1100: fit(1100), w1000: fit(1000), w750: fit(750),
+  w730: fit(730), w600: fit(600),
+  prefer: fit(1000, "right"), preferCollapse: fit(730, "right"),
+  closed: fit(800, null, {v: 2, left: {w: 340, open: false}, right: {w: 485, open: true}}),
   max: {left1440: m.maxPanelWidth("left", 1440, fit(1440), LIM), right1440: m.maxPanelWidth("right", 1440, fit(1440), LIM),
-        leftRail: m.maxPanelWidth("left", 1440, fit(1440, null, {v: 1, left: {w: 400, open: true}, right: {w: 620, open: false}}), LIM)},
-  bad: [null, {v: 2}, "x"].map((v) => m.sanitizeLayer(v)),
+        left1280: m.maxPanelWidth("left", 1280, fit(1280), LIM), right1280: m.maxPanelWidth("right", 1280, fit(1280), LIM),
+        leftRail: m.maxPanelWidth("left", 1440, fit(1440, null, {v: 2, left: {w: 340, open: true}, right: {w: 485, open: false}}), LIM)},
+  bad: [null, {v: 3}, {v: 0, left: {w: 450}}, "x", {left: {w: 450}}].map((v) => m.sanitizeLayer(v)),
+  bare: [{v: 1}, {v: 2}, {v: 2, left: 5, right: null}].map((v) => m.sanitizeLayer(v)),
   clamped: m.sanitizeLayer({v: 1, left: {w: 100, open: "no"}, right: {w: 9999, open: false}}),
+  clamped2: m.sanitizeLayer({v: 2, left: {w: 100, open: "no"}, right: {w: 9999, open: false}}),
+  // version 1 (the defaults 400 and 620 until 2026-11-19)
+  oldDefaults: m.sanitizeLayer({v: 1, left: {w: 400, open: true}, right: {w: 620, open: true}}),
+  oldCollapsed: m.sanitizeLayer({v: 1, left: {w: 400, open: false}, right: {w: 620, open: false}}),
+  oldDragged: m.sanitizeLayer({v: 1, left: {w: 450, open: true}, right: {w: 500, open: false}}),
+  oldOneDragged: [m.sanitizeLayer({v: 1, left: {w: 400, open: true}, right: {w: 500, open: true}}),
+                  m.sanitizeLayer({v: 1, left: {w: 450, open: false}, right: {w: 620, open: true}})],
+  oldSwapped: m.sanitizeLayer({v: 1, left: {w: 620, open: true}, right: {w: 400, open: true}}),
+  newKept: m.sanitizeLayer({v: 2, left: {w: 400, open: true}, right: {w: 620, open: false}}),
   empty, keys, back,
+  storedOld: kept({v: 1, left: {w: 400, open: false}, right: {w: 620, open: true}}),
+  storedOldDragged: kept({v: 1, left: {w: 450, open: true}, right: {w: 500, open: true}}),
+  storedNew: kept({v: 2, left: {w: 400, open: true}, right: {w: 620, open: true}}),
 }));""")
     col = lambda open, width, forced=False: {"open": open, "width": width, "forced": forced}  # noqa: E731
+    lay = lambda lw, lo, rw, ro: {"v": 2, "left": {"w": lw, "open": lo}, "right": {"w": rw, "open": ro}}  # noqa: E731
     assert out["same"] is True
-    assert out["defaults"] == {"v": 1, "left": {"w": 400, "open": True}, "right": {"w": 620, "open": True}}
+    assert out["defaults"] == lay(340, True, 485, True)
     assert out["limits"] == {"left": [320, 560], "right": [300, 640], "rail": 36, "map": 360}
-    assert out["w1440"] == {"left": col(True, 400), "right": col(True, 620)}  # the map 420 px
-    # 1280 px: 100 too much, 80 + 320 to shrink: 20 and 80 off
-    assert out["w1280"] == {"left": col(True, 380), "right": col(True, 540)}
-    # 1000 px: 380 too much, 400 spare: both near their least; 750 px: the right collapses, the left 750 - 360 - 36
-    assert out["w1000"] == {"left": col(True, 324), "right": col(True, 316)}
-    assert out["w750"] == {"left": col(True, 354), "right": col(False, 620, True)}
-    assert out["prefer"] == out["w1000"] and out["closed"] == {"left": col(False, 400), "right": col(True, 604)}
-    assert out["max"] == {"left1440": 460, "right1440": 640, "leftRail": 560}
-    assert out["bad"] == [out["defaults"]] * 3
-    assert out["clamped"] == {"v": 1, "left": {"w": 320, "open": True}, "right": {"w": 640, "open": False}}
+    # 340 + 485 = 825 for both: they fit as kept while the window leaves the map its 360 (from 1185 px)
+    assert out["w1440"] == {"left": col(True, 340), "right": col(True, 485)}  # the map 615 px
+    assert out["w1280"] == {"left": col(True, 340), "right": col(True, 485)}  # the map 455 px
+    # 1100 px: 740 for both, 85 too much; 20 + 185 = 205 to shrink: 85 * 20 / 205 = 8.3 and 85 * 185 / 205 = 76.7 off
+    assert out["w1100"] == {"left": col(True, 331), "right": col(True, 408)}
+    # 1000 px: 185 too much of 205 spare: 18.05 and 166.95 off, both near their least
+    assert out["w1000"] == {"left": col(True, 321), "right": col(True, 318)}
+    # 750 px: 435 too much: the right collapses, the left fits beside its rail (750 - 360 - 36 = 354 >= 340);
+    # 730 px: the left shrinks to 730 - 360 - 36; 600 px: 204 for the left, under its least: both collapse
+    assert out["w750"] == {"left": col(True, 340), "right": col(False, 485, True)}
+    assert out["w730"] == {"left": col(True, 334), "right": col(False, 485, True)}
+    assert out["w600"] == {"left": col(False, 340, True), "right": col(False, 485, True)}
+    assert out["prefer"] == out["w1000"]
+    # the right just expanded at 730 px: the left collapses first, the right fits beside its rail (334 of its 485)
+    assert out["preferCollapse"] == {"left": col(False, 340, True), "right": col(True, 334)}
+    # the left a rail by the user, 800 px: 800 - 360 - 36 = 404 for the right
+    assert out["closed"] == {"left": col(False, 340), "right": col(True, 404)}
+    # the widest by a drag: its own limit at 1440 (1440 - 360 - 485 = 595, 1440 - 360 - 340 = 740); at 1280 the
+    # window's: 1280 - 360 - 485 = 435 and 1280 - 360 - 340 = 580
+    assert out["max"] == {"left1440": 560, "right1440": 640, "left1280": 435, "right1280": 580, "leftRail": 560}
+    assert out["bad"] == [out["defaults"]] * 5
+    assert out["bare"] == [out["defaults"]] * 3  # a version that is read, without widths
+    assert out["clamped"] == lay(320, True, 640, False) and out["clamped2"] == out["clamped"]
+    # a kept value of version 1: its defaults become today's (the open flags stay), a dragged width stays, each
+    # side by its own old default (400 on the right or 620 on the left is a dragged width: 620 clamped to 560)
+    assert out["oldDefaults"] == out["defaults"] and out["oldCollapsed"] == lay(340, False, 485, False)
+    assert out["oldDragged"] == lay(450, True, 500, False)
+    assert out["oldOneDragged"] == [lay(340, True, 500, True), lay(450, False, 485, True)]
+    assert out["oldSwapped"] == lay(560, True, 400, True)
+    # version 2: 400 and 620 are widths the user chose
+    assert out["newKept"] == lay(400, True, 620, False)
     assert out["empty"] == out["defaults"] and out["keys"] == ["findaline.layer.layout"]
-    assert out["back"] == {"v": 1, "left": {"w": 560, "open": False}, "right": {"w": 450, "open": True}}
+    assert out["back"] == lay(560, False, 450, True)
+    # read from the storage the same way
+    assert out["storedOld"] == lay(340, False, 485, True) and out["storedOldDragged"] == lay(450, True, 500, True)
+    assert out["storedNew"] == lay(400, True, 620, True)
 
 
 def test_card_insets_height_and_edges(tmp_path):

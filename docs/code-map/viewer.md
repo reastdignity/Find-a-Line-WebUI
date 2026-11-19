@@ -139,8 +139,8 @@ the search (it waits for the saved rigs: a request to edit opens Basic or Advanc
 `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
 app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
 (`ui/SidePanel.tsx`; `layout.ts` `fitPanels` with `LAYER_LIMITS`: left 320-560 px, right 300-640, the map at least
-360; kept under `findaline.layer.layout`), each one's content in a scroll box, the rails' labels from the page
-(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges; on the left
+360, the defaults 340 and 485; kept under `findaline.layer.layout`, version 2, a version 1 value's old default widths read as the defaults), each one's content in a scroll box, the rails' labels from the page
+(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges, the map sticky at its top on a screen 600 px high or more; on the left
 the filters (today's seven open, the cube's other dimensions of `kinds` in the fold "More filters" by topic, a closed
 fold naming its set filters as chips; the A-frame pair disabled for a cube counted without the no-fall zone and the
 A-frames, the clearance over trees without a surface model, each with its note), the legend (the partner cells'
@@ -152,7 +152,7 @@ row's side) and the notes ("Across the borders" from cube.json's `neighbours`: a
 country's data until it has one), the map in the middle, on the right the sixteen histograms of the counts in view
 (`LayerHistograms.tsx`: by topic, `layerState.ts` `TOPICS`, The line, Anchors and terrain, Rigging, the fold's order
 too; a bar per bin, a click sets the length range or the limit by the dimension's kind; two a row while the panel's
-content holds two of 220 px, a container query on its scroll box; the chart of the filter changed last ringed and
+content holds two of 210 px, a container query on its scroll box, the length chart across both; a chart with 32 px or more of its width per bar shows the bars' counts and every tick, a narrower one no counts and every other tick (`data-bars`, a container rule per count of bars in `c.css`); the chart of the filter changed last ringed and
 scrolled to, on phones a swiped strip per topic with that chart enlarged); every country's cube whose box reaches the
 view at once, a study area (`CountryCube.study`) or a country of another layer profile (`profile`, R7) only alone
 (`layerState.ts` `activeCubes`, `summedWith`, `countriesFirst`; `LayerSource`: `countries`, `cells`, `histogram`,

@@ -108,7 +108,8 @@ export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle,
   const max = Math.max(1, ...bars.map((b) => b.value));
   const height = (v: number) => `${Math.round(100 * Math.log10(1 + v) / Math.log10(1 + max))}%`;
   const edges = axis.length === bars.length + 1;
-  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length} aria-label={title}>
+  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
+                  style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
       : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>

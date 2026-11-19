@@ -162,7 +162,7 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 @media (max-width: 699px) and (pointer: coarse) { .cov-in-leaflet .leaflet-top.leaflet-right { top: 52px; } }
 @media (pointer: coarse) {
   .cov .cov-brand { min-height: 44px; margin-block: -8px; }
-  .cov .cov-toggles .u-seg button { min-width: 44px; }
+  .cov .u-seg button { min-width: 44px; }
 }
 
 /* the list of the areas, on the ground between thin rules (R8). A wide screen: a table, the name a link of its own
@@ -173,7 +173,7 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-table thead th { font: 400 var(--fs-1)/1.3 var(--font); color: var(--muted); }
 .cov-table tbody th { font-weight: 600; }
 .cov .cov-name-link { display: inline-flex; align-items: center; min-height: 24px; }
-@media (pointer: coarse) { .cov .cov-name-link { min-height: 44px; } }
+@media (pointer: coarse) { .cov .cov-name-link { min-height: 44px; min-width: 44px; } }
 .cov-level { display: inline-flex; align-items: center; gap: 8px; }
 .cov-row-on > *, .cov .cov-row.cov-row-on { background: var(--accent-soft); }
 /* on the fill --muted is under 4.5:1 (3.79 dark): the row's grey words */
