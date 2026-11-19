@@ -391,13 +391,17 @@ result page on a phone the filter chips are 44 px high and "More filters" stands
 starts about 40 px lower.
 
 With the place map's phone arrangement (choice 34): on a phone held sideways in the narrow frame (667 x 375, a
-128 px map) the opened layers' box ends 4 px above the credits and shows about 90 px of its 143 px of rows (two
-rows): it scrolls inside, and "Data coverage", its last row, is reached by that scroll. The drawing tools
+128 px map) the opened layers' box ends 4 px above the credits and shows 90 px of its 143 px of rows (two rows;
+measured): it scrolls inside, and "Data coverage", its last row, is reached by that scroll. The drawing tools
 (Advanced, "Area") keep Leaflet-Geoman's own look and 30 px buttons (under R2's 44 px); on a phone they stand
 under the zoom at the top left (at the bottom right their column reached the layers' button: measured 30 x 25 px
-of overlap at 390 x 664), and on the 128 px map of a phone held sideways the five do not fit the map (as on main,
-where they shared the corner with the zoom, the layers and the coverage). On a tablet in the columns with a finger
-the coverage's own box keeps its 32 px button (the desktop's arrangement: the user picked on phone frames).
+of overlap at 390 x 664). Measured there with real taps (2026-11-19): at 390 x 664 the last two tools lie over the
+scale and the credits (30 x 29.5 and 30 x 25 px), at 667 x 375 the last three are under the map's bottom edge; on
+main all five were above the map's top at both sizes and could not be pressed. While the tools are shown, a tap on
+the layers' button does not open its box on a phone (on main neither: the click lands on a row as the box opens
+and it closes again). On a tablet in the columns with a finger the coverage's own box keeps its 32 px button (the
+desktop's arrangement: the user picked on phone frames); a tap on that button while the layers' box is open closes
+the box and misses the button, which moves 56 px down as the box (rows of 44 px now) closes: the second tap takes.
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
