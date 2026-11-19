@@ -398,7 +398,11 @@ middle of a row (66 px), so that more is seen to be there. The drawing tools (Ad
 beside the zoom on a phone, 44 px each (as Geoman's column under the zoom two lay over the scale and the credits
 at 390 x 664 and three under the map held sideways; on main all five were above the map's top); at 844 x 390 the
 row's last tool ends where the layers' button begins (0 px between them, no overlap), and on a map narrower than
-338 px the row wraps under the zoom. On a tablet in the columns with a finger the coverage's own box keeps its
+338 px the row wraps under the zoom (measured at 360 x 640: the last three tools on a second row; there a drawing
+tool's actions, which open under the first row, lie over the last of them by 36 x 40 px, and the polygon's three
+actions reach 10 px past the map's right edge). The tools are links without a name for a screen reader
+(Leaflet-Geoman's own markup: axe `link-name`, 5 nodes, in the new `ui_shots` state `c-new-area`; the same
+markup on main). On a tablet in the columns with a finger the coverage's own box keeps its
 32 px button and the tools Geoman's 30 px column (the desktop's arrangement: the user picked on phone frames); a tap
 on the coverage button while the layers' box is open closes the box and misses the button, which moves 56 px down
 as the box (rows of 44 px now) closes: the second tap takes. An earlier note here, that the layers' box does not
