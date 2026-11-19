@@ -505,6 +505,9 @@ bars only (774, excepted by name in R2). Known and left:
   px); the cubes of today have 6, 7 and 9.
 - **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
   above their names (the build's `align-items: flex-end`, as before).
-- **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest (the map is narrower in
-  headless Edge's window since the panels' new widths); its points lie 2 px inside their parts, so another change
-  of the map's size may need new points.
+- **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest: with the panels' new widths the map's
+  size in headless Edge's window changed (425 x 649 px measured after; why the earlier points then met the partner
+  row was not measured). Its points lie 2 px inside their parts, so another change of the map's size may need new
+  points.
+- **A phone's list row tells "only in parts" and the level by its swatch alone** (the hatch, the colour) beside the
+  resolution; the words are in the card the row opens and in the legend.
