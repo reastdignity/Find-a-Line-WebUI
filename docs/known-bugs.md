@@ -437,10 +437,12 @@ DESIGN.md choice 55).
 
 ## Step 3c, group D (admin, privacy, about): known and left (2026-11-19)
 
-- **axe's `skip-link` on the admin page** (3 nodes, `.c-report-context > a`, on `c-admin` in every device and
-  theme; 0 on `c-admin-reports` and `c-admin-end`): a false finding. A problem report's run link is a hash route of
-  the app (`#run=<id>`, `AdminC.tsx` `runHash`), which axe's best-practice rule reads as a same-page link to an
-  element that does not exist. The same on the base before group D.
+- **axe's `skip-link` on the admin page** (3 nodes on `c-admin` in every device and theme, axe's example
+  `.c-report-context > a`; measured 0 on `c-admin-reports` and `c-admin-end`, the same page scrolled): a false
+  finding. With the `ui_shots` data the page has three hash links, all routes of the app, not anchors: a run's
+  "Open" and a problem report's run link (`#run=<id>`, `AdminC.tsx` `runHash`) and "OpenStreetMap extracts"
+  (`#osm`); axe's best-practice rule reads such a link as a same-page link to an element that does not exist. The
+  same on the base before group D.
 - **"All searches" with content is not in `tools/ui_shots.py`**: the tool's site has no job (a job would show on
   the administrator's Home too and change that page's pictures). Group D pictured it with a probe in a folder of its
   own (`local/ux-design-2026-11-16/3c-d/probes/`, three finished searches; its rows hold only a status chip and
