@@ -51,16 +51,24 @@ jobs:
           docker compose --env-file ci.env config --quiet
           docker compose --env-file ci.env -f compose.yaml -f compose.test.yaml config --quiet
           test -z "$(docker compose --env-file ci.env config --format json | python3 -c 'import json,sys; print(*[n for n, s in json.load(sys.stdin)["services"].items() if s.get("ports")])')"
-          # the door: a dummy join code (no container runs here); sftp in the sidecar's namespace, no port
-          printf 'MIRROR_ROOT=/srv/findaline-mirror\nPUBLISH_KEYS=/srv/keys\nHUSARNET_JOIN_CODE=not-a-join-code\nHUSARNET_STATE=/srv/husarnet\n' > publish/ci.env
+          # the door: no join code (it is needed only at the first join, no container runs here); sftp in the
+          # sidecar's namespace, no port; the sidecar built here, not pulled
+          printf 'MIRROR_ROOT=/srv/findaline-mirror\nPUBLISH_KEYS=/srv/keys\nHUSARNET_STATE=/srv/husarnet\n' > publish/ci.env
           docker compose -f publish/compose.yaml --env-file publish/ci.env config --quiet
-          docker compose -f publish/compose.yaml --env-file publish/ci.env config --format json | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; assert sorted(s) == ["husarnet", "sftp"]; assert not [n for n, v in s.items() if v.get("ports")], "a port published"; assert s["sftp"]["network_mode"] == "service:husarnet" and not s["sftp"].get("networks")'
-          # the same settings without HUSARNET_JOIN_CODE, then without HUSARNET_STATE: compose refuses, naming it
-          for name in HUSARNET_JOIN_CODE HUSARNET_STATE; do
-            grep -v "^$name=" publish/ci.env > publish/ci-without.env
-            if docker compose -f publish/compose.yaml --env-file publish/ci-without.env config --quiet 2> without.txt; then exit 1; fi
-            grep -q "$name missing" without.txt
-          done
+          docker compose -f publish/compose.yaml --env-file publish/ci.env config --format json | python3 -c 'import json,sys; s=json.load(sys.stdin)["services"]; assert sorted(s) == ["husarnet", "sftp"]; assert not [n for n, v in s.items() if v.get("ports")], "a port published"; assert s["sftp"]["network_mode"] == "service:husarnet" and not s["sftp"].get("networks"); assert s["husarnet"]["build"]["dockerfile"] == "husarnet-sidecar.Dockerfile" and s["husarnet"]["mem_limit"] and s["husarnet"]["pids_limit"]'
+          # without HUSARNET_STATE: compose refuses, naming it
+          grep -v '^HUSARNET_STATE=' publish/ci.env > publish/ci-without.env
+          if docker compose -f publish/compose.yaml --env-file publish/ci-without.env config --quiet 2> without.txt; then exit 1; fi
+          grep -q 'HUSARNET_STATE missing' without.txt
+
+      - name: The door's Husarnet sidecar image
+        working-directory: deploy/mirror/publish
+        run: |
+          # built (Husarnet's key checked by its fingerprint, the pinned package); its daemon is never started
+          # here (it would contact Husarnet), only asked its version without a network
+          docker build -t ci-door-husarnet -f husarnet-sidecar.Dockerfile .
+          test "$(docker run --rm --network none --entrypoint husarnet-daemon ci-door-husarnet --version)" = "$(sed -n 's/^ARG HUSARNET_VERSION=[0-9]*://p' husarnet-sidecar.Dockerfile)"
+          docker image rm ci-door-husarnet
 
       - name: The checks and their self-test
         run: bash tests/mirror_check.sh --self-test

@@ -10,13 +10,16 @@
 #
 # - No port is published on the server at all. sshd's port 2222 is reached at the door's Husarnet
 #   address, by the peers the door's Husarnet whitelist lets in: the devices of its dedicated
-#   Husarnet network (the publishing PC) and Husarnet's websetup server. HUSARNET_JOIN_CODE and
-#   HUSARNET_STATE are required: without them compose refuses to start.
-# - `husarnet`: the image husarnet/husarnet (root, Docker's default capabilities plus NET_ADMIN for
-#   its tun interface hnet0, IPv6 switched on in the namespace), its state folder (the device's
-#   private key, the daemon's API token) bound from HUSARNET_STATE, on the project's network
-#   `publish` for its way out to Husarnet's servers. Its entry point and healthcheck are husarnet.sh
-#   next to this file (why not the image's own: there).
+#   Husarnet network (the publishing PC) and Husarnet's websetup server. HUSARNET_STATE is required
+#   (compose refuses to start without it); HUSARNET_JOIN_CODE only for the first join (husarnet.sh
+#   refuses to start when the device is neither joined nor given a code).
+# - `husarnet`: built by husarnet-sidecar.Dockerfile next to this file (Husarnet's package from
+#   Husarnet's apt repository on a Debian slim base; the user's U75), as root with Docker's default
+#   capabilities plus NET_ADMIN for its tun interface hnet0, IPv6 switched on in the namespace, its
+#   state folder (the device's private key, the daemon's API token) bound from HUSARNET_STATE, on
+#   the project's network `publish` for its way out to Husarnet's servers, memory and processes
+#   bounded. Its entry point and healthcheck are husarnet.sh (why not the image husarnet/husarnet's
+#   own: there).
 # - `sftp` starts only when `husarnet` is healthy (joined and up). If `husarnet` is restarted on its
 #   own, `sftp` is left in a namespace with its loopback only: its healthcheck sees that and ends
 #   sshd, and the restart policy starts it in the new namespace (within about 30 s; at once with
@@ -28,41 +31,41 @@
 # - The network is the project's own, never the mirror's internal one (it must not become a
 #   neighbour of the file server and SWAG).
 #
-# The Husarnet image is pinned by tag and digest (the multi-platform index): the newest stable
-# release, 2.0.180 of October 2023, on Ubuntu 22.04 of then (only husarnet/husarnet-nightly is
-# newer). To update (monthly, with the door's base): look for a newer stable tag of
-# husarnet/husarnet, `docker buildx imagetools inspect husarnet/husarnet:<tag>` (the "Digest:"
-# line), change the image line, check husarnet.sh's reasons against that version's
-# core/api_server/server.cpp, then tests/mirror_check.sh and `docker compose up -d --wait`.
+# Both images are built here (no registry): the pinned versions and how to update them are in the
+# headers of Dockerfile and husarnet-sidecar.Dockerfile (`docker compose build --pull`).
 
 name: findaline-mirror-publish
 
 services:
   husarnet:
-    image: husarnet/husarnet:2.0.180@sha256:47ff190bfb9104d05471357b46c69a0fd8e714aba3d3eeecc6c5dbfc4dae6b2e
-    entrypoint: ["bash", "/door/husarnet.sh", "start"]
+    build:
+      context: .
+      dockerfile: husarnet-sidecar.Dockerfile
     cap_add: [NET_ADMIN]
     devices: [/dev/net/tun]
     sysctls:
       net.ipv6.conf.all.disable_ipv6: 0
     environment:
-      HUSARNET_JOIN_CODE: "${HUSARNET_JOIN_CODE:?HUSARNET_JOIN_CODE missing - the join code of the door's Husarnet network, in .env}"
+      # for the first join only; may be removed from .env once the device is joined (husarnet.sh)
+      HUSARNET_JOIN_CODE: "${HUSARNET_JOIN_CODE:-}"
       HUSARNET_HOSTNAME: "${HUSARNET_HOSTNAME:-findaline-mirror-door}"
     restart: unless-stopped
+    # measured 2026-11-19 (Docker Desktop, docker stats every second over 90 s, two runs, the daemon at
+    # its first start with the join CLI, `husarnet status` and the whitelist CLI; an idle daemon, no
+    # traffic): at most 20.6 MiB and 43 processes and threads (the daemon alone 31, its Go CLI adds
+    # threads); about 6 and 3 times that
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 128
     volumes:
       - type: bind
         source: "${HUSARNET_STATE:?HUSARNET_STATE missing - a folder for the Husarnet state, in .env}"
         target: /var/lib/husarnet
         bind: {create_host_path: false}
-      - type: bind
-        source: ./husarnet.sh
-        target: /door/husarnet.sh
-        read_only: true
-        bind: {create_host_path: false}
     networks: [publish]
     healthcheck:
-      # joined and up: a base server, is_joined, a peer on the whitelist besides websetup (husarnet.sh)
-      test: ["CMD", "bash", "/door/husarnet.sh", "health"]
+      # joined and up: a base server, is_joined, the whitelist on, a peer on it besides websetup
+      test: ["CMD", "/usr/local/bin/husarnet.sh", "health"]
       interval: 60s
       timeout: 10s
       start_period: 120s

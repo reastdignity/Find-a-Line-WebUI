@@ -360,24 +360,42 @@ def test_publishing_door_compose():
     # The sidecar: pinned by digest, NET_ADMIN its one added capability, the tun device, IPv6 on in
     # the namespace, the join code and the state folder required, on the project's own network
     husarnet = compose["services"]["husarnet"]
-    assert re.fullmatch(DIGEST, husarnet["image"]) and husarnet["image"].startswith("husarnet/husarnet:")
+    # built here (U75): husarnet-sidecar.Dockerfile, no image from a registry
+    assert husarnet["build"] == {"context": ".", "dockerfile": "husarnet-sidecar.Dockerfile"} and "image" not in husarnet
     assert husarnet["cap_add"] == ["NET_ADMIN"] and "privileged" not in husarnet
+    # bounded (U77): memory = swap, processes
+    assert husarnet["mem_limit"] and husarnet["memswap_limit"] == husarnet["mem_limit"] and husarnet["pids_limit"]
     assert husarnet["devices"] == ["/dev/net/tun"]
     assert husarnet["sysctls"] == {"net.ipv6.conf.all.disable_ipv6": 0}
-    assert re.fullmatch(r"\$\{HUSARNET_JOIN_CODE:\?[^}]*\}", husarnet["environment"]["HUSARNET_JOIN_CODE"])
+    # the code only for the first join: compose does not require it (husarnet.sh refuses without a join)
+    assert husarnet["environment"]["HUSARNET_JOIN_CODE"] == "${HUSARNET_JOIN_CODE:-}"
     assert re.fullmatch(r"\$\{HUSARNET_HOSTNAME:-[a-z0-9-]+\}", husarnet["environment"]["HUSARNET_HOSTNAME"])
     # never HUSARNET_DEBUG: with it the daemon prints the join code to Docker's log
     assert set(husarnet["environment"]) == {"HUSARNET_JOIN_CODE", "HUSARNET_HOSTNAME"}
     assert not re.search(r"^\s+HUSARNET_DEBUG", _load("publish", "compose.yaml"), re.M)
     hvolumes = {v["target"]: v for v in husarnet["volumes"]}
-    assert set(hvolumes) == {"/var/lib/husarnet", "/door/husarnet.sh"}
+    assert set(hvolumes) == {"/var/lib/husarnet"}
     state = hvolumes["/var/lib/husarnet"]
     assert state["type"] == "bind" and re.fullmatch(r"\$\{HUSARNET_STATE:\?[^}]*\}", state["source"])
     assert state["bind"] == {"create_host_path": False} and not state.get("read_only")
-    script = hvolumes["/door/husarnet.sh"]
-    assert script["source"] == "./husarnet.sh" and script["read_only"] is True
-    assert husarnet["entrypoint"] == ["bash", "/door/husarnet.sh", "start"]
-    assert husarnet["healthcheck"]["test"] == ["CMD", "bash", "/door/husarnet.sh", "health"]
+    assert "entrypoint" not in husarnet   # the image's: husarnet.sh start
+    assert husarnet["healthcheck"]["test"] == ["CMD", "/usr/local/bin/husarnet.sh", "health"]
+    sidecar = _load("publish", "husarnet-sidecar.Dockerfile")
+    arg = re.search(r"^ARG DEBIAN_IMAGE=(\S+)$", sidecar, re.M)
+    assert arg and re.fullmatch(DIGEST, arg.group(1)) and re.match(r"debian:[a-z]+-\d{8}-slim@", arg.group(1))
+    assert re.search(r"^ARG HUSARNET_VERSION=\d+:\d+\.\d+\.\d+$", sidecar, re.M)
+    assert re.search(r"^ARG HUSARNET_KEY_FINGERPRINT=[0-9A-F]{40}$", sidecar, re.M)
+    assert re.findall(r"^FROM (\S+)", sidecar, re.M) == ["${DEBIAN_IMAGE}", "${DEBIAN_IMAGE}"]
+    assert '"husarnet=${HUSARNET_VERSION}"' in sidecar and "--no-install-recommends" in sidecar
+    assert "signed-by=/usr/share/keyrings/husarnet.gpg] https://install.husarnet.com/deb/ all husarnet" in sidecar
+    assert '[ "$fingerprints" != "$HUSARNET_KEY_FINGERPRINT" ]' in sidecar
+    assert "COPY --chmod=0755 husarnet.sh /usr/local/bin/husarnet.sh" in sidecar
+    assert 'ENTRYPOINT ["/usr/local/bin/husarnet.sh", "start"]' in sidecar
+    # the check's stand-in never builds the real sidecar (its build reset), keeps the sysctl (D37)
+    overlay = _load("test", "compose.door-check.yaml")
+    stand_in = overlay[overlay.index("  husarnet:\n"):overlay.index("  sftp:\n")]
+    assert "    build: !reset null\n" in stand_in and "    image: !override ${DOOR_STANDIN_IMAGE:?}\n" in stand_in
+    assert "sysctls" not in stand_in and "ports" not in stand_in and "networks" not in stand_in
     assert husarnet["restart"] == "unless-stopped"
     assert husarnet["logging"]["driver"] == "json-file" and "max-size" in husarnet["logging"]["options"]
     assert husarnet["networks"] == ["publish"]
@@ -387,6 +405,7 @@ def test_publishing_door_compose():
     keys = set(re.findall(r"^([A-Z_]+)=", example, re.M))
     assert keys == {"MIRROR_ROOT", "PUBLISH_KEYS", "HUSARNET_JOIN_CODE", "HUSARNET_HOSTNAME", "HUSARNET_STATE"}
     assert re.search(r"^HUSARNET_JOIN_CODE=$", example, re.M) and "SECRET" in example
+    assert "first join" in example
     dockerfile = _load("publish", "Dockerfile")
     arg = re.search(r"^ARG ALPINE_IMAGE=(\S+)$", dockerfile, re.M)
     assert arg and re.fullmatch(DIGEST, arg.group(1)) and arg.group(1).startswith("alpine:")
@@ -407,21 +426,21 @@ def _bash():
     return shutil.which("bash")
 
 
-def _daemon_status(whitelist: list, base: bool = True, joined: bool = True) -> bytes:
+def _daemon_status(whitelist: list, base: bool = True, joined: bool = True, whitelist_on: bool = True) -> bytes:
     """An answer of the Husarnet daemon's GET /api/status in its form (nlohmann's dump(4), v2.0.180's
     core/api_server/server.cpp), with the fields husarnet.sh reads; the websetup address is Husarnet's."""
     import json
     websetup = "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a"
     result = {"base_connection": {"address": "192.0.2.1", "port": 443, "type": "TCP" if base else "NONE"},
               "connection_status": {"base": base, "websetup": base}, "is_joined": joined, "is_ready": base,
-              "local_ip": "fc94:1111:2222:3333:4444:5555:6666:7777", "user_settings": {"enableWhitelist": "true", "joinCode": ""},
+              "local_ip": "fc94:1111:2222:3333:4444:5555:6666:7777", "user_settings": {"enableWhitelist": "true" if whitelist_on else "false", "joinCode": ""},
               "websetup_address": websetup, "whitelist": [websetup] + whitelist}
     return json.dumps({"result": result, "status": "success"}, indent=4, sort_keys=True).encode()
 
 
 def test_husarnet_health_means_joined_and_up():
     """publish/husarnet.sh health against a stand-in for the daemon's API: healthy only with a base
-    server connection, is_joined and a peer on the whitelist besides Husarnet's websetup server. The
+    server connection, is_joined, the whitelist on and a peer on it besides Husarnet's websetup server. The
     daemon reported is_joined with a refused dummy join code, and then its whitelist held websetup
     alone (the build's smoke test): that case must stay unhealthy; no daemon at all too."""
     import http.server
@@ -458,6 +477,7 @@ def test_husarnet_health_means_joined_and_up():
         port = server.server_address[1]
         for body, want in [(_daemon_status([peer]), 0), (_daemon_status([]), 1),
                            (_daemon_status([peer], base=False), 1), (_daemon_status([peer], joined=False), 1),
+                           (_daemon_status([peer], whitelist_on=False), 1),
                            (b"", 1)]:
             answer["body"] = body
             assert health(port) == want, body[:200]
@@ -466,6 +486,75 @@ def test_husarnet_health_means_joined_and_up():
         server.server_close()
     assert health(port) == 1   # nothing listening
 
+
+
+def _stub(folder: str, name: str, body: str) -> None:
+    path = os.path.join(folder, name)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("#!/bin/bash\n" + body)
+    os.chmod(path, 0o755)
+
+
+@pytest.mark.parametrize("peer_kept, code, want_rc, want_join, want_line", [
+    (True, "", 0, False, "joined before (a peer on the whitelist): no join"),
+    (True, "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a/NOTAJOINCODEdummy00000", 0, False, "joined before"),
+    (False, "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a/NOTAJOINCODEdummy00000", 0, True, ""),
+    (False, "", 1, False, "not joined (no peer on the whitelist) and no HUSARNET_JOIN_CODE"),
+], ids=["joined-no-code", "joined-with-code", "first-join", "neither"])
+def test_husarnet_start_joins_once(tmp_path, peer_kept, code, want_rc, want_join, want_line):
+    """publish/husarnet.sh start with stubs of husarnet-daemon and the husarnet CLI on PATH and a stand-in
+    for the daemon's API: a kept state with a peer on the whitelist starts without a join (with or
+    without the code); no peer and a code: one join, with the code as the CLI's argument and never in
+    the daemon's environment, after the log verbosity went to 2; neither: the refusal line, exit 1. The
+    real daemon did the same with a dummy code (the build's fix round 1, worker-report-fix1)."""
+    import http.server
+    import subprocess
+    import threading
+
+    bash = _bash()
+    if not bash:
+        pytest.skip("no bash")
+    body = _daemon_status(["fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"] if peer_kept else [])
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = (tmp_path / "calls.txt").as_posix()
+    # the daemon: counts the code's names and its secret part in its environment, lives 3 s; the CLI:
+    # writes down its arguments
+    _stub(str(bin_dir), "husarnet-daemon",
+          'env | grep -cE "^(HUSARNET_JOIN_CODE|HUSARNET_JOINCODE|JOINCODE)=|NOTAJOINCODE" > '
+          f'"{(tmp_path / "daemon-env.txt").as_posix()}"\nsleep 3\n')
+    _stub(str(bin_dir), "husarnet", f'echo "$*" >> "{calls}"\n')
+    script = os.path.join(MIRROR, "publish", "husarnet.sh")
+    env = {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}   # it would name the test's code
+    env.update(HUSARNET_DAEMON_API_PORT=str(server.server_address[1]), HUSARNET_JOIN_CODE=code,
+               HUSARNET_HOSTNAME="door-test")
+    prefix = f'export PATH="$(cygpath -u "{bin_dir.as_posix()}" 2>/dev/null || echo "{bin_dir.as_posix()}"):$PATH"; '
+    try:
+        done = subprocess.run([bash, "-c", prefix + f'exec bash "{script}" start'.replace("\\", "/")], env=env,
+                              capture_output=True, text=True, timeout=60)
+    finally:
+        server.shutdown()
+        server.server_close()
+    lines = open(calls, encoding="utf-8").read().splitlines() if os.path.exists(calls) else []
+    joins = [line for line in lines if line.startswith("join ")]
+    assert done.returncode == want_rc, (done.returncode, done.stderr)
+    assert lines[:2] == ["daemon logs settings", "daemon logs verbosity 2"], lines
+    assert joins == ([f"join {code} door-test"] if want_join else []), lines
+    assert want_line in done.stderr
+    assert open(tmp_path / "daemon-env.txt", encoding="utf-8").read().strip() == "0"   # no JOIN name reached the daemon
 
 def test_publishing_door_sshd_and_gate():
     """Key only, one account, no root, no TTY, no forwarding of any kind, no user rc, the forced gate;
@@ -545,7 +634,9 @@ def test_publishing_door_readme_checks_the_binding():
                   "Keep your join code secret!", 'install -d -m 0700 "$HSTATE"',
                   "docker compose exec husarnet husarnet status", "host = [<the door's Husarnet IP>]",
                   "[<the door's Husarnet IP>]:2222 ssh-ed25519", "never set `HUSARNET_DEBUG`",
-                  "docker compose restart sftp", "husarnet/husarnet:<tag>"]:
+                  "docker compose restart sftp", "docker compose build --pull", "husarnet-sidecar.Dockerfile",
+                  "may be removed from `.env` after the first join", "docker inspect", "Docker Engine 28.0",
+                  "docker version --format", "If the door does not answer"]:
         assert words in readme, words
     assert "docker compose port sftp" not in readme and "PUBLISH_ADDRESS" not in readme
 

@@ -2,14 +2,16 @@
 # folder and the keys in volumes the script prepares (volumes are merged by their target), so that
 # the keys have the owner and modes sshd demands on any host; and a stand-in for the Husarnet
 # sidecar. The check has no join code and never reaches Husarnet: the stand-in is the door's own
-# image (DOOR_STANDIN_IMAGE, built from publish/Dockerfile) sleeping, without the sidecar's
-# capability, device, environment, state folder and entry point, reporting healthy. It holds the
+# image (DOOR_STANDIN_IMAGE, built from publish/Dockerfile) sleeping, without the sidecar's build,
+# capability, device, environment, state folder and entry point, reporting healthy (with
+# `build` reset nothing here ever builds the real sidecar under the stand-in's name). It holds the
 # namespace `sftp` joins (network_mode: service:husarnet, kept from compose.yaml) on the project's
 # network `publish`, where the check's SSH client reaches the door by the name `husarnet`. Its
 # `ports`, `networks` and IPv6 sysctl are left as compose.yaml has them: a port published there
-# must show in D29.
+# must show in D29, the sysctl in D37.
 services:
   husarnet:
+    build: !reset null
     image: !override ${DOOR_STANDIN_IMAGE:?}
     entrypoint: !override ["sh", "-c", "trap 'exit 0' TERM; sleep 2147483647 & wait"]
     user: "1000:1000"

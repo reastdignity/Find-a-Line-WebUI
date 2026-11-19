@@ -1107,6 +1107,21 @@ rename /mirror/staging/x /mirror/public/v1/tiles/x")
     info "listening in the door's namespace: $(docker exec "$PROJECT-door-sftp-1" netstat -ltn 2>&1 | awk 'NR > 2 { printf "%s ", $4 }')"
     out=$(docker exec "$PROJECT-door-sftp-1" sh -c 'sleep 1 | nc -w 3 ::1 2222 | head -c 8' 2>&1)
     eq D34 "sshd answers on the namespace's IPv6 loopback ([::1]:2222)" "$out" "SSH-2.0-"
+    # ... and at an address like the door's Husarnet one: fc94:dead:beef::1234 on an interface hnet0
+    # of the namespace (a dummy interface, or lo where the kernel makes none), put there now as root of
+    # the stand-in (a recreated stand-in has lost it)
+    i=$(docker exec --privileged --user 0 "$PROJECT-door-husarnet-1" sh -c 'ip link show hnet0 > /dev/null 2>&1 || ip link add hnet0 type dummy 2> /dev/null; if ip link set hnet0 up 2> /dev/null; then dev=hnet0; else dev=lo; fi; ip -6 addr add fc94:dead:beef::1234/128 dev $dev 2> /dev/null; echo $dev' 2>&1)
+    sleep 1
+    out=$(docker exec "$PROJECT-door-sftp-1" sh -c 'sleep 1 | nc -w 3 fc94:dead:beef::1234 2222 | head -c 8' 2>&1)
+    info "the Husarnet-like address put on: $i"
+    # Taken off again: a dummy interface outlives the stand-in in the door's namespace (Husarnet's real
+    # hnet0, a tun device, goes with the daemon), and the door's healthcheck would then never see its
+    # namespace lost (D35)
+    docker exec --privileged --user 0 "$PROJECT-door-husarnet-1" sh -c 'ip link del hnet0 2> /dev/null; ip -6 addr del fc94:dead:beef::1234/128 dev lo 2> /dev/null; true'
+    eq D36 "sshd answers at a Husarnet-like IPv6 address of the namespace ([fc94:dead:beef::1234]:2222)" "$out" "SSH-2.0-"
+    # IPv6 on in the namespace (the sidecar's sysctl: the Husarnet address is IPv6 only)
+    out=$(docker exec "$PROJECT-door-sftp-1" cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>&1)
+    eq D37 "IPv6 is on in the door's namespace (net.ipv6.conf.all.disable_ipv6 = 0)" "$out" "0"
     out=$(docker exec "$PROJECT-door-sftp-1" /usr/sbin/sshd -T -f /etc/ssh/sshd_config 2>&1 | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permittty|permituserrc|disableforwarding|allowtcpforwarding|forcecommand|permitrootlogin|authenticationmethods) ' | sort | tr '\n' ';')
     eq D30 "sshd's effective settings" "$out" "allowtcpforwarding no;authenticationmethods publickey;disableforwarding yes;forcecommand /usr/local/bin/gate;kbdinteractiveauthentication no;passwordauthentication no;permitrootlogin no;permittty no;permituserrc no;"
     # The host key survives a recreate (the client pins it: StrictHostKeyChecking)
@@ -1215,6 +1230,8 @@ VARIANTS=(
     'the door in a namespace of its own @@ publish/compose.yaml @@ s#^    network_mode: service:husarnet$#    networks: [publish]# @@ door @@ D01 D28 D29'
     'the door in a namespace of its own with its port published @@ publish/compose.yaml @@ s#^    network_mode: service:husarnet$#    networks: [publish]\n    ports: ["127.0.0.1:${DOOR_TEST_PORT}:2222"]# @@ door @@ D28 D29'
     'sshd on IPv4 only @@ publish/sshd_config @@ s#^Port 2222$#&\nAddressFamily inet# @@ door @@ D34'
+    'sshd on 0.0.0.0 and ::1 only @@ publish/sshd_config @@ s#^Port 2222$#&\nListenAddress 0.0.0.0\nListenAddress ::1# @@ door @@ D36'
+    'IPv6 off in the namespace @@ publish/compose.yaml @@ s#net.ipv6.conf.all.disable_ipv6: 0#net.ipv6.conf.all.disable_ipv6: 1# @@ door @@ D37'
     'the door stays in a lost namespace @@ publish/compose.yaml @@ s#grep -qv [^;]*|| kill -TERM 1; ## @@ doorheal @@ D35'
     'a new host key at each start @@ publish/Dockerfile @@ s#^ENTRYPOINT .*#ENTRYPOINT ssh-keygen -q -t ed25519 -N "" -f /tmp/hk \&\& sed "s|^HostKey .*|HostKey /tmp/hk|" /etc/ssh/sshd_config > /tmp/c \&\& exec /usr/sbin/sshd -D -e -f /tmp/c# @@ door @@ D31'
     'two mounts (staging and public) @@ test/compose.door-check.yaml @@ s#- {type: volume, source: root, target: /mirror}#&\n      - {type: tmpfs, target: /mirror/public, tmpfs: {mode: 01777}}# @@ door @@ D25'

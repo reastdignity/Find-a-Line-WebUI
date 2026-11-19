@@ -91,10 +91,28 @@ If `docker network connect` answers `endpoint with name swag already exists in n
 "Checking it" below, not by that command's exit code.
 The attachment lasts until SWAG's container is recreated (an image update recreates it): **run the
 `docker network connect` again after every update of SWAG** (the same "already exists" answer means the
-recreation kept it), and check it (below). This way can never stop SWAG:
-the conf names the mirror through a variable and SWAG's resolver, so SWAG starts and serves its other sites
-whether the mirror is there or not (tried with the test stack's stand-in: taken off the mirror's network and
-restarted, it started and answered the mirror's name with 502).
+recreation kept it), and check it (below). This way does not stop SWAG when the mirror is away: the conf names
+the mirror through a variable and SWAG's resolver, so SWAG starts and serves its other sites whether the mirror is
+there or not (tried with the test stack's stand-in: taken off the mirror's network and restarted, it started and
+answered the mirror's name with 502). **One case does stop it:** a container attached by `docker network connect`
+that is stopped while that network is removed (the mirror's `docker compose down` while SWAG is stopped, e.g.
+during SWAG's update) refuses to start ("failed to set up container networking: network ... not found"), and
+re-creating the network does not help (it gets a new id). Then
+`docker network disconnect -f findaline-mirror_mirror swag` and `docker start swag` start it again (then attach it
+anew). So: **disconnect SWAG (`docker network disconnect findaline-mirror_mirror swag`) before taking the mirror's
+project down.** (Seen with a stand-in container on Docker 29.)
+
+**SWAG's resolver.** SWAG writes `/config/nginx/resolver.conf` only at its first start, from the container's
+`/etc/resolv.conf` of that moment. A SWAG first started on Docker's default bridge network names an outside DNS
+server there, which cannot resolve `findaline-mirror-files`: the mirror then answers 502 through SWAG, while
+`docker exec swag curl http://findaline-mirror-files:8080/...` passes (curl uses the system resolver, which is
+Docker's 127.0.0.11 once SWAG is attached). Check the file; if it does not name `127.0.0.11`, make it hold only
+that line, `resolver 127.0.0.11 valid=30s;` (only that one: nginx asks its resolvers in turn), and restart SWAG:
+```sh
+docker exec swag cat /config/nginx/resolver.conf          # must name 127.0.0.11
+```
+Do so only while SWAG is attached to a user-defined network, as the default way above keeps it (127.0.0.11 exists
+only there); other sites whose upstreams are IP addresses are unaffected. (Not tried with the test stack.)
 
 `swag/findaline-mirror.subdomain.conf` answers `mirror.findaline.lukawski.org`, passes requests on with SWAG's
 own `proxy.conf`, refuses every method but GET and HEAD and any body over 1 KB itself (405 and 413, never 403,
@@ -108,7 +126,11 @@ once and the mirror's connection caps would count nothing. Keep it so when editi
 docker inspect swag --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
   | grep -q findaline-mirror_mirror && echo attached || echo "NOT ATTACHED: run docker network connect again"
 docker exec swag curl -s -o /dev/null -w '%{http_code}\n' http://findaline-mirror-files:8080/robots.txt   # 200
+docker exec swag curl -sk -o /dev/null -w '%{http_code}\n' --resolve mirror.findaline.lukawski.org:443:127.0.0.1 https://mirror.findaline.lukawski.org/robots.txt   # 200: through SWAG's nginx
 ```
+The second line goes to the mirror directly and uses the container's system resolver, so it passes even when
+SWAG's own nginx cannot resolve the mirror (its resolver above); the third goes through SWAG's nginx, as a visitor's
+request does.
 While SWAG is not attached, a visitor of `https://mirror.findaline.lukawski.org` gets 502 from SWAG: the mirror is
 unreachable (an outage, never an exposure: nothing of the mirror is reachable any other way), and SWAG's other
 sites are untouched.
@@ -172,7 +194,10 @@ What the door is:
   home server itself (and from a container attached to that network, none besides the sidecar), not from the
   LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker host",
   and "By default, remote hosts are not allowed direct access to container IP addresses in Docker's Linux bridge
-  networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19);
+  networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19). That holds from Docker Engine 28.0
+  (its release notes: direct routed access to container ports that are not exposed is blocked from 28.0); an older
+  engine lets a LAN host with a route to that network reach sshd there (the key is still required). Check the
+  engine: `docker version --format '{{.Server.Version}}'` (28.0 or newer);
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
   mounts fails: tried with `public` as a mount of its own in the check script's self-test, the rename fails; the
   research for this door saw rclone 1.76 then exit 1 with "Failure" and leave the files in `staging`),
@@ -184,10 +209,19 @@ What the door is:
   user of the home server runs it. Whoever wants that closed mounts the file system of `<root>` with `nosuid`.
 - no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
 
-**The Husarnet sidecar** (`husarnet` in `publish/compose.yaml`; the image `husarnet/husarnet`, pinned by digest):
+**The Husarnet sidecar** (`husarnet` in `publish/compose.yaml`; its image is built here from
+`publish/husarnet-sidecar.Dockerfile`: Husarnet's package from Husarnet's own apt repository, `install.husarnet.com`,
+on a current Debian slim base, the base pinned by digest, Husarnet's signing key by its fingerprint and the package
+by its version; the user's U75):
+- the package is Husarnet 2.0.180 (October 2023), the newest the stable repository serves, the same daemon as the
+  image `husarnet/husarnet`; both its programs are statically linked, so the fresh base renews the system around
+  the daemon (bash, iproute2, procps, glibc), not the libraries built into it;
 - it runs as root in its container, with Docker's default capabilities plus `NET_ADMIN` (its tun interface
   `hnet0`), the device `/dev/net/tun`, IPv6 switched on in the namespace and a writable root, as the image comes
-  (with every capability dropped but `NET_ADMIN` its daemon exits at start; a read-only root alone was not tried). Its state folder `/var/lib/husarnet`
+  (with every capability dropped but `NET_ADMIN` its daemon exits at start; a read-only root alone was not tried).
+  Its memory is bounded to 128 MB (swap included) and its processes and threads to 128: measured idle with the join
+  and the CLI's status at most 20.6 MiB and 43 (docker stats each second over 90 s, two runs, no traffic; the
+  daemon alone runs 31 threads), about 6 and 3 times that. Its state folder `/var/lib/husarnet`
   is a bind of `HUSARNET_STATE`: the device's private key (its Husarnet address follows from it), the licence
   file and the daemon's API token. It is not mounted into `sftp`;
 - it needs Husarnet's servers: at its first start (an empty state folder) the daemon fetches its licence from
@@ -200,14 +234,21 @@ What the door is:
   join code in the daemon's environment), its status (`user_settings.joinCode`) and its log ("Sending join request
   to websetup (joincode: ...)") carry the join code to whoever asks, uid 1000 of `sftp` too: shown with a dummy
   code in the build's checks. `husarnet.sh` starts the daemon without the code, raises its log level to warnings,
-  then hands it the code through the CLI (with the token); the code is then in neither answer. What stays readable
+  then hands it the code through the CLI (with the token); the code is then in neither answer. The join runs once:
+  when the state folder already holds a peer on the whitelist (the door joined before), the sidecar starts without
+  a join, so **the join code may be removed from `.env` after the first join** (a later start without it and
+  without that state says in `docker compose logs husarnet` that it needs the code, and stops). Until it is
+  removed, root of the home server sees it: in `docker inspect` (the container's environment) and, for up to 30 s
+  at a join, in the process list (`husarnet join <code>`). What stays readable
   there without the token: the door's Husarnet address, its whitelist and the addresses its peers were reached at
   (the PC's public address among them). The key's holder cannot ask for it (the gate allows no command and
   forwarding is off); only code running inside `sftp` could;
 - it prints nothing to Docker's log but `husarnet.sh`'s own lines when the API does not answer or the join request
   fails (the daemon's output goes nowhere: never set `HUSARNET_DEBUG`, which prints the join code there);
 - `sftp` starts only when the sidecar is healthy, which here means joined and up: a base server connection, the
-  daemon joined, and at least one address on its whitelist besides Husarnet's websetup server, the one the
+  daemon joined, its whitelist switched on (the daemon's status shows it as `enableWhitelist`; the dashboard can
+  switch it off, and then any Husarnet device reaches the door: the sidecar turns unhealthy, `docker compose ps`
+  shows it), and at least one address on its whitelist besides Husarnet's websetup server, the one the
   dashboard puts there for the PC. The daemon's own "joined" flag is no proof: it was true with a refused dummy
   code. So the PC joins the network first (Install below);
 - when the sidecar is restarted on its own (`docker restart`, a crash and Docker's restart), `sftp` is left in a
@@ -228,7 +269,8 @@ group in the Dashboard, all of the devices are notified of new member and will a
 "our Websetup Server will always be on your whitelist"; "Disabling whitelist is highly discouraged, as it makes
 our device open for connections from any other Husarnet device" (husarnet.com/docs/cli-guide/, read 2026-11-19).
 So in a network of its own the door accepts packets from the PC and from Husarnet's websetup server only; every
-other device of the account, and the PC's other networks, stay out. The join code admits any device to the
+other device of the account, and the PC's other networks, stay out, as long as the whitelist is on (the sidecar's
+health requires it: above). The join code admits any device to the
 network: it is a secret ("Keep your join code secret!", the same page), kept only in the door's `.env`; whoever
 had it could add a device that the door then lets in (sshd still asks for the publishing key).
 
@@ -271,8 +313,8 @@ HSTATE=/path/to/findaline-mirror-husarnet
 install -d -m 0755 "$KEYS"
 install -d -m 0700 "$HSTATE"           # owned by root: the device's private key and the API token
 cd publish && cp .env.example .env     # MIRROR_ROOT (the mirror's), PUBLISH_KEYS="$KEYS", HUSARNET_JOIN_CODE, HUSARNET_HOSTNAME, HUSARNET_STATE="$HSTATE"
-chmod 600 .env                         # it holds the join code
-docker compose build                   # the image findaline-mirror-publish-sftp
+chmod 600 .env                         # it holds the join code (until the first join: below)
+docker compose build                   # the images findaline-mirror-publish-sftp and -husarnet
 # The door's host key, made once (owned by the account, mode 600); note its fingerprint
 docker run --rm --user 0 --network none -v "$KEYS:/v" --entrypoint ssh-keygen findaline-mirror-publish-sftp -q -t ed25519 -N '' -C findaline-mirror-publish -f /v/ssh_host_ed25519_key
 chown 1000:1000 "$KEYS/ssh_host_ed25519_key" && chmod 600 "$KEYS/ssh_host_ed25519_key"
@@ -290,10 +332,12 @@ If `up` stops with "dependency failed to start: container findaline-mirror-publi
 door is not joined or the PC is not in its network yet: `docker compose exec husarnet husarnet status` shows which
 (and Husarnet's dashboard). If either `docker port` line prints a port, the door is published on the server: stop
 it at once (`docker compose down`) and use this folder's `compose.yaml` unchanged. The door's Husarnet address
-stays the same as long as `HUSARNET_STATE` is kept. Both images of this project that are built (the file
+stays the same as long as `HUSARNET_STATE` is kept. Once `up` has succeeded, the door is joined: the line
+`HUSARNET_JOIN_CODE=` may be emptied in `.env` (then `docker compose up -d` once more, so the container's
+environment no longer holds it). Both images of this project that are built (the file
 server's, `compose.yaml`, and the door's, `publish/compose.yaml`) are built on the server from this folder (no
-registry): a compose tool that pulls but does not build needs `docker compose build` first; the sidecar's image
-is pulled.
+registry): a compose tool that pulls but does not build needs `docker compose build` first (the door's
+project builds both of its images).
 
 **The rclone remote on the PC**, in a config file of its own (rclone writes into the config file it is given, e.g.
 settings it detects; keep the file private, out of the repository). The values in angle brackets are yours:
@@ -324,6 +368,14 @@ sha1sum_command = none
 - The remote's top folder is the mirror folder as the container shows it: `findaline-mirror:/mirror` (so
   `--to findaline-mirror:/mirror`, `--from findaline-mirror:/mirror/logs`).
 
+**If the door does not answer** (a publish stops at the connection), first, on the server in `publish/`:
+```sh
+docker compose ps            # sftp and husarnet: running (healthy)
+docker compose up -d         # sftp Exited (after the sidecar was down for more than about 30 s, or a reboot): starts it
+```
+`up -d` waits for the sidecar to be healthy; if it says the sidecar is unhealthy, `docker compose exec husarnet
+husarnet status` shows what is missing (base server, the join, the PC on the whitelist, the whitelist on).
+
 **Checking it**, from the PC (works before the first publish too; Husarnet's client running):
 ```sh
 rclone --config <file> lsd findaline-mirror:/mirror                                  # logs, public, staging, trash
@@ -341,11 +393,12 @@ or in CI, with a stand-in for the sidecar (it has no join code and never reaches
 
 **Updating**: monthly, with the file server's image: the door's base is pinned by digest (`ARG ALPINE_IMAGE` in
 `publish/Dockerfile`); the packages are not pinned, so a rebuild takes the newest OpenSSH of that Alpine branch.
-The sidecar's image is pinned by tag and digest in `publish/compose.yaml`; 2.0.180 (October 2023, on Ubuntu 22.04
-of then) is Husarnet's newest stable image, only `husarnet/husarnet-nightly` is newer: look for a newer stable tag,
-read its digest with `docker buildx imagetools inspect husarnet/husarnet:<tag>`, check `publish/husarnet.sh`'s
-reasons against that version (its header). Edit the digests, then `docker compose build --pull`, `docker compose
-pull husarnet` and `docker compose up -d --wait` in `publish/`. The host key and `authorized_keys` stay in
+The sidecar's image is built from `publish/husarnet-sidecar.Dockerfile`: its Debian base is pinned by tag and
+digest (`ARG DEBIAN_IMAGE`; the newest tag of the Debian stable slim line, its digest from `docker buildx
+imagetools inspect debian:<tag>`), Husarnet's package by its version (`ARG HUSARNET_VERSION`; change it only after
+checking `publish/husarnet.sh`'s reasons against that version's sources, its header), the signing key by its
+fingerprint; Debian's packages are not pinned, so a rebuild takes that release's newest. Edit the pins, then
+`docker compose build --pull` and `docker compose up -d --wait` in `publish/`. The host key and `authorized_keys` stay in
 `PUBLISH_KEYS` and the device key in `HUSARNET_STATE`, so the PC's `known_hosts` and the door's Husarnet address
 stay valid.
 

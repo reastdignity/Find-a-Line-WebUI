@@ -178,14 +178,16 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    fixed subnet (`MIRROR_SUBNET`); SWAG's container is attached to it as a second network (U18), by default with
    `docker network connect findaline-mirror_mirror swag` on the running SWAG, repeated after SWAG is recreated, with
    a check that prints `NOT ATTACHED` (U42), so the mirror's only neighbour is SWAG and it can reach nothing else.
-   The publishing door is a project of its own (`findaline-mirror-publish` in `deploy/mirror/publish/`, one service
-   `sftp`: Alpine and OpenSSH, key only, a command gate allowing the SFTP server and `sha256sum` of one file under the
-   mounted `<root>`; U27, U32, U33); "one service, no published port" holds for the mirror's project, and the door
-   publishes none either: `sftp` runs in the network namespace of a Husarnet sidecar (`husarnet`, the image
-   `husarnet/husarnet` pinned by digest, its entry point and healthcheck `publish/husarnet.sh`) and is reached at the
-   door's Husarnet address by the devices of its dedicated Husarnet network (U68); the sidecar is the one exception
-   to the hardening below (root, a writable root, Docker's default capabilities plus `NET_ADMIN`, as its image runs;
-   with every capability but `NET_ADMIN` dropped it exits). Hardening as the site's containers: the non-root user,
+   The publishing door is a project of its own (`findaline-mirror-publish` in `deploy/mirror/publish/`) with two
+   services: `sftp` (Alpine and OpenSSH, key only, a command gate allowing the SFTP server and `sha256sum` of one file
+   under the mounted `<root>`; U27, U32, U33) and `husarnet`, a Husarnet sidecar (U68); "one service, no published
+   port" holds for the mirror's project, and the door publishes no port either: `sftp` runs in the sidecar's network
+   namespace and is reached at the door's Husarnet address by the devices of its dedicated Husarnet network. The
+   sidecar's image is built from `publish/husarnet-sidecar.Dockerfile` (Husarnet's package from Husarnet's apt
+   repository on a Debian slim base pinned by digest, the signing key checked by its fingerprint, the package's
+   version pinned; U75), its entry point and healthcheck `publish/husarnet.sh`; it is the one exception to the
+   hardening below (root, a writable root, Docker's default capabilities plus `NET_ADMIN`, as Husarnet's image
+   runs; with every capability but `NET_ADMIN` dropped it exits), with memory and pid limits (U77). Hardening as the site's containers: the non-root user,
    read-only root, a tmpfs for `/tmp`, all capabilities dropped, no-new-privileges, memory and pid limits with
    `memswap_limit` equal to `mem_limit`, json-file logs with a size cap, a healthcheck, `restart: unless-stopped`,
    `init: true` (the start script's loop is reaped). The start script is the image's entry point: it writes what
@@ -284,7 +286,7 @@ The service stores only its log. `deploy/mirror/.env.example`: `MIRROR_ROOT` (th
 `logs`), `MIRROR_SUBNET` (with a default), `MIRROR_TRUSTED_ADDRESSES`, `MIRROR_CONTACT` (required), `MIRROR_MEMORY`.
 The limits' numbers are constants of the config in the repo, not settings; so is the log's size bound
 (`LOG_CAP_BYTES` in the start script, U45). The door's `publish/.env.example`: `MIRROR_ROOT`, `PUBLISH_KEYS`,
-`HUSARNET_JOIN_CODE` (required, a secret), `HUSARNET_HOSTNAME`, `HUSARNET_STATE` (required: the sidecar's state
+`HUSARNET_JOIN_CODE` (a secret, needed for the first join only), `HUSARNET_HOSTNAME`, `HUSARNET_STATE` (required: the sidecar's state
 folder, the device's private key and the daemon's API token, mode 0700 outside the copy of the folder; U68).
 
 ### Files and pairs
@@ -292,7 +294,8 @@ New: `deploy/mirror/Dockerfile`, `compose.yaml`, `compose.test.yaml`, `.env.exam
 start script, `swag/findaline-mirror.subdomain.conf`, `landing/index.html`, `robots.txt`, `README.md` (install on
 a server that runs plain docker compose, the attachment of SWAG to the project's network and how to make it
 lasting, the certificate step, the pinned image's update, the check commands, the publishing door), the door's
-`publish/` (Dockerfile, `sshd_config`, `gate.sh`, `compose.yaml`, `husarnet.sh`, `.env.example`; U32, U33, U68), the check script's
+`publish/` (Dockerfile, `sshd_config`, `gate.sh`, `compose.yaml`, `husarnet-sidecar.Dockerfile`, `husarnet.sh`,
+`.env.example`; U32, U33, U68, U75), the check script's
 `test/` files; `tests/test_mirror_deploy.py`;
 `tests/mirror_check.sh`; a CI job `mirror`. The site's `compose.yaml` services and `tests/test_deploy.py` are not
 touched. Pairs: the served patterns ↔ `grid_tile_name`, `res_name` and the publish tool's layout; the log's keys
@@ -840,7 +843,8 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
 1. The DNS record of `<host>`; the stack on the home server from A's README; SWAG attached to its network
    (`docker network connect findaline-mirror_mirror swag`, U42); the name added to SWAG's certificate in a
    maintenance stop (A's Risks); the publishing door (a Husarnet network of the PC and the door alone, the PC joined
-   first with Husarnet's Windows client; `HUSARNET_JOIN_CODE`, `HUSARNET_STATE`, `PUBLISH_KEYS`; `up --wait` waits for
+   first with Husarnet's Windows client; `HUSARNET_JOIN_CODE` (removable after the first join), `HUSARNET_STATE`,
+   `PUBLISH_KEYS`; `up --wait` waits for
    the sidecar joined and up; nothing published: `docker port` of both containers empty; the door's Husarnet address
    into the PC's rclone remote; one mount for `<root>`, U34, U68); `mirror_check.sh --live`
    with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
