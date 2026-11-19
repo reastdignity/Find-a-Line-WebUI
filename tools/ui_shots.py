@@ -97,6 +97,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
 # "need:<expression>" to wait until it is true and leave the page out when it is not (the run does not have it),
+# "sideways:<width>x<height>" to turn a phone (a touch screen; left out on a device without one) to that viewport and
+# load the page again (as a phone held sideways opens it; the steps after it wait for the page again),
 # or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
 # RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
@@ -468,6 +470,8 @@ PAGES = {
     "view3d-point": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("point"), "js:" + POINT_CLICK,
                                                     POINT_SHOWN]),
     "view3d-others": ("/view3d", VIEW3D + "&also={also}", [VIEW3D_READY, CARD_FOLDED, OTHERS_SHOWN]),
+    # a phone held sideways (844 x 390, touch: the phone level with the wide bar's words; phones only)
+    "view3d-sideways": ("/view3d", VIEW3D, [VIEW3D_READY, CARD_FOLDED, "sideways:844x390", VIEW3D_READY]),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
@@ -1211,6 +1215,14 @@ def run_step(page, step: str, label: str, state: Pass, row: dict, watch: Watch |
         if watch is not None:
             watch.after_wait(step)
         return None if came else "timeout"
+    if step.startswith("sideways:"):  # a phone held sideways: a touch screen's viewport turned, the page loaded again
+        if not page.evaluate("matchMedia('(pointer: coarse)').matches"):
+            row["reason"] = "the device has no touch screen"
+            return "missing"
+        width, height = (int(v) for v in step[9:].split("x"))
+        page.set_viewport_size({"width": width, "height": height})
+        page.reload()
+        return None
     if step.startswith("need:"):  # what the page shows, absent in this run: no page
         ready = wait_until(page, NEED_READY, state, label, row)  # the result drawn, then the expression once
         if not page.evaluate(f"!!({step[5:]})"):

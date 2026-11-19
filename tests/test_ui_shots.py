@@ -131,6 +131,14 @@ class FakePage:
         if any(part in url for part in self.interrupt):
             raise KeyboardInterrupt
 
+    def set_viewport_size(self, size):
+        self.calls.append(("viewport", size))
+
+    def reload(self):
+        self.calls.append(("reload",))
+        self.loaded = self.now()
+        self.fire()
+
     def wait_for_timeout(self, ms):
         self.calls.append(("sleep", ms))
         _take("sleep", ms / 1000)
@@ -293,6 +301,22 @@ def test_need_waits_for_the_result_then_tests_once(tmp_path):
     assert after == [("evaluate", "!!(document.querySelector('.u-shore-ctl:not([hidden])'))")]  # no wait, no sleep
     context = FakeContext(true={"leaflet-tile", ui_shots.NEED_READY, "u-shore-ctl"})
     assert _shoot(context, "c-result-shore-folded", tmp_path)["outcome"] == "saved"
+
+
+def test_sideways_turns_a_phone_and_loads_again(tmp_path):
+    """A "sideways:" step ("view3d-sideways", step 3c group B): on a touch screen the viewport turned to its size and
+    the page loaded again, then waited for as at its load; a device without a touch screen leaves the page out."""
+    ready = ui_shots.VIEW3D_READY[5:]
+    context = FakeContext(true={"leaflet-tile", ready, "pointer: coarse"})
+    row = _shoot(context, "view3d-sideways", tmp_path, device="iphone")
+    calls = context.pages[0].calls
+    assert row["outcome"] == "saved" and row["path"].endswith("view3d-sideways-iphone-light.png")
+    turned = calls.index(("viewport", {"width": 844, "height": 390}))
+    assert calls[turned + 1] == ("reload",) and ("wait", f"() => ({ready})", ui_shots.FIRST_DRAW_MS) in calls[turned:]
+    context = FakeContext(true={"leaflet-tile", ready})
+    row = _shoot(context, "view3d-sideways", tmp_path)
+    assert row["outcome"] == "left out" and row["reason"] == "the device has no touch screen" and not row["timeouts"]
+    assert not any(c[0] in ("viewport", "reload") for c in context.pages[0].calls)
 
 
 def _settled(page, quiet_ms=250, limit_ms=10000, family="home", frames=True, line=False):
