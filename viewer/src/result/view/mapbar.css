@@ -135,6 +135,8 @@
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > span,
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > div { display: flex; align-items: center; gap: 8px; }
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-separator { border-top-color: var(--rule); }
+/* the rows' own radio and checkbox in the accent (the browser's blue otherwise) */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { accent-color: var(--accent); }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */
 .ui .v-result .u-shore { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; }
 .ui .v-result .u-shore-chip { min-height: 32px; padding: 0 8px; gap: 4px; font-size: var(--fs-3); }
