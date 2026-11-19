@@ -37,6 +37,7 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
     </div>
     <div class="u-small">since {day(u.created, "?")} · last sign-in {at(u.last_login, "never")}
       {" · "}{u.sessions} {u.sessions === 1 ? "session" : "sessions"}</div>
+    {/* the buttons first, the checkbox last: on a touch screen it stands on a line of its own (c.css .c-check) */}
     {!u.admin && <div class="c-admin-tools">
       {u.status === "pending" && <Button kind="primary" onClick={() => status(u, "approved")}>Approve</Button>}
       {u.status === "blocked" && (asking === `${u.id} unblock`
@@ -49,10 +50,10 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
             <Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
         : <Button kind="danger" title="ends their sessions; their share links stop working"
                   onClick={() => setAsking(`${u.id} block`)}>Block…</Button>)}
-      <label class="c-check"><input type="checkbox" checked={u.unlimited}
-        onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />Without limits</label>
       {u.sessions > 0 && <Button kind="ghost" title="they have to sign in again"
         onClick={() => change(api.adminRevoke(u.id))}>End sessions</Button>}
+      <label class="c-check"><input type="checkbox" checked={u.unlimited}
+        onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />Without limits</label>
     </div>}
   </li>)}</ul>;
 }
