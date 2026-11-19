@@ -379,9 +379,10 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 ## Step 3c, group A (the first-timer's screens): controls left under R2, and what the probes found (2026-11-19)
 
 Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
-rules. One control stays under R2's 44 px on a touch screen (the place map's zoom and "Data coverage" and the
-receipt's parts in the phone's unfolded bar were two more until the user's picks of 2026-11-19: DESIGN.md "The
-pilot's look", choices 34 to 36):
+rules. On a phone one control stays under R2's 44 px (the place map's zoom and "Data coverage", the receipt's
+parts in the phone's unfolded bar and the drawing tools were more until the user's picks of 2026-11-19: DESIGN.md
+"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the
+coverage's own button (32 px) and the drawing tools (30 px):
 
 - **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
   itself needs no press.
@@ -392,16 +393,29 @@ starts about 40 px lower.
 
 With the place map's phone arrangement (choice 34): on a phone held sideways in the narrow frame (667 x 375, a
 128 px map) the opened layers' box ends 4 px above the credits and shows 90 px of its 143 px of rows (two rows;
-measured): it scrolls inside, and "Data coverage", its last row, is reached by that scroll. The drawing tools
-(Advanced, "Area") keep Leaflet-Geoman's own look and 30 px buttons (under R2's 44 px); on a phone they stand
-under the zoom at the top left (at the bottom right their column reached the layers' button: measured 30 x 25 px
-of overlap at 390 x 664). Measured there with real taps (2026-11-19): at 390 x 664 the last two tools lie over the
-scale and the credits (30 x 29.5 and 30 x 25 px), at 667 x 375 the last three are under the map's bottom edge; on
-main all five were above the map's top at both sizes and could not be pressed. While the tools are shown, a tap on
-the layers' button does not open its box on a phone (on main neither: the click lands on a row as the box opens
-and it closes again). On a tablet in the columns with a finger the coverage's own box keeps its 32 px button (the
-desktop's arrangement: the user picked on phone frames); a tap on that button while the layers' box is open closes
-the box and misses the button, which moves 56 px down as the box (rows of 44 px now) closes: the second tap takes.
+measured): it scrolls inside, and "Data coverage", its last row, is reached by that scroll; the list ends in the
+middle of a row (66 px), so that more is seen to be there. The drawing tools (Advanced, "Area") stand in one row
+beside the zoom on a phone, 44 px each (as Geoman's column under the zoom two lay over the scale and the credits
+at 390 x 664 and three under the map held sideways; on main all five were above the map's top); at 844 x 390 the
+row's last tool ends where the layers' button begins (0 px between them, no overlap), and on a map narrower than
+338 px the row wraps under the zoom. On a tablet in the columns with a finger the coverage's own box keeps its
+32 px button and the tools Geoman's 30 px column (the desktop's arrangement: the user picked on phone frames); a tap
+on the coverage button while the layers' box is open closes the box and misses the button, which moves 56 px down
+as the box (rows of 44 px now) closes: the second tap takes. An earlier note here, that the layers' box does not
+open while the tools are shown, was the test harness's doing (the emulated mouse left over the Advanced tab makes
+Leaflet close the box on a late mouseout; with taps only it opens, on main too: `3c-a/probes-r5`).
+
+The layers' box and the keyboard, Leaflet's own and the same on main (measured on both codes, 2026-11-19; for
+step 3d): Escape does not close the open box; Enter on the layers' button opens it and the focus falls to the
+page (the next Tab reaches the first row); on a touch screen a second tap where the button was lands on the row
+under it and can switch the base map (main: at every size; the branch: on a tablet); with the coverage on, its 83
+outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
+layers, zoom (their order in the corner).
+
+The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
+90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways. The error
+line of an empty "Area" says "the tools on the left of the map" (`error.need_drawing`): they are at the bottom
+right on a desktop (as on main) and in the top row on a phone; a text for the planner.
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the

@@ -178,7 +178,7 @@ run of more than `MAX_LINES` lines its box and count only, a failure the card's 
 `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
 and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales, list of the
 areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
-by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage*; `translator.ts`
+by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
 the `translator` of both catalogues (so coverage.js holds only its own); `ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
 
@@ -209,7 +209,7 @@ the status line holding the map's message; where the map is too low for that col
 the row; the legend two lines with
 a fold, unfolded by itself while the sheet is low and there is room, folded at half or higher; a person's fold or
 unfold holds until the sheet's next stop; "Legend" pressed without room lowers the sheet, and where even the low
-stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css`. Tests:
+stop has none opens the legend as a panel above the controls, as the access mark's key opens on a phone: `.v-over`), `view/Shape.tsx` the numbers' shapes for the legend and the rows, `mapbar.css` (also the look of Leaflet's own controls on the app's place map: its selectors name `.c-placemap` beside the view's map). Tests:
 `tests/test_view_units.py` (Node on a made-up run, the frame in headless Edge through `viewer/test/spotmap_page.ts`),
 `tests/test_shell_c_view_map.py` (Playwright on `clip_runs.view_clip`: the mock-up's checks ported).
 Its panels (`view.css`, classes `vl-*`; what stands in the slots is `view/SpotDetails.tsx` `SLOTS`):
