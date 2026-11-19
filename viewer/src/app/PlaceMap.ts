@@ -113,12 +113,15 @@ export class PlaceMap {
       this.onDrawn();
     });
     this.map.on("pm:remove", () => this.onDrawn());
-    // a press on the map that closes the opened layers' box sets no centre. Whether the box is open is read when the
-    // pointer goes down: Leaflet closes it before the click (on the pointer leaving the box, or on the map's click)
+    // a finger's tap on the map that closes the opened layers' box sets no centre (the user's pick: "closes on a tap
+    // on the map", on phone frames); a mouse's click sets the centre as ever, the box open or not. Whether the box is
+    // open is read when the pointer goes down: Leaflet closes it before the click (on the pointer leaving the box, or
+    // on the map's click)
     let closing = false;
     element.addEventListener("pointerdown", (e) => {
       const box = layersControl.getContainer();  // a press inside the box closes nothing
-      closing = !!box?.classList.contains("leaflet-control-layers-expanded") && !box.contains(e.target as Node);
+      closing = e.pointerType !== "mouse" && !!box?.classList.contains("leaflet-control-layers-expanded") &&
+        !box.contains(e.target as Node);
     }, true);
     this.map.on("click", (e: L.LeafletMouseEvent) => {
       if (closing) { closing = false; return; }
