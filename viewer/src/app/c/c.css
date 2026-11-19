@@ -198,9 +198,13 @@
 .ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .ui .c-admin-head b { overflow-wrap: anywhere; }
 .ui .c-admin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 4px; }
-.ui .c-admin-workers { margin: 10px 0 0; padding-left: 18px; }
+.ui .c-admin-workers { margin: 12px 0 0; padding-left: 16px; }
 .ui .c-admin-limits { margin: 8px 0 0; color: var(--ink-2); }
-.ui .c-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+/* a checkbox with its words ("Without limits", "Demo"): the whole row is its target (a press on the words ticks the
+   box), 24 px, 44 px on a touch screen (R2); a tools' row that no longer fits wraps */
+.ui .c-check { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-2); color: var(--ink-2);
+  cursor: pointer; }
+@media (pointer: coarse) { .ui .c-check { min-height: 44px; } }
 .ui .c-user-pending { background: var(--warn); }
 .ui .c-user-blocked { background: var(--bad); }
 .ui .c-user-approved { background: var(--ok); }
