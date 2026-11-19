@@ -404,8 +404,8 @@ of going back to Basic is cut on the left on a 390 px phone (5.6 px; 19.6 px on 
 where a control stands at the edge of a scrolling column (an input at the form's bottom edge after the focus's
 scroll, the map's credits' links by 2 px, the map itself on its right edge): step 3d's item on `scroll-margin`.
 The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
-are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt while the bar still had 12 px of
-padding: 145 px where main has 115; the padding is 8 px since (an estimate, not measured again: 137 px).
+are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
+and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
 
 Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
 (`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
