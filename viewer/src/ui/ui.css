@@ -108,9 +108,9 @@
   font: 600 var(--fs-1)/1 var(--font); cursor: help; }
 .ui .u-hint::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }  /* a larger target */
 /* a touch screen: a 44 px target (R2; the insets count from the 16 px inside the edge) that covers no other control
-   (probed 2026-11-19): 20 px of it above the "?" (a form's rows are 24 px apart there: search.css), 6 px under it
+   (probed 2026-11-19): 22 px of it above the "?" (a form's rows are 24 px apart there: search.css), 6 px under it
    (the field's box begins 8 px under the label), 20 px before it (the label's words) and 8 px after it */
-@media (pointer: coarse) { .ui .u-hint::after { inset: -20px -8px -6px -20px; border-radius: var(--r-2); } }
+@media (pointer: coarse) { .ui .u-hint::after { inset: -22px -8px -6px -20px; border-radius: var(--r-2); } }
 .ui .u-hint:hover, .ui .u-hint:focus-visible { color: var(--accent); border-color: var(--accent); }
 .ui .u-hint-tip { display: none; position: fixed; inset: auto; margin: 0; border: 0; overflow: visible;
   width: max-content; max-width: min(280px, calc(100vw - 32px)); padding: 8px 12px; border-radius: var(--r-2);
@@ -244,8 +244,8 @@
 /* The Leaflet controls of the maps under .ui, in both themes (the layers icon is a dark picture) */
 .ui .leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line); }
 .ui .leaflet-bar a:hover, .ui .leaflet-bar a:focus { background: var(--hover); }
-/* Leaflet's zoom on a touch screen stays its own 30 px on the place map (under R2's 44 px: docs/known-bugs.md, "The
-   place map's zoom on a phone"): at 44 px the map's controls do not fit a phone's 34vh map one above the other */
+/* Leaflet's zoom on a touch screen stays its own 30 px on the place map (under R2's 44 px: docs/known-bugs.md, "Step
+   3c, group A"): at 44 px the map's controls do not fit a phone's 34vh map one above the other */
 .ui .leaflet-bar a.leaflet-disabled { background: var(--surface); color: var(--muted); opacity: .6; }
 .ui .leaflet-bar, .ui .leaflet-control-layers { border-color: var(--line); box-shadow: var(--shadow); }
 .ui .leaflet-control-layers { background: var(--surface); color: var(--ink); }

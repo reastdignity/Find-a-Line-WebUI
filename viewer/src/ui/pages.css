@@ -63,6 +63,7 @@
 
 .ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 16px; padding-top: 12px; border-top: 1px solid var(--rule);
   color: var(--muted); font-size: var(--fs-2); }
-.ui .p-footer a { display: inline-flex; align-items: center; min-height: 24px; color: var(--ink-2); }
-.ui .p-brand a.u-logo { min-height: 24px; }
-@media (pointer: coarse) { .ui .p-footer a, .ui .p-brand a.u-logo { min-height: 44px; } }
+.ui .p-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; color: var(--ink-2); }
+/* the brand's link and the line's one link under the lead ("Where the data is detailed"): controls of their own */
+.ui .p-brand a.u-logo, .ui .p-brand p > a:only-child { display: inline-flex; align-items: center; min-height: 24px; }
+@media (pointer: coarse) { .ui .p-footer a, .ui .p-brand a.u-logo, .ui .p-brand p > a:only-child { min-height: 44px; min-width: 44px; } }

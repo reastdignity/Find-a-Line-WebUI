@@ -140,7 +140,7 @@
 .ui .s-rig-foot .s-left { margin-right: auto; }
 
 /* The bottom bar (both tabs): the size word, km², the source, the receipt, the start */
-.ui .s-bar { display: flex; align-items: center; gap: 8px 16px; min-height: 72px; padding: 12px 24px; background: var(--bg);
+.ui .s-bar { display: flex; align-items: center; gap: 8px 16px; min-height: 72px; padding: 8px 24px; background: var(--bg);
   border-top: 1px solid var(--rule); flex-wrap: wrap; }
 .ui .s-stat { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
 .ui .s-stat b { font: 600 var(--fs-4)/20px var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--value); }
