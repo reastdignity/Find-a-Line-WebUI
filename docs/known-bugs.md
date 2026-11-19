@@ -416,8 +416,8 @@ under it and can switch the base map (main: at every size; the branch: on a tabl
 outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
 layers, zoom (their order in the corner).
 
-The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
-90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways.
+The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
+ran wider than its box on a phone: fixed by group D (DESIGN.md choice 53).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
@@ -432,8 +432,26 @@ and 77.5 px with the usual one); on touch screens the bar is within 2 px of main
 Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
 (`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
 x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
-between a path's folders in Favourites, "Open map ›" on the sign-in page's example cards (`web.py`: outside the
-viewer).
+between a path's folders in Favourites ("Open map ›" on the sign-in page's example cards was one until group D:
+DESIGN.md choice 55).
+
+## Step 3c, group D (admin, privacy, about): known and left (2026-11-19)
+
+- **axe's `skip-link` on the admin page** (3 nodes, `.c-report-context > a`, on `c-admin` in every device and
+  theme; 0 on `c-admin-reports` and `c-admin-end`): a false finding. A problem report's run link is a hash route of
+  the app (`#run=<id>`, `AdminC.tsx` `runHash`), which axe's best-practice rule reads as a same-page link to an
+  element that does not exist. The same on the base before group D.
+- **"All searches" with content is not in `tools/ui_shots.py`**: the tool's site has no job (a job would show on
+  the administrator's Home too and change that page's pictures). Group D pictured it with a probe in a folder of its
+  own (`local/ux-design-2026-11-16/3c-d/probes/`, three finished searches; its rows hold only a status chip and
+  kit buttons). The probe also gave the pending user a session: four tools, which wrap to two rows on a 390 px and a
+  360 px phone, before group D's change as after it.
+- **The admin page's texts are English in the code** (`AdminC.tsx`, not in `locales/en.json`), its plurals made
+  there too; listed for the planner in `local/ux-design-2026-11-16/3c-d/admin-texts.md`. A problem report's context
+  line joins labelled values with " · " (`AdminC.tsx` line 89: the run, "page …", "interface …", "window …"): R9
+  allows "·" in a one-line meta line, never between values; left for the planner.
+- **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
+  accent); its row is the 44 px target (choice 50), the box itself is not restyled.
 
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
