@@ -127,6 +127,13 @@ COVERAGE_ROW = "js:document.querySelector('.c-map-phone .leaflet-control-layers-
 # arrangement (.c-map-phone, no such button) the layers' box opened, then its coverage row ticked
 COVERAGE_ON = ["js:(document.querySelector('.n-coverage-btn') || document.querySelector('.c-map-phone .leaflet-control-layers-toggle')).click()",
                COVERAGE_ROW]
+# The place map's drawing tools shown (Leaflet-Geoman's toolbar: Advanced, the place kind "Area"; a phone: one row
+# beside the zoom, mapbar.css): the tab and the kind each by a script's click (not Playwright's click, as ADVANCED is:
+# its pointer stays over the tab, and Leaflet closes an opened layers' box on that pointer's late "mouseout"), then
+# the five tools waited for
+AREA_TOOLS = ["js:document.querySelector('.s-tabs [data-tab=advanced]').click()",
+              "js:[...document.querySelectorAll('.s-where .u-seg [role=radio]')].find((b) => b.textContent.trim() === 'Area')?.click()",
+              "wait:document.querySelectorAll('.c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button').length === 5"]
 # The section "Anchors" of a result's More filters in view: its terrain line in the middle (the anchors'
 # heights and percentiles around it), else its heading at the top
 ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
@@ -379,6 +386,7 @@ PAGES = {
     # the data coverage on the place map, zoomed out (a phone: the layers' box open with the coverage's row ticked)
     "c-new-coverage": ("c", "#new", COVERAGE_ON + ["js:" + ZOOM_OUT]),
     "c-new-layers": ("c", "#new", PLACE_LAYERS),  # the place map's layers' box opened (every device)
+    "c-new-area": ("c", "#new", AREA_TOOLS),  # the place map's drawing tools (Advanced, "Area"; every device)
     # the OSM page's place map with its layers' box open and, on a phone, the coverage's row ticked (a desktop has no
     # such row, its coverage is a box of its own: the box shows the base layers only)
     "c-osm-layers": ("c", "#osm", [PLACE_LAYERS, COVERAGE_ROW]),

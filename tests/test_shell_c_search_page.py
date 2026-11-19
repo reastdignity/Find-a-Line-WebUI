@@ -2,7 +2,10 @@
 stubs (no event stream, the estimates answered here): the place map's two arrangements of its controls (step 3c, the
 user's pick A2 of 2026-11-19: viewer/src/app/PlaceMap.ts, coverageLayer.ts) and the phone's unfolded bar (the summary
 as plain words and one "Change settings": search/SearchPanel.tsx EstimateBar), and no control of the phone's page
-covering another. Every wait is an event with a deadline; a finger's taps keep test_shell_c_view_map's spacing (_tap)."""
+covering another; the coverage's choice across a page change, the map's listeners after it, the layers' box and
+the focus across a resize, the closing press by finger and by mouse, the drawing tools' row on a phone, the layers'
+list cut mid-row, one box width with the coverage ticked or not, and the layers' button's icon. Every wait is an
+event with a deadline; a finger's taps keep test_shell_c_view_map's spacing (_tap)."""
 
 import json
 import os
@@ -32,7 +35,10 @@ LONG_VALUES = {"min_height": 30, "min_high_share": 50, "max_wall_angle": 70, "mi
 
 # The place map's controls and the phone page's other controls, each by its own class: [name, its box as it shows
 # (clipped to what scrolls it: the layers' list, the form's column; left out when scrolled away), its whole box]; the
-# map's box, the layers' box, and the list's scrolling
+# map's box, the layers' box, and the list's scrolling. The link "Coverage map" stands beside the coverage's row's
+# label in the list (coverageLayer.ts dress()) and counts only while it shows: while the layer is off it keeps its
+# room hidden (coverageLayer.css: `visibility: hidden`, so the box has one width), which `shown` leaves out. The
+# drawing tools (Leaflet-Geoman's buttons; Advanced, the place kind "Area") count each by its title
 CONTROLS_JS = """() => {
   const rect = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const shown = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && !e.closest('[hidden]');
@@ -46,8 +52,9 @@ CONTROLS_JS = """() => {
   add('zoom out', map.querySelector('.leaflet-control-zoom-out'));
   add('layers button', map.querySelector('.leaflet-control-layers-toggle'));
   for (const label of list.querySelectorAll('label')) add('row ' + label.textContent.trim(), label, list);
-  add('coverage link', list.querySelector('.n-coverage-extra .n-coverage-link'), list);
+  add('coverage link', list.querySelector('.leaflet-control-layers-overlays .n-coverage-link'), list);
   add('coverage box', map.querySelector('.n-coverage'));
+  for (const a of map.querySelectorAll('.leaflet-pm-toolbar a.leaflet-buttons-control-button')) add('tool ' + (a.parentElement.title || a.className), a);
   add('scale', map.querySelector('.leaflet-control-scale'));
   add('credits', map.querySelector('.leaflet-control-attribution'));
   const form = $('.c-form');
@@ -116,7 +123,7 @@ def _overlaps(found: dict, known: set = frozenset()) -> list:
     return wrong
 
 
-MAP_CONTROLS = ("zoom", "layers", "row ", "coverage", "scale", "credits")
+MAP_CONTROLS = ("zoom", "layers", "row ", "coverage", "scale", "credits", "tool ")
 
 
 def _outside_map(found: dict) -> list:
@@ -136,9 +143,10 @@ def _named(found: dict, name: str):
     return next((whole for n, _, whole in found["controls"] if n == name), None)
 
 
-# The link to the coverage page stands at the end of the coverage's row (coverageLayer.css): the one pair allowed to
-# meet; ROW_JS checks that it leaves the row's checkbox and words free
-LINK_IN_ROW = frozenset({"coverage link", f"row {COVERAGE}"})
+# The link to the coverage page stands beside the coverage's row's label, not inside it (coverageLayer.css: the two in
+# a flex row, 8 px apart; measured 2026-11-19 at 390 x 664, 390 x 844, 667 x 375 and 844 x 390: the label ends 8 px
+# left of the link), so no pair of controls is allowed to meet; ROW_JS checks that it leaves the row's checkbox and
+# words free
 
 
 def test_place_map_on_a_phone(tmp_path):
@@ -197,6 +205,7 @@ def test_place_map_on_a_phone(tmp_path):
                     (True, "1", True, True, True, True), (size, on)
                 ticked = r[size, "ticked"] = page.evaluate(CONTROLS_JS)
                 assert ticked["expanded"], size  # the box stays open
+                assert _named(ticked, "coverage link"), (size, ticked)  # the link counts among the controls
                 assert not _overlaps(ticked) and not _outside_map(ticked), \
                     (size, _overlaps(ticked), _outside_map(ticked))
                 row = r[size, "row"] = page.evaluate(ROW_JS)  # the link's place: checked at the end (_link_at_row_end)
@@ -209,6 +218,7 @@ def test_place_map_on_a_phone(tmp_path):
                 assert page.evaluate("() => window.FINDALINE_SEARCH.point") == centre, size  # taps in the box
                 unticked = page.evaluate(CONTROLS_JS)
                 assert unticked["expanded"] and not _overlaps(unticked) and not _outside_map(unticked), (size, unticked)
+                assert not _named(unticked, "coverage link"), (size, unticked)  # hidden (its room kept): not shown
                 # a tap on the map, clear of its controls: the box closes and the centre stays; a second tap moves it there
                 m = unticked["map"]
                 x, y = m[0] + 120, (m[1] + m[3]) / 2
@@ -260,6 +270,7 @@ def test_place_map_on_a_phone(tmp_path):
                 page.wait_for_function(STATUS_EMPTY, timeout=WAIT)
                 ticked = r[size, "side ticked"] = page.evaluate(CONTROLS_JS)
                 assert ticked["box"][3] <= ticked["map"][3] + 0.5 and not _outside_map(ticked), (size, ticked)
+                assert _named(ticked, "coverage link"), (size, ticked)
                 r[size, "row"] = page.evaluate(ROW_JS)
                 r[size, "side overlaps"] = _overlaps(ticked)
                 assert page.errors == [], (size, page.errors)
@@ -495,3 +506,520 @@ def test_phone_search_controls_apart(tmp_path):
         finally:
             browser.close()
     print("phone 390 x 664, the search page's controls: " + json.dumps({" ".join(k): v["controls"] for k, v in seen.items()}))
+
+
+TABLET = {"viewport": {"width": 1024, "height": 768}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True}
+# Errors of the page's own listeners, kept by the page (a listener that throws reports to the window's "error")
+ERRORS_KEPT = "window.ERRORS = []; addEventListener('error', (e) => window.ERRORS.push(String(e.message).slice(0, 300)));"
+TWO_FRAMES = "() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))"
+# The live place map's arrangement (window.FINDALINE_PLACE, the map of the page shown): the phone's class, the corner
+# that holds the zoom and the one that holds the layers' button, the boxes of the map and the zoom-in, the coverage's
+# own box shown, and whether the map is in the document
+ARRANGED_JS = """() => { const m = window.FINDALINE_PLACE.map.getContainer(), rect = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const corner = (e) => { const c = e && e.closest('.leaflet-top, .leaflet-bottom'); return c ? c.className.replace(/\\s+/g, ' ').trim() : null; };
+  const zin = m.querySelector('.leaflet-control-zoom-in');
+  return {phone: m.classList.contains('c-map-phone'), connected: m.isConnected, zoom: corner(zin), layers: corner(m.querySelector('.leaflet-control-layers-toggle')),
+          map: rect(m), zin: rect(zin), box: !!m.querySelector('.n-coverage') && m.querySelector('.n-coverage').getClientRects().length > 0}; }"""
+# The layers' list: its box, its client height and scrolling, its rows (labels) by their words, and the link's box,
+# visibility and `hidden`
+LIST_JS = """() => { const rect = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const map = window.FINDALINE_PLACE.map.getContainer(), box = map.querySelector('.leaflet-control-layers'), list = box.querySelector('.leaflet-control-layers-list');
+  const link = list.querySelector('.leaflet-control-layers-overlays .n-coverage-link');
+  return {box: rect(box), map: rect(map), list: rect(list), height: list.scrollHeight, room: list.clientHeight, top: list.scrollTop,
+          expanded: box.classList.contains('leaflet-control-layers-expanded'), rows: [...list.querySelectorAll('label')].map((l) => [l.textContent.trim(), rect(l)]),
+          link: link ? {box: rect(link), visibility: getComputedStyle(link).visibility, hidden: link.hidden} : null}; }"""
+# A point of the map (viewport coordinates) as the map's latitude and longitude, and whether the map's own surface
+# (not a control) is there
+LATLNG_JS = """([x, y]) => { const map = window.FINDALINE_PLACE.map, b = map.getContainer().getBoundingClientRect(), at = map.containerPointToLatLng([x - b.left, y - b.top]);
+  const e = document.elementFromPoint(x, y); return {at: [at.lat, at.lng], free: !!e?.closest('.leaflet-container') && !e?.closest('.leaflet-control')}; }"""
+
+
+def _leave_and_return(page) -> str:
+    """To Home and back to the search page by the address (as the app's "Home" and "New search" go): the key while on
+    Home, read once the page's map is removed (Leaflet's "unload" of that map seen); back, it waits for the new
+    PlaceMap (window.FINDALINE_PLACE another object, its map in the document)."""
+    page.evaluate("() => { const before = window.PLACE_BEFORE = window.FINDALINE_PLACE; window.UNLOADED = false; "
+                  "before.map.on('unload', () => { window.UNLOADED = true; }); location.hash = '#home'; }")
+    page.wait_for_selector(".c-home", timeout=WAIT)
+    page.wait_for_function("() => window.UNLOADED", timeout=WAIT)
+    away = page.evaluate(f"() => localStorage.getItem('{KEY}')")
+    page.evaluate("() => { location.hash = '#new'; }")
+    page.wait_for_function("() => window.FINDALINE_PLACE && window.FINDALINE_PLACE !== window.PLACE_BEFORE && "
+                           "window.FINDALINE_PLACE.map.getContainer().isConnected", timeout=WAIT)
+    page.wait_for_selector(".c-placemap .leaflet-control-zoom-in", timeout=WAIT)
+    return away
+
+
+def test_coverage_kept_across_pages(tmp_path):
+    """The coverage's choice survives leaving the page (coverageLayer.ts: the map's own removal on leaving takes every
+    layer off, which no longer counts as switching it off). On a desktop (1400 x 900, the box's button) and a phone
+    (390 x 844, touch, the row in the layers' box): ticked, the key findaline.layer.coverage is "1" while on Home and
+    after the return, and the new PlaceMap shows the layer on (coverage.on, its group on the map; the desktop's button
+    pressed, the phone's row ticked); switched off, the key stays "0" the same way and the layer is off on return. A
+    reload keeps either (the desktop)."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+
+    def kept(device: str, state: str):
+        """Asserted at once (a later step would act on the wrong state): the key on Home, the layer after the return."""
+        want, on = ("1", True) if state == "on" else ("0", False)
+        away, back = r[f"{device} {state}", "away"], r[f"{device} {state}", "back"]
+        assert away == want, (device, state, "the key while on Home", away)
+        assert (back["key"], back["on"], back["onMap"]) == (want, on, on), (device, state, "back on the search page", back)
+        if device == "desktop":
+            assert back["button"] == str(on).lower(), (device, state, back)
+        else:
+            assert back["phone"] and back["row"] is on, (device, state, back)
+
+    def reloaded(state: str):
+        want, on = ("1", True) if state == "on" else ("0", False)
+        found = r[f"desktop {state}", "reloaded"]
+        assert (found["key"], found["on"], found["onMap"], found["button"]) == (want, on, on, str(on).lower()), (state, "reloaded", found)
+
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, port, DESKTOP)
+            page.click(".n-coverage-btn")
+            page.wait_for_function("() => window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            r["desktop on", "away"] = _leave_and_return(page)
+            r["desktop on", "back"] = page.evaluate(COVERAGE_JS, KEY)
+            kept("desktop", "on")
+            page.reload()
+            page.wait_for_selector(".c-placemap .n-coverage-btn", timeout=WAIT)
+            r["desktop on", "reloaded"] = page.evaluate(COVERAGE_JS, KEY)
+            reloaded("on")
+            page.click(".n-coverage-btn")
+            page.wait_for_function("() => !window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            r["desktop off", "away"] = _leave_and_return(page)
+            r["desktop off", "back"] = page.evaluate(COVERAGE_JS, KEY)
+            kept("desktop", "off")
+            page.reload()
+            page.wait_for_selector(".c-placemap .n-coverage-btn", timeout=WAIT)
+            r["desktop off", "reloaded"] = page.evaluate(COVERAGE_JS, KEY)
+            reloaded("off")
+            r["desktop errors"] = page.errors
+            page.context.close()
+            page = _page(browser, port, PHONE)
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            words = page.evaluate(ROW_JS)["words"]
+            _tap(page, (words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
+            page.wait_for_function("() => window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            r["phone on", "away"] = _leave_and_return(page)
+            r["phone on", "back"] = page.evaluate(COVERAGE_JS, KEY)
+            kept("phone", "on")
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            box = page.evaluate(ROW_JS)["input"]
+            _tap(page, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+            page.wait_for_function("() => !window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            r["phone off", "away"] = _leave_and_return(page)
+            r["phone off", "back"] = page.evaluate(COVERAGE_JS, KEY)
+            kept("phone", "off")
+            r["phone errors"] = page.errors
+        finally:
+            browser.close()
+            print("the coverage across pages: " + json.dumps({" ".join(k) if isinstance(k, tuple) else k: v for k, v in r.items()}))
+    assert r["desktop errors"] == r["phone errors"] == [], r
+
+
+def test_breakpoint_after_the_page_was_left(tmp_path):
+    """The window's media listener goes with the map (PlaceMap.ts: removed on the map's "unload"): the search page
+    entered, left to Home and entered again, the window made narrow and wide across 768 px both ways (1000 -> 600 ->
+    1000 and 600 -> 1000 -> 600, a mouse) raises no error in the page (Playwright's pageerror and the page's own
+    "error" events: the removed map's arrangement threw "Cannot read properties of undefined (reading 'bottomright')"),
+    and the live map is arranged right at each step: narrow, the phone's class with the zoom at the top left and the
+    layers' button at the top right and no coverage box; wide, the zoom and the layers' button at the bottom right
+    with the coverage's own box."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for start, other in ((1000, 600), (600, 1000)):
+                page = _page(browser, port, {"viewport": {"width": start, "height": 800}}, ERRORS_KEPT)
+                _leave_and_return(page)
+                steps = r[start] = []
+                for width in (other, start):
+                    page.set_viewport_size({"width": width, "height": 800})
+                    page.wait_for_function("(phone) => window.FINDALINE_PLACE.map.getContainer().classList.contains('c-map-phone') === phone",
+                                           arg=width < 768, timeout=WAIT)
+                    page.evaluate(TWO_FRAMES)
+                    steps.append((width, page.evaluate(ARRANGED_JS)))
+                r[start, "errors"] = page.errors + page.evaluate("() => window.ERRORS")
+                page.context.close()
+        finally:
+            browser.close()
+    print("the breakpoint after leaving: " + json.dumps({" ".join(map(str, k)) if isinstance(k, tuple) else str(k): v for k, v in r.items()}))
+    # the errors first: they are what the removed map's listener left
+    assert r[1000, "errors"] == [] and r[600, "errors"] == [], {"1000 -> 600 -> 1000": r[1000, "errors"], "600 -> 1000 -> 600": r[600, "errors"]}
+    for start in (1000, 600):
+        for width, found in r[start]:
+            m, z = found["map"], found["zin"]
+            assert found["connected"], (start, width, found)
+            if width < 768:
+                assert found["phone"] and found["zoom"] == "leaflet-top leaflet-left" and found["layers"] == "leaflet-top leaflet-right", (start, width, found)
+                assert z[0] - m[0] < 20 and z[1] - m[1] < 20 and not found["box"], (start, width, found)
+            else:
+                assert not found["phone"] and found["zoom"] == found["layers"] == "leaflet-bottom leaflet-right", (start, width, found)
+                assert m[2] - z[2] < 20 and z[3] > (m[1] + m[3]) / 2 and found["box"], (start, width, found)
+
+
+def test_box_and_focus_across_resizes(tmp_path):
+    """An open layers' box is fitted again when the map's size changes (PlaceMap.ts: expand() again on the map's
+    "resize"): opened at 390 x 844 (touch; its list does not scroll there) and turned to 667 x 375, the box ends above
+    the map's bottom edge, its list scrolls (scrollHeight over clientHeight), and scrolled to its end the last row
+    "Data coverage" lies whole inside the list, where a tap ticks it. With the keyboard's focus on the layers' button
+    at 1000 px wide (a mouse; the box not opened), narrowing to 600 px builds the control again at the top right and
+    the focus goes with it: document.activeElement is the new layers' button of the live map, not the body."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, port, PHONE)
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            r["opened"] = page.evaluate(LIST_JS)
+            page.set_viewport_size({"width": 667, "height": 375})
+            # Leaflet's "resize" comes with the map's new size (invalidateSize from the page's ResizeObserver)
+            page.wait_for_function("() => window.FINDALINE_PLACE.map.getSize().y < 200", timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["turned"] = page.evaluate(LIST_JS)
+            page.evaluate("() => { const l = window.FINDALINE_PLACE.map.getContainer().querySelector('.leaflet-control-layers-list'); l.scrollTop = l.scrollHeight; }")
+            r["scrolled"] = page.evaluate(LIST_JS)
+            opened, turned, scrolled = r["opened"], r["turned"], r["scrolled"]
+            assert opened["expanded"] and opened["height"] <= opened["room"] + 0.5, opened  # no scrolling before the turn
+            assert turned["expanded"] and turned["box"][3] <= turned["map"][3] + 0.5, ("the box past the map's edge", turned)
+            assert turned["height"] > turned["room"], ("the list does not scroll", turned)
+            name, row = scrolled["rows"][-1]
+            top = scrolled["list"][1]
+            assert name == COVERAGE and row[1] >= top - 0.5 and row[3] <= top + scrolled["room"] + 0.5, ("the last row out of reach", scrolled)
+            words = page.evaluate(ROW_JS)["words"]
+            _tap(page, (words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
+            page.wait_for_function("() => window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            r["phone errors"] = page.errors
+            page.context.close()
+            page = _page(browser, port, {"viewport": {"width": 1000, "height": 800}})
+            page.focus(".c-placemap .leaflet-control-layers-toggle")
+            r["focused"] = page.evaluate("() => [document.activeElement.className, document.querySelector('.c-placemap .leaflet-control-layers').className]")
+            page.set_viewport_size({"width": 600, "height": 800})
+            page.wait_for_selector(".c-placemap.c-map-phone", timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["narrow"] = page.evaluate("""() => { const a = document.activeElement, m = window.FINDALINE_PLACE.map.getContainer();
+              return {active: a ? a.tagName + '.' + a.className : null, button: a === m.querySelector('.leaflet-top.leaflet-right .leaflet-control-layers-toggle'),
+                      connected: !!a && a.isConnected}; }""")
+            r["desktop errors"] = page.errors
+        finally:
+            browser.close()
+    print("the box and the focus across resizes: " + json.dumps(r))
+    assert r["focused"][0] == "leaflet-control-layers-toggle" and "expanded" not in r["focused"][1], r["focused"]
+    assert r["narrow"]["button"] and r["narrow"]["connected"], ("the focus left the layers' button", r["narrow"])
+    assert r["phone errors"] == r["desktop errors"] == [], r
+
+
+def test_closing_press_on_a_tablet_and_with_a_mouse(tmp_path):
+    """The closing press (PlaceMap.ts, the "pointerdown" guard): on a touch tablet (1024 x 768, the desktop's
+    arrangement: the controls at the bottom right) a tap on the map that closes the opened layers' box sets no centre
+    and the next tap sets it at the tapped point (the phone's case: test_place_map_on_a_phone). With a mouse (1400 x
+    900, no touch) the box opened by the keyboard (the layers' button focused, Enter), a click on the map clear of the
+    controls sets the centre at the clicked point and the box closes; a click with the box closed sets it too."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    point = "() => window.FINDALINE_SEARCH.point"
+    near = lambda a, b: abs(a[0] - b[0]) < 1e-4 and abs(a[1] - b[1]) < 1e-4  # noqa: E731
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, port, TABLET)
+            page.evaluate(POINT_JS)
+            _ready(page)
+            centre = page.evaluate(point)
+            r["tablet phone"] = page.evaluate(ARRANGED_JS)["phone"]
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            m = page.evaluate(ARRANGED_JS)["map"]
+            x, y = m[0] + 120, (m[1] + m[3]) / 2
+            r["tablet at"] = page.evaluate(LATLNG_JS, [x, y])
+            _tap(page, x, y)
+            page.wait_for_selector(".leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            r["tablet closed"] = page.evaluate(point)
+            _tap(page, x, y)
+            page.wait_for_function("(c) => String(window.FINDALINE_SEARCH.point) !== String(c)", arg=centre, timeout=WAIT)
+            r["tablet moved"] = page.evaluate(point)
+            r["tablet centre"] = centre
+            r["tablet errors"] = page.errors
+            page.context.close()
+            page = _page(browser, port, DESKTOP)
+            page.evaluate(POINT_JS)
+            _ready(page)
+            centre = r["mouse centre"] = page.evaluate(point)
+            page.focus(".c-placemap .leaflet-control-layers-toggle")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            m = page.evaluate(ARRANGED_JS)["map"]
+            x, y = (m[0] + m[2]) / 2 - 100, (m[1] + m[3]) / 2
+            r["mouse at"] = page.evaluate(LATLNG_JS, [x, y])
+            page.mouse.click(x, y)
+            page.wait_for_selector(".leaflet-control-layers-expanded", state="detached", timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["mouse open click"] = page.evaluate(point)
+            x2, y2 = x - 150, y + 80
+            r["mouse at 2"] = page.evaluate(LATLNG_JS, [x2, y2])
+            page.mouse.click(x2, y2)
+            page.wait_for_function("(c) => String(window.FINDALINE_SEARCH.point) !== String(c)", arg=r["mouse open click"], timeout=WAIT)
+            r["mouse closed click"] = page.evaluate(point)
+            r["mouse errors"] = page.errors
+        finally:
+            browser.close()
+    print("the closing press: " + json.dumps(r))
+    assert r["tablet phone"] is False and r["tablet at"]["free"], r
+    assert r["tablet closed"] == r["tablet centre"], ("the closing tap set a centre", r)
+    assert r["tablet moved"] != r["tablet centre"] and near(r["tablet moved"], r["tablet at"]["at"]), r
+    assert r["mouse at"]["free"] and r["mouse at 2"]["free"], r
+    assert r["mouse open click"] != r["mouse centre"] and near(r["mouse open click"], r["mouse at"]["at"]), \
+        ("a mouse's click with the box open set no centre", r)
+    assert near(r["mouse closed click"], r["mouse at 2"]["at"]), r
+    assert r["tablet errors"] == r["mouse errors"] == [], r
+
+
+# Advanced and the place kind "Area" by a script's click each (not Playwright's click: its pointer stays over the tab,
+# and Leaflet closes an opened layers' box on that pointer's late "mouseout"; a finger's taps go through _tap)
+AREA_JS = """() => { document.querySelector('.s-tabs [data-tab=advanced]').click();
+  [...document.querySelectorAll('.s-where .u-seg [role=radio]')].find((b) => b.textContent.trim() === 'Area').click(); }"""
+TOOLS = "() => document.querySelectorAll('.c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button').length === 5"
+# The drawing tools: [title, box, the map corner holding it]
+TOOLS_JS = """() => [...document.querySelectorAll('.c-placemap .leaflet-pm-toolbar a.leaflet-buttons-control-button')].filter((a) => a.getClientRects().length)
+  .map((a) => { const r = a.getBoundingClientRect(), c = a.closest('.leaflet-top, .leaflet-bottom');
+    return [a.parentElement.title, [r.left, r.top, r.right, r.bottom], c ? c.className.replace(/\\s+/g, ' ').trim() : null]; })"""
+# The visible "Cancel" of a drawing tool on (Geoman's actions): its box
+CANCEL_JS = """() => { const a = [...document.querySelectorAll('.c-placemap .leaflet-pm-actions-container .action-cancel')].find((e) => e.getClientRects().length && e.offsetParent);
+  if (!a) return null; const r = a.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }"""
+DRAWING = "() => window.FINDALINE_PLACE.map.pm.globalDrawModeEnabled()"
+
+
+def test_drawing_tools_on_a_phone(tmp_path):
+    """The drawing tools (Advanced, the place kind "Area": Leaflet-Geoman's five buttons, mapbar.css) in the phone's
+    arrangement, at 390 x 664, 390 x 844, 667 x 375, 844 x 390 and 932 x 430 (touch): each at least 44 x 44 px, in one
+    row right of the zoom (left to right, the first right of the zoom-out, every tool at the zoom's top: measured
+    2026-11-19 at all five sizes, the tools 104-332 px right of the map's left edge, the zoom 8-96; the layers' button
+    6 px right of the last tool at 390 px wide, 0 px (touching) at 844 x 390 and 88 px at 932 x 430, the map 384 and
+    472 px wide there), no tool over another control of the map (the zoom's two, the layers' button, the scale, the
+    credits) and none outside the map; a tap on the rectangle tool starts its drawing (Geoman's globalDrawModeEnabled),
+    a tap on its "Cancel" ends it, and a tap on the layers' button still opens the box (open two frames later too). On
+    a desktop (1400 x 900, a mouse) the tools keep Geoman's column at the bottom right: one left edge, one under
+    another, each under 44 px wide."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    sizes = {"390x664": SMALL_PHONE, "390x844": PHONE, "667x375": SIDE_PHONE, "844x390": WIDE_SIDE_PHONE,
+             "932x430": {"viewport": {"width": 932, "height": 430}, **TOUCH}}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for size, context in sizes.items():
+                page = _page(browser, port, context)
+                page.evaluate(AREA_JS)
+                page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'advanced'", timeout=WAIT)
+                page.wait_for_function(TOOLS, timeout=WAIT)
+                page.evaluate(TWO_FRAMES)
+                found = r[size] = page.evaluate(CONTROLS_JS)
+                tools = r[size, "tools"] = page.evaluate(TOOLS_JS)
+                rect = tools[0][1]
+                _tap(page, (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2)
+                page.wait_for_function(DRAWING, timeout=WAIT)
+                r[size, "drawing"] = page.evaluate(DRAWING)
+                cancel = r[size, "cancel"] = page.evaluate(CANCEL_JS)
+                if cancel:
+                    _tap(page, (cancel[0] + cancel[2]) / 2, (cancel[1] + cancel[3]) / 2)
+                    page.wait_for_function("() => !window.FINDALINE_PLACE.map.pm.globalDrawModeEnabled()", timeout=WAIT)
+                    r[size, "cancelled"] = True
+                _tap_on(page, ".leaflet-control-layers-toggle")
+                page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+                page.evaluate(TWO_FRAMES)
+                r[size, "box open"] = page.evaluate(CONTROLS_JS)["expanded"]
+                r[size, "errors"] = page.errors
+                assert found["phone"] and not _overlaps(found) and not _outside_map(found), (size, _overlaps(found), _outside_map(found))
+                page.context.close()
+            page = _page(browser, port, DESKTOP)
+            page.evaluate(AREA_JS)
+            page.wait_for_function(TOOLS, timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["desktop"] = page.evaluate(TOOLS_JS)
+            r["desktop errors"] = page.errors
+        finally:
+            browser.close()
+    print("the drawing tools: " + json.dumps({" ".join(k) if isinstance(k, tuple) else k: v for k, v in r.items()}))
+    for size in sizes:
+        found, tools = r[size], r[size, "tools"]
+        assert [t[0] for t in tools] == ["Draw Rectangle", "Draw Polygons", "Edit Layers", "Drag Layers", "Remove Layers"], (size, tools)
+        assert sorted(name for name, _, _ in found["controls"] if name.startswith("tool ")) == sorted("tool " + t[0] for t in tools), (size, found)
+        small = [(name, box) for name, box, _ in tools if box[2] - box[0] < 43.5 or box[3] - box[1] < 43.5]
+        assert not small, (size, "tools under 44 px", small)
+        zin, zout = _named(found, "zoom in"), _named(found, "zoom out")
+        row = [box for _, box, _ in tools]
+        assert all(abs(box[1] - zin[1]) < 0.5 for box in row), (size, "not at the zoom's top", zin, row)
+        assert row[0][0] >= zout[2] - 0.5 and all(b[0] >= a[2] - 0.5 for a, b in zip(row, row[1:])), (size, "not one row right of the zoom", zout, row)
+        assert {corner for _, _, corner in tools} == {"leaflet-top leaflet-left"}, (size, tools)
+        assert r[size, "drawing"] is True and r[size, "cancel"] and r[size, "cancelled"], (size, r[size, "cancel"])
+        assert r[size, "box open"] is True, (size, "the layers' box did not stay open")
+        assert r[size, "errors"] == [], (size, r[size, "errors"])
+    desktop = r["desktop"]
+    assert len(desktop) == 5 and {corner for _, _, corner in desktop} == {"leaflet-bottom leaflet-right"}, desktop
+    boxes = sorted((box for _, box, _ in desktop), key=lambda b: b[1])
+    assert all(abs(b[0] - boxes[0][0]) < 0.5 and b[2] - b[0] < 44 for b in boxes), ("not Geoman's column", desktop)
+    assert all(b[1] >= a[3] - 0.5 for a, b in zip(boxes, boxes[1:])), ("not one under another", desktop)
+    assert r["desktop errors"] == [], r
+
+
+def test_scrolling_list_ends_mid_row(tmp_path):
+    """The layers' list that scrolls ends in the middle of a row (PlaceMap.ts Layers.expand: the cut row says there is
+    more): opened at 667 x 375 (touch) its client height ends inside a row's box, at least 10 px from both of that
+    row's edges (measured 2026-11-19: a list of 66 px, a row and a half of 44 px rows, its edge 22 px into
+    "OpenStreetMap"); at 390 x 844 the list does not scroll."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for size, context in (("667x375", SIDE_PHONE), ("390x844", PHONE)):
+                page = _page(browser, port, context)
+                _tap_on(page, ".leaflet-control-layers-toggle")
+                page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+                page.evaluate(TWO_FRAMES)
+                r[size] = page.evaluate(LIST_JS)
+                r[size, "errors"] = page.errors
+                page.context.close()
+        finally:
+            browser.close()
+    print("the scrolling list: " + json.dumps({" ".join(k) if isinstance(k, tuple) else k: v for k, v in r.items()}))
+    side = r["667x375"]
+    assert side["height"] > side["room"] and side["top"] == 0, side
+    edge = side["list"][1] + side["room"]  # the list's bottom edge as it shows (scrolled to its top)
+    cut = [(name, box) for name, box in side["rows"] if box[1] + 10 <= edge <= box[3] - 10]
+    assert len(cut) == 1, ("the list ends between rows, or near a row's edge", edge, side["rows"])
+    assert r["390x844"]["height"] <= r["390x844"]["room"] + 0.5, r["390x844"]
+    assert r["667x375", "errors"] == r["390x844", "errors"] == [], r
+
+
+def test_change_settings_from_a_scrolled_form(tmp_path):
+    """"Change settings" opens Advanced at its top (search/SearchPanel.tsx EstimateBar: the form's column scrolled to
+    0 after the switch): on a phone (390 x 664, touch), the form's column (.c-form) scrolled 400 px down, the bar
+    unfolded, a tap on "Change settings" selects the Advanced tab, folds the bar and leaves the form's scrollTop at 0."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, port, SMALL_PHONE)
+            page.evaluate(POINT_JS)
+            _ready(page)
+            r["scrolled"] = page.evaluate("() => { const f = document.querySelector('.c-form'); f.scrollTop = 400; return [f.scrollTop, f.scrollHeight, f.clientHeight]; }")
+            _tap_on(page, ".s-sum")
+            page.wait_for_function("() => document.querySelector('.s-bar.s-open')", timeout=WAIT)
+            r["unfolded"] = page.evaluate("() => document.querySelector('.c-form').scrollTop")
+            _tap_on(page, ".s-change")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'advanced'", timeout=WAIT)
+            page.wait_for_function("() => !document.querySelector('.s-bar.s-open')", timeout=WAIT)
+            page.wait_for_function("() => document.querySelector('.c-form').scrollTop === 0", timeout=WAIT)
+            r["after"] = page.evaluate(RECEIPT_JS)
+            r["top"] = page.evaluate("() => document.querySelector('.c-form').scrollTop")
+            r["errors"] = page.errors
+        finally:
+            browser.close()
+    print("change settings from a scrolled form: " + json.dumps(r))
+    assert r["scrolled"][0] == 400 and r["unfolded"] == 400, r  # the form scrolled down before the tap
+    assert r["after"]["tab"] == "advanced" and not r["after"]["open"] and r["top"] == 0, r
+    assert r["errors"] == [], r
+
+
+def test_box_width_and_hidden_link(tmp_path):
+    """The layers' box keeps one width (coverageLayer.css: the link's room kept while it is hidden): at 390 x 664
+    (touch) the opened box's width is the same before ticking "Data coverage", ticked and unticked again (within
+    0.5 px; measured 2026-11-19: 221.84 px). While off the link is not visible (visibility: hidden) and not reached by
+    the keyboard (Tab from the row's checkbox goes elsewhere); ticked it is visible, at the row's end (_link_at_row_end;
+    its right edge at the base rows' right edge) and Tab from the checkbox lands on it."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    tab = """() => { const label = [...document.querySelectorAll('.leaflet-control-layers-overlays label')].find((l) => l.textContent.trim() === %s);
+      label.querySelector('input').focus(); }""" % json.dumps(COVERAGE)
+    on_link = "() => !!document.activeElement?.classList.contains('n-coverage-link')"
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, port, SMALL_PHONE)
+            _tap_on(page, ".leaflet-control-layers-toggle")
+            page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
+            r["before"] = page.evaluate(LIST_JS)
+            page.evaluate(tab)
+            page.keyboard.press("Tab")
+            r["tab off"] = page.evaluate(on_link)
+            words = page.evaluate(ROW_JS)["words"]
+            _tap(page, (words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
+            page.wait_for_function("() => window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["ticked"] = page.evaluate(LIST_JS)
+            r["row"] = page.evaluate(ROW_JS)
+            page.evaluate(tab)
+            page.keyboard.press("Tab")
+            r["tab on"] = page.evaluate(on_link)
+            box = page.evaluate(ROW_JS)["input"]
+            _tap(page, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+            page.wait_for_function("() => !window.FINDALINE_PLACE.coverage.on", timeout=WAIT)
+            page.evaluate(TWO_FRAMES)
+            r["unticked"] = page.evaluate(LIST_JS)
+            r["errors"] = page.errors
+        finally:
+            browser.close()
+    print("the box's width and the link: " + json.dumps(r))
+    widths = [r[k]["box"][2] - r[k]["box"][0] for k in ("before", "ticked", "unticked")]
+    assert all(r[k]["expanded"] for k in ("before", "ticked", "unticked")), r
+    assert max(widths) - min(widths) <= 0.5, ("the box's width changes", widths)
+    for k in ("before", "unticked"):
+        assert r[k]["link"]["visibility"] == "hidden" and r[k]["link"]["hidden"], (k, r[k]["link"])
+    assert r["tab off"] is False, "Tab from the checkbox reached the hidden link"
+    ticked = r["ticked"]
+    assert ticked["link"]["visibility"] == "visible" and not ticked["link"]["hidden"], ticked["link"]
+    assert _link_at_row_end(r["row"]) and abs(ticked["link"]["box"][2] - ticked["rows"][0][1][2]) <= 0.5, (r["row"], ticked)
+    assert r["tab on"] is True, "Tab from the checkbox did not reach the shown link"
+    assert r["errors"] == [], r
+
+
+def test_layers_button_icon(tmp_path):
+    """The place map's layers' button holds the kit's "layers" icon (PlaceMap.ts Layers._initLayout: an svg.u-ic,
+    drawn 18 x 18 px) and no background picture (mapbar.css: background-image none, no filter), in the light and the
+    dark theme (the emulated colour scheme; the map's computed color-scheme follows it), on a phone (390 x 664, touch)
+    and a desktop (1400 x 900)."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for scheme in ("light", "dark"):
+                for device, context in (("phone", SMALL_PHONE), ("desktop", DESKTOP)):
+                    page = _page(browser, port, {**context, "color_scheme": scheme})
+                    r[scheme, device] = page.evaluate("""() => { const a = document.querySelector('.c-placemap .leaflet-control-layers-toggle'), s = getComputedStyle(a);
+                      const svg = a.querySelector('svg.u-ic'), b = svg && svg.getBoundingClientRect();
+                      return {background: s.backgroundImage, filter: s.filter, svg: !!svg, size: b ? [b.width, b.height] : null,
+                              scheme: getComputedStyle(document.querySelector('.c-placemap')).colorScheme}; }""")
+                    r[scheme, device, "errors"] = page.errors
+                    page.context.close()
+        finally:
+            browser.close()
+    print("the layers' button: " + json.dumps({" ".join(k): v for k, v in r.items()}))
+    for scheme in ("light", "dark"):
+        for device in ("phone", "desktop"):
+            found = r[scheme, device]
+            assert found["scheme"] == scheme, (scheme, device, found)  # the theme asked for is the one drawn
+            assert found["svg"] and found["size"][0] > 0 and found["size"][1] > 0, (scheme, device, found)
+            assert found["background"] == "none" and found["filter"] == "none", (scheme, device, found)
+            assert r[scheme, device, "errors"] == [], (scheme, device)
