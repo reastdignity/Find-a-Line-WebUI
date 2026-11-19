@@ -479,13 +479,15 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
   scrolls inside (181 of 244 px shown at 844 x 390, 166 of 244 px at 667 x 375; the mock-up's extra option A2 was
   not picked); the list of "Lines from a point" (the full level asked for on a phone) keeps its least height of
   80 px, so with the card open it lies over the credits' box by 20 px at 390 x 664 (the card is 37 px higher beside
-  the strip) and over the card by 72 px held sideways, where it lay before too; on a touch screen 601 to about
-  615 px wide and at most 480 px high the row wraps in the athlete's views with four kinds of imagery (the bar a row
-  higher there than in the orbit); a strip with its labels (a touch tablet or a short window at `?level=full`) still
-  lies over a card that reaches it (1024 x 600: four tools over the card); the open "About this view" box lies over
-  its own button and "Data credits" until closed. In `ui_metrics`' "view3d-point" on the Pixel one fan dot's target
-  counts 41.4 x 44 px (44 x 44 before): the stage is 62 px higher without the notes, the scene is drawn larger, and
-  the list of lines now covers 2.6 px of that dot's target ("Dots under the list" below).
+  the strip) and over the card by 72 px held sideways, where it lay before too; on a touch screen 601 to under
+  620 px wide and at most 480 px high the row wraps in the athlete's views (measured at 610 x 360: the bar 144 px
+  there, 100 px in the orbit; one row of 80.5 px at 620 and 640 px); a strip with its labels (a touch tablet or a short window at `?level=full`) still
+  lies over a card that reaches it (1024 x 600: four tools over the card,
+  `local/ux-design-2026-11-16/3c-b/layout/probe2/T1024-full-card.png`); the open "About this view" box lies over
+  its own button and "Data credits" until closed. A fan dot near the stage's edge keeps its whole
+  44 px target (`screen.ts` `targetInside`: on the Pixel of `ui_shots` the 312 m line's dot moved from 38 to 19 px
+  off the right edge as the stage grew by 82 px, and the screen cut its target to 41.4 px); the labels of other
+  lines and the anchors' handles at an edge are still cut by it.
 - **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
   3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
   pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
