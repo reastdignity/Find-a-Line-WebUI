@@ -379,24 +379,23 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 ## Step 3c, group A (the first-timer's screens): controls left under R2, and what the probes found (2026-11-19)
 
 Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
-rules. These controls stay under R2's 44 px on a touch screen, each for a reason; the first two are layout
-questions for the user (a change of place is not built without a mock-up):
+rules. One control stays under R2's 44 px on a touch screen (the place map's zoom and "Data coverage" and the
+receipt's parts in the phone's unfolded bar were two more until the user's picks of 2026-11-19: DESIGN.md "The
+pilot's look", choices 34 to 36):
 
-- **The place map's own controls on a phone** (the search page, the OSM page): Leaflet's zoom (30 x 30 px), the
-  "Data coverage" button (32 px high) and its "Coverage map" link (24 px). The map is 34 % of the screen's height
-  (226 px on a 390 x 664 phone): with the zoom at 44 px the three boxes one above the other no longer fit and the
-  coverage button is pushed out at the top (tried: `local/ux-design-2026-11-16/3c-a/q-zoom-44-iphone.png`). On a phone
-  held sideways (667 x 375) the coverage button is outside the map and the layers button is cut by 16 px on main too
-  (measured on both codes: 61 and 60 px out). Options: the zoom's + and - side by side, as the result view's phone;
-  the coverage button folded into the layers' box; a taller map.
-- **The receipt's parts in the phone's unfolded bar** ("30-300 m", "My rig: ...": 20 px lines): each opens its
-  setting in Advanced. At 44 px each they need a row a part (the bar would cover most of a phone's form).
 - **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
   itself needs no press.
 
 Outside group A, by the kit's sizes and accepted (that page is being replaced by the new result view): on today's
 result page on a phone the filter chips are 44 px high and "More filters" stands on a row of its own, so the list
 starts about 40 px lower.
+
+With the place map's phone arrangement (choice 34): on a phone held sideways in the narrow frame (667 x 375, a
+128 px map) the opened layers' box shows 104 px of its 143 px of rows and scrolls inside; "Data coverage", its last
+row, is reached by that scroll. The drawing tools (Advanced, "Area") keep Leaflet-Geoman's own look and 30 px
+buttons at the map's bottom right (no `ui_shots` state shows them on a phone; not measured). On a tablet in the
+columns with a finger the coverage's own box keeps its 32 px button (the desktop's arrangement: the user picked on
+phone frames).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
