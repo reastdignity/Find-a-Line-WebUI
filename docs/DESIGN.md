@@ -1,18 +1,20 @@
 ---
 version: alpha
-name: Find-a-Line, the interface as built (main 2f019d6; the accent family of the pilot, 2026-11-18)
+name: Find-a-Line, the interface as built (main 2f019d6; the accent family of the pilot, 2026-11-18; the pilot's neutrals and the kit's sizes of step 3c, 2026-11-19)
 description: >-
   Today's tokens of viewer/src/ui/tokens.css and the kit of viewer/src/ui/ui.css, as the code has them, not a
   target. The rules the user picked on 2026-11-17 are in the last section. A "-dark" name is the dark theme's value of the
   token without it; a token the dark theme does not redefine keeps its light value.
 colors:
-  bg: "#f3f5f2"
+  bg: "#f2f5f5"
   surface: "#ffffff"
-  surface-2: "#e9eee9"
-  ink: "#17201c"
-  ink-2: "#45524b"
-  muted: "#6c7a73"
-  line: "#d2dad4"
+  surface-2: "#e5ebeb"
+  hover: "#e8eeee"
+  ink: "#16262a"
+  ink-2: "#3c4e52"
+  muted: "#56686c"
+  rule: "#d3dcdc"
+  line: "#b3c1c2"
   accent: "#14676f"
   accent-ink: "#0f5a61"
   accent-map: "#14676f"
@@ -53,13 +55,15 @@ colors:
   acc-map-hard: "#2f3a45"
   acc-map-tell-sign: "#2b1a00"
   acc-map-edge: "#4d4538"
-  bg-dark: "#0e1311"
-  surface-dark: "#161c19"
-  surface-2-dark: "#1f2723"
-  ink-dark: "#e5ebe7"
-  ink-2-dark: "#b1bcb6"
-  muted-dark: "#85928b"
-  line-dark: "#2c3631"
+  bg-dark: "#121a1b"
+  surface-dark: "#1a2425"
+  surface-2-dark: "#222d2e"
+  hover-dark: "#1e2829"
+  ink-dark: "#e2ebeb"
+  ink-2-dark: "#b2c0c1"
+  muted-dark: "#8fa1a2"
+  rule-dark: "#2a3738"
+  line-dark: "#4a5c5d"
   accent-dark: "#62c3cc"
   accent-ink-dark: "#7fd0d8"
   accent-map-dark: "#14676f"
@@ -78,7 +82,7 @@ colors:
   clear-dark: "#ff4cf4"
   trees-dark: "#ff9f30"
   fav-dark: "#ffd84a"
-  halo-dark: "#0e1311"
+  halo-dark: "#121a1b"
   terrain-dark: "#6e5f44"
   tree-fill-dark: "#3f6b36"
   limit-dark: "#ff6b6b"
@@ -118,56 +122,55 @@ typography:
     fontWeight: 600
   small:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 12.5px
+    fontSize: 13px
   button:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     fontSize: 14px
     fontWeight: 500
   button-large:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 15.5px
+    fontSize: 16px
     fontWeight: 500
   chip:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     fontSize: 13px
   segmented:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 13.5px
+    fontSize: 14px
     fontWeight: 500
   input-coarse:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     fontSize: 16px
   field-value:
-    fontFamily: 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace'
+    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     fontSize: 13px
     fontWeight: 500
   badge:
-    fontFamily: 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace'
-    fontSize: 11px
+    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    fontSize: 12px
     fontWeight: 500
     lineHeight: 1
   status:
-    fontFamily: 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace'
-    fontSize: 11.5px
+    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    fontSize: 12px
     fontWeight: 500
-    lineHeight: 1.2
-    letterSpacing: 0.03em
+    lineHeight: 16px
   stat-value:
     fontFamily: '"Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif'
-    fontSize: 22px
+    fontSize: 24px
     fontWeight: 600
-    lineHeight: 1.1
+    lineHeight: 28px
     fontFeature: '"tnum"'
   stat-label:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 11.5px
+    fontSize: 12px
   nav-item:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 11.5px
+    fontSize: 12px
     fontWeight: 500
   hint-mark:
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    fontSize: 11.5px
+    fontSize: 12px
     fontWeight: 600
     lineHeight: 1
   hint-bubble:
@@ -178,9 +181,9 @@ typography:
 rounded:
   shore-note: 6px
   control: 8px
-  control-large: 10px
-  segmented: 10px
-  stat: 10px
+  control-large: 8px
+  segmented: 8px
+  stat: 8px
   split-tab: 11px
   panel: 14px
   sheet: 20px
@@ -188,12 +191,12 @@ rounded:
 spacing:
   touch: 36px
   touch-coarse: 44px
-  chip-gap: 6px
+  chip-gap: 8px
   row-gap: 8px
   column-gap: 12px
-  panel-padding-y: 14px
+  panel-padding-y: 16px
   panel-padding-x: 16px
-  button-padding-x: 14px
+  button-padding-x: 12px
   sheet-padding: 16px
   split: 12px
   split-coarse: 24px
@@ -204,9 +207,9 @@ components:
     typography: "{typography.button}"
     rounded: "{rounded.control}"
     height: "{spacing.touch}"
-    padding: 0 14px
+    padding: 0 12px
   button-hover:
-    backgroundColor: "{colors.surface-2}"
+    backgroundColor: "{colors.hover}"
   button-primary:
     backgroundColor: "{colors.accent}"
     textColor: "{colors.on-accent}"
@@ -218,8 +221,8 @@ components:
   button-large:
     typography: "{typography.button-large}"
     rounded: "{rounded.control-large}"
-    height: 46px
-    padding: 0 20px
+    height: 48px
+    padding: 0 24px
   icon-button:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink-2}"
@@ -232,18 +235,18 @@ components:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink-2}"
     typography: "{typography.chip}"
-    rounded: "{rounded.full}"
-    height: 30px
-    padding: 0 11px
+    rounded: "{rounded.control}"
+    height: 32px
+    padding: 0 12px
   chip-on:
     backgroundColor: "{colors.accent-soft}"
     textColor: "{colors.accent}"
   chip-coarse:
-    height: 36px
+    height: 44px
   segmented:
     backgroundColor: "{colors.surface-2}"
     rounded: "{rounded.segmented}"
-    padding: 3px
+    padding: 4px
   segmented-option:
     textColor: "{colors.ink-2}"
     typography: "{typography.segmented}"
@@ -253,13 +256,13 @@ components:
     textColor: "{colors.ink}"
   panel:
     backgroundColor: "{colors.surface}"
-    rounded: "{rounded.panel}"
-    padding: 14px 16px
+    rounded: "{rounded.control}"
+    padding: 16px
   input:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
-    height: 38px
+    height: "{spacing.touch}"
     padding: 0 12px
   input-coarse:
     typography: "{typography.input-coarse}"
@@ -293,7 +296,7 @@ components:
   stat:
     backgroundColor: "{colors.surface-2}"
     rounded: "{rounded.stat}"
-    padding: 8px 10px
+    padding: 8px
   hint-mark:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.muted}"
@@ -304,7 +307,7 @@ components:
     textColor: "{colors.surface}"
     typography: "{typography.hint-bubble}"
     rounded: "{rounded.control}"
-    padding: 8px 11px
+    padding: 8px 12px
   sheet:
     backgroundColor: "{colors.surface}"
     rounded: "{rounded.sheet}"
@@ -324,8 +327,12 @@ components:
 Two parts:
 
 - **Part 1, "Today"** (the eight sections from Overview to Do's and Don'ts): the design language as the code has it
-  at `main` 2f019d6, described, not judged. The token header above holds these values only. The numbers are of
-  that commit; later changes of the code move them.
+  at `main` 2f019d6, described, not judged. The numbers and the look described there are of that commit; later
+  changes of the code move them. The token header above holds the values as built now: the pilot's accent
+  (2026-11-18) and, since step 3c's group A (2026-11-19), the pilot's neutrals for the whole app and the kit's sizes
+  on the scales (the sign-in page, Home, the search forms, the account, Favourites and the OSM page are in the
+  pilot's look; the 3D view, the coverage page, the highline layer, the admin, about and privacy pages only took
+  the tokens and the kit's changes).
 - **Part 2, "Rules"** (the last section): rules that do not depend on the new look, each with the user's pick,
   today's number, how it is checked and the options not picked.
 
@@ -833,9 +840,9 @@ searching the sources and the tests for what holds or pins its choice.
 | 1. The accent, whole app (Q1: a) | `--accent` in the three theme blocks of `ui/tokens.css`; `--accent-ink`, `--accent-soft`, `--on-accent` beside it | #14676f light, #62c3cc dark (D1's teal moved bluer, apart from "done" and "easy access") | D1's #176c69 | Not one line: four values per theme block (`--accent-ink` has no blue predecessor: it needs a value of its own); the same `--accent` and `--accent-soft` in the three blocks of `docs/3d-view.html` (a page without the bundle; `test_viewer.py::test_3d_view_doc_accent_in_step` fails until they agree); a `viewer/dist` build. `test_view_tokens` checks the contrast. Not the accent, and left as it is: `Profile.tsx`'s `#2350c8`, the profile's no-fall zone (a chart's data colour: "Where the code disagrees with itself", the profile chart) Also (the delta review, 2026-11-18): `--accent-map` in the three blocks, the light accent's copy for what is drawn on the tiles (`test_view_tokens` pins it to the light `--accent`, so it follows by hand); `--status-run` (row 15), a teal chosen beside this accent; this file's front matter (the accent family's values). Tried on the branch: the token tests name both copies. |
 | 2. The selected row (Q2: a) | `.ui .vl-sel > .vl-main` (`view.css`) | The soft accent with a 3 px accent edge | D1's solid teal with white text | Not one line: the background `var(--accent)`, the row's text and `--value` in `var(--on-accent)`, white rings on the access dots (they fall to 1.8:1 on solid teal), the tight mark's colour; also the keyboard's ring inside a row (`--focus-in`, the accent: unseen on an accent fill) and the colours the row's own rules set (`view.css`: `.vl-num` `--muted`, `.vl-n`, `.vl-lab` and `.vl-acc-a` `--ink-2`, `.vl-over-words`, `.vl-tight` `--tight-ink`, `.vl-v` `--value`) |
 | 3. Column heads (Q3: a) | `.ui .vl-cols` (`view.css`) | Sentence case, text font, 12 px | Upper case monospace (today's) | One line: `font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em` in that rule (on the desktop "CLEARANCE ANCHORS LINES" then touch) |
-| 4. The values' colour (Q4: a) | `--value` in the view's root block (`.ui .v-result`, `ui/tokens.css`) | The ink | The accent | One line: `--value: var(--accent)` |
+| 4. The values' colour (Q4: a) | `--value` in the light block of `ui/tokens.css` (`.ui`; the whole app since step 3c: a field's value beside its label, a stat's and the search bar's numbers too) | The ink | The accent | One line: `--value: var(--accent)` (`test_view_tokens` pins `var(--ink)` and changes with it) |
 | 5. The tight tile (Q5: b) | Colours `--tight-bg`, `--tight-edge`, `--tight-ink` (three theme blocks); the word: key `ui.view.tile.tight` and rule `.ui .vl-tword` | Amber fill, 1 px edge, the alert icon beside the value, "Tight" as a second label line; no banner | The colour and icon only (5 a); the word beside the value (no room: 65 px inside the tile, the value with its icon takes 61 px) | Without the word: `display: none` in `.ui .vl-tword`. The colours: the three tokens; `test_shell_c_view_list.py::test_tight_tile_and_over_trees_words` pins the fill and the word's colour as rgb (`--tight-bg`, `--tight-ink`): it changes with them |
-| 6a. Chips' corners (Q6: yes) | `.ui .v-result .u-chip` (`view.css`) | 8 px (`--r-2`) | Pills (`--r-full`) | One line: `border-radius: var(--r-full)` |
+| 6a. Chips' corners (Q6: yes) | `.ui .u-chip` (`ui/ui.css`: the whole app since step 3c) and the view's own `.ui .v-result .u-chip` (`view.css`) | 8 px (`--r-2`) | Pills (`--r-full`) | Two lines: `border-radius: var(--r-full)` in both rules (the view's rule repeats the kit's since step 3c: line volume may drop it) |
 | 6b. Tiles on the phone (Q6: yes) | `.ui .vl-tiles` (`view.css`) | Four across | 2 × 2 | One rule: `@media (max-width: 420px) { .ui .vl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }` |
 | 6c. "Lines from anchor A1 / A2" (Q6: yes) | `.ui .vl-acts` (`view.css`) | Side by side, on the desktop too | One above the other | One line: `grid-template-columns: 1fr` |
 | 6d. Words without "·" (Q6: yes) | Keys `ui.view.headline`, `ui.view.sector`, `ui.view.sector_spots_*`, `ui.view.sector_lines_*`, `ui.view.spot`, `ui.view.spot_lines_*`, `ui.view.col.clear`, `ui.view.tile.*`, `ui.view.fact.*`, `ui.view.anchor_short` | "606 spots, 37 162 lines", "Sector 1, south-east", "Spot 1.1" with "104 lines" beside it, "Clearance", the facts as a table under A1 and A2 | Today's strings with "·" | Each key's text (the facts' table: `SpotDetails.tsx` `Facts`). Some tests hold the words as literals and change with them: `test_shell_c_view_list.py`'s heads ("Clearance" in `P.heads`' expected lists) and the sector's sentence (", … m long") |
@@ -843,7 +850,7 @@ searching the sources and the tests for what holds or pins its choice.
 | 8. A selected over-trees line's tile | Key `ui.view.tile.clear_terrain` | "Clearance of terrain" (the store's `clr` is the clearance above the terrain; over the trees it is a fact below) | Today's "clear of terrain" | The key's text |
 | 9. The phone at 390 × 664 (version 2: ok) | `mapbar.css` (its phone section and the foot's rules); `MapBar.tsx` (the foot's order); `SpotColumns.tsx` (the scale at the bottom right) | Under the switch one row of the zoom (across), the shore's chip, the layers; the foot from the bottom up at the left beside the scale: the row "Legend", the key's "i", the hint's button; the legend; the status line. The sheet's stops unchanged | Moving the half stop down; today's foot above the scale | Not one line: the foot's order in `MapBar`, the scale's corner, the rules of that section. A phone held sideways (the user's Q2 a): the zoom and the layers in the switch's row, the rule `@media (max-height: 480px) and (orientation: landscape)` in `mapbar.css` with MapBar's `--v-switch-right`; its one pair left is in docs/known-bugs.md. Also: MapBar's `inline` looks for the scale in the bottom-right corner (`MapBar.tsx`), while `corners.ts` still takes the bottom-left corner for the scale's (the code review's O3: on a phone the scale and the credits now share the right corner and the left one is empty, which does no harm; not a change of a line or two, as `corners.ts` raises the scale's corner above the credits' one) |
 | 10. The map's message on a phone (version 2: ok) | `SpotColumns.tsx` Phone (`message` to `MapBar`); rule `.ui .v-status .v-msg` | The status line's first line while it lasts | A box of its own | Not one line: the box drawn again by `Phone` (only `Desktop` draws its `.v-toast`, `SpotColumns.tsx`), a place of its own on a phone in `mapbar.css` (main's `.c-result-phone .v-toast { top: 112px }` is where the zoom's row stands now: under that row), the `message` prop dropped from `MapBar`; `test_phone_controls_apart` asserts the message is the status line's first line, and its `T.boxes` skips a toast inside the status line |
-| 11. The view's neutrals | The view's root block `.ui .v-result` (light, and two dark blocks) in `ui/tokens.css` | Ground #f2f5f5 / #121a1b, raised #ffffff / #1a2425, inset #e5ebeb / #222d2e; hover, ink, ink-2, muted, rule, line, shadow | D2's beige ground, D3's dark side panels | In the view: the block's values. The same neutrals app-wide: not one line. The view splits the app's `--line` in two (`--rule` for thin rules, `--line` for a control's edge), and the app uses `--line` for both (about 100 uses in 16 CSS files outside the view), so the view's darker `--line` app-wide darkens every divider unless each moves to `--rule`; `--hover`, `--value` and the view's `--shadow` exist only in the view (the app's hover is `--surface-2`); literal copies of today's neutrals would not follow: `coverage/palette.ts`, `coverage/page/page.css`, the fallbacks in `app/c/cellsLayer.ts` and `app/coverageLayer.css`, `docs/3d-view.html` |
+| 11. The neutrals, whole app (step 3c, 2026-11-19; the view's alone before) | The three theme blocks of `ui/tokens.css` (`.ui` and the two dark ones): `--bg`, `--surface`, `--surface-2`, `--hover`, `--ink`, `--ink-2`, `--muted`, `--rule`, `--line`, `--shadow` | Ground #f2f5f5 / #121a1b, raised #ffffff / #1a2425, inset #e5ebeb / #222d2e; a thin rule or a container's edge `--rule` #d3dcdc / #2a3738, a control's edge `--line` #b3c1c2 / #4a5c5d | D2's beige ground, D3's dark side panels; the app's greener neutrals of before (#f3f5f2, one `--line` #d2dad4 for rules and edges) | One value per block and token, and its copies, which `test_viewer.py::test_neutrals_copies_in_step` holds to it (it fails until they agree): the three blocks of `docs/3d-view.html` (its `--line` holds `--rule`), `coverage/palette.ts` (bg, surface, surface2, ink, ink2, muted, line = `--rule`, the light `tint` = `--surface-2`, the dark `edge` = `--bg`), `coverage/page/page.css`'s `body.cov-body` (light and dark `--bg`), the fallbacks of `var(--name, #…)` in `app/coverageLayer.css` and of the ink in `app/c/cellsLayer.ts` (twice); this file's front matter; a `viewer/dist` build. `test_view_tokens` and `test_secondary_text_contrast` check every text pair at 4.5:1, `test_profile_label_contrast` the profile chart's three label colours on `--surface` (`profile.css`: they moved with the dark surface). Checked on the branch (2026-11-19): `--bg` and `--rule` switched in `tokens.css`, the copies' test failed and named each copy, reverted. Which use is a rule and which an edge: `--rule` for a line between parts and a container's edge, `--line` for a control's edge, a grip, a swatch's edge, a spinner (76 and 29 uses on 2026-11-19) |
 | 12. What lies over the map ("raised") | One rule at the top of `mapbar.css` (its selector list, the table of spots `.vl-choose` too) | The view's surface and shadow, no edge, 8 px corners | Today's 1 px edge | That rule. The phone's sheet is the kit's (`ui.css` `.u-sheet`: the same surface, its own upward shadow, as it rises from the bottom edge): a switch of the raised look leaves it, or adds `.ui .v-result .u-sheet` to the list with its own corners kept. `test_focus_rings` asserts that "Legend" keeps a shadow of its own beside the ring Also: the panels' tab at the map's edge (`.ui .v-result .u-split-tab`, `view.css`) carries a raised look of its own with a 1 px edge (`--rule`): a switch changes it apart. |
 | 13. The keyboard's ring | `--focus` (and `--focus-in` inside a list's row and in the zoom buttons, which their bar clips) in `ui/tokens.css`; `--focus` declared again in the view's block (the same line: its gap is then the view's surface) | 2 px of the accent 2 px off the control (a shadow: the kit draws its ring as one) | Today's 3 px of the accent at 45 % | The token and its line in the view's block; `docs/3d-view.html`'s outline (bound by the same test as its accent). Pinned: `test_focus_rings` and `test_storage_blocked_and_today_untouched` (a 4 px ring), `test_3d_view_doc_accent_in_step` |
 | 14. Help and the hint as icons (R9) | `access.tsx` `useAccessHelp(label, icon)`; `Hint.tsx` `HintOpen` | The kit's "info" icon for the access mark's key; the kit's "rope" icon for the hidden hint | A "?" character (three meanings beside the mark's own "?") | The `icon` argument; the icon's name. The tests find the buttons by their classes (`.ac-info` in `test_selection_details_fan_and_table`, `.vl-hint-open` in `test_shell_c_view_map.py`'s `HINT_SHOWN`). The key's two call sites are `useAccessHelp(undefined, true)` in `MapBar.tsx` and `SpotDetails.tsx`; a "?" there is the kit's `u-hint ac-hint` without `ac-info`, so it loses the view's sizes (only `.ac-info` is sized, in `view.css` and `mapbar.css`) and falls back to the kit's 18 px with a wider invisible target, under R2's 44 px on a phone: it needs a size rule of its own |
@@ -852,6 +859,19 @@ searching the sources and the tests for what holds or pins its choice.
 | 17. The legend's "P1 pick" (2026-11-18: 1) | `SpotMap.ts` `draw` (Area: the pick's shape whenever a pick's line is in view) | Listed whenever "Start here" has a pick in view, its diamond drawn or not (docs/line-volume/spec-view.md: a stated exception to item 8) | Listed only when drawn (the row toggled the foot's height) | The condition in `draw`; `test_pick_row_kept_in_the_legend` |
 | 18. The columns too short for the legend (2026-11-18: 1) | `MapBar.tsx` `compact` (the legend's room in the columns, `roomWide`, under its own height) | The phone's foot and logic in any window of the columns too short for the legend (a phone held sideways, a short desktop window; a finger's or a mouse's): the legend behind "Legend" where it would reach the map's top controls, and then the zoom's + and − across in one row and the map's data credits behind "Data credits", as on a phone (the planner; `.v-compact` in `mapbar.css` and `ui.css`; the choice counts the zoom stacked and the credits unfolded); windows where it fits keep the columns' foot | Today's foot over the switch | Not one line: `compact` in `MapBar`; `test_landscape_phone_columns_fold_the_legend` |
 | 19. The list's follow of a selection (the planner, 2026-11-18) | `SpotList.tsx` (the list's scroll after `follow`) | A selection from the map or the table of spots: the spot's "Best in view" row where it has one, else its row in the tree; a press on a row keeps that row in view (the code review's F1) | Always the tree's row | Two lines there (`pressed` in `viewstate.ts`); `test_selection_follows_best_in_view`, `test_press_in_the_tree_keeps_its_row` |
+| 20. A page's sections (step 3c, group A: R8) | `.ui .u-panel.u-ground` (`ui/ui.css`); `Panel` of `ui/components.tsx` gives the class | On the ground: no box; a thin rule parts a section from the one above (Home's "Favourite lines", "Area searched", "Today"; the account; Favourites; the admin page's sections too: the kit's component) | Today's raised card around every section | One rule: the raised look's three declarations there (`background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow)`, padding `16px`), or the class dropped in `Panel`; `test_search_form_css_on_the_scales` pins the rule and the class |
+| 21. The frame's parts on the ground (R8) | One rule in `app/c/c.css` (`.ui .c-top, .ui .c-subtop, .ui .c-newsearch .c-form, .ui .c-sidepanel`) and `.ui .s-bar` (`search/search.css`) | The header, a focused page's top bar, the search form's column, a map page's panel and the search page's bottom bar on `--bg`, parted by thin rules, as the result view's header and side panels | White (`--surface`) bars and columns | Two lines: `var(--surface)` in both rules. The highline layer's side panels (`ui/sidepanel.css`) and the result view's (`view.css`) have their own |
+| 22. A run's card, the example's card (R8) | `.ui .c-card`, `.ui .c-example`, `.ui .p-ex` (`c.css`, `ui/pages.css`) | The surface with a thin edge, 14 px corners (`--r-3`), no shadow: an object on the ground | Today's shadow under every card | One declaration a rule: `box-shadow: var(--shadow)` |
+| 23. Status chips and the size word (the user, 2026-11-17: no capitals) | Rules `.ui .u-st` (`ui/ui.css`), `.ui .sz`, `.ui .s-heavy` (`search.css`); the words: `STATUS` in `ui/components.tsx`, Home's `stateOf` (`app/c/Home.tsx`), keys `goal.heavy`, `ui.card.cancelled`, `basic.size.*` | Sentence case in the text's font at 12 px; the pill and the fills as before | Capitals in the monospace (today's) | Not one line: `font-family: var(--mono); text-transform: uppercase; letter-spacing: .03em` in the three rules shows capitals again whatever the words' case; `test_search_form_css_on_the_scales` pins "no capitals" for `.u-st` and `search.css`. The admin page's chips keep their words as the server gives them (lower case) |
+| 24. Segments and chips on a touch screen (R2) | `ui/ui.css`: `.ui .u-seg button` and `.ui .u-chip` under `@media (pointer: coarse)` | 44 px high (the track 52 px); on a desktop 32 px | 42 and 36 px (today's) | One line each |
+| 25. The "?" of a setting on a touch screen (R2) | `.ui .u-hint::after` under `@media (pointer: coarse)` (`ui/ui.css`); the reset word beside a value: `.ui .s-reset` (`search.css`) | The "?" stays 18 px; its target is 44 px and covers no other control (probed on both phones, 2026-11-19): 22 px of it above the "?", 6 px under it (the field's box begins 8 px under the label: `.ui .u-field`), 20 px before it (the label's words), 8 px after it; a form's rows are 24 px apart on a touch screen for it (`search.css`, the rule under `@media (pointer: coarse)` before "Usage meters"); in the search page's bar the target is centred (`.ui .s-bar .u-hint::after`) | A target centred on the "?" everywhere (main's, 40 px: it covered 4 px of the field under it in 22 places); a label row 44 px high | Not one line: the `inset` of that rule, the field's gap, the rows' gap on a touch screen |
+| 26. "More settings" and its topics (R8, R9) | `.ui .s-more`, `.ui .s-topic` (`search.css`); the arrow: `Icon name="next"` with `.s-topic-mark` in `SearchPanel.tsx` `Topic` | A fold on the ground between two thin rules, its topics parted by rules, the kit's arrow turned while a topic is open | A grey box with an edge; the character "›" drawn by the CSS | The box: `border`, `border-radius` and `background: var(--surface-2)` back in `.s-more`. The arrow: the icon's name |
+| 27. Joints of values (R9) | In the code: the receipt's parts and the phone bar's line (`SearchPanel.tsx`, `basic.ts` `receiptShort`, `rigSummary`'s default `sep`), a favourite line's values (`FavouritesPage.tsx`, `Trip.tsx`), the usage meters (`SearchPanel.tsx` `UsageMeters`), Home's chips "Running (2)" | A comma between values, a colon between a name and its value ("Storage: 0 GB"); "·" stays in the one-line meta lines (a card's "15 spots · 1048 lines · date", a place's type, a run under a favourite line) | "·" between values (today's) | Each string; `test_web.py` and `test_viewer.py` hold the receipt's, the rig's and the meters' words as literals and change with them |
+| 28. The sign-in page's group (R8) | `.ui .p-signin .p-card` (`ui/pages.css`) | On the ground, no box; the privacy and about pages keep the card (group D) | A raised card around the buttons | One rule: its last four declarations removed |
+
+Rows 20 to 28 are step 3c's group A (2026-11-19): the first-timer's screens (the sign-in page, Home, the search
+forms, the account, Favourites, the OSM page) brought to the pilot's look by the rules, with no mock-up of their own
+(their layouts are kept; the user, 2026-11-19: "mock-ups only where layout changes"). Each is "for now" as the rest.
 
 Not exactly the mock-up, and why: the map is the real one (its marks drawn on a canvas, their text at 12 px); the
 pictures' run is the Żabi Koń clip of `tools/ui_shots.py`, which has no line over trees (the tool's step
@@ -861,7 +881,7 @@ drew an outline. The pass's notes and numbers: `local/ux-design-2026-11-16/pilot
 #### Colours beyond the anchors
 
 For now: one accent for the whole app, a deep blue-green (choice 1), with an ink of its own for text on its soft
-fill (`--accent-ink`); the result view's neutrals, slightly cool (choice 11); the tight tile's amber, apart from the
+fill (`--accent-ink`); the neutrals, slightly cool, for the whole app since step 3c (choice 11); the tight tile's amber, apart from the
 access mark's orange, the over-trees orange and the favourite's yellow (choice 5). Kept: the lines' colours, "done",
 the access mark's, the highline layer's ramp. Values in the accent only for what can be pressed, the selection and
 links (choice 4). Every text pair of the view 4.5:1 or more in both themes (`tests/test_viewer.py::test_view_tokens`).

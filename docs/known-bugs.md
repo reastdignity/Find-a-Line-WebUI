@@ -376,6 +376,43 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 - `tests/test_web.py::test_basic_form_on_a_phone` failed once in a parallel run of the affected files and passed
   alone on the same tree; run it alone before calling a failure of it a regression.
 
+## Step 3c, group A (the first-timer's screens): controls left under R2, and what the probes found (2026-11-19)
+
+Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
+rules. These controls stay under R2's 44 px on a touch screen, each for a reason; the first two are layout
+questions for the user (a change of place is not built without a mock-up):
+
+- **The place map's own controls on a phone** (the search page, the OSM page): Leaflet's zoom (30 x 30 px), the
+  "Data coverage" button (32 px high) and its "Coverage map" link (24 px). The map is 34 % of the screen's height
+  (226 px on a 390 x 664 phone): with the zoom at 44 px the three boxes one above the other no longer fit and the
+  coverage button is pushed out at the top (tried: `local/ux-design-2026-11-16/3c-a/q-zoom-44-iphone.png`). On a phone
+  held sideways (667 x 375) the coverage button is outside the map and the layers button is cut by 16 px on main too
+  (measured on both codes: 61 and 60 px out). Options: the zoom's + and - side by side, as the result view's phone;
+  the coverage button folded into the layers' box; a taller map.
+- **The receipt's parts in the phone's unfolded bar** ("30-300 m", "My rig: ...": 20 px lines): each opens its
+  setting in Advanced. At 44 px each they need a row a part (the bar would cover most of a phone's form).
+- **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
+  itself needs no press.
+- **A setting's checkbox in Advanced** ("Mark anchors you can walk to", four states): the box is 20 px and its
+  label's line 20 px high; the kit's `Field` draws the label above the control, and a row of 44 px for one field
+  alone would stand apart from the others.
+
+Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
+`local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
+bottom bar before the page is scrolled (the account's "Sign out", Home's cards); "Stay in Advanced" in the dialog
+of going back to Basic is cut on the left on a 390 px phone (5.6 px; 19.6 px on main); the keyboard's ring is cut
+where a control stands at the edge of a scrolling column (an input at the form's bottom edge after the focus's
+scroll, the map's credits' links by 2 px, the map itself on its right edge): step 3d's item on `scroll-margin`.
+The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
+are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt while the bar still had 12 px of
+padding: 145 px where main has 115; the padding is 8 px since (an estimate, not measured again: 137 px).
+
+Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
+(`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
+x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
+between a path's folders in Favourites, "Open map ›" on the sign-in page's example cards (`web.py`: outside the
+viewer).
+
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
 On a phone held sideways in the phone's layout (667 x 375) the zoom and the layers stand in the level switch's row
