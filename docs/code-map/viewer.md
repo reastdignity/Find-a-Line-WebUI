@@ -265,5 +265,8 @@ the staying anchor from `/api/reach` as `Scene3D.setOverlay`'s picture, a dragge
 (`/api/patch?part=canopy`, a tool only when the patch's meta has `surface`); `others.ts`/`otherlines.ts` the address's
 `&also=` lines and the user's other saved lines of the run (a click makes one the active line:
 `Edit.setAnchors(anchors, key)`); `options.ts`/`fan.ts`/`optionlist.ts`/`point.ts` the lines from a clicked point (the
-point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). The
+point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). Step
+3c, group B (2026-11-19; docs/DESIGN.md rows 40 to 49): `icon.ts` the kit's icons for the plain DOM (`kitIcon`: the
+notice's dismiss, the sorted head, a favourite's star); `screen.ts` `nearestMark`/`pressedMark`, the mark whose centre is
+nearest to a press where the marks' invisible targets (44 px on a touch screen) overlap (the fan's dots, the labels). The
 contract of its waves and every decision: docs/3d-view-contract.md; the research: docs/3d-view.md

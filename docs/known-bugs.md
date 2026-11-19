@@ -464,6 +464,35 @@ DESIGN.md choice 55).
 - **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
   accent); its row is the 44 px target (choice 50), the box itself is not restyled.
 
+## Step 3c, group B (the 3D view): left, inherited, and what the probes found (2026-11-19)
+
+Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
+
+- **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
+  volume's round 6, not changed here): its text at 11 px (116 characters a state with the card open: R1; the only
+  text under 12 px left in the 3D view's states), the card's facts joined by " · ", "→" and "Δh" (R9), and on a
+  touch screen the controls of "Rigging and layers" under 44 px (five number fields, three or four checkboxes by
+  their labels, the "1:1 scale" button: R2; measured in the probe with that box open on both phones, sideways too).
+- **The phone's three layout questions** (waiting for their mock-up; the user, 2026-11-19: "Fix all three, mock-up
+  first"), measured: held sideways (844 x 390) at the phone level the speed's "×1" lies under the imagery's segment
+  by 14 px (16 px before; a tap on its centre reaches it), in the athlete's views by 40 px (30 px before, and 10 px
+  under "Edges"), where a tap on it reaches the segment, as before; at the full level the tool strip (five tools of
+  44 px) is taller than the 131 px stage, so "Profile" and "Save line" lie over the bar's switch, "Walk" and the speed
+  and the last tool is cut to 27 px by the stage (as before, with 36 px tools); the strip lies over the profile's
+  card (three tools sideways, two before; three at the full level in portrait, as before); three or four notes stand
+  under the bar on a phone (four or five lines at 12 px; the bar's rows lost their 2 px gap, so the stage keeps its
+  height on an iPhone 13 at the phone level and is 1.3 px lower at the full level; on a 360 px wide phone 15.6 px
+  lower, as the preview note takes one more line).
+- **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
+  3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
+  pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
+  representatives) the dot, drawn later, takes the press, as before. Two labels closer than 44 px share part of
+  their targets (31.9 px apart in `ui_shots`' "view3d-others" on an iPhone): the nearer centre wins. The two
+  handles' targets overlap only when the anchors stand under 44 px apart on the screen (the camera far out): there
+  anchor 2's, drawn later, takes the press. Dots under the list or the open credits stay under them (as before).
+- **Measured from states the tools do not have**: the imagery notice is made by a script in the probes (the clip's
+  run has no orthophoto and the probes run without an Esri key), its words the catalogue's.
+
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
 On a phone held sideways in the phone's layout (667 x 375) the zoom and the layers stand in the level switch's row

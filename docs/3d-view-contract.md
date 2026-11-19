@@ -908,6 +908,17 @@ as well (1 of 3 runs): not this round's.
   orthophoto WMS dropped 148 of 260 requests asked six at once; what is left to measure and decide is in
   docs/roadmap.md, "To check" ("Slovakia's orthophoto WMS drops requests asked six at once").
 
+## Step 3c, group B: the pilot's look (2026-11-19)
+The UX and UI design task brought the app's accepted look to this view with its layout kept (docs/DESIGN.md, "The
+pilot's look", rows 40 to 49). Of the decisions above, these moved: the credits' box (round 2, U1) is 13 px type on the
+surface, raised without an edge, its "Data credits" button a 44 px target on a touch screen; the imagery's counter (round
+2, decision 2) reads "Imagery 12 of 84"; the labels of other lines (decision 7) are pills of at least 28 px with a 44 px
+target on a touch screen, as are the fan's dots and the anchors' handles (their drawn sizes stay); the list's column
+"Over trees" and its clearance "up to 2.0 m"; the tool strip (decision 0) keeps its place and its icons alone at the
+phone level, its buttons 44 px wide on a touch screen; the phone's bar keeps its rows and its equal height in every view.
+Three layout questions of the phone (the bar and the strip held sideways, the strip over the card, the notes under the
+bar) wait for their own mock-up.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

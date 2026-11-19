@@ -62,3 +62,7 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   `unsafe-eval`) Playwright's `wait_for_function` needs a function string (`"() => (...)"`); its screenshots in WebKit
   report a refused stylesheet (its own caret style), not the page's. A DOM overlay (the anchors' handles) is never
   hidden by terrain while the webbing near an anchor can be.
+- **Sizes on a touch screen** (DESIGN.md rows 43, 45): keyed on `@media (pointer: coarse)`, never on `.v3-phone` (the
+  desktop's `?level=phone` has a mouse, a phone's `?level=full` a finger). A mark over the stage (fan dot, label, handle)
+  grows its target with a positioned `::after`, never its own size or margins: those place it on its point
+  (`screen.ts` `place`; `tests/test_view3d_touch.py`).
