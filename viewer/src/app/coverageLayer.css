@@ -1,8 +1,8 @@
 /* The data coverage on the place map (coverageLayer.ts): its button and small legend among the map's
-   controls; the areas' colours come from coverage/palette.ts through the CSSOM. Raised (R8: what lies over the map):
-   the surface and its shadow, no edge. */
-.n-coverage { background: var(--surface, #fff); color: var(--ink, #16262a); max-width: 230px; border: 0;
-  border-radius: var(--r-2, 8px); box-shadow: var(--shadow, 0 1px 5px rgb(0 0 0 / .3)); overflow: hidden; }
+   controls (a desktop), or a row of the layers' box with the link at its end (a phone); the areas' colours come
+   from coverage/palette.ts through the CSSOM. The box's raised look is the map controls' one rule
+   (result/view/mapbar.css). */
+.n-coverage { color: var(--ink, #16262a); max-width: 230px; overflow: hidden; }
 /* .n-coverage before it: one class more than the base rule `.ui button { font: inherit }` (ui.css), which took its
    size otherwise (the map's controls' 9.75 px) */
 .n-coverage .n-coverage-btn { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: var(--surface, #fff);
@@ -23,3 +23,13 @@
 .n-coverage-status { color: var(--muted, #56686c); padding-top: 4px; }
 .leaflet-container .n-coverage-link { display: inline-flex; align-items: center; min-height: 24px; color: var(--accent); font-weight: 500; }
 .leaflet-interactive.n-coverage-area { cursor: inherit; }
+/* In the layers' box (a phone): the link stands at the end of the coverage's row while the layer is ticked (the
+   row's words keep their place, the box grows wider); the legend under the row where the map is high enough for
+   it (not .n-compact) */
+.leaflet-control-layers-overlays:has(> .n-coverage-link) { display: flex; align-items: center; gap: 8px; }
+.leaflet-control-layers-overlays:has(> .n-coverage-link) > label { flex: 1; }
+.leaflet-container .leaflet-control-layers-overlays .n-coverage-link { flex: none; }
+.leaflet-control-layers-overlays .n-coverage-link[hidden], .n-coverage-extra .n-coverage-legend[hidden] { display: none; }
+.n-coverage-extra .n-coverage-legend { padding: 0 0 4px; border-top: 0; }
+.n-coverage-extra .n-coverage-legend.n-compact:has(.n-coverage-status:empty) { display: none; }
+@media (pointer: coarse) { .leaflet-container .leaflet-control-layers-overlays .n-coverage-link { min-height: 44px; } }

@@ -2,12 +2,16 @@
    frame's own pieces over the map (SpotColumns.tsx: the toast, the slots' placeholders). Classes v-*, under the
    kit's root class .ui; the map's column is .c-col-map.v-map (columns.css), a stacking context of its own:
    Leaflet's panes lie below 800, its controls at 1000. The look is the pilot's (2026-11-18, docs/DESIGN.md "The
-   pilot's look"): what lies over the map is "raised" (R8), the phone's arrangement is the one of 390 x 664. */
+   pilot's look"): what lies over the map is "raised" (R8), the phone's arrangement is the one of 390 x 664.
+   The app's place map (app/PlaceMap.ts: the search page, the OSM page, the highline layer; its box .c-placemap, a class PlaceMap gives its element) takes
+   the same rules for Leaflet's own controls since step 3c (the user's pick A2, 2026-11-19): the selectors below name
+   both maps, so a change of the look is one edit. */
 
 /* What lies over the map (R8 "raised"): one look, the view's --surface with its shadow, no edge */
 .ui .v-levels, .ui .v-best, .ui .v-status, .ui .v-legend, .ui .v-help, .ui .v-fold, .ui .vl-hint, .ui .vl-hint-open,
 .ui .v-result .v-help-button .ac-info.u-plain, .ui .v-result .v-map .leaflet-bar, .ui .v-result .v-map .leaflet-control-layers,
-.ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill, .ui .vl-choose {
+.ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill, .ui .vl-choose,
+.ui .c-placemap .leaflet-control-zoom, .ui .c-placemap .leaflet-control-layers, .ui .c-placemap .n-coverage {
   background: var(--surface); border: 0; border-radius: var(--r-2); box-shadow: var(--shadow); }
 /* the keyboard's ring beside their own shadow (the kit's ring is a shadow too: theirs would replace it) */
 .ui .v-fold:focus-visible, .ui .vl-hint-open:focus-visible, .ui .v-help-button .ac-info:focus-visible,
@@ -107,24 +111,30 @@
 
 /* Leaflet's own controls below the switch, 8 px from the edges and apart: the zoom (the kit's icons), the layers */
 .ui .v-map .leaflet-top { top: 48px; }
-.ui .v-map .leaflet-top .leaflet-control { margin-top: 8px; }
-.ui .v-map .leaflet-left .leaflet-control { margin-left: 8px; }
-.ui .v-map .leaflet-right .leaflet-control { margin-right: 8px; }
+.ui :is(.v-map, .c-placemap) .leaflet-top .leaflet-control { margin-top: 8px; }
+.ui :is(.v-map, .c-placemap) .leaflet-left .leaflet-control { margin-left: 8px; }
+.ui :is(.v-map, .c-placemap) .leaflet-right .leaflet-control { margin-right: 8px; }
+/* the place map's controls at its bottom right (a desktop): 8 px apart, as at the top */
+.ui .c-placemap .leaflet-bottom.leaflet-right .leaflet-control:not(.leaflet-control-attribution) { margin-bottom: 8px; }
 .ui .v-map .leaflet-bottom .leaflet-control-scale { margin-bottom: 8px; }
 /* the credits and the scale at R1's floor for them (Leaflet's 0.75rem is 9.75 px under the app's 13 px root) */
 .ui .v-result .v-map .leaflet-control-attribution, .ui .v-result .v-map .leaflet-control-scale { font-size: 10px; }
-.ui .v-result .v-map .leaflet-bar { overflow: hidden; }
-.ui .v-result .v-map .leaflet-bar a { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
-  border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); }
-.ui .v-result .v-map .leaflet-bar a:last-child { border-bottom: 0; }
+/* the zoom's bar (the place map's: its zoom only, the drawing tools' bars keep their own look) */
+.ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) { overflow: hidden; }
+.ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a { display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); }
+.ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a:last-child { border-bottom: 0; }
 /* the bar clips its buttons to its corners: the keyboard's ring inside the button (the rows' inset ring) */
-.ui .v-result .v-map .leaflet-bar a:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-2); }
-.ui .v-result .v-map .leaflet-bar a .u-ic { width: 16px; height: 16px; }
-/* the layers' list opened: its rows 24 px (44 on a touch screen), their words 13 px (R1, R2) */
-.ui .v-result .v-map .leaflet-control-layers-list { font-size: var(--fs-2); }
-.ui .v-result .v-map .leaflet-control-layers-list label { display: flex; align-items: center; min-height: 24px; }
-.ui .v-result .v-map .leaflet-control-layers-list label > span, .ui .v-result .v-map .leaflet-control-layers-list label > div {
-  display: flex; align-items: center; gap: 8px; }
+.ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-2); }
+.ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a .u-ic { width: 16px; height: 16px; }
+/* the layers' list opened: its rows 24 px (44 on a touch screen), their words 13 px (R1, R2), a thin rule before
+   the overlays */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list { font-size: var(--fs-2); }
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label { display: flex; align-items: center; min-height: 24px;
+  font-size: inherit; }  /* Leaflet's own 1.08em would make the 13 px 14 */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > span,
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > div { display: flex; align-items: center; gap: 8px; }
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-separator { border-top-color: var(--rule); }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */
 .ui .v-result .u-shore { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; }
 .ui .v-result .u-shore-chip { min-height: 32px; padding: 0 8px; gap: 4px; font-size: var(--fs-3); }
@@ -140,9 +150,10 @@
 .ui .c-result-phone .v-map .leaflet-top.leaflet-left { display: flex; align-items: flex-start; }
 /* the zoom across, + and − side by side: on a phone, and in the columns while their foot is the phone's (MapBar's
    .v-compact: the legend folded where it would reach the top controls; the planner's decision of 2026-11-18) */
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom, .ui .v-result .v-map.v-compact .leaflet-control-zoom { display: flex; }
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a, .ui .v-result .v-map.v-compact .leaflet-control-zoom a { border-bottom: 0; }
-.ui .v-result.c-result-phone .v-map .leaflet-control-zoom a + a, .ui .v-result .v-map.v-compact .leaflet-control-zoom a + a {
+/* the same on the place map in its phone arrangement (PlaceMap's .c-map-phone) */
+.ui :is(.v-result.c-result-phone .v-map, .v-result .v-map.v-compact, .c-placemap.c-map-phone) .leaflet-control-zoom { display: flex; }
+.ui :is(.v-result.c-result-phone .v-map, .v-result .v-map.v-compact, .c-placemap.c-map-phone) .leaflet-control-zoom a { border-bottom: 0; }
+.ui :is(.v-result.c-result-phone .v-map, .v-result .v-map.v-compact, .c-placemap.c-map-phone) .leaflet-control-zoom a + a {
   border-left: 1px solid var(--rule); }
 /* a phone held sideways (a short phone layout: the user's Q2 a of 2026-11-18): the zoom and the layers go up into the
    switch's row, the zoom right of Best (MapBar's --v-switch-right: where the switch and Best end), the shore's chip
@@ -164,9 +175,9 @@
   .ui .v-map .leaflet-top { top: 60px; }  /* the switch 52 px high (8 + 52): Leaflet's controls 8 px under it (a phone's: 112 px) */
   /* "Back to Auto" in the status line's sentence: a finger's 44 px target, the sentence's look unchanged */
   .ui .v-status .v-back-auto { padding-block: 12px; margin-block: -12px; }
-  .ui .v-result .v-map .leaflet-bar a { width: 44px; height: 44px; }
+  .ui :is(.v-result .v-map .leaflet-bar, .c-placemap .leaflet-control-zoom) a { width: 44px; height: 44px; }
   .ui .v-result .u-shore-chip { min-height: 44px; }
-  .ui .v-result .v-map .leaflet-control-layers-list label { min-height: 44px; }
+  .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label { min-height: 44px; }
 }
 
 /* The canvas (SpotMap.ts): it takes no pointer events (the map does: presses are found by distance); on the map no

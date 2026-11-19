@@ -1,8 +1,13 @@
 // The map of the app: a click sets the centre of a circle, or areas are drawn
 // (Leaflet-Geoman: polygons and rectangles), or an uploaded area is shown.
 // Pages that only need a map (the OSM extracts, MapPage) take the search's layers, tools and clicks off
-// it with setSearchVisible(false); `controls` places its controls. The button "Data coverage"
-// (coverageLayer.ts) shows where the elevation data is detailed.
+// it with setSearchVisible(false); `controls` places its controls. "Data coverage" (coverageLayer.ts) shows where
+// the elevation data is detailed.
+// Two arrangements of the controls (the user's pick of 2026-11-19, option A2 of the mock-up): on a desktop and a
+// tablet the zoom, the layers and the coverage's own box at `controls`; on a phone (PHONE: the narrow frame, or a
+// touch screen at most 480 px high: a phone held sideways) the zoom's two buttons side by side at the top left, the
+// layers' button at the top right (its box closed until it is pressed; a press on the map closes it) and "Data
+// coverage" as a row of that box. Their look is the result view's (result/view/mapbar.css, one set of rules).
 
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
@@ -10,12 +15,42 @@ import type { FeatureCollection, GeoJSON } from "geojson";
 import L from "leaflet";
 import { baseLayers } from "../baselayers";
 import { keepScaleAboveAttribution } from "../result/view/corners";
+import { ICONS } from "../ui/icons";
 import { CoverageLayer } from "./coverageLayer";
+import "../result/view/mapbar.css";  // the controls' look, shared with the result view's map
 
 export type Mode = "point" | "draw" | "file" | "preset";
 const COLOR = "#1f77b4";
 const START: [number, number] = [50.1559508, 19.7562722];  // Żabi Koń
 const MAX_ZOOM = 21;
+/** Where the controls take the phone's arrangement: the app's narrow frame (components.tsx DESKTOP is 768 px), or a
+ *  touch screen too low for the controls one above the other (a phone held sideways in the columns). */
+export const PHONE = "(max-width: 767px), (pointer: coarse) and (max-height: 480px)";
+
+/** The layers' control: opened at the map's top it never grows past the map's bottom edge (Leaflet leaves 50 px
+ *  under it and counts the list before the box's padding): it scrolls inside, 8 px above the edge. After every
+ *  redraw of its rows (Leaflet draws them again at each change) it calls `options.afterUpdate`: the coverage's row
+ *  gets its link again (coverageLayer.ts). */
+const Layers = L.Control.Layers.extend({
+  _update(this: any) {
+    const done = (L.Control.Layers.prototype as any)._update.call(this);
+    if (this._container) this.options.afterUpdate?.();
+    return done;
+  },
+  expand(this: any) {
+    L.Control.Layers.prototype.expand.call(this);
+    const section: HTMLElement = this._section;
+    if (!String(this.options.position).startsWith("top")) return this;
+    section.style.height = "";
+    const container: HTMLElement = this._container;
+    const around = container.offsetHeight - section.offsetHeight;  // the box's padding and edge
+    const room = this._map.getSize().y - container.offsetTop - around - 8;
+    const scrolls = section.scrollHeight > room;
+    section.classList.toggle("leaflet-control-layers-scrollbar", scrolls);
+    if (scrolls) section.style.height = `${Math.max(room, 44)}px`;
+    return this;
+  },
+}) as unknown as new (base: L.Control.LayersObject, overlays: L.Control.LayersObject, options: L.Control.LayersOptions) => L.Control.Layers;
 
 export class PlaceMap {
   map: L.Map;
@@ -35,14 +70,28 @@ export class PlaceMap {
   /** `options.controls`: where the zoom buttons, the layer switch and the drawing tools go. */
   constructor(element: HTMLElement, options: {controls: L.ControlPosition}) {
     this.controls = options.controls;
+    element.classList.add("c-placemap");  // the controls' look (result/view/mapbar.css)
     this.map = L.map(element, {center: START, zoom: 13, maxZoom: MAX_ZOOM, zoomControl: false});
-    L.control.zoom({position: options.controls}).addTo(this.map);
+    // the zoom's buttons with the kit's icons, not the characters "+" and "−" (R9), as the result view's
+    const icon = (name: "plus" | "minus") => `<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+    const zoom = L.control.zoom({position: options.controls, zoomInText: icon("plus"), zoomOutText: icon("minus")}).addTo(this.map);
     L.control.scale().addTo(this.map);
     keepScaleAboveAttribution(element);  // on a phone the credits take the whole width: the scale above them
     const layers = baseLayers(null, MAX_ZOOM);
     Object.values(layers)[0].addTo(this.map);
-    L.control.layers(layers, {}, {position: options.controls}).addTo(this.map);
-    this.coverage = new CoverageLayer(this.map, options.controls);
+    const layersControl = new Layers(layers, {}, {position: options.controls}).addTo(this.map);
+    this.coverage = new CoverageLayer(this.map, options.controls, layersControl);
+    // the arrangement follows the window (a phone turned, a window made narrow)
+    const media = typeof matchMedia === "function" ? matchMedia(PHONE) : null;
+    const arrange = () => {
+      const phone = !!media?.matches;
+      element.classList.toggle("c-map-phone", phone);
+      zoom.setPosition(phone ? "topleft" : options.controls);
+      layersControl.setPosition(phone ? "topright" : options.controls);
+      this.coverage.place(phone ? "row" : "box");
+    };
+    arrange();
+    media?.addEventListener("change", arrange);
     this.drawn.addTo(this.map);
     this.shown.addTo(this.map);
     this.preview.addTo(this.map);
@@ -52,7 +101,15 @@ export class PlaceMap {
       this.onDrawn();
     });
     this.map.on("pm:remove", () => this.onDrawn());
+    // a press on the map that closes the opened layers' box sets no centre. Whether the box is open is read when the
+    // pointer goes down: Leaflet closes it before the click (on the pointer leaving the box, or on the map's click)
+    let closing = false;
+    element.addEventListener("pointerdown", (e) => {
+      const box = layersControl.getContainer();  // a press inside the box closes nothing
+      closing = !!box?.classList.contains("leaflet-control-layers-expanded") && !box.contains(e.target as Node);
+    }, true);
     this.map.on("click", (e: L.LeafletMouseEvent) => {
+      if (closing) { closing = false; return; }
       if (this.mode === "point" && !this.hidden) this.onPoint(e.latlng.lat, e.latlng.lng);
     });
   }
