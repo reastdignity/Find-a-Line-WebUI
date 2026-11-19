@@ -3,8 +3,8 @@
    the card a bottom sheet below 700 px, the legend under the map there. No style attributes (the CSP). */
 
 html, body { margin: 0; }
-body.cov-body { background: #f3f5f2; }
-@media (prefers-color-scheme: dark) { body.cov-body { background: #0e1311; } }
+body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
+@media (prefers-color-scheme: dark) { body.cov-body { background: #121a1b; } }
 
 .ui.cov { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
 .cov-inner { width: 100%; max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px));

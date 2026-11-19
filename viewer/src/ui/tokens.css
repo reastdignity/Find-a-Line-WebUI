@@ -3,14 +3,16 @@
    The theme follows the system unless the .ui element has data-theme="light" or "dark".
    fonts.css: Barlow Condensed of --display, for every bundle that starts from here (app, run maps, coverage).
    The accent family (--accent, --accent-ink, --accent-soft, --on-accent; --focus and --focus-in are rings of
-   --accent) is the pilot's of 2026-11-18 for the whole app ("for now": docs/DESIGN.md, "The pilot's look"); the
-   result view's own neutrals are the block .ui .v-result at the end of this file. */
+   --accent) is the pilot's of 2026-11-18 for the whole app ("for now": docs/DESIGN.md, "The pilot's look"), and so
+   are its neutrals since step 3c (2026-11-19; the result view had them alone before): --bg the ground (the page, side
+   panels, headers), --surface what is raised (cards, what lies over a map, dialogs, the phone's sheet), --surface-2
+   what is set in (tiles, the segmented track). */
 @import "./fonts.css";
 .ui {
-  --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #626e68; --line: #d2dad4;
+  --bg: #f2f5f5; --surface: #ffffff; --surface-2: #e5ebeb; --ink: #16262a; --ink-2: #3c4e52; --muted: #56686c; --line: #b3c1c2;
   /* --rule the thin rules between parts and a container's edge, --line a control's edge; --hover a row or a control
      under the mouse; --value the colour of a line's values (the ink, or var(--accent) to show them in the accent) */
-  --rule: #d2dad4; --hover: #e9eee9; --value: var(--ink);
+  --rule: #d3dcdc; --hover: #e8eeee; --value: var(--ink);
   --accent: #14676f; --accent-ink: #0f5a61; --accent-soft: #dfeeee; --on-accent: #ffffff;
   /* what is drawn on the map's tiles in the accent (the crowded tap's flash): the light value in every theme, as the
      tiles stay light (as --acc-map-*); the running status's own fill (its ink --accent-ink) */
@@ -27,7 +29,7 @@
   /* the access mark (access.tsx): the dot of each state and the sign inside it; on the map, whose tiles stay light, the light theme's */
   --acc-easy: #1a994f; --acc-tell: #ed8c0d; --acc-hard: #2f3a45; --acc-easy-sign: #ffffff; --acc-tell-sign: #2b1a00; --acc-hard-sign: #ffffff;
   --acc-map-easy: #1a994f; --acc-map-tell: #ed8c0d; --acc-map-hard: #2f3a45; --acc-map-tell-sign: #2b1a00; --acc-map-edge: #4d4538;
-  --shadow: 0 1px 2px rgb(20 30 25 / .08), 0 8px 24px rgb(20 30 25 / .10);
+  --shadow: 0 1px 2px rgb(16 32 34 / .10), 0 4px 16px rgb(16 32 34 / .12);
   /* the keyboard's focus: a 2 px ring of the accent 2 px off the control; inside a row of a list, whose list clips */
   --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
   --focus-in: inset 0 0 0 2px var(--accent);
@@ -45,56 +47,31 @@
 
 @media (prefers-color-scheme: dark) {
   .ui:not([data-theme="light"]) {
-    --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631; --rule: #2c3631; --hover: #1f2723;
+    --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --line: #4a5c5d; --rule: #2a3738; --hover: #1e2829;
     --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
     --accent-map: #14676f; --status-run: #1a4f57;
     --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
     --tight-bg: #3b3220; --tight-edge: #9a8152; --tight-ink: #e8cfa6;
     --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
-    --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
+    --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #121a1b;
     --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
     --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
     --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
-    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
+    --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
     color-scheme: dark;
   }
 }
 .ui[data-theme="dark"] {
-  --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631; --rule: #2c3631; --hover: #1f2723;
+  --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --line: #4a5c5d; --rule: #2a3738; --hover: #1e2829;
   --accent: #62c3cc; --accent-ink: #7fd0d8; --accent-soft: #173a3d; --on-accent: #06201f;
   --accent-map: #14676f; --status-run: #1a4f57;
   --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
   --tight-bg: #3b3220; --tight-edge: #9a8152; --tight-ink: #e8cfa6;
   --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
-  --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
+  --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #121a1b;
   --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
   --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
   --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
-  --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
-  color-scheme: dark;
-}
-
-/* The result view's own neutrals (the pilot's mock-up, 2026-11-18, "for now"; result/view/SpotColumns.tsx's root
-   .v-result): --bg the ground (its side panels and header), --surface what is raised (the boxes over the map, the
-   phone's sheet), --surface-2 what is set in (tiles, fields), --hover a row under the mouse, --rule the thin rules
-   between parts, --line a control's edge; --value the colour of a line's values (rows, tiles, facts: the ink, or
-   var(--accent) to show them in the accent). The accent family stays the app's (above). */
-.ui .v-result {
-  --bg: #f2f5f5; --surface: #ffffff; --surface-2: #e5ebeb; --hover: #e8eeee;
-  --ink: #16262a; --ink-2: #3c4e52; --muted: #56686c; --rule: #d3dcdc; --line: #b3c1c2;
-  --value: var(--ink);
-  --shadow: 0 1px 2px rgb(16 32 34 / .10), 0 4px 16px rgb(16 32 34 / .12);
-  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);  /* again here: the ring's gap is the view's surface */
-}
-@media (prefers-color-scheme: dark) {
-  .ui:not([data-theme="light"]) .v-result {
-    --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --hover: #1e2829;
-    --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --rule: #2a3738; --line: #4a5c5d;
-    --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
-  }
-}
-.ui[data-theme="dark"] .v-result {
-  --bg: #121a1b; --surface: #1a2425; --surface-2: #222d2e; --hover: #1e2829;
-  --ink: #e2ebeb; --ink-2: #b2c0c1; --muted: #8fa1a2; --rule: #2a3738; --line: #4a5c5d;
   --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
+  color-scheme: dark;
 }
