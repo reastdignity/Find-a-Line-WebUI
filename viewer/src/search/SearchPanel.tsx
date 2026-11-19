@@ -436,7 +436,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {!problem && <Icon name="next" class="s-sum-mark" />}</button>}
     {/* On a phone the receipt may be folded away (display: none): what it says is read out from here */}
     {phone && <p class="u-sr" aria-live="polite">
-      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(", ")}</p>}
+      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
     {s.error && <p class="s-problem s-bar-error" role="alert">{s.error}</p>}
     <SizeWord s={s} phone={phone} />
     {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>area</span>}</div>}
@@ -445,7 +445,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
     {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b><span>tiles</span></div>}
     <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
       {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
-        <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && ", "}
+        <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
           <button type="button" data-field={p.field} title={t("basic.receipt.open")}
                   onClick={() => s.toAdvanced(p.field)}>{p.text}{p.tail && <span class="s-wide-only">{p.tail}</span>}</button></span>)}
     </p>

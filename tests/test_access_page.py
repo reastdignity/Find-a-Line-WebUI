@@ -466,9 +466,9 @@ def test_receipt_of_a_search_too_wide_for_the_mark(tmp_path):
                 ctx.close()
         finally:
             browser.close()
-    assert r["desktop"][0].endswith("no A-frames, access not marked: area too wide"), r
-    assert r["phone"][0].endswith("no A-frames, access not marked"), r
-    assert r["marked"][0].endswith("no A-frames, access marked, no line filtered out"), r
+    assert r["desktop"][0].endswith("no A-frames · access not marked: area too wide"), r
+    assert r["phone"][0].endswith("no A-frames · access not marked"), r
+    assert r["marked"][0].endswith("no A-frames · access marked, no line filtered out"), r
     assert all("1 warning(s)" in r[name][1] and r[name][2] is True for name in ("desktop", "phone", "marked")), r
     assert r["field"] == ["advanced", True], r
 

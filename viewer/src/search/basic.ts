@@ -330,10 +330,10 @@ export function receiptParts(values: Values, defaults: Values, inUse: Rig | null
   return parts;
 }
 
-/** The compact phone bar's one line: "<goal or Custom>, <lengths>, <rig>". */
+/** The compact phone bar's one line: "<goal or Custom> · <lengths> · <rig>". */
 export function receiptShort(values: Values, goalTitle: string | null, inUse: Rig | null): string {
   return [goalTitle ?? t("preset.custom"), t("basic.receipt.lengths", {min: num(values.min_length), max: num(values.max_length)}),
-          rigNameOf(values, inUse)].join(", ");
+          rigNameOf(values, inUse)].join(" · ");
 }
 
 // ---- the size word ---------------------------------------------------------------------------------------
