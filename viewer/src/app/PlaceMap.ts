@@ -88,15 +88,22 @@ export class PlaceMap {
     const media = typeof matchMedia === "function" ? matchMedia(PHONE) : null;
     const arrange = () => {
       const phone = this.phone = !!media?.matches;
+      // the layers' control is built again at its new place: the keyboard's focus on its button goes with it
+      const held = !!layersControl.getContainer()?.contains(document.activeElement);
       element.classList.toggle("c-map-phone", phone);
       zoom.setPosition(phone ? "topleft" : options.controls);
       layersControl.setPosition(phone ? "topright" : options.controls);
       this.coverage.place(phone ? "row" : "box");
       if (this.mode === "draw" && !this.hidden) this.setMode("draw");  // the drawing tools to their corner
+      if (held) layersControl.getContainer()?.querySelector<HTMLElement>(".leaflet-control-layers-toggle")?.focus();
     };
     arrange();
     media?.addEventListener("change", arrange);
     this.map.on("unload", () => media?.removeEventListener("change", arrange));  // not after the map is gone
+    // an open layers' box is fitted again when the map's size changes (a phone turned): its last row stays in reach
+    this.map.on("resize", () => {
+      if (layersControl.getContainer()?.classList.contains("leaflet-control-layers-expanded")) layersControl.expand();
+    });
     this.drawn.addTo(this.map);
     this.shown.addTo(this.map);
     this.preview.addTo(this.map);
