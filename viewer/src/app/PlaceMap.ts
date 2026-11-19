@@ -96,6 +96,7 @@ export class PlaceMap {
     };
     arrange();
     media?.addEventListener("change", arrange);
+    this.map.on("unload", () => media?.removeEventListener("change", arrange));  // not after the map is gone
     this.drawn.addTo(this.map);
     this.shown.addTo(this.map);
     this.preview.addTo(this.map);
