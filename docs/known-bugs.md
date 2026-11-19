@@ -417,9 +417,7 @@ outlines are Tab stops before the pin and every control; on a desktop the Tab or
 layers, zoom (their order in the corner).
 
 The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
-90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways. The error
-line of an empty "Area" says "the tools on the left of the map" (`error.need_drawing`): they are at the bottom
-right on a desktop (as on main) and in the top row on a phone; a text for the planner.
+90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways.
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
