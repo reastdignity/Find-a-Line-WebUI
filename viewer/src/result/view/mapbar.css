@@ -162,6 +162,28 @@
 .ui :is(.v-result.c-result-phone .v-map, .v-result .v-map.v-compact, .c-placemap.c-map-phone) .leaflet-control-zoom a { border-bottom: 0; }
 .ui :is(.v-result.c-result-phone .v-map, .v-result .v-map.v-compact, .c-placemap.c-map-phone) .leaflet-control-zoom a + a {
   border-left: 1px solid var(--rule); }
+/* The place map's drawing tools (Leaflet-Geoman's toolbar; Advanced, the place kind "Area") in its phone
+   arrangement: one row to the right of the zoom (under it where the map is too narrow for both), 44 px each, in the
+   map bar's look; what a tool offers while it is on ("Finish", "Cancel") opens under the row. One block: taking
+   it out gives Geoman's own column of 30 px buttons under the zoom again */
+.ui .c-placemap.c-map-phone .leaflet-top.leaflet-left { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: calc(100% - 52px); }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar { display: flex; background: var(--surface); border: 0; border-radius: var(--r-2);
+  box-shadow: var(--shadow); }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container { position: static; }  /* its actions hang from the row */
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container a.leaflet-buttons-control-button { width: 44px; height: 44px; padding: 12px;
+  border: 0; border-radius: 0; background-color: transparent; }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container + .button-container a.leaflet-buttons-control-button {
+  border-left: 1px solid var(--rule); }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container:first-child a.leaflet-buttons-control-button {
+  border-radius: var(--r-2) 0 0 var(--r-2); }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container:last-child a.leaflet-buttons-control-button {
+  border-radius: 0 var(--r-2) var(--r-2) 0; }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar a.leaflet-buttons-control-button:focus-visible { box-shadow: var(--focus-in); }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .button-container .leaflet-pm-actions-container { top: calc(100% + 4px); left: 0; right: auto; }
+.ui .c-placemap.c-map-phone .leaflet-pm-toolbar .leaflet-pm-actions-container .leaflet-pm-action { height: 44px; line-height: 44px;
+  padding: 0 12px; font-size: var(--fs-2); }
+@media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) .c-placemap.c-map-phone .leaflet-pm-toolbar .control-icon { filter: invert(.9); } }
+.ui[data-theme="dark"] .c-placemap.c-map-phone .leaflet-pm-toolbar .control-icon { filter: invert(.9); }
 /* a phone held sideways (a short phone layout: the user's Q2 a of 2026-11-18): the zoom and the layers go up into the
    switch's row, the zoom right of Best (MapBar's --v-switch-right: where the switch and Best end), the shore's chip
    after the zoom or on the next row; room for the foot under them at both stops (one pair left: docs/known-bugs.md) */

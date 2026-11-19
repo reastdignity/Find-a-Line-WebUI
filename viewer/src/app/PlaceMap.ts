@@ -78,7 +78,7 @@ export class PlaceMap {
   private mode: Mode = "point";
   private hidden = false;    // setSearchVisible(false)
   private controls: L.ControlPosition;  // of the zoom buttons, the layers and the drawing tools
-  private phone = false;     // the phone's arrangement (PHONE): the drawing tools under the zoom at the top left
+  private phone = false;     // the phone's arrangement (PHONE): the drawing tools at the top left, a row beside the zoom
   coverage: CoverageLayer;   // where the elevation data is detailed (its own button)
   onPoint: (lat: number, lon: number) => void = () => {};
   onDrawn: () => void = () => {};
@@ -174,7 +174,8 @@ export class PlaceMap {
     this.mode = mode;
     if (this.hidden) return;  // setSearchVisible(true) applies it
     if (mode === "draw") {
-      // a phone: under the zoom at the top left (at the bottom right their column reaches the layers' button)
+      // a phone: at the top left, a row beside the zoom (mapbar.css; at the bottom right their column reaches the
+      // layers' button)
       this.map.pm.removeControls();
       this.map.pm.addControls({position: this.phone ? "topleft" : this.controls, drawMarker: false, drawCircleMarker: false,
                                drawPolyline: false, drawText: false, drawCircle: false, cutPolygon: false,
