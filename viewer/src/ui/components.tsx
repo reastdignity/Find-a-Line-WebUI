@@ -110,11 +110,12 @@ export function Segmented<T extends string>({options, value, onChange, label}:
 
 // ---- panels and fields -----------------------------------------------------------------------
 
-/** A raised card; `padded` lays its children out in a column with gaps. */
+/** A section of a page, on the ground (R8: no box; a thin rule parts it from the section above; ui.css .u-ground);
+ *  `padded` lays its children out in a column with gaps. The raised look is the class u-panel alone (popovers). */
 export function Panel({title, actions, padded = true, class: cls, children}:
                       {title?: ComponentChildren; actions?: ComponentChildren; padded?: boolean; class?: string;
                        children?: ComponentChildren}) {
-  return <section class={cx("u-panel", padded && "u-pad", cls)}>
+  return <section class={cx("u-panel u-ground", padded && "u-pad", cls)}>
     {(title || actions) && <div class="u-panel-head">
       {title && <h2 class="u-h">{title}</h2>}{actions && <div class="u-row">{actions}</div>}</div>}
     {children}
@@ -171,8 +172,8 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
 export type Status = "running" | "done" | "waiting" | "failed" | "cancelled" | "shared";
 // cancelled: the user's own act, not a failure: quiet (the grey of waiting), the cancel action's icon
 const STATUS: Record<Status, [string, IconName]> = {
-  running: ["running", "refresh"], done: ["done", "check"], waiting: ["waiting", "clock"], failed: ["failed", "warn"],
-  cancelled: ["cancelled", "close"], shared: ["shared", "link"],
+  running: ["Running", "refresh"], done: ["Done", "check"], waiting: ["Waiting", "clock"], failed: ["Failed", "warn"],
+  cancelled: ["Cancelled", "close"], shared: ["Shared", "link"],
 };
 
 /** The state of a search or run as a small coloured label. */
