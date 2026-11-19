@@ -15,7 +15,7 @@ import type { Anchor3d } from "./decode";
 import type { InterleavedBufferAttribute } from "three";
 import type { Option } from "./options";
 import type { SceneCore } from "./scene";
-import { overlayOf, place, toScreen } from "./screen";
+import { overlayOf, place, pressedMark, toScreen } from "./screen";
 import { raised } from "./geometry";
 import { CURVE_POINTS, resample, webbing, writeSegments } from "./webbing";
 import "./point.css";
@@ -142,7 +142,8 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
         dot.setAttribute("aria-label", `${t("ui.view3d.point_length")} ${o.len.toFixed(1)} m`);
         dot.addEventListener("pointerenter", () => handlers.hover(o.rank));
         dot.addEventListener("pointerleave", () => handlers.hover(null));
-        dot.addEventListener("click", () => handlers.choose(o.rank));
+        // a press where targets overlap goes to the nearest dot (view3d.css: 44 px targets on a touch screen)
+        dot.addEventListener("click", (e) => handlers.choose(Number(pressedMark(dot, dots, e).dataset.rank)));
         host.append(dot);
         dots.push(dot);
       }

@@ -30,6 +30,27 @@ export function place(element: HTMLElement, at: {x: number; y: number} | null) {
   if (at) element.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px)`;
 }
 
+/** Of the shown marks `among` (fan dots, other lines' labels), the one whose centre lies nearest to the press at
+ *  (clientX, clientY), else null: a mark's target is larger than the mark (24 px, 44 px on a touch screen:
+ *  view3d.css) and two may overlap, where the nearer mark's centre wins, not the order they are drawn in. */
+export function nearestMark<T extends HTMLElement>(among: Iterable<T>, clientX: number, clientY: number): T | null {
+  let best: T | null = null, bestDistance = Infinity;
+  for (const mark of among) {
+    if (mark.classList.contains("v3-hidden") || mark.closest(".v3-hidden")) continue;
+    const r = mark.getBoundingClientRect();
+    if (!r.width && !r.height) continue;  // not drawn (its view hides it)
+    const d = Math.hypot(r.left + r.width / 2 - clientX, r.top + r.height / 2 - clientY);
+    if (d < bestDistance) { best = mark; bestDistance = d; }
+  }
+  return best;
+}
+
+/** The mark a click goes to: the nearest's (nearestMark) for a press of a pointer, the clicked one itself for a
+ *  click without a place (a key, a script's click: `detail` 0). */
+export function pressedMark<T extends HTMLElement>(clicked: T, among: Iterable<T>, e: MouseEvent): T {
+  return e.detail > 0 ? nearestMark(among, e.clientX, e.clientY) ?? clicked : clicked;
+}
+
 const raycaster = new Raycaster();
 raycaster.firstHitOnly = true;  // three-mesh-bvh: the nearest hit only
 
