@@ -393,9 +393,10 @@ questions for the user (a change of place is not built without a mock-up):
   setting in Advanced. At 44 px each they need a row a part (the bar would cover most of a phone's form).
 - **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
   itself needs no press.
-- **A setting's checkbox in Advanced** ("Mark anchors you can walk to", four states): the box is 20 px and its
-  label's line 20 px high; the kit's `Field` draws the label above the control, and a row of 44 px for one field
-  alone would stand apart from the others.
+
+Outside group A, by the kit's sizes and accepted (that page is being replaced by the new result view): on today's
+result page on a phone the filter chips are 44 px high and "More filters" stands on a row of its own, so the list
+starts about 40 px lower.
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
