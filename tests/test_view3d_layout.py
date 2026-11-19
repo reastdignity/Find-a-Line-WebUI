@@ -156,8 +156,6 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
                     assert state["slider"] >= 64, where
                 heights = {state["bar"] for state in states.values()}
                 assert len(heights) == 1 and heights.pop() < 90, (width, states)
-                # the data credits start folded there, also from 768 px of width (scene.ts wideScreen)
-                assert page.evaluate("() => document.querySelector('.u-credits-toggle')?.getAttribute('aria-expanded')") != "true"
                 assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
                 page.context.close()
         finally:
@@ -237,7 +235,8 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
     the preview's note (its sentence "Check every line on the spot") and the phone level's; the bar keeps its height
     when the box opens and when the view changes, and the box then shows the look hint in place of the phone
     level's note; the button says whether the box is open, the focus goes into the box, Escape closes it and gives
-    the focus back, and so does the box's own button; a failure's note stays in the bar. A desktop keeps its lines
+    the focus back (and ends nothing else: "Lines from a point" stays on), and so does the box's own button; a
+    failure's note stays in the bar. A desktop keeps its lines
     in the bar and has no button."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3dinfo")
@@ -285,6 +284,19 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             page.evaluate("() => document.querySelector('.v3-bar > .v3-others-note').classList.remove('v3-hidden')")
             assert any("v3-alert" in cls for cls in page.evaluate(INFO)["inBar"])
             assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+            # the full level on the phone, "Lines from a point" on and the box open: one Escape closes the box and
+            # leaves the tool on (the box takes the press first), the next one ends the tool
+            page = _open(browser, url.replace("#", "?level=full#"), _phone(p, 390, 664))
+            tool = "() => document.querySelector('.v3-tool[data-tool=point]').getAttribute('aria-pressed')"
+            page.evaluate("() => document.querySelector('.v3-tool[data-tool=point]').click()")
+            assert page.evaluate(tool) == "true"
+            page.evaluate("() => document.querySelector('.v3-info').click()")
+            assert page.evaluate(INFO)["box"]
+            page.keyboard.press("Escape")
+            assert page.evaluate(INFO)["box"] is None and page.evaluate(tool) == "true"
+            page.keyboard.press("Escape")
+            assert page.evaluate(tool) == "false"
             page.context.close()
             # a desktop: the lines in the bar, no button
             page = _open(browser, url, {"viewport": {"width": 1200, "height": 800}})

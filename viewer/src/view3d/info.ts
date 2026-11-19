@@ -65,7 +65,9 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   const watch = typeof MutationObserver === "function" ? new MutationObserver(copy) : null;
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape" || !open) return;
+    // the box first: the same press does not also end "Lines from a point" (point.ts listens on the window)
     e.preventDefault();
+    e.stopPropagation();
     self.close(true);
   };
   const self: Info = {
@@ -78,14 +80,14 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       watch?.observe(bar, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"]});
       box.classList.remove("v3-hidden");
       button.setAttribute("aria-expanded", "true");
-      document.addEventListener("keydown", onKey);
+      document.addEventListener("keydown", onKey, true);
       shut.focus();
     },
     close(focus = false) {
       if (!open) return;
       open = false;
       watch?.disconnect();
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
       box.classList.add("v3-hidden");
       lines.replaceChildren();
       button.setAttribute("aria-expanded", "false");
