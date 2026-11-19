@@ -917,7 +917,12 @@ target on a touch screen, as are the fan's dots and the anchors' handles (their 
 "Over trees" and its clearance "up to 2.0 m"; the tool strip (decision 0) keeps its place and its icons alone at the
 phone level, its buttons 44 px wide on a touch screen; the phone's bar keeps its rows and its equal height in every view.
 Three layout questions of the phone (the bar and the strip held sideways, the strip over the card, the notes under the
-bar) wait for their own mock-up.
+bar) were answered by the user on a mock-up: the next section.
+
+## Step 3c, group B: the phone's layout (2026-11-19)
+The user picked one option for each of three questions on a mock-up (docs/DESIGN.md rows 37 to 39;
+`tests/test_view3d_layout.py` fails when one is taken out). Each moves decisions recorded above.
+- **A phone held sideways: one row** ("A: one row"). On a touch screen at most 480 px high and wider than 600 px, at both levels, the bar is the readout's line (its sentences, not the short form) and ONE row: the views' switch as icons, in the athlete's views the zoom and the phone's motion, the slider, the walk, the speed, the imagery's select. Moved: the phone bar (waves 3 and 4: "the slider and the imagery control in one row") gains the views' switch in that row there; the switch shows icons alone there (wave F: names from 600 px on) and the imagery is the select (V4a: under 600 px only); the tool strip shows icons alone there at the full level too (decision 0: at the phone level and under 600 px). Kept: the bar as high in every view (80.5 px in the orbit and both athlete's views, with two and with four kinds of imagery, at 844 x 390 and 667 x 375; the stage 248.5 and 233.5 px, where the wide bar's words left 144.6 px at 844 x 390 in the athlete's eyes). The row wraps when its pieces do not fit, never overlaps: in the athlete's views with four kinds of imagery it holds from about 616 px of width (at 667 px the select is 113 of its 133 px, the slider 68 px); a touch screen at most 600 px wide keeps the two rows of V4a.
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
