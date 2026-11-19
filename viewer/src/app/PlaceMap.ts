@@ -49,7 +49,14 @@ const Layers = L.Control.Layers.extend({
     const room = this._map.getSize().y - container.offsetTop - around - Math.max(8, 4 + (credits?.offsetHeight ?? 0));
     const scrolls = section.scrollHeight > room;
     section.classList.toggle("leaflet-control-layers-scrollbar", scrolls);
-    if (scrolls) section.style.height = `${Math.max(room, 44)}px`;
+    if (scrolls) {
+      // the list ends in the middle of a row, never between two: the cut row says there is more to scroll to
+      const row = section.querySelector<HTMLElement>("label")?.offsetHeight || 44;
+      let height = Math.max(room, row);
+      const over = height % row;
+      if (over < row / 4 || over > row * 3 / 4) height = (Math.round(height / row) - 0.5) * row;
+      section.style.height = `${Math.max(height, row)}px`;
+    }
     return this;
   },
 }) as unknown as new (base: L.Control.LayersObject, overlays: L.Control.LayersObject, options: L.Control.LayersOptions) => L.Control.Layers;
