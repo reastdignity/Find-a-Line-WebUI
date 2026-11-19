@@ -302,8 +302,8 @@ PAGES = {
     "c-new-limited-hint": ("c", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
     "c-favourites": ("c", "#favourites", None),
     "c-admin": ("c", "#admin", None),
-    # its lower sections: the problem report and the runs at the top of the view; the page's end (the extracts)
-    "c-admin-reports": ("c", "#admin", "js:document.querySelector('.c-report')?.scrollIntoView({block: 'start'})"),
+    # its lower sections at the page's end: the problem report, the runs and the extracts (the page is too short for a
+    # state of the report at the view's top: on the desktop and the Pixel it was this same picture)
     "c-admin-end": ("c", "#admin", "scroll:.c-main"),
     "c-layer-cell": ("c", "#layer", "js:" + CELL_AT_CENTRE),  # the highline layer's cell under the map's centre selected
     "c-osm": ("c", "#osm", None),
