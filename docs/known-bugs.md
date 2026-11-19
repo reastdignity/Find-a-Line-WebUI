@@ -391,11 +391,13 @@ result page on a phone the filter chips are 44 px high and "More filters" stands
 starts about 40 px lower.
 
 With the place map's phone arrangement (choice 34): on a phone held sideways in the narrow frame (667 x 375, a
-128 px map) the opened layers' box shows 104 px of its 143 px of rows and scrolls inside; "Data coverage", its last
-row, is reached by that scroll. The drawing tools (Advanced, "Area") keep Leaflet-Geoman's own look and 30 px
-buttons at the map's bottom right (no `ui_shots` state shows them on a phone; not measured). On a tablet in the
-columns with a finger the coverage's own box keeps its 32 px button (the desktop's arrangement: the user picked on
-phone frames).
+128 px map) the opened layers' box ends 4 px above the credits and shows about 90 px of its 143 px of rows (two
+rows): it scrolls inside, and "Data coverage", its last row, is reached by that scroll. The drawing tools
+(Advanced, "Area") keep Leaflet-Geoman's own look and 30 px buttons (under R2's 44 px); on a phone they stand
+under the zoom at the top left (at the bottom right their column reached the layers' button: measured 30 x 25 px
+of overlap at 390 x 664), and on the 128 px map of a phone held sideways the five do not fit the map (as on main,
+where they shared the corner with the zoom, the layers and the coverage). On a tablet in the columns with a finger
+the coverage's own box keeps its 32 px button (the desktop's arrangement: the user picked on phone frames).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
