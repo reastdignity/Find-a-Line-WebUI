@@ -306,3 +306,32 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             page.context.close()
         finally:
             browser.close()
+
+
+def test_view3d_sideways_credits_start_folded(clip_data, monkeypatch):
+    """On a phone held sideways the run's data credits start folded also from 768 px of width (scene.ts wideScreen:
+    open they covered 139 of the stage's 248 px at 844 x 390, the "About this view" button inside them); on a
+    desktop of that width and on a touch tablet they start open, as before."""
+    import json
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dcredits")
+    run_json = data / "runs" / clip_data[1]["id"] / "run.json"  # data credits for the run (as test_view3d_touch_targets)
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**json.loads(saved), "attribution": [
+        {"data": "Test model", "attribution": "Test survey", "licence": "CC BY 4.0", "url": "https://example.org/"}]}),
+        encoding="utf-8")
+    expanded = "() => document.querySelector('.v3-credits .u-credits-toggle').getAttribute('aria-expanded')"
+    try:
+        with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            try:
+                url = f"http://127.0.0.1:{port}/{path}{line}"
+                for context, want in ((_phone(p, 844, 390), "false"), (_phone(p, 1024, 600), "true"),
+                                      ({"viewport": {"width": 844, "height": 390}}, "true")):
+                    page = _open(browser, url, context)
+                    assert page.evaluate(expanded) == want, (context["viewport"], want)
+                    page.context.close()
+            finally:
+                browser.close()
+    finally:
+        run_json.write_text(saved, encoding="utf-8")
