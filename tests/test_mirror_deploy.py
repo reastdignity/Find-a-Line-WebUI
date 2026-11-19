@@ -387,7 +387,8 @@ def test_publishing_door_compose():
     assert re.search(r"^ARG HUSARNET_KEY_FINGERPRINT=[0-9A-F]{40}$", sidecar, re.M)
     assert re.findall(r"^FROM (\S+)", sidecar, re.M) == ["${DEBIAN_IMAGE}", "${DEBIAN_IMAGE}"]
     assert '"husarnet=${HUSARNET_VERSION}"' in sidecar and "--no-install-recommends" in sidecar
-    assert "signed-by=/usr/share/keyrings/husarnet.gpg] https://install.husarnet.com/deb/ all husarnet" in sidecar
+    assert "signed-by=/usr/share/keyrings/husarnet.gpg] https://nightly.husarnet.com/deb/ all husarnet" in sidecar
+    assert re.search(r"^ARG HUSARNET_VERSION=1:2\.0\.\d+$", sidecar, re.M) and '"husarnet=${HUSARNET_VERSION}" jq' in sidecar
     assert '[ "$fingerprints" != "$HUSARNET_KEY_FINGERPRINT" ]' in sidecar
     assert "COPY --chmod=0755 husarnet.sh /usr/local/bin/husarnet.sh" in sidecar
     assert 'ENTRYPOINT ["/usr/local/bin/husarnet.sh", "start"]' in sidecar
@@ -426,31 +427,50 @@ def _bash():
     return shutil.which("bash")
 
 
-def _daemon_status(whitelist: list, base: bool = True, joined: bool = True, whitelist_on: bool = True) -> bytes:
-    """An answer of the Husarnet daemon's GET /api/status in its form (nlohmann's dump(4), v2.0.180's
-    core/api_server/server.cpp), with the fields husarnet.sh reads; the websetup address is Husarnet's."""
-    import json
-    websetup = "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a"
-    result = {"base_connection": {"address": "192.0.2.1", "port": 443, "type": "TCP" if base else "NONE"},
-              "connection_status": {"base": base, "websetup": base}, "is_joined": joined, "is_ready": base,
-              "local_ip": "fc94:1111:2222:3333:4444:5555:6666:7777", "user_settings": {"enableWhitelist": "true" if whitelist_on else "false", "joinCode": ""},
-              "websetup_address": websetup, "whitelist": [websetup] + whitelist}
-    return json.dumps({"result": result, "status": "success"}, indent=4, sort_keys=True).encode()
-
-
-def test_husarnet_health_means_joined_and_up():
-    """publish/husarnet.sh health against a stand-in for the daemon's API: healthy only with a base
-    server connection, is_joined, the whitelist on and a peer on it besides Husarnet's websetup server. The
-    daemon reported is_joined with a refused dummy join code, and then its whitelist held websetup
-    alone (the build's smoke test): that case must stay unhealthy; no daemon at all too."""
-    import http.server
+def _bash_with_jq():
+    """bash, where jq runs too (husarnet.sh reads the daemon's JSON with jq, as the sidecar's image has it)"""
     import subprocess
-    import threading
-
     bash = _bash()
     if not bash:
         pytest.skip("no bash")
-    answer = {"body": b""}
+    if subprocess.run([bash, "-c", "command -v jq"], capture_output=True).returncode != 0:
+        pytest.skip("no jq beside bash (the sidecar's image has it; Linux CI has it)")
+    return bash
+
+
+# Husarnet's own servers in a status of the nightly daemon 2.0.349 (seen 2026-11-19), and its websetup host
+API_SERVER = "fc94:9d15:7d86:cee1:46a2:2209:b58d:e52c"
+EB_SERVER = "fc94:62c3:0cda:07e0:1cd4:64e1:a323:f0de"
+WEBSETUP = "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a"
+
+
+def _daemon_status(peers: list = (), local: list = (), summary: bool = True, dashboard: bool = True,
+                   base: str = "UDP", claimed: bool = False) -> bytes:
+    """An answer of the nightly Husarnet daemon's GET /api/status in its form (2.0.349's
+    core/husarnet/api_server/server.cpp: result.config.dashboard/license/user_config, result.live), with the
+    fields husarnet.sh reads: the dashboard's peers, the local whitelist, Husarnet's servers, the health."""
+    import json
+    result = {
+        "config": {
+            "dashboard": {"claim_info": {"hostname": "", "owner": ""}, "is_claimed": claimed,
+                          "peers": [{"address": a, "aliases": [], "hostname": "pc"} for a in peers]},
+            "env": {"daemon_api_host": "127.0.0.1", "daemon_api_port": 16216},
+            "license": {"api_servers": [API_SERVER], "eb_servers": [EB_SERVER], "websetup_host": WEBSETUP,
+                        "base_server_addresses": ["192.0.2.1"]},
+            "user_config": {"local-whitelist": list(local)},
+        },
+        "live": {"base_connection": {"address": "192.0.2.1", "port": 5582, "type": base},
+                 "dashboard_connection": dashboard, "health": {"summary": summary},
+                 "local_ip": "fc94:1111:2222:3333:4444:5555:6666:7777",
+                 "peers": [{"address": EB_SERVER, "is_active": True}, {"address": API_SERVER, "is_active": True}]},
+        "user_agent": "Husarnet,Linux,AMD64,2.0.349", "version": "2.0.349"}
+    return json.dumps({"result": result, "status": "success"}, indent=4, sort_keys=True).encode()
+
+
+def _fake_api(answer: dict):
+    """A stand-in for the daemon's API on 127.0.0.1:<free port>, answering answer["body"]."""
+    import http.server
+    import threading
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
@@ -466,6 +486,19 @@ def test_husarnet_health_means_joined_and_up():
 
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_husarnet_health_means_up_with_a_peer_of_the_user():
+    """publish/husarnet.sh health against a stand-in for the nightly daemon's API (U79): healthy only when
+    live.health.summary and the control plane connection are true with a base connection, and an address
+    of the user's is on the allow list (the dashboard's peers or the local whitelist), Husarnet's own
+    servers not counting, also when written in another form; no daemon at all: unhealthy."""
+    import subprocess
+
+    bash = _bash_with_jq()
+    answer = {"body": b""}
+    server = _fake_api(answer)
     script = os.path.join(MIRROR, "publish", "husarnet.sh")
 
     def health(port: int) -> int:
@@ -473,19 +506,21 @@ def test_husarnet_health_means_joined_and_up():
         return subprocess.run([bash, script, "health"], env=env, capture_output=True, timeout=60).returncode
 
     peer = "fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"
+    port = server.server_address[1]
     try:
-        port = server.server_address[1]
-        for body, want in [(_daemon_status([peer]), 0), (_daemon_status([]), 1),
-                           (_daemon_status([peer], base=False), 1), (_daemon_status([peer], joined=False), 1),
-                           (_daemon_status([peer], whitelist_on=False), 1),
-                           (b"", 1)]:
+        for body, want in [(_daemon_status(peers=[peer]), 0), (_daemon_status(local=[peer]), 0),
+                           (_daemon_status(), 1),
+                           # Husarnet's own servers as peers, one compressed: not the user's
+                           (_daemon_status(peers=[API_SERVER, "fc94:62c3:cda:7e0:1cd4:64e1:a323:f0de"], local=[WEBSETUP]), 1),
+                           (_daemon_status(peers=[peer], summary=False), 1), (_daemon_status(peers=[peer], dashboard=False), 1),
+                           (_daemon_status(peers=[peer], base="None"), 1), (_daemon_status(claimed=True), 1),
+                           (b"", 1), (b"not json", 1)]:
             answer["body"] = body
-            assert health(port) == want, body[:200]
+            assert health(port) == want, body[:300]
     finally:
         server.shutdown()
         server.server_close()
     assert health(port) == 1   # nothing listening
-
 
 
 def _stub(folder: str, name: str, body: str) -> None:
@@ -495,39 +530,28 @@ def _stub(folder: str, name: str, body: str) -> None:
     os.chmod(path, 0o755)
 
 
-@pytest.mark.parametrize("peer_kept, code, want_rc, want_join, want_line", [
-    (True, "", 0, False, "joined before (a peer on the whitelist): no join"),
-    (True, "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a/NOTAJOINCODEdummy00000", 0, False, "joined before"),
-    (False, "fc94:b01d:1803:8dd8:b293:5c7d:7639:932a/NOTAJOINCODEdummy00000", 0, True, ""),
-    (False, "", 1, False, "not joined (no peer on the whitelist) and no HUSARNET_JOIN_CODE"),
-], ids=["joined-no-code", "joined-with-code", "first-join", "neither"])
-def test_husarnet_start_joins_once(tmp_path, peer_kept, code, want_rc, want_join, want_line):
+CODE = "dummy@example.com/NOTAJOINCODEdummy00000"
+
+
+@pytest.mark.parametrize("state, code, want_rc, want_join, want_line", [
+    ("peer", "", 0, False, "joined before (claimed, or a peer on the allow list): no join"),
+    ("claimed", "", 0, False, "joined before"),
+    ("peer", CODE, 0, False, "joined before"),
+    ("new", CODE, 0, True, ""),
+    ("new", "", 1, False, "not joined (not claimed, no peer on the allow list) and no HUSARNET_JOIN_CODE"),
+], ids=["peer-no-code", "claimed-no-code", "peer-with-code", "first-join", "neither"])
+def test_husarnet_start_joins_once(tmp_path, state, code, want_rc, want_join, want_line):
     """publish/husarnet.sh start with stubs of husarnet-daemon and the husarnet CLI on PATH and a stand-in
-    for the daemon's API: a kept state with a peer on the whitelist starts without a join (with or
-    without the code); no peer and a code: one join, with the code as the CLI's argument and never in
-    the daemon's environment, after the log verbosity went to 2; neither: the refusal line, exit 1. The
-    real daemon did the same with a dummy code (the build's fix round 1, worker-report-fix1)."""
-    import http.server
+    for the nightly daemon's API: a kept state (claimed, or a peer of the user's on the allow list) starts
+    without a join, with or without the code; a new state and a code: one `husarnet claim <code>
+    --hostname <name>`, the code never in the daemon's environment; neither: the refusal line, exit 1.
+    The real nightly daemon did the same with a dummy code (the build's fix round 2, worker-report-fix2)."""
     import subprocess
-    import threading
 
-    bash = _bash()
-    if not bash:
-        pytest.skip("no bash")
-    body = _daemon_status(["fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"] if peer_kept else [])
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
-            self.send_response(200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args):
-            pass
-
-    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    bash = _bash_with_jq()
+    answer = {"body": _daemon_status(peers=["fc94:aaaa:bbbb:cccc:dddd:eeee:ffff:0001"] if state == "peer" else [],
+                                     claimed=state == "claimed")}
+    server = _fake_api(answer)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     calls = (tmp_path / "calls.txt").as_posix()
@@ -549,12 +573,11 @@ def test_husarnet_start_joins_once(tmp_path, peer_kept, code, want_rc, want_join
         server.shutdown()
         server.server_close()
     lines = open(calls, encoding="utf-8").read().splitlines() if os.path.exists(calls) else []
-    joins = [line for line in lines if line.startswith("join ")]
     assert done.returncode == want_rc, (done.returncode, done.stderr)
-    assert lines[:2] == ["daemon logs settings", "daemon logs verbosity 2"], lines
-    assert joins == ([f"join {code} door-test"] if want_join else []), lines
+    assert lines == ([f"claim {code} --hostname door-test"] if want_join else []), lines
     assert want_line in done.stderr
     assert open(tmp_path / "daemon-env.txt", encoding="utf-8").read().strip() == "0"   # no JOIN name reached the daemon
+
 
 def test_publishing_door_sshd_and_gate():
     """Key only, one account, no root, no TTY, no forwarding of any kind, no user rc, the forced gate;

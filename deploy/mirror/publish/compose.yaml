@@ -10,18 +10,18 @@
 #
 # - No port is published on the server at all. sshd's port 2222 is reached at the door's Husarnet
 #   address, by the peers the door's Husarnet whitelist lets in: the devices of its dedicated
-#   Husarnet network (the publishing PC) and Husarnet's websetup server. HUSARNET_STATE is required
+#   Husarnet network (the publishing PC) and Husarnet's own servers. HUSARNET_STATE is required
 #   (compose refuses to start without it); HUSARNET_JOIN_CODE only for the first join (husarnet.sh
 #   refuses to start when the device is neither joined nor given a code).
 # - `husarnet`: built by husarnet-sidecar.Dockerfile next to this file (Husarnet's package from
-#   Husarnet's apt repository on a Debian slim base; the user's U75), as root with Docker's default
+#   Husarnet's nightly apt repository on a Debian slim base; the user's U75, U80), as root with Docker's default
 #   capabilities plus NET_ADMIN for its tun interface hnet0, IPv6 switched on in the namespace, its
 #   state folder (the device's private key, the daemon's API token) bound from HUSARNET_STATE, on
 #   the project's network `publish` for its way out to Husarnet's servers, memory and processes
-#   bounded. Its entry point and healthcheck are husarnet.sh (why not the image husarnet/husarnet's
-#   own: there).
-# - `sftp` starts only when `husarnet` is healthy (joined and up). If `husarnet` is restarted on its
-#   own, `sftp` is left in a namespace with its loopback only: its healthcheck sees that and ends
+#   bounded. Its entry point and healthcheck are husarnet.sh.
+# - `sftp` starts only when `husarnet` is healthy (up, the PC on its allow list; the user's U79). If
+#   `husarnet` is restarted on its own, `sftp` is left in a namespace with its loopback only: its
+#   healthcheck sees that and ends
 #   sshd, and the restart policy starts it in the new namespace (within about 30 s; at once with
 #   `docker compose restart sftp`; compose's own restart of husarnet restarts sftp: depends_on). If
 #   the sidecar is still stopped then, sftp stays Exited: `docker compose up -d` starts it.
@@ -50,10 +50,10 @@ services:
       HUSARNET_JOIN_CODE: "${HUSARNET_JOIN_CODE:-}"
       HUSARNET_HOSTNAME: "${HUSARNET_HOSTNAME:-findaline-mirror-door}"
     restart: unless-stopped
-    # measured 2026-11-19 (Docker Desktop, docker stats every second over 90 s, two runs, the daemon at
-    # its first start with the join CLI, `husarnet status` and the whitelist CLI; an idle daemon, no
-    # traffic): at most 20.6 MiB and 43 processes and threads (the daemon alone 31, its Go CLI adds
-    # threads); about 6 and 3 times that
+    # measured 2026-11-19 (Docker Desktop, docker stats every second over 90 s, two runs, an idle daemon
+    # at its first start with the CLI's claim, `husarnet status` and the whitelist CLI, no traffic): the
+    # nightly 2.0.349 at most 8.4 MiB and 38 processes and threads (the daemon alone 31); 2.0.180 had
+    # reached 20.6 MiB and 43. Kept with room for traffic and the Go CLI's threads
     mem_limit: 128m
     memswap_limit: 128m
     pids_limit: 128
@@ -64,7 +64,8 @@ services:
         bind: {create_host_path: false}
     networks: [publish]
     healthcheck:
-      # joined and up: a base server, is_joined, the whitelist on, a peer on it besides websetup
+      # up (the daemon's health summary: base server and control plane) and a peer of the user's on its
+      # allow list, Husarnet's own servers not counting (husarnet.sh)
       test: ["CMD", "/usr/local/bin/husarnet.sh", "health"]
       interval: 60s
       timeout: 10s

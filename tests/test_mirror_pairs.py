@@ -128,8 +128,9 @@ def test_conftest_keeps_the_rates_for_this_module():
 # site's own host only where a file means the site (SITE_PLACES: the landing page's link to the site)
 SITE = "findaline.lukawski.org"
 OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com",
-               # the door's Husarnet sidecar: its licence (README), its apt repository (husarnet-sidecar.Dockerfile)
-               "app.husarnet.com", "install.husarnet.com"}
+               # the door's Husarnet sidecar: Husarnet's production instance (its licence) and its nightly
+               # apt repository (husarnet-sidecar.Dockerfile, README)
+               "prod.husarnet.com", "nightly.husarnet.com"}
 SITE_PLACES = {os.path.join("deploy", "mirror", "landing", "index.html")}
 # Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
 FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",

@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 2026-11-18/19)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68-U80 2026-11-18/19)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -93,6 +93,12 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U56 | The islets' served cards (two left out a change under "Changes made": the Desertas' replaced reference-system label, Porto Santo's float64 to float32) | "a": both fixed first; the new card texts shown to the user before anything is published |
 | U57 | Keeping the master's `README.md` files in step with the served cards (Porto Santo's and the Desertas' on the master are older than their cards of U56) | both: the publish tool notes a dataset's `README.md` that is missing or differs from the card it serves, at every `publish` and every `verify` of a master folder; the two files are rewritten once on the master by the cutting tool (`mirror_tiles.py cut`, which cuts nothing for a finished dataset), on the user's word |
 | U68 | The door's path from the publishing PC | "a": Husarnet as a sidecar in the door's own compose project; `sftp` runs in its network namespace (`network_mode: service:husarnet`); no port published on the home server at all; `PUBLISH_ADDRESS` and `PUBLISH_PORT` dropped; only the door's port 2222 reached, by the user's Husarnet peers |
+| U75 | The door's Husarnet sidecar image (Husarnet's newest stable image is 2.0.180 of October 2023, on old OS libraries) | "Own image, fresh OS": a small Dockerfile on a current Debian slim with Husarnet's package from Husarnet's apt repository, checked first that the repository serves it |
+| U76 | The door left stopped after the sidecar was down for more than about 30 s, or after a reboot | "README line only": no scheduled `up -d`; `docker compose ps`, then `docker compose up -d` when a publish finds the door down |
+| U77 | The door worker's choices (own start script, healthy only with a peer of the user's so the PC joins first, `sftp` restarting itself, the sidecar as root with default capabilities and `NET_ADMIN`) | "Accept all"; memory and process limits added to the sidecar |
+| U78 | The stable repository serves only 2.0.180 (statically linked, October 2023) | "look for Husarnet 3": Husarnet 3.0 moved its control plane on 2025-12-08; its daemon is the nightly line only; 2.0.180 works through a compatibility layer to be shut down |
+| U79 | The sidecar's health after a restart with the join done once | "Drop 'joined'": health = a connection to Husarnet's base and control servers, and a peer other than Husarnet's own on the allow list |
+| U80 | The door's Husarnet daemon line | "Nightly 2.0.349": the 3.0-protocol daemon from Husarnet's nightly apt repository on the own Debian image, its version pinned; the PC's client a nightly too |
 
 The request itself: "specification, architecture and DoD for mirror hosting inside docker compose", "possible issues
 with security, missuse", "For now it will host only data which is requiring mirror, but later on also country
@@ -183,9 +189,10 @@ U1, U2, U3, U14, U17, U18, U19; P1, P2, P6, P7, P13-P20, P24.
    under the mounted `<root>`; U27, U32, U33) and `husarnet`, a Husarnet sidecar (U68); "one service, no published
    port" holds for the mirror's project, and the door publishes no port either: `sftp` runs in the sidecar's network
    namespace and is reached at the door's Husarnet address by the devices of its dedicated Husarnet network. The
-   sidecar's image is built from `publish/husarnet-sidecar.Dockerfile` (Husarnet's package from Husarnet's apt
-   repository on a Debian slim base pinned by digest, the signing key checked by its fingerprint, the package's
-   version pinned; U75), its entry point and healthcheck `publish/husarnet.sh`; it is the one exception to the
+   sidecar's image is built from `publish/husarnet-sidecar.Dockerfile` (Husarnet's package from Husarnet's nightly
+   apt repository, the 3.0-protocol daemon 2.0.349 of 2026-11-14, not a release, on a Debian slim base pinned by
+   digest, the signing key checked by its fingerprint, the package's version pinned; U75, U78, U80), its entry
+   point and healthcheck `publish/husarnet.sh` (healthy when up and a peer of the user's is on its allow list, U79); it is the one exception to the
    hardening below (root, a writable root, Docker's default capabilities plus `NET_ADMIN`, as Husarnet's image
    runs; with every capability but `NET_ADMIN` dropped it exits), with memory and pid limits (U77). Hardening as the site's containers: the non-root user,
    read-only root, a tmpfs for `/tmp`, all capabilities dropped, no-new-privileges, memory and pid limits with
@@ -786,7 +793,7 @@ Nothing before the build.
 | S4 | Slow readers hold connections | A.6 timeouts; the caps bound what one address and all together can hold; SWAG's shared connections are far above the totals | a reader just above the timeouts holds its slots; no minimum-speed rule exists |
 | S5 | Range and query tricks | A.4 one range; A.2 a query is refused; no cache in front | - |
 | S6 | Reading outside the data | only `<root>/public` served, read-only; A.2's patterns; symlinks, dot-files, `.part` refused; staging and trash outside the served tree | - |
-| S7 | The home network | no published port of the mirror's project, nor of the publishing door (its sshd reached only over Husarnet, by the devices of the door's own Husarnet network and Husarnet's websetup server, U68); an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9); the door's sidecar keeps a connection out to Husarnet's servers (its licence at the first start, a base server), and Husarnet's websetup server is always on its whitelist |
+| S7 | The home network | no published port of the mirror's project, nor of the publishing door (its sshd reached only over Husarnet, by the devices of the door's own Husarnet network and Husarnet's own servers, U68); an internal network with SWAG as the only neighbour; nothing mounted but public data and the log folder; no secret in the container | SWAG and the router, as before the mirror; the home address is now tied to the project's name (U9); the door's sidecar keeps connections out to Husarnet's servers (its licence, a base server, the control plane), and Husarnet's own servers are always on its allow list; it runs a nightly daemon (U80) |
 | S8 | A dataset without the right to redistribute | B's `PUBLISHABLE` with the user's approval is the only way in; cards and the landing page carry the credits; `unpublish` | a wrong row, reviewed like code; Madeira's weak basis (U11) |
 | S9 | Damaged, cut-short or mixed tiles | C.2: sha256 before any use; B: staging, verify, moves | a re-encoding published with `--same-values` that does change values: the promise is the publisher's |
 | S10 | The home server taken over serves crafted tiles | U8: the mirror is trusted as every provider is; TLS; the worker on the VPS runs in its hardened container | every installation trusts the home server's files (the user's decision; pinning hashes in the repo was the alternative) |
@@ -796,7 +803,7 @@ Nothing before the build.
 | S14 | An old image nobody updates | digest pin; the monthly item (D.4) | a manual step at home |
 | S15 | The public copy fills the storage | B: the free-space check before a publish; `clean` | - |
 | S16 | A request body or an odd method reaches SWAG's disk | A.8: SWAG refuses other methods and bodies above 1 KB itself; the mirror answers 413 to a body above 1 KB sent to it directly (A.2) | - |
-| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository; the key opens only the publishing door (U27, U32, U33): SFTP and `sha256sum` under `<root>`, nothing else of the server, no published port: reached only over the door's own Husarnet network (U68), its join code a secret kept in the door's `.env` and out of what the sidecar's API shows without its token (`publish/husarnet.sh`); the public folder is read-only for the container | the PC that publishes is a trusted machine; the key can read the door container's own host key; code running inside `sftp` (not the key: the gate, no forwarding) could read the sidecar's status without its token (the door's and its peers' addresses); the setuid bit over SFTP is not refused by the door (the README names `nosuid`: the planner's ruling) |
+| S17 | The publishing key or the PC is taken over: whoever can write `<root>/public` decides what every installation downloads (with U8, the same outcome as S10) | the README requires a key used for publishing only, never placed on the VPS or in the repository; the key opens only the publishing door (U27, U32, U33): SFTP and `sha256sum` under `<root>`, nothing else of the server, no published port: reached only over the door's own Husarnet network (U68), its join code a secret kept in the door's `.env` and out of what the sidecar's API shows without its token (`publish/husarnet.sh`); the public folder is read-only for the container | the PC that publishes is a trusted machine; the key can read the door container's own host key; code running inside `sftp` (not the key: the gate, no forwarding) could read the sidecar's status without its token (the door's and its peers' addresses and names, the claiming account's e-mail address); the setuid bit over SFTP is not refused by the door (the README names `nosuid`: the planner's ruling) |
 
 ## 9. Still open
 
@@ -844,8 +851,8 @@ tool from the task's branch: `deploy/mirror/` is copied to the home server from 
    (`docker network connect findaline-mirror_mirror swag`, U42); the name added to SWAG's certificate in a
    maintenance stop (A's Risks); the publishing door (a Husarnet network of the PC and the door alone, the PC joined
    first with Husarnet's Windows client; `HUSARNET_JOIN_CODE` (removable after the first join), `HUSARNET_STATE`,
-   `PUBLISH_KEYS`; `up --wait` waits for
-   the sidecar joined and up; nothing published: `docker port` of both containers empty; the door's Husarnet address
+   `PUBLISH_KEYS`; the PC's client Husarnet's Windows nightly (U80); `up --wait` waits for
+   the sidecar up with the PC on its allow list; nothing published: `docker port` of both containers empty; the door's Husarnet address
    into the PC's rclone remote; one mount for `<root>`, U34, U68); `mirror_check.sh --live`
    with an empty public folder; E1. `--live`'s cap check through the real SWAG (LV15: eight requests at once from
    one address) needs a tile of 1 MB or more, so it runs after the first publish (Madeira's tiles are about

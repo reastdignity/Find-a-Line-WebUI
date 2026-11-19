@@ -188,8 +188,8 @@ What the door is:
   one regular file whose resolved path lies under the mirror folder, nothing else (no shell; a symlink out of the
   folder, a device, `..`, two paths, shell syntax are refused);
 - **no port published on the home server at all**. sshd's port 2222 is reached at the door's Husarnet address (an
-  IPv6 address in `fc94::/16`), by the devices the door's Husarnet whitelist lets in (below): the publishing PC,
-  and Husarnet's websetup server. sshd listens on every address of the namespace, so also on the address the door
+  IPv6 address in `fc94::/16`, as before Husarnet 3.0), by the devices the door's Husarnet daemon lets in (below):
+  the publishing PC, and Husarnet's own servers. sshd listens on every address of the namespace, so also on the address the door
   has on the project's network `publish` (Husarnet's way out to its servers); that address is reached from the
   home server itself (and from a container attached to that network, none besides the sidecar), not from the
   LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker host",
@@ -211,48 +211,56 @@ What the door is:
 - no links made over SFTP: the SFTP server refuses symlink and hard link requests (rclone makes none).
 
 **The Husarnet sidecar** (`husarnet` in `publish/compose.yaml`; its image is built here from
-`publish/husarnet-sidecar.Dockerfile`: Husarnet's package from Husarnet's own apt repository, `install.husarnet.com`,
-on a current Debian slim base, the base pinned by digest, Husarnet's signing key by its fingerprint and the package
-by its version; the user's U75):
-- the package is Husarnet 2.0.180 (October 2023), the newest the stable repository serves, the same daemon as the
-  image `husarnet/husarnet`; both its programs are statically linked, so the fresh base renews the system around
-  the daemon (bash, iproute2, procps, glibc), not the libraries built into it;
+`publish/husarnet-sidecar.Dockerfile`: Husarnet's package from Husarnet's own **nightly** apt repository,
+`nightly.husarnet.com`, on a current Debian slim base, the base pinned by digest, Husarnet's signing key by its
+fingerprint and the package by its version; the user's U75, U80):
+- the package is Husarnet **2.0.349, the nightly of 2026-11-14, not a release**: the daemon of Husarnet 3.0, whose
+  control plane moved to a new protocol on 2025-12-08 and which has no stable daemon yet; the stable repository's
+  2.0.180 (October 2023) works only through a compatibility layer Husarnet means to shut down. In the build's
+  checks (2026-11-19) the nightly connected to Husarnet's production servers (`prod.husarnet.com`); Husarnet's beta
+  page still says the nightly is for its beta instance ("On the current main instance only `stable` channel will
+  work", husarnet.com/docs/beta-docs/, read 2026-11-19). Both programs are statically linked;
 - it runs as root in its container, with Docker's default capabilities plus `NET_ADMIN` (its tun interface
-  `hnet0`), the device `/dev/net/tun`, IPv6 switched on in the namespace and a writable root, as the image comes
-  (with every capability dropped but `NET_ADMIN` its daemon exits at start; a read-only root alone was not tried).
-  Its memory is bounded to 128 MB (swap included) and its processes and threads to 128: measured idle with the join
-  and the CLI's status at most 20.6 MiB and 43 (docker stats each second over 90 s, two runs, no traffic; the
-  daemon alone runs 31 threads), about 6 and 3 times that. Its state folder `/var/lib/husarnet`
-  is a bind of `HUSARNET_STATE`: the device's private key (its Husarnet address follows from it), the licence
-  file and the daemon's API token. It is not mounted into `sftp`;
-- it needs Husarnet's servers: at its first start (an empty state folder) the daemon fetches its licence from
-  `app.husarnet.com` and exits without it (later starts with the licence file kept were not tried), and it keeps a connection to one of Husarnet's base servers, which relay the traffic when a
-  direct connection between the PC and the door cannot be made. Their traffic is encrypted ("The connections are also
-  always encrypted", husarnet.com/docs/how-husarnet-works/, read 2026-11-19);
-- its entry point and healthcheck are `publish/husarnet.sh`, not the image's own. The daemon's local API
-  (`127.0.0.1:16216`, inside the namespace `sftp` shares) answers its read requests to any process there without
-  its token; only its changes need the token, which only root of the sidecar reads. Started the image's way (the
-  join code in the daemon's environment), its status (`user_settings.joinCode`) and its log ("Sending join request
-  to websetup (joincode: ...)") carry the join code to whoever asks, uid 1000 of `sftp` too: shown with a dummy
-  code in the build's checks. `husarnet.sh` starts the daemon without the code, raises its log level to warnings,
-  then hands it the code through the CLI (with the token); the code is then in neither answer. The join runs once:
-  when the state folder already holds a peer on the whitelist (the door joined before), the sidecar starts without
-  a join, so **the join code may be removed from `.env` after the first join** (a later start without it and
-  without that state says in `docker compose logs husarnet` that it needs the code, and stops). Until it is
-  removed, it is seen on the home server: by root in `docker inspect` (the container's environment), and, for up
-  to 30 s at a join, by every user of the home server in its process list (`husarnet join <code>`). What stays readable
-  there without the token: the door's Husarnet address, its whitelist and the addresses its peers were reached at
-  (the PC's public address among them). The key's holder cannot ask for it (the gate allows no command and
-  forwarding is off); only code running inside `sftp` could;
+  `hnet0`), the device `/dev/net/tun`, IPv6 switched on in the namespace and a writable root, as Husarnet's image
+  runs (with every capability dropped but `NET_ADMIN` the 2.0.180 daemon exited at start; not tried again).
+  Its memory is bounded to 128 MB (swap included) and its processes and threads to 128: the nightly daemon measured
+  idle at its first start with the CLI's claim, status and whitelist calls at most 8.4 MiB and 38 (docker stats
+  each second over 90 s, two runs, no traffic; the daemon alone runs 31 threads; 2.0.180 had reached 20.6 MiB and
+  43), far below both.
+  Its state folder `/var/lib/husarnet` is a bind of `HUSARNET_STATE`: the device's private key (`id`, its Husarnet
+  address follows from it), the daemon's API token, `config.json` (the local whitelist) and `cache.json` (the
+  licence and the dashboard's last answer). It is not mounted into `sftp`;
+- it needs Husarnet's servers: it fetches its licence from `prod.husarnet.com`, keeps a connection to one of
+  Husarnet's base servers, which relay the traffic when a direct connection between the PC and the door cannot
+  be made, and one to Husarnet's control plane (its "event bus"). Their traffic is encrypted ("The connections
+  are also always encrypted", husarnet.com/docs/how-husarnet-works/, read 2026-11-19);
+- its entry point and healthcheck are `publish/husarnet.sh`. The daemon takes no join code (none of its settings
+  is one): `husarnet.sh` gives the code only to the CLI's `husarnet claim`, which hands it to Husarnet's dashboard
+  through the daemon with the API token (only root of the sidecar reads the token; the daemon logs the request's
+  path, not its body). The daemon's local API (`127.0.0.1:16216`, inside the namespace `sftp` shares) answers its
+  status to any process there without the token; every change and every request to the dashboard needs the token
+  (checked with a dummy code: refused without it). What the status shows without the token: the door's Husarnet
+  address, its peers (addresses and the names the dashboard gives them), the account that claimed the door (an
+  e-mail address) and Husarnet's servers. The key's holder cannot ask for it (the gate allows no command and
+  forwarding is off); only code running inside `sftp` could. The join runs once: when the door is claimed or a
+  peer of the user's is on its allow list (both kept in the state folder), the sidecar starts without a join, so
+  **the join code may be removed from `.env` after the first join** (a later start without it and without that
+  state says in `docker compose logs husarnet` that it needs the code, and stops). Until it is removed, it is seen
+  on the home server: by root in `docker inspect` (the container's environment), and, for up to 30 s at a join, by
+  every user of the home server in its process list (`husarnet claim <code>`);
 - it prints to Docker's log only `husarnet.sh`'s own lines: "joined before ... no join" at a start on a joined
   state, the refusal without a code, and when the API does not answer or the join request fails (the daemon's
-  output goes nowhere: never set `HUSARNET_DEBUG`, which prints the join code there);
-- `sftp` starts only when the sidecar is healthy, which here means joined and up: a base server connection, the
-  daemon joined, its whitelist switched on (the daemon's status shows it as `enableWhitelist`; the dashboard can
-  switch it off, and then any Husarnet device reaches the door: the sidecar turns unhealthy, `docker compose ps`
-  shows it), and at least one address on its whitelist besides Husarnet's websetup server, the one the
-  dashboard puts there for the PC. The daemon's own "joined" flag is no proof: it was true with a refused dummy
-  code. So the PC joins the network first (Install below);
+  output goes nowhere: never set `HUSARNET_DEBUG`);
+- `sftp` starts only when the sidecar is healthy, which here means up and reachable by one of your devices: the
+  daemon's own health summary (a base server connection and the control plane connection: the status's
+  live health summary)
+  and an address on its allow list that is not one of Husarnet's own servers: one the dashboard put there because
+  a device shares the door's network (the PC), or one added to its local whitelist. The 3.0 daemon has no
+  whitelist switch the dashboard could turn off (the CLI's `husarnet daemon whitelist disable` fails: the daemon
+  has no such call); it lets every peer through only when its control plane is switched off locally
+  (`HUSARNET_ENABLE_CONTROL_PLANE=false`, never set here), and then it has no control plane connection and the
+  sidecar is unhealthy. So the PC joins the network first (Install below). After a restart of the sidecar with
+  the state kept, it was healthy again within 5-7 s (three restarts in the build's checks);
 - when the sidecar is restarted on its own (`docker restart`, a crash and Docker's restart), `sftp` is left in a
   network namespace with its loopback only (seen in the check script: the login refused, and `docker compose up
   -d` does not mend it). Its healthcheck sees that and ends sshd, and Docker's restart policy starts `sftp` again
@@ -264,17 +272,18 @@ by its version; the user's U75):
   `docker compose ps` in `publish/` (not tried: the order in which Docker starts the two at boot).
 
 **The Husarnet network**: make a network in Husarnet's dashboard for the door alone and put into it only the
-publishing PC and the door; do not add the door to any other network, nor other devices to this one. Husarnet's
-whitelist decides who may reach a device at all: "if given IPv6 address is on the whitelist, then it can send
-packets to current device", and "Typically whitelist is managed by the Dashboard (i.e. if you add your device to a
-group in the Dashboard, all of the devices are notified of new member and will add it to their own whitelists)";
-"our Websetup Server will always be on your whitelist"; "Disabling whitelist is highly discouraged, as it makes
-our device open for connections from any other Husarnet device" (husarnet.com/docs/cli-guide/, read 2026-11-19).
-So in a network of its own the door accepts packets from the PC and from Husarnet's websetup server only; every
-other device of the account, and the PC's other networks, stay out, as long as the whitelist is on (the sidecar's
-health requires it: above). The join code admits any device to the
-network: it is a secret ("Keep your join code secret!", the same page), kept only in the door's `.env`; whoever
-had it could add a device that the door then lets in (sshd still asks for the publishing key).
+publishing PC and the door; do not add the door to any other network, nor other devices to this one. The daemon
+lets a device reach the door only when it is on its allow list: the devices the dashboard says share a network
+with the door, the addresses of its local whitelist, and Husarnet's own servers (its API and event bus servers,
+the websetup host) (the 3.0 daemon's sources, `core/husarnet/config_manager.cpp`, `isPeerAllowed`; Husarnet's
+2.0 guide said the same of its whitelist: "if given IPv6 address is on the whitelist, then it can send packets to
+current device", husarnet.com/docs/cli-guide/, read 2026-11-19). So in a network of its own the door accepts
+packets from the PC and from Husarnet's servers only; every other device of the account, and the PC's other
+networks, stay out. The code admits a device: a join code (it puts the door into that network; it may look like
+`<your e-mail>/<code>`) or a claim code (it puts the door into your account only; then add it to the network in the
+dashboard). It is a secret ("Keep your join code secret!", the same guide), kept only in the door's `.env` until
+the first join; whoever had a join code could add a device that the door then lets in (sshd still asks for the
+publishing key).
 
 The door's own logs (Docker's json-file logs of `findaline-mirror-publish-sftp-1` and `-husarnet-1`, `docker
 compose logs` in `publish/`) are kept: sshd writes there the publishing PC's Husarnet address and the key's
@@ -298,13 +307,15 @@ cannot read); and whoever holds it decides what every installation downloads (sp
   findaline-publish.pub ...` from. On the server, `ssh-keygen -l -f findaline-publish.pub` must show the same
   fingerprint as on the PC. The private half never leaves the PC.
 
-**The PC's side of Husarnet** (once): install Husarnet's Windows client ("Download the latest Husarnet Windows
-installer and run it", it then runs as a Windows service; "Some commands need Administrator-level privileges":
-husarnet.com/docs/platform-windows-install/, read 2026-11-19), then, in a terminal opened as Administrator (the
+**The PC's side of Husarnet** (once): the PC needs a 3.0 client too: Husarnet's Windows **nightly**, "Husarnet for
+Windows version 2.0.326 or later (nightly channel)" (husarnet.com/docs/beta-docs/, read 2026-11-19), from
+`https://nightly.husarnet.com/windows/win64/` (the installer husarnet-2.0.349-win64.exe of 2026-11-14 when written; Windows'
+SmartScreen may warn). It runs as a Windows service; "Some commands need Administrator-level privileges"
+(husarnet.com/docs/platform-windows-install/, read 2026-11-19). Then, in a terminal opened as Administrator (the
 CLI reads the daemon's token, which only an administrator can read), join the door's network:
 ```sh
-husarnet join <the network's join code> <a name for the PC>
-husarnet status                 # Is joined? yes; Husarnet IP: the PC's address
+husarnet join <the network's join code> --hostname <a name for the PC>
+husarnet status                 # Claimed by: your account; This device IP: the PC's address; Peers: the door, once it joined
 ```
 
 **Install** (on the server; `ROOT` as in the mirror's install, `KEYS` and `HSTATE` folders outside the copy of
@@ -325,8 +336,8 @@ docker run --rm --network none -v "$KEYS:/v:ro" --entrypoint ssh-keygen findalin
 install -m 0644 findaline-publish.pub "$KEYS/authorized_keys"
 # The folders the account writes
 chown -R 1000:1000 "$ROOT/staging" "$ROOT/public" "$ROOT/trash"       # logs/ stays 101:101, 0750
-docker compose up -d --wait            # husarnet: healthy (joined, the PC on its whitelist), then sftp: healthy
-docker compose exec husarnet husarnet status        # the door's Husarnet IP; the whitelist: the PC and websetup
+docker compose up -d --wait            # husarnet: healthy (up, the PC on its allow list), then sftp: healthy
+docker compose exec husarnet husarnet status        # This device IP: the door's address; Peers: the PC
 docker port findaline-mirror-publish-sftp-1         # nothing: no published port
 docker port findaline-mirror-publish-husarnet-1     # nothing
 ```
@@ -377,7 +388,7 @@ docker compose ps            # sftp and husarnet: running (healthy)
 docker compose up -d         # sftp Exited (after the sidecar was down for more than about 30 s, or a reboot): starts it
 ```
 `up -d` waits for the sidecar to be healthy; if it says the sidecar is unhealthy, `docker compose exec husarnet
-husarnet status` shows what is missing (base server, the join, the PC on the whitelist, the whitelist on).
+husarnet status` shows what is missing (Health, Claimed by, the PC among the Peers).
 
 **Checking it**, from the PC (works before the first publish too; Husarnet's client running):
 ```sh
@@ -398,9 +409,13 @@ or in CI, with a stand-in for the sidecar (it has no join code and never reaches
 `publish/Dockerfile`); the packages are not pinned, so a rebuild takes the newest OpenSSH of that Alpine branch.
 The sidecar's image is built from `publish/husarnet-sidecar.Dockerfile`: its Debian base is pinned by tag and
 digest (`ARG DEBIAN_IMAGE`; the newest tag of the Debian stable slim line, its digest from `docker buildx
-imagetools inspect debian:<tag>`), Husarnet's package by its version (`ARG HUSARNET_VERSION`; change it only after
-checking `publish/husarnet.sh`'s reasons against that version's sources, its header), the signing key by its
-fingerprint; Debian's packages are not pinned, so a rebuild takes that release's newest. Edit the pins, then
+imagetools inspect debian:<tag>`), Husarnet's package by its version (`ARG HUSARNET_VERSION`: a nightly, 2.0.349 of
+2026-11-14 when written, from the nightly repository's list
+`https://nightly.husarnet.com/deb/dists/all/husarnet/binary-amd64/Packages`; a nightly may change what
+`publish/husarnet.sh` relies on, so change it only after checking that against the version's sources, the
+script's header, and running the door's checks; when Husarnet releases a stable 3.0 daemon, move to it), the
+signing key by its fingerprint; Debian's packages are not pinned, so a rebuild takes that release's newest. The
+PC's Windows nightly is updated the same way, from the same nightly folder. Edit the pins, then
 `docker compose build --pull` and `docker compose up -d --wait` in `publish/`. The host key and `authorized_keys` stay in
 `PUBLISH_KEYS` and the device key in `HUSARNET_STATE`, so the PC's `known_hosts` and the door's Husarnet address
 stay valid.
