@@ -15,6 +15,9 @@
 /* the sign-in page's one group lies on the ground: no box (R8; step 3c, 2026-11-19) */
 .ui .p-signin .p-card { align-self: center; width: 100%; max-width: 400px; align-items: stretch; text-align: center;
   background: none; border: 0; box-shadow: none; padding: 0; }
+/* the privacy and about pages' text lies on the ground as the sign-in page's group: no raised card (R8; group D,
+   option b); the line gains the card's 24 px padding on each side */
+.ui .p-doc .p-card { background: none; border: 0; box-shadow: none; padding: 0; }
 .ui .p-error { color: var(--bad); background: var(--bad-soft); border-radius: var(--r-2); padding: 8px 12px; text-align: left; }
 .ui .p-providers { display: flex; flex-direction: column; gap: 12px; }
 .ui .p-card form { display: flex; justify-content: center; }
