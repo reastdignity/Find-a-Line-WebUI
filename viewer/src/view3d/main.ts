@@ -42,7 +42,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 }
 
 /** The page's frame: the top bar with the way back, the stage of the canvas with its status and credits, the
- *  bar below with the toolbar's row, the readout and the preview's note. */
+ *  bar below with the toolbar's row, the readout and the preview's note. Landmarks: the top bar is the banner, the
+ *  stage the main part, the bar a region named by `ui.view3d.bar`. */
 function frame(root: HTMLElement, page: PageRequest) {
   document.title = t("ui.view3d.title");
   const top = el("header", "v3-top");
@@ -51,7 +52,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   const copy = el("button", "u-btn v3-copy", t("ui.view3d.copy_link"));
   copy.type = "button";
   top.append(back, el("h1", "v3-title", t("ui.view3d.title")), copy);
-  const stage = el("div", "v3-stage"), status = el("div", "v3-status");
+  const stage = el("main", "v3-stage"), status = el("div", "v3-status");
   status.setAttribute("role", "status");
   const credits = el("div", "v3-credits v3-hidden");
   credits.setAttribute("aria-label", t("ui.view3d.credits"));
@@ -64,7 +65,8 @@ function frame(root: HTMLElement, page: PageRequest) {
   const bottom = el("div", "v3-bottom"), card = el("div", "v3-card");
   bottom.append(credits, card);
   stage.append(status, activity, tools, bottom);
-  const bar = el("div", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
+  const bar = el("section", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
+  bar.setAttribute("aria-label", t("ui.view3d.bar"));
   readout.setAttribute("aria-live", "polite");
   const note = el("p", "v3-note", t("ui.view3d.preview_note"));
   bar.append(readout, toolbar, note);

@@ -4,6 +4,7 @@
 // sizes through the CSSOM.
 
 import { t } from "../i18n";
+import { kitIcon } from "./icon";
 import type { Activity, ActivityAction, ToolButton, Tools, ToolSpec } from "./scene-api";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -24,7 +25,8 @@ export function createActivity(box: HTMLElement): Activity {
   const meter = el("span", "u-prog v3-activity-meter"), fill = el("i", "");
   const action = el("button", "u-btn v3-activity-action"), dismiss = el("button", "u-btn v3-activity-dismiss");
   action.type = dismiss.type = "button";
-  // its cross is drawn by view3d.css: the pill's text stays the message alone
+  // the kit's "close" icon: the pill's text stays the message alone
+  dismiss.append(kitIcon("close"));
   dismiss.setAttribute("aria-label", t("ui.view3d.dismiss"));
   dismiss.title = t("ui.view3d.dismiss");
   meter.append(fill);
