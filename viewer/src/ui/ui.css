@@ -265,15 +265,11 @@
 .ui .u-shore-head b { flex: 1 1 auto; }
 .ui .u-shore-help { font: inherit; cursor: pointer; }
 /* the boxes' help (shoreLayer.ts helpButton: the shore's and the coarser terrain's), the user's S c: 24 px with its
-   16 px icon on every screen; on a touch screen a 44 px target drawn by nothing (R2), as row 25's "?" had: in the
-   shore's box away from the fold button 8 px before it (7 px of the gap), in the coarser box within its 8 px right
-   padding */
+   16 px icon on every screen; on a touch screen a 44 px target drawn by nothing (R2), as row 25's "?" had: away from
+   the fold button 8 px before it (7 px of the gap; both boxes have one on a phone) */
 .ui .u-shore-head .u-shore-help.u-ib { position: relative; width: 24px; height: 24px; }
 .ui .u-shore-head .u-shore-help .u-ic { width: 16px; height: 16px; }
-@media (pointer: coarse) {
-  .ui .u-shore-head .u-shore-help::after { content: ""; position: absolute; inset: -10px -13px -10px -7px; }
-  .ui .u-coarse .u-shore-head .u-shore-help::after { inset: -10px -8px -10px -12px; }
-}
+@media (pointer: coarse) { .ui .u-shore-head .u-shore-help::after { content: ""; position: absolute; inset: -10px -13px -10px -7px; } }
 .ui .u-shore-row { display: flex; align-items: center; gap: 8px; }
 .ui .u-shore-swatch { flex: none; width: 18px; height: 0; border-top: 3px solid #e3912f; }
 .ui .u-shore-surface { border-top-style: dashed; }

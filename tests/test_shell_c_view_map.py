@@ -63,6 +63,46 @@ def site(tmp_path, view_clip):
         yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
 
 
+BOXES = "2026-10-30_100000_Boxes_00000000000000e3"  # the clip's run with an uncertain shore and coarser terrain
+
+
+def _with_boxes(run):
+    """The run's head given an uncertain shore (a segment of each kind) and coarser terrain (one region over the south
+    half) over its lines' box, so both controls stand on the map, as a coastal run's would (tests/test_access_view.py's
+    own, for this file's fixture)."""
+    import pyarrow as pa
+    import linestore
+    from test_web import store_with
+    with pa.OSFile(str(run / linestore.LINES_FILE), "rb") as f:
+        table = pa.ipc.open_file(f).read_all()
+    lat, lon = ([v / 10 ** int(table.schema.field(name).metadata[b"decimals"]) for v in table.column(name).to_pylist()]
+                for name in ("lat1", "lon1"))
+    s, n, w, e = min(lat), max(lat), min(lon), max(lon)
+    mid_lat, mid_lon = (s + n) / 2, (w + e) / 2
+
+    def ring(a, b, c, d):
+        return [[a, b], [c, b], [c, d], [a, d], [a, b]]
+    shore = {"rim_min": 5, "totals": {"surface_m": 420, "sea_m": 260, "surface_px": 60, "sea_px": 40},
+             "segments": [{"kind": "surface", "px": 60, "m": 420, "ring": ring(w, s, mid_lon, mid_lat)},
+                          {"kind": "sea", "px": 40, "m": 260, "ring": ring(mid_lon, mid_lat, e, n)}]}
+    sources = {"land_km2": 0.3, "fallback_share": 0.3, "totals": {"fallback_km2": 0.09, "listed_km2": 0.09},
+               "layers": [{"role": "source", "name": "Own", "resolution": 1.0, "share": 0.7},
+                          {"role": "fallback", "name": "Coarse", "resolution": 10.0, "share": 0.3}],
+               "regions": [{"layer": 1, "km2": 0.09, "rings": [ring(w, s, e, mid_lat)]}]}
+    store_with(run, head={"shore": shore, "terrain_sources": sources})
+
+
+@pytest.fixture
+def boxes_site(tmp_path, view_clip):
+    """A data folder with the clip's run given both boxes (BOXES), served by the app; the app page's address."""
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, BOXES, "Clip with the boxes")
+    _with_boxes(folder / "runs" / BOXES)
+    page_path = stub_page(folder, "viewboxes")
+    with _server(folder) as port:
+        yield f"http://127.0.0.1:{port}/{page_path}?ui=c"
+
+
 # The page's helpers of the checks: everything is counted in the map's own pixels from the lines' latitudes and
 # longitudes (the page counts in grid metres through its fit)
 HELPERS = r"""
@@ -116,8 +156,8 @@ window.T = {
     return null; },
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
-      info: ".v-about-button", coarse: ".v-map .u-coarse",
-      zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
+      info: ".v-about-button", coarse: ".v-map .u-coarse-ctl, .v-map .leaflet-control.u-coarse",
+      zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl:not(.u-coarse-ctl)", scale: ".v-map .leaflet-control-scale",
       credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *",
       back: ".v-status .v-back-auto"}, out = {};
     for (const [name, selector] of Object.entries(named)) { const e = document.querySelector(selector), r = e && e.getBoundingClientRect();
@@ -711,9 +751,10 @@ CHIP = """() => { const holder = document.createElement("div");
   metres.className = "u-shore-chip-m"; metres.textContent = "1.6 km";
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
-# A stand-in for the coarser terrain's box (coarserLayer.ts coarserControl: a Leaflet control at the map's top left,
-# never folded), which the clip's run does not have either: the same classes and help button (shoreLayer.ts
-# helpButton, the kit's "info" icon), its title and one fallback's row in the catalogue's words
+# A stand-in for the coarser terrain's box alone (coarserLayer.ts coarserControl's box, as a desktop shows it: no chip),
+# for the sizes of its help (tests/test_view_frame.py): the same classes and help button (shoreLayer.ts helpButton, the
+# kit's "info" icon), its title and one fallback's row in the catalogue's words. A run with the real controls:
+# boxes_site
 COARSE = """() => { const box = document.createElement("div");
   box.className = "leaflet-control u-shore u-coarse";
   const head = box.appendChild(document.createElement("div"));
@@ -779,14 +820,16 @@ def _apart(page, state: str, known: tuple = ()) -> dict:
     return boxes
 
 
-def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip and the coarser terrain's box on the map (the tests' stand-ins)
-    and the hint hidden (its button in the bar's row of buttons: the pilot's worst case). At the sheet's low
+def test_phone_controls_apart(boxes_site):
+    """A small phone (390 x 664) with the uncertain shore's chip and the coarser terrain's chip on the map (a run with
+    both in its head; the coarser box folds into a chip on a phone since step 3c: the user's choice of 2026-11-20) and
+    the hint hidden (its button in the bar's row of buttons: the pilot's worst case). At the sheet's low
     stop and at half, no control of the map covers another (the status line, the legend, its fold, the map's "i", the
     hint's button, the switch, Best, the zoom buttons, the layers button (the kit's icon), the shore's chip, the
-    coarser box (its help was under the layers button before step 3c), the scale, the credits, the top bar with the
+    coarser terrain's chip, the scale, the credits, the top bar with the
     run's actions; the message is the status line's first line, a part of its box; the map's help, opened, lies above
-    them as a panel) and each stands above
+    them as a panel), but for one known pair at half with a level held (CHIPS_HALF_HELD: the coarser chip and the
+    status line's two lines; the user's answer of 2026-11-20, a known bug for now), and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -800,10 +843,8 @@ def test_phone_controls_apart(site):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
+            page = _open(browser, f"{boxes_site}#run={BOXES}", SMALL_PHONE)
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
-            page.evaluate(CHIP)
-            page.evaluate(COARSE)
             page.evaluate(HINT)
             page.wait_for_function(HINT_SHOWN, timeout=WAIT)
             # the layers button with the kit's "layers" icon (layersControl.ts), not Leaflet's picture
@@ -817,7 +858,7 @@ def test_phone_controls_apart(site):
                     page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
                 for name, script in states:
                     s = _state(page, fit + script)
-                    boxes = seen[stop, name] = _apart(page, f"{stop} {name}")
+                    boxes = seen[stop, name] = _apart(page, f"{stop} {name}", known=CHIPS_HALF_HELD if stop == "half" else ())
                     assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "coarse", "scale"} <= set(boxes), (stop, name, sorted(boxes))
                     # the legend by itself: unfolded while the sheet is low, folded at half
                     assert page.evaluate(legend) == (["true", True] if stop == "low" else ["false", False]), (stop, name)
@@ -847,7 +888,7 @@ def test_phone_controls_apart(site):
                 _tap_on(page, ".v-help-button button")
                 page.wait_for_selector(".v-over > .v-help", timeout=WAIT)
                 page.evaluate("() => T.frames()")
-                _apart(page, f"{stop}, the map's help open")
+                _apart(page, f"{stop}, the map's help open", known=CHIPS_HALF_HELD if stop == "half" else ())
                 key = _over_holds(page, ".v-over > .v-help", f"{stop}, the map's help")
                 assert key["box"][3] - key["box"][1] > 40, key
                 # its "i" says it is open, in words and in the kit's on-state (the soft accent)
@@ -869,7 +910,7 @@ def test_phone_controls_apart(site):
                 page.wait_for_selector(".v-toast", timeout=WAIT)
                 page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
                 page.evaluate("() => T.frames()")
-                boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap")
+                boxes = seen[stop, "tap"] = _apart(page, f"{stop} tap", known=CHIPS_HALF_HELD if stop == "half" else ())
                 # the message stands in the status line's box, its first line (the pilot's arrangement of 2026-11-18)
                 assert "status" in boxes and page.evaluate("() => [document.querySelector('.v-toast').textContent, "
                                                            "document.querySelector('.v-status').firstElementChild.classList.contains('v-toast')]") == \
@@ -890,7 +931,7 @@ def test_phone_controls_apart(site):
             page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
             _state(page, fit + "view.setLevel('spots');")
             assert page.evaluate(legend) == ["false", False]
-            _apart(page, "half again")
+            _apart(page, "half again", known=CHIPS_HALF_HELD)
             # an opened layers list lies above the bar: where it crosses the bar's boxes, a press reaches the list (the
             # clip's list is short: made as long as a run's with an orthophoto and overlays, it crosses the bar's foot)
             _tap_on(page, ".leaflet-control-layers-toggle")
@@ -939,6 +980,79 @@ def test_phone_controls_apart(site):
             print("phone 390 x 664, the controls' boxes: " + json.dumps({f"{stop} {name}": boxes for (stop, name), boxes in seen.items()
                                                                           if name in ("spots", "refused", "tap")}))
             assert page.errors == []
+        finally:
+            browser.close()
+
+
+# Both chips on the small phone at half with a level held: the coarser chip wraps under the zoom row (no room for two
+# chips beside the zoom) and the status line's two lines and its "Back to Auto" reach it (measured 2026-11-20: chip
+# [8,172,219,216], status [8,200,281,248], back from 209). The user's answer of 2026-11-20: a known bug for now
+# (docs/known-bugs.md). Excepted only there: one chip alone, Auto, the low stop and the Pixel stay checked
+CHIPS_HALF_HELD = (("back", "coarse"), ("coarse", "status"))
+
+
+def test_phone_chips(boxes_site):
+    """Both phones (390 x 664, the Pixel's 412 x 839) with the uncertain shore's and the coarser terrain's controls:
+    each starts folded into its chip (the user's choice of 2026-11-20 for the coarser box: the shore's rules), and no
+    control covers another at the sheet's low stop and at half, Auto or a level held (Spots, Area), but for the one known
+    pair (CHIPS_HALF_HELD: 390 x 664, half, a level held, both chips); with the coarser chip alone (the shore's control
+    taken off the map) nothing is excepted. A chip's press opens its box (aria-expanded, the chip gone, the box's fold
+    button the focus after a key's press), the fold button folds it again and gives the focus back to the chip; the
+    coarser chip says "Coarser terrain" (the overlay's name) and the km² in view."""
+    from playwright.sync_api import sync_playwright
+    settled = "() => { const s = T.state(); return %s && s.spots.length === s.inPixels.length; }"
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    chips = """() => [...document.querySelectorAll('.v-map .u-shore-ctl')].map((h) => { const c = h.querySelector('.u-shore-chip'), b = h.querySelector('.u-shore');
+      return {coarse: h.classList.contains('u-coarse-ctl'), folded: h.classList.contains('u-shore-folded'), expanded: c.getAttribute('aria-expanded'),
+              controls: c.getAttribute('aria-controls') === b.id, chip: getComputedStyle(c).display !== 'none', box: getComputedStyle(b).display !== 'none',
+              text: c.textContent.trim(), name: c.getAttribute('aria-label')}; })"""
+    pixel = {"viewport": {"width": 412, "height": 839}, "device_scale_factor": 2.625, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, context in (("390 x 664", SMALL_PHONE), ("412 x 839", pixel)):
+                page = _open(browser, f"{boxes_site}#run={BOXES}", context)
+                page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
+                for stop in ("low", "half"):
+                    if stop == "half":
+                        page.focus(".u-sheet-handle")
+                        page.keyboard.press("ArrowUp")
+                        page.wait_for_function(settled % "s.free[3] < s.size[1] * 0.6", timeout=WAIT)
+                    for level in ("auto", "spots", "area"):
+                        _state(page, fit + f"view.setLevel('{level}');")
+                        known = CHIPS_HALF_HELD if (name, stop) == ("390 x 664", "half") and level != "auto" else ()
+                        boxes = _apart(page, f"{name} {stop} {level}", known=known)
+                        assert {"chip", "coarse", "zoom", "layers", "status"} <= set(boxes), (name, stop, level, sorted(boxes))
+                got = page.evaluate(chips)
+                assert [c["coarse"] for c in got] == [False, True] and all(c["folded"] and c["chip"] and not c["box"] and c["expanded"] == "false" and c["controls"] for c in got), got
+                coarse = got[1]
+                assert coarse["text"].startswith(WORDS["ui.coarse.layer"]) and coarse["text"].endswith("km²"), coarse
+                assert coarse["name"] == WORDS["ui.coarse.unfold"].replace("{{total}}", coarse["text"][len(WORDS["ui.coarse.layer"]):].strip()), coarse
+                # each opened by its chip (a key's press: the focus moves to the box's fold button), folded again by it
+                for k, sel in enumerate((".v-map .u-shore-ctl:not(.u-coarse-ctl)", ".v-map .u-coarse-ctl")):
+                    page.focus(f"{sel} .u-shore-chip")
+                    page.keyboard.press("Enter")
+                    page.wait_for_function(f"() => !document.querySelector({json.dumps(sel)}).classList.contains('u-shore-folded')", timeout=WAIT)
+                    opened = page.evaluate(chips)[k]
+                    assert opened["expanded"] == "true" and not opened["chip"] and opened["box"], (name, opened)
+                    assert page.evaluate(f"() => document.activeElement === document.querySelector({json.dumps(sel + ' .u-shore-fold')})"), name
+                    page.keyboard.press("Enter")
+                    page.wait_for_function(f"() => document.querySelector({json.dumps(sel)}).classList.contains('u-shore-folded')", timeout=WAIT)
+                    assert page.evaluate(f"() => document.activeElement === document.querySelector({json.dumps(sel + ' .u-shore-chip')})"), name
+                # the coarser chip alone (a run with coarser terrain and no uncertain shore): it stands beside the zoom
+                # and nothing is excepted, at half and at the low stop
+                page.evaluate("() => document.querySelector('.v-map .u-shore-ctl:not(.u-coarse-ctl)').remove()")
+                for stop in ("half", "low"):
+                    if stop == "low":
+                        page.focus(".u-sheet-handle")
+                        page.keyboard.press("ArrowDown")
+                        page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75", timeout=WAIT)
+                    for level in ("auto", "spots", "area"):
+                        _state(page, fit + f"view.setLevel('{level}');")
+                        boxes = _apart(page, f"{name} {stop} {level}, the coarser chip alone")
+                        assert "coarse" in boxes and boxes["coarse"][1] == boxes["zoom"][1], (name, stop, level, boxes)
+                assert page.errors == [], (name, page.errors)
+                page.context.close()
         finally:
             browser.close()
 
