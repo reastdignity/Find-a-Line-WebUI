@@ -111,10 +111,14 @@ export function rowKeys(e: KeyboardEvent) {
   if (!at) return;
   if (e.key === "Tab") {
     // one tab stop per list: Tab (Shift+Tab) from a row or a star the arrows reached leaves the list in one press, also
-    // when the list's tab stop lies after it (before it): the press goes on from the stop, the list's last (first)
-    // element in the tab order
+    // when the list's tab stop lies after it (before it): the stop is out of the tab order for this press only (never
+    // focused on the way: a row's focus may draw its line on the map, the table of spots'), back once the browser moved
+    // the focus
     const stop = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".vl-main[tabindex='0']");
-    if (stop && stop !== target && target.compareDocumentPosition(stop) & (e.shiftKey ? 2 : 4)) stop.focus({preventScroll: true});
+    if (stop && stop !== target && target.compareDocumentPosition(stop) & (e.shiftKey ? 2 : 4)) {
+      stop.tabIndex = -1;
+      setTimeout(() => { if (stop.tabIndex === -1) stop.tabIndex = 0; });
+    }
     return;
   }
   const starOf = (main: HTMLElement | undefined) => main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star") ?? null;
@@ -505,10 +509,18 @@ function Tree(p: PanelProps) {
  *  link is hidden by the filters." with its action "clear filters", not in the run, not measured: model.ts openLinked)
  *  or a favourite's failure, in today's words; a plain line with the info icon, the action a link in the sentence, and
  *  today's × (the planner's choice of 2026-11-20: a favourite's failure stays dismissable). */
-function ListNote({view}: {view: SpotView}) {
-  const model = view.model, note = model.note;
+function ListNote({view, sheet}: {view: SpotView; sheet?: PanelProps["sheet"]}) {
+  const model = view.model, note = model.note, ref = useRef<HTMLDivElement>(null), shown = useRef<typeof note>(null);
+  // a new note is brought into view where it stands (the code review's F1: the list's body may be scrolled far from
+  // its top, a phone's details stand before it); a phone's low sheet rises to half for it (as a link's note does)
+  useEffect(() => {
+    if (!note || note === shown.current) return;
+    shown.current = note;
+    if (sheet && sheet.snap === "peek") sheet.setSnap("half");
+    if (ref.current) noteIntoView(ref.current);
+  }, [note]);
   if (!note) return null;
-  return <div class="vl-lnote" role="status"><Icon name="info" />
+  return <div class="vl-lnote" role="status" ref={ref}><Icon name="info" />
     <p class="vl-lnote-text">{note.text}
       {note.action && <>{" "}<button type="button" class="r-link vl-lnote-act" onClick={() => note.onAction?.()}>{note.action}</button></>}</p>
     <IconButton icon="close" label="Close" plain class="vl-lnote-x" onClick={() => {
@@ -516,6 +528,16 @@ function ListNote({view}: {view: SpotView}) {
       keepFocus(...FOCUS_REST);  // the × goes with the note
     }} />
   </div>;
+}
+
+/** A note's place in its scroller (the list's body, a phone's sheet body: neither scrolls the page or the map, which
+ *  scrollIntoView would): where the note is not wholly in its view, the scroller puts it at its top (8 px under its
+ *  edge), which also holds for a phone's sheet that is still rising to its stop. */
+function noteIntoView(note: HTMLElement) {
+  const box = note.closest<HTMLElement>(".vl-body, .u-sheet-body");
+  if (!box) return;
+  const r = note.getBoundingClientRect(), b = box.getBoundingClientRect();
+  if (r.top < b.top || r.bottom > b.bottom) box.scrollTop += r.top - b.top - 8;
 }
 
 /** No line passes the filters (W9 a): the sentence and "Clear all", which clears what the chips' "Clear all" clears
@@ -586,11 +608,11 @@ export function SpotList(p: PanelProps) {
   if (wide) {
     return <>
       <div class="c-col-head vl-head"><SpotSummary view={view} /><ViewFilters view={view} /></div>
-      <div class="c-col-body vl-body" ref={root}><ListNote view={view} />{none && <NonePass view={view} />}{blocks}</div>
+      <div class="c-col-body vl-body" ref={root}><ListNote view={view} sheet={p.sheet} />{none && <NonePass view={view} />}{blocks}</div>
     </>;
   }
   return <div class="vl-list" ref={root}>
-    <ListNote view={view} />
+    <ListNote view={view} sheet={p.sheet} />
     {none && <NonePass view={view} />}
     <SpotSummary view={view} headline={!!view.selected || !!view.fan} />
     <ViewFilters view={view} />

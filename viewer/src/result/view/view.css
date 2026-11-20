@@ -293,7 +293,7 @@
 .ui .vl-filters .vl-helpt, .ui .vl-list .vl-helpt { padding-left: 0; padding-right: 0; }
 .ui .vl-helpt > div { margin: 0 0 4px; }
 .ui .vl-helpt dt, .ui .vl-helpt dd { display: inline; margin: 0; }
-.ui .vl-helpt dt { font-weight: 600; color: var(--ink); }
+.ui .vl-helpt dt, .ui .vl-helpt b { font-weight: 600; color: var(--ink); }
 .ui .vl-helpt dt::after { content: ": "; }
 
 /* the model's note first in the list (a link's, a favourite's failure): a plain line, its action a link in the

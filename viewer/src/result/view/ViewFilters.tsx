@@ -107,7 +107,8 @@ export function ViewFilters({view}: {view: SpotView}) {
         keepFocus(".vl-filters .u-chip.u-add", ".vl-filters .vl-top", ...FOCUS_REST);
       }}>{t("ui.view.chip.clear")}</button>}
     </Chips>
-    {help && <p class="vl-helpt" id={TOP_HELP}>{t("ui.view.chip.top_help")}</p>}
+    {/* run in with the chip's own words, as the map's help (MapBar) and the mock-up */}
+    {help && <p class="vl-helpt" id={TOP_HELP}><b>{t("ui.view.chip.top")}.</b> {t("ui.view.chip.top_help")}</p>}
     {editing && <div class="r-editor" role="group" aria-label={t("ui.view.chip.editor")}
                      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEditor(e); } }}>
       <MainEditor model={model} which={editing} />

@@ -17,8 +17,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from test_public import account_settings  # noqa: E402,F401
 from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
 from test_shell_c_view_map import DESKTOP, PHONE, WAIT, WORDS, _open, _state, site, view_clip  # noqa: E402,F401
+from test_view_link import share_site  # noqa: E402,F401
 from test_web import EDGE, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -86,7 +88,17 @@ window.D = {
   snap() { const s = document.querySelector('.u-sheet'); return s ? ['peek', 'half', 'full'].find((k) => s.classList.contains('u-' + k)) : null; },
   // a box's middle, px
   mid(el) { const b = el.getBoundingClientRect(); return (b.top + b.bottom) / 2; },
+  // an element wholly inside the visible part of its scroller (the list's body, a phone's sheet body)
+  inView(sel) { const e = document.querySelector(sel), box = e && e.closest('.vl-body, .u-sheet-body'); if (!box) return false;
+    const r = e.getBoundingClientRect(), b = box.getBoundingClientRect(); return r.height > 0 && r.top >= b.top - 1 && r.bottom <= b.bottom + 1; },
+  // a scroller at its end
+  toEnd(sel) { const b = document.querySelector(sel); b.scrollTop = b.scrollHeight; return b.scrollTop; },
 };
+// every element that took the focus (FOCUSED), and every line the map drew wider (HIGHLIGHTED, once the view is there)
+window.FOCUSED = [];
+document.addEventListener('focusin', (e) => FOCUSED.push(e.target));
+window.watchHighlights = () => { const m = window.FINDALINE_VIEW.map, h = m.highlight.bind(m); window.HIGHLIGHTED = [];
+  m.highlight = (row) => { HIGHLIGHTED.push(row); return h(row); }; };
 """ % OTHERS_MAX
 SCRIPT = DETAILS + SAVE_STUB
 
@@ -183,10 +195,24 @@ def test_star_in_the_head_opens_the_picker(site, device):
             browser.close()
 
 
-def test_line_actions_and_links(site):
+def _store_keys(run, spot: int, row: int) -> list:
+    """The 3D view's other lines of a selected line, from the run's store in Python (an expectation independent of the
+    page's code): the spot's lines in the store's order inside a spot (`by_spot`) that pass at the view's start (no
+    filter, "Top level only" on: `top` 1), but the line itself, at most OTHERS_MAX; each as keys.lineCoords writes it
+    (the anchors' doubles joined by commas, as JavaScript prints a number: no ".0" on a whole one)."""
+    import linestore
+    lines, _ = linestore.read(str(run), profiles=False)
+    c = lines.columns
+    text = lambda v: (lambda t: t[:-2] if t.endswith(".0") else t)(repr(float(v)))  # noqa: E731
+    rows = [int(r) for r in c["by_spot"] if int(c["spot"][r]) == spot and int(c["top"][r]) == 1 and int(r) != row]
+    return [",".join(text(v) for v in (c["anchor1"][r][0], c["anchor1"][r][1], c["anchor2"][r][0], c["anchor2"][r][1]))
+            for r in rows][:OTHERS_MAX]
+
+
+def test_line_actions_and_links(site, view_clip):
     """A desktop. The line's actions stand in one row under "Stands for", above "Lines from anchor A1 / A2": "3D view"
     (its address the caller's, /view3d#run=…&line=…, with the spot's other passing lines in the spot's order as
-    `&also=`, at most 20; none for a spot of one line), "Copy link" (today's words; the link on the clipboard, without
+    `&also=`, at most 20, also checked against the run's store read in Python; none for a spot of one line), "Copy link" (today's words; the link on the clipboard, without
     ?ui=; where the clipboard refuses, today's field with the link selected). No "Zoom" (11 a), no dock (the desktop's
     profile is the frame's card), no "Report this line" on the local app (it has no report form)."""
     from playwright.sync_api import sync_playwright
@@ -215,6 +241,10 @@ def test_line_actions_and_links(site):
             from urllib.parse import quote
             assert href == base + "&also=" + quote(";".join(also), safe="-_.!~*'()"), (href, base)
             assert href.count("&also=") == 1 and "&also=" not in base
+            # the same keys from the run's store, read in Python
+            from urllib.parse import unquote
+            spot, row = page.evaluate("() => [D.v().selected.spot, D.v().selected.row]")
+            assert unquote(href.split("&also=")[1]).split(";") == _store_keys(view_clip, spot, row), (spot, row)
             # a spot of one passing line: its 3D view's address alone
             one = page.evaluate("() => { const v = D.v(); return Array.from(v.order).find((s) => v.passingCount(s) === 1) ?? null; }")
             if one is not None:
@@ -244,29 +274,71 @@ def test_line_actions_and_links(site):
             browser.close()
 
 
+# What a page shows of a selected line's features: today's page (FINDALINE_RESULT) and the view (FINDALINE_VIEW)
+TODAY_HAS = """() => ({fav: !!document.querySelector('.r-details .r-fav'), stars: document.querySelectorAll('.r-star').length > 0,
+    view3d: !!document.querySelector('.r-view3d'), report: !!document.querySelector('.r-report'), dock: !!document.querySelector('.u-sheet .r-dock'),
+    favourites: window.FINDALINE_RESULT.model.favouritesOn})"""
+VIEW_HAS = """() => ({fav: !!document.querySelector('.vl-dhead .r-fav, .vl-sheet-row .r-fav'), stars: document.querySelectorAll('.vl-star').length > 0,
+    view3d: !!document.querySelector('.r-view3d'), report: !!document.querySelector('.r-report'), dock: !!document.querySelector('.vl-dock'),
+    favourites: D.m().favouritesOn})"""
+
+
+def _todays_and_the_views(browser, url: str, device: dict, settled: str) -> tuple:
+    """What today's page and the view show of a selected line on the same page (`settled`: when the page's favourites
+    are known, given the model)."""
+    page = _open(browser, url, device, flag=False, script=SCRIPT)
+    page.wait_for_function(f"() => !!window.FINDALINE_RESULT && ({settled})(window.FINDALINE_RESULT.model)", timeout=WAIT)
+    page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.rows[0].group); }")
+    page.wait_for_selector(".r-copy", state="attached", timeout=WAIT)
+    if device is PHONE:
+        page.wait_for_selector(".r-dock", state="attached", timeout=WAIT)
+    today = page.evaluate(TODAY_HAS)
+    assert page.errors == []
+    page.context.close()
+    page = _open(browser, url, device, script=SCRIPT)
+    page.wait_for_function(f"() => ({settled})(window.FINDALINE_VIEW.view.model)", timeout=WAIT)
+    _select(page)
+    page.wait_for_selector(".r-copy", state="attached", timeout=WAIT)
+    view = page.evaluate(VIEW_HAS)
+    assert page.errors == []
+    page.context.close()
+    return today, view
+
+
 def test_map_page_keeps_todays_features(site):
-    """A run's map.html (no 3D view there): the view's details have no "3D view", and a star exactly where today's page
-    has its favourite button on the same page (the condition is today's: the page keeps favourites)."""
+    """A run's map.html (no 3D view there): the view's head star and rows' stars stand exactly where today's page has
+    its favourite button and its rows' stars (the page keeps favourites: favouritesOn), no "3D view", and Report where
+    today's has it."""
     from playwright.sync_api import sync_playwright
     base = site.split("/runs/")[0]
+    # the run's favourites were answered and, when they were, the model took them
+    settled = "(m) => window.FAVOURITES_ANSWER === 'refused' || (window.FAVOURITES_ANSWER === 'ok' && m.favouritesOn)"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            # each page waits until the run's favourites were answered and, when they were, the model took them (the page
-            # keeps favourites: favouritesOn)
-            settled = "(m) => window.FAVOURITES_ANSWER === 'refused' || (window.FAVOURITES_ANSWER === 'ok' && m.favouritesOn)"
-            page = _open(browser, f"{base}/runs/{BIG}/map.html", DESKTOP, flag=False, script=SCRIPT)
-            page.wait_for_function(f"() => !!window.FINDALINE_RESULT && ({settled})(window.FINDALINE_RESULT.model)", timeout=WAIT)
-            page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.rows[0].group); }")
-            page.wait_for_selector(".r-copy", timeout=WAIT)
-            today = page.evaluate("() => [!!document.querySelector('.c-col-details .r-fav'), !!document.querySelector('.r-view3d')]")
-            page.context.close()
-            page = _open(browser, f"{base}/runs/{BIG}/map.html", DESKTOP, script=SCRIPT)
-            page.wait_for_function(f"() => ({settled})(window.FINDALINE_VIEW.view.model)", timeout=WAIT)
-            _select(page)
-            view = page.evaluate("() => [!!document.querySelector('.vl-dhead .r-fav'), !!document.querySelector('.r-view3d'), !!document.querySelector('.r-copy')]")
-            assert view == [today[0], False, True] and today[1] is False, (today, view)
-            assert page.errors == []
+            today, view = _todays_and_the_views(browser, f"{base}/runs/{BIG}/map.html", DESKTOP, settled)
+            assert view["favourites"] == today["favourites"], (today, view)
+            assert view["fav"] == today["fav"] == view["favourites"] and view["stars"] == today["stars"] == view["favourites"], (today, view)
+            assert view["view3d"] is today["view3d"] is False and view["report"] == today["report"], (today, view)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("device", DEVICES, ids=IDS)
+def test_share_page_keeps_todays_features(share_site, device):
+    """A share link's page (no signed-in user: no favourites, no profiles asked, no report form, no 3D view): the view
+    draws no star, in the head or in a row, no "3D view", no Report, and on a phone the dock exactly where today's
+    sheet has it (today's draws its dock for every selection)."""
+    from playwright.sync_api import sync_playwright
+    settled = "(m) => window.FINDALINE_APP !== undefined"  # the share page's flags (FINDALINE_APP) came with it
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            today, view = _todays_and_the_views(browser, share_site, device, settled)
+            assert today["favourites"] is view["favourites"] is False, (today, view)
+            assert not any(view[k] for k in ("fav", "stars", "view3d", "report")), view
+            assert not any(today[k] for k in ("fav", "stars", "view3d", "report")), today
+            assert view["dock"] == today["dock"] == (device is PHONE), (today, view)
         finally:
             browser.close()
 
@@ -381,7 +453,8 @@ def test_phone_dock_under_the_values(site, device):
 def test_phone_dock_gives_way_to_a_measured_line(site):
     """A phone: while the frame shows a measured profile (a link's line outside the run, measured; PanelProps.measured,
     which the frame passes on the stack of step 3c), the details draw no dock of their own: one profile at a time, as
-    today's sheet. Passes on the stack (the frame's member is B3's)."""
+    today's sheet: the line stays selected with its details, and the sheet holds exactly one dock, the frame's. Passes
+    on the stack only (the frame's member and its measured dock are B3's)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -392,7 +465,10 @@ def test_phone_dock_gives_way_to_a_measured_line(site):
             page.wait_for_selector(".vl-dock", timeout=WAIT)
             page.evaluate(f"() => {{ location.hash = '#run=' + encodeURIComponent(D.m().runId) + '&line=' + encodeURIComponent({OUTSIDE!r}); }}")
             page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
-            page.wait_for_function("() => !document.querySelector('.vl-details .vl-dock')", timeout=WAIT)
+            # the line stays selected with its details, which give way: the one dock in the sheet is the frame's
+            page.wait_for_function("() => !!D.v().selected && !!document.querySelector('.vl-details') && "
+                                   "!document.querySelector('.vl-details .vl-dock')", timeout=WAIT)
+            page.wait_for_function("() => document.querySelectorAll('.u-sheet .r-dock').length === 1", timeout=WAIT)
             assert page.errors == []
         finally:
             browser.close()
@@ -488,8 +564,9 @@ def test_list_stars(site, device):
             page.keyboard.press("ArrowRight")
             page.keyboard.press("Enter")
             page.wait_for_function("() => D.v().counts.lines <= 1", timeout=WAIT)
-            page.wait_for_function("() => D.focus() !== ''", timeout=WAIT)
-            assert "vl-" in page.evaluate("() => D.focus()") or "leaflet" in page.evaluate("() => D.focus()")
+            # the row went with its star: the focus to the row that took its place, the tree's one row left
+            page.wait_for_function("() => document.querySelectorAll('.vl-tree .vl-main').length === 1", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-tree .vl-main')", timeout=WAIT)
             page.evaluate("() => { const m = D.m(); m.clearFilters(); for (const l of m.favouriteLines()) m.toggleFavourite(l); }")
             page.wait_for_function("() => D.m().favouriteLines().length === 0 && !D.m().filters.favOnly", timeout=WAIT)
             # "Start here" (the Area level): stars too; a pick's star on its values' line (the row's second)
@@ -536,7 +613,9 @@ def test_list_help(site, device):
             text = page.evaluate("""() => { const h = document.querySelector('#vl-help-top'), s = getComputedStyle(h);
                 return [h.textContent, h.previousElementSibling.classList.contains('u-chips'), document.querySelector('.vl-top-info').getAttribute('aria-expanded'),
                         s.borderTopWidth, s.backgroundColor, D.box('#vl-help-top')[1] >= D.box('.vl-filters .u-chips')[3] - 1]; }""")
-            assert text == [WORDS["ui.view.chip.top_help"], True, "true", "0px", "rgba(0, 0, 0, 0)", True], text
+            # run in with the chip's own words in bold (the mock-up; as the map's help)
+            assert text == [WORDS["ui.view.chip.top"] + ". " + WORDS["ui.view.chip.top_help"], True, "true", "0px", "rgba(0, 0, 0, 0)", True], text
+            assert page.evaluate("() => [document.querySelector('#vl-help-top b').textContent, getComputedStyle(document.querySelector('#vl-help-top b')).fontWeight]") ==                 [WORDS["ui.view.chip.top"] + ".", "600"]
             page.click(".vl-top-info")
             page.wait_for_selector("#vl-help-top", state="detached", timeout=WAIT)
             # the columns' help: in the top block's heads only
@@ -566,23 +645,31 @@ def test_list_help(site, device):
 @pytest.mark.parametrize("device", DEVICES, ids=IDS)
 def test_note_first_in_the_list(site, device):
     """The model's note stands first in the list (item 8, 11 a: desktop the list's body, a phone the sheet's body, the
-    sheet at half for a link: K a): a link to a line the filters hide, today's words with "clear filters", which opens
-    it; a favourite the server refuses, its note closed by today's x (the planner's choice: it stays dismissable), the
-    focus not on the page's body. No line passing: the sentence and "Clear all" first on a phone too."""
+    sheet at half for a link: K a) and a new note is brought into view where it stands (the code review's F1), also
+    with the list scrolled to its end: a link to a line the filters hide, today's words with "clear filters", which
+    opens it; a favourite the server refuses (a phone: the sheet at full), its note closed by today's x (the planner's
+    choice: it stays dismissable), the focus then on the list's tab stop. No line passing: the sentence and "Clear all"
+    first on a phone too."""
     from playwright.sync_api import sync_playwright
     phone = device is PHONE
     holder = ".vl-list" if phone else ".vl-body"
+    scroller = ".u-sheet-body" if phone else ".vl-body"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _open(browser, f"{site}#run={BIG}", device, script=SCRIPT)
             _view(page)
+            if phone:
+                _sheet(page, "half")
+            # a link to a line the filters hide, the list scrolled to its end: the note first, in view
+            assert page.evaluate(f"() => D.toEnd('{scroller}')") > 0
             target = page.evaluate("() => { const v = D.v(), row = v.shownOf(v.order[0]); return {row, link: D.link(row), len: v.values.len[row]}; }")
             page.evaluate(f"() => {{ const m = D.m(); m.setFilters({{...m.filters, lenMin: Math.ceil({target['len']}) + 1}}); "
                           f"location.hash = '#run=' + encodeURIComponent(m.runId) + '&line=' + encodeURIComponent({target['link']!r}); }}")
             page.wait_for_selector(".vl-lnote", timeout=WAIT)
             if phone:
                 page.wait_for_function("() => D.snap() === 'half'", timeout=WAIT)
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
             note = page.evaluate(f"""() => [D.kids('{holder}')[0], document.querySelector('.vl-lnote-text').textContent,
                 document.querySelector('.vl-lnote-act').tagName, document.querySelector('.vl-lnote-act').textContent,
                 document.querySelector('.vl-lnote-x').getAttribute('aria-label'), D.size(document.querySelector('.vl-lnote-x')),
@@ -594,25 +681,117 @@ def test_note_first_in_the_list(site, device):
             page.click(".vl-lnote-act")
             page.wait_for_function(f"() => D.v().selected?.row === {target['row']} && !document.querySelector('.vl-lnote')", timeout=WAIT)
             page.evaluate("() => D.v().select(null)")
-            # a favourite the server refuses: today's note, first; its x closes it, the focus stays on the page
+            # a favourite the server refuses from a row's star, the list scrolled to its end (a phone: the sheet at
+            # full): today's note, first, in view; its x closes it, the focus goes to the list's tab stop
+            page.wait_for_function("() => !D.v().selected", timeout=WAIT)
             if phone:
-                page.evaluate("() => { window.FAIL_SAVES = true; }")
-                _sheet(page, "half")
-            else:
-                page.evaluate("() => { window.FAIL_SAVES = true; }")
-            page.click(".vl-tree .vl-rows > li:first-child > .vl-star")
+                _sheet(page, "full")
+            page.evaluate("() => { window.FAIL_SAVES = true; }")
+            assert page.evaluate(f"() => D.toEnd('{scroller}')") > 0
+            page.evaluate("() => document.querySelector('.vl-tree .vl-rows > li:first-child > .vl-star').click()")
             page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
             failed = page.evaluate(f"() => [D.kids('{holder}')[0], document.querySelector('.vl-lnote-text').textContent, !!document.querySelector('.vl-lnote-act')]")
             assert failed[0] == "vl-lnote" and failed[1].startswith("The favourite was not saved: ") and not failed[2], failed
             page.focus(".vl-lnote-x")
             page.keyboard.press("Enter")
             page.wait_for_function("() => !document.querySelector('.vl-lnote') && D.m().note === null", timeout=WAIT)
-            page.wait_for_function("() => D.focus() !== ''", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement === document.querySelector(\".vl-tree .vl-main[tabindex='0']\")", timeout=WAIT)
             # no line passes: first in the list (a phone: before the summary and the filters)
             page.evaluate("() => { const m = D.m(); m.setFilters({...m.filters, lenMin: 1e6}); }")
             page.wait_for_selector(".vl-none", timeout=WAIT)
             kids = page.evaluate(f"() => D.kids('{holder}')")
             assert kids[0] == "vl-none" and (not phone or kids[1:3] == ["r-summary", "r-filters"]), kids
+            assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
+        finally:
+            browser.close()
+
+
+def test_note_in_view_under_a_phones_details(site):
+    """A phone with a spot selected: a favourite the server refuses from the head's star (its picker raised the sheet
+    to full) puts today's note first in the list, after the whole details; it is brought into view in the sheet's
+    body (the code review's F1)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", PHONE, script=SCRIPT)
+            _view(page)
+            _select(page)
+            page.click(".vl-sheet-row .r-fav")
+            page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
+            page.wait_for_function("() => D.snap() === 'full'", timeout=WAIT)
+            page.evaluate("() => { window.FAIL_SAVES = true; }")
+            page.click(".r-picker .r-folder")
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            assert page.evaluate("() => !!D.v().selected && document.querySelector('.u-sheet-body .vl-details').compareDocumentPosition("
+                                 "document.querySelector('.vl-lnote')) & Node.DOCUMENT_POSITION_FOLLOWING")
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
+            assert page.evaluate("() => document.querySelector('.vl-lnote-text').textContent").startswith("The favourite was not saved: ")
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_tab_leaves_the_fan_and_the_chooser(site):
+    """A desktop. rowKeys' Tab in "Lines from here" and in the table of spots: from the third row Shift+Tab goes to the
+    control before the list and Tab past it, in one press each, and the list's tab stop (the first row) never takes
+    the focus on the way, so the table of spots draws no wider line for it (the code review's F2; the base focused the
+    first row and thickened its line)."""
+    from playwright.sync_api import sync_playwright
+    from test_shell_c_view_map import _crowded
+    first_focused = "(sel) => FOCUSED.includes(document.querySelector(sel))"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
+            _view(page)
+            # "Lines from here" of a spot with many lines: its rows after the sorts
+            spot = page.evaluate("() => { const v = D.v(); return Array.from(v.order).find((s) => v.passingCount(s) >= 4); }")
+            _select(page, str(spot))
+            page.click(".vl-from-1")
+            page.wait_for_function("() => document.querySelectorAll('.vl-fan .vl-main').length >= 3 && "
+                                   "document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
+            for key, outside in (("Shift+Tab", "() => document.activeElement === document.querySelector('.vl-fan-sort button:last-child')"),
+                                 ("Tab", "() => !!document.activeElement && document.activeElement !== document.body && !document.activeElement.closest('.vl-fan .vl-rows')")):
+                page.focus(".vl-fan .vl-rows > li:first-child > .vl-main")
+                page.keyboard.press("ArrowDown")
+                page.keyboard.press("ArrowDown")
+                assert page.evaluate("() => document.activeElement === document.querySelector('.vl-fan .vl-rows > li:nth-child(3) > .vl-main')")
+                page.evaluate("() => { FOCUSED.length = 0; }")
+                page.keyboard.press(key)
+                assert page.evaluate(outside), key
+                assert not page.evaluate(first_focused, ".vl-fan .vl-rows > li:first-child > .vl-main"), key
+                # the stop back in the tab order once the press is over
+                page.wait_for_function("() => document.querySelector('.vl-fan .vl-rows > li:first-child > .vl-main').tabIndex === 0", timeout=WAIT)
+            page.click(".vl-fan-close")
+            page.evaluate("() => D.v().select(null)")
+            # the table of spots under a crowded press: the same, and no line of its first row drawn wider
+            _state(page, "view.setLevel('lines');")
+            at = _crowded(page, False)
+            assert at, "no point with several spots under the mouse"
+            page.mouse.click(at["x"], at["y"])
+            page.wait_for_selector(".vl-choose:not(.vl-choose-new)", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-choose .vl-main')", timeout=WAIT)
+            n = page.evaluate("() => document.querySelectorAll('.vl-choose .vl-main').length")
+            assert n >= 2
+            last = f".vl-choose .vl-rows > li:nth-child({min(n, 3)}) > .vl-main"
+            page.evaluate("() => window.watchHighlights()")
+            row1 = page.evaluate("() => +document.querySelector('.vl-choose .vl-main').dataset.row")
+            for _ in range(min(n, 3) - 1):
+                page.keyboard.press("ArrowDown")
+            assert page.evaluate(f"() => document.activeElement === document.querySelector('{last}')")
+            page.evaluate("() => { FOCUSED.length = 0; HIGHLIGHTED.length = 0; }")
+            page.keyboard.press("Shift+Tab")
+            assert page.evaluate("() => document.activeElement === document.querySelector('.vl-choose-x')")
+            assert not page.evaluate(first_focused, ".vl-choose .vl-rows > li:first-child > .vl-main")
+            assert row1 not in page.evaluate("() => HIGHLIGHTED"), page.evaluate("() => HIGHLIGHTED")
+            page.focus(last)
+            page.evaluate("() => { FOCUSED.length = 0; HIGHLIGHTED.length = 0; }")
+            page.keyboard.press("Tab")
+            assert page.evaluate("() => !document.activeElement || !document.activeElement.closest('.vl-choose .vl-rows')")
+            assert not page.evaluate(first_focused, ".vl-choose .vl-rows > li:first-child > .vl-main")
+            assert row1 not in page.evaluate("() => HIGHLIGHTED")
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
         finally:
             browser.close()
