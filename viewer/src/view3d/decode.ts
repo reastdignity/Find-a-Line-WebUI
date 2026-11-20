@@ -4,6 +4,7 @@
 // The steps are separate so tests can feed inflated bytes (tests/data/make_patch_fixture.py is the reference).
 
 import type { Rigging } from "../types";
+import { t } from "../i18n";
 
 export const NO_DATA = -32768;
 /** Martini's tile: chunks of CHUNK + 1 samples share their edge rows and columns. */
@@ -62,9 +63,9 @@ export interface Patch {
 
 /** The meta and the deflated body of an answer. */
 export function splitAnswer(answer: ArrayBuffer): {meta: PatchMeta; body: Uint8Array} {
-  if (answer.byteLength < 4) throw new Error("The answer is too short.");
+  if (answer.byteLength < 4) throw new Error(t("ui.view3d.answer_short"));
   const n = new DataView(answer).getUint32(0, true);
-  if (4 + n > answer.byteLength) throw new Error("The answer's meta is cut short.");
+  if (4 + n > answer.byteLength) throw new Error(t("ui.view3d.answer_meta"));
   const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(answer, 4, n))) as PatchMeta;
   return {meta, body: new Uint8Array(answer, 4 + n)};
 }
@@ -78,7 +79,7 @@ export async function inflate(body: Uint8Array): Promise<Uint8Array> {
 /** The int16 values of inflated bytes: the deltas of each row summed with int16 wrapping. */
 export function decodeValues(raw: Uint8Array, width: number, height: number): Int16Array {
   if (raw.byteLength !== width * height * 2) {
-    throw new Error(`Expected ${width * height * 2} bytes of heights, got ${raw.byteLength}.`);
+    throw new Error(t("ui.view3d.answer_heights", {expected: width * height * 2, got: raw.byteLength}));
   }
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength), values = new Int16Array(width * height);
   for (let i = 0, k = 0; i < height; i++) {
@@ -113,13 +114,13 @@ export function toHeights(values: Int16Array, width: number, height: number, bas
 export async function decodePatch(answer: ArrayBuffer): Promise<Patch> {
   const {meta, body} = splitAnswer(answer);
   const n = meta.shore_bytes ?? 0;
-  if (n < 0 || n > body.byteLength) throw new Error("The answer's shore block is cut short.");
+  if (n < 0 || n > body.byteLength) throw new Error(t("ui.view3d.answer_shore_cut"));
   const values = decodeValues(await inflate(n ? body.subarray(0, body.byteLength - n) : body), meta.width, meta.height);
   const patch: Patch = {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
   if (n) {
     const kinds = await inflate(body.subarray(body.byteLength - n));
     if (kinds.byteLength !== meta.width * meta.height) {
-      throw new Error(`Expected ${meta.width * meta.height} bytes of the shore, got ${kinds.byteLength}.`);
+      throw new Error(t("ui.view3d.answer_shore", {expected: meta.width * meta.height, got: kinds.byteLength}));
     }
     if (kinds.some((k) => k !== 0)) patch.shore = kinds;
   }

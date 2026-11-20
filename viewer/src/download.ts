@@ -3,6 +3,8 @@
 // virtual time (the tests' --dump-dom) waits for it as for a script, while it runs ahead of a fetch's stream
 // (with no timer left it jumps to its budget's end, and the page never sees the data).
 
+import { t } from "./i18n";
+
 /** web.SIZE_HEADER: a run's script's bytes before compression (nginx gzips it on the fly and drops
  *  Content-Length). */
 export const SIZE_HEADER = "X-Findaline-Bytes";
@@ -59,8 +61,8 @@ export function download(url: string, type: "text" | "arraybuffer", options: Dow
       options.onBytes?.(e.loaded, total);
       resolve({status: xhr.status, body: xhr.response, bytes: e.loaded, header});
     };
-    xhr.onerror = () => reject(new Error("the download of " + url + " failed"));
-    xhr.onabort = () => reject(new Error("the download of " + url + " was stopped"));
+    xhr.onerror = () => reject(new Error(t("ui.download.failed", {url})));
+    xhr.onabort = () => reject(new Error(t("ui.download.stopped", {url})));
     xhr.send();
   });
 }

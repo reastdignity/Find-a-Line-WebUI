@@ -6,11 +6,14 @@
 import L from "leaflet";
 import { ESRI_MAX_ZOOM, ESRI_NAME, esriHtml, esriKey, esriTileUrl, orthoHtml } from "./layers";
 import type { Ortho } from "./types";
+import { t } from "./i18n";
 
 // The OSM tile usage policy and attribution guidelines: "© OpenStreetMap contributors" linked to the
-// copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap)
-const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ' +
-  'contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">report a map issue</a>)';
+// copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap); the words
+// ui.map.osm_credit and ui.map.report_issue
+const osmCredit = () => "&copy; " + t("ui.map.osm_credit", {
+  osm: '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+  fix: '<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">' + t("ui.map.report_issue") + "</a>"});
 
 /** A tile that tries the cached one ({cache}/{z}/{x}/{y}.jpg) first, then the service. */
 function createCachedTile(this: L.TileLayer & {_cache: string | null}, coords: L.Coords, done: L.DoneCallback) {
@@ -35,11 +38,11 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
   const layers: Record<string, L.Layer> = {
     "OpenTopoMap": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
       maxZoom, maxNativeZoom: 17,
-      attribution: "Map data: " + OSM + ', <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: ' +
-        '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
+      attribution: t("ui.map.data") + " " + osmCredit() + ', <a href="http://viewfinderpanoramas.org">SRTM</a> | ' +
+        t("ui.map.style") + ' &copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
         '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'}),
     "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom, maxNativeZoom: 19, attribution: OSM}),
+      maxZoom, maxNativeZoom: 19, attribution: osmCredit()}),
   };
   const key = esriKey();
   if (key) {
