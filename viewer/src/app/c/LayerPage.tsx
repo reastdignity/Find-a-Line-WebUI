@@ -192,6 +192,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const shown = useRef<number[] | null>(null);  // the breaks the cells are coloured by now (eased)
   const anim = useRef(0);
   const outlineCache = useRef(new Map<string, Promise<CountryOutline>>());
+  const reveal = useRef(false);                 // a cell was just chosen on the map: its card is shown (below)
   const set = (change: Partial<LayerState>) => setState((s) => ({...s, ...change}));
   const mode: LayerMode = state.mode;
 
@@ -199,9 +200,10 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const pickedOf = (country: string, data: CountryCells, row: number[]): PickedCell =>
     ({country, level: data.level, deg: data.cell_deg, i: row[0], j: row[1], side: rowSide(row), count: row[2],
       corners: row.slice(3, 11), km2: cellKm2(data, row), whole: wholeKm2(row), shape: cellShape(data, row)});
-  const choose = (country: string, row: number[]) => {
+  const choose = (country: string, row: number[], onMap = false) => {
     const answer = cellsRef.current.find((c) => c.country === country)?.data;
     if (!answer) return;
+    reveal.current = onMap;
     base.current = {country, i: row[0] * answer.level, j: row[1] * answer.level, side: rowSide(row)};
     setPicked(pickedOf(country, answer, row));
   };
@@ -220,8 +222,8 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     if (first.view) map.setView([first.view.lat, first.view.lon], first.view.zoom, {animate: false});
     else fitCountry(first.country && cubes.some((c) => c.id === first.country) ? first.country : cube0.id);
     const noun = () => stateRef.current.mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
-    layer.current = new CellsLayer(map, choose, fitCountry, (count, density, side) =>
-      `${count.toLocaleString("en")} ${noun()}, ${densityText(density)} ${t("ui.layer.per_km2")}${side ? `, ${t("ui.layer.beyond_short")}` : ""}`);
+    layer.current = new CellsLayer(map, (country, row) => choose(country, row, true), fitCountry, (count, density, side) =>
+      `${count.toLocaleString("en")} ${noun()}; ${densityText(density)} ${t("ui.layer.per_km2")}${side ? `; ${t("ui.layer.beyond_short")}` : ""}`);
     const moved = () => {
       const c = map.getCenter();
       set({view: {lat: c.lat, lon: c.lng, zoom: map.getZoom()}});
@@ -454,6 +456,16 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     layer.current?.draw(cells, outlines, shown.current || target, CLASS_BREAKS[mode]);
   }, [cells, outlines, mode, theme]);
   useEffect(() => { layer.current?.pick(picked); }, [picked, theme]);
+  // A cell chosen on the phone's sticky map (c.css: the map stays while the column scrolls under it): the column
+  // scrolls so that the cell's card stands right under the map (the user's pick, 2026-11-20). At once, not eased.
+  // Where the map is not sticky (a desktop, a phone held sideways) nothing moves.
+  useEffect(() => {
+    if (!reveal.current || !picked) return;
+    reveal.current = false;
+    const box = place.map.getContainer();
+    if (getComputedStyle(box).position !== "sticky") return;
+    box.parentElement?.querySelector(".c-layer-cell")?.scrollIntoView({block: "start"});
+  }, [picked]);
 
   const current = cubes.find((c) => c.id === state.country) || inView[0] || cube0;
   const shownCubes = inView.length ? inView : [current];  // the cubes in view (the selected one when none is)
