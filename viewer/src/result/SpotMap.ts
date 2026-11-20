@@ -5,9 +5,11 @@
 // - the part of the map a person sees goes to the view as a Quad in the run's grid metres with its metres per
 //   pixel (SpotView.setView: the level under Auto, the spots in view, their numbers);
 // - Area: the squares (viewgeom.ts squareValues) in five classes with their values, the picks of "Start here"
-//   bold with P1 …; Spots: the best spots' shown lines bold with B1 …, the other spots in view pale; Lines: the
-//   best spots' lines not beaten thin, their shown line bold with a halo (with All every passing line in view,
-//   thin); above 5 000 thin lines none, only the pale lines (the view counts and refuses);
+//   bold with P1 …; a value clear of every control and pick's number (valueAt: in its square's middle, else nearer a
+//   side or a corner of it, else left out: the square's colour still tells it); Spots: the best spots' shown lines
+//   bold with B1 …, the other spots in view pale; Lines: the best spots' lines not beaten thin, their shown line
+//   bold with a halo (with All every passing line in view, thin); above 5 000 thin lines none, only the pale lines
+//   (the view counts and refuses);
 // - a selected spot: its other passing lines thin, its line over a dark halo, A1 and A2 on its anchors (in a run
 //   with the access mark the circle's ring in the state's colour and the mark on its corner), the rest dimmed;
 //   "Lines from here": its lines with halos and their numbers, a dashed ring at the point;
@@ -79,6 +81,7 @@ const INK = "#1b2530", PAPER = "#ffffff";  // the numbers' shapes: the map's til
  *  a change of that step changes this constant too). The numbers' shapes keep their sizes (markSize, as before). */
 const TEXT_PX = 12;
 const MARK_FONT = `600 ${TEXT_PX}px system-ui, sans-serif`;
+const HALO = 1.25;  // px the halo of a square's value reaches beyond its letters (half its 2.5 px stroke)
 const D = Math.PI / 180;
 
 /** The half width and height of a number's shape. */
@@ -111,6 +114,26 @@ function clipT(ax: number, ay: number, bx: number, by: number, x0: number, y0: n
   return t1 > t0 ? [t0, t1] : null;
 }
 
+/** Where a square's value goes at Area (the design review's list of step 3c, item 3): `corners` the square's four
+ *  corners in px (in order round it), (hw, hh) the half size of the value's box, `boxes` what it keeps PAD px clear
+ *  of ([x0, y0, x1, y1] each: the controls over the map, the picks' numbers). The square's middle when the box there
+ *  is clear: the value stands where it always stood, whatever its width; else the first clear place of eight nearer
+ *  the square's sides (top, bottom, left, right) and corners with the whole box inside the square (a square of the
+ *  run's grid looks slightly turned on the web map: inside its corners' middle two coordinates each way); none:
+ *  null, the value is left out (the square stays, its colour tells the value's class). */
+export function valueAt(corners: [number, number][], hw: number, hh: number, boxes: number[][]): [number, number] | null {
+  const clear = (x: number, y: number) =>
+    boxes.every((r) => x + hw <= r[0] - PAD || x - hw >= r[2] + PAD || y + hh <= r[1] - PAD || y - hh >= r[3] + PAD);
+  const cx = (corners[0][0] + corners[2][0]) / 2, cy = (corners[0][1] + corners[2][1]) / 2;
+  if (clear(cx, cy)) return [cx, cy];
+  const xs = corners.map((c) => c[0]).sort((a, b) => a - b), ys = corners.map((c) => c[1]).sort((a, b) => a - b);
+  const x0 = xs[1] + hw, x1 = xs[2] - hw, y0 = ys[1] + hh, y1 = ys[2] - hh;
+  if (x0 > x1 || y0 > y1) return null;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  for (const [x, y] of [[mx, y0], [mx, y1], [x0, my], [x1, my], [x0, y0], [x1, y0], [x0, y1], [x1, y1]]) if (clear(x, y)) return [x, y];
+  return null;
+}
+
 function segmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
   const f = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
@@ -118,6 +141,9 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
 }
 
 interface Placed { kind: MarkKind; text: string; x: number; y: number; w: number; h: number; spot: number; row: number; end?: 1 | 2 }
+/** A square's value at Area as the last paint placed it: its box's middle and half size in the layer's pixels; moved
+ *  from the square's middle, or left out (then the box it had in the middle). */
+interface Value { text: string; x: number; y: number; w: number; h: number; moved: boolean; left: boolean }
 interface Hit { spot: number; row: number; d: number }
 
 // A Leaflet renderer that draws nothing by itself: its canvas follows the map (placed and sized at every
@@ -176,6 +202,7 @@ export class SpotMap {
   private trow: number[] = [];
   private trank: number[] = [];
   private marks: Placed[] = [];
+  private values: Value[] = [];
   private fanLines: {x1: number; y1: number; x2: number; y2: number; row: number}[] = [];
   private strokes = 0;
   private free = {x0: 0, y0: 0, x1: 0, y1: 0, rects: [] as number[][], sig: ""};
@@ -379,6 +406,7 @@ export class SpotMap {
       this.tx = []; this.trow = []; this.trank = [];
     }
     this.marks = [];
+    this.values = [];
     this.fanLines = [];
     ctx.setTransform(m, 0, 0, m, -min.x * m, -min.y * m);
     ctx.clearRect(min.x, min.y, size.x, size.y);
@@ -434,14 +462,15 @@ export class SpotMap {
       this.marks.push({kind, text, x, y, w, h, spot, row, end});
     };
     const badges: [number, number][] = [];
-    /** The number of a line: on the longest piece of the line that is on the map and clear of the controls, at the
-     *  first of seven places a box away from every earlier number, else the farthest; nearer than a quarter of a
-     *  box to an earlier one, or with no free piece: no number on the map (the row keeps it). */
-    const badge = (row: number, text: string, kind: MarkKind, spot: number) => {
+    /** Where the number of a line goes: on the longest piece of the line that is on the map and clear of the
+     *  controls, at the first of seven places a box away from every earlier number, else the farthest; nearer than a
+     *  quarter of a box to an earlier one, or with no free piece: null, no number on the map (the row keeps it). The
+     *  place counts as an earlier number's for the next. */
+    const placeBadge = (row: number, text: string, kind: MarkKind): [number, number] | null => {
       this.ends(row, p);
       const ax = p[0], ay = p[1], bx = p[2], by = p[3], [hw, hh] = markSize(kind, text);
       const parts = this.freeParts(ax, ay, bx, by, hw, hh);
-      if (!parts.length) return;
+      if (!parts.length) return null;
       let at: [number, number] | null = null, apart = -1;
       for (let n = 0; n < parts.length && apart < 1; n++) {
         for (const f of [0.5, 0.36, 0.64, 0.24, 0.76, 0.14, 0.86]) {
@@ -452,9 +481,14 @@ export class SpotMap {
           if (near > apart) { apart = near; at = [x, y]; }
         }
       }
-      if (!at || apart < 0.25) return;
+      if (!at || apart < 0.25) return null;
       badges.push(at);
-      mark(kind, at[0], at[1], text, spot, row);
+      return at;
+    };
+    /** The number of a line placed (placeBadge) and drawn. */
+    const badge = (row: number, text: string, kind: MarkKind, spot: number) => {
+      const at = placeBadge(row, text, kind);
+      if (at) mark(kind, at[0], at[1], text, spot, row);
     };
     const shownOf = (spots: ArrayLike<number>) => Array.from(spots, (s) => view.shownOf(s));
 
@@ -464,8 +498,18 @@ export class SpotMap {
       this.grid = grid;
       found = br;
       const colours = this.layerColours();
+      // the picks' numbers placed first (their places do not depend on the squares) and drawn after their lines, as
+      // ever: the squares' values keep clear of them and of every control, and stay under the lines and the numbers
+      const picks = view.picks(), lines = picks.map((pick) => pick.row);
+      const placed = picks.map((pick) => inFan.has(pick.row) ? null : placeBadge(pick.row, "P" + pick.n, "P"));
+      const taken = this.free.rects.slice();
+      placed.forEach((at, n) => {
+        if (!at) return;
+        const [w, h] = markSize("P", "P" + picks[n].n);
+        taken.push([at[0] - w, at[1] - h, at[0] + w, at[1] + h]);
+      });
       // only the squares on the canvas: their middles against the canvas's box in grid metres (the fit's corners)
-      const side = grid.side, px = side / view.mpp, label = px >= SQUARE_PX;
+      const side = grid.side, px = side / view.mpp, label = px >= SQUARE_PX, font = px >= 44 ? TEXT_PX + 1 : TEXT_PX;
       const corners = [this.gridAt(min.x, min.y), this.gridAt(min.x + size.x, min.y), this.gridAt(min.x + size.x, min.y + size.y),
                        this.gridAt(min.x, min.y + size.y)];
       const gx0 = Math.min(...corners.map((c) => c[0])) - side, gx1 = Math.max(...corners.map((c) => c[0])) + side;
@@ -482,19 +526,23 @@ export class SpotMap {
         ctx.globalAlpha = 0.9; ctx.lineWidth = 0.8; ctx.strokeStyle = colours[cls]; ctx.stroke();
         if (label) {
           const text = String(Math.round(grid.values[k])), cx = (a[0] + c[0]) / 2, cy = (a[1] + c[1]) / 2;
-          ctx.font = `600 ${px >= 44 ? TEXT_PX + 1 : TEXT_PX}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, cx, cy);
-          ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, cx, cy);
+          ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          const hw = ctx.measureText(text).width / 2 + HALO, hh = font / 2 + HALO, at = valueAt([a, bb, c, d], hw, hh, taken);
+          if (at) {
+            ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, at[0], at[1]);
+            ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, at[0], at[1]);
+          }
+          const [x, y] = at ?? [cx, cy];
+          this.values.push({text, x, y, w: hw, h: hh, moved: at !== null && (x !== cx || y !== cy), left: at === null});
         }
         drawn++;
       }
       ctx.globalAlpha = 1;
       if (drawn) shapes.sq = true;
-      const picks = view.picks(), lines = picks.map((pick) => pick.row);
       stroke(lines, 7, 0.55 * dim, PAPER);
       stroke(lines, 3.5, dim, undefined, true);
       target(lines, 2);
-      for (const pick of picks) if (!inFan.has(pick.row)) badge(pick.row, "P" + pick.n, "P", pick.spot);
+      placed.forEach((at, n) => { if (at) mark("P", at[0], at[1], "P" + picks[n].n, picks[n].spot, picks[n].row); });
       // the legend lists the pick's shape whenever a pick's line is in view, its number drawn or not: a number left out
       // for want of room took its row out of the legend, the foot shrank, and the number came back, again and again
       // (the user's decision of 2026-11-18; the pick's line is on the map either way)
@@ -621,13 +669,16 @@ export class SpotMap {
 
   /** What the map shows now, by the page's own count: the lines stroked (each line once, however often it is drawn:
    *  thin and bold, pale and selected; its halo not counted)
-   *  and the numbers with their boxes in the viewport. */
-  drawn(): {strokes: number; numbers: {label: string; box: DOMRect}[]} {
+   *  and the numbers with their boxes in the viewport; at Area the squares' values on the canvas with their boxes
+   *  (with the halo), each moved from its square's middle or not, or left out (its box then the one it had there). */
+  drawn(): {strokes: number; numbers: {label: string; box: DOMRect}[]; values: {text: string; box: DOMRect; moved: boolean; left: boolean}[]} {
     const box = this.map.getContainer().getBoundingClientRect();
-    return {strokes: this.strokes, numbers: this.marks.map((m) => {
-      const at = this.map.layerPointToContainerPoint([m.x, m.y]);
-      return {label: m.text, box: new DOMRect(box.left + at.x - m.w, box.top + at.y - m.h, 2 * m.w, 2 * m.h)};
-    })};
+    const rect = (x: number, y: number, w: number, h: number) => {
+      const at = this.map.layerPointToContainerPoint([x, y]);
+      return new DOMRect(box.left + at.x - w, box.top + at.y - h, 2 * w, 2 * h);
+    };
+    return {strokes: this.strokes, numbers: this.marks.map((m) => ({label: m.text, box: rect(m.x, m.y, m.w, m.h)})),
+            values: this.values.map((v) => ({text: v.text, box: rect(v.x, v.y, v.w, v.h), moved: v.moved, left: v.left}))};
   }
 
   // --- presses ---
