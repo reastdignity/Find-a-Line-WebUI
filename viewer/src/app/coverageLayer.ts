@@ -178,6 +178,10 @@ export class CoverageLayer {
           const id = (f as Shape).properties.id, area = areaOf(id)!;
           layer.bindTooltip(`${areaName(id, "en")}: ${ct("en", `level.${area.level}`)}, ${resText(area.res, "en")}` +
                             (area.partial ? ` (${ct("en", "legend.partial").toLowerCase()})` : ""), {sticky: true});
+          // Out of the Tab order: Leaflet listens for the focus on an outline with a tooltip, and Chromium makes an SVG
+          // shape with such a listener a Tab stop (83 before the pin and the map's controls); the coverage page's link
+          // is the keyboard's way. Each time the outline is drawn (its element is made anew when the layer is added)
+          layer.on("add", () => (layer as L.Path).getElement()?.setAttribute("tabindex", "-1"));
         },
       }));
       this.paint();

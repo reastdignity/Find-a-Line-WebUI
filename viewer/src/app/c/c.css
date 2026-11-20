@@ -9,7 +9,10 @@
 .ui.c-app { flex-direction: column; }
 .ui .c-main { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
 .ui .c-main-new, .ui .c-main-run, .ui .c-main-osm, .ui .c-main-layer { display: flex; overflow: hidden; }
-.ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+/* the phones' bottom bar lies over the scrolling page: its last row can be scrolled clear of it, and what is scrolled
+   into view (a focused control, a card's panel) stops above it */
+.ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .ui .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-app-error { padding: 8px 20px; background: var(--bad-soft); }
 .ui .c-no-worker { background: var(--bad-soft); padding: 12px 16px; border-radius: var(--r-2); font-weight: 400; }
@@ -102,10 +105,9 @@
 .ui .c-card-name { font-weight: 600; font-size: var(--fs-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-card-meta { overflow-wrap: anywhere; }
 .ui .c-card-panel { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-2); background: var(--surface-2); }
-/* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare, and above the
-   phones' bottom bar, which lies over the scrolling page */
+/* a card's panel (Share, Delete…, Remove…) under its body; scrolled into view with room to spare (above the phones'
+   bottom bar: the page's scroll-padding-bottom) */
 .ui .c-card > .c-card-panel { margin: 0 16px 16px; scroll-margin: 12px; }
-.ui.c-has-nav .c-card > .c-card-panel { scroll-margin-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px); }
 .ui .c-confirm { background: var(--bad-soft); }
 
 /* Mini maps */
@@ -159,6 +161,7 @@
   background: none; color: var(--ink); text-align: left; cursor: pointer; border-radius: var(--r-2); }
 .ui .c-tree-name:hover { background: var(--hover); }
 .ui .c-tree-name:focus-visible { box-shadow: var(--focus-in); }  /* inside: the tree's scroll box clips a ring outside */
+@media (forced-colors: active) { .ui .c-tree-name:focus-visible { outline-offset: -2px; } }
 @media (pointer: coarse) { .ui .c-tree-fold { width: 44px; height: 44px; } .ui .c-tree-name { min-height: 44px; } }
 .ui .c-tree-name span.u-grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .c-crumbs { font-size: var(--fs-2); color: var(--muted); overflow-wrap: anywhere; }
@@ -471,7 +474,7 @@
 .ui .c-searched-readout { font-size: var(--fs-2); color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
 .ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;
   border-bottom: 1px solid var(--rule); touch-action: pan-y; cursor: default; border-radius: 2px; }
-.ui .c-searched-bars:focus-visible { outline: none; box-shadow: var(--focus); }
+.ui .c-searched-bars:focus-visible { box-shadow: var(--focus); }
 /* A recessive line at the top of the scale (the largest day), its value above it */
 .ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--rule); }
 .ui .c-searched-top { position: absolute; top: 0; left: 0; font-size: var(--fs-1); line-height: 1; font-variant-numeric: tabular-nums; }

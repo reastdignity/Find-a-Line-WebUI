@@ -193,6 +193,7 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov .cov-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 4px 8px; border: 0; background: none;
   color: var(--ink); text-align: left; font-size: var(--fs-3); cursor: pointer; }
 .cov .cov-row:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .cov .cov-row:focus-visible { outline-offset: -2px; } }
 .cov-rname { flex: 1; min-width: 0; font-weight: 600; }
 .cov-rparent { font-weight: 400; color: var(--ink-2); }
 .cov-rdet { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-2); white-space: nowrap; font-variant-numeric: tabular-nums; }

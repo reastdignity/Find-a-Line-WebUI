@@ -13,6 +13,12 @@
 .ui a { color: var(--accent); }
 .ui :focus { outline: none; }
 .ui :focus-visible { outline: none; box-shadow: var(--focus); }
+/* a focused control is scrolled into its scroll box and the window with room for the ring's 4 px (docs/DESIGN.md
+   row 81; :where: no weight, a page's own scroll-margin wins) */
+:where(.ui :focus-visible) { scroll-margin: 8px; }
+/* Forced colours (Windows' contrast themes) draw no shadow: there the ring is an outline in the system's colour, 2 px
+   off the control as the ring; a ring drawn inside its control (--focus-in) has its outline inside (-2px) beside it */
+@media (forced-colors: active) { .ui :focus-visible { outline: 2px solid; outline-offset: 2px; } }
 .ui .u-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Icons and the logo */
@@ -85,6 +91,8 @@
 .ui .u-seg button.u-on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 /* its own shadow and the keyboard's ring together (the ring is a shadow too: one alone would replace the other) */
 .ui .u-seg button.u-on:focus-visible { box-shadow: 0 1px 3px rgb(0 0 0 / .12), var(--focus); }
+/* a focused segment's ring above the selected segment beside it (the search's tabs: the arrows move the focus only) */
+.ui .u-seg button:focus-visible { position: relative; z-index: 1; }
 
 /* Panels, by R8's levels of container: .u-panel alone is "raised" (a popover, a table under a press: the surface
    and its shadow, no edge); a page's own section (components.tsx Panel: .u-ground) lies on the ground, with no box,
@@ -186,6 +194,9 @@
 .ui .u-bnav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; border: 0;
   background: none; font-size: var(--fs-1); color: var(--muted); font-weight: 500; cursor: pointer; position: relative; }
 .ui .u-bnav-item.u-on { color: var(--accent); }
+/* the keyboard's ring inside the item: the bar stands at the screen's edges */
+.ui .u-bnav-item:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .u-bnav-item:focus-visible { outline-offset: -2px; } }
 .ui .u-bnav-item .u-ic { width: 22px; height: 22px; }
 .ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); }
 
@@ -307,6 +318,9 @@
 .ui .u-coarse-swatch.u-coarse-later { border-style: solid; }
 @media (max-width: 600px) { .ui .u-shore { max-width: min(240px, calc(100vw - 80px)); font-size: 12px; padding: 4px 8px; } }
 .ui .leaflet-control-attribution a { color: var(--accent); }
+/* the keyboard's ring inside a credit's link: the credits stand at the map's edge, which clips */
+.ui .leaflet-control-attribution a:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .leaflet-control-attribution a:focus-visible { outline-offset: -2px; } }
 /* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */
 @media (max-width: 767px) { .ui .leaflet-control-attribution { font-size: 10px; line-height: 1.35; } }
 /* A run's data credits (layers.ts creditsHtml): on a phone folded behind their button, the tile credits beside
