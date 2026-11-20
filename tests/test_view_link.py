@@ -128,7 +128,8 @@ def test_open_by_link_and_write(site, device):
     under the bar (above a phone's sheet); the hash names it. A selection made on the page writes its line's link in
     place (no new history entry), from a row of the list, a number on the map, "Start here", a line of "Lines from
     here" and the table of spots (a phone: a tap on a number); no selection writes the run's hash without a line.
-    Back, Forward and a hashchange to a link open it again, also to the link opened before (only `nav` changed)."""
+    Back, Forward and a hashchange to a link open it again, also to the link opened before (only `nav` changed);
+    nothing is written while the hash is not this run's page."""
     from playwright.sync_api import sync_playwright
     context = DESKTOP if device == "desktop" else PHONE
     with sync_playwright() as p:
@@ -206,6 +207,10 @@ def test_open_by_link_and_write(site, device):
             page.go_forward()
             forward = _wait(page, f"s.selected !== null && s.selected[1] === {b['row']}")
             assert forward["hash"] == f"#run={BIG}&line={b['link']}", forward
+            # a hash that is not this run's page any more (changed without a hashchange): a selection writes nothing
+            page.evaluate("() => history.replaceState(history.state, '', '#home')")
+            page.evaluate(f"() => window.FINDALINE_VIEW.view.select({a['spot']}, {a['row']})")
+            assert _wait(page, f"s.selected !== null && s.selected[1] === {a['row']}")["hash"] == "#home"
             assert page.errors == []
         finally:
             browser.close()

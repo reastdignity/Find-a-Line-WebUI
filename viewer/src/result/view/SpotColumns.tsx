@@ -553,12 +553,12 @@ export function SpotColumns(props: SpotColumnsProps) {
   useEffect(() => () => view.destroy(), [view]);
   // a measured line of a link (viewlink.ts), kept here across the phone's width, of this view only
   const [measured, setMeasured] = useState<{view: SpotView; line: Line} | null>(null);
-  const line = measured?.view === view ? measured.line : null;
+  const measuredLine = measured?.view === view ? measured.line : null;
   const onMeasured = (l: Line | null) => setMeasured(l ? {view, line: l} : null);
   useEffect(() => {  // for tests and the console
     const shown = (window as any).FINDALINE_VIEW;
-    if (shown?.view === view) shown.measured = line;
+    if (shown?.view === view) shown.measured = measuredLine;
   });
-  const frame = {...props, view, panels: props.panels ?? PANELS, measured: line, onMeasured};
+  const frame = {...props, view, panels: props.panels ?? PANELS, measured: measuredLine, onMeasured};
   return props.wide ? <Desktop key="wide" {...frame} /> : <Phone key="phone" {...frame} />;
 }
