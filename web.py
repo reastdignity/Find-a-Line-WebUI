@@ -1153,11 +1153,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                                     {"provider": provider, "status": user.status})
         except ac.SignupClosed:
             await run_in_threadpool(record, "sign_up_refused", None, None, {"provider": provider})
-            return HTMLResponse(signin_page(accounts.providers, note="New accounts are not accepted."), 403)
+            return HTMLResponse(signin_page(accounts.providers, note=messages.text("page.signin.closed")), 403)
         except (OAuthError, JoseError, ValueError, KeyError, httpx2.HTTPError) as e:  # the ID token's checks: JoseError
             request.session.clear()
-            return HTMLResponse(signin_page(accounts.providers, note=f"Signing in failed ({type(e).__name__})."),
-                                400)
+            return HTMLResponse(signin_page(accounts.providers,
+                                            note=messages.text("page.signin.failed", error=type(e).__name__)), 400)
         next_path = ac.local_path(request.session.get("next"))
         request.session.clear()
         await run_in_threadpool(users.end_session, request.cookies.get(ac.SESSION_COOKIE))
@@ -2378,10 +2378,24 @@ PROVIDER_SVG = {
                  '<path fill="#7fba00" d="M11 1h9v9h-9z"/><path fill="#00a4ef" d="M1 11h9v9H1z"/>'
                  '<path fill="#ffb900" d="M11 11h9v9h-9z"/></svg>',
 }
-PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/coverage">Data coverage</a>'
-               '<a href="/privacy">Privacy</a><a href="/about">About / data licences</a></footer>')
+def page_text(key: str, **params) -> str:
+    """A text of the message catalogue (messages.text) for a server-rendered page, as HTML: the text's own &, < and >
+    escaped (its quotes and apostrophes written as they are, as the pages always wrote them), then its parameters put
+    in as given: markup (a link, a bold name) or values the caller escaped. `count` picks a plural form."""
+    plain = {k: v for k, v in params.items() if k != "count"}
+    form = messages.text(key, **({"count": params["count"]} if "count" in params else {}))
+    return messages.render({key: html.escape(form, quote=False)}, key, **plain)
+
+
+# The pages' footer (sign-in, privacy, about): built once, so the privacy page (its words the user's to approve, its
+# code untouched) shows the same bytes as before its links' words moved into the catalogue
+PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a>'
+               f'<a href="/coverage">{page_text("page.footer.coverage")}</a>'
+               f'<a href="/privacy">{page_text("ui.app.privacy")}</a>'
+               f'<a href="/about">{page_text("page.about.title")}</a></footer>')
 # The sign-in, privacy and about pages of the public site: server-rendered, no script, no inline styles;
-# the kit's look (viewer/src/ui/pages.css, in /app/app.css), the theme of the system
+# the kit's look (viewer/src/ui/pages.css, in /app/app.css), the theme of the system; their texts from the catalogue
+# (page.*), but the privacy page's
 SIGNIN_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Find-a-Line</title>
@@ -2389,8 +2403,8 @@ SIGNIN_HTML = """<!doctype html>
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
-<p class="p-lead">Finds possible highlines in elevation data.</p>{total}
-<p class="u-small"><a href="/coverage">Where the data is detailed: the coverage map</a></p></header>
+<p class="p-lead">{lead}</p>{total}
+<p class="u-small"><a href="/coverage">{coverage}</a></p></header>
 {body}
 {footer}
 </main></body></html>
@@ -2505,13 +2519,11 @@ ESRI_SOURCE = "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Com
 
 
 def esri_terms() -> str:
-    """The sentence of the about page on the satellite map (approved wording), its link escaped."""
+    """The sentence of the about page on the satellite map (approved wording: page.about.esri_terms), its link
+    escaped."""
     e = html.escape
-    return ('<p>Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
-            "the satellite imagery (in the map or in the 3D view of a line) you agree to comply with Esri's terms of "
-            f"use for it (<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>). In particular, it may only be "
-            "viewed in this map and in the 3D view of a line: it may not be downloaded, stored, copied or passed "
-            "on.</p>")
+    link = f"<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>"
+    return f"<p>{page_text('page.about.esri_terms', link=link)}</p>"
 
 
 # The terrain around the 3D view's patch (settings.ViewSettings.ring): Mapterhorn's attribution page
@@ -2533,42 +2545,38 @@ def about_page(contact: str, esri: bool = False, ring: bool = False) -> str:
                                              if layer is not None and layer.credit is not None):
             credits.setdefault(credit.data, credit)
     credits.setdefault(src.WATER_MASK_CREDIT.data, src.WATER_MASK_CREDIT)
+    t = page_text
     # a year of the run (sources.YEAR) reads as such: no run here
-    rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. Licence: {link(c.licence, c.url)}."
+    rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. "
+            f"{t('page.about.licence', licence=link(c.licence, c.url))}"
             + (f" <span class='u-small'>{e(src.dated(c.notice, src.YEAR_TEXT))}</span>" if c.notice else "") + "</li>"
             for c in credits.values()]
     # an orthophoto's attribution is a link where its terms ask for one (OrthoService.attribution_url)
     orthos = {s.ortho.name: link(src.dated(s.ortho.attribution, src.YEAR_TEXT), s.ortho.attribution_url or "")
               for s in src.SOURCES.values() if s.ortho is not None}
+    contributors = f"<a href='https://www.openstreetmap.org/copyright'>{t('page.about.osm_contributors')}</a>"
+    fixthemap = f"<a href='{e(src.credit.OSM_FIXTHEMAP)}'>openstreetmap.org/fixthemap</a>"
+    mapterhorn = f"<a href='{e(MAPTERHORN_ATTRIBUTION)}'>mapterhorn.com/attribution</a>"
+    licences = f"<a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>"
+    coverage = f"<a href='/coverage'>{t('page.about.coverage_link')}</a>"
     body = [
-        "<p>Find-a-Line finds possible highlines in elevation data: anchors on steep ground, every pair checked for "
-        "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",
-        "<h2>Elevation data</h2><p>Where each source's data is detailed: <a href='/coverage'>the coverage map</a>."
-        "</p><ul>" + "".join(rows) + "</ul>",
+        f"<p>{t('page.about.lead')}</p>",
+        f"<h2>{t('page.about.elevation')}</h2><p>{t('page.about.coverage', link=coverage)}</p><ul>"
+        + "".join(rows) + "</ul>",
         f"<p>{e(src.credit.PROCESSED_NOTE)}</p>",
-        (f"<p>Terrain around the 3D view: © Mapterhorn (<a href='{e(MAPTERHORN_ATTRIBUTION)}'>"
-         "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>"
-         if ring else ""),
-        "<h2>OpenStreetMap</h2><p>Coastlines, cliffs, named areas and place names: © "
-        "<a href='https://www.openstreetmap.org/copyright'>OpenStreetMap contributors</a>, under the Open Database "
-        "Licence (ODbL 1.0); searched with Nominatim and the Overpass API, extracts from Geofabrik. Errors in the "
-        f"map data can be reported at <a href='{e(src.credit.OSM_FIXTHEMAP)}'>openstreetmap.org/fixthemap</a>.</p>",
-        "<h2>Orthophotos and background maps</h2><ul>"
+        f"<p>{t('page.about.ring', link=mapterhorn)}</p>" if ring else "",
+        f"<h2>OpenStreetMap</h2><p>{t('page.about.osm', contributors=contributors, fixthemap=fixthemap)}</p>",
+        f"<h2>{t('page.about.orthos')}</h2><ul>"
         + "".join(f"<li>{e(name)}: {attribution}</li>" for name, attribution in orthos.items())
-        + "<li>OpenStreetMap tiles: © OpenStreetMap contributors</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)"
-          "</li>"
+        + f"<li>{t('page.about.osm_tiles')}</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)</li>"
         + (f"<li>Esri World Imagery: <a href='https://www.esri.com'>Powered by Esri</a>. {e(ESRI_SOURCE)}</li>"
            if esri else "") + "</ul>",
         esri_terms() if esri else "",
-        "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
-        "shared only for non-commercial use, under the same licence.</p>",
-        "<h2>Software</h2><p>The maps, the app and the 3D view include open-source libraries (Leaflet, Preact, "
-        "i18next, three.js and others); their licences and copyright notices: "
-        f"<a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>.</p>",
-        f"<p>Contact: {e(contact)}.</p>",
+        f"<p>{t('page.about.fabdem')}</p>",
+        f"<h2>{t('page.about.software')}</h2><p>{t('page.about.libraries', link=licences)}</p>",
+        f"<p>{t('page.about.contact', contact=e(contact))}</p>",
     ]
-    return PAGE_HTML.format(title="About / data licences", body="\n".join(body), logo=LOGO_SVG,
-                            footer=PAGE_FOOTER)
+    return PAGE_HTML.format(title=t("page.about.title"), body="\n".join(body), logo=LOGO_SVG, footer=PAGE_FOOTER)
 
 
 # The kit's drawn arrow after "Open map" (viewer/src/ui/icons.tsx ICONS.next, its class u-ic: ui.css): static markup
@@ -2586,13 +2594,14 @@ def demo_list(demos: List[Dict]) -> str:
     items = []
     for run in demos:
         summary = run.get("summary") or {}
-        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{summary.get('spots', 0)} spots · "
-                 f"{summary.get('lines', 0)} lines</span><span class='u-small'>{e(rn.params_summary(run))}</span>")
+        counts = page_text("page.examples.counts", spots=f"{summary.get('spots', 0)}", lines=f"{summary.get('lines', 0)}")
+        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{counts}</span>"
+                 f"<span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
-                     f"<span class='p-open'>Open map{NEXT_ICON}</span></a></li>" if run.get("has_map")
-                     else f"<li><div class='p-ex'>{inner}</div></li>")
-    return ("<section class='p-examples'><h2 class='u-h'>Examples</h2><ul class='p-cards'>" + "".join(items)
-            + "</ul></section>")
+                     f"<span class='p-open'>{page_text('page.examples.open')}{NEXT_ICON}</span></a></li>"
+                     if run.get("has_map") else f"<li><div class='p-ex'>{inner}</div></li>")
+    return (f"<section class='p-examples'><h2 class='u-h'>{page_text('page.examples.title')}</h2><ul class='p-cards'>"
+            + "".join(items) + "</ul></section>")
 
 
 def thousands(value: float) -> str:
@@ -2606,8 +2615,8 @@ def area_total(total: Optional[Tuple[float, int]]) -> str:
     km2, searches = total or (0.0, 0)
     if not searches:
         return ""
-    return (f"<p class='u-small'>{thousands(km2)} km² searched in {thousands(searches)} "
-            f"search{'' if searches == 1 else 'es'}</p>")
+    words = page_text("page.signin.total", count=searches, km2=thousands(km2), searches=thousands(searches))
+    return f"<p class='u-small'>{words}</p>"
 
 
 def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, note: str = "",
@@ -2616,23 +2625,22 @@ def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, not
     (pending or blocked): sign-in links, or the account's state and signing out; the demo runs
     (their maps, read-only); `total`: (km², searches) of everyone (area_total). No script, and
     nothing that changes state but signing out."""
-    e = html.escape
+    e, t = html.escape, page_text
     card = [f"<p class='p-error' role='alert'>{e(note)}</p>"] if note else []
     if user is None:
-        card.append("<h2 class='u-h'>Sign in to search</h2><div class='p-providers'>" + "".join(
-            f"<a class='p-provider p-{p}' href='/login/{p}'>{PROVIDER_SVG.get(p, '')}Sign in with {ac.NAMES[p]}</a>"
-            for p in providers) + "</div>")
-        card.append("<p class='u-small'>A new account waits for an administrator's approval. The site keeps your "
-                    "provider's user id and display name, no e-mail address.</p>")
+        card.append(f"<h2 class='u-h'>{t('page.signin.title')}</h2><div class='p-providers'>" + "".join(
+            f"<a class='p-provider p-{p}' href='/login/{p}'>{PROVIDER_SVG.get(p, '')}"
+            f"{t('page.signin.with', provider=ac.NAMES[p])}</a>" for p in providers) + "</div>")
+        card.append(f"<p class='u-small'>{t('page.signin.note')}</p>")
     else:
-        state = ("is waiting for an administrator's approval" if user.status == "pending"
-                 else "is blocked")
-        card.append(f"<p>Your account <b>{e(user.name)}</b> ({e(ac.NAMES.get(user.provider, user.provider))}) "
-                    f"{state}.</p>")
+        state = "page.signin.pending" if user.status == "pending" else "page.signin.blocked"
+        card.append(f"<p>{t(state, name=f'<b>{e(user.name)}</b>', provider=e(ac.NAMES.get(user.provider, user.provider)))}"
+                    "</p>")
         card.append(f"<form method='post' action='/logout'><input type='hidden' name='csrf' value='{e(csrf or '')}'>"
-                    "<button class='u-btn' type='submit'>Sign out</button></form>")
+                    f"<button class='u-btn' type='submit'>{t('ui.app.sign_out')}</button></form>")
     parts = ["<section class='p-card'>" + "\n".join(card) + "</section>", demo_list(demos or [])]
-    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER, total=area_total(total))
+    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER, total=area_total(total),
+                              lead=t("page.signin.lead"), coverage=t("page.signin.coverage"))
 
 
 class EventHub:
