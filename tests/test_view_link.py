@@ -117,7 +117,8 @@ def test_note_words_are_models():
     assert "this.note = {" + hidden in opened and "model.setNote({" + hidden in link
     assert 'this.note = {text: t("ui.link.not_in_run")};' in opened
     assert 'this.note = {text: t("ui.link.not_measured", {error: (e as Error).message})};' in opened
-    assert "The line of the link" not in opened and "The line of the link" not in link and '"clear filters"' not in link
+    # no copy of the words in the code (a comment may name them)
+    assert all('"The line of the link' not in src and 'action: "clear filters"' not in src for src in (opened, link))
     assert (words["ui.link.hidden"], words["ui.link.clear_filters"], words["ui.link.not_in_run"]) == (HIDDEN, CLEAR, NOT_HERE)
     assert words["ui.link.not_measured"] == "The line of the link could not be measured: {{error}}"
 

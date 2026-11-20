@@ -7,10 +7,15 @@
 //
 // A row (the UX session's requirement 13): a list item that is no control itself; its main part is ONE button that
 // selects the row's spot (pressed again: ends the selection; `aria-pressed` says it); any other control of a row
-// (the door "›", off until a spot's cards exist: DOOR) is the button's sibling. One tab stop per list (the selected
-// row, else the first), the arrows, Home and End move inside it; Enter and Space are the button's own. A row reads
-// the run's columns (SpotView.values, the columns' `at`): no Line is made for a row. A row's values carry their
-// columns' names for a screen reader (the headings above are hidden from it).
+// (its star where the page keeps favourites, step 3c; the door "›", off until a spot's cards exist: DOOR) is the
+// button's sibling. One tab stop per list (the selected row, else the first), the arrows, Home and End move inside it
+// (the right arrow to a row's star, rowKeys); Enter and Space are the button's own. A row reads the run's columns
+// (SpotView.values, the columns' `at`): no Line is made for a row (a star's state comes from the favourites' rows,
+// its Line at a press). A row's values carry their columns' names for a screen reader (the headings above are hidden
+// from it, the columns' help button is not).
+//
+// Step 3c also put here: the model's note first in the list (ListNote), the list's place when no line passes the
+// filters (NonePass), and the columns' help under the top block's heads (ColumnHelp).
 //
 // This file also holds the pieces the view's other panels share: a row's cells (Cells), metres and the hook that
 // follows a view and its panel state (useViewPanels); the marks' shapes are the map's (Shape.tsx). Styles in
@@ -189,7 +194,7 @@ let focused: Element | null = null, focusedPlace: {list: string; index: number; 
  *  effect, a frame later) and tries for 6. */
 const LOSS_FRAMES = 12;
 
-/** A row's list and index, when the element is a row's button of the top block or of a sector. */
+/** A row's list and index, when the element is a row's button (or its star) of the top block or of a sector. */
 function placeOf(e: Element): typeof focusedPlace {
   const li = e.classList.contains("vl-main") || e.classList.contains("vl-star") ? e.parentElement : null, ul = li?.parentElement;
   if (!li || !ul?.classList.contains("vl-rows")) return null;
