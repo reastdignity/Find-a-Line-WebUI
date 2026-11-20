@@ -704,17 +704,19 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
 /** On a phone, when the sheet's stop changed and the sheet rests there: a selected line that was in the part of the
  *  map a person sees (SpotMap's free part: above the sheet) at the last move of the map, selection or rest, and now
  *  has an anchor under the sheet or under the data credits band (a press there opens a credit's link) is brought into
- *  the room under the switch and above the credits: by the least pan at the same zoom, clear of the whole bar
- *  (`padding`) where it fits there; by the least zoom out that fits only when it is longer than the room
- *  (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the sheet moved (a drag, its
- *  glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the map shows nothing under
- *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
- *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
+ *  the room under the switch (`bar`'s top) and above the credits: by the least pan at the same zoom, clear of the
+ *  whole bar and the controls over the map (`padding`) where it fits there; by the least zoom out that fits only when
+ *  it is longer than the room (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the
+ *  sheet moved (a drag, its glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the
+ *  map shows nothing under the switch (full) nothing moves and what was in sight is kept for the next stop; a line
+ *  selected there counts as in sight. The map column's `data-sheet-checks` counts the checks made, each once its move
+ *  ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
-                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
-  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue, snap});
-  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue, snap};
+                       bar: () => Padding, measured: () => Line | null, fitMeasured: (l: Line) => void,
+                       fitDue: () => boolean) {
+  const latest = useRef({sheet, covered, padding, bar, measured, fitMeasured, fitDue, snap});
+  latest.current = {sheet, covered, padding, bar, measured, fitMeasured, fitDue, snap};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -727,9 +729,10 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
   /** The map's height above the sheet, px. */
   const above = (): number => map ? map.getSize().y - latest.current.covered() : 0;
   /** The room a line is brought into, px of the map's container: under the switch, above the sheet and above the
-   *  data credits band (the scale may lie over the line). */
+   *  data credits band (the scale may lie over the line). The switch's, not the controls' under it: counting them
+   *  (fix round 3's padding) would make a line that fits under the switch "longer than the room" and zoom out. */
   const room = (): {top: number; bottom: number; width: number} => {
-    const top = latest.current.padding().top, el = map?.getContainer();
+    const top = latest.current.bar().top, el = map?.getContainer();
     let bottom = above();
     const credits = el?.querySelector(".leaflet-control-attribution")?.getBoundingClientRect();
     if (el && credits && credits.width && credits.height) {
@@ -967,7 +970,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                padding, () => measured, keepMeasured,
+                padding, bar, () => measured, keepMeasured,
                 () => { const due = fitDue.current; fitDue.current = false; return due; });
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
