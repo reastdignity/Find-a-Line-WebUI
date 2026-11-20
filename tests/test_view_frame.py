@@ -10,8 +10,8 @@ after the window crossed the phone's width). Playwright's Edge over the app's se
 clip run (clip_runs.view_clip) and the same search without the access mark. Every wait is an event with a deadline
 (one exception, said where it is). Run from PowerShell (.claude/rules/browser-tests.md).
 
-Some checks need the canvas's members of step 3c (SESSION B1/interface.md: Measure's, zoomToLine, setCovered,
-drawMeasured, the legend's `ends`): they hold once the frame and the canvas are on one branch (view-3c's stack)."""
+The frame uses the canvas's members of step 3c as they are (SpotMap.ts: Measure's, zoomToLine, setCovered,
+drawMeasured, the legend's `fav`, `area`, `ends` and `runs`); a new selection ends a measured line (viewlink.ts)."""
 
 import json
 import os
@@ -144,7 +144,8 @@ def test_header_actions_and_title(site):
             page = _view(browser, site, DESKTOP)
             _state(page)
             measure = _has_measure(page)
-            head = page.evaluate("""() => ({meta: document.querySelector('.c-run-title .u-small').textContent,
+            assert measure  # the canvas of step 3c measures
+            head =page.evaluate("""() => ({meta: document.querySelector('.c-run-title .u-small').textContent,
                 order: [...document.querySelector('.c-result-top').children].map((e) => e.className.split(' ')[0])})""")
             assert "line" not in head["meta"] and head["meta"].strip(), head
             assert head["order"][-1] == "r-actions", head
@@ -289,8 +290,7 @@ def test_card_moves_the_map_only_for_a_line_under_it(site):
 
 def test_card_is_not_in_view(site):
     """The card's height goes to the canvas (setCovered: B1's covered term), so what lies under it is not "in view":
-    the canvas's covered px are the map's bottom up to the card's top, 0 once the card is closed. (Needs the canvas
-    of step 3c.)"""
+    the canvas's covered px are the map's bottom up to the card's top, 0 once the card is closed."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -313,7 +313,7 @@ def test_card_is_not_in_view(site):
 def test_measuring_desktop(site):
     """A desktop: Measure becomes "Cancel" with the tip beside it, before it (W12's words); two clicks on the map are
     the points; the measured profile in the card (the server's profile asked once), the frame's measured line; its
-    close clears it (and model.measuredLink). (Needs the canvas of step 3c.)"""
+    close clears it (and model.measuredLink)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -337,7 +337,10 @@ def test_measuring_desktop(site):
             assert got == ["Measured profile", 1, False], got
             page.click(".r-card .r-dock-bar [aria-label='Close the profile']")
             page.wait_for_selector(".r-card", state="detached", timeout=WAIT)
-            assert page.evaluate("() => [window.FINDALINE_VIEW.measured, window.FINDALINE_VIEW.view.model.measuredLink]") == [None, None]
+            # (FINDALINE_VIEW.measured is written by an effect after the paint that took the card away)
+            page.wait_for_function("() => window.FINDALINE_VIEW.measured === null", timeout=WAIT)
+            assert page.evaluate("() => [window.FINDALINE_VIEW.measured, window.FINDALINE_VIEW.view.model.measuredLink, "
+                                 "window.FINDALINE_VIEW.map.drawn().measured.length]") == [None, None, 0]
             assert page.errors == []
         finally:
             browser.close()
@@ -346,7 +349,7 @@ def test_measuring_desktop(site):
 def test_measuring_phone(site):
     """A phone with the sheet at half: Measure (the pill's ruler) lowers the sheet, its tip is the status line's first
     line in a tap's words (W12) and the pill draws none; two taps are the points; the measured profile first in the
-    sheet's body, the sheet at half, the measured line in the map's room above it. (Needs the canvas of step 3c.)"""
+    sheet's body, the sheet at half, the measured line in the map's room above it."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -381,7 +384,7 @@ def test_measuring_phone(site):
 @pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
 def test_link_measured_line_is_fitted(site, device):
     """A link to a line outside the run (measured, stubbed): its profile in the card (desktop) or first in the sheet at
-    half (phone), the line drawn and fitted into the map's room. (Needs the canvas of step 3c.)"""
+    half (phone), the line drawn and fitted into the map's room."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -394,6 +397,69 @@ def test_link_measured_line_is_fitted(site, device):
                 page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
             page.evaluate("() => T.frames()")
             assert page.evaluate("() => F.inRoom(window.FINDALINE_VIEW.measured)") is True
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+# A measured line as the page shows it: the frame's, model.measuredLink, the canvas's points drawn, the profiles'
+# titles (the card's, every dock's) and the number of docks in a phone's sheet
+MEASURED_NOW = """() => { const {view, map, measured} = window.FINDALINE_VIEW;
+  return {line: !!measured, link: view.model.measuredLink, points: map.drawn().measured.length,
+          titles: [...document.querySelectorAll('.r-dock-bar b')].map((b) => b.textContent),
+          docks: document.querySelectorAll('.u-sheet-body .r-dock').length}; }"""
+
+
+@pytest.mark.parametrize("how, device", [("measure", DESKTOP), ("measure", PHONE), ("link", DESKTOP), ("link", PHONE)],
+                         ids=["measure-desktop", "measure-phone", "link-desktop", "link-phone"])
+def test_new_selection_ends_a_measured_line(site, how, device):
+    """A measured line ends with a new selection, Measure's and a link's alike (viewlink.ts: the frame's measured line
+    and model.measuredLink; the canvas clears its own: B1's): neither the canvas (drawn().measured) nor the card or a
+    phone's dock shows it, and the selected line's profile stands in its place (on a phone the details' dock, one dock
+    in the sheet). A deselection keeps a completed measurement (Measure's: a spot selected before it; while measured,
+    a phone's sheet holds one dock, the measured one). The planner's seam of 2026-11-20."""
+    from playwright.sync_api import sync_playwright
+    measured_title = "Measured profile"  # ProfileDock's words (not in the catalogue)
+    phone = device is PHONE
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device, line=OUTSIDE if how == "link" else None, script=PROFILE_STUB)
+            if how == "measure":
+                _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
+                if phone:
+                    _tap_on(page, ".c-pill [aria-label='Measure']")
+                    page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                else:
+                    page.click(".c-result-top .r-actions button:has-text('Measure')")
+                first = page.evaluate("() => F.empty(30)")
+                second = page.evaluate("([p]) => F.empty(30, p)", [first])
+                assert first and second, "no two empty points on the map"
+                for at in (first, second):  # two places 80 px or more apart
+                    if phone:
+                        _tap(page, at["x"], at["y"])
+                    else:
+                        page.mouse.click(at["x"], at["y"])
+                        page.evaluate("() => T.frames()")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            page.wait_for_selector(".fal-profile-chart", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            on = page.evaluate(MEASURED_NOW)
+            assert on["line"] and on["points"] == 2 and on["titles"] == [measured_title], on
+            assert on["link"] == (OUTSIDE if how == "link" else None) and on["docks"] == (1 if phone else 0), on
+            if how == "measure":  # a deselection keeps it
+                kept = _state(page, "view.select(null);")
+                assert kept["selected"] is None
+                page.evaluate("() => T.frames()")
+                assert page.evaluate(MEASURED_NOW) == on
+            _state(page, "view.setLevel('spots'); view.select(view.order[1]);")
+            page.wait_for_function("() => !window.FINDALINE_VIEW.measured", timeout=WAIT)
+            page.wait_for_selector(".u-sheet-body .vl-details .r-dock .fal-profile-chart" if phone else ".c-col-map > .r-card .fal-profile-chart",
+                                   timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            off = page.evaluate(MEASURED_NOW)
+            assert (off["line"], off["link"], off["points"], off["docks"]) == (False, None, 0, 1 if phone else 0), off
+            assert len(off["titles"]) == 1 and off["titles"][0].startswith("Profile · "), off  # the selected line's
             assert page.errors == []
         finally:
             browser.close()
@@ -529,10 +595,63 @@ def test_legend_rows_of_what_is_drawn(site, device):
             browser.close()
 
 
+@pytest.mark.parametrize("device", [DESKTOP, SMALL_PHONE], ids=["desktop", "phone"])
+def test_legend_rows_from_the_canvas(site, device):
+    """The legend's rows as the canvas really draws (B1's legend(), no stand-in): the whole search area in view with
+    Compare's other run beside it (this run's lines moved east, as test_view_map_3c's) and the selected line a
+    favourite: "Favourite" in the map's own gold (style.ts COLORS.favourite, not the theme's --fav), "Search area" with
+    the dashed sign on the map's paper in the map's ink (unlike the dashed ring of "Here"), the other run by its name in
+    its colour (the bar and the dashes), then the access rows exactly while the canvas says an anchor is in view."""
+    from playwright.sync_api import sync_playwright
+    phone = device is SMALL_PHONE
+    info = {"id": "2026-11-20_120000_Other_00000000000000b1", "name": "Other run", "created": "2026-11-20T12:00:00", "has_lines": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device)
+            _state(page)
+            page.evaluate("""async ([info]) => { const {view, map} = window.FINDALINE_VIEW, m = view.model, c = m.data.columns, NC = c.lon1.constructor;
+                const b = map.areaBounds(), d = (b.getEast() - b.getWest()) * 0.6;
+                const shift = (col) => new NC(Float64Array.from({length: c.length}, (_, i) => col.at(i) + d), 0);
+                const area = JSON.parse(JSON.stringify(m.data.area)), move = (q) => { if (typeof q[0] === 'number') q[0] += d; else q.forEach(move); };
+                const walk = (o) => { if (!o) return; if (o.coordinates) move(o.coordinates); else if (o.geometry) walk(o.geometry); else if (o.features) o.features.forEach((f) => walk(f.geometry)); else if (o.geometries) o.geometries.forEach(walk); };
+                walk(area);
+                window.FINDALINE_MAP.fitBounds([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast() + d]], {animate: false});
+                m.addRun(info, {...m.data, area, columns: {...c, lon1: shift(c.lon1), lon2: shift(c.lon2)}}); }""", [info])
+            _state(page, "view.setLevel('spots');")
+            page.evaluate("""async () => { const {view} = window.FINDALINE_VIEW, m = view.model, spot = view.inView.best[0];
+                await m.toggleFavourite(m.lineAt(view.shownOf(spot))); view.select(spot); m.closeProfile(); }""")
+            page.evaluate("() => T.frames()")
+            if page.query_selector(".v-fold[aria-expanded='false']"):
+                (_tap_on if phone else lambda pg, sel: pg.click(sel))(page, ".v-fold")
+            page.wait_for_selector(".v-legend [data-kind='fav']", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate("""() => { const {map} = window.FINDALINE_VIEW, l = map.legend(), q = (s) => document.querySelector('.v-legend ' + s);
+                const rgb = (c) => { const e = document.createElement('i'); e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
+                return {shapes: l.shapes, runs: l.runs, kinds: F.legend().map(([k]) => k), words: F.legend().map(([, w]) => w),
+                        fav: getComputedStyle(q('[data-kind="fav"] .r-sw')).backgroundColor,
+                        area: [getComputedStyle(q('[data-kind="area"] .v-dash rect')).fill, getComputedStyle(q('[data-kind="area"] .v-dash path')).stroke,
+                               getComputedStyle(q('[data-kind="area"] .v-dash path')).strokeDasharray],
+                        run: [getComputedStyle(q('[data-kind="run"] .r-sw')).backgroundColor, getComputedStyle(q('[data-kind="run"] .v-dash path')).stroke,
+                              l.runs.length ? rgb(l.runs[0].color) : null]}; }""")
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+    assert got["shapes"].get("fav") and got["shapes"].get("area") and [r["name"] for r in got["runs"]] == ["Other run"], got
+    access = ["access-2", "access-1", "access-0"] if got["shapes"].get("ends") else []
+    k = got["kinds"].index("fav")
+    assert got["kinds"][k:] == ["fav", "area", "run"] + access, got["kinds"]
+    area = WORDS["ui.view.map.lg_area_short" if phone else "ui.view.map.lg_area"]
+    assert got["words"][k:k + 3] == [WORDS["ui.result.legend_favourite"], area, "Other run"], got["words"]
+    assert got["fav"] == "rgb(255, 212, 0)", got["fav"]  # #FFD400
+    assert got["area"] == ["rgb(255, 255, 255)", "rgb(27, 37, 48)", "4px, 3px"], got["area"]  # the paper, the ink #1b2530
+    assert got["run"][0] == got["run"][1] == got["run"][2], got["run"]
+
+
 def test_legend_access_rows_follow_the_selection(site):
     """The access mark's rows in the legend of a marked run (L b), as the canvas draws: none with nothing selected; a
     line selected with its anchors in view: the three rows; the map moved so that both anchors are out of view: none
-    again. (Needs the canvas of step 3c: its `ends`.)"""
+    again (the canvas's `ends`)."""
     from playwright.sync_api import sync_playwright
     access = "() => F.legend().filter(([k]) => k.startsWith('access-')).map(([k]) => k)"
     with sync_playwright() as p:

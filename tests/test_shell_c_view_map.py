@@ -126,6 +126,12 @@ window.T = {
     for (let k = 0; k < 4; k++) { if (p[k] === 0) { if (q[k] < 0) return false; continue; } const r = q[k] / p[k];
       if (p[k] < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } }
     return t1 > t0; },
+  // does the run's search area's outline cross the part a person sees (the head's GeoJSON as Leaflet projects it)
+  areaCrosses() { const m = this.m(), f = this.free(), rings = [], at = ([lon, lat]) => { const p = m.latLngToContainerPoint([lat, lon]); return [p.x, p.y]; };
+    const walk = (o) => { if (!o) return; if (o.type === "Polygon") rings.push(...o.coordinates); else if (o.type === "MultiPolygon") o.coordinates.forEach((p) => rings.push(...p));
+      else if (o.type === "Feature") walk(o.geometry); else if (o.type === "FeatureCollection") o.features.forEach((x) => walk(x.geometry)); else if (o.type === "GeometryCollection") o.geometries.forEach(walk); };
+    walk(this.v().view.model.data.area);
+    return rings.some((r) => r.some((p, k) => k > 0 && this.crosses([...at(r[k - 1]), ...at(p)], f))); },
   away(px, py, [ax, ay, bx, by]) { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     const f = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0; return Math.hypot(px - ax - f * dx, py - ay - f * dy); },
   // every control over the map, by its own class (not by the page's own list of them, `data-map-control`): Leaflet's
@@ -440,8 +446,8 @@ def test_levels_in_view_numbers(site):
 
 
 def test_limit_legend_squares(site):
-    """Above 5 000 thin lines the Lines level draws only the pale lines and says so, marked; with the best 100 it
-    draws again. The squares' legend: the select of four values, five classes; a press on a square zooms to it and
+    """Above 5 000 thin lines the Lines level draws only the pale lines and says so, marked (the search area's outline
+    stays: the legend's `area` while it crosses the view, none off it); with the best 100 it draws again. The squares' legend: the select of four values, five classes; a press on a square zooms to it and
     Auto lands on Spots."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -455,8 +461,11 @@ def test_limit_legend_squares(site):
             count = f"{lines // 1000}{chr(160)}{lines % 1000:03d}"
             assert refused["status"] == WORDS["ui.view.map.status_refused"].replace("{{n}}", count).replace("{{lower}}", "100")
             _legend_holds(refused)
-            assert refused["shapes"] == ["pale"] or set(refused["shapes"]) <= {"pale", "clear", "over"}
-            fewer = _state(page, "view.setBest(100);")
+            # no bold line and no number; the search area's outline is drawn at every level (B1's 68dd2e83): `area`
+            # exactly while it crosses the part a person sees (strict both ways: here in view, off it at the end)
+            assert set(refused["shapes"]) - {"area"} <= {"pale", "clear", "over"}, refused["shapes"]
+            assert page.evaluate("() => T.areaCrosses()") is True and "area" in refused["shapes"], refused["shapes"]
+            fewer =_state(page, "view.setBest(100);")
             assert fewer["refused"] == 0 and 100 < fewer["thin"] <= LIMIT and fewer["marked"] is False
             assert fewer["m"] > 100 and fewer["strokes"] == fewer["m"] - 100 + fewer["thin"] and fewer["numbered"] and len(fewer["numbers"]) > 10
             _numbers_hold(fewer, {f"B{k}" for k in range(1, 101)})
@@ -486,6 +495,10 @@ def test_limit_legend_squares(site):
             page.wait_for_function("() => window.FINDALINE_VIEW.view.level !== 'area' && !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
             zoomed = _state(page)
             assert zoomed["level"] == "spots" and 0.96 * 0.999 <= zoomed["mpp"] < 2 and zoomed["selected"] is None
+            # the map moved off the search area (twice its width east): no `area` in the legend's state
+            off = _state(page, "const b = map.areaBounds(), w = b.getEast() - b.getWest(); "
+                               "leaflet.setView([b.getCenter().lat, b.getEast() + 2 * w], leaflet.getZoom(), {animate: false});")
+            assert page.evaluate("() => T.areaCrosses()") is False and "area" not in off["shapes"], off["shapes"]
             assert page.errors == []
         finally:
             browser.close()

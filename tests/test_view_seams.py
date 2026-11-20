@@ -66,10 +66,12 @@ DETAILS = {
     "phone first": {".u-sheet-body": ["vl-list"]},
     "phone selected": {".u-sheet-body": ["vl-details", "vl-list"]},
 }
-# Which of today's features (TODAY) each state shows: the frame's, then the details'
+# Which of today's features (TODAY) each state shows: the frame's, then the details' (step 3c's details: the line's
+# copy and 3D buttons under "Stands for", a phone's dock of the line under the tiles; B2's for-others)
 FRAME_TODAY = {"desktop first": [".r-actions"], "desktop selected": [".r-actions", ".r-card", ".r-dock", ".fal-profile-chart"],
                "phone first": [".r-actions"], "phone selected": [".r-actions"]}
-DETAILS_TODAY = {"desktop first": [], "desktop selected": [], "phone first": [], "phone selected": []}
+DETAILS_TODAY = {"desktop first": [], "desktop selected": [".r-copy", ".r-view3d"], "phone first": [],
+                 "phone selected": [".r-dock", ".fal-profile-chart", ".r-copy", ".r-view3d"]}
 
 
 def _holds(page, state: str):
@@ -97,8 +99,8 @@ def test_view_slots_hold_their_features(site):
                 _holds(page, f"{device} first")
                 _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
                 page.wait_for_selector(details, timeout=WAIT)
-                if device == "desktop":
-                    page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+                page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart" if device == "desktop"
+                                       else ".u-sheet-body .vl-details .r-dock .fal-profile-chart", timeout=WAIT)
                 _holds(page, f"{device} selected")
                 assert page.errors == []
                 page.context.close()

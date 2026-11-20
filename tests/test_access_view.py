@@ -37,8 +37,10 @@ BOXES = "2026-10-30_100000_Boxes_00000000000000e2"      # BIG with an uncertain 
 STATES = {0: "hard access", 1: "cannot tell", 2: "easy access"}
 OVER = WORDS["ui.view.over_words"]
 # everything of the mark a page can draw (the view's and today's classes)
+# (not the map's "i", `.v-help-button`: it stands on every run since 7 b, the access key a part of its panel only in a
+# marked run)
 MARK_ANY = ("svg.ac, .ac-none, .ac-hint, .ac-info, .ac-help, .vl-cell-acc, .vl-acc, .v-anchor-mark, .ac-map-icon, "
-            "[data-kind^='access-'], .v-help-button, .r-legend-acc, .r-acc, .r-cell-acc")
+            "[data-kind^='access-'], .r-legend-acc, .r-acc, .r-cell-acc")
 
 
 @pytest.fixture(scope="module")
@@ -388,9 +390,10 @@ def _legend(page) -> dict:
 def test_legend_lists_the_three_marks(site):
     """The map's legend of a marked run on a desktop: "Anchors" and the three marks (easy access, cannot tell, hard
     access: the dots and the words of the details and the help) after the shapes, with the key's "i" in the legend,
-    at every level (Area, Spots, Lines) and with a line selected. As built, the three are listed whenever the
-    run has the mark (MapBar), as the "P1 pick" row is listed whenever "Start here" has a pick in view, drawn or not
-    (docs/line-volume/spec-view.md, "As built in the UX pilot"); a run without the mark lists none of them."""
+    with a line selected; at Area, Spots and Lines with nothing selected none of them. The three rows stand only while
+    an anchor of the selected line is in view (the canvas's `ends`: the user's L b, 2026-11-20); with nothing selected there are none,
+    and no key's "i" in the legend. A desktop's selection opens the profile's card, which folds the legend (4 a): the
+    profile is closed here so the legend shows. A run without the mark lists none of them."""
     from playwright.sync_api import sync_playwright
     r = {}
     with sync_playwright() as p:
@@ -400,7 +403,7 @@ def test_legend_lists_the_three_marks(site):
             for level in ("area", "spots", "lines"):
                 _state(page, f"view.setLevel('{level}');")
                 r[level] = _legend(page)
-            _state(page, "view.select(view.inView.best[0] ?? view.order[0]);")
+            _state(page, "view.select(view.inView.best[0] ?? view.order[0]); view.model.closeProfile();")
             r["selected"] = _legend(page)
             page.close()
             page = _view(browser, site, PLAIN, DESKTOP)
@@ -410,11 +413,12 @@ def test_legend_lists_the_three_marks(site):
             assert page.errors == [], page.errors
         finally:
             browser.close()
-    for name in ("area", "spots", "lines", "selected"):
-        found = r[name]
-        assert found["kinds"] == ["access-2", "access-1", "access-0"] and found["dots"] == ["ac ac-2", "ac ac-1", "ac ac-0"], (name, found)
-        assert found["words"] == ["easy access", "cannot tell", "hard access"] and WORDS["ui.access.legend"] in found["label"], (name, found)
-        assert found["help"] is True, (name, found)
+    for name in ("area", "spots", "lines"):  # nothing selected: no anchor of a selected line in view (L b)
+        assert r[name]["kinds"] == [] and WORDS["ui.access.legend"] not in r[name]["label"] and r[name]["help"] is False, (name, r[name])
+    found = r["selected"]
+    assert found["kinds"] == ["access-2", "access-1", "access-0"] and found["dots"] == ["ac ac-2", "ac ac-1", "ac ac-0"], found
+    assert found["words"] == ["easy access", "cannot tell", "hard access"] and WORDS["ui.access.legend"] in found["label"], found
+    assert found["help"] is True, found
     assert r["area"]["level"] == "area" and r["lines"]["level"] == "lines"
     for name in ("plain-area", "plain-lines"):
         assert r[name]["kinds"] == [] and WORDS["ui.access.legend"] not in r[name]["label"] and r[name]["help"] is False, (name, r[name])
@@ -423,14 +427,14 @@ def test_legend_lists_the_three_marks(site):
 @BROWSER
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
 def test_phone_legend_of_two_lines(site, device):
-    """A phone's legend of a marked run: unfolded at the start (the sheet low), two lines of short labels, the second
-    the three marks (the dots and their words), neither wider than the legend (no sideways scroll); its fold "Legend"
-    with the kit's chevron (an icon, no character) folds and unfolds it."""
+    """A phone's legend of a marked run with a line selected (its anchors in view: L b): unfolded at the start (the
+    sheet low), lines of short labels, the last the three marks (the dots and their words), none wider than the legend
+    (no sideways scroll); its fold "Legend" with the kit's chevron (an icon, no character) folds and unfolds it."""
     from playwright.sync_api import sync_playwright
     legend = """() => { const lines = [...document.querySelectorAll('.v-legend .v-lg-line')], fold = document.querySelector('.v-fold'), box = document.querySelector('.v-legend');
       return {lines: lines.map((l) => [...l.querySelectorAll('[data-kind]')].map((e) => e.dataset.kind)),
               // each mark's own words (its text nodes: the dot's <title> repeats them)
-              words: lines.length > 1 ? [...lines[1].querySelectorAll('[data-kind^="access-"]')].map((e) =>
+              words: lines.length > 1 ? [...lines[lines.length - 1].querySelectorAll('[data-kind^="access-"]')].map((e) =>
                 [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')) : [],
               short: lines.length ? [...lines[0].querySelectorAll('.v-lg-t')].map((e) => e.textContent) : [],
               fits: lines.every((l) => l.scrollWidth <= l.clientWidth + 1) && (!box || box.scrollWidth <= box.clientWidth + 1),
@@ -440,6 +444,8 @@ def test_phone_legend_of_two_lines(site, device):
         try:
             page = _view(browser, site, BIG, device)
             page.wait_for_selector(".v-legend .v-lg-line", timeout=WAIT)
+            _state(page, "view.select(view.inView.best[0] ?? view.order[0]);")
+            page.wait_for_selector(".v-legend [data-kind='access-2']", timeout=WAIT)
             start = page.evaluate(legend)
             _tap_on(page, ".v-fold")
             page.wait_for_function("() => document.querySelector('.v-fold').getAttribute('aria-expanded') === 'false'", timeout=WAIT)
@@ -450,7 +456,7 @@ def test_phone_legend_of_two_lines(site, device):
             assert page.errors == [], page.errors
         finally:
             browser.close()
-    assert len(start["lines"]) == 2 and start["lines"][1][-3:] == ["access-2", "access-1", "access-0"], start
+    assert len(start["lines"]) >= 2 and start["lines"][-1] == ["access-2", "access-1", "access-0"], start
     assert start["words"] == ["easy access", "cannot tell", "hard access"] and start["fits"] and not start["sideways"], start
     shorts = {WORDS[f"ui.view.map.lg_{k}_short"] for k in ("over", "pick", "best", "pale", "anchor", "fan")} | {WORDS["ui.result.legend_clear"]}
     assert start["short"] and set(start["short"]) <= shorts, start["short"]
@@ -733,7 +739,8 @@ def test_boxes_help_is_the_kits_info_icon(site, view):
     """The uncertain shore's box and the coarser terrain's box (shoreLayer.ts, coarserLayer.ts) on the result view's
     map and on today's page: each one's help is the kit's info icon (its markup the kit's ICONS.info; no "?"
     character: R9, "?" being the access mark's "cannot tell"), under the same name as before, closed at first, opening
-    its explanation and closing it again; 44 px or more on a phone (R2). The 3D view uses neither file."""
+    its explanation and closing it again; 24 px drawn on every screen, with an invisible 44 px target on a phone (the
+    user's S c, R2); on a phone both boxes start folded into their chips. The 3D view uses neither file."""
     from playwright.sync_api import sync_playwright
     info = _kit_info()
     # each box's help as drawn; its icon's markup against the kit's, both as the page's SVG writes them
@@ -741,7 +748,10 @@ def test_boxes_help_is_the_kits_info_icon(site, view):
       return [...document.querySelectorAll('.u-shore')].filter((b) => b.getClientRects().length).map((box) => { const h = box.querySelector('.u-shore-help'), svg = h.querySelector('svg'), r = h.getBoundingClientRect();
         return {coarse: box.classList.contains('u-coarse'), label: h.getAttribute('aria-label'), expanded: h.getAttribute('aria-expanded'), text: h.textContent.trim(),
                 icon: svg && [svg.getAttribute('class'), svg.getAttribute('viewBox'), svg.getAttribute('aria-hidden'), svg.innerHTML === probe.innerHTML],
-                size: [Math.round(r.width), Math.round(r.height)], more: !box.querySelector('.u-shore-more').hidden}; }); }"""
+                size: [Math.round(r.width), Math.round(r.height)],
+                target: (() => { const a = getComputedStyle(h, '::after'), px = (v) => parseFloat(v) || 0;
+                  return a.content === 'none' ? null : [Math.round(r.width - px(a.left) - px(a.right)), Math.round(r.height - px(a.top) - px(a.bottom))]; })(),
+                more: !box.querySelector('.u-shore-more').hidden}; }); }"""
     r = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -750,21 +760,22 @@ def test_boxes_help_is_the_kits_info_icon(site, view):
                 page = _open(browser, f"{site}#run={BOXES}", context, flag=view, script=HELP)
                 page.wait_for_function("() => !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT)", timeout=WAIT)
                 page.evaluate("() => { window.FINDALINE_MAP.zoomOut(1, {animate: false}); }")  # the boxes' regions in view
-                page.wait_for_selector(".u-shore-ctl:not([hidden])", timeout=WAIT)
-                page.wait_for_selector(".u-coarse:not([hidden])", timeout=WAIT)
-                if name == "phone":  # a phone folds the shore's box into its chip
-                    page.click(".u-shore-chip")
-                    page.wait_for_selector(".u-shore-ctl:not(.u-shore-folded)", timeout=WAIT)
+                page.wait_for_selector(".u-shore-ctl:not(.u-coarse-ctl):not([hidden])", timeout=WAIT)
+                page.wait_for_selector(".u-coarse-ctl:not([hidden])", timeout=WAIT)
+                if name == "phone":  # a phone folds both boxes into their chips
+                    for ctl in (".u-shore-ctl:not(.u-coarse-ctl)", ".u-coarse-ctl"):
+                        page.click(f"{ctl} .u-shore-chip")
+                        page.wait_for_selector(f"{ctl}:not(.u-shore-folded)", timeout=WAIT)
                 r[name] = page.evaluate(boxes, info)
                 opened = []
-                for k, help_ in enumerate((".u-shore-ctl .u-shore-help", ".u-coarse .u-shore-help")):
+                for k, help_ in enumerate((".u-shore-ctl:not(.u-coarse-ctl) .u-shore-help", ".u-coarse .u-shore-help")):
                     for _ in ("open", "close"):
                         if name == "desktop":  # a real press at the button's centre (Playwright's hit test: nothing covers it)
                             page.click(help_)
                         else:
-                            # A phone: the script's press. The known overlaps (before this branch too; wave B's): in the
-                            # view the layers button (.leaflet-control-layers) covers the coarser box's help, and on
-                            # today's iPhone the coarser box runs under the scale and the credits
+                            # A phone: the script's press. The view's layers button no longer covers the coarser box's
+                            # help (step 3c: the phone's top left controls end left of the layers button); on today's
+                            # iPhone the opened coarser box may run under the scale and the credits
                             # (.leaflet-control-scale, .leaflet-control-attribution)
                             page.evaluate(f"() => document.querySelector({json.dumps(help_)}).click()")
                         page.evaluate("() => A.frames()")
@@ -782,7 +793,7 @@ def test_boxes_help_is_the_kits_info_icon(site, view):
         assert [b["label"] for b in found] == [WORDS["ui.shore.help_button"], WORDS["ui.coarse.help_button"]], (name, found)
         for b in found:
             assert b["text"] == "" and b["icon"] == ["u-ic", "0 0 24 24", "true", True] and b["expanded"] == "false" and not b["more"], (name, b)
-            assert min(b["size"]) >= (44 if name == "phone" else 24), (name, b)
+            assert b["size"] == [24, 24] and b["target"] == ([44, 44] if name == "phone" else None), (name, b)
         assert all(b["expanded"] == "true" and b["more"] for b in r[name + "-opened"]), (name, r[name + "-opened"])
         assert all(b["expanded"] == "false" and not b["more"] for b in r[name + "-closed"]), (name, r[name + "-closed"])
         assert r[name + "-csp"] == [], (name, r[name + "-csp"])
