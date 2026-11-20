@@ -32,6 +32,8 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 HIDDEN = "The line of the link is hidden by the filters."
 NOT_HERE = "The line of the link is not in this run."
 CLEAR = "clear filters"
+# The length filter set above a line's length (the model's filters: the view follows them)
+LONGER = "(len) => { const m = window.FINDALINE_VIEW.view.model; m.setFilters({...m.filters, lenMin: Math.ceil(len) + 1}); }"
 # A line outside the run (as the 3D view's moved anchors give it): measured by the server, stubbed here (80 m)
 OUTSIDE = "49.5,19.1,49.5004,19.1005"
 PROFILE_STUB = """
@@ -99,8 +101,8 @@ def _wait(page, check: str):
     """Wait until `check` holds of the state K.state() (a JS expression of `s`) and the map rests; the state."""
     from playwright.sync_api import TimeoutError as Timeout
     try:
-        page.wait_for_function(f"() => {{ const s = K.state(); return !window.FINDALINE_MAP._animatingZoom && ({check}); }}",
-                               timeout=WAIT)
+        page.wait_for_function("() => { const s = K.state(); return !window.FINDALINE_MAP._animatingZoom && ("
+                               + check + "); }", timeout=WAIT)
     except Timeout:
         raise AssertionError(f"{check} never held: {page.evaluate('() => K.state()')} {page.errors}") from None
     page.evaluate("() => T.frames()")
@@ -163,7 +165,7 @@ def test_open_by_link_and_write(site, device):
                 # "Start here" (the Area level's picks), with nothing selected
                 _state(page, "view.setLevel('area'); view.select(null);")
                 assert _wait(page, f"s.hash === '#run={BIG}'")["selected"] is None
-                pick = page.evaluate("() => { const picks = window.FINDALINE_VIEW.view.picks(); return picks[picks.length - 1]; }")
+                pick = page.evaluate("() => window.FINDALINE_VIEW.view.picks().at(-1)")
                 page.click(f".vl-topblock .vl-pick .vl-main[data-row='{pick['row']}']")
                 assert selected_writes("pick")["selected"] == [pick["spot"], pick["row"]]
                 # a line of "Lines from here"
@@ -271,12 +273,12 @@ def test_top_level_only(site, device):
                 page.context.close()
             # the chip and a length filter: the note, the chip on; "clear filters" opens the line
             page = _page(browser, _app(site), context)
-            page.evaluate("(len) => { const m = window.FINDALINE_VIEW.view.model; m.setFilters({...m.filters, lenMin: Math.ceil(len) + 1}); }",
-                          top["len"])
+            page.evaluate(LONGER, top["len"])
             page.evaluate("(hash) => { location.hash = hash; }", _app("", top["link"]))
             hidden = _wait(page, "s.note !== null")
-            assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None and hidden["topOnly"] is True, hidden
-            assert hidden["hash"] == f"#run={BIG}&line={top['link']}", hidden  # the link stays while nothing is selected
+            assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
+            assert hidden["topOnly"] is True, hidden
+            assert hidden["hash"] == f"#run={BIG}&line={top['link']}", hidden  # kept while nothing is selected
             if device == "phone":  # the note stands in the sheet's body (the list's head): the sheet raised to half
                 page.focus(".u-sheet-handle")
                 page.keyboard.press("ArrowUp")
@@ -307,12 +309,11 @@ def test_hidden_missing_and_measured(site, device):
             a = facts["a"]
             page = _page(browser, _app(site), context, PROFILE_STUB)
             entries = page.evaluate("() => history.length")
-            page.evaluate("(len) => { const m = window.FINDALINE_VIEW.view.model; m.setFilters({...m.filters, lenMin: Math.ceil(len) + 1}); }",
-                          a["len"])
+            page.evaluate(LONGER, a["len"])
             page.evaluate("(hash) => { location.hash = hash; }", _app("", a["link"]))
             hidden = _wait(page, "s.note !== null")
-            assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None and hidden["topOnly"] is True, hidden
-            assert hidden["hash"] == f"#run={BIG}&line={a['link']}"
+            assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
+            assert hidden["topOnly"] is True and hidden["hash"] == f"#run={BIG}&line={a['link']}", hidden
             page.evaluate("() => window.FINDALINE_VIEW.view.model.note.onAction()")
             opened = _wait(page, "s.selected !== null")
             assert opened["selected"] == [a["spot"], a["row"]] and opened["note"] is None and opened["topOnly"] is True
@@ -327,7 +328,8 @@ def test_hidden_missing_and_measured(site, device):
             # a line outside the run: measured, kept by the frame, the link in the hash
             page.evaluate("(hash) => { location.hash = hash; }", _app("", OUTSIDE))
             measured = _wait(page, "s.measured !== null")
-            assert measured["measuredLink"] == OUTSIDE and measured["measured"] == 80 and measured["note"] is None, measured
+            assert measured["measuredLink"] == OUTSIDE and measured["measured"] == 80, measured
+            assert measured["note"] is None, measured
             assert measured["selected"] is None and measured["hash"] == f"#run={BIG}&line={OUTSIDE}", measured
             assert page.evaluate("() => PROFILE_ASKS") == ["49.5000000,19.1000000,49.5004000,19.1005000"]
             # a move of the map, a level: the link stays
@@ -570,6 +572,95 @@ def test_sheet_rises(site, tmp_path, device, engine):
             assert kept["where"] == moved and kept["seen"] is False, (moved, kept)
             # WebKit reports "ResizeObserver loop completed with undelivered notifications." at every change of the
             # sheet's stop, also without the frame's check (seen on view-seams' frame, 2026-11-20): not this test's
+            assert [e for e in page.errors if not e.startswith("ResizeObserver loop")] == []
+        finally:
+            browser.close()
+
+
+# A spot's shown line in view placed by the map's move: the shortest on the screen, its middle `up` px above the
+# sheet (the line clear of the bar after the sheet rose); or the steepest, fitted into the part above the low sheet
+# (too tall for the part above the sheet at half)
+PLACE = r"""
+window.P = {
+  short(up) { const {view} = T.v(), f = T.free(); let best = null;
+    for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = T.ends(row), px = Math.hypot(e[2] - e[0], e[3] - e[1]);
+      if (px > 4 && (!best || px < best.px)) best = {spot, row, px, mid: [(e[0] + e[2]) / 2, (e[1] + e[3]) / 2]}; }
+    window.FINDALINE_MAP.panBy([best.mid[0] - f[2] / 2, best.mid[1] - (f[3] - up)], {animate: false});
+    view.select(best.spot, best.row); return best; },
+  steep() { const {view} = T.v(), c = view.model.data.columns; let best = null;
+    for (const spot of Array.from(view.order)) { const row = view.shownOf(spot), dy = Math.abs(c.lat1.at(row) - c.lat2.at(row)),
+        dx = Math.abs(c.lon1.at(row) - c.lon2.at(row)) * Math.cos(c.lat1.at(row) * Math.PI / 180), len = view.values.len[row];
+      if (len > 60 && (!best || dy / (dx + 1e-9) > best.ratio)) best = {spot, row, ratio: dy / (dx + 1e-9)}; }
+    const covered = T.box().height - T.free()[3];
+    window.FINDALINE_MAP.fitBounds([[c.lat1.at(best.row), c.lon1.at(best.row)], [c.lat2.at(best.row), c.lon2.at(best.row)]],
+                                   {paddingTopLeft: [20, 130], paddingBottomRight: [20, covered + 30], animate: false});
+    view.select(best.spot, best.row); return best; },
+};
+"""
+
+
+@pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
+@pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
+def test_sheet_moves(site, device, engine):
+    """The sheet's other ways: raised twice at once to full (the first stop's check never made) and lowered to half,
+    the line selected low comes back into sight there; a short line near the sheet comes back clear of the whole bar
+    (under the switch, above the foot); a line too tall for the part above the sheet at half is fitted by the frame's
+    zoomTo (the zoom changes) and is in sight."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        kind = getattr(p, engine)
+        if not os.path.exists(kind.executable_path):
+            pytest.skip(f"Playwright's {engine} is not installed")
+        browser = kind.launch()
+        try:
+            options = dict(p.devices[device])
+            options.pop("default_browser_type", None)
+
+            def fresh():
+                page = _page(browser, _app(site), options, SHEET + PLACE)
+                page.wait_for_function("() => S.snap() === 'peek' && S.rest()", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                return page
+            # up twice at once, then down to half
+            page = fresh()
+            number = page.evaluate("() => S.lowest()")
+            _tap(page, number["x"], number["y"])
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.selected !== null", timeout=WAIT)
+            low = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
+            assert low["seen"], low
+            _mark_checks(page)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.keyboard.press("ArrowUp")
+            full = _rested(page, "full")
+            assert full["where"] == low["where"], full  # no room at full: nothing moves
+            _mark_checks(page)
+            page.keyboard.press("ArrowDown")
+            half = _rested(page, "half")
+            assert half["seen"] and half["under"] and half["where"][2] == low["where"][2], (low, half)
+            page.context.close()
+            # a short line just above the low sheet: clear of the whole bar at half, the same zoom
+            page = fresh()
+            placed = page.evaluate("() => P.short(40)")
+            page.evaluate("() => T.frames()")
+            before = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
+            assert before["seen"], (placed, before)
+            _mark_checks(page)
+            _handle_tap(page)
+            clear = _rested(page, "half")
+            assert clear["clear"] and clear["where"][2] == before["where"][2], clear
+            assert clear["where"] != before["where"], clear  # it was under the sheet: the map moved
+            page.context.close()
+            # a line too tall for the part above the sheet at half: the frame's zoomTo, in sight
+            page = fresh()
+            page.evaluate("() => P.steep()")
+            page.evaluate("() => T.frames()")
+            before = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
+            assert before["seen"], before
+            _mark_checks(page)
+            _handle_tap(page)
+            fitted = _rested(page, "half")
+            assert fitted["seen"] and fitted["where"][2] < before["where"][2], (before, fitted)
             assert [e for e in page.errors if not e.startswith("ResizeObserver loop")] == []
         finally:
             browser.close()

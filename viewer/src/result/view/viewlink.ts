@@ -2,8 +2,8 @@
 // have": `#line=` links select the line and open its spot), as today's page has it (ResultColumns.tsx
 // useLinkedLine) on the view's selection (SpotView.selected: the model built without the grouping selects nothing of
 // its own, so model.openLinked cannot select a line of the run here). The frame (SpotColumns.tsx) gets the route's
-// line (`line`: #run=<id>&line=… in the app, #line=… on a run's map.html and on a share link's page) and `nav`, which
-// Back, Forward and a hashchange move on, and its caller's `hashOf`:
+// line (`line`: #run=<id>&line=… in the app, #line=… on a run's map.html and on a share link's page) and `nav`,
+// which Back, Forward and a hashchange move on, and its caller's `hashOf`:
 // - a line of the run that passes is selected in its spot and put in view (the frame's zoomTo with its padding);
 // - a line that "Top level only" alone hides: the chip is turned off and the line selected (the user's "6. a",
 //   spec-view.md B.2 item 14; the chip is on at every start and kept nowhere);
@@ -13,9 +13,10 @@
 //   line handed to the frame, the link's key in model.measuredLink and in the address; else today's note).
 // The notes show where the view shows model.note (SpotSummary's ResultNote). The selection goes into the hash
 // (history.replaceState: never a new entry; only while the hash is this run's page); no selection writes the run's
-// hash without a line, but for the link of a line the filters hide or of a measured line, which stays. A new
-// selection ends a measured line (today's useMeasureEnds). The route is opened once per (line, nav) and view: Desktop
-// and Phone are made again for the same view when the window crosses the phone's width, and that opens nothing.
+// hash without a line (on a map's page: the address without a hash), but for the link of a line the filters hide or
+// of a measured line, which stays. A new selection ends a measured line (today's useMeasureEnds). The route is opened
+// once per (line, nav) and view: Desktop and Phone are made again for the same view when the window crosses the
+// phone's width, and that opens nothing.
 
 import { useEffect, useRef } from "preact/hooks";
 import { NO_FILTERS, saveFilters } from "../../filters";
@@ -63,7 +64,12 @@ export function openLink(view: SpotView, route: string, show: (row: number) => v
 /** The (line, nav) of the route each view has opened. */
 const opened = new WeakMap<SpotView, string>();
 
-interface Frame { map: SpotMap | null; padding(): Padding; onMeasured(l: Line | null): void; hashOf: ResultColumnsProps["hashOf"] }
+interface Frame {
+  map: SpotMap | null;
+  padding(): Padding;
+  onMeasured(l: Line | null): void;
+  hashOf: ResultColumnsProps["hashOf"];
+}
 
 /** The frame that draws each view now: a link opened later (a note's action, a measurement that ends) reaches the
  *  map and the frame of now, also after the window crossed the phone's width. */
