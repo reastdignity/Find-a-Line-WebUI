@@ -136,6 +136,15 @@ def test_the_command_line(tmp_path):
             vn.main(["--out", str(out), "--runs", str(run)] + bad)
 
 
+def test_stub_tile_is_one_plain_picture():
+    """The stub tile (offline pictures: `--stub-tiles`): a 256 x 256 PNG, every pixel the map's background colour."""
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(vn.stub_tile()))
+    assert img.format == "PNG" and img.size == (256, 256)
+    assert img.convert("RGB").getcolors() == [(256 * 256, vn.STUB_TILE_RGB)]
+
+
 def test_default_launch_launches_the_engine():
     class Engine:
         def launch(self):
@@ -164,12 +173,14 @@ def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
     places, sizes) in each; in some state today's rule and "before" (a quarter, the fan's never) give different
     numbers, so the page's threshold is today's; a fan state counted once
     (another stop that reached it names it); the sheets made under the label, with the note, the page's numbers in
-    them as counted and today's numbers drawn over the bare map as the page draws them (map and fan)."""
+    them as counted and today's numbers drawn over the bare map as the page draws them (map and fan). Offline: every
+    request outside the local server is answered by the tool's stub (`stub_tiles`), so the pictures hold the numbers
+    and lines over a plain map and do not depend on the internet's tiles or their timing."""
     out = tmp_path / "out"
     edge = lambda pw, engine: pw.chromium.launch(channel="msedge", headless=True)  # noqa: E731
     result = vn.measure_runs([str(view_clip)], str(out), str(tmp_path / "data"), ["desktop", "pixel"], [1], [10, 100],
                              sheets=True, launch=edge, labels={view_clip.name: "clip"},
-                             notes={view_clip.name: "The result view's clip run."})
+                             notes={view_clip.name: "The result view's clip run."}, stub_tiles=True)
     entry = result["runs"][0]
     assert not entry.get("left_out") and set(entry["devices"]) == {"desktop", "pixel"}
     assert (entry["label"], entry["note"]) == ("clip", "The result view's clip run.")
@@ -203,7 +214,7 @@ def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
         assert view_clip.name not in written and not vn.COORDINATES.search(written)
     # the zoom stops with the run's best spot in the middle of the map: measured as well
     best = vn.measure_runs([str(view_clip)], str(tmp_path / "best"), str(tmp_path / "data"), ["desktop"], [1], [10],
-                           launch=edge, around="best")
+                           launch=edge, around="best", stub_tiles=True)
     states = best["runs"][0]["devices"]["desktop"]["states"]
     assert best["around"] == "best" and vn.not_measured(best) == 0 and {s["stop"] for s in states} == {0, 1}
     assert all(s["today_matches"] for s in states if "same_as_stop" not in s)

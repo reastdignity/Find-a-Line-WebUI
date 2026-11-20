@@ -55,12 +55,15 @@ the most numbers, a picture of the page as drawn, and one per rule: the page's m
 rule's numbers drawn over it in the page's own shapes, font and order (with a fan open: the B numbers dimmed, then
 the fan's lines and the ring of "here" drawn again over them, then the fan's numbers; P numbers at full strength); the
 four rules side by side at equal size in <out>/sheets/<label>-<device>-<state>.png, under a header naming the run,
-its note and the commit. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap).
+its note and the commit. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap), whose arrival makes
+the page's picture and the overlay's differ by a share of their pixels; `--stub-tiles` (the tests: offline) answers
+every request outside the local server itself, a tile with one plain picture in the map's background colour, so the
+pictures show the numbers and lines alone and are the same at every run.
 
     uv sync --group ui; uv run playwright install chromium webkit; cd viewer; npm ci; node build.mjs   (once)
     uv run tools/view_numbers.py --out <folder> --runs <run> [<run> ...] [--data <data folder>]
                                  [--reference-dir <folder>] [--devices desktop,iphone,pixel] [--best 10,30,100]
-                                 [--zooms 1,2] [--around centre|best] [--sheets] [--data-dir <scratch>]
+                                 [--zooms 1,2] [--around centre|best] [--sheets] [--stub-tiles] [--data-dir <scratch>]
                                  [--label NAME=SHORT ...] [--note NAME=TEXT ...]
 
 Writes <out>/view_numbers.json and view_numbers.md (and pictures/, sheets/). Exit code 1 when a state was not
@@ -697,12 +700,46 @@ def default_launch(pw, engine: str):
     return getattr(pw, engine).launch()
 
 
+# One plain tile in the map's own background colour (--map-bg, #ecebdf: a tile fading in shows no change), 256 px
+STUB_TILE_RGB = (0xEC, 0xEB, 0xDF)
+
+
+def stub_tile() -> bytes:
+    """A 256 × 256 PNG of STUB_TILE_RGB (made with zlib: no picture library needed)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    row = b"\x00" + bytes(STUB_TILE_RGB) * 256
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 256, 256, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * 256, 9)) + chunk(b"IEND", b""))
+
+
+def stub_outside(context, url: str):
+    """Every request of `context` that is not to the local server `url` answered here: an image with the stub tile,
+    anything else with an empty 404. The pictures then show the numbers and lines over a plain map, the same at every
+    run and offline (the base map's tiles come from the internet: OpenTopoMap, OpenStreetMap, the orthophoto)."""
+    tile = stub_tile()
+
+    def answer(route):
+        request = route.request
+        if request.url.startswith(url):
+            route.continue_()
+        elif request.resource_type == "image":
+            route.fulfill(status=200, content_type="image/png", body=tile)
+        else:
+            route.fulfill(status=404, body="")
+    context.route("**/*", answer)
+
+
 def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, bests: list, sheets: bool = False,
                  launch=default_launch, labels: dict | None = None, around: str = "centre", notes: dict | None = None,
-                 command: str | None = None) -> dict:
+                 command: str | None = None, stub_tiles: bool = False) -> dict:
     """Every run of `runs` (folders) on every device: the result (also written to <out>/view_numbers.json and
     .md). `launch(pw, engine)`: the browser of an engine (ui_shots.DEVICES' "chromium" or "webkit"); `labels`,
-    `notes`: by the run folder's name, its short name and its description; `command`: the command line recorded."""
+    `notes`: by the run folder's name, its short name and its description; `command`: the command line recorded;
+    `stub_tiles`: nothing from the internet, every tile the plain stub tile (stub_outside; the tests: offline)."""
     os.makedirs(out, exist_ok=True)
     made_by = provenance_of(command or "tools/view_numbers.py measure_runs (called from Python)")
     result = {"made_by": made_by, "rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS],
@@ -742,6 +779,8 @@ def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, be
             try:
                 for entry, run_id in shown:
                     context = ui_shots.pass_context(browser, pw, device, "light")
+                    if stub_tiles:
+                        stub_outside(context, url)
                     try:
                         page = open_view(context, url, run_id)
                         states = measure_page(page, stops, bests, around)
@@ -970,6 +1009,8 @@ def main(argv=None) -> int:
     p.add_argument("--around", choices=("centre", "best"), default="centre",
                    help="the zoom stops: around the middle of the map a person sees, or the run's best spot put there")
     p.add_argument("--sheets", action="store_true", help="pictures and contact sheets of the states of interest")
+    p.add_argument("--stub-tiles", action="store_true", help="no base map from the internet: every tile one plain "
+                                                             "picture (offline, the same at every run)")
     p.add_argument("--data-dir", help="a scratch data folder (kept; default: a temporary one, removed)")
     args = p.parse_args(argv)
     devices = [d for d in args.devices.split(",") if d]
@@ -984,7 +1025,7 @@ def main(argv=None) -> int:
     data = args.data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
     try:
         result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels, around=args.around,
-                              notes=notes, command=command)
+                              notes=notes, command=command, stub_tiles=args.stub_tiles)
     finally:
         if not args.data_dir:
             gc.collect()
