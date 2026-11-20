@@ -3,7 +3,9 @@
 // 600 px, a touch screen at most 480 px high: view3d.css) the bar's notes that explain (the preview's note, the
 // phone level's, the hints, what the imagery's control says is drawn) are not shown in the bar; one button in the
 // credits' box opens a box over the stage with them. The bar keeps its height when the box opens and when the view
-// changes. What failed stays in the bar (the notes of class `v3-alert`, the walk's and the motion's notes).
+// changes. What failed stays in the bar (the notes of class `v3-alert`, the walk's and the motion's notes), and so
+// does the preview note's safety sentence "Check every line on the spot" (the user, 2026-11-20: "Keep that one
+// sentence in the bar"), one line under the controls.
 //
 // The notes stay where their modules put them and keep their own state (`v3-hidden`, the views' rules of
 // view3d.css); the box holds copies of them, made when it opens and again whenever the bar changes while it is
@@ -13,8 +15,11 @@
 import { t } from "../i18n";
 import { kitIcon } from "./icon";
 
-/** The notes of the bar that go into the box. */
+/** The notes of the bar that go into the box, and the part of a note that stays in the bar instead (the preview's
+ *  note keeps its sentence "Check every line on the spot" in sight: the box's copy is without it, so nothing is
+ *  said twice). */
 export const INFO_NOTES = ".v3-bar > .v3-note:not(.v3-alert), .v3-bar .v3-imagery-note";
+export const INFO_KEPT = ".v3-check";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -75,8 +80,12 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
     if (!frame) frame = requestAnimationFrame(() => { frame = 0; cover(); });  // never inside the observer's own call
   }) : null;
   const copy = () => {
-    lines.replaceChildren(...[...bar.querySelectorAll<HTMLElement>(INFO_NOTES)].map(
-      (note) => el("p", "v3-infobox-line " + note.className, note.textContent ?? "")));
+    lines.replaceChildren(...[...bar.querySelectorAll<HTMLElement>(INFO_NOTES)].map((note) => {
+      const line = el("p", "v3-infobox-line " + note.className), parts = note.cloneNode(true) as HTMLElement;
+      for (const kept of parts.querySelectorAll(INFO_KEPT)) kept.remove();
+      line.textContent = (parts.textContent ?? "").trim();
+      return line;
+    }));
     cover();
   };
   // the bar while the box is open: a note shown, hidden, added or reworded

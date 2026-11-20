@@ -70,7 +70,11 @@ function frame(root: HTMLElement, page: PageRequest) {
   const bar = el("section", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
   bar.setAttribute("aria-label", t("ui.view3d.bar"));
   readout.setAttribute("aria-live", "polite");
-  const note = el("p", "v3-note", t("ui.view3d.preview_note"));
+  // The preview's note: what the view is, and the safety sentence in a part of its own, which stays in the bar on
+  // a phone too while the rest goes behind "About this view" (view3d.css, info.ts); one paragraph on the desktop
+  const note = el("p", "v3-note v3-preview");
+  note.append(el("span", "v3-preview-text", t("ui.view3d.preview_note")), " ",
+              el("span", "v3-check", t("ui.view3d.check_note")));
   bar.append(readout, toolbar, note);
   if (page.level === "phone") bar.append(el("p", "v3-note v3-phone-note", t("ui.view3d.phone_level")));
   // On a phone the notes are behind the "About this view" button in the credits' box (info.ts; view3d.css shows

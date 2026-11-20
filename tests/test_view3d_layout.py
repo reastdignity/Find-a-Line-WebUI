@@ -4,7 +4,8 @@ pointer), each test failing when its pick is taken out:
 
 - held sideways the bar's controls stand in one row, in every view, with two and with four kinds of imagery;
 - the profile's card steps aside where it would reach the tool strip, and keeps its width where it would not;
-- on a phone the notes that explain are out of the bar, behind the "About this view" button.
+- on a phone the notes that explain are out of the bar, behind the "About this view" button; the safety sentence
+  "Check every line on the spot" stays in the bar, one line under the controls.
 
 Headless Edge through Playwright: run from PowerShell (headless Edge prints nothing from Git Bash)."""
 
@@ -55,7 +56,8 @@ BAR = r"""() => {
           segment: [...root.querySelectorAll('.v3-toolbar .u-row .u-seg')].some(shown),
           selectWidth: root.querySelector('.v3-select')?.getBoundingClientRect().width,
           slider: root.querySelector('.v3-slider').getBoundingClientRect().width,
-          notes: [...root.querySelectorAll('.v3-bar > .v3-note, .v3-bar .v3-imagery-note')].filter(shown).map(name)};
+          notes: [...root.querySelectorAll('.v3-bar > .v3-note, .v3-bar .v3-imagery-note')].filter(shown)
+            .map((e) => [e.innerText.trim(), Math.round(e.getBoundingClientRect().height)])};
 }"""
 VIEW = """(name) => { const root = document.getElementById('view3d'); window.BEFORE = Number(root.dataset.frames);
   document.querySelector(`.v3-views [data-view=${name}]`).click(); }"""
@@ -93,7 +95,9 @@ INFO = r"""() => {
           copies: box.querySelectorAll('.v3-infobox-line').length,
           focus: document.activeElement ? document.activeElement.className : '',
           inBar: [...root.querySelectorAll('.v3-bar > .v3-note, .v3-bar .v3-imagery-note')].filter(shown)
-            .map((p) => p.className)};
+            .map((p) => p.className),
+          inBarText: [...root.querySelectorAll('.v3-bar > .v3-note, .v3-bar .v3-imagery-note')].filter(shown)
+            .map((p) => p.innerText.trim())};
 }"""
 
 
@@ -168,8 +172,10 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
     """Row 37 ("A: one row"): on a phone held sideways (844 x 390 and 667 x 375, touch) the bar's controls stand in
     one row in the orbit, the athlete's eyes and behind the athlete, with two kinds of imagery and with four: no
     control over another or outside the window, the views' switch and the tools as icons, the imagery's select and
-    never its segment, and the bar as high in every one of those states (no resize of the canvas with the view).
-    Without the pick the wide bar's words stand there and the speed lies under the imagery's segment."""
+    never its segment, and the bar as high in every one of those states (no resize of the canvas with the view):
+    the readout's line, the row and one line of 16 px with the safety sentence "Check every line on the spot", the
+    only note in the bar. Without the pick the wide bar's words stand there and the speed lies under the imagery's
+    segment."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3dsideways")
     with _server(data, start_scheduler=True) as port, sync_playwright() as p:
@@ -193,8 +199,10 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
                     # the athlete's views add the zoom's three pieces (and the phone's motion where there is one)
                     assert state["count"] >= states[kinds, "orbit"]["count"] + (0 if key[1] == "orbit" else 3), where
                     assert state["slider"] >= 64, where
+                    assert state["notes"] == [["Check every line on the spot.", 16]], where
                 heights = {state["bar"] for state in states.values()}
-                assert len(heights) == 1 and heights.pop() < 90, (width, states)
+                # 96.1 px: 80.5 px (the readout's line and the row) and the sentence's line of 15.6 px
+                assert len(heights) == 1 and heights.pop() < 100, (width, states)
                 assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
                 page.context.close()
         finally:
@@ -270,8 +278,9 @@ def test_view3d_card_steps_aside(clip_data, monkeypatch):
 
 def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
     """Row 39 ("A: info button beside \"Data credits\""): on a phone (390 x 664) no note that explains stands in the
-    bar; the button "About this view" stands in the credits' box, 44 px, and a tap opens a box inside the stage with
-    the preview's note (its sentence "Check every line on the spot") and the phone level's; the bar keeps its height
+    bar, only the safety sentence "Check every line on the spot" (the user, 2026-11-20: "Keep that one sentence in
+    the bar"); the button "About this view" stands in the credits' box, 44 px, and a tap opens a box inside the stage
+    with the preview's note (without that sentence: nothing is said twice) and the phone level's; the bar keeps its height
     when the box opens and when the view changes, and the box then shows the look hint in place of the phone
     level's note; the button says whether the box is open, the focus goes into the box, Escape closes it and gives
     the focus back (and ends nothing else: "Lines from a point" stays on), and so does the box's own button; a
@@ -285,7 +294,8 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             url = f"http://127.0.0.1:{port}/{path}{line}"
             page = _open(browser, url, _phone(p, 390, 664))
             closed = page.evaluate(INFO)
-            assert closed["inBar"] == [] and closed["box"] is None and closed["copies"] == 0, closed
+            assert closed["inBar"] == ["v3-note v3-preview"] and closed["inBarText"] == ["Check every line on the spot."], closed
+            assert closed["box"] is None and closed["copies"] == 0, closed
             button = closed["button"]
             assert button and closed["inCredits"] and closed["name"] == "About this view", closed
             assert min(button[2] - button[0], button[3] - button[1]) >= 43.5, closed
@@ -296,7 +306,10 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             opened = page.evaluate(INFO)
             box, stage = opened["box"], opened["stage"]
             assert box and box[0] >= stage[0] and box[1] >= stage[1] and box[2] <= stage[2] and box[3] <= stage[3], opened
-            assert any("Check every line on the spot." in text for text in opened["lines"]), opened
+            assert ("A visual preview: heights and clearance come from the site's elevation data, the imagery may be "
+                    "off by metres.") in opened["lines"], opened
+            assert not any("on the spot" in text for text in opened["lines"]), opened
+            assert opened["inBarText"] == ["Check every line on the spot."], opened
             assert "Simplified view on phones: anchors cannot be dragged." in opened["lines"], opened
             assert not any("pinch to zoom" in text for text in opened["lines"]), opened
             assert "v3-infobox-close" in opened["focus"] and opened["bar"] == closed["bar"], opened
@@ -306,7 +319,7 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             eyes = page.evaluate(INFO)
             assert "Drag to look around, pinch to zoom." in eyes["lines"], eyes
             assert "Simplified view on phones: anchors cannot be dragged." not in eyes["lines"], eyes
-            assert eyes["bar"] == closed["bar"] and eyes["inBar"] == [], eyes
+            assert eyes["bar"] == closed["bar"] and eyes["inBarText"] == ["Check every line on the spot."], eyes
             page.keyboard.press("Escape")
             shut = page.evaluate(INFO)
             assert shut["box"] is None and shut["copies"] == 0 and shut["expanded"] == "false", shut
@@ -341,41 +354,10 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             page = _open(browser, url, {"viewport": {"width": 1200, "height": 800}})
             desk = page.evaluate(INFO)
             assert desk["button"] is None and desk["box"] is None, desk
-            assert "v3-note" in desk["inBar"] and any("v3-imagery-note" in cls for cls in desk["inBar"]), desk
-            page.context.close()
-        finally:
-            browser.close()
-
-
-def test_view3d_dot_target_inside_the_stage(clip_data, monkeypatch):
-    """A fan dot near the stage's edge keeps its whole 44 px target on a touch screen (screen.ts targetInside): at
-    412 x 839 (ui_shots' Pixel) the dot of the 312 m line stands 19 px from the right edge since the notes left the
-    bar (the stage is 82 px higher there and the scene drawn larger), and the screen's edge cut its target to
-    41.4 px. Every dot's target lies inside the stage, 44 px each way, and still covers the dot."""
-    from playwright.sync_api import sync_playwright
-    from test_view3d_touch import BOXES, POINT_CLICK
-    data, path, line = _site(clip_data, monkeypatch, "view3ddots")
-    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
-        browser = p.chromium.launch(channel="msedge", headless=True)
-        try:
-            page = _open(browser, f"http://127.0.0.1:{port}/{path}?level=full{line}", _phone(p, 412, 839))
-            page.evaluate("() => document.querySelector('.v3-tool[data-tool=point]').click()")
-            page.evaluate(POINT_CLICK)
-            page.wait_for_function("() => Number(document.getElementById('view3d').dataset.point) > 0", timeout=WAIT * 2)
-            page.evaluate(FRAMES)
-            dots = page.evaluate(BOXES, ".v3-opt-dot")
-            stage = page.evaluate("() => { const r = document.querySelector('.v3-stage').getBoundingClientRect(); "
-                                  "return [r.left, r.top, r.right, r.bottom]; }")
-            assert dots, dots
-            near = [d for d in dots if min((d["own"][0] + d["own"][2]) / 2 - stage[0],
-                                           stage[2] - (d["own"][0] + d["own"][2]) / 2) < 22]
-            assert near, (stage, dots)  # the case: a dot nearer to the edge than half a target
-            for d in dots:
-                own, target = d["own"], d["target"]
-                assert target[2] - target[0] >= 43.5 and target[3] - target[1] >= 43.5, d
-                assert target[0] >= stage[0] - 0.5 and target[2] <= stage[2] + 0.5, (stage, d)
-                assert target[1] >= stage[1] - 0.5 and target[3] <= stage[3] + 0.5, (stage, d)
-                assert target[0] <= own[0] and target[2] >= own[2] and target[1] <= own[1] and target[3] >= own[3], d
+            assert any("v3-imagery-note" in cls for cls in desk["inBar"]), desk
+            # the preview's note whole, one paragraph, as before
+            assert ("A visual preview: heights and clearance come from the site's elevation data, the imagery may be "
+                    "off by metres. Check every line on the spot.") in desk["inBarText"], desk
             page.context.close()
         finally:
             browser.close()
@@ -447,5 +429,62 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
                 assert lower["open"] == "true" and lower["card"] is None, (width, lower)
                 assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], (width, page.errors)
                 page.context.close()
+        finally:
+            browser.close()
+
+
+# "Lines from a point" answered: its dots are there, or its list says that the point has no valid line
+FAN = """() => Number(document.getElementById('view3d').dataset.point) > 0 ||
+  !!document.querySelector('.v3-optlist-title:not(.v3-hidden)')?.textContent"""
+STAGE = "() => { const r = document.querySelector('.v3-stage').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }"
+
+
+def _fan(browser, p, url, heights=(839, 823, 807, 855, 791)):
+    """A phone's page at the full level, 412 px wide, with the dots of "Lines from a point" shown: the press at
+    anchor 1 (test_view3d_touch POINT_CLICK) finds lines or none by where its ray meets the terrain, which moves
+    with the stage's height (measured 2026-11-20: 3 lines with a stage of 613.9 and 645.5 px, none at 629.9 and
+    645.9 px), so the first of a few heights that gives dots is taken."""
+    from test_view3d_touch import POINT_CLICK
+    for height in heights:
+        page = _open(browser, url, _phone(p, 412, height))
+        page.evaluate("() => document.querySelector('.v3-tool[data-tool=point]').click()")
+        page.evaluate(POINT_CLICK)
+        page.wait_for_function(FAN, timeout=WAIT * 2)
+        if page.evaluate("() => Number(document.getElementById('view3d').dataset.point)") > 1:
+            page.evaluate(FRAMES)
+            return page
+        page.context.close()
+    raise AssertionError(f"no lines from anchor 1 at any of the heights {heights}")
+
+
+def test_view3d_dot_target_inside_the_stage(clip_data, monkeypatch):
+    """A fan dot near the stage's edge keeps its whole 44 px target on a touch screen (screen.ts targetInside): on
+    ui_shots' Pixel the dot of the 312 m line stood 19 px from the right edge once the notes had left the bar, and
+    the screen's edge cut its target to 41.4 px. Here the window is narrowed until the rightmost dot stands 15 px
+    from the stage's right edge (the scene keeps its scale with the stage's height): every dot's target lies inside
+    the stage, 44 px each way, and still covers the dot."""
+    from playwright.sync_api import sync_playwright
+    from test_view3d_touch import BOXES
+    data, path, line = _site(clip_data, monkeypatch, "view3ddots")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _fan(browser, p, f"http://127.0.0.1:{port}/{path}?level=full{line}")
+            size, stage = page.viewport_size, page.evaluate(STAGE)
+            right = max((d["own"][0] + d["own"][2]) / 2 for d in page.evaluate(BOXES, ".v3-opt-dot"))
+            centre = (stage[0] + stage[2]) / 2
+            assert right > centre, (right, stage)
+            page.set_viewport_size({"width": round(2 * (right - centre) + 30), "height": size["height"]})
+            page.evaluate(FRAMES)
+            dots, stage = page.evaluate(BOXES, ".v3-opt-dot"), page.evaluate(STAGE)
+            near = [d for d in dots if stage[2] - (d["own"][0] + d["own"][2]) / 2 < 22]
+            assert near, (stage, dots)  # the case: a dot nearer to the edge than half a target
+            for d in dots:
+                own, target = d["own"], d["target"]
+                assert target[2] - target[0] >= 43.5 and target[3] - target[1] >= 43.5, d
+                assert target[0] >= stage[0] - 0.5 and target[2] <= stage[2] + 0.5, (stage, d)
+                assert target[1] >= stage[1] - 0.5 and target[3] <= stage[3] + 0.5, (stage, d)
+                assert target[0] <= own[0] and target[2] >= own[2] and target[1] <= own[1] and target[3] >= own[3], d
+            page.context.close()
         finally:
             browser.close()
