@@ -11,6 +11,7 @@ import { t } from "../i18n";
 import { measure } from "../perf";
 import { orthoForApp } from "../result/load";
 import type { Ortho } from "../types";
+import { markRadioStop, radioKeys } from "../ui/radios";
 import { DATA_CREDITS, DATA_ORDER, dataCredits, IMAGERY_CREDITS, IMAGERY_ORDER, imageryCredits } from "./credits";
 import type { Chunk, Scene3D } from "./scene-api";
 import { drawShore, shoreWithin } from "./shore";
@@ -224,12 +225,13 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const box = document.createElement("div");
   box.className = "u-row";
   const buttons = new Map<ImageryKind, HTMLButtonElement>();
-  let select: HTMLSelectElement | null = null;
+  let select: HTMLSelectElement | null = null, group: HTMLElement | null = null;
   if (available.length > 1) {
-    const seg = document.createElement("div");
+    const seg = group = document.createElement("div");
     seg.className = "u-seg";
     seg.setAttribute("role", "radiogroup");
     seg.setAttribute("aria-label", t("ui.view3d.imagery"));
+    seg.addEventListener("keydown", radioKeys);  // one Tab stop, the arrows move and choose (mark() sets the stop)
     for (const kind of available) {
       const b = document.createElement("button");
       b.type = "button";
@@ -282,6 +284,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       b.className = k === kind ? "u-on" : "";
       b.setAttribute("aria-checked", String(k === kind));
     });
+    if (group) markRadioStop(group);
     if (select) select.value = kind;
   };
 
