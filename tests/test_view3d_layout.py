@@ -8,6 +8,8 @@ pointer), each test failing when its pick is taken out:
 
 Headless Edge through Playwright: run from PowerShell (headless Edge prints nothing from Git Bash)."""
 
+import contextlib
+import json
 import os
 import sys
 from urllib.parse import quote
@@ -118,6 +120,43 @@ def _site(clip_data, monkeypatch, name):
         monkeypatch.setenv(key, value)
     keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
     return data, f"{_script_page(data, name, '')}", f"#run={meta['id']}&line={quote(keys[0], safe='')}"
+
+
+# The data credits of ui_shots' clip (two sources: seven lines at 560 px), for the tests of the credits' box: the
+# tests' own clip has none
+CREDITS = [
+    {"data": "NMT", "attribution": "Source: Główny Urząd Geodezji i Kartografii (GUGiK), geoportal.gov.pl",
+     "licence": "geoportal.gov.pl terms (free use, source stated)", "url": "https://www.geoportal.gov.pl/"},
+    {"data": "FABDEM", "attribution": "FABDEM V1-2 © University of Bristol; FABDEM is produced using Copernicus "
+     "WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by "
+     "the European Union and ESA; all rights reserved", "licence": "CC BY-NC-SA 4.0",
+     "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/"}]
+# The stage's bottom right corner: the credits' box and its toggle, the info button (its box; whether it is the
+# element at its own centre), the info box, the tools
+CORNER = r"""() => {
+  const root = document.getElementById('view3d');
+  const shown = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const R = (e) => { if (!shown(e)) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+  const button = root.querySelector('.v3-info'), toggle = root.querySelector('.v3-credits .u-credits-toggle');
+  const b = button.getBoundingClientRect(), at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+  return {credits: R(root.querySelector('.v3-credits')), toggle: R(toggle), open: toggle && toggle.getAttribute('aria-expanded'),
+          button: R(button), onTop: at === button || button.contains(at), expanded: button.getAttribute('aria-expanded'),
+          box: R(root.querySelector('.v3-infobox')), stage: R(root.querySelector('.v3-stage')),
+          card: R(root.querySelector('.v3-pcard')),
+          tools: [...root.querySelectorAll('.v3-tool')].map(R).filter(Boolean), errors: window.ERRORS};
+}"""
+
+
+@contextlib.contextmanager
+def _credits(data, run):
+    """The run with data credits (CREDITS) while the block runs."""
+    run_json = data / "runs" / run / "run.json"
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**json.loads(saved), "attribution": CREDITS}), encoding="utf-8")
+    try:
+        yield
+    finally:
+        run_json.write_text(saved, encoding="utf-8")
 
 
 def _apart(a, b):
@@ -338,5 +377,75 @@ def test_view3d_dot_target_inside_the_stage(clip_data, monkeypatch):
                 assert target[1] >= stage[1] - 0.5 and target[3] <= stage[3] + 0.5, (stage, d)
                 assert target[0] <= own[0] and target[2] >= own[2] and target[1] <= own[1] and target[3] >= own[3], d
             page.context.close()
+        finally:
+            browser.close()
+
+
+def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
+    """The info button and its box with the run's data credits (open from 768 px of width as on main, a phone held
+    sideways included; the user, 2026-11-20: "Open as before"). On a phone (390 x 664), a phone held sideways
+    (844 x 390) and a touch tablet (1024 x 600), with the credits open and folded, the card open and closed: the
+    button stands at the credits' box's start (its left top corner), 44 px, is the element at its own centre (no
+    tool, no credit over it) and a finger's tap on it opens the box; the open box cuts no line of the credits (it
+    lies over their whole box, as wide as they may be and reaching their top, or wholly under them), also when the
+    box holds one note less (a run with imagery) and so is lower than the credits by itself."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dcorner")
+
+    def start(s):
+        return abs(s["button"][0] - s["credits"][0]) <= 0.5 and abs(s["button"][1] - s["credits"][1]) <= 0.5
+
+    def not_cut(s):
+        c, b = s["credits"], s["box"]
+        return c[3] <= b[1] + 0.5 or (b[0] <= c[0] + 0.5 and b[1] <= c[1] + 0.5 and b[2] >= c[2] - 0.5 and b[3] >= c[3] - 0.5)
+
+    def tap(page, box):
+        _tap(page, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+        page.evaluate(FRAMES)
+
+    def button_and_box(page, where):
+        s = page.evaluate(CORNER)
+        assert s["button"] and start(s) and s["onTop"], (where, s)
+        assert min(s["button"][2] - s["button"][0], s["button"][3] - s["button"][1]) >= 43.5, (where, s)
+        assert all(_apart(t, s["credits"]) for t in s["tools"]), (where, s)  # the credits' box right of the strip
+        tap(page, s["button"])
+        opened = page.evaluate(CORNER)
+        assert opened["expanded"] == "true" and opened["box"] and not_cut(opened), (where, opened)
+        assert opened["box"][1] >= opened["stage"][1] and opened["box"][3] <= opened["stage"][3], (where, opened)
+        page.keyboard.press("Escape")
+        assert page.evaluate(CORNER)["box"] is None, where
+        return s
+
+    with _credits(data, clip_data[1]["id"]), _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for width, height in ((390, 664), (844, 390), (1024, 600)):
+                page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", _phone(p, width, height))
+                page.evaluate(FIFTH)  # three tools, as a run with a surface model has at the phone level
+                page.evaluate(FRAMES)
+                loaded = button_and_box(page, (width, "as loaded"))
+                assert loaded["open"] == ("true" if width >= 768 else "false"), (width, loaded)  # as on main
+                tap(page, loaded["toggle"])
+                flipped = button_and_box(page, (width, "the credits' other state"))
+                assert flipped["open"] != loaded["open"], (width, flipped)
+                # the card open (it folds the credits), the credits opened again above it
+                if flipped["open"] == "true":
+                    tap(page, flipped["toggle"])
+                page.evaluate("() => document.querySelector('.v3-tool[data-tool=profile]').click()")
+                page.wait_for_function(CHART, timeout=WAIT)
+                page.evaluate(FRAMES)
+                carded = button_and_box(page, (width, "the card open"))
+                assert carded["open"] == "false" and carded["card"], (width, carded)
+                tap(page, carded["toggle"])
+                both = button_and_box(page, (width, "the card and the credits open"))
+                assert both["open"] == "true", (width, both)
+                # one note less in the box (a run with imagery has no "No imagery for this result"), the card hidden
+                page.evaluate("() => { document.querySelector('.v3-pcard-hide').click(); "
+                              "document.querySelectorAll('.v3-imagery-note').forEach((n) => n.remove()); }")
+                page.evaluate(FRAMES)
+                lower = button_and_box(page, (width, "one note less"))
+                assert lower["open"] == "true" and lower["card"] is None, (width, lower)
+                assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], (width, page.errors)
+                page.context.close()
         finally:
             browser.close()

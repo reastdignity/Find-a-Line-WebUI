@@ -57,9 +57,27 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   stage.append(box);
 
   let open = false;
+  // The box over the whole of open credits (both stand in the stage's bottom right corner, the box as wide as the
+  // credits may be: view3d.css): where the box's top edge would fall inside the credits' box, the box is made as
+  // high as reaches their top (never higher than the stage allows), so its edge cuts no line of the credits. The
+  // test is made with the box's own minimum off, in one pass: at the box's natural height
+  const cover = () => {
+    box.style.minHeight = "";
+    const credits = button.closest<HTMLElement>(".v3-credits");
+    if (!open || !credits) return;
+    const c = credits.getBoundingClientRect(), b = box.getBoundingClientRect();
+    if (c.height && c.top < b.top && c.bottom > b.top) {
+      box.style.minHeight = `${Math.min(Math.ceil(b.bottom - c.top), Math.floor(stage.clientHeight - 16))}px`;
+    }
+  };
+  let frame = 0;
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; cover(); });  // never inside the observer's own call
+  }) : null;
   const copy = () => {
     lines.replaceChildren(...[...bar.querySelectorAll<HTMLElement>(INFO_NOTES)].map(
       (note) => el("p", "v3-infobox-line " + note.className, note.textContent ?? "")));
+    cover();
   };
   // the bar while the box is open: a note shown, hidden, added or reworded
   const watch = typeof MutationObserver === "function" ? new MutationObserver(copy) : null;
@@ -76,9 +94,11 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
     open() {
       if (open) return;
       open = true;
+      box.classList.remove("v3-hidden");
       copy();
       watch?.observe(bar, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"]});
-      box.classList.remove("v3-hidden");
+      const credits = button.closest(".v3-credits");
+      for (const e of [stage, credits]) if (e) sizes?.observe(e);  // the credits opened or folded, the card, a turn
       button.setAttribute("aria-expanded", "true");
       document.addEventListener("keydown", onKey, true);
       shut.focus();
@@ -87,8 +107,10 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       if (!open) return;
       open = false;
       watch?.disconnect();
+      sizes?.disconnect();
       document.removeEventListener("keydown", onKey, true);
       box.classList.add("v3-hidden");
+      box.style.minHeight = "";
       lines.replaceChildren();
       button.setAttribute("aria-expanded", "false");
       if (focus) button.focus();
