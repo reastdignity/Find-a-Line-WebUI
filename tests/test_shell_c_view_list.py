@@ -106,10 +106,13 @@ def _list(page) -> dict:
 
 
 def _headline(s: dict) -> str:
+    """The headline from the counts: the lines hidden "by Top level only" when that chip alone hides them (it is pressed
+    and every hidden line passes the other filters: the user's W7 a), else "by filters"."""
     c = s["counts"]
     spots = WORDS["ui.result.spots_one" if c["spots"] == 1 else "ui.result.spots_other"].replace("{{n}}", _count(c["spots"]))
     lines = WORDS["ui.result.lines_one" if c["lines"] == 1 else "ui.result.lines_other"].replace("{{n}}", _count(c["lines"]))
-    hidden = WORDS["ui.result.hidden"].replace("{{n}}", _count(c["hidden"])) if c["hidden"] else ""
+    alone = s["chip"] == "true" and c["hidden"] == c["topHidden"]
+    hidden = WORDS["ui.view.hidden_top" if alone else "ui.result.hidden"].replace("{{n}}", _count(c["hidden"])) if c["hidden"] else ""
     return WORDS["ui.view.headline"].replace("{{spots}}", spots).replace("{{lines}}", lines) + hidden
 
 
@@ -155,6 +158,8 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             first = _list(page)
             # the headline, the chip pressed at the start with its sentence (N of M of the passing lines)
             assert first["count"] == _headline(first) and first["counts"]["hidden"] == first["counts"]["topHidden"] > 0
+            # only "Top level only" hides lines at the start: the headline says so (W7 a)
+            assert first["count"].endswith(WORDS["ui.view.hidden_top"].replace("{{n}}", _count(first["counts"]["hidden"])))
             assert first["chip"] == "true" and first["sentence"] == _sentence(first) and first["clear"] is False
             assert first["sort"] == "hmean" and first["kept"] is None
             # the first view of this small run is at the Lines level: "Best in view: 10 of M", rows B1 … B10
@@ -286,6 +291,8 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             filtered = _list(page)
             assert filtered["counts"]["lines"] < first["counts"]["lines"] and filtered["sentence"] == _sentence(filtered)
             assert filtered["count"] == _headline(filtered)
+            # another filter hides lines too: "hidden by filters" again
+            assert filtered["count"].endswith(WORDS["ui.result.hidden"].replace("{{n}}", _count(filtered["counts"]["hidden"])))
             assert page.evaluate("() => P.rows('.vl-tree').every((r) => P.view().values.clr[r.row] >= 5)")
             # the chip's × by the keyboard: the filter ends, the focus goes to the chip itself (a button now)
             x = f'.vl-filters .u-chip-x[aria-label="{WORDS["ui.view.chip.clearance_remove"]}"]'
@@ -327,10 +334,22 @@ def test_list_ranking_sorts_sectors_and_chips(site):
             heads = page.evaluate("() => [...document.querySelectorAll('.r-more h3')].map((h) => h.textContent)")
             assert heads and "Grouping" not in heads and not page.evaluate("() => !!document.querySelector('.r-group, .r-intro-link, .n-intro-link')")
             assert page.evaluate("() => document.querySelector('.vl-body').scrollTop") == 0
-            # no line passes: both blocks say so
+            # no line passes: the sentence and its "Clear all" in the blocks' place (W9 a, the mock-up's item 9), first in
+            # the list's body; its "Clear all" clears every filter (the chips' own) and the blocks come back
             page.evaluate("() => { const m = P.view().model; m.setFilters({...m.filters, lenMin: 1e6}); }")
             page.wait_for_function("() => document.querySelectorAll('.vl-main').length === 0", timeout=WAIT)
-            assert page.evaluate("() => [...document.querySelectorAll('.vl-note')].map((n) => n.textContent)")[-1] == WORDS["ui.view.none_pass"]
+            none = page.evaluate("""() => ({text: P.text('.vl-none-text'), button: P.text('.vl-none .vl-none-clear'),
+                first: document.querySelector('.vl-body > :not([hidden])')?.className, blocks: document.querySelectorAll('.vl-block').length,
+                notes: document.querySelectorAll('.vl-note').length})""")
+            assert none == {"text": WORDS["ui.view.none_pass"], "button": WORDS["ui.view.chip.clear"], "first": "vl-none", "blocks": 0, "notes": 0}, none
+            assert WORDS["ui.view.none_pass"] == "No line passes the filters. Loosen one, or clear all."
+            page.focus(".vl-none-clear")
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
+            back = _list(page)
+            assert back["counts"] == first["counts"] and back["chip"] == "true" and not page.evaluate("() => !!document.querySelector('.vl-none')")
+            # the focus did not fall to the page's body with the button: the list's tab stop has it
+            page.wait_for_function("() => document.activeElement === document.querySelector('.vl-topblock .vl-main[tabindex=\"0\"]')", timeout=WAIT)
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
         finally:
             browser.close()
@@ -540,7 +559,8 @@ def test_selection_details_fan_and_table(site):
             page.click(f"#vl-row-{target['spot']} .vl-main")
             page.wait_for_function("() => P.view().selected === null && !document.querySelector('.vl-details')", timeout=WAIT)
             page.wait_for_function(f"() => document.querySelectorAll('.vl-sec[data-sector=\"{target['n']}\"] .vl-main').length === {PAGE}", timeout=WAIT)
-            # "Stands for" in its two forms: a line that stands for several found lines, and one for itself alone
+            # "Stands for" in its two forms, the view's own words (W5 a): a line that stands for several found lines, and
+            # one for itself alone (today's page keeps phase 4's: ui.details.stands_for_n)
             both = page.evaluate("""() => { const v = P.view(), c = v.model.data.columns, out = {};
                 for (let row = 0; row < v.count && !(out.one && out.many); row++) { if (!v.passes(row)) continue; const n = c.stands_for.at(row);
                   if (n === 1 && !out.one) out.one = [v.spotOf(row), row, n]; if (n > 1 && !out.many) out.many = [v.spotOf(row), row, n]; }
@@ -549,9 +569,11 @@ def test_selection_details_fan_and_table(site):
             for key, (spot_, row_, n_) in both.items():
                 page.evaluate(f"() => P.view().select({spot_}, {row_})")
                 page.wait_for_function(f"() => P.details().data && P.details().data[1] === {row_}", timeout=WAIT)
-                want = WORDS["ui.details.stands_for_n_one"] if key == "one" else \
-                    "Stands for: " + WORDS["ui.details.stands_for_n_other"].replace("{{n}}", _count(n_))
+                want = WORDS["ui.view.stands_for_n_one"] if key == "one" else \
+                    WORDS["ui.view.stands_for_n_other"].replace("{{n}}", _count(n_))
                 assert page.evaluate("() => P.details().stands") == want
+            assert (WORDS["ui.view.stands_for_n_one"], WORDS["ui.view.stands_for_n_other"]) == \
+                ("Stands for this line only", "Stands for {{n}} lines found a few metres apart")
             assert WORDS["ui.details.stands_for_n_one"] == "this line only: no other was found between its two anchor squares"
             # the × of the details ends the selection: the focus goes to the spot's row, not to the page's body
             page.focus(".vl-dclose")
@@ -627,7 +649,7 @@ def test_selection_details_fan_and_table(site):
             assert f["text"] == text + (" " + WORDS["ui.view.fan.capped"].replace("{{n}}", str(len(f["model"]))) if f["capped"] else "")
             assert [[r["row"], r["mark"]] for r in f["rows"]] == [[r["row"], r["label"]] for r in f["model"]] and len(f["rows"]) <= 40
             assert set(f["onMap"]) <= {r["label"] for r in f["model"]} and all(r["dots"] == 1 for r in f["rows"])
-            assert f["heads"] == ["Length", "Mean height ▾", "Clearance", "Height diff.", "Direction", "Far end"] and f["pressed"] == ["hmean"]
+            assert f["heads"] == ["Length", "Mean height ▾", "Clearance", "Height difference", "Direction", "Far end"] and f["pressed"] == ["hmean"]
             assert page.evaluate("() => P.holds(P.rows('.vl-fan'), 'hmean')") == []
             free = [r["hmean"] for r in f["model"] if not r["numbered"] and r["hmean"] is not None]
             assert free == sorted(free, reverse=True)
@@ -651,7 +673,7 @@ def test_selection_details_fan_and_table(site):
             row = g["model"][0]
             sign = "" if abs(row["dh"]) < 0.05 else "+" if row["dh"] > 0 else "−"
             words = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-            assert f"Height diff. {sign}{abs(row['dh']):.1f}{NB}m" in g["rows"][0]["text"]
+            assert f"Height difference {sign}{abs(row['dh']):.1f}{NB}m" in g["rows"][0]["text"]
             assert f"Direction {words[round(row['bearing'] / 45) % 8]} {round(row['bearing']) % 360}°" in g["rows"][0]["text"]
             # a fan row selects its line and closes the fan
             last = g["model"][-1]["row"]

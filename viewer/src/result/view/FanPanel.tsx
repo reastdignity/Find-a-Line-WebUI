@@ -2,8 +2,8 @@
 // "Far end"): shown in the details' place while the view's fan is open (SpotView.fan; the canvas opens it at a
 // right click, a press and hold, a press on A1 or A2; the details' two buttons at an anchor). Its sentence ("648
 // lines start within 10 m of this point, to 29 far ends.", and "The best 40 are shown." when there are more far
-// ends than rows), the five sorts (Mean height at the start, Clearance, Length, Height diff. with the smallest
-// first, Direction by bearing; the model sorts, because the L numbers on the map follow the rows, and numbered
+// ends than rows), the five sorts (Mean height at the start, Clearance, Length, Height difference (W4 a) with the
+// smallest first, Direction by bearing; the model sorts, because the L numbers on the map follow the rows, and numbered
 // rows stay first), and a row per far end: the shape it carries on the map (B3, P1, else L1 …), length, mean
 // height, clearance with the tight mark, the height difference from the near end to the far end (signed, 0.1 m),
 // the direction ("SE 141°"), in a run with the access mark the far anchor's mark, and for a line over trees or
