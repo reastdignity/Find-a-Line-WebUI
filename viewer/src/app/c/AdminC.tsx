@@ -5,7 +5,7 @@
 // administrator's only (web.py).
 
 import { Fragment } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, Panel, Stat, Stats, StatusChip, type Status } from "../../ui/components";
 import { api, type AdminReport, type AdminRun, type AdminStatus, type AdminUser, type Job } from "../api";
 import { runHash } from "./route";
@@ -23,11 +23,42 @@ function jobStatus(job: Job): [Status, string] {
   return ["running", job.status];
 }
 
-function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void; onError(e: Error): void}) {
-  // Block and Unblock ask first, as a report's "Delete…" does: the question of one user at a time ("<id> <act>")
+/** One question of a list open at a time ("Block…", "Unblock…", "Delete…"), by its key ("<id> <act>"): `keep` closes
+ *  it and puts the focus back on the button that opened it (the one whose data-asks is the key). */
+function useQuestion() {
   const [asking, setAsking] = useState<string | null>(null);
+  const [back, setBack] = useState<string | null>(null);
+  useEffect(() => {
+    if (back === null) return;
+    document.querySelector<HTMLElement>(`[data-asks="${back}"]`)?.focus();
+    setBack(null);
+  }, [back]);
+  return {asking, open: setAsking, done: () => setAsking(null), keep: () => { setBack(asking); setAsking(null); }};
+}
+
+/** A question in place of its row's tools: the act and "Keep", and nothing else in the row, so no neighbour above,
+ *  under or beside it takes a finger's tap that misses (the browsers' touch adjustment). The focus goes to "Keep"
+ *  when it opens; Escape is "Keep". */
+function Question({act, kind, cls, title, onAct, onKeep}: {act: string; kind: "danger" | "primary"; cls: string;
+                                                         title?: string; onAct(): void; onKeep(): void}) {
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => { box.current?.querySelector<HTMLElement>(".c-ask-keep")?.focus(); }, []);
+  // .c-ask-pad: a press that does nothing, around and between the two buttons (c.css): a finger's tap there lands on it,
+  // which the touch adjustment would otherwise move to the nearest button
+  return <span ref={box} class="c-ask" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onKeep(); } }}>
+    <span class="c-ask-pad" aria-hidden="true" onClick={() => undefined} />
+    <Button kind={kind} class={cls} title={title} onClick={onAct}>{act}</Button>
+    <Button kind="ghost" class="c-ask-keep" onClick={onKeep}>Keep</Button>
+  </span>;
+}
+
+const BLOCK_TITLE = "ends their sessions; their share links stop working";
+
+function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void; onError(e: Error): void}) {
+  // Block and Unblock ask first, as a report's "Delete…" does
+  const q = useQuestion();
   const change = (p: Promise<unknown>) => p.then(onChange, onError);
-  const status = (u: AdminUser, to: "approved" | "blocked") => { setAsking(null); change(api.adminSetUser(u.id, {status: to})); };
+  const status = (u: AdminUser, to: "approved" | "blocked") => { q.done(); change(api.adminSetUser(u.id, {status: to})); };
   if (!users.length) return <p class="u-small">No users.</p>;
   return <ul class="c-admin-list">{users.map((u) => <li key={u.id} class="c-admin-row">
     <div class="c-admin-head">
@@ -39,21 +70,22 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
       {" · "}{u.sessions} {u.sessions === 1 ? "session" : "sessions"}</div>
     {/* the buttons first, the checkbox last: on a touch screen it stands on a line of its own (c.css .c-check) */}
     {!u.admin && <div class="c-admin-tools">
-      {u.status === "pending" && <Button kind="primary" onClick={() => status(u, "approved")}>Approve</Button>}
-      {u.status === "blocked" && (asking === `${u.id} unblock`
-        ? <><Button kind="primary" class="c-user-unblock" onClick={() => status(u, "approved")}>Unblock them</Button>
-            <Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
-        : <Button kind="primary" onClick={() => setAsking(`${u.id} unblock`)}>Unblock…</Button>)}
-      {u.status !== "blocked" && (asking === `${u.id} block`
-        ? <><Button kind="danger" class="c-user-block" title="ends their sessions; their share links stop working"
-                    onClick={() => status(u, "blocked")}>Block them</Button>
-            <Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
-        : <Button kind="danger" title="ends their sessions; their share links stop working"
-                  onClick={() => setAsking(`${u.id} block`)}>Block…</Button>)}
-      {u.sessions > 0 && <Button kind="ghost" title="they have to sign in again"
-        onClick={() => change(api.adminRevoke(u.id))}>End sessions</Button>}
-      <label class="c-check"><input type="checkbox" checked={u.unlimited}
-        onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />Without limits</label>
+      {q.asking === `${u.id} block`
+        ? <Question act="Block them" kind="danger" cls="c-user-block" title={BLOCK_TITLE} onAct={() => status(u, "blocked")}
+                    onKeep={q.keep} />
+        : q.asking === `${u.id} unblock`
+        ? <Question act="Unblock them" kind="primary" cls="c-user-unblock" onAct={() => status(u, "approved")} onKeep={q.keep} />
+        : <>
+          {u.status === "pending" && <Button kind="primary" onClick={() => status(u, "approved")}>Approve</Button>}
+          {u.status === "blocked" && <Button kind="primary" data-asks={`${u.id} unblock`}
+            onClick={() => q.open(`${u.id} unblock`)}>Unblock…</Button>}
+          {u.status !== "blocked" && <Button kind="danger" title={BLOCK_TITLE} data-asks={`${u.id} block`}
+            onClick={() => q.open(`${u.id} block`)}>Block…</Button>}
+          {u.sessions > 0 && <Button kind="ghost" title="they have to sign in again"
+            onClick={() => change(api.adminRevoke(u.id))}>End sessions</Button>}
+          <label class="c-check"><input type="checkbox" checked={u.unlimited}
+            onChange={(e) => change(api.adminSetUser(u.id, {unlimited: e.currentTarget.checked}))} />Without limits</label>
+        </>}
     </div>}
   </li>)}</ul>;
 }
@@ -80,7 +112,7 @@ function Runs({runs, names, onChange, onError}: {runs: AdminRun[]; names: Map<nu
 const KINDS: Record<string, string> = {results: "results", water: "water level", interface: "interface", other: "other"};
 
 function Reports({reports, onChange, onError}: {reports: AdminReport[]; onChange(): void; onError(e: Error): void}) {
-  const [asking, setAsking] = useState<number | null>(null);
+  const q = useQuestion();
   const change = (p: Promise<unknown>) => p.then(onChange, onError);
   if (!reports.length) return <p class="u-small">No reports.</p>;
   return <ul class="c-admin-list">{reports.map((r) => {
@@ -101,13 +133,15 @@ function Reports({reports, onChange, onError}: {reports: AdminReport[]; onChange
         {c.user_agent && <div class="u-mono c-report-agent">{c.user_agent}</div>}
       </div>
       <div class="c-admin-tools">
-        <Button kind={r.status === "open" ? "primary" : "default"}
-                onClick={() => change(api.adminReportStatus(r.id, r.status === "open" ? "done" : "open"))}>
-          {r.status === "open" ? "Done" : "Reopen"}</Button>
-        {asking === r.id
-          ? <><Button kind="danger" class="c-report-delete" onClick={() => { setAsking(null); change(api.adminDeleteReport(r.id)); }}>
-              Delete it</Button><Button kind="ghost" onClick={() => setAsking(null)}>Keep</Button></>
-          : <Button kind="ghost" onClick={() => setAsking(r.id)}>Delete…</Button>}
+        {q.asking === `${r.id} delete`
+          ? <Question act="Delete it" kind="danger" cls="c-report-delete"
+                      onAct={() => { q.done(); change(api.adminDeleteReport(r.id)); }} onKeep={q.keep} />
+          : <>
+            <Button kind={r.status === "open" ? "primary" : "default"}
+                    onClick={() => change(api.adminReportStatus(r.id, r.status === "open" ? "done" : "open"))}>
+              {r.status === "open" ? "Done" : "Reopen"}</Button>
+            <Button kind="ghost" data-asks={`${r.id} delete`} onClick={() => q.open(`${r.id} delete`)}>Delete…</Button>
+          </>}
       </div>
     </li>;
   })}</ul>;
