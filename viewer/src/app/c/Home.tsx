@@ -66,7 +66,7 @@ function stateOf(card: Card): CardState {
   if (job && job.status !== "done") {
     const p = jobProgress(job);
     if (p.state === "cancelled") {  // the user's own act: a quiet state, not a failure; the chip says it (no meta)
-      return {status: "cancelled", chip: t("ui.card.cancelled"), unfinished: false, meta: "", fraction: null, step: ""};
+      return {status: "cancelled", chip: t("ui.kit.status.cancelled"), unfinished: false, meta: "", fraction: null, step: ""};
     }
     if (p.state === "failed") {
       return {status: "failed", chip: t("ui.kit.status.failed"), unfinished: false,

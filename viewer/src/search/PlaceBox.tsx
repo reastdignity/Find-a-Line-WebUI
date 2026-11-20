@@ -66,7 +66,7 @@ export function PlaceBox({place}: {place: PlaceMap}) {
       <Icon name="search" />
       <input id={id} class="u-input" type="search" value={text}
              placeholder={touch ? t("ui.search.place_placeholder_touch") : t("ui.search.place_placeholder")}
-             aria-label={t("ui.search.place_placeholder_touch")} role="combobox" list={undefined} aria-expanded={open}
+             aria-label={t("ui.search.place_name")} role="combobox" list={undefined} aria-expanded={open}
              aria-controls={`${id}-list`}
              aria-activedescendant={open ? `${id}-${active}` : undefined} autocomplete="off"
              onInput={(e) => { setText(e.currentTarget.value); setFound(null); }} onKeyDown={onKey}

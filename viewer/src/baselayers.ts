@@ -10,7 +10,8 @@ import { t } from "./i18n";
 
 // The OSM tile usage policy and attribution guidelines: "© OpenStreetMap contributors" linked to the
 // copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap); the words
-// ui.map.osm_credit and ui.map.report_issue
+// ui.map.osm_credit and ui.map.report_issue, set into Leaflet's attribution HTML as they are (the catalogue is trusted:
+// a word with "&" or "<" would need escaping here, docs/known-bugs.md)
 const osmCredit = () => "&copy; " + t("ui.map.osm_credit", {
   osm: '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   fix: '<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">' + t("ui.map.report_issue") + "</a>"});

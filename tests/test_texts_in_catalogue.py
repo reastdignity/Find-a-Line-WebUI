@@ -458,7 +458,8 @@ def test_moved_calls_give_every_value():
                     reason="needs Node and `npm install` in viewer/")
 def test_parts_keeps_values_apart(tmp_path):
     """i18n.parts: the words between the values as strings, each value as given (a number stays a number, an object
-    an object), empty pieces left out; `count` picks the plural form."""
+    an object), empty pieces left out; `count` picks the plural form, and so does a number value named `count`; a value
+    named like an i18next option (`count` as a string, `context`, `lng`, `defaultValue`) does not steer the lookup."""
     import subprocess
     bundle = tmp_path / "i18n.cjs"
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['src/i18n.ts'], bundle: true, "
@@ -471,9 +472,15 @@ console.log(JSON.stringify([
   m.parts("ui.search.stat_grid", {res: 5}),
   m.parts("ui.favourites.empty", {icon: {icon: "star"}}),
   m.parts("ui.result.lines", {n: 1}, 1), m.parts("ui.result.lines", {n: "1,234"}, 1234),
-  m.parts("ui.osm.meta", {mb: 9, data: "2026-11-01", checked: "2026-11-19"})]));""", encoding="utf-8")
+  m.parts("ui.osm.meta", {mb: 9, data: "2026-11-01", checked: "2026-11-19"}),
+  m.parts("basic.rigs", {count: 1}), m.parts("basic.rigs", {count: 3}), m.parts("basic.rigs", {}, 2),
+  m.parts("ui.favourites.delete_folders", {count: "N"}),
+  m.parts("ui.search.centre", {lat: "1", lon: "2", context: "male", lng: "pl", defaultValue: "x"}),
+  m.parts("ui.favourites.export", {what: "this folder"})]));""", encoding="utf-8")
     result = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", check=True)
     assert json.loads(result.stdout) == [
         ["Centre ", "50.15595", ", ", "19.75627"], [5, " m grid"],
         ["No favourite lines yet: mark them with ", {"icon": "star"}, " in a result."],
-        [1, " line"], ["1,234", " lines"], [9, " MB, data of ", "2026-11-01", ", checked ", "2026-11-19"]]
+        [1, " line"], ["1,234", " lines"], [9, " MB, data of ", "2026-11-01", ", checked ", "2026-11-19"],
+        [1, " rig"], [3, " rigs"], ["2 rigs"], [", ", "N", " folders in it"], ["Centre ", "1", ", ", "2"],
+        ["Export ", "this folder"]]

@@ -312,7 +312,8 @@ export function FavouritesPage({wide}: {wide: boolean}) {
         name: deleted.name,
         folders: tree.subtree(deleted.id).length > 1
           ? t("ui.favourites.delete_folders", {count: tree.subtree(deleted.id).length - 1}) : "",
-        lines: t("ui.favourites.delete_lines", {count: counts.get(deleted.id) || 0})})}</span>
+        n: counts.get(deleted.id) || 0,
+        word: t("ui.favourites.delete_word", {count: counts.get(deleted.id) || 0})})}</span>
       <div class="u-row">
         <Button kind="danger" class="c-confirm-delete" onClick={() => remove(deleted.id)}>{t("ui.common.delete")}</Button>
         <Button kind="ghost" class="c-panel-first" onClick={() => setDeleting(null)}>{t("ui.card.keep")}</Button>
@@ -339,7 +340,8 @@ export function FavouritesPage({wide}: {wide: boolean}) {
     {!kids.length && !sorted.length && <p class="u-small c-trip-empty">{current === null && !all.length
       ? parts("ui.favourites.empty", {icon: <Icon name="star" />}) : t("ui.favourites.folder_empty")}</p>}
     {exported().length > 0 && <>
-      <div class="u-h4">{t(current === null ? "ui.favourites.export_all" : "ui.favourites.export_folder")}</div>
+      <div class="u-h4">{parts("ui.favourites.export",
+        {what: t(current === null ? "ui.favourites.export_all" : "ui.favourites.export_folder")})}</div>
       <div class="u-row">
         <Button icon="download" onClick={() => exportFavourites(exported(), "geojson")}>GeoJSON</Button>
         <Button icon="download" onClick={() => exportFavourites(exported(), "csv")}>CSV</Button>
