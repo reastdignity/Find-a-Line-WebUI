@@ -523,6 +523,17 @@ def test_view3d_info_box_leaves_with_the_focus(clip_data, monkeypatch):
             assert kept["open"] and kept["inBox"], kept
             _tap(page, (box[0] + box[2]) / 2, box[1] - 60)
             page.wait_for_function(closed, timeout=WAIT)
+            # opened by a tap, its text tapped (the focus on the box itself), then the keyboard: Tab goes to "Close"
+            # inside the box, the next Tab leaves and closes it (a key ends the press's hold on the box)
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function(opened, timeout=WAIT)
+            _tap(page, (box[0] + box[2]) / 2, box[3] - 30)
+            page.keyboard.press("Tab")
+            inside = page.evaluate(state)
+            assert inside["open"] and "v3-infobox-close" in inside["focus"], inside
+            page.keyboard.press("Tab")
+            tabbed = page.evaluate(state)
+            assert not tabbed["open"] and not tabbed["inBox"] and not tabbed["body"], tabbed
             # the card open: the info button stands above it, beside the open box; a tap on it closes the box once
             page.evaluate("() => document.querySelector('.v3-tool[data-tool=profile]').click()")
             page.wait_for_function(CHART, timeout=WAIT)

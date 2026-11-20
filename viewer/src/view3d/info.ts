@@ -29,9 +29,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
-/** How long after a press on the box or its button a loss of the focus counts as that press's (ms). */
-export const PRESS_MS = 500;
-
 export interface Info {
   /** The button, for the credits' box. */
   readonly button: HTMLButtonElement;
@@ -101,7 +98,16 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   };
   // the bar while the box is open: a note shown, hidden, added or reworded
   const watch = typeof MutationObserver === "function" ? new MutationObserver(copy) : null;
+  // Whether the latest press was on the box or its button (a key ends that): the focus may seem to leave the box
+  // with such a press (where a press moves no focus, as in Safari), and the box stays
+  let pressing = false;
+  const onPress = (e: PointerEvent) => {
+    const at = e.target;
+    pressing = at instanceof Node && (box.contains(at) || button.contains(at));
+    if (!pressing) self.close();  // a press beside the box closes it (the pressed control still gets its press)
+  };
   const onKey = (e: KeyboardEvent) => {
+    pressing = false;
     if (e.key !== "Escape" || !open) return;
     if (!box.getClientRects().length) { self.close(); return; }  // not shown: the press is for what is
     // the box first: the same press does not also end "Lines from a point" (point.ts listens on the window)
@@ -122,6 +128,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       for (const e of [stage, credits, box]) if (e) sizes?.observe(e);  // the credits opened or folded, the card, a turn
       button.setAttribute("aria-expanded", "true");
       document.addEventListener("keydown", onKey, true);
+      document.addEventListener("pointerdown", onPress, true);
       shut.focus();
     },
     close(focus = false) {
@@ -130,6 +137,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       watch?.disconnect();
       sizes?.disconnect();
       document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPress, true);
       box.classList.add("v3-hidden");
       box.style.minHeight = "";
       lines.replaceChildren();
@@ -139,19 +147,14 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   };
   button.addEventListener("click", () => { if (open) self.close(); else self.open(); });
   shut.addEventListener("click", () => self.close(true));
-  // The focus leaving the box closes it: Tab from "Close" goes on to the control Tab meant, which the box may cover
-  // (a focused control out of sight), and a press beside the box closes it too. Not while a finger or the mouse
-  // presses the box or the info button (where a press moves no focus, as in Safari, the focus would seem to leave:
-  // the button's own click closes the box, a press on the box's text keeps it), nor when the window loses the focus
-  let pressed = -Infinity;
-  const press = () => { pressed = performance.now(); };
-  box.addEventListener("pointerdown", press, true);
-  button.addEventListener("pointerdown", press);
+  // The focus leaving the box by the keyboard closes it: Tab from "Close" goes on to the control Tab meant, which
+  // the box may cover (a focused control out of sight). Not with a press on the box or the info button (onPress:
+  // the button's own click closes the box, a press on the box's text keeps it and puts the focus on the box), nor
+  // when the window loses the focus
   box.addEventListener("pointerup", () => { if (open && !box.contains(document.activeElement)) box.focus({preventScroll: true}); });
   box.addEventListener("focusout", (e) => {
     const to = e.relatedTarget;
-    if (!open || (to instanceof Node && box.contains(to)) || !document.hasFocus()) return;
-    if (performance.now() - pressed < PRESS_MS) return;
+    if (!open || pressing || (to instanceof Node && box.contains(to)) || !document.hasFocus()) return;
     self.close();
   });
   return self;
