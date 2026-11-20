@@ -3,7 +3,7 @@
 // drawn, and the labels of the anchors, the smallest clearance, the A-frames, the no-fall zone and the webbing's
 // highest point as specs for labels.ts' layout.
 
-import { layoutLabels, type Box, type LabelSpec, type PlacedLabel } from "./labels";
+import { layoutLabels, type Box, type LabelSpec, type LayoutOptions, type PlacedLabel } from "./labels";
 
 /** The chart's margins: the heights' axis on the left, the distances' below. */
 export const MARGIN = {l: 58, r: 20, t: 18, b: 24};
@@ -108,7 +108,9 @@ export function labelSpecs(frame: Frame, marks: ChartMarks, width: (text: string
   return specs;
 }
 
-/** The labels of a chart placed (labelSpecs, then labels.ts' layout within labelBounds). */
-export function chartLabels(frame: Frame, marks: ChartMarks, width: (text: string, bold: boolean) => number): PlacedLabel[] {
-  return layoutLabels(labelSpecs(frame, marks, width), labelBounds(frame));
+/** The labels of a chart placed (labelSpecs, then labels.ts' layout within labelBounds); `options`: the layout's
+ *  metrics (labels.ts' defaults are an 11 px text's; Profile.tsx draws 12 px). */
+export function chartLabels(frame: Frame, marks: ChartMarks, width: (text: string, bold: boolean) => number,
+                            options?: LayoutOptions): PlacedLabel[] {
+  return layoutLabels(labelSpecs(frame, marks, width), labelBounds(frame), options);
 }

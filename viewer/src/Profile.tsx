@@ -36,6 +36,9 @@ const LAYERS: [LayerName, string, string][] = [
   ["fall", "fall zone", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
 // The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
 const HEIGHT = 170, CHART_MIN = 120;
+// The chart's text, px (R1's smallest: the user's "12 a", 11 before), and its labels' boxes for labels.ts' layout at
+// that size, 2 px kept free around each (they stood on touching lines on the narrow card: the UX task's P1)
+const TEXT_PX = 12, LABEL_BOXES = {ascent: 10, descent: 3, pad: 2};
 
 function Swatch({style, class: cls}: {style?: string; class?: string}) {
   return <span class={"fal-swatch" + (cls ? " " + cls : "")} style={style}></span>;
@@ -236,9 +239,9 @@ export function ProfilePanel(props: ProfileProps) {
   if (!family.current && chartRef.current && typeof getComputedStyle === "function") {
     family.current = getComputedStyle(chartRef.current).fontFamily;
   }
-  const measure = (text: string, bold: boolean) => family.current ? textWidth(text, bold, family.current)
-    : estimateWidth(text, bold);
-  const placed = chartLabels(frame, marks, measure);
+  const measure = (text: string, bold: boolean) => family.current ? textWidth(text, bold, family.current, TEXT_PX)
+    : estimateWidth(text, bold, TEXT_PX);
+  const placed = chartLabels(frame, marks, measure, LABEL_BOXES);
   const label = (id: string) => placed.find((q) => q.id === id);
   const labelText = (q: PlacedLabel | undefined, cls: string, fill?: string, bold = false) => q &&
     <text class={"fal-label " + cls} x={q.x} y={q.y} text-anchor={q.anchor} fill={fill}
@@ -454,7 +457,7 @@ export function ProfilePanel(props: ProfileProps) {
           <Swatch style={style} /> {label}</label>)}</span>
     </div>
     <div class="fal-profile-chart" ref={chartRef}>
-      <svg width={W} height={H} font-size="11">
+      <svg width={W} height={H} font-size={TEXT_PX}>
         {grid}
         {zone > 0 && [[0, zone], [l.len - zone, l.len]].map(([a, b], k) => <g class="fal-zone">
           <rect class="fal-zone-band" x={X(a)} y={M.t} width={(b - a) * sx} height={ph} fill={PROFILE.zoneFill} />
