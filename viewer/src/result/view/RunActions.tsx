@@ -77,6 +77,9 @@ function Measure({model, view, onMeasured, compact, plain, tip = "below", select
   const toggle = () => {
     if (measuring) { renew(); view.cancelMeasure(); view.clearMeasure(); return; }
     setError("");
+    // a measured line before ends (the frame's, and a link's: its answer still on the way is dropped by openLinked,
+    // as closeMeasured does; the second code review)
+    model.measuredLink = null;
     onMeasured?.(null);
     const mine = renew(), picked = selections?.();
     const current = () => measurements.get(model) === mine && selections?.() === picked;
