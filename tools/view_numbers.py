@@ -18,11 +18,16 @@ the later ones land). A state is measured only when the greedy at a quarter give
 (labels and places: `today_matches`); else it is recorded as not measured, with the difference.
 - "Lines from here" (the fan): its own numbers sit at 0.82 of their line's first free piece, and the page leaves
   none out for want of distance (today's rule there: B numbers at a quarter among themselves, the fan's never). The
-  other rules here are a stated definition: a fan number, after the B numbers, is left out when its one place is
-  nearer than the rule's distance to a number placed before it; the rule "quarter" applies the page's quarter to
-  the fan's numbers too.
-- Overlap: the intersection of two numbers' boxes (each shape's bounding box: B 25 × 21 px, B10 and over 30 × 21,
-  P 38 × 27, L 35 × 21; SpotMap.markSize) over the smaller box's own area; the JSON keeps the pixels too.
+  other rules here are a stated definition, and under them the fan's numbers lose today's exemption: a fan number,
+  after the B numbers, is left out when its one place is nearer than the rule's distance to a number placed before
+  it (a B number or an earlier fan number); the rule "quarter" applies the page's quarter to the fan's numbers too.
+  The fan's rows count the numbers each rule leaves out apart: fan numbers and B (or P) numbers. Opening the fan may
+  fit the map to it (SpotMap.showFan): a fan row says the zoom it was measured at, and a fan state reached again from
+  a later stop (the same zoom and numbers) is counted once, the later stops named beside it.
+- Overlap, in two readings: the intersection of two numbers' boxes (each shape's bounding box: B 25 × 21 px, B10 and
+  over 30 × 21, P 38 × 27, L 35 × 21; SpotMap.markSize) over the smaller box's own area, and over the page's box of
+  32 × 23 px (the "box" of B.2 item 8); each share compared with 1/4, 1/3, 1/2 unrounded (the JSON keeps the pixels
+  and the shares, rounded).
 - The states: for each run, each device (tools/ui_shots.py's DEVICES and profiles: desktop 1400 × 900, iPhone 13
   in WebKit, Pixel 7 in Chromium), at the view's first view and `--zooms` whole zoom levels in from it (default 1
   and 2: the zoom button is half a level; `--around centre`, the default: around the middle of the part of the map
@@ -40,18 +45,23 @@ removed): nothing is written to a run's own folder. A run without a store holdin
 in the view and is reported as left out, with the reason. Runs are named by their folder's name only (`--label
 NAME=LABEL` for a shorter one; a folder named after its place's coordinates, a search without a name, by its label
 or "run N" alone); the output holds no coordinates (places of numbers are the map box's pixels; a phone's pictures
-start under its top bar, which names the run) and no seconds.
+start under its top bar, which names the run) and no seconds. `--note NAME=TEXT` describes a run (a stand-in, a
+small case): the text goes into the md under its heading, the JSON and every sheet's header. Every output (the md,
+the JSON, each picture's and sheet's PNG text) records the command line and the commit of the tool's checkout.
 
 `--sheets`: per run and device, for the map state that left out the most numbers today and for the fan state with
 the most numbers, a picture of the page as drawn, and one per rule: the page's map with its own numbers taken out
 (the canvas told that no line has a free piece, the legend's listeners paused so the legend keeps its rows) and the
-rule's numbers drawn over it in the page's own shapes and font; the four rules side by side at equal size in
-<out>/sheets/<run>-<device>-<state>.png. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap).
+rule's numbers drawn over it in the page's own shapes, font and order (with a fan open: the B numbers dimmed, then
+the fan's lines and the ring of "here" drawn again over them, then the fan's numbers; P numbers at full strength); the
+four rules side by side at equal size in <out>/sheets/<label>-<device>-<state>.png, under a header naming the run,
+its note and the commit. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap).
 
     uv sync --group ui; uv run playwright install chromium webkit; cd viewer; npm ci; node build.mjs   (once)
     uv run tools/view_numbers.py --out <folder> --runs <run> [<run> ...] [--data <data folder>]
                                  [--reference-dir <folder>] [--devices desktop,iphone,pixel] [--best 10,30,100]
                                  [--zooms 1,2] [--around centre|best] [--sheets] [--data-dir <scratch>]
+                                 [--label NAME=SHORT ...] [--note NAME=TEXT ...]
 
 Writes <out>/view_numbers.json and view_numbers.md (and pictures/, sheets/). Exit code 1 when a state was not
 measured. Run it under tools/test_lock.py (shared lane: it counts, it times nothing).
@@ -65,6 +75,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -75,6 +86,10 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 BOX = (32.0, 23.0)  # px: the box a number keeps from the others (SpotMap.ts badge)
+BOX_AREA = BOX[0] * BOX[1]
+FAN_HERE = 10  # m: the ring of "here" (viewgeom.ts FAN_HERE), drawn again over the dimmed numbers in a fan's sheets
+# The canvas's ink and paper and the lines' colours (SpotMap.ts INK, PAPER; style.ts COLORS.clean, .over): the overlay's
+COLOURS = {"ink": "#1b2530", "paper": "#ffffff", "clean": "#FF10F0", "over": "#FF8C00"}
 FRACTIONS = (0.5, 0.36, 0.64, 0.24, 0.76, 0.14, 0.86)  # of a free piece, tried in this order (badge)
 FAN_AT = 0.82  # of the first free piece toward the far end: a fan number's one place
 TODAY = "today"
@@ -141,8 +156,9 @@ def overlap_area(a: dict, b: dict) -> float:
 
 
 def overlaps(placed: list) -> dict:
-    """The pairs of drawn numbers whose boxes overlap: their count over each share of OVERLAPS (of the smaller box's
-    own area), any overlap at all, and each pair (labels, px², the share of the smaller box, of the 32 × 23 box)."""
+    """The pairs of drawn numbers whose boxes overlap: any overlap at all, and their count over each share of
+    OVERLAPS in the two readings ("smaller": of the smaller box's own area; "box": of the page's 32 × 23 box), each
+    share compared unrounded; each pair (labels, px², the two shares) rounded for the output."""
     drawn = [n for n in placed if n["status"] == "drawn"]
     pairs = []
     for i, a in enumerate(drawn):
@@ -150,29 +166,38 @@ def overlaps(placed: list) -> dict:
             area = overlap_area(a, b)
             if area > 0:
                 smaller = min(4 * a["w"] * a["h"], 4 * b["w"] * b["h"])
-                pairs.append({"a": a["label"], "b": b["label"], "px2": round(area, 1), "of_smaller": round(area / smaller, 4),
-                              "of_box": round(area / (BOX[0] * BOX[1]), 4)})
-    counts = {name: sum(1 for p in pairs if p["of_smaller"] > share) for name, share in OVERLAPS}
-    return {"any": len(pairs), **counts, "pairs": pairs}
+                pairs.append({"a": a["label"], "b": b["label"], "px2": area, "of_smaller": area / smaller,
+                              "of_box": area / BOX_AREA})
+    return {"any": len(pairs),
+            "smaller": {name: sum(1 for p in pairs if p["of_smaller"] > share) for name, share in OVERLAPS},
+            "box": {name: sum(1 for p in pairs if p["of_box"] > share) for name, share in OVERLAPS},
+            "pairs": [{**p, "px2": round(p["px2"], 1), "of_smaller": round(p["of_smaller"], 4), "of_box": round(p["of_box"], 4)}
+                      for p in pairs]}
 
 
 def summary_of(numbers: list, rule: str) -> dict:
-    """A rule's counts in a state: drawn, left out, no room, and the overlaps of the drawn ones."""
+    """A rule's counts in a state: drawn, left out (and of them the fan's numbers and the B or P numbers), no room,
+    and the overlaps of the drawn ones."""
     placed = place(numbers, rule)
     status = [n["status"] for n in placed]
-    return {"drawn": status.count("drawn"), "left_out": status.count("left out"), "no_room": status.count("no room"),
+    out = [n for n in placed if n["status"] == "left out"]
+    return {"drawn": status.count("drawn"), "left_out": len(out), "left_out_fan": sum(1 for n in out if n["fan"]),
+            "left_out_marks": sum(1 for n in out if not n["fan"]), "no_room": status.count("no room"),
             "overlaps": overlaps(placed), "placed": placed}
 
 
 def today_matches(numbers: list, marks: list, tolerance: float = 1e-6):
     """Does the greedy at today's rule give exactly the page's own numbers (labels in order, places within
-    `tolerance` px)? (True, "") or (False, the first difference)."""
+    `tolerance` px, the shapes' half sizes: COLLECT_JS's copy of SpotMap.markSize)? (True, "") or (False, the first
+    difference)."""
     drawn = [n for n in place(numbers, TODAY) if n["status"] == "drawn"]
     if [n["label"] for n in drawn] != [m["label"] for m in marks]:
         return False, f"labels {[n['label'] for n in drawn]} against the page's {[m['label'] for m in marks]}"
     for n, m in zip(drawn, marks):
         if abs(n["x"] - m["x"]) > tolerance or abs(n["y"] - m["y"]) > tolerance:
             return False, f"{n['label']} placed apart from the page's by {abs(n['x'] - m['x']):.3g}, {abs(n['y'] - m['y']):.3g} px"
+        if "w" in m and (n["w"] != m["w"] or n["h"] != m["h"]):
+            return False, f"{n['label']} measured {2 * n['w']} × {2 * n['h']} px against the page's {2 * m['w']} × {2 * m['h']}"
     return True, ""
 
 
@@ -180,10 +205,11 @@ def today_matches(numbers: list, marks: list, tolerance: float = 1e-6):
 
 # What the canvas would place now: per number the view wants to draw, in the page's order, the places it tries; the
 # page's own numbers (SpotMap.marks); the state. Layer pixels as the canvas keeps them (`pane` turns them into the
-# map box's pixels). The half sizes are SpotMap.markSize's, kept in step (today_matches fails when they differ).
+# map box's pixels). The half sizes are SpotMap.markSize's, kept in step (today_matches compares them with the
+# page's marks). With a fan open: its lines (their ends; over trees or not) and its ring of "here", for the sheets.
 COLLECT_JS = r"""() => {
   const {view, map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP;
-  const F = %s, AT = %s;
+  const F = %s, AT = %s, HERE = %s;
   const half = (kind, text) => [kind === "P" ? 19 : kind === "L" ? 17.5 : kind === "A" ? 10.5 : text.length > 2 ? 15 : 12.5,
                                 kind === "P" ? 13.5 : 10.5];
   const p = new Float64Array(4), level = view.level, v = view.inView, fan = view.fan, inFan = new Set();
@@ -209,12 +235,16 @@ COLLECT_JS = r"""() => {
       cand.push([p[near] + (p[far] - p[near]) * s, p[near + 1] + (p[far + 1] - p[near + 1]) * s]); }
     numbers.push({label: r.label, kind, w, h, cand, fan: true});
   }
+  const lines = [], c = view.model.data.columns;
+  if (fan) for (const r of fan.rows) { map.ends(r.row, p); lines.push([p[0], p[1], p[2], p[3], c.over[r.row] === 1]); }
+  const ring = fan ? [...map.place(fan.xy[0], fan.xy[1]), Math.max(9, HERE / view.mpp)] : null;
   const pane = leaflet._getMapPanePos(), f = map.freeBox();
   return {level, auto: view.auto, best: view.best, mpp: view.mpp, zoom: leaflet.getZoom(), m: v.m, numbered: v.numbered,
           refused: v.refused, fanRows: fan ? fan.rows.length : null, fanLines: fan ? fan.lines : null, numbers,
+          fanDraw: fan ? {lines, ring} : null,
           marks: map.marks.map((k) => ({label: k.text, kind: k.kind, x: k.x, y: k.y, w: k.w, h: k.h})),
           pane: [pane.x, pane.y], free: [f.left, f.top, f.right, f.bottom], dim: !!(view.selected || fan)};
-}""" % (json.dumps(FRACTIONS), FAN_AT)
+}""" % (json.dumps(FRACTIONS), FAN_AT, FAN_HERE)
 
 # Two frames and a turn of the event loop (the canvas places the numbers again after a frame when a control changed
 # its size), then what says the state rests: the numbers, the free part, the level and the zoom
@@ -264,9 +294,11 @@ BARE_JS = r"""(on) => { const {map} = window.FINDALINE_VIEW;
   if (on) { window.__vnListeners = Array.from(map.listeners); map.listeners.clear(); map.freeParts = () => []; }
   else { delete map.freeParts; for (const f of window.__vnListeners || []) map.listeners.add(f); }
   map.paint(true); }"""
-# Numbers drawn over the map in the page's shapes, colours and font (SpotMap.ts shapePath, mark: the map box's
-# pixels; `alpha` the canvas's dimming while a fan is open); an empty list takes the overlay away
-OVERLAY_JS = r"""(nums) => { const leaflet = window.FINDALINE_MAP, box = leaflet.getContainer().getBoundingClientRect();
+# Numbers drawn over the map in the page's shapes, colours, font and order (SpotMap.ts shapePath, mark, draw; the map
+# box's pixels): the B and P numbers (`alpha`: B dimmed while a fan is open, P never), then, with a fan, its lines and
+# its ring drawn again over them (only inside their boxes: elsewhere the bare map shows them as the page draws them),
+# then the fan's numbers; an empty list takes the overlay away
+OVERLAY_JS = r"""({nums, fan, colours}) => { const leaflet = window.FINDALINE_MAP, box = leaflet.getContainer().getBoundingClientRect();
   let c = document.getElementById('vn-overlay');
   if (!nums.length) { if (c) c.remove(); return; }
   if (!c) { c = document.createElement('canvas'); c.id = 'vn-overlay'; document.body.appendChild(c); }
@@ -275,8 +307,8 @@ OVERLAY_JS = r"""(nums) => { const leaflet = window.FINDALINE_MAP, box = leaflet
                           height: box.height + 'px', zIndex: '2147483647', pointerEvents: 'none'});
   c.width = Math.round(box.width * dpr); c.height = Math.round(box.height * dpr);
   const ctx = c.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, box.width, box.height);
-  for (const n of nums) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, box.width, box.height); ctx.lineCap = 'round';
+  const draw = (n) => {
     const x = n.x, y = n.y, w = n.w, h = n.h;
     ctx.globalAlpha = n.alpha; ctx.beginPath();
     if (n.kind === 'P') { ctx.moveTo(x, y - h); ctx.lineTo(x + w, y); ctx.lineTo(x, y + h); ctx.lineTo(x - w, y); ctx.closePath(); }
@@ -284,10 +316,29 @@ OVERLAY_JS = r"""(nums) => { const leaflet = window.FINDALINE_MAP, box = leaflet
       ctx.lineTo(x + w - 6, y + h); ctx.lineTo(x - w + 6, y + h); ctx.lineTo(x - w, y); ctx.closePath(); }
     else if (typeof ctx.roundRect === 'function') ctx.roundRect(x - w, y - h, 2 * w, 2 * h, 4);
     else ctx.rect(x - w, y - h, 2 * w, 2 * h);
-    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = '#1b2530'; ctx.stroke();
-    ctx.fillStyle = '#1b2530'; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = colours.paper; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = colours.ink; ctx.stroke();
+    ctx.fillStyle = colours.ink; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(n.label, x, y + 0.5);
+  };
+  const marks = nums.filter((n) => !n.fan);
+  marks.forEach(draw);
+  if (fan && marks.length) {
+    ctx.save(); ctx.globalAlpha = 1; ctx.beginPath();
+    for (const n of marks) ctx.rect(n.x - n.w - 2, n.y - n.h - 2, 2 * n.w + 4, 2 * n.h + 4);
+    ctx.clip();
+    const trace = (which) => { ctx.beginPath(); let k = 0;
+      for (const [x1, y1, x2, y2, over] of fan.lines) if (which === null || over === which) { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); k++; }
+      return k; };
+    ctx.lineWidth = 7; ctx.globalAlpha = 0.5; ctx.strokeStyle = colours.paper; trace(null); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.lineWidth = 3.2;
+    ctx.strokeStyle = colours.clean; if (trace(false)) ctx.stroke();
+    ctx.strokeStyle = colours.over; if (trace(true)) ctx.stroke();
+    const [rx, ry, rr] = fan.ring;
+    ctx.beginPath(); ctx.arc(rx, ry, rr, 0, 2 * Math.PI); ctx.lineWidth = 2; ctx.strokeStyle = colours.ink;
+    ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
   }
+  nums.filter((n) => n.fan).forEach(draw);
   ctx.globalAlpha = 1; }"""
 TILES_JS = "() => ![...document.querySelectorAll('.leaflet-tile:not(.leaflet-tile-loaded)')].some((t) => t.tagName !== 'IMG' || !t.complete)"
 
@@ -341,7 +392,8 @@ def state_record(raw: dict, recipe: dict) -> dict:
     record["rules"] = {}
     for rule in RULES:
         s = summary_of(raw["numbers"], rule)
-        record["rules"][rule] = {"drawn": s["drawn"], "left_out": s["left_out"], "no_room": s["no_room"],
+        record["rules"][rule] = {"drawn": s["drawn"], "left_out": s["left_out"], "left_out_fan": s["left_out_fan"],
+                                 "left_out_marks": s["left_out_marks"], "no_room": s["no_room"],
                                  "overlaps": s["overlaps"], "placed": boxed(s["placed"], raw["pane"])}
     return record
 
@@ -366,7 +418,7 @@ def measure_page(page, stops: list, bests: list, around: str = "centre") -> list
     """Every state of one opened run on one device (the module's docstring; `around`: where the stops zoom in,
     FIRST_JS): their records."""
     first = page.evaluate(FIRST_JS, around)
-    records = []
+    records, fans = [], {}
     for stop in [0] + list(stops):
         recipe = {"stop": stop, "held": None, "best": bests[0], "fan": False}
         reached = page.evaluate(STOP_JS, stop)
@@ -391,8 +443,18 @@ def measure_page(page, stops: list, bests: list, around: str = "centre") -> list
         found = drive(page, r)
         if found is None:
             records.append({**r, "case": "fan", "left_out": f"no spot of the first {FAN_TRIES} in view has a fan of two rows", **note})
-        else:
-            records.append({**state_record(collect(page), {**r, "case": "fan"}), "fan_tried": found["tried"], **note})
+            continue
+        raw = collect(page)
+        # opening the fan may fit the map to it: the same zoom and numbers as a fan of an earlier stop is that state
+        key = (raw["zoom"], raw["fanRows"], tuple((m["label"], round(m["x"] + raw["pane"][0], 1), round(m["y"] + raw["pane"][1], 1))
+                                                  for m in raw["marks"]))
+        if key in fans:
+            fans[key].setdefault("also_stops", []).append(stop)
+            records.append({**r, "case": "fan", "zoom": raw["zoom"], "same_as_stop": fans[key]["stop"]})
+            continue
+        record = {**state_record(raw, {**r, "case": "fan"}), "fan_tried": found["tried"], **note}
+        fans[key] = record
+        records.append(record)
     records.insert(0, {"first_view": first})
     return records
 
@@ -429,41 +491,85 @@ def pictures(page, recipe: dict, out: str, stem: str) -> dict:
         bare = os.path.join(out, f"{stem}-bare.png")
         page.screenshot(path=bare, clip=clip, scale="css")
         paths["bare"] = bare
+        px, py = raw["pane"]
+        fan = raw["fanDraw"] and {"lines": [[a + px, b + py, c + px, d + py, over] for a, b, c, d, over in raw["fanDraw"]["lines"]],
+                                  "ring": [raw["fanDraw"]["ring"][0] + px, raw["fanDraw"]["ring"][1] + py, raw["fanDraw"]["ring"][2]]}
         for rule in rules:
             placed = [n for n in place(raw["numbers"], rule) if n["status"] == "drawn"]
-            px, py = raw["pane"]
+            # the page dims a B number while a fan is open (SpotMap.ts draw: badges at 0.55), never a P number or the fan's
             nums = [{"label": n["label"], "kind": n["kind"], "x": n["x"] + px, "y": n["y"] + py, "w": n["w"], "h": n["h"],
-                     "alpha": 0.55 if raw["dim"] and not n["fan"] else 1} for n in placed]
-            page.evaluate(OVERLAY_JS, nums)
+                     "fan": n["fan"], "alpha": 0.55 if raw["dim"] and n["kind"] == "B" and not n["fan"] else 1} for n in placed]
+            page.evaluate(OVERLAY_JS, {"nums": nums, "fan": fan, "colours": COLOURS})
             page.evaluate(FRAMES_JS)
             paths[rule] = os.path.join(out, f"{stem}-{rule}.png")
             page.screenshot(path=paths[rule], clip=clip, scale="css")
-        page.evaluate(OVERLAY_JS, [])
+        page.evaluate(OVERLAY_JS, {"nums": [], "fan": None, "colours": COLOURS})
     finally:
         page.evaluate(BARE_JS, False)
     settle(page)
     return {"paths": paths, "numbers": [m["label"] for m in collect(page)["marks"]]}
 
 
-def sheet(paths: dict, captions: dict, rules: list, target: str):
-    """The rules' pictures side by side at equal size, each with its caption above."""
+def wrapped(draw, font, lines: list, width: float) -> list:
+    """Lines broken at spaces to fit `width` px."""
+    out = []
+    for line in lines:
+        words, now = line.split(" "), ""
+        for word in words:
+            if now and draw.textlength(now + " " + word, font=font) > width:
+                out.append(now)
+                now = word
+            else:
+                now = f"{now} {word}" if now else word
+        out.append(now)
+    return out
+
+
+def png_text(provenance: dict) -> "object":
+    """The PNG text chunks of an output picture: the command line and the commit that made it."""
+    from PIL.PngImagePlugin import PngInfo
+    info = PngInfo()
+    info.add_text("command", provenance.get("command") or "")
+    info.add_text("commit", provenance_line(provenance))
+    return info
+
+
+def stamp(path: str, provenance: dict):
+    """A picture saved again with png_text."""
+    from PIL import Image
+    with Image.open(path) as image:
+        image.load()
+        image.save(path, pnginfo=png_text(provenance))
+
+
+def sheet(paths: dict, captions: dict, rules: list, target: str, header: list | None = None, provenance: dict | None = None):
+    """The rules' pictures side by side at equal size, under a header (the run, its note, the state, the commit) and
+    each with its caption (lines) above it, wrapped to its width."""
     from PIL import Image, ImageDraw, ImageFont
     images = [Image.open(paths[r]).convert("RGB") for r in rules]
     w = max(i.width for i in images)
     h = max(i.height for i in images)
     try:
-        font = ImageFont.load_default(size=14)
+        font = ImageFont.load_default(size=13)
     except TypeError:  # an older Pillow
         font = ImageFont.load_default()
-    head, gap = 44, 12
-    out = Image.new("RGB", (len(images) * w + (len(images) - 1) * gap, h + head), "white")
+    gap, step = 12, 16
+    width = len(images) * w + (len(images) - 1) * gap
+    measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    top = wrapped(measure, font, header or [], width - 8)
+    texts = {rule: wrapped(measure, font, captions[rule], w - 8) for rule in rules}
+    head = 6 + step * len(top) + (6 if top else 0)
+    cap = 4 + step * max(len(t) for t in texts.values()) + 4
+    out = Image.new("RGB", (width, head + cap + h), "white")
     draw = ImageDraw.Draw(out)
+    for k, line in enumerate(top):
+        draw.text((4, 6 + step * k), line, fill="black", font=font)
     for k, (rule, image) in enumerate(zip(rules, images)):
         x = k * (w + gap)
-        out.paste(image, (x, head))
-        for line, text in enumerate(captions[rule].split("\n")[:2]):
-            draw.text((x + 4, 4 + 18 * line), text, fill="black", font=font)
-    out.save(target)
+        for n, line in enumerate(texts[rule]):
+            draw.text((x + 4, head + 4 + step * n), line, fill="black", font=font)
+        out.paste(image, (x, head + cap))
+    out.save(target, pnginfo=png_text(provenance or {}))
 
 
 def picture_diff(a: str, b: str) -> dict:
@@ -475,6 +581,24 @@ def picture_diff(a: str, b: str) -> dict:
         return {"size": [x.size, y.size]}
     d = ImageChops.difference(x, y).convert("L").point(lambda v: 255 if v > 48 else 0)
     return {"pixels_apart": round(d.histogram()[255] / (x.width * x.height), 5)}
+
+
+def provenance_of(command: str | None) -> dict:
+    """What made an output: the command line, the commit of the tool's checkout and whether the tool's file differs
+    from it (None where git cannot tell)."""
+    def git(*args):
+        try:
+            done = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True, timeout=60)
+            return done.stdout.strip() if done.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
+            return None
+    changed = git("status", "--porcelain", "--", "tools/view_numbers.py")
+    return {"command": command, "commit": git("rev-parse", "HEAD"), "tool_changed": None if changed is None else bool(changed)}
+
+
+def provenance_line(provenance: dict) -> str:
+    commit = provenance.get("commit") or "unknown"
+    return f"commit {commit}" + (" with local changes to tools/view_numbers.py" if provenance.get("tool_changed") else "")
 
 
 # ------------------------------------------------------------------------------------------------- the site
@@ -574,18 +698,24 @@ def default_launch(pw, engine: str):
 
 
 def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, bests: list, sheets: bool = False,
-                 launch=default_launch, labels: dict | None = None, around: str = "centre") -> dict:
+                 launch=default_launch, labels: dict | None = None, around: str = "centre", notes: dict | None = None,
+                 command: str | None = None) -> dict:
     """Every run of `runs` (folders) on every device: the result (also written to <out>/view_numbers.json and
-    .md). `launch(pw, engine)`: the browser of an engine (ui_shots.DEVICES' "chromium" or "webkit")."""
+    .md). `launch(pw, engine)`: the browser of an engine (ui_shots.DEVICES' "chromium" or "webkit"); `labels`,
+    `notes`: by the run folder's name, its short name and its description; `command`: the command line recorded."""
     os.makedirs(out, exist_ok=True)
-    result = {"rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS], "stops": stops, "around": around,
-              "best": bests, "devices": devices, "runs": []}
+    made_by = provenance_of(command or "tools/view_numbers.py measure_runs (called from Python)")
+    result = {"made_by": made_by, "rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS],
+              "overlap_readings": {"smaller": "of the smaller shape's own box", "box": "of the page's 32 × 23 box"},
+              "stops": stops, "around": around, "best": bests, "devices": devices, "runs": []}
     shown = []
     for k, folder in enumerate(runs):
         name = os.path.basename(os.path.normpath(folder))
         label = (labels or {}).get(name) or (name if not COORDINATES.search(name) else f"run {k + 1}")
         # a run named after its place's coordinates (a search without a name) is named by its label alone
         entry = {"run": name if not COORDINATES.search(name) else label, "label": label}
+        if (notes or {}).get(name):
+            entry["note"] = notes[name]
         why = view_columns(folder)
         if why:
             entry["left_out"] = why
@@ -617,7 +747,7 @@ def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, be
                         states = measure_page(page, stops, bests, around)
                         entry.setdefault("devices", {})[device] = {"first_view": states[0]["first_view"], "states": states[1:]}
                         if sheets:
-                            entry["devices"][device]["pictures"] = pictures_of(page, states[1:], out, entry["label"], device)
+                            entry["devices"][device]["pictures"] = pictures_of(page, states[1:], out, entry, device, made_by)
                         entry["devices"][device]["page_errors"] = [e.replace(run_id, entry["label"]) for e in page.errors]
                     except Exception as error:
                         line = (str(error).splitlines() or [""])[0][:300].replace(run_id, entry["label"])
@@ -638,22 +768,43 @@ def of_interest(states: list):
     measured = [s for s in states if s.get("rules")]
     maps = [s for s in measured if s["case"] == "map"]
     fans = [s for s in measured if s["case"] == "fan"]
-    best_map = max(maps, key=lambda s: (s["rules"][TODAY]["left_out"], s["rules"]["never"]["overlaps"][">1/4"], s["wanted"]),
-                   default=None)
+    best_map = max(maps, key=lambda s: (s["rules"][TODAY]["left_out"], s["rules"]["never"]["overlaps"]["smaller"][">1/4"],
+                                        s["wanted"]), default=None)
     best_fan = max(fans, key=lambda s: (s["wanted"], s["rules"]["never"]["overlaps"]["any"]), default=None)
     return best_map, best_fan
 
 
-def caption(state: dict, rule: str) -> str:
+RULE_NAMES = {"today": "today: left out under 1/4 box", "quarter": "left out under 1/4 box, the fan's numbers too",
+              "third": "left out under 1/3 box", "half": "left out under 1/2 box", "never": "never left out"}
+FAN_RULE = ("Under \"1/4 fan too\", 1/3 and 1/2 the fan's numbers lose today's exemption: each, at its one place, is "
+            "placed after the B numbers and left out when nearer than the rule's distance to a number placed before it.")
+
+
+def caption(state: dict, rule: str) -> list:
+    """A sheet's caption of a rule: its name, the numbers drawn (and left out, by kind, with a fan), the overlapping
+    pairs in the two readings."""
     r = state["rules"][rule]
     o = r["overlaps"]
-    name = {"today": "today: left out under 1/4 box", "quarter": "1/4 box, the fan's too", "third": "left out under 1/3 box",
-            "half": "left out under 1/2 box", "never": "never left out"}[rule]
-    return f"{name}\n{r['drawn']} of {state['wanted']} drawn; overlap pairs >1/4 {o['>1/4']}, >1/3 {o['>1/3']}, >1/2 {o['>1/2']}"
+    fan = state["case"] == "fan"
+    lost = fan and rule in ("quarter", "third", "half")
+    out = f"; left out: {r['left_out_fan']} of the fan's, {r['left_out_marks']} B or P" if fan else ""
+    return [RULE_NAMES[rule] + (" (the fan's numbers lose their exemption)" if lost else ""),
+            f"{r['drawn']} of {state['wanted']} drawn{out}",
+            "overlap pairs over 1/4, 1/3, 1/2 of the smaller shape's box: " + ", ".join(str(o["smaller"][k]) for k, _ in OVERLAPS),
+            "of the page's 32 x 23 box: " + ", ".join(str(o["box"][k]) for k, _ in OVERLAPS)]
 
 
-def pictures_of(page, states: list, out: str, label: str, device: str) -> list:
-    """The sheets of a run on a device (of_interest's states): their paths and checks."""
+def state_words(state: dict) -> str:
+    """A state in words: where, the zoom measured at, the level, Best."""
+    where = "fan opened from " + stop_name(state) if state["case"] == "fan" else stop_name(state)
+    level = state["level"] + (" held" if state.get("held") else "")
+    return f"{where}, zoom {state['zoom']}, {level}" + ("" if state["level"] == "area" else f", Best {state['best']}")
+
+
+def pictures_of(page, states: list, out: str, entry: dict, device: str, made_by: dict | None = None) -> list:
+    """The sheets of a run on a device (of_interest's states): their paths and checks. `entry`: the run's (its
+    label and note); `made_by`: the provenance written into every picture."""
+    label, made_by = entry["label"], made_by or {}
     folder, sheets = os.path.join(out, "pictures"), os.path.join(out, "sheets")
     os.makedirs(folder, exist_ok=True)
     os.makedirs(sheets, exist_ok=True)
@@ -665,9 +816,13 @@ def pictures_of(page, states: list, out: str, label: str, device: str) -> list:
         stem = (re.sub(r"[^A-Za-z0-9._-]+", "-", label) + f"-{device}-{state['case']}-z{state['stop']}-b{state['best']}"
                 + (f"-{state['held']}" if state["held"] else ""))
         shot = pictures(page, recipe, folder, stem)
+        for path in shot["paths"].values():
+            stamp(path, made_by)
         rules = list(SHEET_RULES)
         target = os.path.join(sheets, f"{stem}.png")
-        sheet(shot["paths"], {r: caption(state, r) for r in RULES}, rules, target)
+        header = [f"{label} on {device}: {state_words(state)}"] + ([entry["note"]] if entry.get("note") else [])
+        header += ([FAN_RULE] if state["case"] == "fan" else []) + [f"tools/view_numbers.py, {provenance_line(made_by)}"]
+        sheet(shot["paths"], {r: caption(state, r) for r in RULES}, rules, target, header, made_by)
         same = shot["numbers"] == [n["label"] for n in state["rules"][TODAY]["placed"] if n["status"] == "drawn"]
         made.append({"state": recipe, "case": state["case"], "sheet": os.path.relpath(target, out),
                      "page": os.path.relpath(shot["paths"]["page"], out), "same_numbers_as_counted": same,
@@ -677,29 +832,46 @@ def pictures_of(page, states: list, out: str, label: str, device: str) -> list:
 
 # ------------------------------------------------------------------------------------------------- the report
 
-def cell(state: dict, rule: str) -> str:
+def cell(state: dict, rule: str, fan: bool = False) -> str:
+    """A rule's cell: drawn (overlapping pairs over 1/4 / 1/3 / 1/2 of the smaller shape's box · of the 32 × 23 box),
+    with a fan also the numbers left out: the fan's and the B or P numbers."""
     r = state["rules"][rule]
     o = r["overlaps"]
-    return f"{r['drawn']} ({o['>1/4']}/{o['>1/3']}/{o['>1/2']})"
+    text = (f"{r['drawn']} ({'/'.join(str(o['smaller'][k]) for k, _ in OVERLAPS)} · "
+            f"{'/'.join(str(o['box'][k]) for k, _ in OVERLAPS)})")
+    return text + (f"; out {r['left_out_fan']} fan, {r['left_out_marks']} B" if fan else "")
 
 
 def stop_name(state: dict) -> str:
     return "first view" if state["stop"] == 0 else f"+{state['stop']} zoom"
 
 
+LEGEND = (
+    "Counts only, no seconds. A cell: numbers drawn (pairs of drawn numbers overlapping by more than 1/4 / 1/3 / 1/2 of "
+    "**the smaller shape's own box** (B 25 × 21 px, B10 and over 30 × 21, P 38 × 27, L 35 × 21) · the same of **the "
+    "page's box of 32 × 23 px**, the box of B.2 item 8). \"Wanted\": the numbers the view tries to draw (B of the best "
+    "spots in view, P of the picks at Area, the fan's rows); \"no room\": without a free piece of their line (the row "
+    "keeps the number); \"left out today\": by today's rule (nearer than 1/4 box). Rules: today (1/4 box; the fan's own "
+    "numbers never), 1/3, 1/2, never (only for want of a free piece). " + "{fan} Zoom: the map's zoom the state was "
+    "measured at.")
+
+
 def markdown(result: dict) -> str:
+    made = result.get("made_by") or {}
+    stops = ", ".join("+" + str(s) for s in result["stops"])
+    where = ("with the run's best spot's shown line in the middle of the map a person sees" if result.get("around") == "best"
+             else "around the middle of the map a person sees")
     lines = ["# The view's numbers: how many are drawn, left out, overlapping (tools/view_numbers.py)", "",
-             "Counts only, no seconds. A cell: numbers drawn (pairs of drawn numbers overlapping by more than 1/4 / "
-             "1/3 / 1/2 of the smaller box's area). \"wanted\": the numbers the view tries to draw (B of the best "
-             "spots in view, P of the picks at Area, the fan's rows); \"no room\": without a free piece of their "
-             "line (the row keeps the number); \"left out\": by today's rule (nearer than 1/4 box). Rules: today "
-             "(1/4 box; the fan's own numbers never), 1/3, 1/2, never (only for want of a free piece). Stops: the "
-             f"first view and {', '.join('+' + str(s) for s in result['stops'])} whole zoom levels in ("
-             + ("with the run's best spot's shown line in the middle of the map a person sees"
-                if result.get("around") == "best" else "around the middle of the map a person sees")
-             + "). \"held\": the Spots level held where Auto showed Area.", ""]
+             f"Made by `{made.get('command')}`, {provenance_line(made)}.", "",
+             LEGEND.format(fan=FAN_RULE + " A fan row: \"out\" counts the numbers the rule leaves out, the fan's and "
+                           "the B or P numbers."),
+             "", f"Stops: the first view and {stops} whole zoom levels in ({where}). \"held\": the Spots level held where "
+             "Auto showed Area. A fan opened from a stop may fit the map to itself: its zoom is the one measured, and a fan "
+             "state that came again from a later stop is counted once (\"also from\").", ""]
     for entry in result["runs"]:
         lines.append(f"## {entry['label']}" + (f" ({entry['run']})" if entry["label"] != entry["run"] else ""))
+        if entry.get("note"):
+            lines += ["", entry["note"]]
         if entry.get("left_out"):
             lines += ["", f"Left out: {entry['left_out']}.", ""]
             continue
@@ -709,24 +881,40 @@ def markdown(result: dict) -> str:
             if d.get("error"):
                 lines += [f"**{device}**: not measured: {d['error']}", ""]
                 continue
-            lines += [f"**{device}**", "",
-                      "| Stop | Case | Level | Best | Spots in view | Wanted | No room | Left out today | Today | 1/3 | 1/2 | Never |",
-                      "|---|---|---|---|---:|---:|---:|---:|---|---|---|---|"]
-            for s in d["states"]:
+            lines += [f"**{device}**, the map", "",
+                      "| Stop | Zoom | Level | Best | Spots in view | Wanted | No room | Left out today | Today | 1/3 | 1/2 | Never |",
+                      "|---|---:|---|---|---:|---:|---:|---:|---|---|---|---|"]
+            for s in [s for s in d["states"] if s["case"] == "map"]:
                 level = s.get("level", "–") + (" (held)" if s.get("held") else "")
                 best = s.get("best") if s.get("level") != "area" else "–"
-                case = s["case"] + (f" ({s['fan_rows']} rows)" if s["case"] == "fan" and s.get("fan_rows") else "")
-                if s.get("left_out"):
-                    lines.append(f"| {stop_name(s)} | {case} | – | {best} | – | – | – | – | {s['left_out']} | | | |")
-                    continue
                 if not s.get("rules"):
-                    lines.append(f"| {stop_name(s)} | {case} | {level} | {best} | {s['in_view']} | {s['wanted']} | – | – | not measured: {s.get('error')} | | | |")
+                    lines.append(f"| {stop_name(s)} | {s.get('zoom')} | {level} | {best} | {s.get('in_view')} | {s.get('wanted')} | – | – | "
+                                 f"not measured: {s.get('error')} | | | |")
                     continue
                 today = s["rules"][TODAY]
-                fan_q = f"; 1/4 fan too: {cell(s, 'quarter')}" if s["case"] == "fan" else ""
-                lines.append(f"| {stop_name(s)} | {case} | {level} | {best} | {s['in_view']} | {s['wanted']} | "
-                             f"{today['no_room']} | {today['left_out']} | {cell(s, 'today')}{fan_q} | {cell(s, 'third')} | "
+                lines.append(f"| {stop_name(s)} | {s['zoom']} | {level} | {best} | {s['in_view']} | {s['wanted']} | "
+                             f"{today['no_room']} | {today['left_out']} | {cell(s, 'today')} | {cell(s, 'third')} | "
                              f"{cell(s, 'half')} | {cell(s, 'never')} |")
+            lines += ["", f"**{device}**, \"Lines from here\"", "",
+                      "| Opened from | Zoom | Level | Best | Rows | Wanted (fan) | No room | Today | 1/4 fan too | 1/3 | 1/2 | Never |",
+                      "|---|---:|---|---|---:|---:|---:|---|---|---|---|---|"]
+            # the zoom of each stop's map (Auto), to say where the fan fitted the map to itself
+            stop_zoom = {s["stop"]: s.get("zoom") for s in d["states"] if s["case"] == "map" and not s.get("held")}
+            for s in [s for s in d["states"] if s["case"] == "fan" and "same_as_stop" not in s]:
+                opened = stop_name(s) + "".join(f", also from {stop_name({'stop': k})}" for k in s.get("also_stops", []))
+                if s.get("zoom") is not None and stop_zoom.get(s["stop"]) not in (None, s["zoom"]):
+                    opened += f" (the map fitted the fan: zoom {stop_zoom[s['stop']]} → {s['zoom']})"
+                best = s.get("best") if s.get("level") != "area" else "–"
+                if s.get("left_out"):
+                    lines.append(f"| {opened} | – | – | {best} | – | – | – | {s['left_out']} | | | | |")
+                    continue
+                if not s.get("rules"):
+                    lines.append(f"| {opened} | {s.get('zoom')} | {s.get('level')} | {best} | {s.get('fan_rows')} | {s.get('wanted')} | – | "
+                                 f"not measured: {s.get('error')} | | | | |")
+                    continue
+                lines.append(f"| {opened} | {s['zoom']} | {s['level']} | {best} | {s['fan_rows']} | {s['wanted']} ({s['wanted_fan']}) | "
+                             f"{s['rules'][TODAY]['no_room']} | {cell(s, 'today', True)} | {cell(s, 'quarter', True)} | "
+                             f"{cell(s, 'third', True)} | {cell(s, 'half', True)} | {cell(s, 'never', True)} |")
             for p in d.get("pictures") or []:
                 lines.append(f"- sheet {p['sheet']} (the page's own picture {p['page']}; numbers as counted: "
                              f"{p['same_numbers_as_counted']}; today's drawn over the bare map against the page: "
@@ -747,8 +935,21 @@ def not_measured(result: dict) -> int:
     n = 0
     for entry in result["runs"]:
         for d in (entry.get("devices") or {}).values():
-            n += 1 if d.get("error") else sum(1 for s in d.get("states", []) if not s.get("rules") and not s.get("left_out"))
+            n += 1 if d.get("error") else sum(1 for s in d.get("states", [])
+                                              if not s.get("rules") and not s.get("left_out") and "same_as_stop" not in s)
     return n
+
+
+def named(parser, flag: str, items: list) -> dict:
+    """NAME=TEXT items by the run folder's name (a path's last part); an item without "=" or either part: the
+    parser's error."""
+    out = {}
+    for item in items:
+        name, eq, text = item.partition("=")
+        if not eq or not name.strip() or not text.strip():
+            parser.error(f"{flag} takes NAME=TEXT (NAME: the run's folder's name), not {item!r}")
+        out[os.path.basename(os.path.normpath(name))] = text
+    return out
 
 
 def main(argv=None) -> int:
@@ -757,7 +958,10 @@ def main(argv=None) -> int:
     p.add_argument("--runs", nargs="+", required=True, help="run folders, or runs by name (in --data's runs/, then --reference-dir)")
     p.add_argument("--data", help="the real data folder whose runs/ (and local/reference-runs) are read, never written")
     p.add_argument("--reference-dir", help="where a run is looked for after <data>/runs/ (default <data>/local/reference-runs)")
-    p.add_argument("--label", action="append", default=[], help="NAME=LABEL: a run's short name in the report and the files")
+    p.add_argument("--label", action="append", default=[], help="NAME=SHORT: a run's short name in the report, the sheets "
+                   "and the files' names (NAME: the run's folder's name)")
+    p.add_argument("--note", action="append", default=[], help="NAME=TEXT: a run's description, written into the md, the "
+                   "JSON and every sheet's header")
     p.add_argument("--devices", default=",".join(DEVICE_NAMES), help="of: " + ", ".join(DEVICE_NAMES))
     p.add_argument("--best", default="10,30,100", help="the Best values measured (the first one is the fan's)")
     p.add_argument("--zooms", default="1,2", help="whole zoom levels in from the first view (besides the first view)")
@@ -772,11 +976,13 @@ def main(argv=None) -> int:
             p.error(f"unknown device {device!r}")
     bests = [int(b) for b in args.best.split(",") if b]
     stops = [float(z) if "." in z else int(z) for z in args.zooms.split(",") if z]
-    labels = dict(item.split("=", 1) for item in args.label)
+    labels, notes = named(p, "--label", args.label), named(p, "--note", args.note)
     folders = [find_run(r, args.data, args.reference_dir) for r in args.runs]
+    command = subprocess.list2cmdline(["tools/view_numbers.py"] + list(sys.argv[1:] if argv is None else argv))
     data = args.data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
     try:
-        result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels, around=args.around)
+        result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels, around=args.around,
+                              notes=notes, command=command)
     finally:
         if not args.data_dir:
             gc.collect()
