@@ -188,7 +188,9 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov .cov-row-on .cov-muted { color: var(--ink-2); }
 .cov-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 .cov-rows li { border-bottom: 1px solid var(--rule); }
-.cov .cov-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 4px 8px; border: 0; background: none;
+/* a row is not positioned: a positioned row would be painted over the card's sheet, which lives in the map's own
+   stacking box (.cov-mapbox); its hidden words (.u-sr) keep their place in the row without it */
+.cov .cov-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 4px 8px; border: 0; background: none;
   color: var(--ink); text-align: left; font-size: var(--fs-3); cursor: pointer; }
 .cov .cov-row:focus-visible { box-shadow: var(--focus-in); }
 .cov-rname { flex: 1; min-width: 0; font-weight: 600; }
