@@ -2594,7 +2594,8 @@ def demo_list(demos: List[Dict]) -> str:
     items = []
     for run in demos:
         summary = run.get("summary") or {}
-        counts = page_text("page.examples.counts", spots=f"{summary.get('spots', 0)}", lines=f"{summary.get('lines', 0)}")
+        spots, lines = summary.get("spots", 0), summary.get("lines", 0)
+        counts = f"{page_text('page.examples.spots', n=f'{spots}')} · {page_text('page.examples.lines', n=f'{lines}')}"
         inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{counts}</span>"
                  f"<span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
