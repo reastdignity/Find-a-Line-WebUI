@@ -82,6 +82,20 @@ window.B = {
     const walk = (o) => { if (!o) return; if (o.coordinates) move(o.coordinates); else if (o.geometry) walk(o.geometry); else if (o.features) o.features.forEach((f) => walk(f.geometry)); else if (o.geometries) o.geometries.forEach(walk); };
     walk(area);
     return {...m.data, area, columns: {...c, lon1: shift(c.lon1), lon2: shift(c.lon2)}}; },
+  // how many pixels of the canvas are painted (alpha > 0) in the part of the map a person sees
+  painted() { const cv = document.querySelector('.v-canvas'), r = cv.getBoundingClientRect(), box = T.box(), f = T.free(), s = cv.width / r.width;
+    const x0 = Math.max(0, Math.round((box.left + f[0] - r.left) * s)), y0 = Math.max(0, Math.round((box.top + f[1] - r.top) * s));
+    const x1 = Math.min(cv.width, Math.round((box.left + f[2] - r.left) * s)), y1 = Math.min(cv.height, Math.round((box.top + f[3] - r.top) * s));
+    const d = cv.getContext('2d').getImageData(x0, y0, x1 - x0, y1 - y0).data; let n = 0;
+    for (let k = 3; k < d.length; k += 4) if (d[k]) n++; return n; },
+  // the canvas at rest: full redraws a couple of frames apart until two in a row paint the same pixels (the frame's own
+  // updates after a change, its status line and foot, moved what the numbers keep clear of); false after 60 tries
+  async settle() { let last = null;
+    for (let k = 0; k < 60; k++) { await T.frames(); window.FINDALINE_VIEW.map.refresh(); const now = this.print(); if (now === last) return true; last = now; }
+    return false; },
+  // a cheap fingerprint of a canvas's pixels (FNV-1a; the map's canvas by default)
+  print(canvas) { const cv = canvas || document.querySelector('.v-canvas'), d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let h = 2166136261;
+    for (let k = 0; k < d.length; k++) { h ^= d[k]; h = Math.imul(h, 16777619) >>> 0; } return h; },
   // the other run's lines in the map box's pixels
   otherEnds(dlon) { const c = window.FINDALINE_VIEW.view.model.data.columns, m = window.FINDALINE_MAP, out = [];
     for (let i = 0; i < c.length; i++) { const a = m.latLngToContainerPoint([c.lat1.at(i), c.lon1.at(i) + dlon]), b = m.latLngToContainerPoint([c.lat2.at(i), c.lon2.at(i) + dlon]);
@@ -157,9 +171,12 @@ def test_outline_every_level(site, device):
                   map.refresh(); const with_ = read(); map.area = {rings: [], box: keep.box}; map.refresh(); const without = read(); map.area = keep; map.refresh();
                   return [with_ === without, map.drawn().outline]; }""")
                 assert same == [True, True], level
-            # zoomed in on the area's middle the outline is out of view: no `area` in the legend
-            out = _state(page, "const b = B.areaBox(); leaflet.setView([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], leaflet.getMaxZoom(), {animate: false});")
-            assert ("area" in out["shapes"]) == page.evaluate("() => B.outlineInView()"), out["shapes"]
+            # the map moved off the area (twice its width east): the outline is out of view, no `area` in the legend,
+            # and nothing of it is drawn in the part a person sees (no pixel of the canvas painted there: no line either)
+            out = _state(page, "const b = B.areaBox(); leaflet.setView([(b[0] + b[2]) / 2, b[3] + 2 * (b[3] - b[1])], leaflet.getZoom(), {animate: false});")
+            assert page.evaluate("() => B.outlineInView()") is False and "area" not in out["shapes"], out["shapes"]
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().outline") is True  # traced, the canvas clips it
+            assert page.evaluate("() => B.painted()") == 0
             # a press on the outline (no spot within reach there) ends the selection, as a press beside it does
             _state(page, "leaflet.fitBounds(map.areaBounds(), {animate: false}); view.setLevel('spots'); view.select(view.order[0]);")
             at = page.evaluate("([r, finger]) => B.outlinePoint(r, finger)", [24, device == "phone"])
@@ -178,9 +195,9 @@ def test_outline_every_level(site, device):
 
 
 def test_favourite_halo(site):
-    """A favourite that is its spot's shown line wears today's gold halo under its line (10 px at 60 %; a spot's
-    second line made a favourite becomes the shown line and wears it); dimmed with the lines while another line is
-    selected; the selected favourite gold in the dark halo's place (11 px at 80 %, no dark halo); a pick at Area too;
+    """A favourite that is its spot's shown line wears the gold halo under its line (the accepted mock-up's numbers:
+    10 px at 60 %; a spot's second line made a favourite becomes the shown line and wears it); at 30 % while another
+    line is selected; the selected favourite gold in the dark halo's place (12 px at 80 %, no dark halo); a pick at Area too;
     the legend's `fav` exactly while a halo is drawn; none once the favourites are removed."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -209,11 +226,11 @@ def test_favourite_halo(site):
             _state(page, "view.select(view.inView.best.find((s) => s !== %d && s !== %d));" % (rows["firstSpot"], rows["other"]))
             ops = page.evaluate(ORDER)
             gold = [o for o in ops if o["op"] == "stroke" and o["stroke"] == GOLD]
-            assert gold and all(o["width"] == 10 and o["alpha"] == 0.18 for o in gold), gold
+            assert gold and all(o["width"] == 10 and o["alpha"] == 0.3 for o in gold), gold
             # the favourite selected: gold in the dark halo's place
             _state(page, "view.select(%d);" % rows["firstSpot"])
             ops = page.evaluate(ORDER)
-            assert any(o["op"] == "stroke" and o["stroke"] == GOLD and o["width"] == 11 and o["alpha"] == 0.8 for o in ops)
+            assert any(o["op"] == "stroke" and o["stroke"] == GOLD and o["width"] == 12 and o["alpha"] == 0.8 for o in ops)
             assert not any(o["op"] == "stroke" and o["stroke"] == "#000000" and o["width"] == 11 for o in ops)
             assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().halos") == 2  # the other favourite's and the selected one's
             # a pick at Area made a favourite: its halo under its line
@@ -238,7 +255,7 @@ def test_favourite_halo(site):
 MEASURE = """() => { const {map} = window.FINDALINE_VIEW; if (window.MEAS) window.MEAS.stop(); window.MEAS = {on: [], done: null};
   window.MEAS.stop = map.onMeasuring((v) => window.MEAS.on.push(v));
   map.startMeasure((a, b) => { window.MEAS.done = [[a.lat, a.lng], [b.lat, b.lng]]; }); }"""
-MEASURED = "() => { const {map} = window.FINDALINE_VIEW; return {on: map.isMeasuring, events: window.MEAS.on, done: window.MEAS.done, points: map.drawn().measured, cursor: window.FINDALINE_MAP.getContainer().style.cursor, drag: window.FINDALINE_MAP.dragging.enabled(), dbl: window.FINDALINE_MAP.doubleClickZoom.enabled()}; }"
+MEASURED = "() => { const {map} = window.FINDALINE_VIEW, c = window.FINDALINE_MAP.getContainer(); return {on: map.isMeasuring, events: window.MEAS.on, done: window.MEAS.done, points: map.drawn().measured, cursor: c.style.cursor, drag: window.FINDALINE_MAP.dragging.enabled(), dbl: window.FINDALINE_MAP.doubleClickZoom.enabled(), touch: getComputedStyle(c).touchAction}; }"
 
 
 @pytest.mark.parametrize("device", ["desktop", "phone"])
@@ -260,40 +277,53 @@ def test_measure(site, device):
                 page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] && s.free[3] > s.size[1] * 0.6; }", timeout=WAIT)
             press = (lambda x, y: _tap(page, x, y)) if finger else (lambda x, y: page.mouse.click(x, y))
             sel = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")["selected"]
+            touch = page.evaluate("() => getComputedStyle(window.FINDALINE_MAP.getContainer()).touchAction")
             page.evaluate(MEASURE)
             m = page.evaluate(MEASURED)
             assert m["on"] is True and m["events"] == [True] and m["cursor"] == "crosshair" and m["points"] == []
             assert (m["drag"], m["dbl"]) == ((False, False) if finger else (True, True))
+            # a phone's map keeps touch-action none while it holds still (without, Leaflet's drag off gave "pan-x pan-y")
+            assert m["touch"] == ("none" if finger else touch), (m["touch"], touch)
             number = next(n for n in _state(page)["numbers"] if n["label"][0] == "B")
             box = page.evaluate("() => { const b = T.box(); return [b.left, b.top]; }")
-            press(box[0] + number["x"], box[1] + number["y"])
-            page.wait_for_function("() => window.FINDALINE_VIEW.map.drawn().measured.length === 1", timeout=WAIT)
-            s = _state(page)
-            assert s["selected"] == sel and s["fan"] is None, s["selected"]
-            first = page.evaluate(MEASURED)["points"][0]
-            assert abs(first["x"] - box[0] - number["x"]) < 1.5 and abs(first["y"] - box[1] - number["y"]) < 1.5
-            if not finger:  # a right click while measuring: no "Lines from here", no point
-                a = page.evaluate("([spots]) => T.anchor(spots, 24)", [s["spots"]])
-                page.mouse.click(a["x"], a["y"], button="right")
-                page.evaluate("() => T.frames()")
-                assert _state(page)["fan"] is None and page.evaluate(MEASURED)["points"].__len__() == 1
             view = page.evaluate("() => [window.FINDALINE_MAP.getZoom(), window.FINDALINE_MAP.getCenter().lat, window.FINDALINE_MAP.getCenter().lng]")
             empty = page.evaluate("([f]) => T.empty(f)", [finger])
-            if finger:  # at once after the first tap: a double tap where the map would zoom (but it holds still)
-                page.touchscreen.tap(empty["x"], empty["y"])
+            if finger:
+                # the first point on a number's shape, the second at once after it: a double tap (counted: the browser's
+                # dblclick or Leaflet's own), where the map would zoom but holds still
+                page.evaluate("() => { window.DBL = 0; window.FINDALINE_MAP.getContainer().addEventListener('dblclick', () => { window.DBL++; }, true); }")
+                _tap(page, box[0] + number["x"], box[1] + number["y"])
+                page.touchscreen.tap(box[0] + number["x"] + 8, box[1] + number["y"])  # close by: a double tap
+                empty = {"x": box[0] + number["x"] + 8, "y": box[1] + number["y"]}
             else:
+                press(box[0] + number["x"], box[1] + number["y"])
+                page.wait_for_function("() => window.FINDALINE_VIEW.map.drawn().measured.length === 1", timeout=WAIT)
+                # a right click while measuring: no "Lines from here", no point
+                a = page.evaluate("([spots]) => T.anchor(spots, 24)", [_state(page)["spots"]])
+                page.mouse.click(a["x"], a["y"], button="right")
+                page.evaluate("() => T.frames()")
+                assert _state(page)["fan"] is None and len(page.evaluate(MEASURED)["points"]) == 1
                 press(empty["x"], empty["y"])
             page.wait_for_function("() => window.MEAS.done !== null", timeout=WAIT)
+            s = _state(page)
+            assert s["selected"] == sel and s["fan"] is None, s["selected"]  # neither press selected or opened anything
             m = page.evaluate(MEASURED)
             assert m["on"] is False and m["events"] == [True, False] and len(m["points"]) == 2 and m["cursor"] == "", m
-            # the drag and the double tap's zoom back once the tap's own events are over (the dblclick zoomed nothing)
+            first = m["points"][0]
+            assert abs(first["x"] - box[0] - number["x"]) < 1.5 and abs(first["y"] - box[1] - number["y"]) < 1.5
+            if finger:
+                assert page.evaluate("() => window.DBL") >= 1, "the two taps made no double tap"
+            # the drag, the double tap's zoom and touch-action back once the tap's own events are over (the dblclick
+            # zoomed nothing)
             page.wait_for_function("() => window.FINDALINE_MAP.dragging.enabled() && window.FINDALINE_MAP.doubleClickZoom.enabled()", timeout=WAIT)
             page.evaluate("() => T.frames()")
             assert page.evaluate("() => [window.FINDALINE_MAP.getZoom(), window.FINDALINE_MAP.getCenter().lat, window.FINDALINE_MAP.getCenter().lng]") == view
+            assert page.evaluate(MEASURED)["touch"] == touch
             # the points given are where the presses were
             given = page.evaluate("() => window.MEAS.done.map(([lat, lng]) => { const p = window.FINDALINE_MAP.latLngToContainerPoint([lat, lng]), b = T.box(); return [p.x + b.left, p.y + b.top]; })")
             assert abs(given[1][0] - empty["x"]) < 1.5 and abs(given[1][1] - empty["y"]) < 1.5, (given, empty)
-            # drawn over every line and number: the dashes, then the white points
+            # drawn over every line (after the numbers in order, their shapes cut out: test_measured_line_under_numbers),
+            # then the white points
             ops = page.evaluate(ORDER)
             dashes = [j for j, o in enumerate(ops) if o["op"] == "stroke" and o["stroke"] == "#000000" and o["dash"] == "6,4" and o["width"] == 2]
             points = [j for j, o in enumerate(ops) if o["op"] == "fill" and o["fill"] == "#ffffff" and j > (dashes or [0])[0]]
@@ -455,7 +485,7 @@ def test_fan_row_kept_in_the_legend(site):
 
 
 def test_other_runs_apart(site):
-    """Compare's other runs (ResultModel.others): drawn in the run's colour with its dashed area, its lines 2.5 px (over
+    """Compare's other runs (ResultModel.others): drawn in the run's colour with its dashed area, its lines 3 px (over
     trees dashed "6 4") under this run's lines, dimmed while a line is selected; a run with the view's columns one line
     per spot (the planner's (c)), a run without them (an old run) every passing line; following the filters (Favourites
     only included, not "Top level only"); never counted: the spots in view, the best, the numbers, the strokes, the
@@ -490,19 +520,19 @@ def test_other_runs_apart(site):
                 assert d["others"] == [{"id": OTHER_ID, "lines": spots}], d["others"]
                 legend = page.evaluate("() => window.FINDALINE_VIEW.map.legend().runs")
                 assert legend == [{"id": OTHER_ID, "name": "Other run", "color": colour}]
-            # its strokes: the area dashed in its colour, its lines 2.5 px under this run's lines, those over trees dashed
+            # its strokes: the area dashed in its colour, its lines 3 px under this run's lines, those over trees dashed
             _state(page, "view.setLevel('spots');")
             ops = page.evaluate(ORDER)
             mine = [j for j, o in enumerate(ops) if o["op"] == "stroke" and o["stroke"] == B_colour(page, colour)]
             first = min(j for j, o in enumerate(ops) if _is_line(o))
             assert any(ops[j]["dash"] == "6,6" and ops[j]["width"] == 1 for j in mine)
-            lines = [ops[j] for j in mine if ops[j]["width"] == 2.5]
+            lines = [ops[j] for j in mine if ops[j]["width"] == 3]
             assert lines and max(j for j in mine) < first and {o["alpha"] for o in lines} == {0.9}
             assert {o["dash"] for o in lines} <= {"", "6,4"}
             image = min(j for j, o in enumerate(ops) if o["op"] == "drawImage" and o["on"] == "main")
             assert all(ops[j]["on"] == "layer" for j in mine) and max(mine) < image < first  # its layer copied in under this run
             ops = page.evaluate("() => { window.FINDALINE_VIEW.view.select(window.FINDALINE_VIEW.view.order[0]); return B.ops(); }")
-            assert {o["alpha"] for o in ops if o["op"] == "stroke" and o["stroke"] == B_colour(page, colour) and o["width"] == 2.5} == {0.27}
+            assert {o["alpha"] for o in ops if o["op"] == "stroke" and o["stroke"] == B_colour(page, colour) and o["width"] == 3} == {0.27}
             # a hover paint copies the kept layer in: none of the other run's lines is drawn again
             hover = page.evaluate("() => { const {view, map} = window.FINDALINE_VIEW; return B.ops(() => map.highlight(view.shownOf(view.order[1]))); }")
             assert not any(o["on"] == "layer" for o in hover) and any(o["op"] == "drawImage" and o["on"] == "main" for o in hover)
@@ -548,12 +578,223 @@ def test_other_runs_apart(site):
             assert page.evaluate("([id]) => window.FINDALINE_VIEW.view.model.others.get(id).view", [OLD_OTHER_ID]) is None
             assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [{"id": OLD_OTHER_ID, "lines": n}]
             old_colour = B_colour(page, page.evaluate("([id]) => window.FINDALINE_VIEW.view.model.others.get(id).color", [OLD_OTHER_ID]))
-            dashes = {o["dash"] for o in page.evaluate(ORDER) if o["op"] == "stroke" and o["stroke"] == old_colour and o["width"] == 2.5}
+            dashes = {o["dash"] for o in page.evaluate(ORDER) if o["op"] == "stroke" and o["stroke"] == old_colour and o["width"] == 3}
             any_over = page.evaluate("() => window.FINDALINE_VIEW.view.model.data.columns.over.some((v) => v)")
             assert dashes == ({"", "6,4"} if any_over else {""}), dashes
             s = _state(page, f"view.model.removeRun('{OLD_OTHER_ID}');")
             assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == []
             assert s["level"]
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
+# A number's box crossed by a measured line: the canvas's pixels of the whole box (its edge too) before and
+# after drawMeasured, and those of a strip of the line beside the box (no other number there): equal inside, not
+# beside. The number: a B number with 40 px free of every other number on its right.
+UNDER = r"""() => { const {map} = window.FINDALINE_VIEW, L = window.FINDALINE_MAP, cv = document.querySelector('.v-canvas'), ctx = cv.getContext('2d');
+  const all = map.drawn().numbers, r = cv.getBoundingClientRect(), s = cv.width / r.width, box = L.getContainer().getBoundingClientRect();
+  const hits = (a, q) => !(a[2] <= q.left || a[0] >= q.right || a[3] <= q.top || a[1] >= q.bottom);
+  const n = all.find((k) => k.label[0] === 'B' && all.every((o) => o === k || !hits([k.box.right, k.box.top - 6, k.box.right + 48, k.box.bottom + 6], o.box)));
+  if (!n) return null;
+  const b = n.box, cy = (b.top + b.bottom) / 2;
+  const grab = ([x0, y0, x1, y1]) => Array.from(ctx.getImageData(Math.round((x0 - r.left) * s), Math.round((y0 - r.top) * s),
+                                                                   Math.max(1, Math.round((x1 - x0) * s)), Math.max(1, Math.round((y1 - y0) * s))).data);
+  const inner = [b.left, b.top, b.right, b.bottom], strip = [b.right + 6, cy - 2, b.right + 40, cy + 2];
+  const before = [grab(inner), grab(strip)];
+  const a = L.containerPointToLatLng([b.left - 60 - box.left, cy - box.top]), c = L.containerPointToLatLng([b.right + 60 - box.left, cy - box.top]);
+  map.drawMeasured({lat1: a.lat, lon1: a.lng, lat2: c.lat, lon2: c.lng});
+  const after = [grab(inner), grab(strip)], same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+  return {label: n.label, inside: same(before[0], after[0]), beside: same(before[1], after[1])}; }"""
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_measured_line_under_numbers(site, device):
+    """A measured line crosses no number (PRODUCT.md principle 9; the design review's F1): drawn over the lines, its
+    dashes are cut out of every number's shape (a box crossed keeps every pixel it had), beside the box they are drawn;
+    its two white points come after the dashes (on top)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP if device == "desktop" else SMALL_PHONE)
+            _state(page, "view.setLevel('spots');")
+            assert page.evaluate("() => B.settle()")
+            got = page.evaluate(UNDER)
+            assert got and got["inside"] is True and got["beside"] is False, got
+            ops = page.evaluate(ORDER)
+            dashes = [j for j, o in enumerate(ops) if o["op"] == "stroke" and o["stroke"] == "#000000" and o["dash"] == "6,4"]
+            points = [j for j, o in enumerate(ops) if o["op"] == "fill" and o["fill"] == "#ffffff" and dashes and j > dashes[0]]
+            assert len(dashes) == 1 and len(points) == 2 and dashes[0] > max(j for j, o in enumerate(ops) if _is_mark(o))
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
+def test_measure_hover_and_presses(site):
+    """While measuring the mouse thickens no line (no hover, no pointer cursor) and a press on a line is a point (it
+    selects nothing); on a phone a press held on an anchor opens no "Lines from here" (no hold is timed: onPointerDown)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP)
+            s = _state(page, "view.setLevel('spots');")
+            spot = s["bestSpots"][0]
+            at = page.evaluate("([spot]) => T.pointOn(window.FINDALINE_VIEW.view.shownOf(spot), [spot], false)", [spot])
+            assert at, "no point on the best spot's line"
+            page.mouse.move(at["x"], at["y"])
+            page.wait_for_function("() => window.FINDALINE_MAP.getContainer().classList.contains('v-target')", timeout=WAIT)
+            page.mouse.move(at["x"] + 200, at["y"] + 200)
+            page.evaluate(MEASURE)
+            page.mouse.move(at["x"], at["y"])
+            page.evaluate("() => T.frames()")
+            hover = page.evaluate("() => [window.FINDALINE_MAP.getContainer().classList.contains('v-target'), window.FINDALINE_VIEW.map.mapHovered]")
+            assert hover == [False, None], hover
+            ops = page.evaluate(ORDER)
+            assert not any(o["op"] == "stroke" and o["width"] == 7 and o["alpha"] == 0.95 for o in ops)  # no line thickened
+            page.mouse.click(at["x"], at["y"])
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.drawn().measured.length === 1", timeout=WAIT)
+            assert _state(page)["selected"] is None
+            page.context.close()
+            # a phone: a press held on an anchor while measuring
+            page = _page(browser, site, SMALL_PHONE)
+            page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] && s.free[3] > s.size[1] * 0.6; }", timeout=WAIT)
+            low = _state(page, "view.setLevel('spots');")
+            a = page.evaluate("([spots]) => T.anchor(spots, 24)", [low["spots"]])
+            assert a, "no anchor of a line in view is free on the map"
+            page.evaluate(MEASURE)
+            cdp = page.context.new_cdp_session(page)
+            # held past the page's 600 ms and the browser's own long press (its contextmenu): the one wait for a time here,
+            # in the page's clock, as the file's _tap (no event of the page ends a press that must do nothing)
+            page.evaluate("() => { window.HELD = performance.now(); window.MENUS = 0; document.addEventListener('contextmenu', () => window.MENUS++, true); }")
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": a["x"], "y": a["y"], "id": 1}]})
+            page.wait_for_function("() => performance.now() - window.HELD > 1000", timeout=WAIT)
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+            page.evaluate("() => { window.TOUCHED = performance.now(); }")
+            held = _state(page)
+            assert held["fan"] is None and held["misses"] == low["misses"] and held["selected"] is None, held["fan"]
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.isMeasuring || window.FINDALINE_VIEW.map.drawn().measured.length === 1")
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
+def test_destroy_while_measuring(site):
+    """A canvas destroyed while measuring (the frame made again, a run left): the measuring ends at once (its
+    listeners told, then dropped), a phone's map gets its drag, double tap's zoom and touch-action back at once, and
+    the canvas's Esc listener on the document is gone."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, SMALL_PHONE)
+            page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] && s.free[3] > s.size[1] * 0.6; }", timeout=WAIT)
+            cdp = page.context.new_cdp_session(page)
+
+            def keydowns():
+                document = cdp.send("Runtime.evaluate", {"expression": "document"})["result"]["objectId"]
+                return sum(1 for e in cdp.send("DOMDebugger.getEventListeners", {"objectId": document})["listeners"] if e["type"] == "keydown")
+            touch = page.evaluate("() => getComputedStyle(window.FINDALINE_MAP.getContainer()).touchAction")
+            before = keydowns()
+            page.evaluate(MEASURE)
+            assert page.evaluate(MEASURED)["drag"] is False
+            got = page.evaluate("""() => { const {map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP; map.destroy();
+                return {on: map.isMeasuring, events: window.MEAS.on, listeners: map.measureListeners.size, drag: m.dragging.enabled(),
+                        dbl: m.doubleClickZoom.enabled(), touch: getComputedStyle(m.getContainer()).touchAction}; }""")
+            assert got == {"on": False, "events": [True, False], "listeners": 0, "drag": True, "dbl": True, "touch": touch}, got
+            assert keydowns() == before - 1
+        finally:
+            browser.close()
+
+
+def test_covered_with_the_sheet(site):
+    """A phone: the covered part and the sheet do not add, the larger counts (SpotMap freeBox): with a covered part
+    lower than the sheet the spots in view are those above the sheet; with a higher one those above it."""
+    from playwright.sync_api import sync_playwright
+    seen = """([cover]) => { const {view} = window.FINDALINE_VIEW, f = T.free(); f[3] = Math.min(f[3], T.box().height - cover);
+      return Array.from(view.order).filter((s) => T.crosses(T.ends(view.shownOf(s)), f)); }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, PHONE)
+            page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] && s.free[3] > s.size[1] * 0.6; }", timeout=WAIT)
+            low = _state(page, "view.setLevel('spots');")
+            sheet = low["size"][1] - low["free"][3]
+            for cover in (sheet // 2, sheet + 250):
+                s = _state(page, f"map.setCovered({cover});")
+                want = page.evaluate(seen, [cover])
+                assert s["spots"] == want, (cover, len(s["spots"]), len(want))
+                assert all(n["y"] + n["h"] / 2 <= s["size"][1] - max(cover, sheet) + 0.5 for n in s["numbers"]), cover
+            assert len(want) < len(low["spots"])  # the higher covered part took spots out of view
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
+def test_kept_layer_after_zoom_and_resize(site):
+    """The other runs' kept layer is drawn again by a zoom's and a move's own full redraw (at the new zoom and place),
+    and after a resize: a hover's paint then copies it in and draws none of the other run's lines itself, and the
+    layer it copies is the one a full redraw draws then (the same key, of the canvas's box, size and zoom now)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP)
+            dlon = page.evaluate("() => { const b = B.areaBox(); return (b[3] - b[1]) * 0.3; }")
+            info = {"id": OTHER_ID, "name": "Other run", "created": "2026-11-20T12:00:00", "has_lines": True}
+            page.evaluate("([info, dlon]) => { window.FINDALINE_VIEW.view.model.addRun(info, B.moved(dlon)); }", [info, dlon])
+            _state(page, "view.setLevel('spots');")
+            hover = "([k]) => { const {view, map} = window.FINDALINE_VIEW; return B.ops(() => map.highlight(view.shownOf(view.order[k]))); }"
+            for change in ("leaflet.setZoom(leaflet.getZoom() + 0.5, {animate: false});", "resize", "leaflet.panBy([90, 40], {animate: false});"):
+                if change == "resize":
+                    width = page.evaluate("() => window.FINDALINE_MAP.getSize().x")
+                    page.set_viewport_size({"width": 1200, "height": 800})
+                    page.wait_for_function("([w]) => window.FINDALINE_MAP.getSize().x !== w", arg=[width], timeout=WAIT)
+                else:  # the move's own full redraw draws the layer again (at its new zoom or place)
+                    ops = page.evaluate("() => B.ops(() => { const leaflet = window.FINDALINE_MAP; %s })" % change)
+                    assert any(o["on"] == "layer" for o in ops), change
+                    assert page.evaluate("() => window.FINDALINE_VIEW.map.otherLayer.key.endsWith(`,${window.FINDALINE_VIEW.map.scale},${window.FINDALINE_VIEW.map.ox},${window.FINDALINE_VIEW.map.oy}`)")
+                # the frame's own updates after the move (its status line, the foot) rest
+                assert page.evaluate("() => B.settle()"), change
+                kept = page.evaluate("() => window.FINDALINE_VIEW.map.otherLayer.key")
+                ops = page.evaluate(hover, [1])
+                assert not any(o["on"] == "layer" for o in ops), change  # the layer copied in, not drawn again
+                assert any(o["op"] == "drawImage" and o["on"] == "main" for o in ops), change
+                # the layer kept and copied in is the one a full redraw now draws (its key: the other runs' state, the
+                # canvas's box and size, the pixel ratio, the dimming, the zoom's scale and the pixel origin), not one of
+                # before the change (pixels are not compared: Chrome may move a canvas read back often to its software
+                # raster, whose antialiasing differs)
+                page.evaluate("() => window.FINDALINE_VIEW.map.refresh()")
+                assert page.evaluate("() => window.FINDALINE_VIEW.map.otherLayer.key") == kept, change
+                assert page.evaluate("() => { const {map} = window.FINDALINE_VIEW, b = map.renderer._bounds; return map.otherLayer.key.includes(`|${b.min.x},${b.min.y},${b.getSize().x},${b.getSize().y},`); }"), change
+                page.evaluate("() => window.FINDALINE_VIEW.map.highlight(null)")
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
+def test_esc_after_the_map_is_made_again(site):
+    """The window crosses the phone's width: the frame makes a new canvas (the old one destroyed, its measuring ended);
+    measuring on the new one, one Esc ends only the measuring (the selection stays: the new canvas's listener is
+    added before the new frame's Esc), a second Esc ends the selection."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP)
+            page.evaluate("() => { window.OLD = window.FINDALINE_VIEW.map; }")
+            page.evaluate(MEASURE)
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.wait_for_function("() => window.FINDALINE_VIEW && window.FINDALINE_VIEW.map !== window.OLD && !!document.querySelector('.u-sheet')", timeout=WAIT)
+            assert page.evaluate("() => [window.OLD.isMeasuring, window.MEAS.on]") == [False, [True, False]]
+            sel = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")["selected"]
+            page.evaluate(MEASURE)
+            page.keyboard.press("Escape")
+            s = _state(page)
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.isMeasuring") is False and s["selected"] == sel and s["fan"] is None
+            page.keyboard.press("Escape")
+            assert _state(page)["selected"] is None
             assert page.errors == [], page.errors
         finally:
             browser.close()

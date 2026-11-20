@@ -112,13 +112,17 @@ export const APART_MIN = 1 / 3;
 const BOX_W = 32, BOX_H = 23;
 /** Today's search area (ResultMap.ts): weight 1, dashes 6 (Leaflet's "6": 6 on, 6 off), here in the map's ink. */
 const OUTLINE_PX = 1, OUTLINE_DASH = [6, 6];
-/** A favourite's halo: today's line weight + 7 px at 60 % (dimmed with the lines); the selected one's gold in the
- *  dark halo's place at 80 % (ResultMap.ts). The gold is today's (style.ts COLORS.favourite: light in both themes). */
-const FAV_PX = 10, FAV_ALPHA = 0.6, FAV_SELECTED = 0.8;
-/** Another run's lines: today's weight 2.5 px, over trees or buildings dashed "6 4", 90 % (ResultMap.ts). */
-const OTHER_PX = 2.5, OTHER_ALPHA = 0.9, OTHER_DASH = [6, 4];
+/** A favourite's halo, the accepted mock-up's numbers (the planner's fix round 1, 2026-11-20): 10 px at 60 %, at 30 %
+ *  while a line is selected or "Lines from here" is open; the selected one's gold, 12 px at 80 %, in the dark halo's
+ *  place. The gold is today's (style.ts COLORS.favourite: light in both themes). */
+const FAV_PX = 10, FAV_ALPHA = 0.6, FAV_DIMMED = 0.3, FAV_SELECTED_PX = 12, FAV_SELECTED = 0.8;
+/** Another run's lines: 3 px (the accepted mock-up's), over trees or buildings dashed "6 4", 90 % (ResultMap.ts). */
+const OTHER_PX = 3, OTHER_ALPHA = 0.9, OTHER_DASH = [6, 4];
 /** A measurement: black dashes "6 4" of 2 px between white points of radius 5 with a black 2 px ring (ResultMap.ts). */
 const MEASURE_PX = 2, MEASURE_DASH = [6, 4], MEASURE_R = 5;
+/** px a number's shape is cut out of the measurement's dashes beyond its edge (its ring's outer half, 1.2 px for A's
+ *  2.4 px ring, and the edge's antialiasing): no pixel of a number's box changes under a measured line. */
+const CUT_GROW = 1.5;
 
 /** Unit Web Mercator (0 … 1 each way) of a latitude and a longitude: the canvas's own projection. */
 function mercX(lon: number): number { return lon / 360 + 0.5; }
@@ -161,16 +165,18 @@ export function markSize(kind: MarkKind, text: string): [number, number] {
   return [kind === "P" ? 19 : kind === "L" ? 17.5 : kind === "A" ? 10.5 : text.length > 2 ? 15 : 12.5, kind === "P" ? 13.5 : 10.5];
 }
 
-function shapePath(ctx: CanvasRenderingContext2D, kind: MarkKind, x: number, y: number, text: string) {
-  const [w, h] = markSize(kind, text);
-  ctx.beginPath();
+/** A number's shape as a path; `begin` false: added to the path being made as a subpath of its own (a clip), `grow`
+ *  px larger each way (its ring's outer half and its edge's antialiasing). */
+function shapePath(ctx: CanvasRenderingContext2D, kind: MarkKind, x: number, y: number, text: string, begin = true, grow = 0) {
+  const [w0, h0] = markSize(kind, text), w = w0 + grow, h = h0 + grow;
+  if (begin) ctx.beginPath();
   if (kind === "P") { ctx.moveTo(x, y - h); ctx.lineTo(x + w, y); ctx.lineTo(x, y + h); ctx.lineTo(x - w, y); ctx.closePath(); }
   else if (kind === "L") {
     ctx.moveTo(x - w + 6, y - h); ctx.lineTo(x + w - 6, y - h); ctx.lineTo(x + w, y); ctx.lineTo(x + w - 6, y + h);
     ctx.lineTo(x - w + 6, y + h); ctx.lineTo(x - w, y); ctx.closePath();
   }
-  else if (kind === "A") ctx.arc(x, y, 10.5, 0, 2 * Math.PI);
-  else if (typeof ctx.roundRect === "function") ctx.roundRect(x - w, y - h, 2 * w, 2 * h, 4);
+  else if (kind === "A") { ctx.moveTo(x + 10.5 + grow, y); ctx.arc(x, y, 10.5 + grow, 0, 2 * Math.PI); }
+  else if (typeof ctx.roundRect === "function") ctx.roundRect(x - w, y - h, 2 * w, 2 * h, 4 + grow);
   else ctx.rect(x - w, y - h, 2 * w, 2 * h);
 }
 
@@ -278,7 +284,7 @@ export class SpotMap {
   private measuring: ((a: L.LatLng, b: L.LatLng) => void) | null = null;
   private measured: L.LatLng[] = [];        // the measurement's points drawn (0, 1 or 2)
   private readonly measureListeners = new Set<(measuring: boolean) => void>();
-  private still: {drag: boolean; dbl: boolean} | null = null;  // a phone's map held still while measuring: what was on
+  private still: {drag: boolean; dbl: boolean; touch: string} | null = null;  // a phone's map held still: what was on
   private restore: (() => void) | null = null;  // its putting back, when it waits for the press under way to end
   private stillTimer = 0;
   private selectedRow = -1;                 // the selection the measurement last saw
@@ -660,7 +666,7 @@ export class SpotMap {
     /** Today's gold halo under `rows`, dimmed with the lines. */
     const halo = (rows: number[]) => {
       if (!rows.length) return;
-      stroke(rows, FAV_PX, FAV_ALPHA * dim, COLORS.favourite);
+      stroke(rows, FAV_PX, dim < 1 ? FAV_DIMMED : FAV_ALPHA, COLORS.favourite);
       drew.halos += rows.length;
       if (full && rows.some((row) => { this.ends(row, p); return seen(p[0], p[1], p[2], p[3]); })) shapes.fav = true;
     };
@@ -835,7 +841,7 @@ export class SpotMap {
       target(own, 1);
       // a favourite selected: gold in the dark halo's place (today's)
       const favourite = favourites && view.isFavourite(sel.row);
-      stroke([sel.row], 11, favourite ? FAV_SELECTED : 0.45, favourite ? COLORS.favourite : "#000");
+      stroke([sel.row], favourite ? FAV_SELECTED_PX : 11, favourite ? FAV_SELECTED : 0.45, favourite ? COLORS.favourite : "#000");
       stroke([sel.row], 5, 1, undefined, true);
       target([sel.row], 2);
       this.ends(sel.row, p);
@@ -874,14 +880,23 @@ export class SpotMap {
     }
     const hover = this.hovered ?? this.mapHovered;
     if (hover !== null && view.passes(hover)) stroke([hover], 7, 0.95);
-    // a measurement over everything the canvas draws (today's black dashes between white points), the profile's point
-    // above it
+    // a measurement (today's black dashes between white points) over every line, under the numbers' shapes (PRODUCT.md
+    // principle 9: no label is crossed; the design review's F1): each shape is cut out of the dashes' clip (a clip
+    // per shape, so overlapping shapes stay cut); its two points on top, the profile's point above them
     if (this.measured.length) {
       const pts = this.measured.map((at): [number, number] => [mercX(at.lng) * this.scale - this.ox, mercY(at.lat) * this.scale - this.oy]);
       ctx.globalAlpha = 1;
       if (pts.length > 1) {
+        ctx.save();
+        for (const k of this.marks) {
+          ctx.beginPath();
+          ctx.rect(min.x, min.y, size.x, size.y);
+          shapePath(ctx, k.kind, k.x, k.y, k.text, false, CUT_GROW);
+          ctx.clip("evenodd");
+        }
         ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]);
         ctx.lineWidth = MEASURE_PX; ctx.strokeStyle = "#000"; ctx.setLineDash(MEASURE_DASH); ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
       }
       for (const [x, y] of pts) {
         ctx.beginPath(); ctx.arc(x, y, MEASURE_R, 0, 2 * Math.PI);
@@ -1460,7 +1475,10 @@ export class SpotMap {
 
   /** A phone's map holds still while measuring (the accepted mock-up: the points are pressed on a map that does not
    *  move): no drag and no double tap's zoom from startMeasure until measuring ends; the zoom buttons and a pinch
-   *  still zoom. What was on is put back: at once, or (`later`) after the events of the press now under way. */
+   *  still zoom. Leaflet's drag off takes its class `leaflet-touch-drag` and with it `touch-action: none`
+   *  (leaflet.css: `pan-x pan-y` then, a swipe the browser's own: a pull to reload, a bounce): the map's box keeps
+   *  `touch-action: none` in its own style meanwhile (the CSSOM; the code review's F1). What was on is put back: at
+   *  once, or (`later`) after the events of the press now under way. */
   private holdStill(on: boolean, later = false) {
     if (this.restore) {  // a putting back still to come: now
       clearTimeout(this.stillTimer);
@@ -1469,7 +1487,9 @@ export class SpotMap {
     const map = this.map;
     if (on) {
       if (this.still || !this.options.phone) return;
-      this.still = {drag: map.dragging.enabled(), dbl: map.doubleClickZoom.enabled()};
+      const box = map.getContainer();
+      this.still = {drag: map.dragging.enabled(), dbl: map.doubleClickZoom.enabled(), touch: box.style.touchAction};
+      box.style.touchAction = "none";
       map.dragging.disable();
       map.doubleClickZoom.disable();
     } else if (this.still) {
@@ -1479,6 +1499,7 @@ export class SpotMap {
         this.restore = null;
         if (was.drag) map.dragging.enable();
         if (was.dbl) map.doubleClickZoom.enable();
+        map.getContainer().style.touchAction = was.touch;
       };
       if (later) {
         this.restore = restore;
