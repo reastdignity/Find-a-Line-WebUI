@@ -181,7 +181,8 @@ function useMapHelp(back: () => void): [Part | null, (open: Part | null) => void
   const [open, setOpen] = useState<Part | null>(null);
   const latest = useRef(back);
   latest.current = back;
-  useEffect(() => {
+  // (a layout effect: the listener is there when the help is drawn, not a frame later; an Esc pressed at once closes it)
+  useLayoutEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
