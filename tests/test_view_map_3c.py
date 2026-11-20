@@ -315,9 +315,20 @@ def test_measure(site, device):
             _state(page, "view.select(view.order[1]);")
             m = page.evaluate(MEASURED)
             assert m["on"] is False and m["events"] == [True, False] and m["points"] == []
+            # drawMeasured while measuring: null leaves the point taken; a line ends measuring (no `done`) and is drawn
+            page.evaluate(MEASURE)
+            empty = page.evaluate("([f]) => T.empty(f)", [finger])
+            press(empty["x"], empty["y"])
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.drawn().measured.length === 1", timeout=WAIT)
+            page.evaluate("() => window.FINDALINE_VIEW.map.drawMeasured(null)")
+            m = page.evaluate(MEASURED)
+            assert m["on"] is True and len(m["points"]) == 1
             # drawMeasured: a line given by the frame drawn as a measurement, and cleared
             line = page.evaluate("""() => { const {view, map} = window.FINDALINE_VIEW, l = view.model.lineAt(view.shownOf(view.order[2]));
                 map.drawMeasured({lat1: l.lat1, lon1: l.lon1, lat2: l.lat2, lon2: l.lon2}); return [l.lat1, l.lon1, l.lat2, l.lon2]; }""")
+            m = page.evaluate(MEASURED)
+            assert m["on"] is False and m["events"] == [True, False] and m["done"] is None and len(m["points"]) == 2, m
+            page.wait_for_function("() => window.FINDALINE_MAP.dragging.enabled()", timeout=WAIT)
             pts = page.evaluate("() => window.FINDALINE_VIEW.map.drawn().measured")
             ends = page.evaluate("([a, b, c, d]) => [[a, b], [c, d]].map(([lat, lng]) => { const p = window.FINDALINE_MAP.latLngToContainerPoint([lat, lng]), x = T.box(); return [p.x + x.left, p.y + x.top]; })", line)
             assert len(pts) == 2 and all(abs(p["x"] - e[0]) < 0.01 and abs(p["y"] - e[1]) < 0.01 for p, e in zip(pts, ends))

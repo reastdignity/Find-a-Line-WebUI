@@ -1354,9 +1354,15 @@ export class SpotMap {
   }
 
   /** Draw a measured line the frame holds (a link's measured line; the frame's own after the canvas was made again
-   *  across the phone's width) as a measurement is drawn, in place of what is drawn; measure mode does not change.
-   *  null: nothing drawn (as clearMeasure). */
+   *  across the phone's width) as a measurement is drawn, in place of what is drawn. null: nothing drawn (as
+   *  clearMeasure). While measuring: null leaves the points taken so far (the frame's "no measured line" may come
+   *  after startMeasure: RunActions clears it just before), a line ends measuring and is drawn (it replaces the
+   *  measurement under way, whose `done` is not called). */
   drawMeasured(line: LineEnds | null) {
+    if (this.measuring) {
+      if (!line) return;
+      this.cancelMeasure();
+    }
     this.measured = line ? [L.latLng(line.lat1, line.lon1), L.latLng(line.lat2, line.lon2)] : [];
     this.paint(true);
   }
