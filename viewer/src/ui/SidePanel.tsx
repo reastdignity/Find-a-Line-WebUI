@@ -34,7 +34,8 @@ export function useWidthOf(ref: RefObject<HTMLElement | null>): number {
 export interface SidePanelProps {
   /** Which side of the map: the left panel's edge grows to the right, the right one's to the left. */
   side: PanelSide;
-  /** The panel's name in its controls' labels: "Width of the <name>", "Collapse the <name>", "Expand the <name>". */
+  /** The panel's name in its controls' labels: "Width of the <name>", "Collapse the <name>", and the rail's title
+   *  "Expand the <name>" (the rail's accessible name begins with its visible label: "<label>. Expand the <name>"). */
   name: string;
   /** The panel's accessible name. */
   label: string;
@@ -70,7 +71,7 @@ export function SidePanel({side, name, label, column, min, max, railWidth, onWid
       <button type="button" class="u-split-tab c-col-tab" aria-label={`Collapse the ${name}`}
               title={`Collapse the ${name}`} onClick={() => onOpen(false)}>
         <Icon name={left ? "back" : "next"} /></button>
-    </> : <button type="button" class="c-rail" aria-label={`${rail.text}${column.forced ? ", auto" : ""}: expand the ${name}`} title={`Expand the ${name}`}
+    </> : <button type="button" class="c-rail" aria-label={`${rail.text}${column.forced ? ", auto" : ""}. Expand the ${name}`} title={`Expand the ${name}`}
                   onClick={() => onOpen(true)}>
       <Icon name={rail.icon} />
       <span class="c-rail-text">{rail.text}</span>
