@@ -253,6 +253,8 @@
 .ui .c-mappage-3 .c-rail:hover { background: var(--hover); }
 .ui .c-mappage-3 .c-rail-text, .ui .c-mappage-3 .c-rail-auto { font: 500 var(--fs-1) var(--font); letter-spacing: 0; text-transform: none; }
 .ui .c-mappage-3 .u-split-tab { width: 24px; border-radius: var(--r-2); border-color: var(--rule); background: var(--surface); box-shadow: var(--shadow); }
+/* the tab's own shadow and the keyboard's ring together (the kit's tab rule replaces the ring: ui.css) */
+.ui .c-mappage-3 .u-split-tab:focus-visible { box-shadow: var(--shadow), var(--focus); }
 .ui .c-mappage-3 .c-col-left > .c-col-tab { right: -12px; }
 .ui .c-mappage-3 .c-col-right > .c-col-tab { left: -12px; }
 
