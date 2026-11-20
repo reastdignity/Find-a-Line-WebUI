@@ -864,55 +864,60 @@ ROW_UNDER = r"""([row]) => { const e = T.ends(row), b = T.box();
 
 
 def test_selected_fit_clear_of_controls_card_open(boxes_site):
-    """1400 x 900, the run with both coast boxes, a line's card open: the frame's padding counts the controls over the
-    map (the third code review's finding 3: the halves are taken of the part of the map in view, above the card; with
-    the column's halves it stayed the bar's), and a line of the run opened by its link is fitted with both ends
-    outside every control's box, where a fit into the bar's room alone puts an end under one (that line found on the
-    page first, among the first 120 of the list's order)."""
+    """1920 x 1080, the run with both coast boxes, a line's card open at a kept height of 420 px (dragged so): the
+    frame's padding counts the controls over the map (the third code review's finding 3: the halves are taken of the
+    part of the map in view, above the card; with the column's halves the scale above the card fell in the upper half
+    and the padding stayed the bar's), and a selected line out of the map brought back as a press of its row in the
+    list does it (the canvas's reveal with the frame's padding) has both ends outside every control's box, where the
+    same with the bar's padding alone puts an end under one (that line found on the page first, among the first 120 of
+    the list's order). Measured (B3's probe_fix3_card): at 1400 x 900 the column's halves count them with the default
+    card too, and with a card of 340 px or more the room left is under CLEAR_ROOM either way."""
     from playwright.sync_api import sync_playwright
+    big = {"viewport": {"width": 1920, "height": 1080}}
+    kept = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: 372, open: true}, details: {w: 380, open: true}, "
+            "profile: {h: 420, folded: false, l: 12, r: 12}})); } catch (e) {}")
+    # the list's press (SpotList Row: map.reveal(row, padding())) of a line made too short to read (four levels out:
+    # under reveal's 60 px; a pan away is held by the map's bounds), with a padding
+    away = "window.FINDALINE_MAP.setZoom(window.FINDALINE_MAP.getZoom() - 4, {animate: false});"
     pick = r"""([pad]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, keep = [m.getCenter(), m.getZoom()];
-      const under = (row) => ROW(row).filter((e) => e[2] > 0).length;
       let found = null;
       for (const spot of Array.from(view.order).slice(0, 120)) { const row = view.shownOf(spot);
-        map.zoomTo(row, pad); const a = under(row); map.zoomTo(row, map.options.padding()); const b = under(row);
-        if (a > 0 && b === 0) { found = [spot, row]; break; } }
-      m.setView(keep[0], keep[1], {animate: false}); return found; }"""
+        %s map.reveal(row, pad); if (ROW(row).some((e) => e[2] > 0)) { found = [spot, row]; break; } }
+      m.setView(keep[0], keep[1], {animate: false}); return found; }""" % away
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{boxes_site}#run={BOXES}", DESKTOP, script=FRAME + f"window.ROW = (row) => ({ROW_UNDER})([row]);")
+            page = _open(browser, f"{boxes_site}#run={BOXES}", big, script=FRAME + f"window.ROW = (row) => ({ROW_UNDER})([row]);" + kept)
             _state(page, "view.select(view.order[0]);")
             page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
             page.wait_for_function(STILL, timeout=WAIT)
             page.evaluate("() => T.frames()")
-            found = page.evaluate(pick, [page.evaluate(BAR)])
-            assert found is not None, "no line of the list whose plain fit has an end under a control"
+            bar = page.evaluate(BAR)
+            found = page.evaluate(pick, [bar])
+            assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
             spot, row = found
             _state(page, f"view.select({spot});")
-            page.wait_for_function(f"() => new URLSearchParams(location.hash.slice(1)).get('line') && window.FINDALINE_VIEW.view.selected?.row === {row}", timeout=WAIT)
-            line = page.evaluate("() => new URLSearchParams(location.hash.slice(1)).get('line')")
-            page.context.close()
-            page = _open(browser, f"{boxes_site}#run={BOXES}&line={urllib.parse.quote(line, safe='')}", DESKTOP,
-                         script=FRAME + f"window.ROW = (row) => ({ROW_UNDER})([row]);")
+            page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.row === {row}", timeout=WAIT)
             page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
             page.wait_for_function(STILL, timeout=WAIT)
             page.evaluate("() => T.frames()")
-            got = page.evaluate("""([row]) => ({selected: window.FINDALINE_VIEW.view.selected?.row ?? null, ends: ROW(row),
-              own: window.FINDALINE_VIEW.map.options.padding()})""", [row])
-            bar = page.evaluate(BAR)
+            own = page.evaluate("() => window.FINDALINE_VIEW.map.options.padding()")
+            page.evaluate(f"([row]) => {{ {away} window.FINDALINE_VIEW.map.reveal(row, window.FINDALINE_VIEW.map.options.padding()); }}", [row])
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            ends = page.evaluate("([row]) => ROW(row)", [row])
             assert page.errors == []
         finally:
             browser.close()
-    print("selected fit, card open: row", row, "ends", got["ends"], _length(got["ends"]), "px; padding", got["own"], "bar", bar)
-    assert got["selected"] == row, got
-    assert got["own"]["top"] > bar["top"], (got["own"], bar)
-    assert all(n == 0 for _, _, n in got["ends"]), got["ends"]
+    print("selected fit, card open: row", row, "ends", ends, _length(ends), "px; padding", own, "bar", bar)
+    assert own["top"] > bar["top"], (own, bar)
+    assert all(n == 0 for _, _, n in ends) and _length(ends) >= 60, ends  # fitted, clear
 
 
 def test_selected_fit_clear_of_controls_phone_half(site):
     """412 x 839 at half (the view clip's run: no coast chips): the frame's padding counts the layers button under the
-    switch (the column's halves left it the bar's: the third code review), and a line chosen in the list while its
-    line is out of the map is brought back (the list's reveal, with that padding) with both ends outside every
+    switch (the column's halves left it the bar's: the third code review), and a line chosen in the list while it is
+    too short to read is fitted (the list's reveal, with that padding) with both ends outside every
     control's box. Not reachable (measured, B3's probe_fix3): 390 x 664 at half, whose bar leaves 97 px (under
     CLEAR_ROOM), either phone at half with both coast chips (76 px), and this one with a level held ("Back to Auto"
     in the foot: 108 px); there the bar's padding stays. Here the bar's
@@ -931,7 +936,8 @@ def test_selected_fit_clear_of_controls_phone_half(site):
             page.evaluate("() => T.frames()")
             own, bar = page.evaluate("() => window.FINDALINE_VIEW.map.options.padding()"), page.evaluate(BAR)
             layers = page.evaluate("() => { const r = F.rect('.v-map .leaflet-control-layers'), b = T.box(); return r && [r[1] - b.top, r[3] - b.top]; }")
-            _state(page, "leaflet.panBy([0, -3000], {animate: false});")  # every line out of the map
+            # every line too short to read (four levels out: under reveal's 60 px; a pan away is held by the map's bounds)
+            _state(page, "leaflet.setZoom(leaflet.getZoom() - 4, {animate: false});")
             row = page.evaluate("() => Number(document.querySelector('.vl-list .vl-rows .vl-main').dataset.row)")
             _tap_on(page, ".vl-list .vl-rows .vl-main >> nth=0")
             page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.row === {row}", timeout=WAIT)
@@ -946,7 +952,7 @@ def test_selected_fit_clear_of_controls_phone_half(site):
     print("selected fit at half: padding", own, "bar", bar, "layers", layers, "ends", ends, _length(ends), "px; sheet", snap)
     assert layers and own["top"] >= round(layers[1]) + 8 - 1 and own["top"] > bar["top"], (own, bar, layers)
     assert snap == "half" and all(n == 0 for _, _, n in ends), (snap, ends)
-    assert all(room[1] <= y <= room[3] for _, y, _ in ends), (ends, room)
+    assert all(room[1] <= y <= room[3] for _, y, _ in ends) and _length(ends) >= 60, (ends, room)  # fitted
 
 
 def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
