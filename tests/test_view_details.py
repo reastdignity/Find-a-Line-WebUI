@@ -97,7 +97,8 @@ def _select(page, spot_js: str = "view.order[0]"):
 
 
 def _sheet(page, stop: str):
-    """A phone's sheet to a stop by its handle's arrow keys, awaited."""
+    """A phone's sheet to a stop by its handle's arrow keys, awaited at rest (its drawn height its stop's: the sheet
+    moves in .22 s after its class changed)."""
     order = ["peek", "half", "full"]
     now = page.evaluate("() => D.snap()")
     while now != stop:
@@ -106,6 +107,8 @@ def _sheet(page, stop: str):
         nxt = order[order.index(now) + (1 if order.index(stop) > order.index(now) else -1)]
         page.wait_for_function(f"() => D.snap() === '{nxt}'", timeout=WAIT)
         now = nxt
+    page.wait_for_function("() => { const s = document.querySelector('.u-sheet'); "
+                           "return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; }", timeout=WAIT)
 
 
 @pytest.mark.parametrize("device", DEVICES, ids=IDS)
@@ -312,9 +315,9 @@ def test_report_below_the_facts(report_site, device):
 
 @pytest.mark.parametrize("device", [PHONE, PIXEL], ids=["390", "412"])
 def test_phone_dock_under_the_values(site, device):
-    """A phone (4 d): the selected line's profile dock stands right under the four values (its bar in view at the full
-    stop), its title and "Rigging and layers" on one line; closed by its x it goes, "Profile" takes its place among the
-    line's actions with the focus, and brings it back; a new selection shows it again. A desktop has no dock in the
+    """A phone (4 d): the selected line's profile dock stands right under the four values, its bar in the sheet's view
+    at half, its title and "Rigging and layers" on one line; closed by its x it goes, "Profile" takes its place among
+    the line's actions with the focus, and brings it back; a new selection shows it again. A desktop has no dock in the
     details."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -327,14 +330,16 @@ def test_phone_dock_under_the_values(site, device):
             parts = page.evaluate("() => D.parts()")
             assert parts[0] == "vl-tiles" and parts[1] == "r-dock" and "vl-dock" in page.evaluate("() => document.querySelector('.vl-details > .r-dock').className"), parts
             page.wait_for_selector(".vl-dock .fal-profile-chart", timeout=WAIT)
-            # right under the tiles (the details' 16 px gap), its bar in view with the sheet at full (at half the
-            # built sheet shows the tiles: its half stop is lower than the mock-up's)
+            # right under the tiles (the details' 16 px gap), its bar in the sheet's view at half (the sheet at rest)
             gap = page.evaluate("() => D.box('.vl-dock')[1] - D.box('.vl-tiles')[3]")
             assert 0 <= gap <= 17, gap
-            _sheet(page, "full")
+            page.wait_for_function("() => { const s = document.querySelector('.u-sheet'); "
+                                   "return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; }", timeout=WAIT)
             seen = page.evaluate("() => { const bar = document.querySelector('.vl-dock .r-dock-bar').getBoundingClientRect(), "
-                                 "body = document.querySelector('.u-sheet-body').getBoundingClientRect(); return [bar.top >= body.top, bar.bottom <= body.bottom]; }")
-            assert seen == [True, True], seen
+                                 "body = document.querySelector('.u-sheet-body').getBoundingClientRect(); "
+                                 "return [bar.top >= body.top, bar.bottom <= body.bottom, Math.round(body.bottom - bar.bottom)]; }")
+            print("the dock's bar at half: room under it", device["viewport"], seen[2])
+            assert seen[:2] == [True, True], seen
             # its bar: the title and "Rigging and layers" on one line, the hint under them
             bar = page.evaluate("() => { const t = document.querySelector('.vl-dock .r-dock-bar > b').getBoundingClientRect(), "
                                 "c = document.querySelector('.vl-dock .r-dock-bar > .u-chip').getBoundingClientRect(); return Math.abs((t.top + t.bottom) / 2 - (c.top + c.bottom) / 2) < 12; }")
@@ -388,9 +393,10 @@ def test_list_stars(site, device):
     on a run with no favourite yet: the row button's sibling (a row stays one button), out of the tab order, 24 px on a
     desktop and 44 px on a phone, today's names and titles; the heads stand over the row's button. A press adds to the
     folder used last, or removes (today's rule; on the server); a favourite's dash wears the halo. The arrows: right
-    from a row to its star, left back, up, down, Home and End from a star along the stars' column; Tab leaves the list
-    from a star in one press; a star pressed by the keyboard whose row goes ("Favourites only") leaves the focus on a
-    row. In a row of two lines the star stands on the values' line."""
+    from a row to its star, left back, up, down, Home and End from a star along the stars' column; Tab (Shift+Tab)
+    leaves the list from a star in one press, also when the list's tab stop lies after (before) it; a star pressed by
+    the keyboard whose row goes ("Favourites only") leaves the focus on a row. In a row of two lines the star stands on
+    the values' line."""
     from playwright.sync_api import sync_playwright
     phone = device is PHONE
     side = [44, 44] if phone else [24, 24]
@@ -446,6 +452,20 @@ def test_list_stars(site, device):
             page.keyboard.press("ArrowDown")
             page.keyboard.press("Tab")
             assert page.evaluate("() => !!document.activeElement && !document.activeElement.closest('.vl-topblock .vl-rows')")
+            # also where the list's tab stop (the selected spot's row) lies after the star (Tab) or before it (Shift+Tab)
+            sec = page.evaluate("() => { const s = [...document.querySelectorAll('.vl-tree .vl-sec')].find((x) => x.querySelectorAll('.vl-rows > li').length >= 4); "
+                                "return s ? s.dataset.sector : null; }")
+            assert sec is not None
+            rows = f'.vl-sec[data-sector="{sec}"] .vl-rows'
+            page.evaluate(f"() => D.v().select(+document.querySelector('{rows} > li:nth-child(3) > .vl-main').dataset.spot)")
+            page.wait_for_function(f"() => document.querySelector('{rows} > li:nth-child(3) > .vl-main').tabIndex === 0", timeout=WAIT)
+            for start, key in (("1", "Tab"), ("4", "Shift+Tab")):
+                page.focus(f"{rows} > li:nth-child({start}) > .vl-main")
+                page.keyboard.press("ArrowRight")
+                assert page.evaluate(f"() => document.activeElement === document.querySelector('{rows} > li:nth-child({start}) > .vl-star')")
+                page.keyboard.press(key)
+                assert page.evaluate(f"() => !!document.activeElement && document.activeElement !== document.body && !document.activeElement.closest('{rows}')"), key
+            page.evaluate("() => D.v().select(null)")
             # Enter on a star presses it; with "Favourites only" the row goes and the focus stays on a row
             page.focus(".vl-topblock .vl-rows > li:first-child > .vl-main")
             page.keyboard.press("ArrowRight")

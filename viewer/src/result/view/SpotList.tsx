@@ -109,6 +109,14 @@ export function rowKeys(e: KeyboardEvent) {
   const target = e.target as HTMLElement, star = target.closest?.(".vl-star") as HTMLElement | null;
   const at = (star ? star.parentElement?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
   if (!at) return;
+  if (e.key === "Tab") {
+    // one tab stop per list: Tab (Shift+Tab) from a row or a star the arrows reached leaves the list in one press, also
+    // when the list's tab stop lies after it (before it): the press goes on from the stop, the list's last (first)
+    // element in the tab order
+    const stop = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".vl-main[tabindex='0']");
+    if (stop && stop !== target && target.compareDocumentPosition(stop) & (e.shiftKey ? 2 : 4)) stop.focus({preventScroll: true});
+    return;
+  }
   const starOf = (main: HTMLElement | undefined) => main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star") ?? null;
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
     const to = e.key === "ArrowRight" ? (star ? null : starOf(at)) : (star ? at : null);
