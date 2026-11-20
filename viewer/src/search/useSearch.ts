@@ -138,31 +138,30 @@ export function withinLimits(usage: Usage | null, estimate: Estimate | null,
   if (!usage || !estimate || !usage.limited) return null;
   const {mpx, km2, download_mb} = usage.usage;
   const scale = estimate.resolution ** 2;  // km² of one Mpx at this resolution
-  const atRes = ` km² at ${fmt(estimate.resolution)} m`;
+  const atRes = ` ${t("ui.usage.at_res", {res: fmt(estimate.resolution)})}`;
   const pixels = mpx?.limit != null && mpx.used !== null && area !== null
     ? {used: mpx.used * scale, limit: mpx.limit * scale, area} : null;
   if (pixels && pixels.used + pixels.area > pixels.limit) {
-    return {ok: false, text: `Over your daily limit: ${fmt(pixels.used)} of ${fmt(pixels.limit)}${atRes} used, ` +
-                             `this search needs ${fmt(pixels.area)}`};
+    return {ok: false, text: t("ui.usage.over", {used: fmt(pixels.used), limit: fmt(pixels.limit), unit: atRes,
+                                                  needs: fmt(pixels.area)})};
   }
   if (km2.limit !== null && km2.used !== null && area !== null) {
     if (km2.used + area > km2.limit) {
-      return {ok: false, text: `Over your daily limit: ${fmt(km2.used)} of ${fmt(km2.limit)} km² used, ` +
-                               `this search needs ${fmt(area)}`};
+      return {ok: false, text: t("ui.usage.over", {used: fmt(km2.used), limit: fmt(km2.limit), unit: " km²",
+                                                    needs: fmt(area)})};
     }
   }
   if (download_mb.limit !== null && download_mb.used !== null &&
       download_mb.used + estimate.download_mb > download_mb.limit) {
-    return {ok: false, text: `Over your daily download limit: ${fmt(download_mb.used)} of ` +
-                             `${fmt(download_mb.limit)} MB used`};
+    return {ok: false, text: t("ui.usage.over_download", {used: fmt(download_mb.used), limit: fmt(download_mb.limit)})};
   }
   if (pixels) {
-    return {ok: true, text: `Within your daily limit (${fmt(pixels.used + pixels.area)} of ${fmt(pixels.limit)}${atRes})`};
+    return {ok: true, text: t("ui.usage.within", {used: fmt(pixels.used + pixels.area), limit: fmt(pixels.limit), unit: atRes})};
   }
   if (km2.limit !== null && km2.used !== null && area !== null) {
-    return {ok: true, text: `Within your daily limit (${fmt(km2.used + area)} of ${fmt(km2.limit)} km²)`};
+    return {ok: true, text: t("ui.usage.within", {used: fmt(km2.used + area), limit: fmt(km2.limit), unit: " km²"})};
   }
-  return {ok: true, text: "Within your daily limits"};
+  return {ok: true, text: t("ui.usage.within_all")};
 }
 
 /** A number for the panel: two significant decimals below 10, one below 100, none above. */

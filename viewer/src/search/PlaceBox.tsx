@@ -66,16 +66,16 @@ export function PlaceBox({place}: {place: PlaceMap}) {
       <Icon name="search" />
       <input id={id} class="u-input" type="search" value={text}
              placeholder={touch ? t("ui.search.place_placeholder_touch") : t("ui.search.place_placeholder")}
-             aria-label="Go to a place" role="combobox" list={undefined} aria-expanded={open}
+             aria-label={t("ui.search.place_placeholder_touch")} role="combobox" list={undefined} aria-expanded={open}
              aria-controls={`${id}-list`}
              aria-activedescendant={open ? `${id}-${active}` : undefined} autocomplete="off"
              onInput={(e) => { setText(e.currentTarget.value); setFound(null); }} onKeyDown={onKey}
              onBlur={() => setFound(null)} />
     </div>
-    {busy && <p class="s-hint">Looking up…</p>}
+    {busy && <p class="s-hint">{t("ui.search.looking_up")}</p>}
     {error && <p class="s-hint s-placebox-error" role="alert">{error}</p>}
-    {found && !found.length && <p class="s-hint">Nothing found by that name.</p>}
-    {open && <ul class="s-placebox-list" id={`${id}-list`} role="listbox" aria-label="Places">
+    {found && !found.length && <p class="s-hint">{t("ui.search.nothing_found")}</p>}
+    {open && <ul class="s-placebox-list" id={`${id}-list`} role="listbox" aria-label={t("ui.search.places")}>
       {found!.map((p, i) => <li key={i} id={`${id}-${i}`} role="option" aria-selected={i === active}
                                 class={i === active ? "u-on" : undefined}
                                 onMouseDown={(e) => e.preventDefault()} onClick={() => pick(p)}>
