@@ -13,6 +13,11 @@ catalogue), `browser-tests.md`.
 
 ## Must stay in sync
 
+- Every word a page shows is a text of `locales/en.json` (`t`; the exceptions, and the files checked, named in
+  `tests/test_texts_in_catalogue.py`, which also checks that a call gives each `{{name}}` of its text); a sentence
+  with an icon or a link inside is one key drawn by `i18n.parts`, and a value that stood as a text node of its own
+  stays one (Chromium places a line's glyphs by its text nodes: merged nodes change pixels).
+
 - `viewer/src/Profile.tsx` with `viewer/src/profile.css` serves two bundles: the 2D result and the 3D view's card
   (`view3d/profilecard.tsx`, which gives it `cursorAt`/`onCursor`; without them the chart behaves as in the result). A
   change of its props, classes or CSS is checked in both (`tests/test_view3d_profile.py`, the result's tests). The 3D

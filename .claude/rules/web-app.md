@@ -19,6 +19,8 @@ tests that start Edge).
 
 ## Must stay in sync
 
+- The server pages' words (`page.*`) go through `web.page_text`, their HTML pinned byte for byte by
+  `tests/test_texts_in_catalogue.py`; the privacy page's stay in Python.
 - The message catalogue `locales/en.json` and its users: every field the web may set has `field.<name>.label`, `.unit`
   and `.help`, every choice of a choice field (but the sources' names, from `sources.SOURCES`)
   `choice.<field>.<value>`, every topic of `params.TOPICS` and preset of `params.PRESETS` its title
