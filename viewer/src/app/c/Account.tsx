@@ -168,7 +168,7 @@ export function AdminPage({jobs}: {jobs: Job[]}) {
 }
 
 export function OsmPage() {
-  if (!user.local && !user.admin) return <div class="c-page"><p>{t("ui.account.local_only")}</p></div>;
+  if (!user.local && !user.admin) return <div class="c-page"><p>{t("ui.layer.admins_only")}</p></div>;
   return <MapPage title={t("ui.app.osm")}>{(place) => <OsmC place={place} onStarted={() => go("#home")} />}</MapPage>;
 }
 

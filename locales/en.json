@@ -790,7 +790,6 @@
   "ui.account.signed_in": "signed in",
   "ui.account.about": "About and data licences",
   "ui.account.admins_only": "Administrators of the public site only.",
-  "ui.account.local_only": "The local app and administrators only.",
   "ui.osm.intro": "The coastline (sea) and the cliffs of <i>{{mode}}</i> come from the Overpass API, which is often overloaded. With the OpenStreetMap extract of a country or region (from Geofabrik, updated with daily diffs) they come from the disk. A country is large (Poland about 2 GB, Malta 9 MB); a smaller region is enough when the search stays inside it.",
   "ui.osm.here": "At the map centre",
   "ui.osm.again": "Look again here",
