@@ -9,8 +9,8 @@
 //
 // The route's line (`line`, `nav`) opens in the view and the selection goes into the hash (`hashOf`): viewlink.ts.
 // A line outside the run that a link names is measured and kept here (SpotColumns' `measured`, across the phone's
-// width); nothing draws it yet. On a phone a selected line that the sheet covers when it moves (it rose) is brought
-// back into sight (useSheetKeeps).
+// width); nothing draws it yet. On a phone a selected line that the sheet (or the data credits band above it) covers
+// when it moves is brought back into sight (useSheetKeeps), and a link that ends in a note raises the sheet to half.
 //
 // Not here yet (they join with today's other features, step 3c): the run's actions (Download, Measure, Share,
 // Compare), the profile card and a line's links. Their places are empty slots, each marked in the JSX below: the
@@ -391,40 +391,65 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
 
 const PHONE_TOP = 116;  // px of a phone's map under its top bar and the switch (8 + 44 + 8 + 52, and 4)
 const SHEET_PEEK = 132, SHEET_TOP = 64;  // the phone's sheet: its lowest height, and what it leaves free at the top
-// A line brought back into sight keeps this many px from the edges of the part it is brought into (its anchors'
-// circles A1, A2 whole: SpotMap markSize, 10.5 px); with less room than SHEET_ROOM px under the switch and above the
-// sheet (the sheet at full) the map shows too little and does not move. The sheet is taken to rest when its height is
-// its stop's, or after SHEET_REST_MS (it moves in .22 s: ui.css .u-sheet)
-const SHEET_MARGIN = 16, SHEET_ROOM = 48, SHEET_REST_MS = 1500;
+// A line brought back into sight keeps SHEET_MARGIN px from the edges of the part it is brought into (its anchors'
+// circles A1, A2 whole: SpotMap markSize, 10.5 px), fewer where that part is too small for them. The map zooms (the
+// least change that fits) only for a line longer than that part, and only where the part is at least SHEET_ROOM px
+// high with its margins; in a smaller part the line goes as far in as it can at the same zoom. The pan or zoom is
+// Leaflet's own animation of SHEET_PAN_S. The sheet is taken to rest when its height is its stop's and the data
+// credits stand above it, or after SHEET_REST_MS (it moves in .22 s: ui.css .u-sheet)
+const SHEET_MARGIN = 16, SHEET_ROOM = 48, SHEET_PAN_S = 0.25, SHEET_REST_MS = 1500;
+
+/** The least shift of the span [a0, a1] into [r0, r1], `m` px from its ends where the room allows (fewer where it
+ *  does not); a span longer than the room: the least shift that makes it cover the room (as far in as it goes). */
+function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): number {
+  if (a1 - a0 > r1 - r0) return a0 > r0 ? r0 - a0 : a1 < r1 ? r1 - a1 : 0;
+  const g = Math.min(m, (r1 - r0 - (a1 - a0)) / 2);
+  return a0 < r0 + g ? r0 + g - a0 : a1 > r1 - g ? r1 - g - a1 : 0;
+}
 
 /** On a phone, when the sheet's stop changed and the sheet rests there: a selected line that was in the part of the
- *  map a person sees (SpotMap's free part: above the sheet) at the last move of the map, selection or rest, and is not
- *  now (the sheet rose over it) is brought back by the least pan at the same zoom: clear of the bar (`padding`) where
- *  it fits there, else of the top bar and the switch only, else the frame's zoomTo. A line out of sight before, or a
- *  map moved while the sheet moved, is left as the person left it (a move of theirs is never undone). Where the map
- *  has no room (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as
- *  in sight. The map column's `data-sheet-checks` counts the checks made (tests wait for it). */
-function useSheetKeeps(view: SpotView, map: L.Map | null, canvas: SpotMap | null, snap: Snap,
-                       col: {current: HTMLElement | null}, sheet: () => HTMLElement | null | undefined,
-                       covered: () => number, padding: () => Padding) {
+ *  map a person sees (SpotMap's free part: above the sheet) at the last move of the map, selection or rest, and now
+ *  has an anchor under the sheet or under the data credits band (a press there opens a credit's link) is brought into
+ *  the room under the switch and above the credits: by the least pan at the same zoom, clear of the whole bar
+ *  (`padding`) where it fits there; by the least zoom out that fits only when it is longer than the room
+ *  (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the sheet moved (a drag, its
+ *  glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the map shows nothing under
+ *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
+ *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
+function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
+                       sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding) {
   const latest = useRef({sheet, covered, padding});
   latest.current = {sheet, covered, padding};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
+  const own = useRef(false);   // a move of this hook is under way (not the person's)
   /** The selected line's anchors in the map's container px, or null. */
   const ends = (): L.Point[] | null => {
     const l = view.selected?.line;
     if (!l || !map) return null;
     return [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])];
   };
-  /** The map's height above the sheet, px, and the selected line's anchors both there. */
+  /** The map's height above the sheet, px. */
   const above = (): number => map ? map.getSize().y - latest.current.covered() : 0;
+  /** The room a line is brought into, px of the map's container: under the switch, above the sheet and above the
+   *  data credits band (the scale may lie over the line). */
+  const room = (): {top: number; bottom: number; width: number} => {
+    const top = latest.current.padding().top, el = map?.getContainer();
+    let bottom = above();
+    const credits = el?.querySelector(".leaflet-control-attribution")?.getBoundingClientRect();
+    if (el && credits && credits.width && credits.height) {
+      const at = credits.top - el.getBoundingClientRect().top;
+      if (at > top && at < bottom) bottom = at;
+    }
+    return {top, bottom, width: map ? map.getSize().x : 0};
+  };
+  /** Both anchors in the part of the map a person sees (above the sheet). */
   const inSight = (): boolean => {
     const e = ends(), bottom = above(), width = map ? map.getSize().x : 0;
     return !!e && e.every((q) => q.x >= 0 && q.x <= width && q.y >= 0 && q.y <= bottom);
   };
-  /** Room for a line under the switch and above the sheet. */
-  const roomy = (): boolean => above() - latest.current.padding().top >= SHEET_ROOM;
+  /** The map shows a part under the switch and above the sheet. */
+  const roomy = (): boolean => { const r = room(); return r.bottom - r.top > 0; };
   useEffect(() => {
     if (!map) return;
     const note = () => { if (roomy()) seen.current = inSight(); };
@@ -440,43 +465,83 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, canvas: SpotMap | null
     return () => { map.off("moveend", note); unsubscribe(); };
   }, [view, map]);
   useEffect(() => {
-    if (!map || !canvas || stop.current === snap) return;
+    if (!map || stop.current === snap) return;
+    const leaflet = map as any;
     const was = seen.current, started = performance.now();
-    let moved = false, frame = 0;
-    const onMove = () => { moved = true; };
-    map.on("movestart", onMove);
-    /** The least pan that brings the anchors' box into `area` (null: it does not fit there). */
-    const panInto = (e: L.Point[], [left, top, right, bottom]: number[]): [number, number] | null => {
+    // a drag under way, or its glide (Leaflet's panBy without movestart), or a zoom: the person moves the map
+    const busy = leaflet._panAnim?._inProgress || leaflet._animatingZoom || leaflet.dragging?._draggable?._moving;
+    let moved = !own.current && !!busy, frame = 0, ended: (() => void) | null = null;
+    const onMove = () => { if (!own.current) moved = true; };
+    map.on("movestart move zoomstart", onMove);
+    const count = () => {
+      if (col.current) col.current.dataset.sheetChecks = String(Number(col.current.dataset.sheetChecks || 0) + 1);
+    };
+    /** A move of this hook begins: its moves are not the person's until it ends. */
+    const mine = () => {
+      own.current = true;
+      map.once("moveend", () => { own.current = false; });
+    };
+    /** Bring the selected line into the room; false: nothing to move. */
+    const bringBack = (): boolean => {
+      const e = ends(), l = view.selected?.line;
+      if (!e || !l) return false;
+      const size = map.getSize(), p = latest.current.padding(), r = room(), m = SHEET_MARGIN;
       const x0 = Math.min(e[0].x, e[1].x), x1 = Math.max(e[0].x, e[1].x);
       const y0 = Math.min(e[0].y, e[1].y), y1 = Math.max(e[0].y, e[1].y);
-      if (right - left < SHEET_ROOM || bottom - top < SHEET_ROOM) return null;
-      if (x1 - x0 > right - left || y1 - y0 > bottom - top) return null;
-      return [x0 < left ? left - x0 : x1 > right ? right - x1 : 0, y0 < top ? top - y0 : y1 > bottom ? bottom - y1 : 0];
+      // clear of the whole bar (the switch, the foot) and of the credits, where it fits there with its margins
+      const clear = [p.left + m, p.top + m, size.x - p.right - m, Math.min(size.y - p.bottom, r.bottom) - m];
+      let by: number[];
+      if (x1 - x0 <= clear[2] - clear[0] && y1 - y0 <= clear[3] - clear[1]) {
+        by = [shiftInto(x0, x1, clear[0], clear[2], 0), shiftInto(y0, y1, clear[1], clear[3], 0)];
+      } else if ((x1 - x0 <= r.width && y1 - y0 <= r.bottom - r.top) || r.bottom - r.top - 2 * m < SHEET_ROOM) {
+        // it fits the room (its margins as far as they go), or the room is too small to zoom for: as far in as it goes
+        by = [shiftInto(x0, x1, 0, r.width, m), shiftInto(y0, y1, r.top, r.bottom, m)];
+      } else {  // longer than the room: the least zoom out that fits it there
+        mine();
+        map.fitBounds(L.latLngBounds([l.lat1, l.lon1], [l.lat2, l.lon2]),
+                      {paddingTopLeft: [m, r.top + m], paddingBottomRight: [m, size.y - r.bottom + m],
+                       maxZoom: map.getZoom(), animate: true, duration: SHEET_PAN_S});
+        return true;
+      }
+      if (!by[0] && !by[1]) return false;
+      mine();
+      map.panBy([-by[0], -by[1]], {animate: true, duration: SHEET_PAN_S});
+      return true;
     };
-    const bringBack = () => {
-      const e = ends(), sel = view.selected;
-      if (!e || !sel) return;
-      const size = map.getSize(), p = latest.current.padding(), m = SHEET_MARGIN;
-      const by = panInto(e, [p.left + m, p.top + m, size.x - p.right - m, size.y - p.bottom - m])
-        ?? panInto(e, [m, p.top + m, size.x - m, above() - m]);
-      if (!by) canvas.zoomTo(sel.row, p);
-      else if (by[0] || by[1]) map.panBy([-by[0], -by[1]], {animate: false});
+    /** The data credits' corner placed for the sheet as it is (corners.ts: right above it, or in Leaflet's own place
+     *  at the map's bottom); its observer may come a frame after the sheet's last move (WebKit). */
+    const placed = (el: HTMLElement): boolean => {
+      const box = map.getContainer(), corner = box.querySelector(".leaflet-bottom.leaflet-right");
+      if (!corner) return true;
+      const bottom = corner.getBoundingClientRect().bottom, top = el.getBoundingClientRect().top;
+      return Math.abs(bottom - top) < 1.5 || Math.abs(bottom - box.getBoundingClientRect().bottom) < 1.5;
     };
     const check = () => {
       const el = latest.current.sheet(), target = el ? parseFloat(el.style.height) : NaN;
-      const resting = !el || !(target > 0) || Math.abs(el.getBoundingClientRect().height - target) < 1;
+      const resting = !el || !(target > 0) || (Math.abs(el.getBoundingClientRect().height - target) < 1 && placed(el));
       if (!resting && performance.now() - started < SHEET_REST_MS) { frame = requestAnimationFrame(check); return; }
-      map.off("movestart", onMove);
+      map.off("movestart move zoomstart", onMove);
       stop.current = snap;
-      if (roomy()) {
-        if (was && !moved && !inSight()) bringBack();
-        seen.current = inSight();
+      const r = room(), below = ends()?.some((q) => q.y > r.bottom) ?? false;
+      if (roomy() && was && !moved && below) {
+        // counted once the move ended (its moveend sets what is in sight: the effect above)
+        const done = () => { ended = null; count(); };
+        ended = done;
+        map.once("moveend", done);  // before the move: Leaflet may end it at once
+        if (bringBack()) return;
+        map.off("moveend", done);
+        ended = null;
       }
-      if (col.current) col.current.dataset.sheetChecks = String(Number(col.current.dataset.sheetChecks || 0) + 1);
+      if (roomy()) seen.current = inSight();
+      count();
     };
     frame = requestAnimationFrame(check);
-    return () => { cancelAnimationFrame(frame); map.off("movestart", onMove); };
-  }, [snap, map, canvas]);
+    return () => {
+      cancelAnimationFrame(frame);
+      map.off("movestart move zoomstart", onMove);
+      if (ended) map.off("moveend", ended);
+    };
+  }, [snap, map]);
 }
 
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
@@ -509,15 +574,17 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     onChoose: setChoice, onToast: say});
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
-  useViewLink(view, canvas, line, nav, hashOf, padding, onMeasured);
+  // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
+  // today's page opens (the planner, fix round 1); a link that opens its line keeps the view's low start
+  useViewLink(view, canvas, line, nav, hashOf, padding, onMeasured, () => setSnap((s) => s === "peek" ? "half" : s));
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the
   // spots in view and their numbers follow)
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
-  useSheetKeeps(view, map, canvas, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"),
-                covered, padding);
+  useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
+                padding);
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {

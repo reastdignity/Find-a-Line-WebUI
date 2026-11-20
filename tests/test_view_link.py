@@ -9,6 +9,7 @@ the phone's width opens nothing again. Playwright's Edge over the app's server (
 site), offline, on the result view's clip run (clip_runs.view_clip), on a desktop and a phone. Every wait is an event
 with a deadline (one exception: test_shell_c_view_map._tap). Run from PowerShell (.claude/rules/browser-tests.md)."""
 
+import math
 import os
 import sys
 import threading
@@ -21,12 +22,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_public import account_settings  # noqa: E402,F401
 from test_shell_c import BIG  # noqa: E402
-from test_shell_c_view_map import (DESKTOP, PHONE, WAIT, _crowded, _open, _state, _tap, site,  # noqa: E402,F401
-                                   view_clip)
+from test_shell_c_view_map import (DESKTOP, PHONE, SIDE_PHONE, WAIT, _crowded, _open, _state, _tap,  # noqa: E402,F401
+                                   site, view_clip)
 from test_web import EDGE, _playwright  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
-                                reason="needs Microsoft Edge and Playwright (group ui)")
+# Every test but the words' starts a browser
+BROWSER = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
+                             reason="needs Microsoft Edge and Playwright (group ui)")
 
 # model.ts openLinked's notes (the view keeps today's words: viewlink.ts HIDDEN_NOTE, CLEAR_FILTERS)
 HIDDEN = "The line of the link is hidden by the filters."
@@ -87,9 +89,29 @@ window.K = {
             hash: decodeURIComponent(location.hash), history: history.length,
             note: m.note && [m.note.text, m.note.action || null], shown: note && note.textContent,
             measuredLink: m.measuredLink, measured: measured ? Math.round(measured.len) : null,
-            inView: sel ? this.inView(sel.row) : null, lenMin: m.filters.lenMin}; },
+            inView: sel ? this.inView(sel.row) : null, lenMin: m.filters.lenMin, snap: this.snap(), rest: this.rest()}; },
+  // a phone's sheet at rest: its height drawn as its stop gives it
+  rest() { const s = document.querySelector(".u-sheet"); return !!s && Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; },
+  // a phone's sheet: its stop (none on a desktop)
+  snap() { const s = document.querySelector(".u-sheet"); return s ? ["peek", "half", "full"].find((k) => s.classList.contains("u-" + k)) : null; },
 };
 """
+
+
+def test_note_words_are_models():
+    """viewlink.ts copies model.ts openLinked's note of a line the filters hide and its action word for word."""
+    import re
+    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "viewer", "src", "result")
+    with open(os.path.join(src, "view", "viewlink.ts"), encoding="utf-8") as f:
+        link = f.read().replace("\r\n", "\n")
+    with open(os.path.join(src, "model.ts"), encoding="utf-8") as f:
+        model = f.read().replace("\r\n", "\n")
+    hidden = re.search(r'export const HIDDEN_NOTE = "([^"]*)";', link).group(1)
+    clear = re.search(r'export const CLEAR_FILTERS = "([^"]*)";', link).group(1)
+    opened = model[model.index("  openLinked("):]
+    opened = opened[:opened.index("\n  }\n")]
+    assert f'this.note = {{text: "{hidden}", action: "{clear}", onAction:' in opened
+    assert (hidden, clear) == (HIDDEN, CLEAR)
 
 
 def _page(browser, url: str, context: dict, script: str = ""):
@@ -124,6 +146,7 @@ def _facts(browser, url: str, context: dict) -> dict:
     return facts
 
 
+@BROWSER
 @pytest.mark.parametrize("device", ["desktop", "phone"])
 def test_open_by_link_and_write(site, device):
     """Opened at a line's link the view selects that line (its spot, the line its selected row) and puts it in view
@@ -143,6 +166,7 @@ def test_open_by_link_and_write(site, device):
             s = _wait(page, "s.selected !== null")
             assert s["selected"] == [a["spot"], a["row"]] and s["inView"], s
             assert s["hash"] == f"#run={BIG}&line={a['link']}" and s["topOnly"], s
+            assert s["snap"] == ("peek" if device == "phone" else None), s  # a link that opens its line: the low start
             entries = s["history"]
 
             def selected_writes(how: str):
@@ -218,6 +242,7 @@ def test_open_by_link_and_write(site, device):
             browser.close()
 
 
+@BROWSER
 def test_crossing_the_phone_width_opens_nothing_again(site):
     """Desktop and Phone are made again for the same view when the window crosses the phone's width: the selection
     made after the link and the hash stay (the link is not opened again), both ways."""
@@ -244,6 +269,7 @@ def test_crossing_the_phone_width_opens_nothing_again(site):
             browser.close()
 
 
+@BROWSER
 @pytest.mark.parametrize("device", ["desktop", "phone"])
 def test_top_level_only(site, device):
     """A link to a line that "Top level only" alone hides: the chip is turned off and the line selected. The view's
@@ -270,6 +296,13 @@ def test_top_level_only(site, device):
                                "m.setFilters({...m.filters, lenMin: null}); m.setState({...m.state, showOver: false});"):
                     got = page.evaluate("() => { const {view} = window.FINDALINE_VIEW, m = view.model; %s return K.topRule(); }" % change)
                     assert got["bad"] == 0 and got["hidden"] == got["topHidden"], (change, got)
+                # ... and with "Only favourites" on: this line and a top-level line marked, the chip hides the first
+                page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+                got = page.evaluate("""async (rows) => { const {view} = window.FINDALINE_VIEW, m = view.model;
+                    for (const row of rows) await m.toggleFavourite(m.lineAt(row));
+                    m.setState({...m.state, showOver: true}); m.setFilters({...m.filters, favOnly: true});
+                    return {...K.topRule(), favourites: m.favouriteLines().length}; }""", [top["row"], facts["a"]["row"]])
+                assert got["favourites"] == 2 and got["bad"] == 0 and got["hidden"] == got["topHidden"] == 1, got
                 page.context.close()
             # the chip and a length filter: the note, the chip on; "clear filters" opens the line
             page = _page(browser, _app(site), context)
@@ -279,10 +312,8 @@ def test_top_level_only(site, device):
             assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
             assert hidden["topOnly"] is True, hidden
             assert hidden["hash"] == f"#run={BIG}&line={top['link']}", hidden  # kept while nothing is selected
-            if device == "phone":  # the note stands in the sheet's body (the list's head): the sheet raised to half
-                page.focus(".u-sheet-handle")
-                page.keyboard.press("ArrowUp")
-                page.wait_for_selector(".u-sheet.u-half", timeout=WAIT)
+            if device == "phone":  # the note stands in the sheet's body (the list's head): the link raised it to half
+                hidden = _wait(page, "s.snap === 'half'")
             assert hidden["shown"].startswith(HIDDEN)
             page.click(f".vl-summary .r-note button:text-is('{CLEAR}')")
             cleared = _wait(page, "s.selected !== null")
@@ -294,6 +325,7 @@ def test_top_level_only(site, device):
             browser.close()
 
 
+@BROWSER
 @pytest.mark.parametrize("device", ["desktop", "phone"])
 def test_hidden_missing_and_measured(site, device):
     """As on today's page: a line other filters hide gets the note "hidden by the filters" with "clear filters" (the
@@ -314,6 +346,8 @@ def test_hidden_missing_and_measured(site, device):
             hidden = _wait(page, "s.note !== null")
             assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
             assert hidden["topOnly"] is True and hidden["hash"] == f"#run={BIG}&line={a['link']}", hidden
+            if device == "phone":  # the note: the sheet at half shows it (pressed once the sheet rests, as a person would)
+                _wait(page, "s.snap === 'half' && s.rest")
             page.evaluate("() => window.FINDALINE_VIEW.view.model.note.onAction()")
             opened = _wait(page, "s.selected !== null")
             assert opened["selected"] == [a["spot"], a["row"]] and opened["note"] is None and opened["topOnly"] is True
@@ -345,6 +379,35 @@ def test_hidden_missing_and_measured(site, device):
             browser.close()
 
 
+# The server's profile refused (a link outside the run cannot be measured)
+PROFILE_FAILS = """
+const realFetchOfFails = window.fetch;
+window.fetch = (url, init) => String(url).startsWith("/api/profile")
+  ? Promise.resolve(new Response(JSON.stringify({detail: "no profile here"}), {status: 400, headers: {"content-type": "application/json"}}))
+  : realFetchOfFails(url, init);
+"""
+
+
+@BROWSER
+def test_phone_note_raises_the_sheet(site):
+    """A phone opened at a link that ends in a note raises its sheet from the low start to half, where the note stands:
+    a line not in the run, a line outside it whose measurement fails (the note comes later); a link that opens its
+    line keeps the low start (test_open_by_link_and_write)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for line, note in (("1,2,3", NOT_HERE), (OUTSIDE, "The line of the link could not be measured: ")):
+                page = _page(browser, _app(site, line), PHONE, PROFILE_FAILS)
+                s = _wait(page, "s.note !== null && s.snap === 'half'")
+                assert s["note"][0].startswith(note) and s["selected"] is None and s["shown"].startswith(note), s
+                assert page.errors == []
+                page.context.close()
+        finally:
+            browser.close()
+
+
+@BROWSER
 @pytest.mark.parametrize("device", ["desktop", "phone"])
 def test_map_page(site, device):
     """A run's map.html over http: #line= opens the line; a selection writes #line=… in place, none leaves no hash; a
@@ -415,19 +478,23 @@ def share_site(tmp_path, view_clip, account_settings):
         thread.join(10)
 
 
+@BROWSER
 @pytest.mark.parametrize("device", ["desktop", "phone"])
 def test_share_page(share_site, device):
     """A share link's page (/s/<token>/map.html) behaves as the map's: #line= opens the line in view; a selection
     writes #line=… in place, none leaves no hash; a hashchange opens the new link; a line "Top level only" alone hides
-    turns the chip off; a link to no line of the run gets today's note."""
+    turns the chip off; a link to no line of the run gets today's note, and so does a line outside the run (a share
+    page asks no profiles); a line other filters hide gets today's note, whose "clear filters" opens it; Back and
+    Forward open the links again."""
     from playwright.sync_api import sync_playwright
     context = DESKTOP if device == "desktop" else PHONE
+    hash_of = lambda link: "#line=" + urllib.parse.quote(link, safe="")  # noqa: E731
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             facts = _facts(browser, share_site, context)
             a, b, top = facts["a"], facts["b"], facts["top"]
-            page = _page(browser, f"{share_site}#line={urllib.parse.quote(a['link'], safe='')}", context)
+            page = _page(browser, f"{share_site}{hash_of(a['link'])}", context, PROFILE_STUB)
             s = _wait(page, "s.selected !== null")
             assert s["selected"] == [a["spot"], a["row"]] and s["inView"] and s["hash"] == f"#line={a['link']}", s
             assert page.evaluate("() => window.FINDALINE_RUNS === undefined || window.FINDALINE_RUNS.length === 0")
@@ -444,6 +511,32 @@ def test_share_page(share_site, device):
             missing = _wait(page, "s.note !== null")
             assert missing["note"] == [NOT_HERE, None] and missing["selected"] == lifted["selected"], missing
             assert missing["hash"] == f"#line={top['link']}", missing
+            # a line outside the run: no profile asked (FINDALINE_APP.profiles is false there), today's note, no hash
+            page.keyboard.press("Escape")
+            page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
+            page.evaluate("(hash) => { location.hash = hash; }", hash_of(OUTSIDE))
+            outside = _wait(page, "s.note !== null && s.hash === ''")
+            assert outside["note"] == [NOT_HERE, None] and outside["measuredLink"] is None, outside
+            assert outside["selected"] is None and page.evaluate("() => PROFILE_ASKS") == []
+            # hidden by another filter: today's note; its "clear filters" opens the line
+            page.evaluate("() => window.FINDALINE_VIEW.view.model.setNote(null)")
+            page.evaluate(LONGER, a["len"])
+            page.evaluate("(hash) => { location.hash = hash; }", hash_of(a["link"]))
+            hidden = _wait(page, "s.note !== null" + (" && s.snap === 'half'" if device == "phone" else ""))
+            assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
+            assert hidden["hash"] == f"#line={a['link']}" and hidden["shown"].startswith(HIDDEN), hidden
+            page.click(f".vl-summary .r-note button:text-is('{CLEAR}')")
+            cleared = _wait(page, f"s.selected !== null && s.selected[1] === {a['row']}")
+            assert cleared["note"] is None and cleared["lenMin"] is None and cleared["hash"] == f"#line={a['link']}"
+            # Back and Forward
+            page.evaluate("(hash) => { location.hash = hash; }", hash_of(b["link"]))
+            _wait(page, f"s.selected !== null && s.selected[1] === {b['row']}")
+            page.go_back()
+            back = _wait(page, f"s.selected !== null && s.selected[1] === {a['row']}")
+            assert back["hash"] == f"#line={a['link']}" and back["inView"], back
+            page.go_forward()
+            forward = _wait(page, f"s.selected !== null && s.selected[1] === {b['row']}")
+            assert forward["hash"] == f"#line={b['link']}" and forward["inView"], forward
             assert page.errors == []
         finally:
             browser.close()
@@ -463,6 +556,18 @@ window.S = {
     const top = document.querySelector(".v-map .v-switch").getBoundingClientRect().bottom - T.box().top; return e[1] >= top && e[3] >= top; },
   // ... and clear of the whole bar (under the switch, above the foot): K.inView
   clear() { const sel = T.v().view.selected; return sel ? K.inView(sel.row) : null; },
+  // ... and above the data credits band (a press on an anchor there would open a credit's link)
+  credits() { const sel = T.v().view.selected; if (!sel) return null; const e = T.ends(sel.row), c = this.creditsTop();
+    return c === null || (e[1] <= c && e[3] <= c); },
+  // the credits band's top, px of the map's box (null: no band)
+  creditsTop() { const r = document.querySelector(".v-map .leaflet-control-attribution")?.getBoundingClientRect();
+    return r && r.width && r.height ? r.top - T.box().top : null; },
+  // the room a line is brought into: the map's width, from under the switch to the credits band's top (or the sheet)
+  room() { const sw = document.querySelector(".v-map .v-switch").getBoundingClientRect(), top = Math.round(sw.bottom - T.box().top) + 4;
+    const c = this.creditsTop(), f = T.free(); return {width: f[2], top, bottom: c !== null && c > top && c < f[3] ? c : f[3]}; },
+  // the selected line's width and height on the screen, px
+  extent() { const e = T.ends(T.v().view.selected.row); return [Math.abs(e[2] - e[0]), Math.abs(e[3] - e[1])]; },
+  level() { const {view} = T.v(); return [view.level, view.auto]; },
   centre() { const c = window.FINDALINE_MAP.latLngToContainerPoint(window.FINDALINE_MAP.getCenter()); return [c.x, c.y]; },
   where() { const m = window.FINDALINE_MAP, c = m.getCenter(); return [c.lat, c.lng, m.getZoom()]; },
   // the lowest number on the map (B or P: a press selects its line): the line a sheet that rises covers first
@@ -485,15 +590,20 @@ def _rested(page, snap: str) -> dict:
     page.wait_for_function("(n) => +(document.querySelector('.v-map').dataset.sheetChecks || 0) > n",
                            arg=page.evaluate("() => window.CHECKS_BEFORE || 0"), timeout=WAIT)
     page.evaluate("() => T.frames()")
-    return page.evaluate("() => ({seen: S.seen(), under: S.under(), clear: S.clear(), where: S.where(), snap: S.snap(), "
-                         "free: T.free(), checks: +(document.querySelector('.v-map').dataset.sheetChecks || 0)})")
+    return page.evaluate("() => ({seen: S.seen(), under: S.under(), clear: S.clear(), credits: S.credits(), "
+                         "where: S.where(), snap: S.snap(), free: T.free(), room: S.room(), level: S.level(), "
+                         "moves: window.MOVES, checks: +(document.querySelector('.v-map').dataset.sheetChecks || 0)})")
 
 
 def _mark_checks(page):
-    """Note the frame's count of sheet checks before a change of the sheet."""
-    page.evaluate("() => { window.CHECKS_BEFORE = +(document.querySelector('.v-map').dataset.sheetChecks || 0); }")
+    """Note the frame's count of sheet checks before a change of the sheet, and count the map's `move` events from
+    now on (an animated pan fires one per frame, a jump one)."""
+    page.evaluate("() => { window.CHECKS_BEFORE = +(document.querySelector('.v-map').dataset.sheetChecks || 0); "
+                  "window.MOVES = 0; if (window.MOVES_ON !== window.FINDALINE_MAP) { window.MOVES_ON = window.FINDALINE_MAP; "
+                  "window.FINDALINE_MAP.on('move', () => { window.MOVES++; }); } }")
 
 
+@BROWSER
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
 @pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
 def test_sheet_rises(site, tmp_path, device, engine):
@@ -522,7 +632,7 @@ def test_sheet_rises(site, tmp_path, device, engine):
             _tap(page, number["x"], number["y"])
             page.wait_for_function("() => window.FINDALINE_VIEW.view.selected !== null", timeout=WAIT)
             page.evaluate("() => T.frames()")
-            low =page.evaluate("() => ({seen: S.seen(), where: S.where(), free: T.free()})")
+            low = page.evaluate("() => ({seen: S.seen(), where: S.where(), free: T.free()})")
             page.screenshot(path=str(shots / f"{name}-1-low.png"))
             assert low["seen"], low
             # the sheet raised to half by a tap on its handle
@@ -531,9 +641,11 @@ def test_sheet_rises(site, tmp_path, device, engine):
             half = _rested(page, "half")
             page.screenshot(path=str(shots / f"{name}-2-half.png"))
             print(f"{device}: low {low}, half {half}")
-            # in sight under the top bar and the switch, at the same zoom (clear of the foot too where it fits there)
-            assert half["seen"] and half["under"] and half["where"][2] == low["where"][2], (low, half)
+            # in sight under the top bar and the switch and above the credits band, at the same zoom (clear of the foot
+            # too where it fits there), by an animated pan (a move event per frame)
+            assert half["seen"] and half["under"] and half["credits"] and half["where"][2] == low["where"][2], (low, half)
             assert half["where"] != low["where"]  # the map moved: the line was under the sheet (verified, 2026-11-20)
+            assert half["moves"] >= 3, half
             # full: the map shows nothing above the sheet; it does not move
             _mark_checks(page)
             _handle_tap(page)
@@ -599,13 +711,14 @@ window.P = {
 """
 
 
+@BROWSER
 @pytest.mark.skipif(not _playwright(), reason="needs Playwright with Chromium and WebKit (group ui)")
 @pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
 def test_sheet_moves(site, device, engine):
     """The sheet's other ways: raised twice at once to full (the first stop's check never made) and lowered to half,
     the line selected low comes back into sight there; a short line near the sheet comes back clear of the whole bar
-    (under the switch, above the foot); a line too tall for the part above the sheet at half is fitted by the frame's
-    zoomTo (the zoom changes) and is in sight."""
+    (under the switch, above the foot); a line too tall for the room at half (under the switch, above the credits
+    band) is fitted into it by the least zoom out (Leaflet's quarter steps) and is in sight."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         kind = getattr(p, engine)
@@ -637,7 +750,7 @@ def test_sheet_moves(site, device, engine):
             _mark_checks(page)
             page.keyboard.press("ArrowDown")
             half = _rested(page, "half")
-            assert half["seen"] and half["under"] and half["where"][2] == low["where"][2], (low, half)
+            assert half["seen"] and half["under"] and half["credits"] and half["where"][2] == low["where"][2], (low, half)
             page.context.close()
             # a short line just above the low sheet: clear of the whole bar at half, the same zoom
             page = fresh()
@@ -651,16 +764,148 @@ def test_sheet_moves(site, device, engine):
             assert clear["clear"] and clear["where"][2] == before["where"][2], clear
             assert clear["where"] != before["where"], clear  # it was under the sheet: the map moved
             page.context.close()
-            # a line too tall for the part above the sheet at half: the frame's zoomTo, in sight
+            # a line too tall for the room at half: the least zoom out that fits it there (16 px margins), in sight
             page = fresh()
             page.evaluate("() => P.steep()")
             page.evaluate("() => T.frames()")
-            before = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
+            before = page.evaluate("() => ({seen: S.seen(), where: S.where(), extent: S.extent(), level: S.level()})")
             assert before["seen"], before
             _mark_checks(page)
             _handle_tap(page)
             fitted = _rested(page, "half")
-            assert fitted["seen"] and fitted["where"][2] < before["where"][2], (before, fitted)
+            room = fitted["room"]
+            need =math.log2(min((room["width"] - 32) / before["extent"][0], (room["bottom"] - room["top"] - 32) / before["extent"][1]))
+            z0, z1 = before["where"][2], fitted["where"][2]
+            print(f"{device}: zoom {z0} -> {z1} (the room needs {need:+.2f}: {room}); level {before['level']} -> {fitted['level']}")
+            assert z0 + need - 0.25 - 1e-6 <= z1 <= z0 + need + 1e-6, (before, fitted, need)
+            assert fitted["seen"] and fitted["under"] and fitted["credits"], fitted
             assert [e for e in page.errors if not e.startswith("ResizeObserver loop")] == []
+        finally:
+            browser.close()
+
+
+def _sheet_page(browser, site, context):
+    """The app's page of the run in the view, the sheet low and at rest, with the sheet's and the placing helpers."""
+    page = _page(browser, _app(site), context, SHEET + PLACE + GLIDE)
+    page.wait_for_function("() => S.snap() === 'peek' && S.rest()", timeout=WAIT)
+    page.evaluate("() => T.frames()")
+    return page
+
+
+@BROWSER
+@pytest.mark.parametrize("height", [375, 360])
+def test_sheet_room_band(site, height):
+    """A phone on its side (667 px wide): the room under the switch and above the credits band at half is smaller than
+    a zoom needs (the code review's F2): a short line just above the low sheet comes into it at the same zoom."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _sheet_page(browser, site, {**SIDE_PHONE, "viewport": {"width": 667, "height": height}})
+            page.evaluate("() => P.short(30)")
+            page.evaluate("() => T.frames()")
+            before = page.evaluate("() => ({seen: S.seen(), where: S.where()})")
+            assert before["seen"], before
+            _mark_checks(page)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            half = _rested(page, "half")
+            room = half["room"]["bottom"] - half["room"]["top"]
+            print(f"{height}: room at half {room:.0f} px, zoom {before['where'][2]} -> {half['where'][2]}")
+            assert room - 32 < 48, half  # the band: too small for a zoom
+            assert half["where"][2] == before["where"][2] and half["seen"] and half["credits"], (before, half)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+# A finger's drag as Leaflet fires it (movestart and dragstart, a pan, dragend; no moveend), then its glide (panBy
+# without movestart, `ms` long), and the sheet's handle pressed at once: the code review's stand-in (F1)
+GLIDE = r"""
+window.G = {
+  drag(dy, glide, ms) { const m = window.FINDALINE_MAP;
+    window.GLIDE_END = null;
+    m.fire('movestart'); m.fire('dragstart'); m._rawPanBy([0, dy]); m.fire('move'); m.fire('drag'); m.fire('dragend');
+    m.once('moveend', () => { window.GLIDE_END = S.where(); });
+    m.panBy([0, glide], {animate: true, duration: ms / 1000, easeLinearity: 0.2, noMoveStart: true});
+    document.querySelector('.u-sheet-handle').click(); },
+};
+"""
+
+
+@BROWSER
+@pytest.mark.parametrize("ms", [100, 160])
+def test_sheet_glide(site, ms):
+    """A line in sight moved out of sight by a drag whose glide is still going when the sheet's handle is pressed: the
+    person's move, kept (the map stays where the glide ends)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _sheet_page(browser, site, PHONE)
+            page.evaluate("() => P.short(300)")
+            page.evaluate("() => T.frames()")
+            assert page.evaluate("() => S.seen()")
+            _mark_checks(page)
+            page.evaluate(f"() => G.drag(-400, -40, {ms})")
+            page.wait_for_function("() => window.GLIDE_END !== null", timeout=WAIT)
+            half = _rested(page, "half")
+            assert half["where"] == page.evaluate("() => window.GLIDE_END") and half["seen"] is False, half
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+# The sheet slowed down to 6 s (the CSSOM: the page's CSP allows no style element), and when the frame's count of
+# checks moves on: the time and whether the sheet rested then
+SLOW = r"""() => { const col = document.querySelector('.v-map');
+  window.CAP = {at: null, rest: null, tapped: performance.now(), col, checks: +(col.dataset.sheetChecks || 0)};
+  new MutationObserver(() => { if (CAP.at === null) { CAP.at = performance.now(); CAP.rest = S.rest(); } })
+    .observe(col, {attributes: true, attributeFilter: ['data-sheet-checks']});
+  document.querySelector('.u-sheet').style.transition = 'height 6s linear';
+  document.querySelector('.u-sheet-handle').click(); }"""
+
+
+@BROWSER
+def test_sheet_rest_cap(site):
+    """A sheet that does not come to rest (its move slowed to 6 s): the check is made once SHEET_REST_MS (1.5 s) has
+    passed, while the sheet still moves."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _sheet_page(browser, site, PHONE)
+            page.evaluate(SLOW)
+            page.wait_for_function("() => CAP.at !== null", timeout=WAIT)
+            cap = page.evaluate("() => ({after: CAP.at - CAP.tapped, rest: CAP.rest})")
+            assert 1400 <= cap["after"] < 5000 and cap["rest"] is False, cap
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+@BROWSER
+def test_sheet_unmount_while_waiting(site):
+    """The result page left (Home) while the check waits for the sheet to rest: no error, no move of the map and no
+    check after. The one wait for a time here is the check's own limit (1.5 s, then 0.5 s more): only the time can
+    show that nothing comes after it."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _sheet_page(browser, site, PHONE)
+            page.evaluate("() => P.short(30)")  # a line the sheet at half covers
+            page.evaluate("() => T.frames()")
+            # the old map's moves and the hook's two ways of moving it, counted
+            page.evaluate("""() => { const m = window.FINDALINE_MAP; window.OLD = {moves: 0, calls: 0};
+                m.on('movestart', () => { OLD.moves++; });
+                for (const name of ['panBy', 'fitBounds']) { const own = m[name]; m[name] = function (...a) { OLD.calls++; return own.apply(this, a); }; } }""")
+            page.evaluate(SLOW)
+            page.evaluate("() => { location.hash = '#home'; }")
+            page.wait_for_function("() => !document.querySelector('.v-map') && !!document.querySelector('.c-home-main, .c-cards')",
+                                   timeout=WAIT)
+            page.wait_for_function("() => performance.now() - CAP.tapped > 2000", timeout=WAIT)
+            assert page.evaluate("() => [OLD.moves, OLD.calls, CAP.at]") == [0, 0, None]
+            assert page.errors == []
         finally:
             browser.close()

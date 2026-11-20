@@ -11,7 +11,8 @@
 //   back to all, then the link opened again), the link kept in the address while nothing is selected;
 // - a line not among the run's: model.openLinked as on today's page (measured where the page may ask profiles: the
 //   line handed to the frame, the link's key in model.measuredLink and in the address; else today's note).
-// The notes show where the view shows model.note (SpotSummary's ResultNote). The selection goes into the hash
+// The notes show where the view shows model.note (SpotSummary's ResultNote); a link that ends in one tells the frame
+// (`onNote`: a phone raises its sheet to half, where the note shows). The selection goes into the hash
 // (history.replaceState: never a new entry; only while the hash is this run's page); no selection writes the run's
 // hash without a line (on a map's page: the address without a hash), but for the link of a line the filters hide or
 // of a measured line, which stays. A new selection ends a measured line (today's useMeasureEnds). The route is opened
@@ -69,6 +70,7 @@ interface Frame {
   padding(): Padding;
   onMeasured(l: Line | null): void;
   hashOf: ResultColumnsProps["hashOf"];
+  onNote?(): void;
 }
 
 /** The frame that draws each view now: a link opened later (a note's action, a measurement that ends) reaches the
@@ -83,12 +85,13 @@ function showRow(view: SpotView, row: number) {
 
 /** The route's line opened in the view once the canvas is there (`map`), the selection written into the hash from
  *  then on. `padding()`: the frame's padding of a move; `onMeasured`: the frame keeps a measured line (null: a new
- *  selection ended it). */
+ *  selection ended it); `onNote`: the link ended in a note (hidden by the filters, not in the run, or its
+ *  measurement failed; a phone raises its sheet to show it). */
 export function useViewLink(view: SpotView, map: SpotMap | null, line: string | null, nav: number,
                             hashOf: ResultColumnsProps["hashOf"], padding: () => Padding,
-                            onMeasured: (l: Line | null) => void) {
-  const latest = useRef<Frame>({map, padding, onMeasured, hashOf});
-  latest.current = {map, padding, onMeasured, hashOf};
+                            onMeasured: (l: Line | null) => void, onNote?: () => void) {
+  const latest = useRef<Frame>({map, padding, onMeasured, hashOf, onNote});
+  latest.current = {map, padding, onMeasured, hashOf, onNote};
   useEffect(() => {
     frames.set(view, latest);
     return () => { if (frames.get(view) === latest) frames.delete(view); };
@@ -101,7 +104,21 @@ export function useViewLink(view: SpotView, map: SpotMap | null, line: string | 
     opened.set(view, key);
     const sel = view.selected;
     if (sel && view.model.lineLink(sel.line) === linkOf(line)) return;  // selected already
-    openLink(view, line, (row) => showRow(view, row), (l) => frames.get(view)?.current.onMeasured(l));
+    let waiting: (() => void) | null = null;  // the wait for a measurement's outcome
+    const end = () => { waiting?.(); waiting = null; };
+    const row = openLink(view, line, (r) => showRow(view, r), (l) => { end(); frames.get(view)?.current.onMeasured(l); });
+    const model = view.model, noted = () => frames.get(view)?.current.onNote?.();
+    if (row >= 0) return;
+    if (model.note) { noted(); return; }  // hidden by the filters, or not in the run
+    const measuring = model.measuredLink;
+    if (!measuring) return;
+    // a measurement under way: a failure is a note too (a success, or a selection, ends the wait)
+    waiting = view.subscribe(() => {
+      if (model.measuredLink === measuring) return;
+      end();
+      if (model.note) noted();
+    });
+    return end;
   }, [view, map, line, nav]);  // nav: Back or Forward to the same link opens it again
   useEffect(() => {
     if (!map) return;
