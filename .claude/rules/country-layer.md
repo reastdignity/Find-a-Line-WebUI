@@ -102,3 +102,10 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
   `remove_stale` (the builder at its end, `web.Countries` once it dropped an old build's maps) removes only build
   folders older than the named one and a cube built before's `ARRAY_FILES`, never a link; `deploy/push-cube.sh` copies
   the named build by the same pattern (`tests/test_deploy.py::test_push_cube_copies_the_named_build`).
+- The explorer's charts (`viewer/src/app/c/c.css`): one `@container layer-hist` rule per count of bars, 1 to 24, each at
+  32 px a bar (`tests/test_layer_page_layout.py::test_one_container_rule_per_count_of_bars`): a cube with a dimension
+  of more bins needs more rules (`LayerHistograms.tsx` `data-bars`, `--bars`). The `@container layer-right` threshold
+  (432 px of content: two charts a row) goes with the right panel's default width (`result/view/layout.ts`
+  `DEFAULT_LAYER_LAYOUT`: 485 = 432 + 32 of padding + 1 of edge + 15 of scrollbar + 5 to spare): move them together.
+  The layer's map keeps `position: relative` in its base rule (Leaflet writes it inline on a static map, which then
+  outranks the phone's sticky map).

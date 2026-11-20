@@ -176,8 +176,9 @@ run of more than `MAX_LINES` lines its box and count only, a failure the card's 
 `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
 (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,
 `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
-and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales, list of the
-areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
+and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales and drawn stars, list of the
+areas: a table, on a phone one row per area with the card as a sheet over the list, which keeps its place, and a
+header that scrolls away; a row too for a country covered only in some regions), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
 by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
 the `translator` of both catalogues (so coverage.js holds only its own); `ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
