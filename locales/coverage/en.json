@@ -162,6 +162,7 @@
   "page.scale": "Quality scale",
   "page.rest": "The detailed data of this country does not reach this part: here it is the global 30 m data.",
   "page.list.title": "All areas with detailed data",
+  "page.list.rest": "rest of the country",
   "page.list.lead": "The same as the map, in words. Choose an area to open its card.",
   "page.col.area": "Country or region",
   "page.trees.yes": "Known",
