@@ -36,12 +36,17 @@ B_HELPERS = r"""
 window.B = {
   // the drawing calls of one full redraw of the canvas: each fill, stroke and text with its colours, dashes, width and
   // alpha, in order (the canvas's own context, its methods wrapped for the one redraw)
-  ops() { const {map} = window.FINDALINE_VIEW, ctx = document.querySelector('.v-canvas').getContext('2d'), log = [], keep = {};
-    for (const name of ['fill', 'stroke', 'fillText', 'strokeText']) { keep[name] = ctx[name];
-      ctx[name] = function (...a) { log.push({op: name, stroke: String(this.strokeStyle), fill: String(this.fillStyle),
-        dash: this.getLineDash().join(','), width: this.lineWidth, alpha: Math.round(this.globalAlpha * 1000) / 1000,
-        text: name.endsWith('Text') ? String(a[0]) : null}); return keep[name].apply(this, a); }; }
-    try { map.refresh(); } finally { for (const name of Object.keys(keep)) delete ctx[name]; }
+  // (the context's methods wrapped on its prototype for the one call, so the canvas's own layer of the other runs, a
+  // canvas outside the page, is recorded too: `on` "main" for the map's canvas, "layer" for one outside the page;
+  // a drawImage is recorded as well)
+  ops(f) { const {map} = window.FINDALINE_VIEW, P = CanvasRenderingContext2D.prototype, log = [], keep = {};
+    for (const name of ['fill', 'stroke', 'fillText', 'strokeText', 'drawImage']) { keep[name] = P[name];
+      P[name] = function (...a) { const on = this.canvas.classList.contains('v-canvas') ? 'main' : this.canvas.isConnected ? null : 'layer';
+        if (on) log.push({op: name, on, stroke: String(this.strokeStyle), fill: String(this.fillStyle),
+          dash: this.getLineDash().join(','), width: this.lineWidth, alpha: Math.round(this.globalAlpha * 1000) / 1000,
+          text: name.endsWith('Text') ? String(a[0]) : null});
+        return keep[name].apply(this, a); }; }
+    try { (f || (() => map.refresh()))(); } finally { for (const name of Object.keys(keep)) P[name] = keep[name]; }
     return log; },
   // a colour as the canvas reads it back
   colour(c) { const x = document.createElement('canvas').getContext('2d'); x.fillStyle = c; return String(x.fillStyle); },
@@ -444,8 +449,15 @@ def test_other_runs_apart(site):
             assert lines and max(j for j in mine) < first and {o["alpha"] for o in lines} == {0.9}
             assert {o["dash"] for o in lines} <= {"", "6,4"} and (page.evaluate("() => window.FINDALINE_VIEW.view.model.data.columns.over.some((v) => v)") is False
                                                                   or "6,4" in {o["dash"] for o in lines})
+            image = min(j for j, o in enumerate(ops) if o["op"] == "drawImage" and o["on"] == "main")
+            assert all(ops[j]["on"] == "layer" for j in mine) and max(mine) < image < first  # its layer copied in under this run
             ops = page.evaluate("() => { window.FINDALINE_VIEW.view.select(window.FINDALINE_VIEW.view.order[0]); return B.ops(); }")
             assert {o["alpha"] for o in ops if o["op"] == "stroke" and o["stroke"] == B_colour(page, colour) and o["width"] == 2.5} == {0.27}
+            # a hover paint copies the kept layer in: none of the other run's lines is drawn again
+            hover = page.evaluate("() => { const {view, map} = window.FINDALINE_VIEW; return B.ops(() => map.highlight(view.shownOf(view.order[1]))); }")
+            assert not any(o["on"] == "layer" for o in hover) and any(o["op"] == "drawImage" and o["on"] == "main" for o in hover)
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [{"id": OTHER_ID, "lines": n}]
+            page.evaluate("() => window.FINDALINE_VIEW.map.highlight(null)")
             # never pressable: a point on its line far from this run's lines does what an empty point does
             at = page.evaluate("""([dlon]) => { const {map} = window.FINDALINE_VIEW, box = T.box();
                 for (const [ax, ay, bx, by] of B.otherEnds(dlon)) for (let t = 0.2; t < 0.85; t += 0.1) { const x = ax + (bx - ax) * t, y = ay + (by - ay) * t;

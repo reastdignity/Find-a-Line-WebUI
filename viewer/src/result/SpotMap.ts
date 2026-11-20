@@ -272,6 +272,7 @@ export class SpotMap {
   private readonly area: {rings: Float64Array[]; box: L.LatLngBounds | null};  // the run's search area
   private otherRuns: OtherRunDrawn[] = [];  // Compare's other runs, as drawn now
   private othersKey = "";                   // what otherRuns was made for
+  private otherLayer: {canvas: HTMLCanvasElement; key: string; drew: {id: string; lines: number}[]} | null = null;
   private coveredPx = 0;                    // the frame's box over the map's bottom (setCovered)
   private measuring: ((a: L.LatLng, b: L.LatLng) => void) | null = null;
   private measured: L.LatLng[] = [];        // the measurement's points drawn (0, 1 or 2)
@@ -673,34 +674,57 @@ export class SpotMap {
         drew.outline = true;
         if (full && this.ringsCross(this.area.rings)) shapes.area = true;
       }
-      for (const run of this.others()) {
-        let inSight = false;
-        if (run.rings.length) {
-          this.traceRings(ctx, run.rings);
-          ctx.globalAlpha = 1; ctx.lineWidth = OUTLINE_PX; ctx.strokeStyle = run.color; ctx.setLineDash(OUTLINE_DASH);
-          ctx.stroke();
-          inSight = full && this.ringsCross(run.rings);
-        }
-        ctx.lineWidth = OTHER_PX; ctx.globalAlpha = OTHER_ALPHA * dim; ctx.strokeStyle = run.color;
-        let lines = 0;
-        for (const kind of [1, 0]) {
-          ctx.setLineDash(kind ? OTHER_DASH : []);
-          ctx.beginPath();
-          let n = 0;
-          for (let i = 0; i < run.n; i++) {
-            if (!run.ok[i] || run.over[i] !== kind) continue;
-            this.otherEnds(run, i, p);
-            ctx.moveTo(p[0], p[1]); ctx.lineTo(p[2], p[3]);
-            n++;
-            if (full && !inSight) inSight = seen(p[0], p[1], p[2], p[3]);
+      const runs_ = this.others();
+      if (!runs_.length) { this.otherLayer = null; return; }
+      // the other runs' picture is kept (a canvas of its own) and copied in on the paints that change none of it (a
+      // hover, the flash, the profile's point): their raster is the costly part (every passing line at 2.5 px)
+      const key = `${this.othersKey}|${min.x},${min.y},${size.x},${size.y},${m},${dim},${this.scale},${this.ox},${this.oy}`;
+      const cache = this.otherLayer;
+      if (!full && cache && cache.key === key) {
+        drew.others = cache.drew.map((o) => ({...o}));
+      } else {
+        const layer = cache?.canvas ?? document.createElement("canvas");
+        layer.width = ctx.canvas.width; layer.height = ctx.canvas.height;
+        const o = layer.getContext("2d")!;
+        o.setTransform(m, 0, 0, m, -min.x * m, -min.y * m);
+        o.lineCap = "round";
+        const counts: {id: string; lines: number}[] = [];
+        for (const run of runs_) {
+          let inSight = false;
+          if (run.rings.length) {
+            this.traceRings(o, run.rings);
+            o.globalAlpha = 1; o.lineWidth = OUTLINE_PX; o.strokeStyle = run.color; o.setLineDash(OUTLINE_DASH);
+            o.stroke();
+            inSight = full && this.ringsCross(run.rings);
           }
-          if (n) ctx.stroke();
-          lines += n;
+          o.lineWidth = OTHER_PX; o.globalAlpha = OTHER_ALPHA * dim; o.strokeStyle = run.color;
+          let lines = 0;
+          for (const kind of [1, 0]) {
+            o.setLineDash(kind ? OTHER_DASH : []);
+            o.beginPath();
+            let n = 0;
+            for (let i = 0; i < run.n; i++) {
+              if (!run.ok[i] || run.over[i] !== kind) continue;
+              this.otherEnds(run, i, p);
+              o.moveTo(p[0], p[1]); o.lineTo(p[2], p[3]);
+              n++;
+              if (full && !inSight) inSight = seen(p[0], p[1], p[2], p[3]);
+            }
+            if (n) o.stroke();
+            lines += n;
+          }
+          o.setLineDash([]); o.globalAlpha = 1;
+          counts.push({id: run.id, lines});
+          if (inSight) runs.push({id: run.id, name: run.name, color: run.color});
         }
-        ctx.setLineDash([]); ctx.globalAlpha = 1;
-        drew.others.push({id: run.id, lines});
-        if (inSight) runs.push({id: run.id, name: run.name, color: run.color});
+        this.otherLayer = {canvas: layer, key, drew: counts};
+        drew.others = counts.map((c) => ({...c}));
       }
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.drawImage(this.otherLayer!.canvas, 0, 0);
+      ctx.restore();
     };
 
     if (level === "area") {
