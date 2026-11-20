@@ -488,8 +488,9 @@ def test_rails_lead_their_counts_with_a_colon(site):
 
 
 def test_a_narrow_chart_bar_shows_its_count_on_focus(site):
-    """The fix round's point 11. Every bar that can be picked has an accessible name, its tooltip's words (its
-    range and its count: "30–60 m: 5,656,181 lines"), and its short count in data-count. In the phone's frame with
+    """The fix round's point 11. Every bar that can be picked has an accessible name, the short count it writes
+    and its tooltip's words (its range and its count: "5.7M, 30–60 m: 5,656,181 lines"; a bar of none: the tooltip's
+    words alone), and its short count in data-count. In the phone's frame with
     a keyboard (390 x 664, no touch), where no small chart shows its counts, a bar reached by real presses of Tab
     (the length chart's first, then a six-bar chart's first) shows its own count as a raised label at the chart's
     top (its ::after: content its data-count) and its fill keeps its height; in that chart enlarged by the keyboard
@@ -501,7 +502,10 @@ def test_a_narrow_chart_bar_shows_its_count_on_focus(site):
     bars = page.evaluate(BARS_JS)
     assert len(bars) >= 60 and {b["hist"] for b in bars}.isdisjoint(OFF), len(bars)
     for bar in bars:
-        assert bar["label"] == bar["title"] and re.search(r": [\d,]+ lines$", bar["label"]), bar
+        # the name begins with the count the bar writes (shown where its chart has room: a label in its name, axe's
+        # label-content-name-mismatch), then its tooltip's words
+        assert bar["label"] == (f'{bar["written"]}, {bar["title"]}' if bar["written"] else bar["title"]), bar
+        assert re.search(r": [\d,]+ lines$", bar["label"]), bar
         assert bar["count"] and (bar["count"] == bar["written"] or (bar["value"] == 0 and bar["count"] == "0" and bar["written"] == "")), bar
     fills = page.evaluate(FILLS_JS)
 
