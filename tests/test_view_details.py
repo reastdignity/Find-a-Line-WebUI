@@ -44,6 +44,12 @@ window.fetch = (url, init) => {
   if (window.FAIL_SAVES && /\\/favourites$/.test(String(url)) && init && init.method === "POST") {
     return Promise.resolve(new Response(JSON.stringify({detail: "the test refuses it"}), {status: 500, headers: {"content-type": "application/json"}}));
   }
+  // the run's favourites asked for (ResultModel.loadRunFavourites): FAVOURITES_ANSWER is "ok" (the model then marks
+  // the page as keeping favourites) or "refused"
+  if (/\\/api\\/runs\\/[^/]+\\/favourites$/.test(String(url)) && !(init && init.method)) {
+    return realFetchOfSaves(url, init).then((r) => { window.FAVOURITES_ANSWER = r.ok ? "ok" : "refused"; return r; },
+                                            (e) => { window.FAVOURITES_ANSWER = "refused"; throw e; });
+  }
   return realFetchOfSaves(url, init);
 };
 window.REPORTS = [];
@@ -246,15 +252,17 @@ def test_map_page_keeps_todays_features(site):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
+            # each page waits until the run's favourites were answered and, when they were, the model took them (the page
+            # keeps favourites: favouritesOn)
+            settled = "(m) => window.FAVOURITES_ANSWER === 'refused' || (window.FAVOURITES_ANSWER === 'ok' && m.favouritesOn)"
             page = _open(browser, f"{base}/runs/{BIG}/map.html", DESKTOP, flag=False, script=SCRIPT)
-            page.wait_for_function("() => !!window.FINDALINE_RESULT", timeout=WAIT)
-            page.wait_for_load_state("networkidle")
+            page.wait_for_function(f"() => !!window.FINDALINE_RESULT && ({settled})(window.FINDALINE_RESULT.model)", timeout=WAIT)
             page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.rows[0].group); }")
             page.wait_for_selector(".r-copy", timeout=WAIT)
             today = page.evaluate("() => [!!document.querySelector('.c-col-details .r-fav'), !!document.querySelector('.r-view3d')]")
             page.context.close()
             page = _open(browser, f"{base}/runs/{BIG}/map.html", DESKTOP, script=SCRIPT)
-            page.wait_for_load_state("networkidle")
+            page.wait_for_function(f"() => ({settled})(window.FINDALINE_VIEW.view.model)", timeout=WAIT)
             _select(page)
             view = page.evaluate("() => [!!document.querySelector('.vl-dhead .r-fav'), !!document.querySelector('.r-view3d'), !!document.querySelector('.r-copy')]")
             assert view == [today[0], False, True] and today[1] is False, (today, view)
