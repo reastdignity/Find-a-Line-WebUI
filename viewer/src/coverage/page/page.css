@@ -98,11 +98,14 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 /* each segment as wide as its words (the kit's `flex: 1` made three equal ones, too narrow for "Everyday sizes") */
 .ui.cov .cov-scale button { flex: none; }
 .cov-world button { font-size: inherit; }
-/* the stars (card.tsx Stars): the kit's star drawn filled, the ones not reached in the edge colour (choice 63) */
+/* the stars (card.tsx Stars): the kit's star drawn filled; the ones not reached in a grey that holds 3:1 on every
+   ground they stand on (the legend, the card, a row, a selected row: choice 63, with the computed pairs); 2 px
+   between the stars: one mark of three parts, not three items */
+.cov { --cov-star-off: color-mix(in srgb, var(--muted) 65%, var(--line)); }
 .cov .cov-stars { display: inline-flex; gap: 2px; color: var(--cov-l1); vertical-align: -2px; flex: none; }
 .cov .cov-star { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
 .cov .cov-stars-s .cov-star { width: 14px; height: 14px; }
-.cov .cov-star.cov-off { color: var(--line); }
+.cov .cov-star.cov-off { color: var(--cov-star-off); }
 
 /* the card: raised beside the map on wide screens (no edge), a bottom sheet on phones */
 .cov-card { position: absolute; top: 8px; right: 8px; max-height: calc(100% - 16px); width: min(352px, calc(100% - 16px)); z-index: 1200;
