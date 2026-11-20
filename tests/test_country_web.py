@@ -1024,10 +1024,12 @@ run({
 
 def _card_density(card: str) -> float:
     """The density per km² of a selected cell's card as it reads: the thousands separator of the counts, no
-    abbreviation ("9,135", "0.37"); its value. The card's values are joined by commas (step 3c, group C), so the
-    density is what stands between the last ", " and the words."""
+    abbreviation ("9,135", "0.37"); its value. The card's values are parted by semicolons (step 3c, group C's fix
+    round: a comma already parts a count's thousands), so the density is what stands between the last "; " and the
+    words, and no ", " follows a count's noun."""
     assert "·" not in card, card
-    found = re.search(r", ([\d.,]+) lines per km²", card)
+    assert not re.search(r"(lines|spots), \d", card), card
+    found = re.search(r"; ([\d.,]+) lines per km²", card)
     assert found and re.fullmatch(r"\d{1,3}(,\d{3})*(\.\d+)?", found.group(1)), card
     return float(found.group(1).replace(",", ""))
 
