@@ -652,10 +652,11 @@ def test_phone_touch(site):
             _legend_holds(start)
             _numbers_hold(start, {f"B{k}" for k in range(1, 11)})
             fold = page.evaluate("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), document.querySelectorAll('.v-lg-line').length]")
-            # the legend unfolded while the sheet is low: the lines and numbers; what else is drawn (the search area's
-            # outline, a favourite, other runs); the access marks only with a selected line's anchor in view (L b)
-            lines = 1 + bool({"fav", "area"} & set(start["shapes"]) or start["runs"]) + ("ends" in start["shapes"])
-            assert fold == ["true", lines], (fold, start["shapes"])
+            # the legend unfolded while the sheet is low, its rows fixed for this known state (not rebuilt from the
+            # canvas's shapes): the lines and numbers on a line, the search area's outline on the second; no access mark
+            # (nothing selected: L b)
+            assert start["legend"] == ["clear", "over", "B", "pale", "area"], start["legend"]
+            assert fold == ["true", 2], (fold, start["shapes"])
             # the sheet raised to half: the view's rectangle is taken again, fewer spots are in view
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")

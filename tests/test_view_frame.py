@@ -591,6 +591,38 @@ def test_phone_measured_line_kept_in_sight_with_a_selection(site):
     assert got == {"measuredInRoom": True, "selected": True}, got
 
 
+def test_phone_measured_line_moved_away_stays_away(site):
+    """A phone: Measure's line shown at half, then the person pans it out of the map and moves the sheet down and up
+    again: the map is left as they left it (the sheet's check keeps a measured line in sight only at the rest after its
+    first show: "a move of theirs is never undone")."""
+    from playwright.sync_api import sync_playwright
+    centre = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+    checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, PHONE, script=PROFILE_STUB)
+            _state(page, "view.setLevel('spots');")
+            _measure_two(page, phone=True)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            _state(page, "leaflet.panBy([0, -600], {animate: false});")  # the person's move: the line out of the map
+            moved = page.evaluate(centre)
+            assert page.evaluate("() => F.inRoom(window.FINDALINE_VIEW.measured)") is False
+            for key, stop in (("ArrowDown", "peek"), ("ArrowUp", "half")):
+                before = page.evaluate(checks)
+                page.focus(".u-sheet-handle")
+                page.keyboard.press(key)
+                page.wait_for_function(f"() => F.snap() === '{stop}' && F.rest()", timeout=WAIT)
+                page.wait_for_function(f"() => ({checks})() > {before}", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(centre)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert after == moved, (moved, after)
+
+
 def test_late_answer_after_crossing_the_phone_width(site):
     """Measure's answer that comes after the window crossed the phone's width (Measure on a desktop, the answer on a
     phone) is shown as any measured line there: the sheet at half with its dock first, the line in the map's room; a
