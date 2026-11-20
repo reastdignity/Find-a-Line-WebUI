@@ -376,6 +376,47 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             browser.close()
 
 
+def test_view3d_info_box_head_stays(clip_data, monkeypatch):
+    """On a low stage (667 x 375, a phone held sideways) the info box is higher than the room and scrolls inside:
+    its head stays at its top, so "Close" is whole and takes a tap with the notes scrolled to their end. More notes
+    than the phone level has are made by the test (four hints of 25 words, as the full level with "Only valid lines"
+    and a shore has)."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dhead")
+    more = """() => { const bar = document.querySelector('.v3-bar'), text = 'Green: the line fits. Orange: it fits over ' +
+      'the terrain but passes over trees or buildings. A dragged anchor stays where the line is valid.';
+      for (let k = 0; k < 4; k++) { const p = document.createElement('p'); p.className = 'v3-note'; p.textContent = text;
+        bar.append(p); } }"""
+    head = r"""() => { const box = document.querySelector('.v3-infobox'), shut = box.querySelector('.v3-infobox-close');
+      const R = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+      const s = R(shut), at = document.elementFromPoint((s[0] + s[2]) / 2, (s[1] + s[3]) / 2);
+      return {box: R(box), shut: s, onTop: at === shut || shut.contains(at), room: [box.clientHeight, box.scrollHeight],
+              scrolled: box.scrollTop, title: R(box.querySelector('.v3-infobox-title'))}; }"""
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", _phone(p, 667, 375))
+            page.evaluate(more)
+            button = page.evaluate(INFO)["button"]
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function("() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'true'",
+                                   timeout=WAIT)
+            top = page.evaluate(head)
+            assert top["room"][1] > top["room"][0] + 40, top  # the case: the box scrolls
+            page.evaluate("() => { const box = document.querySelector('.v3-infobox'); box.scrollTop = box.scrollHeight; }")
+            page.evaluate(FRAMES)
+            end = page.evaluate(head)
+            assert end["scrolled"] > 40 and end["onTop"], end
+            assert end["shut"][1] >= end["box"][1] - 0.5 and end["shut"][3] - end["shut"][1] >= 43.5, end
+            assert end["shut"] == top["shut"] and end["title"] == top["title"], (top, end)
+            _tap(page, (end["shut"][0] + end["shut"][2]) / 2, (end["shut"][1] + end["shut"][3]) / 2)
+            page.wait_for_function("() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'false'",
+                                   timeout=WAIT)
+            page.context.close()
+        finally:
+            browser.close()
+
+
 def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
     """The info button and its box with the run's data credits (open from 768 px of width as on main, a phone held
     sideways included; the user, 2026-11-20: "Open as before"). On a phone (390 x 664), a phone held sideways
