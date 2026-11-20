@@ -456,7 +456,9 @@ def test_phone_legend_of_two_lines(site, device):
             assert page.errors == [], page.errors
         finally:
             browser.close()
-    assert len(start["lines"]) >= 2 and start["lines"][-1] == ["access-2", "access-1", "access-0"], start
+    # exactly three lines: the lines and numbers; what is drawn besides (the search area's outline lies across the view at
+    # the start: B1's, step 3c); the marks last
+    assert len(start["lines"]) == 3 and "area" in start["lines"][1] and start["lines"][-1] == ["access-2", "access-1", "access-0"], start
     assert start["words"] == ["easy access", "cannot tell", "hard access"] and start["fits"] and not start["sideways"], start
     shorts = {WORDS[f"ui.view.map.lg_{k}_short"] for k in ("over", "pick", "best", "pale", "anchor", "fan")} | {WORDS["ui.result.legend_clear"]}
     assert start["short"] and set(start["short"]) <= shorts, start["short"]

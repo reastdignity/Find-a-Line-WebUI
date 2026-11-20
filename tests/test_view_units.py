@@ -1482,6 +1482,10 @@ def test_frame_in_edge(tmp_path, run):
     # selection, unfolded: test_shell_c_view_map.py's mouse test)
     drawn = out["selected"]["drawn"]
     assert drawn["legend"] == [], drawn["legend"]
+    # the profile closed (no card): the legend unfolded with the selection, rows fixed for this made-up run (not rebuilt
+    # from the canvas's shapes): its lines' colours, the selected line's anchors, the access marks (an anchor in view)
+    open_ = out["selectedOpen"]
+    assert open_["legend"] == ["clear", "over", "A", "access-2", "access-1", "access-0"], open_
     # (its shown line is one of the spots' lines in view and one of its own passing lines: counted once)
     assert out["selected"]["inView"] is True and out["selected"]["passing"] > 1
     assert drawn["strokes"] == out["selected"]["m"] + out["selected"]["passing"] - 1 and drawn["numbers"] == ["A1", "A2"]

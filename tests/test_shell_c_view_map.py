@@ -465,6 +465,9 @@ def test_limit_legend_squares(site):
             # exactly while it crosses the part a person sees (strict both ways: here in view, off it at the end)
             assert set(refused["shapes"]) - {"area"} <= {"pale", "clear", "over"}, refused["shapes"]
             assert page.evaluate("() => T.areaCrosses()") is True and "area" in refused["shapes"], refused["shapes"]
+            # the legend's rows in this known state, fixed (not rebuilt from the canvas's shapes): the lines' colours (the
+            # pale lines are drawn in them), the pale lines, the area
+            assert refused["legend"] == ["clear", "over", "pale", "area"], refused["legend"]
             fewer =_state(page, "view.setBest(100);")
             assert fewer["refused"] == 0 and 100 < fewer["thin"] <= LIMIT and fewer["marked"] is False
             assert fewer["m"] > 100 and fewer["strokes"] == fewer["m"] - 100 + fewer["thin"] and fewer["numbered"] and len(fewer["numbers"]) > 10
@@ -527,6 +530,10 @@ def test_presses_with_a_mouse(site):
             page.wait_for_selector(".v-legend", timeout=WAIT)
             chosen = _state(page)
             assert chosen["selected"] == [spot, chosen["shown"]] and chosen["made"] == 1
+            # the legend's rows with this selection, fixed (not rebuilt from the canvas's shapes): the lines' colours,
+            # the best, the pale others, the selected line's anchors, the search area, the access marks (its anchors in
+            # view: L b)
+            assert chosen["legend"] == ["clear", "over", "B", "pale", "A", "area", "access-2", "access-1", "access-0"], chosen["legend"]
             _legend_holds(chosen)
             assert {n["label"] for n in chosen["numbers"]} >= {"A1", "A2"} and "A" in chosen["shapes"]
             _numbers_hold(chosen, {f"B{k}" for k in range(1, 11)} | {"A1", "A2"})

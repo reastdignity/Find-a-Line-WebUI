@@ -157,6 +157,8 @@ async function rest(after: string) {
   // fan below is the canvas's alone
   view.model.closeProfile();
   await rest("a change");
+  // the legend with the profile closed (no card, the legend unfolded): its rows with the selection
+  out.selectedOpen = picture(view, map);
   // opened through the model (as the details' buttons do): the canvas moves the map, because far ends lie outside
   const centre = leaflet.getCenter(), zoomBefore = leaflet.getZoom(), columns = view.model.data.columns;
   const outside = () => view.fan!.rows.filter((r) => {

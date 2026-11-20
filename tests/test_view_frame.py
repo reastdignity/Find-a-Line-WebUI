@@ -55,6 +55,17 @@ window.fetch = (url, init) => String(url).startsWith("/api/profile")
   : realFetchOfHeld(url, init);
 """
 
+# The same, each answer held until the page's RELEASE(k) gives request k the stub's profile (a late answer)
+PROFILE_LATE = """
+window.HELD = []; window.ANSWERED = 0;
+const realFetchOfLate = window.fetch;
+window.fetch = (url, init) => String(url).startsWith("/api/profile")
+  ? new Promise((ok) => { HELD.push(() => { ok(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301],
+      min: [40, 7.5], water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}})); ANSWERED++; }); })
+  : realFetchOfLate(url, init);
+window.RELEASE = (k) => HELD[k]();
+"""
+
 # The frame's helpers (window.F), beside test_shell_c_view_map's T
 FRAME = r"""
 window.F = {
@@ -179,12 +190,12 @@ def test_map_page_actions(site, device):
         try:
             page = _open(browser, f"{root}/runs/{urllib.parse.quote(BIG)}/map.html", device, script=FRAME)
             _state(page)
-            if device is DESKTOP:  # (Measure where the canvas can measure and the page can ask profiles)
-                got = F_actions(page, ".c-result-top")
-                assert "Compare" in got and set(got) <= {"Measure", "Compare"}, got
+            # (Measure: the app serves the map page, whose profiles it computes)
+            if device is DESKTOP:
+                assert F_actions(page, ".c-result-top") == ["Measure", "Compare"]
             else:
                 got = page.evaluate("() => [...document.querySelectorAll('.c-pill .r-actions button')].map((b) => b.getAttribute('aria-label'))")
-                assert set(got) <= {"Measure"}, got
+                assert got == ["Measure"], got
             assert page.errors == []
         finally:
             browser.close()
@@ -465,6 +476,272 @@ def test_new_selection_ends_a_measured_line(site, how, device):
             browser.close()
 
 
+LATE_NOW = """() => { const {view, map, measured} = window.FINDALINE_VIEW;
+  return {measuring: map.isMeasuring, points: map.drawn().measured.length, frameMeasured: !!measured,
+          selected: view.selected ? view.selected.row : null, titles: [...document.querySelectorAll('.r-dock-bar b')].map((b) => b.textContent)}; }"""
+
+
+def _measure_two(page, phone=False):
+    """Measure pressed and two points taken (80 px or more apart, empty of spots)."""
+    if phone:
+        _tap_on(page, ".c-pill [aria-label='Measure']")
+    else:
+        page.click(".c-result-top .r-actions button:has-text('Measure')")
+    page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+    first = page.evaluate("() => F.empty(30)")
+    second = page.evaluate("([p]) => F.empty(30, p)", [first])
+    assert first and second, "no two empty points on the map"
+    for at in (first, second):
+        if phone:
+            _tap(page, at["x"], at["y"])
+        else:
+            page.mouse.click(at["x"], at["y"])
+            page.evaluate("() => T.frames()")
+    return first
+
+
+@pytest.mark.parametrize("after", ["measure", "select"])
+def test_late_measure_answer_is_dropped(site, after):
+    """Measure's answer that comes late (the server's profile still on its way) is dropped once it is not the latest
+    measurement's (Measure pressed again, one point taken: it goes on) or a new line was selected meanwhile (its card
+    keeps the selected line's profile: the planner's seam). The code review of the catch-up, findings 2 and 3."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP, script=PROFILE_LATE)
+            _state(page, "view.setLevel('spots');")
+            first = _measure_two(page)
+            page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
+            if after == "measure":
+                page.click(".c-result-top .r-actions button:has-text('Measure')")
+                page.wait_for_selector(".r-act .r-tip-beside", timeout=WAIT)
+                third = page.evaluate("([p]) => F.empty(30, p, 120)", [first])
+                page.mouse.click(third["x"], third["y"])
+            else:
+                _state(page, "view.select(view.order[0]);")
+                page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            before = page.evaluate(LATE_NOW)
+            page.evaluate("() => RELEASE(0)")
+            page.wait_for_function("() => ANSWERED === 1", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(LATE_NOW)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got == before, (before, got)  # the late answer changed nothing
+    if after == "measure":
+        assert (got["measuring"], got["points"], got["frameMeasured"]) == (True, 1, False), got
+    else:
+        assert got["selected"] is not None and (got["points"], got["frameMeasured"]) == (0, False), got
+        assert len(got["titles"]) == 1 and got["titles"][0].startswith("Profile · "), got
+
+
+def test_phone_measured_line_kept_in_sight_with_a_selection(site):
+    """A phone at the low stop with a spot selected whose lower anchor lies under the half stop's top: Measure, two
+    points near the top of the map's room; the sheet rises to half for the measured profile, and once it rests the
+    measured line (whose profile is shown) is in the map's room, the selected line not brought back over it (the
+    desktop's keepFree likewise). The code review of the catch-up, finding 1."""
+    from playwright.sync_api import sync_playwright
+    pick = """() => { const {view} = window.FINDALINE_VIEW, b = T.box();
+      for (const spot of Array.from(view.inView.spots)) { const e = T.ends(view.shownOf(spot));
+        if (Math.min(e[0], e[2]) < 60 || Math.max(e[0], e[2]) > b.width - 60) continue;
+        if (Math.abs(e[1] - e[3]) > 90 || Math.min(e[1], e[3]) < 150) continue;
+        return spot; } return null; }"""
+    top_points = """() => { const room = F.room(), boxes = T.controls(), r = 30, out = [];
+      for (let y = room[1] + 40; y < room[1] + 130; y += 11) for (let x = room[0] + 40; x < room[2] - 40; x += 13) {
+        if (boxes.some((c) => x > c.left - r && x < c.right + r && y > c.top - r && y < c.bottom + r)) continue;
+        if (out.length && Math.hypot(x - out[0].x, y - out[0].y) < 120) continue;
+        out.push({x, y}); if (out.length === 2) return out; }
+      return out; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, PHONE, script=PROFILE_STUB)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            spot = page.evaluate(pick)
+            assert spot is not None, "no short line in view"
+            _state(page, f"view.select({spot});")
+            if page.evaluate("() => F.snap()") != "peek":
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowDown")
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            # the selected line's lower anchor 60 px under the half stop's top (above the low stop's top)
+            _state(page, """const e = T.ends(view.selected.row), b = T.box(), half = b.height - Math.max(132, b.height * 0.5);
+              leaflet.panBy([0, Math.round(Math.max(e[1], e[3]) - (half + 60))], {animate: false});""")
+            checks = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)")
+            _tap_on(page, ".c-pill [aria-label='Measure']")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            pts = page.evaluate(top_points)
+            assert len(pts) == 2, pts
+            for at in pts:
+                _tap(page, at["x"], at["y"])
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > {checks} && "
+                                   "!window.FINDALINE_MAP._animatingZoom && !(window.FINDALINE_MAP._panAnim && window.FINDALINE_MAP._panAnim._inProgress)",
+                                   timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate("() => ({measuredInRoom: F.inRoom(window.FINDALINE_VIEW.measured), selected: window.FINDALINE_VIEW.view.selected !== null})")
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got == {"measuredInRoom": True, "selected": True}, got
+
+
+def test_late_answer_after_crossing_the_phone_width(site):
+    """Measure's answer that comes after the window crossed the phone's width (Measure on a desktop, the answer on a
+    phone) is shown as any measured line there: the sheet at half with its dock first, the line in the map's room; a
+    measured line kept across the width is drawn again by the new canvas, its profile in the card (the code review's
+    finding 6; B3's probe of the catch-up)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, {**DESKTOP, "viewport": {"width": 1280, "height": 820}}, script=PROFILE_LATE)
+            _state(page, "view.setLevel('spots');")
+            _measure_two(page)
+            page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
+            page.set_viewport_size({"width": 600, "height": 820})
+            page.wait_for_selector(".c-result-phone", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.evaluate("() => RELEASE(0)")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_selector(".u-sheet-body > .r-dock:first-child .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            phone = page.evaluate("() => ({inRoom: F.inRoom(window.FINDALINE_VIEW.measured), points: window.FINDALINE_VIEW.map.drawn().measured.length, "
+                                  "title: document.querySelector('.u-sheet-body > .r-dock:first-child .r-dock-bar b').textContent})")
+            # back across: the card shows it and the new canvas draws its points
+            page.set_viewport_size({"width": 1280, "height": 820})
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            wide = page.evaluate("() => ({points: window.FINDALINE_VIEW.map.drawn().measured.length, title: document.querySelector('.r-card .r-dock-bar b').textContent})")
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert phone == {"inRoom": True, "points": 2, "title": "Measured profile"}, phone
+    assert wide == {"points": 2, "title": "Measured profile"}, wide
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_closing_a_measured_profile_clears_it(site, device):
+    """A link's measured line (outside the run): its profile's close, in the desktop's card or the phone's dock first
+    in the sheet, clears the frame's measured line, model.measuredLink and the canvas's points (the brief's "its close
+    clears model.measuredLink"); Measure's own line likewise on a phone."""
+    from playwright.sync_api import sync_playwright
+    now = """() => ({measured: window.FINDALINE_VIEW.measured, link: window.FINDALINE_VIEW.view.model.measuredLink,
+                     points: window.FINDALINE_VIEW.map.drawn().measured.length})"""
+    where = ".c-col-map > .r-card" if device is DESKTOP else ".u-sheet-body > .r-dock:first-child"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device, line=OUTSIDE, script=PROFILE_STUB)
+            page.wait_for_selector(f"{where} .fal-profile-chart", timeout=WAIT)
+            opened = page.evaluate(now)
+            press = (lambda sel: page.click(sel)) if device is DESKTOP else (lambda sel: _tap_on(page, sel))
+            press(f"{where} .r-dock-bar [aria-label='Close the profile']")
+            page.wait_for_function("() => window.FINDALINE_VIEW.measured === null", timeout=WAIT)
+            closed = page.evaluate(now)
+            measure = None
+            if device is PHONE:  # Measure's own line: its dock's close
+                _state(page, "view.setLevel('spots');")
+                _measure_two(page, phone=True)
+                page.wait_for_selector(f"{where} .fal-profile-chart", timeout=WAIT)
+                _tap_on(page, f"{where} .r-dock-bar [aria-label='Close the profile']")
+                page.wait_for_function("() => window.FINDALINE_VIEW.measured === null", timeout=WAIT)
+                measure = page.evaluate(now)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert opened["measured"] and opened["link"] == OUTSIDE and opened["points"] == 2, opened
+    assert closed == {"measured": None, "link": None, "points": 0}, closed
+    assert measure in (None, {"measured": None, "link": None, "points": 0}), measure
+
+
+def test_measure_fit_desktop(site):
+    """A desktop: Measure's line pressed near the map's top stays where it is when its profile's card comes (the person
+    pressed its points there; the map does not move); pressed near the bottom, where the card then lies, the map moves
+    so that the line is in the room above the card (useMeasuredShown; today's page never moves for Measure's line)."""
+    from playwright.sync_api import sync_playwright
+    points = """([top]) => { const room = F.room(), boxes = T.controls(), r = 30, out = [];
+      const ys = top ? [room[1] + 60, room[1] + 140] : [room[3] - 60, room[3] - 120];
+      for (const y of ys) for (let x = room[0] + 60; x < room[2] - 60; x += 13) {
+        if (boxes.some((c) => x > c.left - r && x < c.right + r && y > c.top - r && y < c.bottom + r)) continue;
+        if (out.length && Math.hypot(x - out[0].x, y - out[0].y) < 160) continue;
+        out.push({x, y}); break; }
+      return out; }"""
+    centre = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+    found = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for where in ("top", "bottom"):
+                page = _view(browser, site, DESKTOP, script=PROFILE_STUB)
+                _state(page, "view.setLevel('spots');")
+                page.click(".c-result-top .r-actions button:has-text('Measure')")
+                page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+                pts = page.evaluate(points, [where == "top"])
+                assert len(pts) == 2, pts
+                before = page.evaluate(centre)
+                for at in pts:
+                    page.mouse.click(at["x"], at["y"])
+                    page.evaluate("() => T.frames()")
+                page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+                page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                found[where] = {"moved": page.evaluate(centre) != before, "inRoom": page.evaluate("() => F.inRoom(window.FINDALINE_VIEW.measured)")}
+                assert page.errors == []
+                page.context.close()
+        finally:
+            browser.close()
+    assert found == {"top": {"moved": False, "inRoom": True}, "bottom": {"moved": True, "inRoom": True}}, found
+
+
+def test_today_measure_tip_below(site):
+    """Today's page (no flag): Measure's tip stands under its button in the catalogue's words (W12; RunActions'
+    default `tip`)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=False, script=FRAME)
+            page.wait_for_function("() => !!window.FINDALINE_RESULT", timeout=WAIT)
+            page.click(".c-result-top .r-actions button:has-text('Measure')")
+            page.wait_for_selector(".r-act .r-tip", timeout=WAIT)
+            got = page.evaluate("""() => { const t = document.querySelector('.r-act .r-tip'), b = t.parentElement.querySelector('button');
+                return [t.textContent, t.classList.contains('r-tip-beside'), t.getBoundingClientRect().top >= b.getBoundingClientRect().bottom - 1]; }""")
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got == [WORDS["ui.result.measure_tip"], False, True], got
+
+
+def test_short_foot_access_key_follows_the_anchors(site):
+    """A desktop's short foot (the card open: the user's 4 a) holds the access key's "i" only while an anchor of the
+    selected line is in view, as the full legend's three rows (the user's L b; the scope review's 3.2)."""
+    from playwright.sync_api import sync_playwright
+    key = "() => !!document.querySelector('.v-foot .v-help-button .ac-info, .v-foot .v-help-button button')"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP)
+            _state(page, "view.setLevel('spots'); view.select(view.inView.best[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.legend().shapes.ends === true", timeout=WAIT)
+            shown = page.evaluate(key)
+            _state(page, "const s = view.selected.line; leaflet.setView([s.lat1 + 0.01, s.lon1 + 0.01], leaflet.getZoom(), {animate: false});")
+            page.wait_for_function("() => !window.FINDALINE_VIEW.map.legend().shapes.ends", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            gone = page.evaluate(key)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert (shown, gone) == (True, False), (shown, gone)
+
+
 def test_maps_help_desktop(site):
     """A desktop: the map's one "i" at the switch's end (7 b) opens a box under the switch with the texts of the levels
     and of Best (the catalogue's), at Area also why Best is off (W11), Best greyed; Esc closes it and nothing else (the
@@ -498,6 +775,15 @@ def test_maps_help_desktop(site):
             page.click(".v-about .v-about-x")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
             assert page.evaluate("() => document.activeElement === document.querySelector('.v-info')")
+            # Esc with the focus inside the help (on its ×): it closes, the focus back on the "i" (the code review's
+            # finding 4, the design review's F7)
+            page.click(".v-info")
+            page.wait_for_selector(".v-about", timeout=WAIT)
+            page.focus(".v-about .v-about-x")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
+            assert page.evaluate("() => document.activeElement === document.querySelector('.v-info')")
+            assert _state(page)["selected"] is not None
             assert page.errors == []
         finally:
             browser.close()
@@ -524,6 +810,10 @@ def test_maps_help_phone(site):
             got = page.evaluate(parts)
             assert [(k, e) for k, e, _ in got] == [("levels", "false"), ("best", "false"), ("anchors", "true")], got
             assert WORDS["ui.access.help"] in got[2][2], got
+            # opened on Anchors (its longest part) it stops under the level switch's row, which it explains (the
+            # mock-up's 7 b; the design review's F3)
+            under = page.evaluate("() => [F.rect('.v-over > .v-about')[1], F.rect('.v-switch')[3]]")
+            assert under[0] >= under[1], under
             _tap_on(page, ".v-part[data-part='levels']")
             got = page.evaluate(parts)
             assert [e for _, e, _ in got] == ["true", "false", "false"] and got[0][2] == WORDS["ui.view.map.levels_help"], got
@@ -542,6 +832,24 @@ def test_maps_help_phone(site):
             assert page.evaluate("() => { const r = document.querySelector('.v-about .v-about-x').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }") == [44, 44]
             _tap_on(page, ".v-about .v-about-x")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
+            # Esc with the focus on a part: closed, the focus back on the "i"
+            _tap_on(page, ".v-help-button .v-info")
+            page.wait_for_selector(".v-over > .v-about", timeout=WAIT)
+            page.focus(".v-part[data-part='best']")
+            page.keyboard.press("Escape")
+            page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
+            assert page.evaluate("() => document.activeElement === document.querySelector('.v-help-button .v-info')")
+            # opened, then the sheet at full (the map not seen, the help not drawn): the help is closed, so a later Esc
+            # is the frame's (the code review's finding 5)
+            _tap_on(page, ".v-help-button .v-info")
+            page.wait_for_selector(".v-over > .v-about", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half'", timeout=WAIT)
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'full'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            assert page.evaluate("() => document.querySelector('.v-help-button .v-info').getAttribute('aria-expanded')") == "false"
             page.context.close()
             page = _view(browser, site, SMALL_PHONE, run=PLAIN)
             _state(page)
@@ -629,7 +937,10 @@ def test_legend_rows_from_the_canvas(site, device):
             got = page.evaluate("""() => { const {map} = window.FINDALINE_VIEW, l = map.legend(), q = (s) => document.querySelector('.v-legend ' + s);
                 const rgb = (c) => { const e = document.createElement('i'); e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
                 return {shapes: l.shapes, runs: l.runs, kinds: F.legend().map(([k]) => k), words: F.legend().map(([, w]) => w),
-                        fav: getComputedStyle(q('[data-kind="fav"] .r-sw')).backgroundColor,
+                        fav: [getComputedStyle(q('[data-kind="fav"] .v-fav')).backgroundColor, getComputedStyle(q('[data-kind="fav"] .v-fav i')).backgroundColor],
+                        // "Anchors" and its three marks on one row (their middles within 2 px)
+                        group: (() => { const g = [...document.querySelectorAll('.v-legend .v-lg-group > *')].map((e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+                                        return g.length ? [g.length, Math.max(...g) - Math.min(...g) <= 2] : null; })(),
                         area: [getComputedStyle(q('[data-kind="area"] .v-dash rect')).fill, getComputedStyle(q('[data-kind="area"] .v-dash path')).stroke,
                                getComputedStyle(q('[data-kind="area"] .v-dash path')).strokeDasharray],
                         run: [getComputedStyle(q('[data-kind="run"] .r-sw')).backgroundColor, getComputedStyle(q('[data-kind="run"] .v-dash path')).stroke,
@@ -638,12 +949,16 @@ def test_legend_rows_from_the_canvas(site, device):
         finally:
             browser.close()
     assert got["shapes"].get("fav") and got["shapes"].get("area") and [r["name"] for r in got["runs"]] == ["Other run"], got
-    access = ["access-2", "access-1", "access-0"] if got["shapes"].get("ends") else []
+    # the selected line's anchors are in view in this state (the canvas's `ends`): the access rows come last
+    assert got["shapes"].get("ends") is True, got["shapes"]
     k = got["kinds"].index("fav")
-    assert got["kinds"][k:] == ["fav", "area", "run"] + access, got["kinds"]
+    assert got["kinds"][k:] == ["fav", "area", "run", "access-2", "access-1", "access-0"], got["kinds"]
     area = WORDS["ui.view.map.lg_area_short" if phone else "ui.view.map.lg_area"]
     assert got["words"][k:k + 3] == [WORDS["ui.result.legend_favourite"], area, "Other run"], got["words"]
-    assert got["fav"] == "rgb(255, 212, 0)", got["fav"]  # #FFD400
+    # the favourite's sign: the line (style.ts COLORS.clean) inside its gold band (COLORS.favourite #FFD400): F5
+    assert got["fav"] == ["rgb(255, 212, 0)", "rgb(255, 16, 240)"], got["fav"]
+    if not phone:  # "Anchors" with its three marks on one row: F4
+        assert got["group"] == [4, True], got["group"]
     assert got["area"] == ["rgb(255, 255, 255)", "rgb(27, 37, 48)", "4px, 3px"], got["area"]  # the paper, the ink #1b2530
     assert got["run"][0] == got["run"][1] == got["run"][2], got["run"]
 
@@ -814,7 +1129,8 @@ def test_profile_text_and_touch_sizes(site):
       controls: [...document.querySelectorAll('.r-profile .fal-scale, .r-profile .fal-profile-head button, .r-profile .fal-profile-controls input[type=number], .r-profile .fal-layers label')]
         .filter((e) => e.getBoundingClientRect().height).map((e) => Math.round(e.getBoundingClientRect().height)),
       bar: [...document.querySelectorAll('.r-dock-bar .r-note-x')].map((e) => [Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)]),
-      head: !!document.querySelector('.r-profile .fal-profile-head')}))));
+      head: !!document.querySelector('.r-profile .fal-profile-head'),
+      close: [...document.querySelectorAll('.r-profile .fal-close')].map((e) => [Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)])}))));
       }"""
     tablet = {**PHONE, "viewport": {"width": 1180, "height": 820}, "device_scale_factor": 2}  # the columns with a finger
     with sync_playwright() as p:
@@ -850,8 +1166,10 @@ def test_profile_text_and_touch_sizes(site):
             page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.rows[0].group); }")
             page.wait_for_selector(".r-dock .fal-profile-chart", timeout=WAIT)
             got = page.evaluate(controls)
-            # today's dock as it was: the profile's head row with its close, none in the bar
+            # today's dock as it was: the profile's head row with its close (44 x 44 on touch: the design review's F2),
+            # none in the bar
             assert got["controls"] and min(got["controls"]) >= 44 and got["bar"] == [] and got["head"] is True, got
+            assert got["close"] == [[44, 44]], got
             assert page.errors == []
         finally:
             browser.close()
@@ -871,6 +1189,8 @@ def test_phone_dock_compact(site, device):
               bar: [...d.querySelector('.r-dock-bar').children].filter((e) => r(e).width && !e.classList.contains('u-grow')).map((e) => e.tagName.toLowerCase() + '.' + [...e.classList].join('.')),
               close: x && [Math.round(r(x).right), Math.round(r(x).width), Math.round(r(x).height)], selRight: sel && Math.round(r(sel).right),
               under: d.lastElementChild.classList.contains('r-hint-under') && r(d.querySelector('.r-hint-under')).top >= r(d.querySelector('.fal-profile-chart')).bottom,
+              // the need row ("no A-frame needed" ...) under the chart too, where the line has one (the design review's F1)
+              need: d.querySelector('.fal-need') ? r(d.querySelector('.fal-need')).top >= r(d.querySelector('.fal-profile-chart')).bottom : null,
               facts: d.querySelector('.r-facts')?.textContent ?? null, chartTop: Math.round(r(d.querySelector('.fal-profile-chart')).top), height: innerHeight}; }"""
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -891,8 +1211,10 @@ def test_phone_dock_compact(site, device):
             assert page.errors == []
         finally:
             browser.close()
+    print("chart tops at half", device["viewport"], "line", line["chartTop"], "measured", measured["chartTop"])
+    assert line["need"] is True, line  # BIG's first line has a need row
     for got in (line, measured):
-        assert got["head"] is False and got["sr"].strip() and got["under"] is True, got
+        assert got["head"] is False and got["sr"].strip() and got["under"] is True and got["need"] in (True, None), got
         assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.r-note-x", got
         assert got["bar"][0] == "b." and "button.u-chip" in got["bar"] and "span.u-small.r-hint" not in got["bar"], got
         assert got["chartTop"] < got["height"], got  # the chart's top on the screen at half
