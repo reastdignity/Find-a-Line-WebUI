@@ -119,3 +119,9 @@ def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
     names = " ".join(os.listdir(out / "pictures") + os.listdir(out / "sheets"))
     for written in (text, (out / "view_numbers.json").read_text("utf-8"), names):
         assert view_clip.name not in written and not vn.COORDINATES.search(written)
+    # the zoom stops with the run's best spot in the middle of the map: measured as well
+    best = vn.measure_runs([str(view_clip)], str(tmp_path / "best"), str(tmp_path / "data"), ["desktop"], [1], [10],
+                           launch=lambda pw, engine: pw.chromium.launch(channel="msedge", headless=True), around="best")
+    states = best["runs"][0]["devices"]["desktop"]["states"]
+    assert best["around"] == "best" and vn.not_measured(best) == 0 and {s["stop"] for s in states} == {0, 1}
+    assert all(s["today_matches"] for s in states)

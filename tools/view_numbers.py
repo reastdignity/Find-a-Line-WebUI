@@ -24,8 +24,9 @@ the later ones land). A state is measured only when the greedy at a quarter give
 - Overlap: the intersection of two numbers' boxes (each shape's bounding box: B 25 × 21 px, B10 and over 30 × 21,
   P 38 × 27, L 35 × 21; SpotMap.markSize) over the smaller box's own area; the JSON keeps the pixels too.
 - The states: for each run, each device (tools/ui_shots.py's DEVICES and profiles: desktop 1400 × 900, iPhone 13
-  in WebKit, Pixel 7 in Chromium), at the view's first view and `--zooms` whole zoom levels in from it (around the
-  middle of the part of the map a person sees; default 1 and 2: the zoom button is half a level), each of `--best`
+  in WebKit, Pixel 7 in Chromium), at the view's first view and `--zooms` whole zoom levels in from it (default 1
+  and 2: the zoom button is half a level; `--around centre`, the default: around the middle of the part of the map
+  a person sees; `--around best`: with the run's best spot's shown line put there), each of `--best`
   (default 10, 30, 100) under Auto, and the fan at Best 10: "Lines from here" opened (through the view's model, as
   the browser tests do) at the first anchor of the first spot in view, in the list's order, whose fan has at least
   two rows. Where Auto shows the Area level (Best does nothing there: P numbers only) the state is recorded once,
@@ -50,7 +51,7 @@ rule's numbers drawn over it in the page's own shapes and font; the four rules s
     uv sync --group ui; uv run playwright install chromium webkit; cd viewer; npm ci; node build.mjs   (once)
     uv run tools/view_numbers.py --out <folder> --runs <run> [<run> ...] [--data <data folder>]
                                  [--reference-dir <folder>] [--devices desktop,iphone,pixel] [--best 10,30,100]
-                                 [--zooms 1,2] [--sheets] [--data-dir <scratch>]
+                                 [--zooms 1,2] [--around centre|best] [--sheets] [--data-dir <scratch>]
 
 Writes <out>/view_numbers.json and view_numbers.md (and pictures/, sheets/). Exit code 1 when a state was not
 measured. Run it under tools/test_lock.py (shared lane: it counts, it times nothing).
@@ -222,16 +223,27 @@ SIGNATURE_JS = r"""() => { const {view, map} = window.FINDALINE_VIEW, leaflet = 
   return JSON.stringify([map.marks.map((k) => [k.text, Math.round(k.x * 100), Math.round(k.y * 100)]), map.free.sig, view.level,
     view.best, leaflet.getZoom(), !!leaflet._animatingZoom, view.fan ? view.fan.rows.length : -1,
     document.querySelector('.u-sheet') ? Math.round(document.querySelector('.u-sheet').getBoundingClientRect().top) : 0]); }"""
-# The first view's centre, zoom and the point (the middle of the part of the map a person sees) the stops zoom around
-FIRST_JS = r"""() => { const {map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, f = map.freeBox();
-  window.__vn = {centre: leaflet.getCenter(), zoom: leaflet.getZoom(),
-                 at: leaflet.containerPointToLatLng([(f.left + f.right) / 2, (f.top + f.bottom) / 2])};
+# The page's short timers pending (tools/ui_shots.py WATCH, an init script of the page): the frame takes the view's
+# rectangle again 120 ms after a control's size changed (SpotColumns.tsx useFootClear), and the numbers move then
+TIMERS_JS = "() => window.__uiShots ? window.__uiShots.timers : 0"
+NO_TIMERS_JS = "() => !(window.__uiShots ? window.__uiShots.timers : 0)"
+# The first view's centre and zoom, and where the stops zoom in: around the middle of the part of the map a person
+# sees ("centre"), or with the run's best spot's shown line (the list's first) put there ("best")
+FIRST_JS = r"""(around) => { const {view, map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, f = map.freeBox();
+  const c = view.model.data.columns, row = view.shownOf(view.order[0]);
+  window.__vn = {centre: leaflet.getCenter(), zoom: leaflet.getZoom(), around,
+                 at: leaflet.containerPointToLatLng([(f.left + f.right) / 2, (f.top + f.bottom) / 2]),
+                 best: {lat: (c.lat1.at(row) + c.lat2.at(row)) / 2, lng: (c.lon1.at(row) + c.lon2.at(row)) / 2}};
   return {zoom: leaflet.getZoom(), maxZoom: leaflet.getMaxZoom()}; }"""
-# A zoom stop: the first view again, then k levels in around its point; Auto, Best 10, nothing selected
-STOP_JS = r"""(k) => { const {view} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, s = window.__vn;
+# A zoom stop: the first view again, then k levels in (FIRST_JS's `around`); Auto, Best 10, nothing selected
+STOP_JS = r"""(k) => { const {view, map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, s = window.__vn;
   view.closeFan(); view.select(null); view.setLevel('auto'); view.setBest(10);
   leaflet.setView(s.centre, s.zoom, {animate: false});
-  if (k) leaflet.setZoomAround(s.at, s.zoom + k, {animate: false});
+  if (k && s.around === 'best') {
+    leaflet.setView(s.best, s.zoom + k, {animate: false});
+    const f = map.freeBox(), p = leaflet.latLngToContainerPoint(s.best);
+    leaflet.panBy([Math.round(p.x - (f.left + f.right) / 2), Math.round(p.y - (f.top + f.bottom) / 2)], {animate: false});
+  } else if (k) leaflet.setZoomAround(s.at, s.zoom + k, {animate: false});
   return leaflet.getZoom() - s.zoom; }"""
 # "Lines from here" at the first anchor of the first spot in view (the list's order) whose fan has two rows or more;
 # the map put back after each fan too small
@@ -281,14 +293,16 @@ TILES_JS = "() => ![...document.querySelectorAll('.leaflet-tile:not(.leaflet-til
 
 
 def settle(page, rounds: int = SETTLE_ROUNDS):
-    """Wait until the view rests: drawn, no zoom moving, and the same numbers, free part, level, zoom and sheet in
-    two looks two frames apart. RuntimeError when it never rests within `rounds` looks."""
+    """Wait until the view rests: drawn, no zoom moving, no short timer of the page pending (TIMERS_JS: each wait
+    for one ends with its timer), and the same numbers, free part, level, zoom and sheet in two looks two frames
+    apart. RuntimeError when it never rests within `rounds` looks."""
     page.wait_for_function("() => !!window.FINDALINE_VIEW && !window.FINDALINE_MAP._animatingZoom", timeout=WAIT_MS)
     last = None
     for _ in range(rounds):
+        page.wait_for_function(NO_TIMERS_JS, timeout=WAIT_MS)
         page.evaluate(FRAMES_JS)
         now = page.evaluate(SIGNATURE_JS)
-        if now == last:
+        if now == last and not page.evaluate(TIMERS_JS):
             return
         last = now
     raise RuntimeError("the view did not rest")
@@ -348,9 +362,10 @@ def drive(page, recipe: dict):
     return found
 
 
-def measure_page(page, stops: list, bests: list) -> list:
-    """Every state of one opened run on one device (the module's docstring): their records."""
-    first = page.evaluate(FIRST_JS)
+def measure_page(page, stops: list, bests: list, around: str = "centre") -> list:
+    """Every state of one opened run on one device (the module's docstring; `around`: where the stops zoom in,
+    FIRST_JS): their records."""
+    first = page.evaluate(FIRST_JS, around)
     records = []
     for stop in [0] + list(stops):
         recipe = {"stop": stop, "held": None, "best": bests[0], "fan": False}
@@ -542,8 +557,10 @@ def serve(data: str):
 
 def open_view(context, url: str, run: str):
     """The run's result view in a new page of `context` (the view's flag set): the page, once the view rests."""
+    import ui_shots
     page = context.new_page()
     page.add_init_script(FLAG)
+    page.add_init_script(ui_shots.WATCH)  # the page's short timers counted (settle)
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
     page.goto(f"{url}/?ui=c#run={run}")
@@ -557,11 +574,11 @@ def default_launch(pw, engine: str):
 
 
 def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, bests: list, sheets: bool = False,
-                 launch=default_launch, labels: dict | None = None) -> dict:
+                 launch=default_launch, labels: dict | None = None, around: str = "centre") -> dict:
     """Every run of `runs` (folders) on every device: the result (also written to <out>/view_numbers.json and
     .md). `launch(pw, engine)`: the browser of an engine (ui_shots.DEVICES' "chromium" or "webkit")."""
     os.makedirs(out, exist_ok=True)
-    result = {"rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS], "stops": stops,
+    result = {"rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS], "stops": stops, "around": around,
               "best": bests, "devices": devices, "runs": []}
     shown = []
     for k, folder in enumerate(runs):
@@ -597,7 +614,7 @@ def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, be
                     context = ui_shots.pass_context(browser, pw, device, "light")
                     try:
                         page = open_view(context, url, run_id)
-                        states = measure_page(page, stops, bests)
+                        states = measure_page(page, stops, bests, around)
                         entry.setdefault("devices", {})[device] = {"first_view": states[0]["first_view"], "states": states[1:]}
                         if sheets:
                             entry["devices"][device]["pictures"] = pictures_of(page, states[1:], out, entry["label"], device)
@@ -675,8 +692,10 @@ def markdown(result: dict) -> str:
              "spots in view, P of the picks at Area, the fan's rows); \"no room\": without a free piece of their "
              "line (the row keeps the number); \"left out\": by today's rule (nearer than 1/4 box). Rules: today "
              "(1/4 box; the fan's own numbers never), 1/3, 1/2, never (only for want of a free piece). Stops: the "
-             f"first view and {', '.join('+' + str(s) for s in result['stops'])} whole zoom levels in (around the "
-             "middle of the map a person sees). \"held\": the Spots level held where Auto showed Area.", ""]
+             f"first view and {', '.join('+' + str(s) for s in result['stops'])} whole zoom levels in ("
+             + ("with the run's best spot's shown line in the middle of the map a person sees"
+                if result.get("around") == "best" else "around the middle of the map a person sees")
+             + "). \"held\": the Spots level held where Auto showed Area.", ""]
     for entry in result["runs"]:
         lines.append(f"## {entry['label']}" + (f" ({entry['run']})" if entry["label"] != entry["run"] else ""))
         if entry.get("left_out"):
@@ -740,6 +759,8 @@ def main(argv=None) -> int:
     p.add_argument("--devices", default=",".join(DEVICE_NAMES), help="of: " + ", ".join(DEVICE_NAMES))
     p.add_argument("--best", default="10,30,100", help="the Best values measured (the first one is the fan's)")
     p.add_argument("--zooms", default="1,2", help="whole zoom levels in from the first view (besides the first view)")
+    p.add_argument("--around", choices=("centre", "best"), default="centre",
+                   help="the zoom stops: around the middle of the map a person sees, or the run's best spot put there")
     p.add_argument("--sheets", action="store_true", help="pictures and contact sheets of the states of interest")
     p.add_argument("--data-dir", help="a scratch data folder (kept; default: a temporary one, removed)")
     args = p.parse_args(argv)
@@ -753,7 +774,7 @@ def main(argv=None) -> int:
     folders = [find_run(r, args.data, args.reference_dir) for r in args.runs]
     data = args.data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
     try:
-        result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels)
+        result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels, around=args.around)
     finally:
         if not args.data_dir:
             gc.collect()
