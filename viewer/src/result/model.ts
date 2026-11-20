@@ -25,7 +25,7 @@ import { colorOf, localPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
 import { ACCESS, emptyColumns, lineAt, LineCursor, type Line, type LineColumns, type LineValues, type OtherRun,
-         type Profile, type RunData, type RunHead, type RunInfo } from "../types";
+         type Profile, type RunData, type RunHead, type RunInfo, type ViewColumns } from "../types";
 import type { OnProgress } from "./load";
 import { measuredLine } from "./measured";
 
@@ -73,6 +73,9 @@ export interface ShownRun {
   area: RunHead["area"];
   start: number;
   count: number;
+  /** Its result view's columns (its store holds them: types.ts ViewColumns), else null: the result view's canvas
+   *  draws one line per spot of such a run (SpotMap.ts). */
+  view: ViewColumns | null;
 }
 
 /** Does a head's `ends` name the access mark (a run made with --access). */
@@ -1007,7 +1010,8 @@ export class ResultModel {
     const start = this.nextStart;
     this.nextStart += cols.length;
     this.tables.push({cols, start, run: {info, color}, access: marked(loaded.ends)});
-    this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area, start, count: cols.length});
+    this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area, start, count: cols.length,
+                              view: loaded.view ?? null});
     this.gather();
     this.compute();
     this.notify();

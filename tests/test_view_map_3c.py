@@ -30,6 +30,7 @@ INK = "#1b2530"      # SpotMap.ts INK: the outline's colour (the mock-up's --map
 GOLD = "#ffd400"     # style.ts COLORS.favourite, as the canvas reads it back
 CLEAN, OVER = "#ff10f0", "#ff8c00"  # style.ts COLORS.clean, .over
 OTHER_ID = "2026-11-20_120000_Other_00000000000000b1"
+OLD_OTHER_ID = "2026-10-26_120000_Old_00000000000000b2"  # another run saved before the view's columns
 
 # The canvas's helpers of these checks (beside test_shell_c_view_map's T)
 B_HELPERS = r"""
@@ -407,12 +408,60 @@ def test_covered_and_ends(site):
             browser.close()
 
 
+FAN_SEEN = """() => { const {map} = window.FINDALINE_VIEW; return [Math.round(document.querySelector('.v-foot').getBoundingClientRect().top),
+  map.drawn().numbers.filter((n) => n.label[0] === 'L').length, map.legend().shapes.L === true, !!document.querySelector('.v-legend [data-kind=L]')]; }"""
+
+
+def test_fan_row_kept_in_the_legend(site):
+    """"Lines from here" with numbers of its own (L): the legend keeps its L row while a row of the fan with an L number
+    has its line in view, drawn or not (the planner's decision of 2026-11-20, for the reason of the user's P decision
+    of 2026-11-18, DESIGN.md row 17: a row that comes and goes moves the foot and the numbers). With a box over the
+    whole map no number finds room: no L is drawn, `L` stays in the legend's state and its row in the legend, and the
+    foot's top holds between the canvas's passes; the box gone, the L numbers come back; the fan closed, no L."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP)
+            _state(page, "view.setLevel('spots');")
+            assert page.evaluate("() => T.fanWithL()") is not None, "no fan with a number of its own"
+            page.evaluate("() => T.frames()")
+            drawn = page.evaluate(FAN_SEEN)
+            assert drawn[1] > 0 and drawn[2:] == [True, True], drawn
+            # a box over the whole map (a control): no number has a free piece
+            page.evaluate("""() => { const col = document.querySelector('.c-col-map'), b = document.createElement('div');
+                b.id = 'b1-cover'; b.setAttribute('data-map-control', '');
+                Object.assign(b.style, {position: 'absolute', left: '0', top: '0', right: '0', bottom: '0', pointerEvents: 'none'});
+                col.appendChild(b); window.FINDALINE_VIEW.map.refresh(); }""")
+            for _ in range(2):
+                page.evaluate("() => T.frames()")
+            passes = []
+            for _ in range(4):
+                page.evaluate("() => T.frames()")
+                passes.append(page.evaluate(FAN_SEEN))
+            assert all(s == passes[0] for s in passes) and passes[0][1:] == [0, True, True], passes
+            assert page.evaluate("() => window.FINDALINE_VIEW.view.fan !== null")
+            # the box gone: the L numbers drawn again
+            page.evaluate("() => { document.getElementById('b1-cover').remove(); window.FINDALINE_VIEW.map.refresh(); }")
+            page.evaluate("() => T.frames()")
+            back = page.evaluate(FAN_SEEN)
+            assert back[1] > 0 and back[2:] == [True, True], back
+            # the fan closed: no L
+            s = _state(page, "view.closeFan();")
+            assert "L" not in s["shapes"] and page.evaluate("() => !document.querySelector('.v-legend [data-kind=L]')")
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
+
 def test_other_runs_apart(site):
     """Compare's other runs (ResultModel.others): drawn in the run's colour with its dashed area, its lines 2.5 px (over
-    trees dashed "6 4") under this run's lines, dimmed while a line is selected; following the filters (Favourites only
-    included, not "Top level only"); never counted: the spots in view, the best, the numbers, the strokes, the picks
-    and the squares' values are those without it; never pressable (a press on its line far from this run's lines does
-    what an empty point does); the legend's `runs` lists it while drawn in view; removed, nothing of it is left."""
+    trees dashed "6 4") under this run's lines, dimmed while a line is selected; a run with the view's columns one line
+    per spot (the planner's (c)), a run without them (an old run) every passing line; following the filters (Favourites
+    only included, not "Top level only"); never counted: the spots in view, the best, the numbers, the strokes, the
+    picks and the squares' values are those without it; never pressable (a press on its line far from this run's lines
+    does what an empty point does); the legend's `runs` lists it while drawn in view; a hover's paint copies its kept
+    layer in; removed, nothing of it is left."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -432,11 +481,13 @@ def test_other_runs_apart(site):
             info = {"id": OTHER_ID, "name": "Other run", "created": "2026-11-20T12:00:00", "has_lines": True}
             page.evaluate("([info, dlon]) => { const m = window.FINDALINE_VIEW.view.model; m.addRun(info, B.moved(dlon)); }", [info, dlon])
             n = page.evaluate("() => window.FINDALINE_VIEW.view.model.data.columns.length")
+            spots = page.evaluate("() => window.FINDALINE_VIEW.view.spotCount")  # every spot has a line: one drawn for each
+            assert 0 < spots < n
             colour = page.evaluate("([id]) => window.FINDALINE_VIEW.view.model.others.get(id).color", [OTHER_ID])
             for level in ("area", "spots", "lines"):
                 assert snapshot(level) == before[level], level
                 d = page.evaluate("() => window.FINDALINE_VIEW.map.drawn()")
-                assert d["others"] == [{"id": OTHER_ID, "lines": n}], d["others"]
+                assert d["others"] == [{"id": OTHER_ID, "lines": spots}], d["others"]
                 legend = page.evaluate("() => window.FINDALINE_VIEW.map.legend().runs")
                 assert legend == [{"id": OTHER_ID, "name": "Other run", "color": colour}]
             # its strokes: the area dashed in its colour, its lines 2.5 px under this run's lines, those over trees dashed
@@ -447,8 +498,7 @@ def test_other_runs_apart(site):
             assert any(ops[j]["dash"] == "6,6" and ops[j]["width"] == 1 for j in mine)
             lines = [ops[j] for j in mine if ops[j]["width"] == 2.5]
             assert lines and max(j for j in mine) < first and {o["alpha"] for o in lines} == {0.9}
-            assert {o["dash"] for o in lines} <= {"", "6,4"} and (page.evaluate("() => window.FINDALINE_VIEW.view.model.data.columns.over.some((v) => v)") is False
-                                                                  or "6,4" in {o["dash"] for o in lines})
+            assert {o["dash"] for o in lines} <= {"", "6,4"}
             image = min(j for j, o in enumerate(ops) if o["op"] == "drawImage" and o["on"] == "main")
             assert all(ops[j]["on"] == "layer" for j in mine) and max(mine) < image < first  # its layer copied in under this run
             ops = page.evaluate("() => { window.FINDALINE_VIEW.view.select(window.FINDALINE_VIEW.view.order[0]); return B.ops(); }")
@@ -456,7 +506,7 @@ def test_other_runs_apart(site):
             # a hover paint copies the kept layer in: none of the other run's lines is drawn again
             hover = page.evaluate("() => { const {view, map} = window.FINDALINE_VIEW; return B.ops(() => map.highlight(view.shownOf(view.order[1]))); }")
             assert not any(o["on"] == "layer" for o in hover) and any(o["op"] == "drawImage" and o["on"] == "main" for o in hover)
-            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [{"id": OTHER_ID, "lines": n}]
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [{"id": OTHER_ID, "lines": spots}]
             page.evaluate("() => window.FINDALINE_VIEW.map.highlight(null)")
             # never pressable: a point on its line far from this run's lines does what an empty point does
             at = page.evaluate("""([dlon]) => { const {map} = window.FINDALINE_VIEW, box = T.box();
@@ -475,22 +525,34 @@ def test_other_runs_apart(site):
                 const long = map.drawn().others[0].lines;
                 m.setState({...m.state, showOver: false}); map.refresh();
                 const clear = map.drawn().others[0].lines;
-                let wantLong = 0, wantClear = 0;
-                for (let i = 0; i < c.length; i++) { if (len[i] >= Math.round(at)) { wantLong++; if (!c.over[i]) wantClear++; } }
+                const longSpots = new Set(), clearSpots = new Set();  // the spots with a passing line: one drawn for each
+                for (let i = 0; i < c.length; i++) { if (len[i] >= Math.round(at)) { longSpots.add(view.spotOf(i)); if (!c.over[i]) clearSpots.add(view.spotOf(i)); } }
                 m.setState({...m.state, showOver: true}); m.setFilters({...m.filters, lenMin: null});
-                return {long, clear, wantLong, wantClear}; }""")
-            assert got["long"] == got["wantLong"] and got["clear"] == got["wantClear"] and got["clear"] < got["long"] < n, got
+                return {long, clear, wantLong: longSpots.size, wantClear: clearSpots.size}; }""")
+            assert got["long"] == got["wantLong"] and got["clear"] == got["wantClear"] and 0 < got["clear"] <= got["long"] < spots, got
             # Favourites only: none of the other run's lines is a favourite, none is drawn
             page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
             fav = page.evaluate("""() => { const {view, map} = window.FINDALINE_VIEW, m = view.model; m.setFilters({...m.filters, favOnly: true}); map.refresh();
                 const on = map.drawn().others[0].lines; m.setFilters({...m.filters, favOnly: false}); map.refresh(); return [on, map.drawn().others[0].lines]; }""")
-            assert fav == [0, n], fav
+            assert fav == [0, spots], fav
             # "Top level only" off and on changes nothing of it
             tops = page.evaluate("() => { const {view, map} = window.FINDALINE_VIEW; view.setTopOnly(false); map.refresh(); const a = map.drawn().others[0].lines; view.setTopOnly(true); map.refresh(); return [a, map.drawn().others[0].lines]; }")
-            assert tops == [n, n]
+            assert tops == [spots, spots]
             # removed: nothing of it drawn, no `runs`
             s = _state(page, f"view.model.removeRun('{OTHER_ID}');")
             assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [] and page.evaluate("() => window.FINDALINE_VIEW.map.legend().runs") == []
+            # a run without the view's columns (an old run): every passing line drawn, those over trees dashed
+            old = {**info, "id": OLD_OTHER_ID, "name": "Old run"}
+            page.evaluate("([info, dlon]) => { const m = window.FINDALINE_VIEW.view.model; m.addRun(info, {...B.moved(dlon), view: undefined}); }", [old, dlon])
+            _state(page, "view.setLevel('spots');")
+            assert page.evaluate("([id]) => window.FINDALINE_VIEW.view.model.others.get(id).view", [OLD_OTHER_ID]) is None
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == [{"id": OLD_OTHER_ID, "lines": n}]
+            old_colour = B_colour(page, page.evaluate("([id]) => window.FINDALINE_VIEW.view.model.others.get(id).color", [OLD_OTHER_ID]))
+            dashes = {o["dash"] for o in page.evaluate(ORDER) if o["op"] == "stroke" and o["stroke"] == old_colour and o["width"] == 2.5}
+            any_over = page.evaluate("() => window.FINDALINE_VIEW.view.model.data.columns.over.some((v) => v)")
+            assert dashes == ({"", "6,4"} if any_over else {""}), dashes
+            s = _state(page, f"view.model.removeRun('{OLD_OTHER_ID}');")
+            assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().others") == []
             assert s["level"]
             assert page.errors == [], page.errors
         finally:

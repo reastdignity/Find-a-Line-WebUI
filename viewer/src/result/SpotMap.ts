@@ -24,8 +24,9 @@
 // Step 3c (today's features on the canvas, none of them pressable): the run's search area as today's thin dashed
 // outline in the map's ink, over the squares' fills and under their values, the lines and the numbers (no obstacle
 // for a number); a favourite that is its spot's shown line on today's gold halo (the selected one gold in the dark
-// halo's place); Compare's other runs (ResultModel.others) in their colours with their dashed areas, under this
-// run's lines, never counted in the levels, the squares, Best N, "in view" or the picks; Measure (the members
+// halo's place); Compare's other runs (ResultModel.others) in their colours with their dashed areas (one line per
+// spot of a run with the view's columns, else every passing line), under this run's lines, never counted in the
+// levels, the squares, Best N, "in view" or the picks; Measure (the members
 // RunActions' RunActionsMap needs: two presses are two points, black dashes between white points, Esc cancels, a
 // phone's map holds still) and a measured line the frame draws (drawMeasured); the bottom part the frame covers with
 // its profile card (setCovered) is not in view, as a phone's sheet is not.
@@ -936,10 +937,12 @@ export class SpotMap {
   }
 
   /** Compare's other runs as the canvas draws them (ResultModel.others, in its order; their columns:
-   *  ResultModel.runColumns): which of their lines pass, by today's filtering of them (both kinds of lines as shown,
-   *  the filters with this run's lift, Favourites only; not "Top level only": their spots are not this run's), made
-   *  again only when what passes or the runs shown changed (the view's version, the favourites with Favourites only,
-   *  the runs). */
+   *  ResultModel.runColumns): which of their lines are drawn. A line passes by today's filtering of them (both kinds
+   *  of lines as shown, the filters with this run's lift, Favourites only; not "Top level only": their spots are not
+   *  this run's); of a run with the result view's columns (ShownRun.view) only each spot's shown line is drawn, as
+   *  this run's (its first passing line in the spot's order, a passing favourite first: B-3), of another run every
+   *  passing line (the planner's (c), 2026-11-20: today's page drew one line per group). Made again only when what
+   *  passes or the runs shown changed (the view's version, the favourites, the runs). */
   private others(): OtherRunDrawn[] {
     const model = this.view.model;
     if (!model.others.size) {
@@ -948,23 +951,44 @@ export class SpotMap {
       return this.otherRuns;
     }
     const f = model.filters, s = model.state, favOnly = f.favOnly && model.favouritesOn;
-    const favs = favOnly ? model.favouriteLines().map((l) => model.indexOf(l)) : null;
+    const favs = model.favouritesOn ? model.favouriteLines().map((l) => model.indexOf(l)) : null;
     let key = `${this.view.version}|${favs ? favs.join(",") : "-"}`;
-    for (const run of model.others.values()) key += `|${run.info.id}:${run.start}:${run.count}:${run.color}`;
+    for (const run of model.others.values()) key += `|${run.info.id}:${run.start}:${run.count}:${run.color}:${run.view ? 1 : 0}`;
     if (key === this.othersKey) return this.otherRuns;
     this.othersKey = key;
     const lift = model.data.lift, out: OtherRunDrawn[] = [];
     for (const run of model.others.values()) {
       const cols = model.runColumns(run.info.id);
       if (!cols) continue;
-      const n = cols.length, ok = new Uint8Array(n), cursor = new LineCursor(cols), over = cols.over;
+      const n = cols.length, cursor = new LineCursor(cols), over = cols.over;
+      let ok = new Uint8Array(n);
       const fav = favs ? new Set(favs.filter((at) => at >= run.start && at < run.start + n).map((at) => at - run.start)) : null;
       for (let i = 0; i < n; i++) {
         if (over[i] ? !s.showOver : !s.showClean) continue;
         cursor.i = i;
         if (!passesFilters(cursor, f, lift)) continue;
-        if (fav && !fav.has(i)) continue;
+        if (favOnly && fav && !fav.has(i)) continue;
         ok[i] = 1;
+      }
+      const v = run.view;
+      if (v && v.spot.length === n && v.bySpot.length === n) {
+        // each spot's shown line: a passing favourite, else its first passing line in the spot's order (bySpot)
+        let spots = 0;
+        for (let i = 0; i < n; i++) if (v.spot[i] >= spots) spots = v.spot[i] + 1;
+        const first = new Int32Array(spots).fill(-1), liked = new Int32Array(spots).fill(-1);
+        for (let k = 0; k < n; k++) {
+          const row = v.bySpot[k];
+          if (row >= n || !ok[row]) continue;
+          const spot = v.spot[row];
+          if (first[spot] < 0) first[spot] = row;
+          if (liked[spot] < 0 && fav && fav.has(row)) liked[spot] = row;
+        }
+        const shown = new Uint8Array(n);
+        for (let p = 0; p < spots; p++) {
+          const row = liked[p] >= 0 ? liked[p] : first[p];
+          if (row >= 0) shown[row] = 1;
+        }
+        ok = shown;
       }
       out.push({id: run.info.id, name: run.info.name, color: run.color, rings: areaOf(run.area).rings, n, over, ok,
                 lat: [reader(cols.lat1), reader(cols.lat2)], lon: [reader(cols.lon1), reader(cols.lon2)]});
