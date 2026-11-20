@@ -213,11 +213,12 @@
   .ui .c-admin-tools > .c-check { flex-basis: 100%; min-height: 52px; margin-top: -8px; padding-top: 8px; }
 }
 /* a question in place of a row's tools (AdminC.tsx Question: "Block them" / "Unblock them" / "Delete it" and "Keep"):
-   the two buttons alone in the row, 12 px apart, over a pad that takes a press and does nothing, 16 px around them
-   and between them: a finger's tap beside "Block them" lands on the pad, never on the button by the browsers' touch
+   the two buttons alone in the row, 12 px apart, over a pad that takes a press and does nothing, between them, 16 px
+   beside and under them and 8 px above: a finger's tap beside "Block them" lands on the pad, never on the button by the browsers' touch
    adjustment (it takes the nearest thing that answers a press) */
 .ui .c-ask { position: relative; display: inline-flex; align-items: center; gap: 12px; }
-.ui .c-ask-pad { position: absolute; inset: -16px; }
+.ui .c-ask-pad { position: absolute; inset: -8px -16px -16px; }  /* 8 px above: not over the line before (a report's
+   run link, when no browser line stands between); taps 9 to 12 px above land on that line or on the pad, measured */
 .ui .c-ask > .u-btn { position: relative; }
 /* the page's badges (a user's state, "without limits", a report's kind, "demo") start with a capital, as the status
    chips (.u-st-word): the words come in lower case from the server and the code; ::first-letter needs a block, which
