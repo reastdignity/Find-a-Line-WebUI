@@ -56,7 +56,8 @@ export function cardHeightAhead(layout: Layout, mapHeight: number): number {
 }
 const FOLDED_HEIGHT = 46;  // px: the folded card (its bar)
 
-export function ProfileCard({model, view, line, measured, onCloseMeasured, layout, onLayout, onSettle}: ProfileCardProps) {
+export function ProfileCard({model, view, line, measured, onCloseMeasured, layout, onLayout,
+                             onSettle}: ProfileCardProps) {
   useModel(model);
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{w: number; h: number} | null>(null);  // the positioned parent's size

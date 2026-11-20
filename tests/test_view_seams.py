@@ -74,8 +74,9 @@ def test_view_draws_no_slot(site):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            for context, first, selected, details in ((DESKTOP, DESKTOP_FIRST, DESKTOP_SELECTED, ".c-col-dbody .vl-details"),
-                                                      (PHONE, PHONE_FIRST, PHONE_SELECTED, ".u-sheet-body .vl-details")):
+            for context, first, selected, details in (
+                    (DESKTOP, DESKTOP_FIRST, DESKTOP_SELECTED, ".c-col-dbody .vl-details"),
+                    (PHONE, PHONE_FIRST, PHONE_SELECTED, ".u-sheet-body .vl-details")):
                 page = _open(browser, f"{site}#run={BIG}", context)
                 _state(page)
                 _holds(page, first)
