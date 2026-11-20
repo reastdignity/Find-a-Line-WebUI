@@ -149,7 +149,9 @@
 .ui .v-result .c-col-map > .r-card { bottom: var(--v-card-bottom, 12px); }
 
 /* The run's actions in a phone's pill (icons, after the caller's): plain, as the pill's other buttons */
-.ui .v-result .c-pill .r-actions { flex-wrap: nowrap; gap: 4px; }
+/* the icons side by side at their 44 px (the mock-up's pitch), the name keeping its room (the second design review's
+   N2: 133 px of the owner's run's name on a 390 px phone) */
+.ui .v-result .c-pill .r-actions { flex-wrap: nowrap; gap: 0; }
 .ui .v-result .c-pill .r-actions .u-ib { box-shadow: none; }
 /* their menus (Share, Download) open under the whole pill, as wide as it: under the button they ran off a 390 px
    screen's left edge (fix round 1's pictures) */
@@ -203,6 +205,10 @@
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers.leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none; }
 /* the rows' own radio and checkbox in the accent (the browser's blue otherwise) */
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { accent-color: var(--accent); }
+/* a desktop's top left boxes (the shore's, the coarser terrain's) end left of the layers button, also in a narrow map
+   column (a 1024 px window: the second design review's N4) */
+.ui .v-result:not(.c-result-phone) .v-map .leaflet-top.leaflet-left { max-width: calc(100% - 64px); }
+.ui .v-result:not(.c-result-phone) .v-map .leaflet-top.leaflet-left .u-shore { max-width: min(320px, 100%); }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */
 .ui .v-result .u-shore { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; }
 /* the shore's opened box scrolls under its title (ui.css .u-shore-ctl): no padding above the title, which takes the
@@ -215,7 +221,7 @@
 /* ---- a phone (the pilot's arrangement at 390 x 664, for every phone height): the top bar 44 px high; under the
    switch one row of the zoom (across), the shore's chip and the layers; the scale at the bottom right ---- */
 .ui .v-result .c-phone-top { top: 8px; left: 8px; right: 8px; }
-.ui .v-result .c-pill { min-height: 44px; padding: 0 16px 0 0; gap: 4px; border-radius: var(--r-full); }
+.ui .v-result .c-pill { min-height: 44px; padding: 0 4px 0 0; gap: 4px; border-radius: var(--r-full); }
 .ui .v-result .c-pill-name { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .c-result-phone .v-switch { top: 60px; justify-content: flex-start; }
 .ui .c-result-phone .v-map .leaflet-top { top: 112px; }

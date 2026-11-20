@@ -305,3 +305,14 @@
 .ui .vl-none { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; color: var(--ink); }
 .ui .vl-none-text { margin: 0; }
 .ui .vl-list .vl-none { padding: 12px 0; }
+/* a narrow desktop list (a low window: 1024 px gives it 320 px): the row star's room taken from the rows' gaps and
+   edges, so the heads and values stay apart (the second design review's N3, B3's fix with the planner's leave); the
+   default width (372 px) keeps the rows above as they are */
+.ui .c-col-list .vl-body { container: vl-list / inline-size; }
+@container vl-list (max-width: 360px) {
+  .ui .vl-rows { padding-left: 4px; }
+  .ui .vl-rows.vl-starred { padding-right: 0; }
+  .ui .vl-cols { margin-left: 4px; }
+  .ui .vl-cols.vl-starred { margin-right: 24px; }
+  .ui .vl-main, .ui .vl-cols { column-gap: 2px; padding-left: 2px; padding-right: 2px; }
+}
