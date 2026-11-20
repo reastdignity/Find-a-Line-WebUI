@@ -28,8 +28,9 @@ from test_shell_c_view_map import (DESKTOP, PHONE, SMALL_PHONE, WAIT, WORDS, _cr
                                    _tap_on, view_clip)
 from test_web import EDGE, _playwright, _server, store_with  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
-                                reason="needs Microsoft Edge and Playwright (group ui)")
+# the browser tests (every test but the plain ones, which CI runs without the ui group)
+BROWSER = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
+                             reason="needs Microsoft Edge and Playwright (group ui)")
 PLAIN = "2026-10-28_100000_Plain_00000000000000c2"      # the same search without --access
 SKIPPED = "2026-10-29_100000_Skipped_00000000000000d2"  # PLAIN with the head's access_skipped
 BOXES = "2026-10-30_100000_Boxes_00000000000000e2"      # BIG with an uncertain shore and coarser terrain in its head
@@ -130,11 +131,13 @@ window.A = {
     const hex = ctx.fillStyle; return [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)); },
   // the canvas's pixels on the circle of an anchor's number (A1, A2: radius 10.5 px, its ring 2.4 px wide): how many
   // of 24 points around it are the token's colour (each channel within 40)
-  ring(label, token) { const {map} = window.FINDALINE_VIEW, n = map.drawn().numbers.find((x) => x.label === label);
+  ring(label, token) { return this.ringOf(label, getComputedStyle(window.FINDALINE_MAP.getContainer()).getPropertyValue(token).trim()); },
+  // the same for a colour given as it is (the canvas's own ink of a ring with no state)
+  ringOf(label, colour) { const {map} = window.FINDALINE_VIEW, n = map.drawn().numbers.find((x) => x.label === label);
     if (!n) return null;
     const canvas = map.renderer._container, ctx = canvas.getContext("2d"), cb = canvas.getBoundingClientRect();
     const sx = canvas.width / cb.width, sy = canvas.height / cb.height;
-    const want = this.rgb(getComputedStyle(window.FINDALINE_MAP.getContainer()).getPropertyValue(token).trim());
+    const want = this.rgb(colour);
     const cx = (n.box.left + n.box.right) / 2, cy = (n.box.top + n.box.bottom) / 2;
     let hits = 0;
     for (let k = 0; k < 24; k++) { const a = k * Math.PI / 12, x = (cx + 10.5 * Math.cos(a) - cb.left) * sx, y = (cy + 10.5 * Math.sin(a) - cb.top) * sy;
@@ -194,6 +197,7 @@ def _dots_hold(rows: list, where: str):
         assert all(d[3] >= 3 for d in r["dots"]), (where, r)  # its title, the dot and the state's sign
 
 
+@BROWSER
 def test_list_column_and_its_heads(site):
     """A marked run: "Best in view" and the tree carry the column "Anchors" before "Lines" (a head, not a sort), in
     every row two dots of 20 px with the line's states (anchor 1, anchor 2: the columns' values) and their names,
@@ -227,15 +231,25 @@ def test_list_column_and_its_heads(site):
     assert len(states) >= 2, states  # the clip's run has all three
 
 
+@BROWSER
 def test_details_rows_a1_a2_and_the_key(site):
-    """A selected spot of a marked run: "Reaching the anchors" under the tiles and above "Lines from anchor A1 / A2",
-    a row per anchor ("A1", the dot of the line's state with its name, the state's words); the key's "i" (the kit's
-    info icon, no "?") opens the three states under the rows and closes again; on a desktop and in a phone's sheet."""
+    """A selected spot of a marked run: the head ("Spot 1.1", its lines; the details' head on a desktop, the sheet's
+    on a phone) carries the line's two dots (anchor 1, anchor 2) on the title's line, after the count; "Reaching the
+    anchors" under the tiles and above "Lines from anchor A1 / A2", a row per anchor ("A1", the dot of the line's state
+    with its name, the state's words); the key's "i" (the kit's info icon, no "?") opens the three states under the
+    rows and closes again; on a desktop and in a phone's sheet (today's test_details_block_and_the_phone_heads_pair)."""
     from playwright.sync_api import sync_playwright
     details = """() => { const d = document.querySelector('.vl-details'), acc = d && d.querySelector('.vl-acc'), sel = A.view().selected;
       const dot = (e) => e ? [e.getAttribute('class'), e.getAttribute('aria-label'), Math.round(e.getBoundingClientRect().width)] : null;
       const tiles = d.querySelector('.vl-tiles'), acts = d.querySelector('.vl-acts'), info = acc && acc.querySelector('.vl-acc-h .ac-info');
-      return {line: [sel.line.access1, sel.line.access2], title: acc && acc.querySelector('.vl-acc-h').firstChild.textContent,
+      const heads = [...document.querySelectorAll('.vl-spot-title')], head = heads[0], pair = head && head.querySelector('.ac-pair');
+      const middle = (e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+      return {heads: heads.length, inSheet: !!(head && head.closest('.u-sheet')), head: pair ? [...pair.querySelectorAll('svg.ac')].map(dot) : [],
+              // the pair inside the title's box, on the line of the spot's count, after it
+              headLine: !!pair && (() => { const t = head.getBoundingClientRect(), b = pair.getBoundingClientRect(), n = head.querySelector('.vl-spot-count');
+                return b.top >= t.top - 1 && b.bottom <= t.bottom + 1 && b.right <= t.right + 1 && Math.abs(middle(pair) - middle(n)) <= 6
+                       && b.left >= n.getBoundingClientRect().right; })(),
+              line: [sel.line.access1, sel.line.access2], title: acc && acc.querySelector('.vl-acc-h').firstChild.textContent,
               rows: acc ? [...acc.querySelectorAll('.vl-acc-row')].map((row) => [row.children[0].textContent, dot(row.querySelector('svg.ac')), row.children[2].textContent]) : [],
               placed: !!(acc && tiles && acts) && !!(tiles.compareDocumentPosition(acc) & 4) && !!(acc.compareDocumentPosition(acts) & 4),
               info: info && [info.getAttribute('aria-label'), info.getAttribute('aria-expanded'), info.textContent.trim(), !!info.querySelector('svg.u-ic')],
@@ -263,6 +277,9 @@ def test_details_rows_a1_a2_and_the_key(site):
     for name in ("desktop", "phone"):
         found = r[name]
         a1, a2 = found["line"]
+        assert found["heads"] == 1 and found["inSheet"] == (name == "phone"), (name, found)
+        assert found["head"] == [[f"ac ac-{a1}", f"Anchor 1: {STATES[a1]}", 20], [f"ac ac-{a2}", f"Anchor 2: {STATES[a2]}", 20]], (name, found)
+        assert found["headLine"] is True, (name, found)
         assert found["title"] == WORDS["ui.access.title"] and found["placed"], (name, found)
         assert found["rows"] == [["A1", [f"ac ac-{a1}", f"Anchor 1: {STATES[a1]}", 20], STATES[a1]],
                                  ["A2", [f"ac ac-{a2}", f"Anchor 2: {STATES[a2]}", 20], STATES[a2]]], (name, found)
@@ -271,6 +288,7 @@ def test_details_rows_a1_a2_and_the_key(site):
         assert opened["info"][1] == "true" and opened["key"] == ["easy access:", "cannot tell:", "hard access:"], (name, opened)
 
 
+@BROWSER
 def test_fan_far_end(site):
     """"Lines from anchor A1" and "… A2" of a marked run: the heads end with "Far end" (the mark's column, no sort);
     each row carries the dot of its far anchor's state (the end of its line away from the point) with the name "Far
@@ -305,6 +323,7 @@ def test_fan_far_end(site):
             assert (cls, label, none) == (f"ac ac-{far}", WORDS["ui.view.fan.far_end_state"].replace("{{state}}", STATES[far]), 0), (end, row)
 
 
+@BROWSER
 def test_marks_at_a1_and_a2_on_the_map(site):
     """The selected line of a marked run on the map: A1 and A2 carry its anchors' states, as the circle's ring in the
     state's map colour (the canvas's pixels: `--acc-map-*`) and the mark on the circle's corner (a marker's icon of
@@ -365,6 +384,7 @@ def _legend(page) -> dict:
               label, help: !!document.querySelector('.v-legend .ac-info, .v-help-button .ac-info'), level: A.view().level}; }""")
 
 
+@BROWSER
 def test_legend_lists_the_three_marks(site):
     """The map's legend of a marked run on a desktop: "Anchors" and the three marks (easy access, cannot tell, hard
     access: the dots and the words of the details and the help) after the shapes, with the key's "i" in the legend,
@@ -400,6 +420,7 @@ def test_legend_lists_the_three_marks(site):
         assert r[name]["kinds"] == [] and WORDS["ui.access.legend"] not in r[name]["label"] and r[name]["help"] is False, (name, r[name])
 
 
+@BROWSER
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
 def test_phone_legend_of_two_lines(site, device):
     """A phone's legend of a marked run: unfolded at the start (the sheet low), two lines of short labels, the second
@@ -437,6 +458,7 @@ def test_phone_legend_of_two_lines(site, device):
     assert folded["fold"][0] == "false" and folded["shown"] is False and again["lines"] == start["lines"], (folded, again)
 
 
+@BROWSER
 def test_pick_from_a_top_edge(site):
     """"Start here" of a marked run at the Area level: the fifth pick "From a top edge: walk to both anchors" is the
     highest line on average whose two anchors read easy access, shown last (P5 or the last number), its row with two
@@ -496,16 +518,35 @@ def test_pick_from_a_top_edge(site):
     assert r["plain"]["picks"] and "edge" not in [k[0] for k in r["plain"]["picks"]] and r["plain"]["edge"] == -1, r["plain"]
 
 
+@BROWSER
 def test_run_without_the_mark_draws_none_of_it(site):
     """A run made without --access in the view: no column (the heads Length, Mean height, Clearance, Lines), no dot
-    or "–" in a row, no block in the details, no "Far end" in "Lines from here", no marks on the map's corners, no
-    legend's marks and no key; nor the line of a mark left out; on a desktop and a phone."""
+    or "–" in a row, no pair in the head and no block in the details, no "Far end" in "Lines from here", no marks on
+    the map's corners, no legend's marks and no key; nor the line of a mark left out; on a desktop and a phone. On
+    the canvas the selected line's A1 and A2 are the circles of a line without the mark: their ring in the numbers'
+    ink, not in the map colours of easy access or cannot tell, and no mark on their corners (today's
+    test_run_without_the_mark_draws_none_of_it: the white dots)."""
     from playwright.sync_api import sync_playwright
     count = "() => document.querySelectorAll(%s).length" % json.dumps(MARK_ANY + ", .r-acc-skipped")
+    ink = "#1b2530"  # SpotMap.ts INK: the ring of an anchor's circle with no state
     r = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
+            page = _view(browser, site, PLAIN, DESKTOP)
+            _state(page, "view.setLevel('spots');")
+            at = page.evaluate("() => A.anchors(24, -1)")
+            assert at, "no spot in view with both anchors free on the map"
+            page.wait_for_function(f"() => A.view().selected && A.view().selected.spot === {at['spot']}", timeout=WAIT)
+            canvas = _state(page)
+            r["canvas"] = {"numbers": sorted(n["label"] for n in canvas["numbers"] if n["label"][0] == "A"),
+                           "ink": [page.evaluate("([label, c]) => A.ringOf(label, c)", [label, ink]) for label in ("A1", "A2")],
+                           # (not "--acc-map-hard": #2f3a45 lies within the bounds of the ink #1b2530; the corners'
+                           # marks, none, tell that state apart)
+                           "states": [max(page.evaluate("([label, token]) => A.ring(label, token)", [label, token]) or 0
+                                          for token in ("--acc-map-tell", "--acc-map-easy")) for label in ("A1", "A2")],
+                           "corners": page.evaluate("() => document.querySelectorAll('.v-anchor-mark').length")}
+            page.close()
             for name, context in (("desktop", DESKTOP), ("phone", PHONE)):
                 page = _view(browser, site, PLAIN, context)
                 if name == "phone":
@@ -516,6 +557,8 @@ def test_run_without_the_mark_draws_none_of_it(site):
                 page.wait_for_selector(".vl-details", state="attached", timeout=WAIT)
                 page.evaluate("() => A.frames()")
                 r[name]["selected"] = page.evaluate(count)
+                r[name]["head"] = page.evaluate("() => [document.querySelectorAll('.vl-spot-title').length, "
+                                                "document.querySelectorAll('.vl-spot-title .ac-pair, .vl-spot-title .ac-none').length]")
                 page.evaluate("() => document.querySelector('.vl-from-1').click()")
                 page.wait_for_selector(".vl-fan .vl-main", state="attached", timeout=WAIT)
                 r[name]["fan"] = [page.evaluate(count), page.evaluate("() => A.heads('.vl-fan')")]
@@ -523,13 +566,18 @@ def test_run_without_the_mark_draws_none_of_it(site):
                 page.close()
         finally:
             browser.close()
+    canvas = r.pop("canvas")
+    assert canvas["numbers"] == ["A1", "A2"] and canvas["corners"] == 0, canvas
+    assert all(hits >= 12 for hits in canvas["ink"]) and all(hits <= 4 for hits in canvas["states"]), canvas
     for name, found in r.items():
         assert found["acc"] is False and found["start"] == found["selected"] == found["fan"][0] == 0, (name, found)
+        assert found["head"] == [1, 0], (name, found)  # the head is there, without a pair
         assert [h[0] for h in found["heads"]] == [WORDS[k] for k in ("ui.list.col.length", "ui.list.col.mean", "ui.view.col.clear",
                                                                     "ui.list.col.lines")], (name, found["heads"])
         assert WORDS["ui.view.fan.far_end"] not in [h[0] for h in found["fan"][1]] and not any(h[1] for h in found["fan"][1]), (name, found)
 
 
+@BROWSER
 def test_run_whose_mark_was_left_out(site):
     """A run whose head says the mark was asked for and left out (`access_skipped`): in the view's head today's muted
     line "Anchors' access not marked: the search area was too wide." once, after the headline and "found", before the
@@ -594,6 +642,7 @@ def _over_holds(rows: list, where: str):
             assert not r["cls"] and r["words"] is None and r["times"] == 0, (where, r)
 
 
+@BROWSER
 @pytest.mark.parametrize("device", [DESKTOP, PHONE, PIXEL], ids=["desktop", "390", "412"])
 def test_over_trees_in_words_in_the_fan_and_the_table(site, device):
     """R4.2 (the design review's item 9): in "Lines from here" and in the table of spots a line over trees or
@@ -659,6 +708,26 @@ def _kit_info() -> str:
         return re.search(r"^\s*info: '([^']*)',$", f.read(), re.M).group(1)
 
 
+def test_boxes_icon_is_a_copy_of_the_kits():
+    """shoreLayer.ts INFO_ICON (the boxes' help; a copy, as shoreLayer.ts is also bundled without the loader of the
+    logo's .svg files that ui/icons.tsx imports) is the kit's "info" icon as icons.tsx's Icon draws it: ICONS.info's
+    markup in an <svg> of the class u-ic, the viewBox 0 0 24 24 and aria-hidden "true". A plain test of the two
+    sources: it runs where Playwright is not installed (CI's tests job installs the tui group, not ui)."""
+    with open(os.path.join(REPO, "viewer", "src", "shoreLayer.ts"), encoding="utf-8") as f:
+        shore = f.read()
+    with open(os.path.join(REPO, "viewer", "src", "ui", "icons.tsx"), encoding="utf-8") as f:
+        icons = f.read()
+    literal = re.search(r"export const INFO_ICON = ((?:'[^']*'\s*\+?\s*)+);", shore)
+    assert literal, "INFO_ICON is no longer a string literal of shoreLayer.ts"
+    markup = "".join(re.findall(r"'([^']*)'", literal.group(1)))
+    copy = re.fullmatch(r'<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">(.*)</svg>', markup)
+    assert copy and copy.group(1) == _kit_info(), (markup, _kit_info())
+    # the kit's own wrapper (Icon): the same class, viewBox and aria-hidden (an icon without a title)
+    icon = re.search(r"export function Icon\(.*?\n}\n", icons, re.S).group(0)
+    assert "class={`u-ic" in icon and 'viewBox="0 0 24 24"' in icon and 'aria-hidden={title ? undefined : "true"}' in icon, icon
+
+
+@BROWSER
 @pytest.mark.parametrize("view", [True, False], ids=["view", "today"])
 def test_boxes_help_is_the_kits_info_icon(site, view):
     """The uncertain shore's box and the coarser terrain's box (shoreLayer.ts, coarserLayer.ts) on the result view's
@@ -688,12 +757,19 @@ def test_boxes_help_is_the_kits_info_icon(site, view):
                     page.wait_for_selector(".u-shore-ctl:not(.u-shore-folded)", timeout=WAIT)
                 r[name] = page.evaluate(boxes, info)
                 opened = []
-                for k in (0, 1):
-                    page.evaluate(f"() => [...document.querySelectorAll('.u-shore')].filter((b) => b.getClientRects().length)[{k}].querySelector('.u-shore-help').click()")
-                    page.evaluate("() => A.frames()")
-                    opened.append(page.evaluate(boxes, info)[k])
-                    page.evaluate(f"() => [...document.querySelectorAll('.u-shore')].filter((b) => b.getClientRects().length)[{k}].querySelector('.u-shore-help').click()")
-                    page.evaluate("() => A.frames()")
+                for k, help_ in enumerate((".u-shore-ctl .u-shore-help", ".u-coarse .u-shore-help")):
+                    for _ in ("open", "close"):
+                        if name == "desktop":  # a real press at the button's centre (Playwright's hit test: nothing covers it)
+                            page.click(help_)
+                        else:
+                            # A phone: the script's press. The known overlaps (before this branch too; wave B's): in the
+                            # view the layers button (.leaflet-control-layers) covers the coarser box's help, and on
+                            # today's iPhone the coarser box runs under the scale and the credits
+                            # (.leaflet-control-scale, .leaflet-control-attribution)
+                            page.evaluate(f"() => document.querySelector({json.dumps(help_)}).click()")
+                        page.evaluate("() => A.frames()")
+                        if _ == "open":
+                            opened.append(page.evaluate(boxes, info)[k])
                 r[name + "-opened"], r[name + "-closed"] = opened, page.evaluate(boxes, info)
                 r[name + "-csp"] = page.evaluate("() => window.CSP_VIOLATIONS || []")
                 assert page.errors == [], page.errors
