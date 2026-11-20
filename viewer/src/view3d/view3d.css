@@ -273,10 +273,11 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
    notes; while it is open the credits' box is hidden where the box would overlap it (info.ts: the class
    v3-covered; its place kept), so no line of the credits is cut. In the credits' box the button stands at the start,
    on the first line beside "Data credits" whether they are open or folded, and the box keeps right of the tool strip
-   (--v3-strip), so the button is never under a tool. Folded (one line) the list's first line is centred on the 44 px
-   button by 8 px above it; open (v3-credits-open, scene.ts) the list starts at the box's top and the button is drawn
-   as high as that line (28 px) with an invisible 44 px target, so the open box is as high as its list (139.2 px of
-   ui_shots' credits; 155.2 px with the 8 px above and below the list: the design review's P10) */
+   (--v3-strip), so the button is never under a tool. Folded the list has 8 px above and below it (its first line
+   centred on the 44 px button; a credit of the imagery beside it may wrap); open (v3-credits-open, scene.ts) the
+   list starts at the box's top and the button is drawn as high as that line (28 px) with an invisible 44 px target,
+   so the open box is as high as its list (139.2 px of ui_shots' credits; 155.2 px with the 8 px above and below the
+   list: the design review's P10) */
 #view3d .v3-credits.v3-covered { visibility: hidden; }
 #view3d .v3-infobox { display: none; }
 #view3d .v3-info { display: none; flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
@@ -306,8 +307,8 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 #view3d.v3-phone .v3-credits { display: flex; align-items: flex-start; gap: 4px; padding: 0 12px 0 0;
                                max-width: min(calc(100% - var(--v3-strip, 60px) - 8px), 560px); }
 #view3d.v3-phone .v3-credits.v3-hidden { padding: 0; }
-#view3d.v3-phone .v3-credits-list { min-width: 0; padding-top: calc((var(--touch) - 28px) / 2); }
-#view3d.v3-phone .v3-credits.v3-credits-open .v3-credits-list { padding-top: 0; }
+#view3d.v3-phone .v3-credits-list { min-width: 0; padding: calc((var(--touch) - 28px) / 2) 0; }
+#view3d.v3-phone .v3-credits.v3-credits-open .v3-credits-list { padding: 0; }
 #view3d.v3-phone .v3-credits.v3-credits-open .v3-info { position: relative; min-height: 28px; }
 #view3d.v3-phone .v3-credits.v3-credits-open .v3-info::after { content: ""; position: absolute; inset: -9px 0; }
 @media (max-width: 600px) and (pointer: coarse), (pointer: coarse) and (max-height: 480px) {
@@ -318,8 +319,8 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
   #view3d .v3-credits { display: flex; align-items: flex-start; gap: 4px; padding: 0 12px 0 0;
                         max-width: min(calc(100% - var(--v3-strip, 60px) - 8px), 560px); }
   #view3d .v3-credits.v3-hidden { padding: 0; }
-  #view3d .v3-credits-list { min-width: 0; padding-top: calc((var(--touch) - 28px) / 2); }
-  #view3d .v3-credits.v3-credits-open .v3-credits-list { padding-top: 0; }
+  #view3d .v3-credits-list { min-width: 0; padding: calc((var(--touch) - 28px) / 2) 0; }
+  #view3d .v3-credits.v3-credits-open .v3-credits-list { padding: 0; }
   #view3d .v3-credits.v3-credits-open .v3-info { position: relative; min-height: 28px; }
   #view3d .v3-credits.v3-credits-open .v3-info::after { content: ""; position: absolute; inset: -9px 0; }
 }

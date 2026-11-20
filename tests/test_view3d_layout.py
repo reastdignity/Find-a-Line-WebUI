@@ -166,6 +166,13 @@ CORNER = r"""() => {
 }"""
 
 
+# An imagery credit beside the run's data credits, as a run with imagery has (put into the credits' list as
+# scene.ts creditsBox renders one): beside the folded "Data credits" it wraps at 390 px
+WRAPPED = """() => { const s = document.createElement('span'); s.className = 'v3-credit';
+  s.textContent = 'Imagery: Geoportal orthophoto, GUGiK (free use, source stated)';
+  document.querySelector('.v3-credits-list').append(' ', s); }"""
+
+
 @contextlib.contextmanager
 def _credits(data, run):
     """The run with data credits (CREDITS) while the block runs."""
@@ -682,7 +689,8 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
     sideways (844 x 390) and a touch tablet (1024 x 600), with the credits open and folded, the card open and closed:
     the button stands at the credits' box's start (its left top corner), its target 44 px, its centre on the line of
     "Data credits", is the element at its own centre (no tool, no credit over it) and a finger's tap on it opens the
-    box. Open, the credits' box is as high as its text (no 8 px above and below it: the design review's P10). The
+    box. Open, the credits' box is as high as its text (no 8 px above and below it: the design review's P10); folded
+    it keeps 8 px under its text, also when the list wraps beside an imagery credit (at 390 x 664). The
     open box is as high as its notes (P9: it grew to the credits' top before), and while it is open the credits'
     box is hidden where the box would overlap it, else stands wholly above it (also when the box holds one note less,
     as a run with imagery: lower than the credits); both happen. Escape brings the credits back with the focus on the
@@ -710,6 +718,8 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
         assert abs((t[1] + t[3]) / 2 - (b[1] + b[3]) / 2) <= 1.5, (where, s)  # on the line of "Data credits"
         if s["open"] == "true":  # the open credits' box as high as its text
             assert s["text"][1] - s["credits"][1] < 4 and s["credits"][3] - s["text"][3] < 4, (where, s)
+        else:  # folded, the list keeps its 8 px under its text (it wraps beside an imagery credit)
+            assert s["credits"][3] - s["text"][3] >= 6, (where, s)
         assert all(_apart(t, s["credits"]) for t in s["tools"]), (where, s)  # the credits' box right of the strip
         tap(page, s["button"])
         opened = page.evaluate(CORNER)
@@ -727,6 +737,9 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
             for width, height in ((390, 664), (844, 390), (1024, 600)):
                 page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", _phone(p, width, height))
                 page.evaluate(FIFTH)  # three tools, as a run with a surface model has at the phone level
+                if width < 768:  # folded credits beside an imagery credit that wraps (a run with imagery; the next
+                    # render of the credits drops it)
+                    page.evaluate(WRAPPED)
                 page.evaluate(FRAMES)
                 loaded = button_and_box(page, (width, "as loaded"))
                 assert loaded["open"] == ("true" if width >= 768 else "false"), (width, loaded)  # as on main
