@@ -55,7 +55,7 @@ import { MapBar } from "./MapBar";
 import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock } from "./ProfileDock";
 import type { BackAction, ResultColumnsProps } from "./ResultColumns";
-import { RunActions, useMeasureTip, type RunActionsMap } from "./RunActions";
+import { RunActions, useMeasureTip } from "./RunActions";
 import { PANELS, useSpotView, type PanelProps, type SpotPanels } from "./SpotPanels";
 import { useLayout, type LayoutState } from "./useLayout";
 import { useViewLink } from "./viewlink";
@@ -118,19 +118,6 @@ interface FrameProps extends SpotColumnsProps {
 /** A press's choice of the spots it reached about as near, at its point in the viewport. */
 type ChoiceAt = {choices: SpotChoice[]; at: {x: number; y: number}};
 
-/** The canvas with the members the frame calls besides SpotMap's of step 3b (SESSION B1/interface.md: Measure's
- *  RunActionsMap, a measured line's zoom and drawing, the card's covered term). Optional until the canvas has them
- *  (the catch-up merge of view-3c drops the Partial). */
-type FrameMap = SpotMap & Partial<RunActionsMap & {
-  zoomToLine(line: Line, padding?: Padding): void;
-  setCovered(px: number): void;
-  drawMeasured(line: Line | null): void;
-}>;
-
-/** The canvas as Measure and Compare need it, or null where it cannot measure (Measure then shows no button). */
-const measureOf = (c: FrameMap | null): RunActionsMap | null =>
-  c && typeof c.startMeasure === "function" ? c as RunActionsMap : null;
-
 const TOAST_MS = 3200;  // how long a message of the map stays
 
 /** The map of the view: base layers (with the run's orthophoto), zoom in quarter steps (half a step for one notch
@@ -144,7 +131,7 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<L.Map | null>(null);
-  const [canvas, setCanvas] = useState<FrameMap | null>(null);
+  const [canvas, setCanvas] = useState<SpotMap | null>(null);
   const latest = useRef(frame);
   latest.current = frame;
   useEffect(() => {
@@ -341,7 +328,7 @@ function cardCovers(col: HTMLElement | null): number {
 /** The profile's card over a desktop's map: it stands on the run's credits' line (--v-card-bottom: their height and
  *  CARD_GAP), and what it covers of the map's bottom (returned, for the foot) is not "in view" (the canvas's covered
  *  term), followed as the card comes, goes, is dragged or folded and as the credits fold or unfold. */
-function useCardCover(col: {current: HTMLElement | null}, canvas: FrameMap | null): number {
+function useCardCover(col: {current: HTMLElement | null}, canvas: SpotMap | null): number {
   const [cover, setCover] = useState(0);
   useEffect(() => {
     const el = col.current;
@@ -363,7 +350,7 @@ function useCardCover(col: {current: HTMLElement | null}, canvas: FrameMap | nul
       el.style.setProperty("--v-card-bottom", `${(credits?.offsetHeight ?? 0) + CARD_GAP}px`);
       const px = cardCovers(el);
       setCover(px);
-      canvas?.setCovered?.(px);
+      canvas?.setCovered(px);
     };
     const sizes = new ResizeObserver(update), children = new MutationObserver(update);
     sizes.observe(el);
@@ -402,21 +389,21 @@ const moving = (map: L.Map) => !!((map as any)._panAnim?._inProgress || (map as 
 /** A measured line fitted into the map once the frame was drawn with it (its card or its sheet's stop): a link's
  *  always (`always`: the person has not seen it), Measure's only where it is not in the part `padding` leaves free
  *  (the person pressed its points there). `padding`: of the frame as it will be (a phone's sheet at half). */
-function useMeasuredFit(canvas: FrameMap | null, map: L.Map | null, padding: () => Padding) {
+function useMeasuredFit(canvas: SpotMap | null, map: L.Map | null, padding: () => Padding) {
   const [wanted, setWanted] = useState<{line: Line; always: boolean} | null>(null);
   useLayoutEffect(() => {
     if (!wanted || !canvas || !map) return;
     setWanted(null);
     const p = padding();
-    if (wanted.always || !lineFree(map, wanted.line, p)) canvas.zoomToLine?.(wanted.line, p);
+    if (wanted.always || !lineFree(map, wanted.line, p)) canvas.zoomToLine(wanted.line, p);
   }, [wanted]);
   return {fit: (line: Line, always: boolean) => setWanted({line, always})};
 }
 
 /** The frame's measured line drawn on the canvas (a link's; Measure's own again on a canvas made anew when the window
  *  crossed the phone's width), nothing when there is none. */
-function useMeasuredDrawn(canvas: FrameMap | null, measured: Line | null) {
-  useEffect(() => { canvas?.drawMeasured?.(measured); }, [canvas, measured]);
+function useMeasuredDrawn(canvas: SpotMap | null, measured: Line | null) {
+  useEffect(() => { canvas?.drawMeasured(measured); }, [canvas, measured]);
 }
 
 function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
@@ -483,7 +470,7 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     if (moving(map)) map.once("moveend", check);
     else check();
   };
-  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure?.(); };
+  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
 
   // The panels: collapsed to a rail and expanded (kept); the focus to the rail, or to the edge
   const focus = useRef<string | null>(null);
@@ -512,7 +499,7 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
       <span class="u-grow" />
       {actions?.(false)}
       {/* the run's actions after the caller's, as on today's page (Measure's tip beside its button) */}
-      <RunActions model={view.model} view={measureOf(canvas)} onMeasured={onMeasure} show={show} base={base} tip="beside" />
+      <RunActions model={view.model} view={canvas} onMeasured={onMeasure} show={show} base={base} tip="beside" />
     </header>
     <div class="c-cols" ref={colsRef}>
       <FramePanel side="list" class="c-col-list" label={t("ui.view.map.panel_list")} column={fit.list}
@@ -761,7 +748,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // line; a measured line's profile first in the sheet's body at half (today's measuredNow), the line fitted into the
   // map above the sheet at half (a link's always, Measure's where it is not in sight)
   const [measuring, setMeasuring] = useState(false);
-  useEffect(() => canvas?.onMeasuring?.((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
+  useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
   const tip = useMeasureTip();
   const fitting = useMeasuredFit(canvas, map, () => paddingAt("half"));
   const shown = (l: Line | null, always: boolean) => {
@@ -771,7 +758,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     fitting.fit(l, always);
   };
   useMeasuredDrawn(canvas, measured);
-  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure?.(); };
+  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
   // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
   // today's page opens (the planner, fix round 1); a link that opens its line keeps the view's low start
   const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
@@ -808,7 +795,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
         {/* the run's actions after the caller's, icons in the pill (today's page draws them beside it) */}
-        <RunActions model={view.model} view={measureOf(canvas)} onMeasured={(l) => shown(l, false)} compact plain tip="none"
+        <RunActions model={view.model} view={canvas} onMeasured={(l) => shown(l, false)} compact plain tip="none"
                     show={phoneShow} base={base} />
       </div>
     </div>

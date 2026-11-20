@@ -25,7 +25,7 @@ import { t } from "../../i18n";
 import { COLORS } from "../../style";
 import { IconButton, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import type { Legend, ShapeKind, SpotMap } from "../SpotMap";
+import type { Legend, SpotMap } from "../SpotMap";
 import type { Best, SpotView } from "../spots";
 import { FAN_HERE, type Level, type SquareBy } from "../viewgeom";
 import { count, cx, Swatch } from "./common";
@@ -71,12 +71,6 @@ function Item({kind, mark, children}: {kind: string; mark: ComponentChildren; ch
   return <span class="v-lg" data-kind={kind}>{mark}<span class="v-lg-t">{children}</span></span>;
 }
 
-/** What the canvas draws besides the run's own spots (SESSION B1/interface.md, section 4): a favourite's halo, the
- *  search area's outline, the selected line's anchors in view (`ends`), Compare's other runs. Optional until the
- *  canvas has them (the catch-up merge of view-3c makes them `Legend`'s own). */
-export type LegendNow = Legend & {shapes: {[K in ShapeKind | "fav" | "area" | "measure" | "ends"]?: true};
-                                  runs?: {id: string; name: string; color: string}[]};
-
 /** A dashed outline's sign in the legend (the search area's, another run's in its colour): the dashes on a chip of
  *  the map's own paper, as the outline lies on the light tiles in both themes (the mock-up's polish 14). */
 function Dash({color}: {color?: string}) {
@@ -87,7 +81,7 @@ function Dash({color}: {color?: string}) {
 /** The legend's items: `short` on a phone (lines of short labels: the lines and numbers; the pick, the favourite, the
  *  search area and other runs; the anchors). The access mark's three rows only while an anchor of the selected line
  *  is in view (`ends`: the user's L b). */
-function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; legend: LegendNow; short: boolean}) {
+function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; legend: Legend; short: boolean}) {
   const on = legend.shapes, area = legend.level === "area", whole = legend.by === "spots" || legend.by === "lines";
   const word = (key: string) => t(`ui.view.map.lg_${key}${short ? "_short" : ""}`);
   const squares = area && on.sq && <>
@@ -122,8 +116,9 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
   const anchor = on.A && <Item kind="A" mark={<Shape kind="A" text="A1" />}>{word("anchor")}</Item>;
   const access = view.model.hasAccess && on.ends && ACCESS_STATES.map((state) =>
     <span class="v-lg" data-kind={`access-${state}`} key={state}><AccessMark state={state} />{accessWord(state)}</span>);
-  // drawn besides the spots: a favourite's halo, the search area's outline, Compare's other runs (their names)
-  const runs = legend.runs ?? [];
+  // drawn besides the spots (the canvas's `fav`, `area`, `runs`): a favourite's halo, the search area's outline,
+  // Compare's other runs (their names)
+  const runs = legend.runs;
   const extra = <>
     {on.fav && <Item kind="fav" mark={<Swatch color={COLORS.favourite} class="r-sw-fav" />}>{t("ui.result.legend_favourite")}</Item>}
     {on.area && <Item kind="area" mark={<Dash />}>{word("area")}</Item>}
@@ -365,7 +360,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
     setInline({key, right: scale ? Math.round(col.right - scale.left) + GAP : GAP});
   });
   const help = useAccessHelp(undefined, true);
-  const legend = map?.legend() as LegendNow | undefined, access = view.model.hasAccess;
+  const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && !folded;  // (the columns' legend folds only in the phone's arrangement: `compact`)
   const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
                                   style={compact && !asPanel && room < natural.current
