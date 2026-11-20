@@ -100,6 +100,10 @@ catalogue), `browser-tests.md`.
   placeholders use `--muted`, which holds 4.5:1 on every light and dark surface and on the selected fill `--accent-soft`
   (4.90 / 4.56:1; `test_secondary_text_contrast`): compute a text's pair on a fill before using it. What the
   canvas draws on the tiles in the accent takes `--accent-map` (the light value in every theme: the tiles stay light).
+- **Keyboard rings and radio groups** (docs/DESIGN.md rows 81, 82): a ring is a shadow (`--focus`), which forced
+  colours do not draw (`ui.css`'s outline rule stands in); a ring a box clips is drawn inside (`--focus-in`) with a
+  forced-colours `outline-offset: -2px` beside it; a page's own `scroll-margin` wins over the kit's `:where` rule. A
+  radio group takes `ui/radios.ts` (`radioKeys` on the group, its checked radio the one Tab stop), no keys of its own.
 - **The map's corners** (`result/view/corners.ts`): the scale goes above the credits wherever they run under it,
   re-checked when the scale's or the credits' size changes (`keepScaleAboveAttribution` for a map with no sheet or
   card).

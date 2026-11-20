@@ -381,8 +381,9 @@ Found in the reviews of the Cancelled state (migration 19, `jobs.removed_at`); n
 Group A brought the sign-in page, Home, the search forms, the account, Favourites and the OSM page to DESIGN.md's
 rules. On a phone one control stays under R2's 44 px (the place map's zoom and "Data coverage", the receipt's
 parts in the phone's unfolded bar and the drawing tools were more until the user's picks of 2026-11-19: DESIGN.md
-"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the
-coverage's own button (32 px) and the drawing tools (30 px):
+"The pilot's look", choices 34 to 36); on a touch tablet, which keeps the desktop's arrangement, also the drawing
+tools (30 px; the coverage's own button, 32 px as drawn, has an invisible 44 px target since step 3d: DESIGN.md
+row 83):
 
 - **The place's pin** (Leaflet's marker, 25 x 41 px): a mark of the map; it is moved by a tap on the map, the pin
   itself needs no press.
@@ -403,7 +404,8 @@ tool's actions, which open under the first row, lie over the last of them by 36 
 actions reach 10 px past the map's right edge). The tools are links without a name for a screen reader
 (Leaflet-Geoman's own markup: axe `link-name`, 5 nodes, in the new `ui_shots` state `c-new-area`; the same
 markup on main). On a tablet in the columns with a finger the coverage's own box keeps its
-32 px button and the tools Geoman's 30 px column (the desktop's arrangement: the user picked on phone frames); a tap
+32 px button (with a 44 px target since step 3d) and the tools Geoman's 30 px column (the desktop's arrangement: the
+user picked on phone frames; the tools wait for line volume's round 6); a tap
 on the coverage button while the layers' box is open closes the box and misses the button, which moves 56 px down
 as the box (rows of 44 px now) closes: the second tap takes. An earlier note here, that the layers' box does not
 open while the tools are shown, was the test harness's doing (the emulated mouse left over the Advanced tab makes
@@ -412,19 +414,26 @@ Leaflet close the box on a late mouseout; with taps only it opens, on main too: 
 The layers' box and the keyboard, Leaflet's own and the same on main (measured on both codes, 2026-11-19; for
 step 3d): Escape does not close the open box; Enter on the layers' button opens it and the focus falls to the
 page (the next Tab reaches the first row); on a touch screen a second tap where the button was lands on the row
-under it and can switch the base map (main: at every size; the branch: on a tablet); with the coverage on, its 83
-outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
-layers, zoom (their order in the corner).
+under it and can switch the base map (main: at every size; the branch: on a tablet); on a desktop the Tab order in
+the map is coverage, layers, zoom (their order in the corner). These wait for line volume's round 6
+(`layersControl.ts`). The coverage's 83 outlines, Tab stops before the pin and every control until step 3d, are out
+of the Tab order since (DESIGN.md row 81).
 
 The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
 ran wider than its box on a phone: fixed by group D (DESIGN.md choice 53).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
-bottom bar before the page is scrolled (the account's "Sign out", Home's cards); "Stay in Advanced" in the dialog
-of going back to Basic is cut on the left on a 390 px phone (5.6 px; 19.6 px on main); the keyboard's ring is cut
-where a control stands at the edge of a scrolling column (an input at the form's bottom edge after the focus's
-scroll, the map's credits' links by 2 px, the map itself on its right edge): step 3d's item on `scroll-margin`.
+bottom bar before the page is scrolled (the account's "Sign out", Home's cards). Step 3d measured it again: at the
+end of the page's scroll no row rests under the bar (the iPhone, the Pixel and 360 px; the page's bottom padding is
+the bar's height), before it a row lies there as on any page longer than the screen, which padding cannot change;
+a focused control or a card's panel scrolled into view stops above the bar (DESIGN.md row 81). "Stay in Advanced"
+(cut at 390 px) and the rings cut at a scrolling column's edge or the map's credits were mended by step 3d
+(DESIGN.md rows 81 and 83); the map's own ring, on its right edge, waits for line volume's round 6 (`PlaceMap.ts`).
+Left after step 3d: WebKit reveals a text field's caret, not its box, when Tab focuses it, so a field at a scroll
+box's foot keeps its lower 12 px and its ring below the edge (Playwright's WebKit with the iPhone profile,
+c-basic-first's "Go to a place": 15.7 px; a scroll-padding of 8 px on the column moves it by 8 px, scroll-margin not
+at all; Chromium scrolls the whole box in); a phone's keyboard is rare, a tablet's is not: for the planner.
 The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
 are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
 and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
@@ -507,11 +516,13 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
     clearance" and "highest … above terrain" stand on touching lines (`Profile.tsx`: inherited;
     `local/ux-design-2026-11-16/3c-b-review/design/mock/sheets/390x664-s2A-five-tools-card-light__chromium-390x664-full-card-light.png`).
   - While "About this view" is open, the credits' box, its button with it, is hidden where the box would overlap it
-    (the design review's P9) until the box is closed ("Close", Escape, a press beside it, Tab out of it); where the
-    credits stand clear above it (above an open card) they stay, with the pressed button.
+    (the design review's P9) until the box is closed ("Close", Escape, a press beside it, Tab or, since step 3d,
+    Shift+Tab out of it); where the credits stand clear above it (above an open card) they stay, with the pressed
+    button.
   - A fan dot near the stage's edge keeps its whole 44 px target (`screen.ts` `targetInside`: on the Pixel of
     `ui_shots` the 312 m line's dot stood 19 px off the right edge, which cut its target to 41.4 px); the labels of
-    other lines and the anchors' handles at an edge are still cut by it.
+    other lines and the anchors' handles too since step 3d (DESIGN.md row 84). A mark whose own drawn box the edge
+    cuts keeps a cut target (no target can cover it and stay inside).
 - **An anchor's handle jumps at the first move of a drag on a phone** (main does the same; measured on the tests'
   clip with a Pixel's profile at the full level, `probe-drag-before/drag.json` in
   `local/ux-design-2026-11-16/3c-b/fixes/`): a press at the handle's centre moved by 1 px puts the handle 24 px away
@@ -573,18 +584,20 @@ layer's chart bars only (excepted by name in R2). Known and left:
   numbers (docs/roadmap.md, "The page's readability on a real cube").
 - **The coverage page's zoom buttons at 360 px of width** wrap onto two rows (96 px over the map), in English and
   Polish; at 390 px they hold one row.
-- **A touch tablet and a phone held sideways at 768 px or more keep the desktop's arrangement** of the layer: the
-  panels' collapse tab is 24 x 44 px and a rail 36 px wide there (under 44 px in one direction), as in the result
-  view. On the coverage page at 844 x 390 a card opened from the map is taller than what is left of the screen and
-  scrolls inside.
+- **A touch tablet and a phone held sideways at 768 px or more keep the desktop's arrangement** of the layer: a
+  collapsed panel's rail is 36 px wide there (under 44 px in one direction), as in the result view; the panels'
+  collapse tab, 24 x 44 px as drawn, has an invisible 44 px target since step 3d (DESIGN.md row 83; the result
+  view's tab waits for line volume's round 6). On the layer page's map the coverage box's right edge stands under
+  the right panel's splitter (24 px wide on a touch screen): a tap on the box's last 2 px reaches the splitter
+  (measured at 1024 x 768 and 1180 x 820, before and after step 3d). On the coverage page at 844 x 390 a card opened
+  from the map is taller than what is left of the screen and scrolls inside.
 - **A collapsed panel's rail**: the tab at its middle lies over a long label ("Histograms: 62 M lines in view" at
   390 px of height), as before.
 - **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
   above their names (the build's `align-items: flex-end`, as before).
-- **Inherited and left** (the design review's F10): arrow keys do nothing in the pages' switches (the kit's
-  segments and the scale's: Enter and Space choose); on the coverage map a selected country stays drawn above its
+- **Inherited and left** (the design review's F10): on the coverage map a selected country stays drawn above its
   regions after its card closes (`flat.ts`); the map's shapes take no keyboard focus (every card is reached from
-  the list).
+  the list). The switches take the arrows since step 3d (DESIGN.md row 82).
 - **The layer's map and the keyboard's ring** (the design review's F10, inherited): the kit's ring lies outside the
   map's box, on a desktop under the side panels and the header (not seen); on a phone its lower edge shows as a line
   under the sticky map, after a tap too (seen in the tap probe's pictures at the fix round's tip; the same rules as

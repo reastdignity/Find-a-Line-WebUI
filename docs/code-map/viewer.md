@@ -58,7 +58,8 @@ WAI-ARIA's window splitter, our own (react-resizable-panels would need preact/co
 and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's); no Rail, Toast or Tabs since B went;
 `Hint.tsx` the "?" of a field and its bubble, the site's bounds added by `search/SearchPanel.tsx` from
 `hint.bounds.*`; `Intro.tsx` an intro dialog shown once per browser (localStorage `findaline.intro.<name>`,
-`IntroLink` opens it again); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
+`IntroLink` opens it again); `radios.ts` the keys of a radio group (WAI-ARIA's: one Tab stop, the arrows move and
+choose; no Preact, so the 3D view's switches use it too); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
 privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
 (`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
 (`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
