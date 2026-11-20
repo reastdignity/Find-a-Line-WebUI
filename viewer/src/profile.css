@@ -21,6 +21,7 @@
    buttons, the heights' and the rigging's fields, a layer's row (its label is the checkbox's target) */
 @media (pointer: coarse) {
   .ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { min-height: 44px; }
+  .ui .r-profile .fal-profile-head .fal-close { min-width: 44px; }  /* the head's ×: 44 x 44 (the design review's F2) */
   .ui .r-profile .fal-profile-controls input[type=number] { min-height: 44px; }
   .ui .r-profile .fal-profile-controls label { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; }
 }

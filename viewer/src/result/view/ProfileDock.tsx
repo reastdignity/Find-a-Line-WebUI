@@ -34,8 +34,9 @@ export interface ProfileDockProps {
   /** The compact profile (default: `fill`, the card's; the result view gives it to a phone's docks, the mock-up's 4 d):
    *  no head row in the chart, the line's title for screen readers (.fal-profile-title) and its close in the bar (in
    *  the column of the other closes: the mock-up's polish 10), the legend and the 1:1 scale under "Rigging and layers".
-   *  Outside a card the facts stand in the bar only for a measured line (a line's are the details' tiles above) and
-   *  the words on reading the chart stand under it (polish 13). */
+   *  Outside a card the facts stand in the bar only for a measured line (a line's are the details' tiles above), and
+   *  the need row ("no A-frame needed" ...) and the words on reading the chart stand under the chart (polish 13; the
+   *  design review's F1: the chart nearer its bar). */
   compact?: boolean;
   /** Folded to its bar (with `onFold`). */
   folded?: boolean;
@@ -118,7 +119,7 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
       <ProfilePanel line={shown} measured={!!measured} model={model.data.model} slope={model.data.slope}
                     leashFall={model.data.leash_fall} rigging={model.data.rigging} endZone={model.data.end_zone}
                     lift={model.data.lift} onHover={hover} onClose={close}
-                    fill={fill} compact={tight}
+                    fill={fill} compact={tight} needBelow={docked}
                     onTitle={tight ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
                       : {title: t, facts}) : undefined} />
     </div> : state && state.status === "error"

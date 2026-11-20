@@ -64,6 +64,7 @@ export interface ProfileProps {
   measured?: boolean;                    // two points measured on the map, not a found line
   fill?: boolean;                        // the chart takes its box's height (at least 120 px) instead of 170 px
   compact?: boolean;                     // no head row: the legend and the scale with the controls, a steady readout
+  needBelow?: boolean;                   // the need row ("no A-frame needed" ...) under the chart, not above it
   onTitle?(title: string, facts: string): void;  // the title (as the head has it) and its facts after the length
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
@@ -443,7 +444,7 @@ export function ProfilePanel(props: ProfileProps) {
         <button class="fal-close" title="Close" aria-label="Close the profile" onClick={props.onClose}>×</button>
       </div>
     </div>}
-    {needRow}
+    {!props.needBelow && needRow}
     <div class="fal-profile-controls">
       {compact && <span class="fal-key">{legend}{scale}</span>}
       {measured && <span class="fal-heights">{(["A1", "A2"] as const).map((name, k) =>
@@ -510,5 +511,6 @@ export function ProfilePanel(props: ProfileProps) {
     </div>
     <div class="fal-profile-readout" title={compact && readout ? readout : undefined} data-room={room || undefined}>
       <span class="fal-readout-text">{readout}</span></div>
+    {props.needBelow && needRow}
   </div>;
 }
