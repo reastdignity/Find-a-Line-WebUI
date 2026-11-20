@@ -39,12 +39,14 @@ window.fetch = (url, init) => {
     water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
 };
 """
-# A favourite's save refused by the server (FAIL_SAVES set)
+# A favourite's save refused by the server: at once (FAIL_SAVES set), or after a round trip of 400 ms (FAIL_SAVES_SLOW:
+# the optimistic drawing's effects run first, the rollback and its note come in a later commit)
 SAVE_STUB = """
 const realFetchOfSaves = window.fetch;
 window.fetch = (url, init) => {
-  if (window.FAIL_SAVES && /\\/favourites$/.test(String(url)) && init && init.method === "POST") {
-    return Promise.resolve(new Response(JSON.stringify({detail: "the test refuses it"}), {status: 500, headers: {"content-type": "application/json"}}));
+  if ((window.FAIL_SAVES || window.FAIL_SAVES_SLOW) && /\\/favourites$/.test(String(url)) && init && init.method === "POST") {
+    const refused = () => new Response(JSON.stringify({detail: "the test refuses it"}), {status: 500, headers: {"content-type": "application/json"}});
+    return window.FAIL_SAVES_SLOW ? new Promise((ok) => setTimeout(() => ok(refused()), 400)) : Promise.resolve(refused());
   }
   // the run's favourites asked for (ResultModel.loadRunFavourites): FAVOURITES_ANSWER is "ok" (the model then marks
   // the page as keeping favourites) or "refused"
@@ -793,5 +795,114 @@ def test_tab_leaves_the_fan_and_the_chooser(site):
             assert not page.evaluate(first_focused, ".vl-choose .vl-rows > li:first-child > .vl-main")
             assert row1 not in page.evaluate("() => HIGHLIGHTED")
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
+        finally:
+            browser.close()
+
+
+# 20 of the browser's frames (a sheet's move takes about 14; no time is waited for)
+FRAMES = "() => new Promise((ok) => { let n = 20; const f = () => (--n > 0 ? requestAnimationFrame(f) : ok()); requestAnimationFrame(f); })"
+# a phone's sheet at rest at its stop
+RESTED = ("() => { const s = document.querySelector('.u-sheet'); "
+          "return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 1; }")
+
+
+@pytest.mark.parametrize("how", ["row-star", "head-star"])
+def test_note_in_view_over_a_selected_rows_scroll(site, how):
+    """A desktop with a spot selected whose row stands low in the tree (the list scrolled to it): a favourite refused
+    after a round trip (400 ms: the rollback and its note come in a later commit, with a new version of the view that
+    follows the selected row again), from the row's star or from the head's star and a folder. The note is in view:
+    it is placed after the list's own scroll to the row (the code review 2's F1)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
+            _view(page)
+            # the last row of the tree's open sector that has no row in "Best in view" (the list scrolls to it)
+            spot = page.evaluate("""() => { const rows = [...document.querySelectorAll('.vl-tree .vl-rows > li > .vl-main')]
+                .filter((b) => !document.querySelector('#vl-top-' + b.dataset.spot));
+                return rows.length ? +rows[rows.length - 1].dataset.spot : null; }""")
+            assert spot is not None
+            page.evaluate(f"() => document.querySelector('#vl-row-{spot} > .vl-main').click()")
+            page.wait_for_selector(".vl-details", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => document.querySelector('.vl-body').scrollTop") > 0  # the row is low in the list
+            assert page.evaluate(f"() => D.inView('#vl-row-{spot}')")
+            page.evaluate("() => { window.FAIL_SAVES_SLOW = true; }")
+            if how == "row-star":
+                page.evaluate(f"() => document.querySelector('#vl-row-{spot} > .vl-star').click()")
+            else:
+                page.click(".vl-dhead .r-fav")
+                page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
+                page.click(".r-picker .r-folder")
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => D.inView('.vl-lnote')"), how
+            assert page.evaluate("() => [D.v().selected?.spot, document.querySelector('.vl-lnote-text').textContent]")[0] == spot
+            assert page.evaluate("() => document.querySelector('.vl-lnote-text').textContent").startswith("The favourite was not saved: ")
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_note_raises_a_low_sheet(site):
+    """A phone whose sheet is low: a new note raises it to half and is placed once the sheet rests there (the code
+    review 2's L1): with nothing selected the note is first in the body, which does not move (scrollTop 0, the head
+    without its "scrolled" shadow); with a spot selected the note, after the details, is brought into view."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", PHONE, script=SCRIPT)
+            _view(page)
+            _sheet(page, "peek")
+            page.evaluate("() => { window.FAIL_SAVES = true; const v = D.v(), m = D.m(); m.toggleFavourite(m.lineAt(v.shownOf(v.order[3]))); }")
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            page.wait_for_function("() => D.snap() === 'half'", timeout=WAIT)
+            page.wait_for_function(RESTED, timeout=WAIT)
+            page.evaluate(FRAMES)
+            first = page.evaluate("""() => [D.inView('.vl-lnote'), document.querySelector('.u-sheet-body').scrollTop,
+                document.querySelector('.u-sheet').classList.contains('u-scrolled'), D.kids('.vl-list')[0]]""")
+            assert first == [True, 0, False, "vl-lnote"], first
+            page.evaluate("() => D.m().setNote(null)")
+            page.wait_for_selector(".vl-lnote", state="detached", timeout=WAIT)
+            # a spot selected, the sheet low again: the note stands after the details
+            _select(page)
+            _sheet(page, "peek")
+            page.evaluate("() => { const m = D.m(); m.toggleFavourite(D.v().selected.line); }")
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            page.wait_for_function("() => D.snap() === 'half'", timeout=WAIT)
+            page.wait_for_function(RESTED, timeout=WAIT)
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
+            assert page.evaluate("() => document.querySelector('.u-sheet-body .vl-details').compareDocumentPosition("
+                                 "document.querySelector('.vl-lnote')) & Node.DOCUMENT_POSITION_FOLLOWING")
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
+def test_a_note_is_placed_once(site):
+    """A desktop: a note is brought into view once. The same note object drawn again (set again) leaves the list where
+    the person scrolled it; a new note (model.ts makes a new object for every note, also with the same words) is
+    brought into view again."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
+            _view(page)
+            page.evaluate("() => { window.FAIL_SAVES = true; document.querySelector('.vl-tree .vl-rows > li:first-child > .vl-star').click(); }")
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
+            end = page.evaluate("() => D.toEnd('.vl-body')")
+            assert end > 0 and not page.evaluate("() => D.inView('.vl-lnote')")
+            # the same object again: one more drawing, no move
+            page.evaluate("() => { window.SAME_NOTE = D.m().note; D.m().setNote(window.SAME_NOTE); }")
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => [document.querySelector('.vl-body').scrollTop, D.m().note === window.SAME_NOTE]") == [end, True]
+            # a new note with the same words: placed again
+            page.evaluate("() => D.m().setNote({text: window.SAME_NOTE.text})")
+            page.wait_for_function("() => D.inView('.vl-lnote')", timeout=WAIT)
+            assert page.errors == []
         finally:
             browser.close()

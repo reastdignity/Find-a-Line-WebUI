@@ -114,10 +114,14 @@ export function rowKeys(e: KeyboardEvent) {
     // when the list's tab stop lies after it (before it): the stop is out of the tab order for this press only (never
     // focused on the way: a row's focus may draw its line on the map, the table of spots'), back once the browser moved
     // the focus
-    const stop = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".vl-main[tabindex='0']");
+    const list = e.currentTarget as HTMLElement, stop = list.querySelector<HTMLElement>(".vl-main[tabindex='0']");
     if (stop && stop !== target && target.compareDocumentPosition(stop) & (e.shiftKey ? 2 : 4)) {
       stop.tabIndex = -1;
-      setTimeout(() => { if (stop.tabIndex === -1) stop.tabIndex = 0; });
+      // back only while it is still the list's stop: a drawing in between that made another row the stop set that
+      // row's 0 (never two stops in a list)
+      setTimeout(() => {
+        if (stop.isConnected && stop.tabIndex === -1 && !list.querySelector(".vl-main[tabindex='0']")) stop.tabIndex = 0;
+      });
     }
     return;
   }
@@ -509,18 +513,10 @@ function Tree(p: PanelProps) {
  *  link is hidden by the filters." with its action "clear filters", not in the run, not measured: model.ts openLinked)
  *  or a favourite's failure, in today's words; a plain line with the info icon, the action a link in the sentence, and
  *  today's × (the planner's choice of 2026-11-20: a favourite's failure stays dismissable). */
-function ListNote({view, sheet}: {view: SpotView; sheet?: PanelProps["sheet"]}) {
-  const model = view.model, note = model.note, ref = useRef<HTMLDivElement>(null), shown = useRef<typeof note>(null);
-  // a new note is brought into view where it stands (the code review's F1: the list's body may be scrolled far from
-  // its top, a phone's details stand before it); a phone's low sheet rises to half for it (as a link's note does)
-  useEffect(() => {
-    if (!note || note === shown.current) return;
-    shown.current = note;
-    if (sheet && sheet.snap === "peek") sheet.setSnap("half");
-    if (ref.current) noteIntoView(ref.current);
-  }, [note]);
-  if (!note) return null;
-  return <div class="vl-lnote" role="status" ref={ref}><Icon name="info" />
+function ListNote({view}: {view: SpotView}) {
+  const model = view.model, note = model.note;
+  if (!note) return null;  // a new note is brought into view by SpotList (useNoteInView)
+  return <div class="vl-lnote" role="status"><Icon name="info" />
     <p class="vl-lnote-text">{note.text}
       {note.action && <>{" "}<button type="button" class="r-link vl-lnote-act" onClick={() => note.onAction?.()}>{note.action}</button></>}</p>
     <IconButton icon="close" label="Close" plain class="vl-lnote-x" onClick={() => {
@@ -532,12 +528,61 @@ function ListNote({view, sheet}: {view: SpotView; sheet?: PanelProps["sheet"]}) 
 
 /** A note's place in its scroller (the list's body, a phone's sheet body: neither scrolls the page or the map, which
  *  scrollIntoView would): where the note is not wholly in its view, the scroller puts it at its top (8 px under its
- *  edge), which also holds for a phone's sheet that is still rising to its stop. */
+ *  edge); one wholly in view stays where it is. */
 function noteIntoView(note: HTMLElement) {
   const box = note.closest<HTMLElement>(".vl-body, .u-sheet-body");
-  if (!box) return;
+  if (!box || !note.isConnected) return;
   const r = note.getBoundingClientRect(), b = box.getBoundingClientRect();
   if (r.top < b.top || r.bottom > b.bottom) box.scrollTop += r.top - b.top - 8;
+}
+
+/** How long a phone's sheet may take to come to rest at its new stop before a note is placed all the same, ms (it
+ *  moves in .22 s: ui.css .u-sheet; SpotColumns.tsx waits as long for its own checks). */
+const SHEET_REST_MS = 1500;
+
+/** `then` once a phone's sheet rests at a stop above the low one (its drawn height its style's), or after
+ *  SHEET_REST_MS; returns what cancels the wait. */
+function whenSheetRests(sheet: HTMLElement | null, then: () => void): () => void {
+  const started = performance.now();
+  let frame = 0;
+  const check = () => {
+    const target = sheet ? parseFloat(sheet.style.height) : NaN;
+    const resting = !sheet || (!sheet.classList.contains("u-peek") && target > 0
+                               && Math.abs(sheet.getBoundingClientRect().height - target) < 1);
+    if (resting || performance.now() - started > SHEET_REST_MS) then();
+    else frame = requestAnimationFrame(check);
+  };
+  frame = requestAnimationFrame(check);
+  return () => cancelAnimationFrame(frame);
+}
+
+/** The notes each view has brought into view: a note is placed once (model.ts makes a new object for every note, so
+ *  the same text again is a new note; the same object drawn again, or the list drawn again across the phone's width,
+ *  is not). */
+const notesPlaced = new WeakMap<SpotView, object>();
+
+/** A new note of the model (a link's, a favourite's failure) brought into view where it stands, first in the list
+ *  (`root`: the list's body on a desktop, the list in a phone's sheet). Called by SpotList after its own scroll that
+ *  follows a selection, so that within one commit the note comes last and wins: a refused save's rollback brings the
+ *  note and a new version of the view, which follows the selected row again (the code review 2's F1: the note's
+ *  scroll, a child's effect, ran first and the row's undid it). A phone's low sheet rises to half first, and the note
+ *  is placed once the sheet rests there (at the low stop its body has no height: the code review 2's L1). */
+function useNoteInView(view: SpotView, root: {current: HTMLElement | null}, sheet: PanelProps["sheet"]) {
+  const pending = useRef<(() => void) | null>(null);
+  useEffect(() => () => pending.current?.(), []);
+  useEffect(() => {
+    const note = view.model.note, el = root.current?.querySelector<HTMLElement>(".vl-lnote");
+    if (!note || !el || notesPlaced.get(view) === note) return;
+    notesPlaced.set(view, note);
+    pending.current?.();
+    pending.current = null;
+    if (sheet?.snap === "peek") {
+      sheet.setSnap("half");
+      pending.current = whenSheetRests(el.closest<HTMLElement>(".u-sheet"), () => { pending.current = null; noteIntoView(el); });
+      return;
+    }
+    noteIntoView(el);
+  });
 }
 
 /** No line passes the filters (W9 a): the sentence and "Clear all", which clears what the chips' "Clear all" clears
@@ -593,6 +638,8 @@ export function SpotList(p: PanelProps) {
       ?? root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
   });
+  // after the scroll above: a new note comes last and wins (useNoteInView)
+  useNoteInView(view, root, p.sheet);
   // a focused row this drawing took away (a filter, the map's move under the top block): the focus to the row that
   // took its place; only a row that was on the page when this drawing began (the moment of its loss)
   const live = useRef<Element | null>(null);
@@ -608,11 +655,11 @@ export function SpotList(p: PanelProps) {
   if (wide) {
     return <>
       <div class="c-col-head vl-head"><SpotSummary view={view} /><ViewFilters view={view} /></div>
-      <div class="c-col-body vl-body" ref={root}><ListNote view={view} sheet={p.sheet} />{none && <NonePass view={view} />}{blocks}</div>
+      <div class="c-col-body vl-body" ref={root}><ListNote view={view} />{none && <NonePass view={view} />}{blocks}</div>
     </>;
   }
   return <div class="vl-list" ref={root}>
-    <ListNote view={view} sheet={p.sheet} />
+    <ListNote view={view} />
     {none && <NonePass view={view} />}
     <SpotSummary view={view} headline={!!view.selected || !!view.fan} />
     <ViewFilters view={view} />
