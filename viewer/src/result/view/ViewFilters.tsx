@@ -1,10 +1,11 @@
 // The filters of the result view (docs/line-volume/spec-view.md B.2 item 14): the chips Length (a range),
 // Clearance (at least), Height (the highest point at least), "Top level only" (the view's own state, pressed at
-// every run's start: SpotView.topOnly; it hides every line that hangs lower on the same face), "More filters"
-// (today's other filters, without the grouping: the view's spots are fixed) and "Clear all" (which leaves "Top
-// level only"); under the chips the editor of a main filter (today's MainEditor) and the sentence that says what
-// "Top level only" hides or shows. "Only clear" is in More filters only, and "How to read the result" is not in
-// the view. The filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
+// every run's start: SpotView.topOnly; it hides every line that hangs lower on the same face) with its info button
+// held to it (step 3c: its help opens under the chips), "More filters" (today's other filters, without the grouping:
+// the view's spots are fixed) and "Clear all" (which leaves "Top level only": clearAll, also the empty list's);
+// under the chips the editor of a main filter (today's MainEditor) and the sentence that says what "Top level only"
+// hides or shows. "Only clear" is in More filters only, and "How to read the result" is not in the view. The
+// filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Chip, Chips, IconButton } from "../../ui/components";
