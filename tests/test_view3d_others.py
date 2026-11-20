@@ -257,7 +257,7 @@ OTHERS_SCRIPT = _with_until("""
     out.ready = ready;
     out.settled = still;
     if (!ready) { done(); return; }
-    out.tools = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, getComputedStyle(b).order,
+    out.tools = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, b.dataset.order,
                  b.classList.contains("v3-hidden")]);
     // 1: the lines of the address are drawn from the start
     out.n0 = root.dataset.others;

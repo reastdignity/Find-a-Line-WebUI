@@ -1,0 +1,356 @@
+"""The keyboard, the focus rings and touch tablets on the app's free screens (step 3d, group G1; docs/DESIGN.md rows
+81 to 83), in Playwright's Edge on the real local server (the app's page with test_shell_c's stubs) and the coverage
+page:
+
+- every focus ring a Tab press reaches lies whole inside its scroll boxes and the window and clear of the phones'
+  bottom bar (the browser scrolls a focused control in with room for its ring: ui.css `scroll-margin`; the credits'
+  links and the bottom bar's items draw their ring inside);
+- with forced colours (Windows' contrast themes, which draw no shadow) every stop shows an outline;
+- the radio groups (the kit's Segmented, the goal cards, the coverage page's scale) are one Tab stop each and the
+  arrows move the focus and choose (WAI-ARIA's radio group; ui/radios.ts);
+- a focused segment's ring lies above the selected segment beside it;
+- the coverage's outlines on the place map are no Tab stops (Chromium made each SVG shape with Leaflet's focus
+  listener one: 83 before the map's controls) and keep their tooltip;
+- a touch tablet (the desktop's arrangement with a finger): the coverage box's 32 px button takes a tap anywhere in
+  its invisible 44 px target;
+- the return dialog's actions stay inside it on a 390 px and a 360 px phone ("Stay in Advanced" was cut).
+
+Headless Edge through Playwright: run from PowerShell (headless Edge prints nothing from Git Bash). Every wait is an
+event with a deadline; a finger's taps keep test_shell_c_view_map's spacing (_tap)."""
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_shell_c_view_map import _tap  # noqa: E402
+from test_web import EDGE, WAIT, _playwright, _server  # noqa: E402
+
+pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
+                                reason="needs Microsoft Edge and Playwright (group ui)")
+
+DESKTOP = {"viewport": {"width": 1400, "height": 900}}
+PHONE_KEYS = {"viewport": {"width": 390, "height": 664}}  # a phone's frame with a keyboard (the bottom bar)
+TOUCH = {"device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+TABLET = {"has_touch": True, "is_mobile": False}  # a touch tablet: a coarse pointer, the desktop's arrangement
+# The intros put away (ui/Intro.tsx) and the coverage layer as asked (coverageLayer.ts STORAGE_KEY)
+SEEN = ("try { localStorage.setItem('findaline.intro.search', 'seen'); localStorage.setItem('findaline.intro.result', 'seen');"
+        " localStorage.setItem('findaline.layer.coverage', %s); } catch (e) {}")
+POINT = "() => window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
+# A temporary element at the start of <body> holds the focus, so the first Tab goes to the page's first control
+START = """() => { document.activeElement?.blur?.(); const s = document.createElement('span'); s.id = 'kb-start'; s.tabIndex = -1;
+  document.body.prepend(s); s.focus(); window.KB = window.KB || {ids: new WeakMap(), n: 0}; }"""
+# The focused element: an id of its own, its name, whether it is the place map itself (its ring waits for line volume's
+# round 6: docs/known-bugs.md) or a coverage outline; its ring's box (the box grown by the ring's outer extent: the
+# widest outset shadow without blur or offset, or the outline; an inset ring: the box), the part of the page that shows
+# it (the window and every clipping ancestor's inner box) and the phones' bottom bar over it
+RING = r"""() => {
+  const e = document.activeElement;
+  if (!e || e === document.body || e.id === 'kb-start') return null;
+  if (!KB.ids.has(e)) KB.ids.set(e, ++KB.n);
+  const cs = getComputedStyle(e), r = e.getBoundingClientRect();
+  let far = 0, ring = false;
+  for (const part of cs.boxShadow === 'none' ? [] : cs.boxShadow.split(/,(?![^(]*\))/)) {
+    const n = (part.replace(/rgba?\([^)]*\)/g, '').match(/-?[\d.]+px/g) || []).map(parseFloat);
+    if (n.length < 4 || n[0] || n[1] || n[2]) continue;
+    ring = true;
+    if (!/inset/.test(part)) far = Math.max(far, n[3]);
+  }
+  if (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) {
+    ring = true; far = Math.max(far, parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth)); }
+  let l = 0, t = 0, rr = innerWidth, b = innerHeight, fixed = cs.position === 'fixed';
+  for (let a = e.parentElement; a && !fixed; a = a.parentElement) {
+    const s = getComputedStyle(a);
+    if (s.overflowX !== 'visible' || s.overflowY !== 'visible') { const ar = a.getBoundingClientRect();
+      l = Math.max(l, ar.left + a.clientLeft); t = Math.max(t, ar.top + a.clientTop);
+      rr = Math.min(rr, ar.left + a.clientLeft + a.clientWidth); b = Math.min(b, ar.top + a.clientTop + a.clientHeight); }
+    if (s.position === 'fixed' || a.matches(':modal, :popover-open')) break;
+  }
+  const box = [r.left - far, r.top - far, r.right + far, r.bottom + far];
+  const nav = document.querySelector('.u-bnav');
+  let under = 0;
+  if (nav && !nav.contains(e)) { const n = nav.getBoundingClientRect(); under = Math.max(0, Math.min(box[3], n.bottom) - Math.max(box[1], n.top)); }
+  return {id: KB.ids.get(e), tag: e.tagName.toLowerCase(), cls: String(e.className.baseVal ?? e.className),
+          name: (e.getAttribute('aria-label') || e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40),
+          map: e.classList.contains('c-placemap'), outline: e.classList.contains('n-coverage-area'),
+          ring, box, vis: [l, t, rr, b], under, tabindex: e.getAttribute('tabindex'),
+          forced: matchMedia('(forced-colors: active)').matches,
+          ol: [cs.outlineStyle, parseFloat(cs.outlineWidth)], clip: [r.left - 6, r.top - 6, r.width + 12, r.height + 12]};
+}"""
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory):
+    """The app's page with test_shell_c's stubs (no event stream; estimates answered) and the coverage page on a real
+    server over an empty data folder, and Playwright's Edge: (playwright, browser, the server's address, the page's
+    path)."""
+    from playwright.sync_api import sync_playwright
+    from test_shell_c import stub_page
+    data = tmp_path_factory.mktemp("keyboard")
+    path = stub_page(data, "keyboard")
+    with _server(data) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            yield p, browser, f"http://127.0.0.1:{port}", path
+        finally:
+            browser.close()
+
+
+def _open(site, where: str, context: dict, coverage: bool = False, **extra):
+    """A fresh page: "search" (#new, the centre set at the clip's place), "more" (#new's Advanced with More settings
+    and its topic Anchors open), "home" (#), "coverage" (the coverage page)."""
+    p, browser, base, path = site
+    ctx = browser.new_context(reduced_motion="reduce", **context, **extra)
+    ctx.add_init_script(SEEN % ("'1'" if coverage else "'0'"))
+    page = ctx.new_page()
+    page.errors = []
+    page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
+    if where == "coverage":
+        page.goto(f"{base}/coverage?lang=en")
+        page.wait_for_selector(".cov-list", timeout=WAIT)
+        return page
+    page.goto(f"{base}/{path}?ui=c" + ("" if where == "home" else "#new"))
+    if where == "home":
+        page.wait_for_selector(".c-home, .c-main", timeout=WAIT)
+        return page
+    page.wait_for_function("() => !!window.FINDALINE_PLACE && !!document.querySelector('.s-panel')", timeout=WAIT)
+    page.evaluate(POINT)
+    if where == "more":
+        page.click(".s-tabs [data-tab=advanced]")
+        page.click(".s-more-head")
+        page.click(".s-topic:nth-of-type(2) > summary")
+    return page
+
+
+def _walk(page, limit: int = 220) -> list:
+    """The stops of real Tab presses from the page's start until the focus comes back to a stop already seen."""
+    page.mouse.move(1, 1)
+    page.evaluate(START)
+    stops, seen = [], set()
+    for _ in range(limit):
+        page.keyboard.press("Tab")
+        page.evaluate("() => document.getElementById('kb-start')?.remove()")
+        page.wait_for_timeout(30)  # the focus's scroll (reduced motion: at once)
+        stop = page.evaluate(RING)
+        if stop is None:
+            continue
+        if stop["id"] in seen:
+            break
+        seen.add(stop["id"])
+        stops.append(stop)
+    return stops
+
+
+def _cut(stop: dict) -> dict:
+    """The sides of a stop's ring outside what shows it, by more than half a pixel, and the bottom bar over it."""
+    box, vis = stop["box"], stop["vis"]
+    sides = {s: round(d, 1) for s, d in (("left", vis[0] - box[0]), ("top", vis[1] - box[1]), ("right", box[2] - vis[2]),
+                                          ("bottom", box[3] - vis[3])) if d > 0.5}
+    if stop["under"] > 0.5:
+        sides["under the bottom bar"] = round(stop["under"], 1)
+    return sides
+
+
+@pytest.mark.parametrize("where, context", [("search", DESKTOP), ("more", DESKTOP), ("coverage", DESKTOP),
+                                            ("search", PHONE_KEYS), ("home", PHONE_KEYS)],
+                         ids=["search", "more-settings", "coverage", "search-phone", "home-phone"])
+def test_rings_whole_after_the_focus_scroll(site, where, context):
+    """Row 81: every Tab stop's ring lies inside its scroll boxes and the window, and clear of the phones' bottom bar
+    (before: the form's goal cards, fields and "?" at the column's foot 3.7 to 4.5 px cut, the map's credits' links
+    2.4 px at the map's foot, the coverage page's list rows and footer links 3 to 4 px at the window's foot, the
+    bottom bar's items 4 px at the screen's edges). The place map's own ring waits for line volume's round 6
+    (docs/known-bugs.md); a control with no ring of its own (the range, whose thumb has it) is not measured."""
+    page = _open(site, where, context)
+    stops = _walk(page)
+    assert len(stops) > (4 if where == "home" else 8), stops  # the case: a page with its controls
+    if where in ("search", "more"):
+        assert any(s["name"] == "OpenStreetMap" for s in stops), stops  # the map's credits' links
+    if where == "home":
+        assert sum("u-bnav-item" in s["cls"] for s in stops) == 3, stops
+    cut = [(s["tag"], s["cls"][:40], s["name"], _cut(s)) for s in stops
+           if s["ring"] and not s["map"] and not s["outline"] and _cut(s)]
+    assert cut == [], cut
+    assert page.errors == [], page.errors
+    page.context.close()
+
+
+@pytest.mark.parametrize("where, context", [("search", DESKTOP), ("coverage", DESKTOP), ("home", PHONE_KEYS)],
+                         ids=["search", "coverage", "home-phone"])
+def test_forced_colours_show_an_outline(site, where, context):
+    """Row 81: in forced colours (Playwright's forced_colors="active": the shadows are not drawn) every Tab stop has an
+    outline of 2 px and its pixels change around it when it takes the focus (before: an outline nowhere, the ring a
+    shadow with `outline: none`)."""
+    import numpy as np
+    from PIL import Image
+    import io
+    page = _open(site, where, context, forced_colors="active")
+    stops = _walk(page, limit=60)
+    assert stops and all(s["forced"] for s in stops), stops
+    bare = [(s["tag"], s["cls"][:40], s["name"], s["ol"]) for s in stops if s["ol"][0] == "none" or s["ol"][1] < 2]
+    assert bare == [], bare
+    # the pixels: the stop focused, then blurred (some stops, spread over the page)
+    page.mouse.move(1, 1)
+    page.evaluate(START)
+    unchanged = []
+    for n in range(min(len(stops), 40)):
+        page.keyboard.press("Tab")
+        page.evaluate("() => document.getElementById('kb-start')?.remove()")
+        page.wait_for_timeout(30)
+        stop = page.evaluate(RING)
+        if stop is None or stop["map"]:
+            continue
+        x, y, w, h = stop["clip"]
+        x, y = max(0, x), max(0, y)
+        w, h = min(w, context["viewport"]["width"] - x), min(h, context["viewport"]["height"] - y)
+        if w < 2 or h < 2:
+            continue
+        clip = {"x": x, "y": y, "width": w, "height": h}
+        focused = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip, scale="css"))).convert("RGB")).astype(int)
+        page.evaluate("() => { window.KBEL = document.activeElement; document.activeElement.blur(); }")
+        blurred = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip, scale="css"))).convert("RGB")).astype(int)
+        page.evaluate("() => window.KBEL.focus({preventScroll: true})")
+        if not (np.abs(focused - blurred).max(axis=2) > 40).any():
+            unchanged.append((stop["tag"], stop["cls"][:40], stop["name"]))
+    assert unchanged == [], unchanged
+    page.context.close()
+
+
+# Each radio group shown on the page: its label, its radios' tab stops and which is checked
+GROUPS = r"""() => [...document.querySelectorAll('[role=radiogroup]')].filter((g) => g.getBoundingClientRect().width > 0)
+  .map((g) => { const rs = [...g.querySelectorAll('[role=radio]')];
+    return {label: g.getAttribute('aria-label'), n: rs.length, stops: rs.map((r) => r.tabIndex),
+            checked: rs.findIndex((r) => r.getAttribute('aria-checked') === 'true'), disabled: rs.map((r) => r.disabled)}; })"""
+# The group `k` of GROUPS: the focused radio's index and the checked one's
+STATE = r"""(k) => { const g = [...document.querySelectorAll('[role=radiogroup]')].filter((g) => g.getBoundingClientRect().width > 0)[k];
+  const rs = [...g.querySelectorAll('[role=radio]')];
+  return [rs.indexOf(document.activeElement), rs.findIndex((r) => r.getAttribute('aria-checked') === 'true'),
+          rs.filter((r) => r.tabIndex === 0).length]; }"""
+
+
+@pytest.mark.parametrize("where", ["search", "coverage"])
+def test_radio_groups_take_the_arrows(site, where):
+    """Row 82 (the planner's decision: WAI-ARIA's radio group): each radio group is one Tab stop, its checked radio
+    (or the first when none is: the goal cards of Advanced's own values); → and ↓ move the focus to the next radio and
+    choose it, ← and ↑ to the one before (round the group), End and Home to the last and the first. The search page's
+    "Where" (the kit's Segmented) and the goal cards; the coverage page's language, theme and view (Segmented) and the
+    quality scale (card.tsx). Before: every radio a Tab stop, the arrows did nothing."""
+    page = _open(site, where, DESKTOP)
+    groups = page.evaluate(GROUPS)
+    labels = [g["label"] for g in groups]
+    if where == "search":
+        assert "Where" in labels and any("look" in (l or "").lower() for l in labels), labels
+    else:
+        assert len(groups) == 4, labels
+    for k, g in enumerate(groups):
+        enabled = [i for i in range(g["n"]) if not g["disabled"][i]]
+        stop = g["checked"] if g["checked"] >= 0 and not g["disabled"][g["checked"]] else enabled[0]
+        assert g["stops"] == [0 if i == stop else -1 for i in range(g["n"])], g
+        # the focus by Tab: the group's stop
+        page.evaluate("(k) => [...document.querySelectorAll('[role=radiogroup]')].filter((g) => g.getBoundingClientRect().width > 0)[k]"
+                      ".querySelector('[role=radio][tabindex=\"0\"]').focus()", k)
+        at = enabled.index(stop)
+        for key, step in (("ArrowRight", 1), ("ArrowDown", 1), ("ArrowLeft", -1), ("ArrowUp", -1), ("End", None), ("Home", None)):
+            page.keyboard.press(key)
+            page.wait_for_timeout(50)
+            at = (len(enabled) - 1 if key == "End" else 0) if step is None else (at + step) % len(enabled)
+            focused, checked, stops = page.evaluate(STATE, k)
+            assert focused == enabled[at] and checked == enabled[at] and stops == 1, (g["label"], key, focused, checked, stops)
+    page.context.close()
+
+
+def test_focused_segment_lies_above_the_selected_one(site):
+    """Row 81: the search's tabs (WAI-ARIA's tabs: the arrows move the focus only) with the focus on Advanced, beside
+    the selected Basic: the focused segment stands above its neighbours (before: no stacking, the selected segment
+    drawn over the ring's side next to it)."""
+    page = _open(site, "search", DESKTOP)
+    page.focus(".s-tabs [data-tab=basic]")
+    page.keyboard.press("ArrowRight")
+    got = page.evaluate("""() => { const a = document.activeElement, cs = getComputedStyle(a);
+      return {tab: a.dataset.tab, selected: a.getAttribute('aria-selected'), visible: a.matches(':focus-visible'),
+              position: cs.position, z: cs.zIndex}; }""")
+    assert got == {"tab": "advanced", "selected": "false", "visible": True, "position": "relative", "z": "1"}, got
+    page.context.close()
+
+
+AREAS = "() => document.querySelectorAll('.n-coverage-area').length"
+
+
+def test_coverage_outlines_are_no_tab_stops(site):
+    """Row 81: with "Data coverage" on, its outlines (Leaflet's paths with a tooltip) are out of the Tab order (each
+    tabindex -1) and the coverage box's link to the coverage page is the keyboard's way; a pointer over an outline
+    still shows its tooltip. Before: 83 Tab stops before the pin and every control of the map (Chromium makes an
+    SVG shape with a focus listener focusable, and Leaflet listens for the focus on a path with a tooltip)."""
+    page = _open(site, "search", DESKTOP, coverage=True)
+    page.wait_for_function(f"() => ({AREAS})() > 20", timeout=WAIT)
+    assert page.evaluate("() => [...document.querySelectorAll('.n-coverage-area')].every((p) => p.getAttribute('tabindex') === '-1')")
+    stops = _walk(page)
+    assert [s for s in stops if s["outline"] or s["tag"] == "path"] == []
+    assert any("n-coverage-link" in s["cls"] for s in stops), [s["cls"] for s in stops]
+    # the tooltip: the pointer over a point of an outline, the map zoomed out to Europe (ui_shots' c-new-coverage)
+    page.evaluate("() => window.FINDALINE_PLACE.map.setZoom(5, {animate: false})")
+    page.wait_for_function("() => [...document.querySelectorAll('.n-coverage-area')].some((p) => p.getBoundingClientRect().width > 30)",
+                           timeout=WAIT)
+    hit = page.evaluate("""() => { for (const p of document.querySelectorAll('.n-coverage-area')) { const r = p.getBoundingClientRect();
+      if (r.width < 30 || r.height < 30 || r.left < 0 || r.top < 0 || r.right > innerWidth - 300 || r.bottom > innerHeight) continue;
+      for (const [fx, fy] of [[.5, .5], [.4, .5], [.5, .4], [.6, .6]]) { const x = r.left + r.width * fx, y = r.top + r.height * fy;
+        if (document.elementFromPoint(x, y) === p) return [x, y]; } } return null; }""")
+    assert hit, "a point on an outline"
+    page.mouse.move(hit[0], hit[1])
+    page.mouse.move(hit[0] + 2, hit[1] + 1)
+    page.wait_for_selector(".leaflet-tooltip", timeout=WAIT)
+    page.context.close()
+
+
+# The coverage box's button: its own box and its target (the box joined with an absolutely positioned ::after; the
+# button has no border), the box's edges
+TARGET = r"""() => { const b = document.querySelector('.n-coverage-btn'), r = b.getBoundingClientRect(), a = getComputedStyle(b, '::after');
+  let t = [r.left, r.top, r.right, r.bottom];
+  if (a.content !== 'none' && a.position === 'absolute') {
+    const l = r.left + parseFloat(a.left), top = r.top + parseFloat(a.top);
+    t = [Math.min(t[0], l), Math.min(t[1], top), Math.max(t[2], l + parseFloat(a.width)), Math.max(t[3], top + parseFloat(a.height))]; }
+  return {own: [r.left, r.top, r.right, r.bottom], target: t, coarse: matchMedia('(pointer: coarse)').matches}; }"""
+CATCH = """() => { window.CLICKS = []; document.addEventListener('click', (e) => {
+  const c = e.target.closest('button, a'); window.CLICKS.push(c ? String(c.className) : e.target.tagName);
+  e.preventDefault(); e.stopPropagation(); }, true); }"""
+
+
+@pytest.mark.parametrize("size", [(1024, 768), (1180, 820)], ids=["1024x768", "1180x820"])
+def test_touch_tablet_coverage_button_target(site, size):
+    """Row 83 (the planner's decision: invisible targets, as the user's pick for the 3D view's marks): on a touch
+    tablet, which keeps the desktop's box among the map's controls, the coverage box's 32 px button takes a finger's
+    tap anywhere in its 44 px target, 2 px inside its top and its bottom edge (before: the target was the 32 px
+    button)."""
+    page = _open(site, "search", {"viewport": {"width": size[0], "height": size[1]}, **TABLET}, coverage=True)
+    page.wait_for_selector(".n-coverage-btn", timeout=WAIT)
+    got = page.evaluate(TARGET)
+    own, target = got["own"], got["target"]
+    assert got["coarse"] and own[3] - own[1] < 40, got  # the case: a coarse pointer, the drawn button under 44 px
+    assert target[3] - target[1] >= 43.5 and target[2] - target[0] >= 43.5, got
+    page.evaluate(CATCH)
+    for y in (target[1] + 2, target[3] - 2):
+        page.evaluate("() => { window.CLICKS = []; }")
+        _tap(page, (own[0] + own[2]) / 2, y)
+        page.wait_for_function("() => window.CLICKS.length > 0", timeout=WAIT)
+        assert "n-coverage-btn" in page.evaluate("() => window.CLICKS[0]"), (y, got)
+    page.context.close()
+
+
+@pytest.mark.parametrize("size", [(390, 664), (360, 640)], ids=["390x664", "360x640"])
+def test_return_dialog_actions_inside(site, size):
+    """Going back to Basic with values Basic cannot show asks first (the return dialog); on a 390 px and a 360 px phone
+    both its actions lie inside the dialog and the window (before: "Stay in Advanced" 5.6 px out of the dialog at
+    390 px and 18.6 px out of the window at 360 px, its row of two wider than the dialog)."""
+    page = _open(site, "search", {"viewport": {"width": size[0], "height": size[1]}, **TOUCH})
+    page.wait_for_function("() => !!window.FINDALINE_SEARCH", timeout=WAIT)
+    page.evaluate("() => document.querySelector('.s-tabs [data-tab=advanced]').click()")
+    page.evaluate("() => (window.FINDALINE_SEARCH.setValue('pretension', 4), window.FINDALINE_SEARCH.setValue('min_drop', 50))")
+    page.evaluate("() => document.querySelector('.s-tabs [data-tab=basic]').click()")
+    page.wait_for_selector(".s-return-dialog .n-actions button", timeout=WAIT)
+    got = page.evaluate("""() => { const d = document.querySelector('.s-return-dialog'), r = d.getBoundingClientRect();
+      return {dialog: [r.left + d.clientLeft, r.right - d.clientLeft], buttons: [...d.querySelectorAll('.n-actions button')].map((b) => {
+        const q = b.getBoundingClientRect(); return [b.textContent.trim(), q.left, q.right]; })}; }""")
+    assert len(got["buttons"]) == 2, got
+    for name, left, right in got["buttons"]:
+        assert left >= got["dialog"][0] - 0.5 and right <= got["dialog"][1] + 0.5 and left >= 0 and right <= size[0], (name, got)
+    page.context.close()

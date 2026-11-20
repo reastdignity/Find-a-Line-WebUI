@@ -436,6 +436,41 @@ def test_collapse_tab_shows_the_keyboard_ring(site):
     page.context.close()
 
 
+# The open panels' collapse tabs: each one's drawn box and its target (the box joined with an absolutely positioned
+# ::after, whose insets count from inside its 1 px edge), whether the pointer is coarse
+TABS_JS = """() => [...document.querySelectorAll('.c-mappage-3 .c-col-tab')].map((b) => {
+  const r = b.getBoundingClientRect(), own = [r.left, r.top, r.right, r.bottom], a = getComputedStyle(b, '::after'), cs = getComputedStyle(b);
+  let t = own;
+  if (a.content !== 'none' && a.position === 'absolute') {
+    const l = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(a.left), top = r.top + parseFloat(cs.borderTopWidth) + parseFloat(a.top);
+    t = [Math.min(own[0], l), Math.min(own[1], top), Math.max(own[2], l + parseFloat(a.width)), Math.max(own[3], top + parseFloat(a.height))]; }
+  return {name: b.getAttribute('aria-label'), own, target: t, coarse: matchMedia('(pointer: coarse)').matches}; })"""
+
+
+@pytest.mark.parametrize("size", [(1024, 768), (1180, 820)], ids=["1024x768", "1180x820"])
+def test_collapse_tabs_take_a_finger_on_a_tablet(site, size):
+    """Step 3d's B1 (docs/DESIGN.md row 83; the planner's decision: invisible targets, as the user's pick for the 3D
+    view's marks): a touch tablet keeps the desktop's columns, and each panel's collapse tab, 24 px wide as drawn,
+    takes a finger's tap anywhere in its 44 px target, 2 px inside its left and its right edge (before: 24 x 44 px,
+    under R2's 44 px)."""
+    page = _page(site, {"viewport": {"width": size[0], "height": size[1]}, "has_touch": True, "is_mobile": False})
+    tabs = page.evaluate(TABS_JS)
+    assert len(tabs) == 2 and all(t["coarse"] and t["own"][2] - t["own"][0] < 30 for t in tabs), tabs  # the case
+    page.evaluate("""() => { window.CLICKS = []; document.addEventListener('click', (e) => {
+      const c = e.target.closest('button'); window.CLICKS.push(c ? String(c.className) : e.target.tagName);
+      e.preventDefault(); e.stopPropagation(); }, true); }""")
+    for tab in tabs:
+        t = tab["target"]
+        assert t[2] - t[0] >= 43.5 and t[3] - t[1] >= 43.5, tab
+        for x in (t[0] + 2, t[2] - 2):
+            page.evaluate("() => { window.CLICKS = []; }")
+            _tap(page, x, (t[1] + t[3]) / 2)
+            page.wait_for_function("() => window.CLICKS.length > 0", timeout=WAIT)
+            assert "c-col-tab" in page.evaluate("() => window.CLICKS[0]"), (tab, x)
+    assert page.errors == [], page.errors
+    page.context.close()
+
+
 def test_counts_are_parted_by_semicolons(site):
     """The fix round's point 10 on a desktop: the counts hold thousands commas, so a semicolon parts them: the
     totals line "N lines; M spots in view" and its split "… lines across the border; K of them beyond it", a cell's
