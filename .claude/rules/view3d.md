@@ -68,5 +68,6 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   (`screen.ts` `place`; `tests/test_view3d_touch.py`).
 - **A new note in the bar** (DESIGN.md row 39): one that explains goes behind the phone's "About this view" button by
   itself (`info.ts` `INFO_NOTES`); one that says what failed or answers a tap gets the class `v3-alert` and stays in
-  sight. A size that depends on the card (`chrome.ts` `stepAside`) is tested with its own effect off, never from the
+  sight, as the safety sentence does (`.v3-check`, `INFO_KEPT`: the user's word, never into the box). The button and
+  the box are for touch and the phone level: a mouse window keeps its lines at every width. A size that depends on the card (`chrome.ts` `stepAside`) is tested with its own effect off, never from the
   state it made (`tests/test_view3d_layout.py`).

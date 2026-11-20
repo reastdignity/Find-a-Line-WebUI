@@ -470,7 +470,7 @@ PAGES = {
     "view3d-point": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("point"), "js:" + POINT_CLICK,
                                                     POINT_SHOWN]),
     "view3d-others": ("/view3d", VIEW3D + "&also={also}", [VIEW3D_READY, CARD_FOLDED, OTHERS_SHOWN]),
-    # a phone held sideways (844 x 390, touch: the phone level with the wide bar's words; phones only)
+    # a phone held sideways (844 x 390, touch: the bar's controls in one row, docs/DESIGN.md row 37; phones only)
     "view3d-sideways": ("/view3d", VIEW3D, [VIEW3D_READY, CARD_FOLDED, "sideways:844x390", VIEW3D_READY]),
 }
 

@@ -199,7 +199,8 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 }
 
 /* The compact bar of phones and narrow screens: the readout on one line (wrapping, never scrolling), the walk,
-   the slider and the imagery control in one row, the notes in small type; the canvas gets the rest. The bar's rows
+   the slider and the imagery control in one row; of the notes only what failed and the safety sentence stay in it,
+   in small type (the others: "About this view", row 39); the canvas gets the rest. The bar's rows
    without a gap (2 px before: on the grid; the notes' 12 px of R1 take a line more on a phone, the gap gives it back) */
 .v3-phone .v3-bar { padding: 4px 8px; gap: 0 8px; }
 .v3-phone .v3-readout { flex: 1 1 100%; gap: 0 12px; font-size: var(--fs-2); }
@@ -207,10 +208,10 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-phone .v3-field { flex: 1 1 auto; min-width: 64px; }
 .v3-phone .v3-field-label { display: none; }
 .v3-phone .v3-slider { width: 100%; }
-/* at the phone level with the wide bar's words (a phone held sideways, a touch tablet, the desktop's ?level=phone) the
-   row's pieces 4 px apart and the views' buttons and the walk 8 px inside, so the row is no longer than before
-   with the touch screen's 44 px (held sideways the speed lay under the imagery's segment by 16 px before, by 24 px
-   with 12 px insides) */
+/* at the phone level with the wide bar's words (a touch tablet, the desktop's ?level=phone; a phone held sideways
+   has had the one row of row 37 since) the row's pieces 4 px apart and the views' buttons and the walk 8 px inside,
+   so the row is no longer than before with the touch screen's 44 px. With four kinds of imagery the row is still
+   longer than the window in the athlete's views (docs/known-bugs.md) */
 .v3-phone .v3-toolbar .u-row { flex: 0 1 auto; flex-wrap: nowrap; gap: 4px; min-width: 0; }
 .v3-phone .v3-walkbox, .v3-phone .v3-viewbox { gap: 4px; }
 #view3d.v3-phone .v3-views button, #view3d.v3-phone .v3-walk { padding: 0 8px; }
