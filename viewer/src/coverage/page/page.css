@@ -66,7 +66,7 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-tip[hidden] { display: none; }
 .cov-status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); z-index: 1100; }
 
-/* the zoom presets: raised controls over the map (no edge, 8 px corners, as the place map's: choice 62) */
+/* the zoom presets: raised controls over the map (no edge, 8 px corners, as the place map's: choices 35 and 64) */
 .cov-zoombar { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1100; display: flex; flex-wrap: wrap; gap: 8px;
   pointer-events: none; }
 .cov .cov-zoombar button { pointer-events: auto; border: 0; background: var(--surface); color: var(--ink);

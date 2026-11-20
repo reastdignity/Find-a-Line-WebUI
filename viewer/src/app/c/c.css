@@ -261,7 +261,7 @@
 /* The highline layer (LayerPage.tsx): the panel's filters (today's seven, the others in the fold "More filters"), the
    legend of the density classes (the tokens --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map; the
    hatched swatch of the partner cells), the view with the border switch, the selected cell and the notes.
-   The pilot's look (docs/DESIGN.md, choices 67 to 72): the panel's parts on the ground, parted by thin rules (no box
+   The pilot's look (docs/DESIGN.md, choices 67 to 77): the panel's parts on the ground, parted by thin rules (no box
    around the legend, the cell or one sentence), "More filters" a fold between two rules, names in sentence case,
    no text under 12 px, sizes and radii from the scales' tokens, spacing on the 4 px grid */
 .ui .c-layer { display: flex; flex-direction: column; gap: 16px; }
