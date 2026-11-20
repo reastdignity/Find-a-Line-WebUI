@@ -612,8 +612,9 @@ What still shows English from the code:
   into the catalogue, a code as the coded errors have): the job's progress line on Home's cards ("Tile 3/15 · Step
   3/5: evaluating anchor pairs", the search's progress through the worker's events, `useJobs.ts` `step`), a job's
   messages and an error without a code (its str()), the examples' settings line on the sign-in page
-  (`runs.params_summary`), and web.py's HTTP errors without a code ("no such sign-in", "too many sign-in attempts:
-  try again later").
+  (`runs.params_summary`), web.py's HTTP errors without a code ("no such sign-in", "too many sign-in attempts:
+  try again later"), and the coverage page's shell (`web.COVERAGE_HTML`: its title "Data coverage · Find-a-Line", its
+  description and its noscript line; the page's own words are `locales/coverage/`).
 - **The privacy page** (`web.privacy_page`): its words are the user's to approve (the plan); its code is untouched and
   its HTML byte for byte as before (the footer it shares now comes from the catalogue with the same bytes).
 - **The kit's demo pages** (`ui/Gallery.tsx`, `search/KitSearch.tsx`, `result/view/KitResult.tsx`): developer pages
@@ -634,15 +635,23 @@ What still shows English from the code:
   ("Delete “X”, 1 folders in it …", "1 warning(s)", "(1 shapes; …)", "At most 1 searches waiting or running.", the
   examples' "1 spots · 1 lines"); "About and data licences" (account menu) against "About / data licences" (footer,
   the about page); "Report a problem…" (a card's menu) against "Report a problem"; the same words under several keys
-  ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove", "Try again", "Auto", "All", "Done",
-  "Cancelled" `ui.card.cancelled` and `ui.kit.status.cancelled`): a key for each sense, the older ones named for
-  their component.
+  ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove", "Try again", "Auto", "All", "Done";
+  `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the older ones named for their component
+  (the planner's ruling, 2026-11-20).
 - **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
-  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 335 keys.
+  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 337 keys (main's
+  `ui.card.cancelled` went: the kit's key says the same).
 - **Text nodes and pixels**: Chromium places a line's glyphs by its text nodes, so the same words in other nodes can
-  differ by a shade (seen on the search's "Centre …" line and the mini maps' credit). `i18n.parts` keeps a text's
-  values as nodes of their own where they were; the pictures of `tools/ui_shots.py`'s states are pixel-identical to
-  main's but for live map tiles and Admin's times. States without a picture (the report dialog, the beta notice, a
-  card's menu and panels, Admin's questions) were compared as text and accessible names; Favourites' rows, menus and
-  delete question, Admin's "All searches" rows, the estimate's paused line and the area file's errors only by reading
-  and by the check that every new catalogue text occurs in main's sources (the composed ones from their pieces).
+  differ by a shade (seen on the search's "Centre …" line, the mini maps' credit, Admin's user line, and in the
+  reviews on Favourites' "Export this folder" and its 0-line delete question). `i18n.parts` keeps a text's values as
+  nodes of their own where they were; the pictures of `tools/ui_shots.py`'s states and of the states it has no page for
+  (Favourites with rows, menus, "Move to", the delete question with 0, 1 and 2 lines; Admin's "All searches" rows; the
+  estimate paused and unavailable; the area file's six errors; the report dialog's kinds; the beta notice; a card's
+  Share and Delete panels) are pixel-identical to main's on the desktop, the iPhone and the Pixel but for live map
+  tiles and shades of 1/255 on a control's corners that main against main shows too
+  (`local/ux-design-2026-11-16/3d/g4/fix/`). Two lines keep the same words with a space in another node than main's
+  (the delete question's " and" " ", the trip list's empty line): the same pixels.
+- **The map credits' catalogue words go into HTML unescaped** (`baselayers.ts` `osmCredit` and the OpenTopoMap
+  credit, `layers.ts` `creditsHtml`: `ui.map.*`, `ui.credits.data`, `ui.credits.notices`), as Leaflet's attribution
+  takes HTML; `web.page_text` escapes its texts' &, < and >. No word holds either today; a later word (G5, a language)
+  with "&" or "<" needs escaping there.
