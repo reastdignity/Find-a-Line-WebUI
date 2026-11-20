@@ -142,10 +142,13 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-k { font-weight: 600; }
 /* the regions of a country covered in parts: the kit's chips, wrapping (44 px on a touch screen: the user's pick L2 a) */
 .cov-regions { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-@media (max-width: 699px) {
-  /* L6 b: the header is not sticky on a phone (back to sticky: this one line out) */
+/* L6 b: the header is not sticky on a phone, held upright or sideways (the narrow page, or a touch screen at most
+   480 px high, as the app's PlaceMap.ts PHONE; back to sticky: the first declaration out) */
+@media (max-width: 699px), (pointer: coarse) and (max-height: 480px) {
   .cov-top { position: static; }
   .cov-stage { scroll-margin-top: 8px; }
+}
+@media (max-width: 699px) {
   .cov-card { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 58vh; border-radius: var(--r-4) var(--r-4) 0 0;
     box-shadow: 0 -8px 30px rgb(0 0 0 / .22); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .cov-card::before { content: ""; display: block; width: 40px; height: 4px; border-radius: var(--r-1); background: var(--line); margin: -4px auto 12px; }
