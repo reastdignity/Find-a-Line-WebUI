@@ -417,6 +417,84 @@ def test_view3d_info_box_head_stays(clip_data, monkeypatch):
             browser.close()
 
 
+def test_view3d_info_box_leaves_with_the_focus(clip_data, monkeypatch):
+    """The open info box and the focus (info.ts): Tab from "Close" closes the box and the focus goes on to the next
+    control (not to one the box covers while it stays open), Shift+Tab likewise backwards; a finger's tap on the
+    box's text keeps it open, a tap beside it closes it; a tap on the info button while the box is open (the
+    button stands above the open card then) closes it once, and it stays closed. A box that the page stops showing
+    (a touch window of 590 px at the full level widened to 1200 px) closes itself, so with "Lines from a point" on
+    the first Escape ends the tool."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dfocus")
+    state = r"""() => { const box = document.querySelector('.v3-infobox'), a = document.activeElement;
+      const r = box.getBoundingClientRect();
+      return {open: r.width > 0 && r.height > 0, expanded: document.querySelector('.v3-info').getAttribute('aria-expanded'),
+              inBox: box.contains(a), body: a === document.body, focus: a ? (a.className || a.tagName) : '',
+              box: [r.left, r.top, r.right, r.bottom]}; }"""
+    opened = "() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'true'"
+    closed = "() => document.querySelector('.v3-info').getAttribute('aria-expanded') === 'false'"
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"http://127.0.0.1:{port}/{path}"
+            page = _open(browser, url + line, _phone(p, 390, 664))
+            # by the keyboard: Enter on the button, Tab from "Close"
+            page.evaluate("() => document.querySelector('.v3-info').focus()")
+            page.keyboard.press("Enter")
+            first = page.evaluate(state)
+            assert first["open"] and "v3-infobox-close" in first["focus"], first
+            page.keyboard.press("Tab")
+            after = page.evaluate(state)
+            assert not after["open"] and after["expanded"] == "false", after
+            assert not after["inBox"] and not after["body"], after  # the focus went on to a control
+            page.evaluate("() => document.querySelector('.v3-info').focus()")
+            page.keyboard.press("Enter")
+            page.keyboard.press("Shift+Tab")
+            back = page.evaluate(state)
+            assert not back["open"] and not back["inBox"] and not back["body"], back
+            # by a finger: a tap on the box's text keeps it, a tap beside it (on the stage) closes it
+            button = page.evaluate(INFO)["button"]
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function(opened, timeout=WAIT)
+            box = page.evaluate(state)["box"]
+            _tap(page, (box[0] + box[2]) / 2, box[3] - 30)
+            page.evaluate(FRAMES)
+            kept = page.evaluate(state)
+            assert kept["open"] and kept["inBox"], kept
+            _tap(page, (box[0] + box[2]) / 2, box[1] - 60)
+            page.wait_for_function(closed, timeout=WAIT)
+            # the card open: the info button stands above it, beside the open box; a tap on it closes the box once
+            page.evaluate("() => document.querySelector('.v3-tool[data-tool=profile]').click()")
+            page.wait_for_function(CHART, timeout=WAIT)
+            page.evaluate(FRAMES)
+            button = page.evaluate(INFO)["button"]
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function(opened, timeout=WAIT)
+            both = page.evaluate(INFO)
+            assert both["button"][3] <= both["box"][1] + 0.5, both  # the case: the button is not under the box
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function(closed, timeout=WAIT)
+            page.evaluate(FRAMES)
+            assert not page.evaluate(state)["open"], "the tap closed the box and did not open it again"
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+            # the window widened past the phone's width with the box open
+            page = _open(browser, url + "?level=full" + line, _phone(p, 590, 800))
+            tool = "() => document.querySelector('.v3-tool[data-tool=point]').getAttribute('aria-pressed')"
+            page.evaluate("() => document.querySelector('.v3-tool[data-tool=point]').click()")
+            page.evaluate("() => document.querySelector('.v3-info').click()")
+            assert page.evaluate(state)["open"] and page.evaluate(tool) == "true"
+            page.set_viewport_size({"width": 1200, "height": 800})
+            page.wait_for_function(closed, timeout=WAIT)
+            assert not page.evaluate(state)["open"]
+            page.keyboard.press("Escape")
+            assert page.evaluate(tool) == "false", "the first Escape ends the tool"
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+        finally:
+            browser.close()
+
+
 def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
     """The info button and its box with the run's data credits (open from 768 px of width as on main, a phone held
     sideways included; the user, 2026-11-20: "Open as before"). On a phone (390 x 664), a phone held sideways

@@ -29,6 +29,9 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
+/** How long after a press on the box or its button a loss of the focus counts as that press's (ms). */
+export const PRESS_MS = 500;
+
 export interface Info {
   /** The button, for the credits' box. */
   readonly button: HTMLButtonElement;
@@ -50,6 +53,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   button.setAttribute("aria-controls", "v3-infobox");
   const box = el("section", "v3-infobox v3-hidden"), head = el("div", "v3-infobox-head");
   box.id = "v3-infobox";
+  box.tabIndex = -1;  // a press on the box's own text keeps the focus in the box
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", name);
   const shut = el("button", "u-btn v3-infobox-close");
@@ -76,9 +80,15 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       box.style.minHeight = `${Math.min(Math.ceil(b.bottom - c.top), Math.floor(stage.clientHeight - 16))}px`;
     }
   };
+  // What the page shows changed while the box is open: the box no longer shown (the window grew past the phone's
+  // width, a turn: view3d.css hides it) closes, so no Escape is spent on a box out of sight; else it is fitted to
+  // the credits again. In the next frame, never inside the observer's own call
   let frame = 0;
   const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
-    if (!frame) frame = requestAnimationFrame(() => { frame = 0; cover(); });  // never inside the observer's own call
+    if (!frame) frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (open && !box.getClientRects().length) self.close(); else cover();
+    });
   }) : null;
   const copy = () => {
     lines.replaceChildren(...[...bar.querySelectorAll<HTMLElement>(INFO_NOTES)].map((note) => {
@@ -93,6 +103,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   const watch = typeof MutationObserver === "function" ? new MutationObserver(copy) : null;
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape" || !open) return;
+    if (!box.getClientRects().length) { self.close(); return; }  // not shown: the press is for what is
     // the box first: the same press does not also end "Lines from a point" (point.ts listens on the window)
     e.preventDefault();
     e.stopPropagation();
@@ -108,7 +119,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       copy();
       watch?.observe(bar, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class"]});
       const credits = button.closest(".v3-credits");
-      for (const e of [stage, credits]) if (e) sizes?.observe(e);  // the credits opened or folded, the card, a turn
+      for (const e of [stage, credits, box]) if (e) sizes?.observe(e);  // the credits opened or folded, the card, a turn
       button.setAttribute("aria-expanded", "true");
       document.addEventListener("keydown", onKey, true);
       shut.focus();
@@ -128,5 +139,20 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   };
   button.addEventListener("click", () => { if (open) self.close(); else self.open(); });
   shut.addEventListener("click", () => self.close(true));
+  // The focus leaving the box closes it: Tab from "Close" goes on to the control Tab meant, which the box may cover
+  // (a focused control out of sight), and a press beside the box closes it too. Not while a finger or the mouse
+  // presses the box or the info button (where a press moves no focus, as in Safari, the focus would seem to leave:
+  // the button's own click closes the box, a press on the box's text keeps it), nor when the window loses the focus
+  let pressed = -Infinity;
+  const press = () => { pressed = performance.now(); };
+  box.addEventListener("pointerdown", press, true);
+  button.addEventListener("pointerdown", press);
+  box.addEventListener("pointerup", () => { if (open && !box.contains(document.activeElement)) box.focus({preventScroll: true}); });
+  box.addEventListener("focusout", (e) => {
+    const to = e.relatedTarget;
+    if (!open || (to instanceof Node && box.contains(to)) || !document.hasFocus()) return;
+    if (performance.now() - pressed < PRESS_MS) return;
+    self.close();
+  });
   return self;
 }
