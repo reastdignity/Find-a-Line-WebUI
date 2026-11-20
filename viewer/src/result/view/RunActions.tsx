@@ -40,6 +40,9 @@ export interface RunActionsProps {
    *  page), beside it before the button (the result view's header), or nowhere (the result view's phone: the status
    *  line's first line, MapBar's `tip`). */
   tip?: "below" | "beside" | "none";
+  /** The count of new selections (the result view's frame): a measurement's answer that comes after a new selection
+   *  is dropped (a new selection ends a measured line); today's page gives none. */
+  selections?(): number;
   /** Which actions (default all that can work here). */
   show?: ("measure" | "compare" | "share" | "download")[];
   /** The folder of the runs' folders (default "/runs/"). */
@@ -51,8 +54,15 @@ export function useMeasureTip(): string {
   return useMedia(TOUCH) ? t("ui.result.measure_tip_touch") : t("ui.result.measure_tip");
 }
 
-/** Measure: the next two clicks on the map; the profile between them is computed by the server. */
-function Measure({model, view, onMeasured, compact, plain, tip = "below"}: RunActionsProps) {
+/** The measurement under way of each run's model (a start or a cancel makes a new one): an answer of an older one is
+ *  dropped, also when the RunActions and the map were drawn anew (the window crossed the phone's width: the model
+ *  stays, and an answer of the measurement under way then is still shown). */
+const measurements = new WeakMap<ResultModel, number>();
+
+/** Measure: the next two clicks on the map; the profile between them is computed by the server. An answer is shown
+ *  only while it is still the latest measurement's and no new line was selected meanwhile (`selections`): a late one
+ *  neither ends a new measurement nor comes back over a new selection (the code review of B3's catch-up). */
+function Measure({model, view, onMeasured, compact, plain, tip = "below", selections}: RunActionsProps) {
   // The map's mode, not a copy: a phone turned round draws another RunActions while measuring goes on
   const [measuring, setMeasuring] = useState(!!view?.isMeasuring);
   const [error, setError] = useState("");
@@ -63,12 +73,16 @@ function Measure({model, view, onMeasured, compact, plain, tip = "below"}: RunAc
     return view.onMeasuring(setMeasuring);
   }, [view]);
   if (!view || !model.canCompute) return null;
+  const renew = () => { const k = (measurements.get(model) ?? 0) + 1; measurements.set(model, k); return k; };
   const toggle = () => {
-    if (measuring) { view.cancelMeasure(); view.clearMeasure(); return; }
+    if (measuring) { renew(); view.cancelMeasure(); view.clearMeasure(); return; }
     setError("");
     onMeasured?.(null);
+    const mine = renew(), picked = selections?.();
+    const current = () => measurements.get(model) === mine && selections?.() === picked;
     view.startMeasure((a, b) => {
-      model.measure([a.lat, a.lng], [b.lat, b.lng]).then((l) => onMeasured?.(l), (e) => {
+      model.measure([a.lat, a.lng], [b.lat, b.lng]).then((l) => { if (current()) onMeasured?.(l); }, (e) => {
+        if (!current()) return;
         view.clearMeasure();
         setError("Not computed: " + e.message);
       });

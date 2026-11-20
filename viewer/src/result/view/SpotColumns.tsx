@@ -112,7 +112,16 @@ interface FrameProps extends SpotColumnsProps {
   panels: SpotPanels;
   /** The measured line: Measure's, or a line outside the run that a link named (viewlink.ts); null: none. */
   measured: Line | null;
-  onMeasured(l: Line | null): void;
+  /** A measured line given (`link`: a link's, viewlink.ts; else Measure's), or none (null). */
+  onMeasured(l: Line | null, link?: boolean): void;
+  /** The measured line was shown for the first time (fitted, a phone's sheet raised): kept across the phone's width,
+   *  so a frame drawn anew does not move the map again; false: not yet (also an answer that came after the crossing). */
+  firstShow(): boolean;
+  /** Whether the measured line is a link's (fitted always) or Measure's (only where it is not in sight). */
+  measuredLink: boolean;
+  /** The count of new selections so far (SpotColumns', across the phone's width): Measure drops an answer that comes
+   *  after a new selection (the selection ends a measured line: viewlink.ts). */
+  selections(): number;
 }
 
 /** A press's choice of the spots it reached about as near, at its point in the viewport. */
@@ -386,18 +395,36 @@ function lineFree(map: L.Map, l: Line, padding: Padding, slack = 16): boolean {
 /** The map moves now (a pan's or a zoom's animation). */
 const moving = (map: L.Map) => !!((map as any)._panAnim?._inProgress || (map as any)._animatingZoom);
 
-/** A measured line fitted into the map once the frame was drawn with it (its card or its sheet's stop): a link's
- *  always (`always`: the person has not seen it), Measure's only where it is not in the part `padding` leaves free
- *  (the person pressed its points there). `padding`: of the frame as it will be (a phone's sheet at half). */
-function useMeasuredFit(canvas: SpotMap | null, map: L.Map | null, padding: () => Padding) {
-  const [wanted, setWanted] = useState<{line: Line; always: boolean} | null>(null);
+/** A measured line shown for the first time in this view (`firstShow`: a new Measure answer or a link's measurement,
+ *  also one that came after the window crossed the phone's width), once the frame was drawn with it: `onFirst` (a
+ *  phone raises its sheet to half), and the line fitted into the map, a link's always (`link`: the person has not seen
+ *  it), Measure's only where it is not in the part `padding` leaves free (the person pressed its points there). A line
+ *  kept across the crossing was shown already: nothing moves. `padding`: of the frame as it will be (a phone's sheet
+ *  at half; its check at rest keeps the line in sight there: useSheetKeeps). */
+function useMeasuredShown(measured: Line | null, link: boolean, firstShow: () => boolean, canvas: SpotMap | null,
+                          map: L.Map | null, padding: () => Padding, onFirst?: () => void) {
   useLayoutEffect(() => {
-    if (!wanted || !canvas || !map) return;
-    setWanted(null);
+    if (!measured || !canvas || !map || !firstShow()) return;
+    onFirst?.();
     const p = padding();
-    if (wanted.always || !lineFree(map, wanted.line, p)) canvas.zoomToLine(wanted.line, p);
-  }, [wanted]);
-  return {fit: (line: Line, always: boolean) => setWanted({line, always})};
+    if (link || !lineFree(map, measured, p)) canvas.zoomToLine(measured, p);
+  }, [measured, canvas, map]);
+}
+
+/** The count of new selections of a view (a line selected that was not selected before; a deselection is none), as
+ *  viewlink.ts counts the selection that ends a measured line: read when Measure's answer comes. */
+function useNewSelections(view: SpotView): () => number {
+  const count = useRef(0);
+  useEffect(() => {
+    let last = view.selected?.row ?? -1;
+    return view.subscribe(() => {
+      const row = view.selected?.row ?? -1;
+      if (row === last) return;
+      last = row;
+      if (row >= 0) count.current++;
+    });
+  }, [view]);
+  return () => count.current;
 }
 
 /** The frame's measured line drawn on the canvas (a link's; Measure's own again on a canvas made anew when the window
@@ -407,7 +434,7 @@ function useMeasuredDrawn(canvas: SpotMap | null, measured: Line | null) {
 }
 
 function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
-                  panels, measured, onMeasured}: FrameProps) {
+                  panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
   const layout = useLayout();
   const colsRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
@@ -439,10 +466,9 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
   // a measured line (Measure's, a link's): its profile in the card, fitted into the map (Measure's where it is hidden)
-  const fitting = useMeasuredFit(canvas, map, padding);
-  const onLinkMeasured = (l: Line | null) => { onMeasured(l); if (l) fitting.fit(l, true); };
-  const onMeasure = (l: Line | null) => { onMeasured(l); if (l) fitting.fit(l, false); };
-  useViewLink(view, canvas, line, nav, hashOf, padding, onLinkMeasured);
+  const onMeasure = (l: Line | null) => onMeasured(l, false);
+  useViewLink(view, canvas, line, nav, hashOf, padding, (l) => onMeasured(l, true));
+  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, padding);
   useMeasuredDrawn(canvas, measured);
   useRunCredits(map, data, base, folder);
   // the profile's card: the selected line's (until it is closed: model.profileClosed) or a measured line's
@@ -499,7 +525,8 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
       <span class="u-grow" />
       {actions?.(false)}
       {/* the run's actions after the caller's, as on today's page (Measure's tip beside its button) */}
-      <RunActions model={view.model} view={canvas} onMeasured={onMeasure} show={show} base={base} tip="beside" />
+      <RunActions model={view.model} view={canvas} onMeasured={onMeasure} selections={selections} show={show} base={base}
+                  tip="beside" />
     </header>
     <div class="c-cols" ref={colsRef}>
       <FramePanel side="list" class="c-col-list" label={t("ui.view.map.panel_list")} column={fit.list}
@@ -555,9 +582,10 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
  *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
-                       sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding) {
-  const latest = useRef({sheet, covered, padding});
-  latest.current = {sheet, covered, padding};
+                       sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
+                       measured: () => Line | null, fitMeasured: (l: Line) => void) {
+  const latest = useRef({sheet, covered, padding, measured, fitMeasured});
+  latest.current = {sheet, covered, padding, measured, fitMeasured};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -588,6 +616,12 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
   };
   /** The map shows a part under the switch and above the sheet. */
   const roomy = (): boolean => { const r = room(); return r.bottom - r.top > 0; };
+  /** A line's anchors both in the room `r`. */
+  const lineInRoom = (l: Line, r: {top: number; bottom: number; width: number}): boolean => !!map &&
+    [[l.lat1, l.lon1], [l.lat2, l.lon2]].every(([lat, lon]) => {
+      const q = map.latLngToContainerPoint([lat, lon]);
+      return q.x >= 0 && q.x <= r.width && q.y >= r.top && q.y <= r.bottom;
+    });
   useEffect(() => {
     if (!map) return;
     const note = () => { if (roomy()) seen.current = inSight(); };
@@ -664,6 +698,15 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       map.off("movestart move zoomstart", onMove);
       stop.current = snap;
       const r = room(), below = ends()?.some((q) => q.y > r.bottom) ?? false;
+      // a measured line shown (its profile is the one in the sheet): it is kept in sight, not the selected line (the
+      // desktop's keepFree too; the code review of B3's catch-up, finding 1)
+      const kept = latest.current.measured();
+      if (kept) {
+        if (roomy() && !lineInRoom(kept, r)) latest.current.fitMeasured(kept);
+        if (roomy()) seen.current = inSight();
+        count();
+        return;
+      }
       if (roomy() && was && !moved && below) {
         // counted once the move ended (its moveend sets what is in sight: the effect above)
         const done = () => { ended = null; count(); };
@@ -711,7 +754,7 @@ function useNoteAfterCrossing(view: SpotView, measured: Line | null, onNote: () 
 }
 
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
-                panels, measured, onMeasured}: FrameProps) {
+                panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
   // the view opens with the sheet low (the user's decision of 2026-11-17: the map first)
   const [snap, setSnap] = useState<Snap>("peek");
@@ -746,23 +789,18 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useEscape(view, choice, closeChoice);
   // Measuring: the sheet goes low (today's page; the canvas holds the map still), the tip is the status line's first
   // line; a measured line's profile first in the sheet's body at half (today's measuredNow), the line fitted into the
-  // map above the sheet at half (a link's always, Measure's where it is not in sight)
+  // map above the sheet at half (a link's always, Measure's where it is not in sight), and kept in sight there once the
+  // sheet rests (useSheetKeeps: not the selected line while a measured one is shown)
   const [measuring, setMeasuring] = useState(false);
   useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
   const tip = useMeasureTip();
-  const fitting = useMeasuredFit(canvas, map, () => paddingAt("half"));
-  const shown = (l: Line | null, always: boolean) => {
-    onMeasured(l);
-    if (!l) return;
-    setSnap("half");
-    fitting.fit(l, always);
-  };
+  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, () => paddingAt("half"), () => setSnap("half"));
   useMeasuredDrawn(canvas, measured);
   const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
   // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
   // today's page opens (the planner, fix round 1); a link that opens its line keeps the view's low start
   const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
-  useViewLink(view, canvas, line, nav, hashOf, padding, (l) => shown(l, true), toNote);
+  useViewLink(view, canvas, line, nav, hashOf, padding, (l) => onMeasured(l, true), toNote);
   useNoteAfterCrossing(view, measured, toNote);
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
@@ -771,7 +809,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                padding);
+                padding, () => measured, (l) => canvas?.zoomToLine(l, padding()));
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
@@ -795,7 +833,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
         {/* the run's actions after the caller's, icons in the pill (today's page draws them beside it) */}
-        <RunActions model={view.model} view={canvas} onMeasured={(l) => shown(l, false)} compact plain tip="none"
+        <RunActions model={view.model} view={canvas} onMeasured={(l) => onMeasured(l, false)} selections={selections} compact plain tip="none"
                     show={phoneShow} base={base} />
       </div>
     </div>
@@ -819,14 +857,23 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
 export function SpotColumns(props: SpotColumnsProps) {
   const view = useMemo(() => createSpotView(props.model), [props.model]);
   useEffect(() => () => view.destroy(), [view]);
-  // the measured line (Measure's, or a link's: viewlink.ts), kept here across the phone's width, of this view only
-  const [measured, setMeasured] = useState<{view: SpotView; line: Line} | null>(null);
+  // the measured line (Measure's, or a link's: viewlink.ts), kept here across the phone's width, of this view only;
+  // the lines shown once (fitted, a phone's sheet raised: not again in a frame drawn anew after the crossing)
+  const [measured, setMeasured] = useState<{view: SpotView; line: Line; link: boolean} | null>(null);
   const measuredLine = measured?.view === view ? measured.line : null;
-  const onMeasured = (l: Line | null) => setMeasured(l ? {view, line: l} : null);
+  const onMeasured = (l: Line | null, link = false) => setMeasured(l ? {view, line: l, link} : null);
+  const shownOnce = useMemo(() => new WeakSet<Line>(), [view]);
+  const firstShow = () => {
+    if (!measuredLine || shownOnce.has(measuredLine)) return false;
+    shownOnce.add(measuredLine);
+    return true;
+  };
+  const selections = useNewSelections(view);
   useEffect(() => {  // for tests and the console
     const shown = (window as any).FINDALINE_VIEW;
     if (shown?.view === view) shown.measured = measuredLine;
   });
-  const frame = {...props, view, panels: props.panels ?? PANELS, measured: measuredLine, onMeasured};
+  const frame = {...props, view, panels: props.panels ?? PANELS, measured: measuredLine, onMeasured, firstShow,
+                 measuredLink: !!measured?.link, selections};
   return props.wide ? <Desktop key="wide" {...frame} /> : <Phone key="phone" {...frame} />;
 }
