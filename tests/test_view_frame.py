@@ -709,7 +709,9 @@ def test_phone_rest_fit_brings_the_ends_clear(site):
 def test_fit_due_not_left_over_a_later_move(site):
     """A phone: Measure's answer comes at the low stop (the sheet rises for it), the sheet is sent back to the low stop
     before it rests at half; the person then pans the measured line out of the map and raises the sheet to half: the
-    map stays as they left it (the fit belongs to the rest after the first show only: the second code review)."""
+    map stays as they left it, and no rest kept the measured line in sight (the fit belongs to the rest after the first
+    show only: the second code review; without the reset at the sheet's other stop the low stop's rest fitted it, the
+    third code review's test map: `data-measured-rests` counts those rests whether or not the map moved)."""
     from playwright.sync_api import sync_playwright
     centre = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
     checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
@@ -723,11 +725,15 @@ def test_fit_due_not_left_over_a_later_move(site):
             _measure_two(page, phone=True)
             page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
             page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
-            page.focus(".u-sheet-handle")
-            page.evaluate("() => RELEASE(0)")
-            page.wait_for_function("() => F.snap() === 'half'", timeout=WAIT, polling="raf")
-            rested = page.evaluate("() => F.rest()")
-            page.keyboard.press("ArrowDown")
+            # the answer, and the sheet sent back to the low stop as soon as its stop is half (in the same task as that
+            # render: no frame, so no rest of the sheet, comes between)
+            sent = page.evaluate("""() => new Promise((ok) => { const sheet = document.querySelector('.u-sheet');
+              const watch = new MutationObserver(() => { if (!sheet.classList.contains('u-half')) return; watch.disconnect();
+                const at = {rest: F.rest(), rests: Number(document.querySelector('.c-col-map').dataset.measuredRests || 0)};
+                document.querySelector('.u-sheet-handle').dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}));
+                ok(at); });
+              watch.observe(sheet, {attributes: true, attributeFilter: ['class']}); RELEASE(0); })""")
+            rested = sent["rest"] or sent["rests"] > 0
             page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
             page.wait_for_function(still, timeout=WAIT)
             page.evaluate("() => T.frames()")
@@ -741,38 +747,206 @@ def test_fit_due_not_left_over_a_later_move(site):
             page.wait_for_function(still, timeout=WAIT)
             page.evaluate("() => T.frames()")
             after = page.evaluate(centre)
+            rests = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredRests || 0)")
             assert page.errors == []
         finally:
             browser.close()
     assert rested is False, "the sheet rested at half before it was sent back: the sequence was not reached"
     assert after == moved, (moved, after)
+    assert rests == 0, f"{rests} rests kept the measured line in sight after the sheet was sent elsewhere"
 
 
-@pytest.mark.parametrize("device", [DESKTOP, SMALL_PHONE, PIXEL], ids=["desktop", "390", "412"])
-def test_fitted_measured_line_clear_of_controls(boxes_site, device):
-    """A link's measured line (always fitted) on a run with both coast boxes (the uncertain shore's, the coarser
-    terrain's): once fitted (a phone: the sheet at half and resting), both its ends lie outside every control's box
-    (the zoom, the layers button, the boxes or chips, the status line: the second design review's N1)."""
+STILL = "() => !window.FINDALINE_MAP._animatingZoom && !(window.FINDALINE_MAP._panAnim && window.FINDALINE_MAP._panAnim._inProgress)"
+LINE_LEAST = 120  # px: SpotColumns' floor of a measured line's length on the screen (the planner's rule)
+
+# The bar's padding as the frame reads it (barPadding: under the switch, above the foot; a desktop's foot stands above
+# its card, a phone's above its sheet), map container px
+BAR = r"""() => { const col = document.querySelector('.c-col-map'), box = col.getBoundingClientRect();
+  const bar = col.querySelector('.v-switch')?.getBoundingClientRect(), foot = col.querySelector('.v-foot')?.getBoundingClientRect();
+  const sheet = document.querySelector('.u-sheet'), covered = sheet ? Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top)) : 0;
+  return {top: bar && bar.height ? Math.round(bar.bottom - box.top) + 4 : 40, right: 0, left: 0,
+          bottom: foot && foot.height ? Math.max(60 + covered, Math.round(box.bottom - foot.top) + 4) : 60 + covered}; }"""
+# Each end of the measured line as a fit into the bar's room alone puts it (the frame before the second design
+# review's N1: no control counted, no endsClear): viewport px and the number of control boxes it lies in; the map put
+# back as it was
+PLAIN_FIT = r"""([pad]) => { const m = window.FINDALINE_MAP, keep = [m.getCenter(), m.getZoom()], l = window.FINDALINE_VIEW.measured;
+  window.FINDALINE_VIEW.map.zoomToLine(l, pad);
+  const ends = F.ends(l).map(([x, y]) => [Math.round(x), Math.round(y), [...document.querySelectorAll(T.CONTROLS)]
+    .map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom).length]);
+  m.setView(keep[0], keep[1], {animate: false}); return ends; }"""
+
+
+def _length(ends) -> float:
+    """The on-screen length between two ends ([x, y, ...] each)."""
+    return round(((ends[0][0] - ends[1][0]) ** 2 + (ends[0][1] - ends[1][1]) ** 2) ** 0.5, 1)
+
+
+def _centre_line(browser, site: str, dlat: float, dlon: float) -> str:
+    """A line from the centre of the run with both coast boxes (where its boxes or chips stay in view), `dlat` x `dlon`
+    degrees long: the text of a link's line."""
+    page = _open(browser, f"{site}#run={BOXES}", DESKTOP, script=FRAME)
+    c = page.evaluate("() => window.FINDALINE_VIEW.view.model.data.center")
+    page.context.close()
+    return f"{c[0]:.6f},{c[1]:.6f},{c[0] + dlat:.6f},{c[1] + dlon:.6f}"
+
+
+def _link_at_rest(browser, site: str, device: dict, line: str):
+    """The run with both coast boxes opened at a link's line (measured: the profile stubbed), fitted and, on a phone,
+    the sheet at half and resting with its check made; the page."""
+    page = _open(browser, f"{site}#run={BOXES}&line={urllib.parse.quote(line, safe='')}", device, script=FRAME + PROFILE_STUB)
+    page.wait_for_function("() => !!window.FINDALINE_VIEW && !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+    if device is not DESKTOP:
+        page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+        page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+    page.wait_for_function(STILL, timeout=WAIT)
+    page.evaluate("() => T.frames()")
+    return page
+
+
+# A link's line from the run's centre whose fit into the bar's room alone puts an end under a coast box (measured,
+# B3's probe_fix3): a flat one on the desktop (its west end under the shore's box), a north-west to south-east one on
+# 412 x 839 (its north-west end under the chips)
+FLAT, NWSE = (0.0001, 0.0016), (-0.0006, 0.0012)
+
+
+@pytest.mark.parametrize("device, shape", [(DESKTOP, FLAT), (PIXEL, NWSE)], ids=["desktop", "412"])
+def test_fitted_measured_line_clear_of_controls(boxes_site, device, shape):
+    """A link's measured line (always fitted) on the run with both coast boxes (the uncertain shore's, the coarser
+    terrain's), at the run's centre so that the boxes or chips stay in view, and shaped so that a fit into the bar's
+    room alone puts an end under one of them (checked on the page: the frame before the second design review's N1).
+    Once fitted (a phone: the sheet at half and resting) both its ends lie outside every control's box, and the line
+    is not squeezed: at least LINE_LEAST px and at least half the plain fit's length (the third code review: the fit
+    goes into the bar's room, endsClear moves it from under the controls)."""
     from playwright.sync_api import sync_playwright
-    phone = device is not DESKTOP
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            url = f"{boxes_site}#run={BOXES}&line={urllib.parse.quote(OUTSIDE, safe='')}"
-            page = _open(browser, url, device, script=FRAME + PROFILE_STUB)
-            page.wait_for_function("() => !!window.FINDALINE_VIEW && !!window.FINDALINE_VIEW.measured", timeout=WAIT)
-            if phone:
-                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
-                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
-            page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
-            page.evaluate("() => T.frames()")
+            line = _centre_line(browser, boxes_site, *shape)
+            page = _link_at_rest(browser, boxes_site, device, line)
             ends = _ends_clear(page)
-            fits = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredFits || 0)")
+            plain = page.evaluate(PLAIN_FIT, [page.evaluate(BAR)])
             assert page.errors == []
         finally:
             browser.close()
-    print("link fitted", device.get("viewport"), "rest fits", fits, "ends", ends)
+    print("link fitted", device.get("viewport"), "ends", ends, _length(ends), "px; plain fit", plain, _length(plain), "px")
+    assert any(n > 0 for _, _, n in plain), ("the plain fit puts no end under a control: the state tests nothing", plain)
     assert all(n == 0 for _, _, n in ends), ends
+    assert _length(ends) >= LINE_LEAST and _length(ends) >= _length(plain) / 2, (_length(ends), _length(plain))
+
+
+@pytest.mark.parametrize("where", ["centre", "outside"])
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_link_line_keeps_the_floor_at_rest(boxes_site, device, where):
+    """A link's measured line on the run with both coast boxes, the sheet at half and resting: at least LINE_LEAST px
+    long on the screen (the planner's floor; an end may then lie under a control, printed for the gate). At the run's
+    centre both chips stay in view (the third code review's 27 px on 390 x 664: a wide, short free strip chosen by
+    area); outside the run they are gone (its 9.2 px: the first show squeezed the line into a band predicted from the
+    low stop)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            line = _centre_line(browser, boxes_site, 0.0004, 0.0005) if where == "centre" else OUTSIDE
+            page = _link_at_rest(browser, boxes_site, device, line)
+            ends = _ends_clear(page)
+            counts = page.evaluate("() => { const d = document.querySelector('.c-col-map').dataset; return [d.measuredRests || 0, d.measuredFits || 0]; }")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("link at rest", device.get("viewport"), where, "length", _length(ends), "px; ends", ends, "rests, fits", counts)
+    assert _length(ends) >= LINE_LEAST, ends
+
+
+# The rows' ends in the viewport and the number of control boxes each lies in (T.ends: map container px)
+ROW_UNDER = r"""([row]) => { const e = T.ends(row), b = T.box();
+  return [[e[0], e[1]], [e[2], e[3]]].map(([x, y]) => [Math.round(x + b.left), Math.round(y + b.top), [...document.querySelectorAll(T.CONTROLS)]
+    .map((c) => c.getBoundingClientRect()).filter((r) => r.width && r.height && x + b.left >= r.left && x + b.left <= r.right && y + b.top >= r.top && y + b.top <= r.bottom).length]); }"""
+
+
+def test_selected_fit_clear_of_controls_card_open(boxes_site):
+    """1400 x 900, the run with both coast boxes, a line's card open: the frame's padding counts the controls over the
+    map (the third code review's finding 3: the halves are taken of the part of the map in view, above the card; with
+    the column's halves it stayed the bar's), and a line of the run opened by its link is fitted with both ends
+    outside every control's box, where a fit into the bar's room alone puts an end under one (that line found on the
+    page first, among the first 120 of the list's order)."""
+    from playwright.sync_api import sync_playwright
+    pick = r"""([pad]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, keep = [m.getCenter(), m.getZoom()];
+      const under = (row) => ROW(row).filter((e) => e[2] > 0).length;
+      let found = null;
+      for (const spot of Array.from(view.order).slice(0, 120)) { const row = view.shownOf(spot);
+        map.zoomTo(row, pad); const a = under(row); map.zoomTo(row, map.options.padding()); const b = under(row);
+        if (a > 0 && b === 0) { found = [spot, row]; break; } }
+      m.setView(keep[0], keep[1], {animate: false}); return found; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", DESKTOP, script=FRAME + f"window.ROW = (row) => ({ROW_UNDER})([row]);")
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            found = page.evaluate(pick, [page.evaluate(BAR)])
+            assert found is not None, "no line of the list whose plain fit has an end under a control"
+            spot, row = found
+            _state(page, f"view.select({spot});")
+            page.wait_for_function(f"() => new URLSearchParams(location.hash.slice(1)).get('line') && window.FINDALINE_VIEW.view.selected?.row === {row}", timeout=WAIT)
+            line = page.evaluate("() => new URLSearchParams(location.hash.slice(1)).get('line')")
+            page.context.close()
+            page = _open(browser, f"{boxes_site}#run={BOXES}&line={urllib.parse.quote(line, safe='')}", DESKTOP,
+                         script=FRAME + f"window.ROW = (row) => ({ROW_UNDER})([row]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate("""([row]) => ({selected: window.FINDALINE_VIEW.view.selected?.row ?? null, ends: ROW(row),
+              own: window.FINDALINE_VIEW.map.options.padding()})""", [row])
+            bar = page.evaluate(BAR)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("selected fit, card open: row", row, "ends", got["ends"], _length(got["ends"]), "px; padding", got["own"], "bar", bar)
+    assert got["selected"] == row, got
+    assert got["own"]["top"] > bar["top"], (got["own"], bar)
+    assert all(n == 0 for _, _, n in got["ends"]), got["ends"]
+
+
+def test_selected_fit_clear_of_controls_phone_half(site):
+    """412 x 839 at half (the view clip's run: no coast chips): the frame's padding counts the layers button under the
+    switch (the column's halves left it the bar's: the third code review), and a line chosen in the list while its
+    line is out of the map is brought back (the list's reveal, with that padding) with both ends outside every
+    control's box. Not reachable (measured, B3's probe_fix3): 390 x 664 at half, whose bar leaves 97 px (under
+    CLEAR_ROOM), either phone at half with both coast chips (76 px), and this one with a level held ("Back to Auto"
+    in the foot: 108 px); there the bar's padding stays. Here the bar's
+    padding alone also keeps the ends clear (the fit's 60 px margin): the padding's top is what fails without the fix."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, PIXEL, script=f"window.ROW = (row) => ({ROW_UNDER})([row]);")
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            # (under Auto: a level held adds "Back to Auto" to the foot, and the room left is then under CLEAR_ROOM)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            own, bar = page.evaluate("() => window.FINDALINE_VIEW.map.options.padding()"), page.evaluate(BAR)
+            layers = page.evaluate("() => { const r = F.rect('.v-map .leaflet-control-layers'), b = T.box(); return r && [r[1] - b.top, r[3] - b.top]; }")
+            _state(page, "leaflet.panBy([0, -3000], {animate: false});")  # every line out of the map
+            row = page.evaluate("() => Number(document.querySelector('.vl-list .vl-rows .vl-main').dataset.row)")
+            _tap_on(page, ".vl-list .vl-rows .vl-main >> nth=0")
+            page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.row === {row}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            ends = page.evaluate("([row]) => ROW(row)", [row])
+            room = page.evaluate("() => F.room()")
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("selected fit at half: padding", own, "bar", bar, "layers", layers, "ends", ends, _length(ends), "px; sheet", snap)
+    assert layers and own["top"] >= round(layers[1]) + 8 - 1 and own["top"] > bar["top"], (own, bar, layers)
+    assert snap == "half" and all(n == 0 for _, _, n in ends), (snap, ends)
+    assert all(room[1] <= y <= room[3] for _, y, _ in ends), (ends, room)
 
 
 def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
@@ -806,32 +980,49 @@ def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
     print("1024 x 768, the card open: covered pairs", covered, {n: opened[n] for n in names})
 
 
-def test_list_at_1024_keeps_heads_and_values_apart(site):
-    """A 1024 px desktop (the list 320 px wide): no head or value of the list's rows overlaps its neighbour in the same
-    row, in "Best in view" and in the tree (the second design review's N3: the row star's room taken from the rows'
-    gaps and edges in a narrow list)."""
+TABLET = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
+
+
+@pytest.mark.parametrize("device", [{"viewport": {"width": 1024, "height": 768}}, TABLET], ids=["mouse", "touch"])
+def test_list_at_1024_keeps_heads_and_values_apart(site, device):
+    """A 1024 px desktop (the list 320 px wide), with a mouse and with a touch screen (a tablet held sideways: the
+    star 44 px): no head or value of the list's rows overlaps its neighbour in the same row, no value is cut, and each
+    head stands over its values (its right edge on theirs, in every block of heads), in "Best in view" and in the tree,
+    sorted by length, by the highest point and by clearance (the second design review's N3: the row star's room taken
+    from the rows' gaps and edges in a narrow list; the third code review's finding 2: on a touch screen the heads
+    kept a mouse's 24 px for the star, 5 to 20 px off, and 30 values were cut)."""
     from playwright.sync_api import sync_playwright
-    read = """() => { const r = (e) => e.getBoundingClientRect(), bad = [], cut = [];
+    read = """() => { const r = (e) => e.getBoundingClientRect(), bad = [], cut = [], off = [];
       const row = (cells) => { for (let k = 1; k < cells.length; k++) { const a = r(cells[k - 1]), b = r(cells[k]);
           if (a.width && b.width && a.bottom > b.top + 0.5 && b.bottom > a.top + 0.5 && a.right > b.left + 0.5)
             bad.push([cells[k - 1].textContent.trim().slice(0, 14), cells[k].textContent.trim().slice(0, 14)]); } };
+      const own = (m) => [...m.children].filter((c) => !c.classList.contains('u-sr'));
       const heads = [...document.querySelectorAll('.c-col-list .vl-cols')], rows = [...document.querySelectorAll('.c-col-list .vl-main')];
       heads.forEach((h) => row([...h.children]));
-      rows.forEach((m) => row([...m.children].filter((c) => !c.classList.contains('u-sr'))));
+      rows.forEach((m) => row(own(m)));
       rows.forEach((m) => m.querySelectorAll('.vl-v').forEach((v) => { if (v.scrollWidth > v.clientWidth + 1) cut.push(v.textContent.trim().slice(0, 14)); }));
+      heads.forEach((h) => { const m = h.parentElement.querySelector('.vl-rows .vl-main'); if (!m) return;
+        const hc = [...h.children], mc = own(m).filter((c) => !c.classList.contains('vl-lab'));
+        for (let k = 2; k < Math.min(hc.length, mc.length); k++) { const d = Math.round(r(hc[k]).right - r(mc[k]).right); if (d) off.push([hc[k].textContent.trim(), d]); } });
       return {list: Math.round(r(document.querySelector('.c-col-list')).width), heads: heads.length, rows: rows.length,
-              tree: document.querySelectorAll('.c-col-list .vl-tree .vl-main').length, bad, cut}; }"""
+              coarse: matchMedia('(pointer: coarse)').matches, star: Math.round(r(document.querySelector('.c-col-list .vl-star')).width),
+              tree: document.querySelectorAll('.c-col-list .vl-tree .vl-main').length, bad, cut, off}; }"""
+    got = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _view(browser, site, {"viewport": {"width": 1024, "height": 768}})
-            _state(page, "view.setLevel('spots');")
-            got = page.evaluate(read)
+            page = _view(browser, site, device)
+            for sort in ("len", "hmax", "clr"):
+                _state(page, f"view.setLevel('spots'); view.setSort('{sort}');")
+                got[sort] = page.evaluate(read)
             assert page.errors == []
         finally:
             browser.close()
-    assert got["list"] <= 360 and got["heads"] >= 2 and got["rows"] > 10 and got["tree"] > 0, got
-    assert got["bad"] == [] and got["cut"] == [], got
+    touch = device is TABLET
+    for sort, g in got.items():
+        assert g["coarse"] is touch and g["star"] == (44 if touch else 24), (sort, g)
+        assert g["list"] <= 360 and g["heads"] >= 2 and g["rows"] > 10 and g["tree"] > 0, (sort, g)
+        assert g["bad"] == [] and g["cut"] == [] and g["off"] == [], (sort, g)
 
 
 def test_today_page_drops_a_late_answer(site):
