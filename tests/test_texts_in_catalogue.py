@@ -20,6 +20,7 @@ import html
 import json
 import os
 import re
+import shutil
 import sys
 
 import pytest
@@ -409,7 +410,51 @@ def test_built_keys_in_catalogue():
     assert not missing, missing
 
 
-@pytest.mark.skipif(not os.path.isdir(os.path.join(REPO, "viewer", "node_modules", "esbuild")),
+def calls_of(code: str):
+    """The t(), parts() and textParts() calls of `code` with a literal key: (their keys, the text of the arguments after
+    the first), the arguments found by their brackets (literals skipped)."""
+    for m in re.finditer(r"(?<![\w.$])(?:t|parts|textParts)\(", code):
+        depth, i, comma = 1, m.end(), None
+        while depth and i < len(code):
+            lit = LITERAL.match(code, i) if code[i] in "\"'`" else None
+            if lit:
+                i = lit.end()
+                continue
+            depth += code[i] in "([{"
+            depth -= code[i] in ")]}"
+            if code[i] == "," and depth == 1 and comma is None:
+                comma = i
+            i += 1
+        first = code[m.end():comma if comma is not None else i - 1]
+        keys = re.findall(r"""["']((?:ui|page|basic|intro|topic|hint|field)\.[\w.]+)["']""", first)
+        if keys:
+            yield keys, code[comma:i - 1] if comma is not None else ""
+
+
+def test_moved_calls_give_every_value():
+    """Every t()/parts() call of a moved file gives each value its text names ({{name}}, in every plural form): a text
+    edited later (G5) keeps its placeholders, or the call changes with it."""
+    import messages
+    texts = messages.catalogue()
+    calls = 0
+    for name in MOVED:
+        with open(os.path.join(SRC, name), encoding="utf-8") as f:
+            code = code_of(f.read())
+        for keys, rest in calls_of(code):
+            for key in keys:
+                forms = [texts[k] for k in (key, f"{key}_one", f"{key}_other", f"{key}_zero") if k in texts]
+                assert forms, (name, key)
+                calls += 1
+                for value in {v for form in forms for v in re.findall(r"\{\{-?\s*([^{}]+?)\s*\}\}", form)}:
+                    given = re.search(r"[{,]\s*" + re.escape(value) + r"\s*[:,}]", rest)
+                    if value == "count" and not given:  # parts(key, values, count)
+                        given = re.search(r"\}\s*,\s*[^,]+$", rest)
+                    assert given, f"{name}: {key} names {{{{{value}}}}}, the call does not give it: {rest[:120]}"
+    assert calls > 250, calls
+
+
+@pytest.mark.skipif(shutil.which("node") is None
+                    or not os.path.isdir(os.path.join(REPO, "viewer", "node_modules", "esbuild")),
                     reason="needs Node and `npm install` in viewer/")
 def test_parts_keeps_values_apart(tmp_path):
     """i18n.parts: the words between the values as strings, each value as given (a number stays a number, an object
@@ -425,10 +470,10 @@ console.log(JSON.stringify([
   m.parts("ui.search.centre", {lat: "50.15595", lon: "19.75627"}),
   m.parts("ui.search.stat_grid", {res: 5}),
   m.parts("ui.favourites.empty", {icon: {icon: "star"}}),
-  m.parts("ui.admin.sessions", {n: 1}, 1), m.parts("ui.admin.sessions", {n: 3}, 3),
+  m.parts("ui.result.lines", {n: 1}, 1), m.parts("ui.result.lines", {n: "1,234"}, 1234),
   m.parts("ui.osm.meta", {mb: 9, data: "2026-11-01", checked: "2026-11-19"})]));""", encoding="utf-8")
     result = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", check=True)
     assert json.loads(result.stdout) == [
         ["Centre ", "50.15595", ", ", "19.75627"], [5, " m grid"],
         ["No favourite lines yet: mark them with ", {"icon": "star"}, " in a result."],
-        [1, " session"], [3, " sessions"], [9, " MB, data of ", "2026-11-01", ", checked ", "2026-11-19"]]
+        [1, " line"], ["1,234", " lines"], [9, " MB, data of ", "2026-11-01", ", checked ", "2026-11-19"]]
