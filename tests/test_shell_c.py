@@ -2144,6 +2144,21 @@ ADMIN_ROWS_JS = """() => [...document.querySelectorAll('.c-admin-row .c-check')]
           pad: parseFloat(getComputedStyle(l).paddingTop) || 0,
           checked: l.querySelector('input').checked,
           others: [...l.parentElement.children].filter((c) => c !== l).map((c) => [c.textContent.trim(), ...box(c)])}; })"""
+# The focused element's text (a button's words)
+FOCUS_TEXT_JS = "() => document.activeElement?.textContent?.trim()"
+# Waits (at most 5 s) until the focus is on a button with these words: the focus moves in an effect after the paint
+FOCUS_ON_JS = "(words) => document.activeElement?.textContent?.trim() === words"
+
+
+def focused(page, words: str) -> str:
+    """The focused element's words once they are `words` (at most 5 s), or whatever has the focus then."""
+    try:
+        page.wait_for_function(FOCUS_ON_JS, arg=words, timeout=5000)
+    except Exception:
+        pass
+    return page.evaluate(FOCUS_TEXT_JS)[:40]
+
+
 # An icon's look as drawn: its box, its viewBox and path, and the computed fill, stroke and stroke width
 ICON_JS = """(svg) => { const s = getComputedStyle(svg), r = svg.getBoundingClientRect();
   return {w: r.width, h: r.height, viewBox: svg.getAttribute('viewBox'), d: svg.querySelector('path').getAttribute('d'),
@@ -2158,7 +2173,9 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
     under its row's buttons, and a finger's tap beside it (6 px above and under its line, the line's end) presses no
     button: no user's status or sessions change, no question opens, the page stays; a tap on its words ticks it. With
     a mouse it stays in its row. "Block…" and "Unblock…" ask first: "Keep" leaves the user as they were, the second
-    press acts. The sign-in page's "Open map" draws the arrow the kit's "next" icon draws (the Runs row's "Open")."""
+    press acts; while a question is open its row shows only its two buttons, the focus is on "Keep", and "Keep" or
+    Escape puts it back on the button that asked (a report's "Delete…" alike). The sign-in page's "Open map" draws
+    the arrow the kit's "next" icon draws (the Runs row's "Open")."""
     import socket
     import threading
 
@@ -2194,6 +2211,7 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
     jobs = Jobs(str(data))
     jobs.add_run(RUN_A, None, 1)
     jobs.set_visibility(RUN_A, "demo")
+    jobs.add_report(made["pending one"], "water", "The lake is too high.", {})
 
     def state() -> dict:  # every user's status and sessions, by id
         return {u["id"]: (u["status"], u["sessions"]) for u in users.listing()}
@@ -2278,9 +2296,23 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
                 approved.get_by_role("button", name="Block…").click()
                 r["asked"] = approved.locator(".c-user-block").text_content()
                 r["after_ask"] = state()[made["approved one"]]
+                r["ask_row"] = [approved.locator(".c-admin-tools button").all_text_contents(),
+                                approved.locator(".c-admin-tools .c-check").count(), focused(page, "Keep")]
                 approved.get_by_role("button", name="Keep").click()
                 approved.get_by_role("button", name="Block…").wait_for(timeout=30000)
                 r["after_keep"] = state()[made["approved one"]]
+                r["focus_keep"] = focused(page, "Block…")
+                approved.get_by_role("button", name="Block…").click()
+                r["focus_open"] = focused(page, "Keep")  # the question took the focus: Escape reaches it
+                page.keyboard.press("Escape")  # as "Keep"
+                approved.get_by_role("button", name="Block…").wait_for(timeout=30000)
+                r["after_escape"] = [state()[made["approved one"]], focused(page, "Block…")]
+                report = page.locator(".c-report")
+                report.get_by_role("button", name="Delete…").click()
+                r["delete_row"] = [report.locator(".c-admin-tools button").all_text_contents(), focused(page, "Keep")]
+                page.keyboard.press("Escape")
+                report.get_by_role("button", name="Delete…").wait_for(timeout=30000)
+                r["delete_escape"] = [report.count(), focused(page, "Delete…")]
                 approved.get_by_role("button", name="Block…").click()
                 approved.locator(".c-user-block").click()
                 page.wait_for_function("() => [...document.querySelectorAll('.c-admin-row')].some((row) => "
@@ -2322,6 +2354,10 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
     for row in r["desk_rows"]:  # a mouse: in the row, beside its buttons
         assert any(other[2] <= row["label"][1] + 24 and row["label"][3] >= other[2] for other in row["others"]), row
     assert r["asked"] == "Block them" and r["after_ask"] == r["after_keep"] == ("approved", 1), r
+    # while it asks the row holds only the question; the focus on "Keep", back on "Block…" after Keep or Escape
+    assert r["ask_row"] == [["Block them", "Keep"], 0, "Keep"], r
+    assert r["focus_keep"] == "Block…" and r["focus_open"] == "Keep" and r["after_escape"] == [("approved", 1), "Block…"], r
+    assert r["delete_row"] == [["Delete it", "Keep"], "Keep"] and r["delete_escape"] == [1, "Delete…"], r
     assert r["blocked"][0] == "blocked", r
     assert r["unblock_asked"] == "Unblock them" and r["unblock_keep"] == ("blocked", 0) and r["unblocked"][0] == "approved", r
     kit, card = r["kit_icon"], r["card_icon"]
@@ -2332,7 +2368,7 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
 
 
 # The phone's sheet: the head's shadow and the boxes of the head and the body
-SHEET_JS ="""() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+SHEET_JS = """() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const head = document.querySelector('.u-sheet .u-sheet-head'), body = document.querySelector('.u-sheet .u-sheet-body');
   return {shadow: getComputedStyle(head).boxShadow, head: box(head), body: box(body), top: body.scrollTop}; }"""
 # The result's profile card: every leaf of its bar and readout whose text is wider than its box, the chart's height,

@@ -3578,7 +3578,10 @@ def test_admin_and_doc_pages_css():
         assert all(part.strip().startswith(".ui .p-doc ") for part in selector.split(",")), selector
         for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", body):
             assert "var(--fs-" in font, (selector, font)
-    assert "overflow-wrap: anywhere" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+    prose_rule = next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+    assert "overflow-wrap: anywhere" in prose_rule
+    assert "max-width: 63ch" in prose_rule  # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57)
+    assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
 
 
 def _css_rules(text: str) -> list:
