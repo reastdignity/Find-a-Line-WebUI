@@ -3580,7 +3580,8 @@ def test_admin_and_doc_pages_css():
             assert "var(--fs-" in font, (selector, font)
     prose_rule = next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
     assert "overflow-wrap: anywhere" in prose_rule
-    assert "max-width: 63ch" in prose_rule  # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57)
+    # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57): the whole doc column, centred
+    assert "max-width: calc(63ch + 32px)" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-page.p-doc")
     assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
 
 

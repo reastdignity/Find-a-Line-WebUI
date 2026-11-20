@@ -61,8 +61,11 @@
    on the type scale: about's sections as the app's section titles (the display font, 20 px), privacy's facts named
    as the pilot's section heads (the display font, 16 px); a word longer than the line (an address in a link or in a
    credit's notice) breaks inside it, other words do not. The text at most about 75 characters a line (the user,
-   2026-11-20): 63ch, as a `ch` is a digit's width (measured: privacy 75 characters a line, about 67; phones narrower) */
-.ui .p-doc .p-prose { line-height: 1.55; overflow-wrap: anywhere; max-width: 63ch; }
+   2026-11-20): the whole column (logo, text, footer and its rule) 63ch wide plus the page's 16 px sides, centred as
+   the 760 px column was; a `ch` is a digit's width (measured: privacy 75 characters a line, about 67); phones keep
+   their full width */
+.ui .p-page.p-doc { max-width: calc(63ch + 32px); }
+.ui .p-doc .p-prose { line-height: 1.55; overflow-wrap: anywhere; }
 .ui .p-doc .p-prose h2 { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; margin: 12px 0 0; }
 .ui .p-doc .p-prose ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
 .ui .p-doc .p-facts dt { font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; margin-top: 16px; }
