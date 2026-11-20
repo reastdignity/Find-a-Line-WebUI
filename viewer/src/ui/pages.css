@@ -71,6 +71,9 @@
 
 .ui .p-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 8px; padding-top: 12px; border-top: 1px solid var(--rule);
   color: var(--muted); font-size: var(--fs-2); }
+/* privacy and about: the footer's links start at the text's left edge, as its logo, headings and text (the text
+   is narrower than the page since 63ch: centred links stood apart from it); the sign-in page keeps them centred */
+.ui .p-doc .p-footer { justify-content: flex-start; }
 .ui .p-footer a { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; color: var(--ink-2); }
 /* the brand's link and the line's one link under the lead ("Where the data is detailed"): controls of their own */
 .ui .p-brand a.u-logo, .ui .p-brand p > a:only-child { display: inline-flex; align-items: center; min-height: 24px; }
