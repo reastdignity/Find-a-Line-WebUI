@@ -17,6 +17,17 @@ export const t = translator(en as Texts);
 /** The label of a field of the search (field.<name>.label). */
 export const label = (field: string): string => t(`field.${field}.label`);
 
+/** A text of the catalogue drawn with its values as parts of their own, in the text's order: the words between the
+ *  values as strings, each value (a string, a number, or an element such as a link or an icon) as given; `count`
+ *  picks a plural form. For a sentence with an element inside, and where a value stood as a text node of its own
+ *  before the text moved into the catalogue (a browser places a line's glyphs by its text nodes, so the same words
+ *  in other nodes can differ by a pixel's shade). */
+export function parts<V>(key: string, values: Record<string, V>, count?: number): (string | V)[] {
+  const marks = Object.fromEntries(Object.keys(values).map((name) => [name, `\u0000${name}\u0000`]));
+  return t(key, count === undefined ? marks : {...marks, count}).split("\u0000")
+    .map((piece, i) => i % 2 ? values[piece] : piece).filter((piece) => piece !== "");
+}
+
 /** The parameters of a coded error or note (messages.py UserError, Note): {code, params}, and `key`: the
  *  catalogue key of the reading the server chose where it is not the code's own "error.<code>" (the public site's
  *  wording of a note: "error.access_skipped_public", with the params that reading takes). */

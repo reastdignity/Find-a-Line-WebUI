@@ -4,6 +4,7 @@
 
 import type { ButtonHTMLAttributes, ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { t } from "../i18n";
 import { Hint } from "./Hint";
 import { Icon, type IconName } from "./icons";
 import "./ui.css";
@@ -75,7 +76,7 @@ export function IconButton({icon, label, on, expanded, plain, round, fav, class:
 
 /** A chip: a toggle (`on`), a removable value (`onRemove`) or a dashed "add" button (`add`); `expanded`:
  *  its click opens a panel (aria-expanded instead of aria-pressed). */
-export function Chip({on, add, icon, onClick, onRemove, removeLabel = "Remove", expanded, children}:
+export function Chip({on, add, icon, onClick, onRemove, removeLabel = t("ui.common.remove"), expanded, children}:
                      {on?: boolean; add?: boolean; icon?: IconName; onClick?: () => void; onRemove?: () => void;
                       removeLabel?: string; expanded?: boolean; children?: ComponentChildren}) {
   const className = cx("u-chip", on && "u-on", add && "u-add");
@@ -159,10 +160,10 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
                            onInput: (low: number, high: number) => void; label?: string}) {
   return <div class="u-range2">
     <i style={{left: fill(low, min, max), width: `calc(${fill(high, min, max)} - ${fill(low, min, max)})`}} />
-    <input type="range" class="u-range" aria-label={`${label} minimum`.trim()} min={min} max={max} step={step} value={low}
+    <input type="range" class="u-range" aria-label={t("ui.kit.minimum", {label}).trim()} min={min} max={max} step={step} value={low}
            onInput={(e) => { const v = Math.min(Number(e.currentTarget.value), high); e.currentTarget.value = String(v);
                              onInput(v, high); }} />
-    <input type="range" class="u-range" aria-label={`${label} maximum`.trim()} min={min} max={max} step={step} value={high}
+    <input type="range" class="u-range" aria-label={t("ui.kit.maximum", {label}).trim()} min={min} max={max} step={step} value={high}
            onInput={(e) => { const v = Math.max(Number(e.currentTarget.value), low); e.currentTarget.value = String(v);
                              onInput(low, v); }} />
   </div>;
@@ -171,16 +172,16 @@ export function RangePair({low, high, min, max, step = 1, onInput, label = ""}:
 // ---- status ----------------------------------------------------------------------------------
 
 export type Status = "running" | "done" | "waiting" | "failed" | "cancelled" | "shared";
-// cancelled: the user's own act, not a failure: quiet (the grey of waiting), the cancel action's icon
-const STATUS: Record<Status, [string, IconName]> = {
-  running: ["Running", "refresh"], done: ["Done", "check"], waiting: ["Waiting", "clock"], failed: ["Failed", "warn"],
-  cancelled: ["Cancelled", "close"], shared: ["Shared", "link"],
+// cancelled: the user's own act, not a failure: quiet (the grey of waiting), the cancel action's icon. The words:
+// ui.kit.status.<status>
+const STATUS: Record<Status, IconName> = {
+  running: "refresh", done: "check", waiting: "clock", failed: "warn", cancelled: "close", shared: "link",
 };
 
 /** The state of a search or run as a small coloured label. */
 export function StatusChip({status, children}: {status: Status; children?: ComponentChildren}) {
-  const [text, icon] = STATUS[status];
-  return <span class={`u-st u-${status}`}><Icon name={icon} /><span class="u-st-word">{children ?? text}</span></span>;
+  return <span class={`u-st u-${status}`}><Icon name={STATUS[status]} />
+    <span class="u-st-word">{children ?? t(`ui.kit.status.${status}`)}</span></span>;
 }
 
 /** A progress bar: `value` from 0 to 1, or null while the amount is unknown. */
@@ -208,7 +209,7 @@ export interface NavItem<T extends string> { value: T; label: string; icon: Icon
 /** The navigation on phones, at the bottom of the screen. */
 export function BottomNav<T extends string>({items, value, onChange}:
                                             {items: NavItem<T>[]; value: T | null; onChange: (value: T) => void}) {
-  return <nav class="u-bnav" aria-label="Main">
+  return <nav class="u-bnav" aria-label={t("ui.kit.nav")}>
     {items.map((it) => <button type="button" key={it.value} class={cx("u-bnav-item", it.value === value && "u-on")}
                                aria-current={it.value === value ? "page" : undefined} onClick={() => onChange(it.value)}>
       <Icon name={it.icon} />{it.label}
@@ -287,7 +288,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
   return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging", scrolled && "u-scrolled")}
                   aria-label={label}
                   style={box ? {height: `${height}px`} : undefined}>
-    <button type="button" class="u-sheet-handle" aria-label={`${label}: ${current}; drag or press to resize`}
+    <button type="button" class="u-sheet-handle" aria-label={t("ui.kit.sheet_handle", {label, state: current})}
             aria-expanded={current !== "peek"}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
             onKeyDown={(e) => {
