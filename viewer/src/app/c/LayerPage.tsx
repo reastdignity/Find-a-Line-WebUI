@@ -527,7 +527,10 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const otherTotal = hist?.totals ? (mode === "lines" ? hist.totals.spots : hist.totals.lines) : null;
   const split = histStatus === "ready" && hist?.border ? hist.border : null;
 
-  const right = <LayerHistograms cube={cube0} state={state} hist={hist} status={histStatus} error={histError}
+  /** A filter the cubes in view cannot answer (no surface model; counted without the no-fall zone and the A-frames):
+   *  its select is disabled and its chart's bars cannot be picked. */
+  const filterOff = (d: string) => (d === "clearance_trees" && !dsm) || ((d === "lift_needed" || d === "lift_no_zone") && !lifts);
+  const right = <LayerHistograms cube={cube0} state={state} hist={hist} status={histStatus} error={histError} off={filterOff}
                                  countries={inView.length} ctx={ctx} open={open} wide={wide} border={border === "all"}
                                  onLength={onLength} onLimit={onLimit} onOpen={setOpen} />;
   // The right panel: its own tree rendered into MapPage's right panel after each render (no portal: preact/compat
@@ -544,8 +547,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       : kind === "below" ? [["", any || t("ui.layer.any")], ...limitEdges(cube0, d).map((v) => [String(v), `< ${withUnit(v)}`] as [string, string])]
       : [["", any || t("ui.layer.any")], ...e.map((v) => [String(v), v === 0 ? t("ui.layer.none_needed") : `≤ ${withUnit(v)}`] as [string, string])];
     const shownValue = kind === "floor" ? String(value ?? e[0]) : value === null || !limitOn(cube0, d, value) ? "" : String(value);
-    const disabled = (d === "clearance_trees" && !dsm) || ((d === "lift_needed" || d === "lift_no_zone") && !lifts);
-    return <NumberSelect id={`layer-${d}`} label={label} value={shownValue} options={options} disabled={disabled}
+    return <NumberSelect id={`layer-${d}`} label={label} value={shownValue} options={options} disabled={filterOff(d)}
                          onChange={(v) => onLimit(d, v === "" ? null : +v)} />;
   };
   const WIDE = new Set(["lift_needed", "lift_no_zone", "clearance_trees", "high_pct", "height_diff", "elevation"]);

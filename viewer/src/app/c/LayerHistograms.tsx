@@ -141,10 +141,10 @@ const axisEdge = (v: number) => v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : Strin
 const isOpen = (open: string | null, dimension: string) =>
   !!open && (open === dimension || (open === "elevation" && dimension.startsWith("elevation_")));
 
-export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, onLength, onLimit, onOpen}:
+export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, off, onLength, onLimit, onOpen}:
                                 {cube: CountryCube; state: LayerState; hist: SummedHistogram | null;
                                  status: "waiting" | "ready" | "error"; error: string; countries: number; ctx: DimensionContext;
-                                 open: string | null; wide: boolean; border: boolean;
+                                 open: string | null; wide: boolean; border: boolean; off(dimension: string): boolean;
                                  onLength(lo: number, hi: number, extend: boolean): void;
                                  onLimit(dimension: string, value: number | null): void; onOpen(dimension: string | null): void}) {
   const edges = cube.edges;
@@ -179,7 +179,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
           : `${e[k - 1]}–${u(e[k])}`;
       }
       if (unknown) title = t("ui.layer.hist.unknown");
-      return {value: count, pressed, pickable: !unknown, title: `${title}: ${n(count)}`};
+      return {value: count, pressed, pickable: !unknown && !off(d), title: `${title}: ${n(count)}`};
     });
   };
   const axisOf = (d: string): string[] => {
