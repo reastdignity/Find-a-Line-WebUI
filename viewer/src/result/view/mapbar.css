@@ -106,13 +106,20 @@
 @media (pointer: coarse) { .ui .v-result .v-map .v-info { width: 44px; height: 44px; } }
 /* its help: on a desktop both texts in a box under the switch, above the map's other controls (an opened layers list
    lies there too); on a phone its parts in the panel above the foot (.v-over), one open at a time, the others a row */
-.ui .v-about { font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); display: flex; flex-direction: column; gap: 8px; }
+.ui .v-about { font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 8px 8px 12px; }
+.ui .v-about-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .ui .v-about p { margin: 0; }
 .ui .v-about b { color: var(--ink); font-weight: 600; }
+/* its close (the mock-up's ×): 24 px on a desktop, a finger's 44 px on a touch screen */
+.ui .v-result .v-about .v-about-x { width: 24px; height: 24px; flex: none; color: var(--ink-2); }
+.ui .v-result .v-about .v-about-x .u-ic { width: 16px; height: 16px; }
+@media (pointer: coarse) { .ui .v-result .v-about .v-about-x { width: 44px; height: 44px; } }
 .ui .v-map > .v-about-all { position: absolute; z-index: 1100; top: 56px; left: 50%; transform: translateX(-50%);
   width: min(340px, calc(100% - 16px)); max-height: calc(100% - 72px); }
 @media (pointer: coarse) { .ui .v-map > .v-about-all { top: 68px; } }
-.ui .v-about-parts { gap: 0; padding-block: 0; }
+.ui .v-about-parts { padding-block: 0; }
+.ui .v-about-parts .v-about-txt { gap: 0; }
 .ui .v-part { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0; border: 0;
   border-top: 1px solid var(--rule); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .ui .v-part:first-child { border-top: 0; }

@@ -425,6 +425,13 @@ def test_maps_help_desktop(site):
             page.keyboard.press("Escape")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
             assert _state(page)["selected"] is not None
+            # its close (the mock-up's ×, "Close"): the box goes, the focus back on the "i"
+            page.click(".v-info")
+            page.wait_for_selector(".v-about", timeout=WAIT)
+            assert page.evaluate("() => document.querySelector('.v-about .v-about-x').getAttribute('aria-label')") == WORDS["ui.view.map.help_close"]
+            page.click(".v-about .v-about-x")
+            page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
+            assert page.evaluate("() => document.activeElement === document.querySelector('.v-info')")
             assert page.errors == []
         finally:
             browser.close()
@@ -432,9 +439,10 @@ def test_maps_help_desktop(site):
 
 def test_maps_help_phone(site):
     """A phone: the foot's "i" is the map's (7 b), "About the map": its panel's parts "Auto, Area, Spots, Lines",
-    "Best" and "Anchors", one open at a time, opening on "Anchors" (the access key, the button's meaning before); Best's
-    part at Area says why Best is off. A run without the mark: two parts, opening on the first (the planner's choice).
-    The desktop's "i" is not drawn."""
+    "Best" and "Anchors", one always open (the open part's head pressed keeps it; another's opens that one: the
+    mock-up's), opening on "Anchors" (the access key, the button's meaning before); Best's part at Area says why Best
+    is off; its × closes it. A run without the mark: two parts, opening on the first (the planner's choice). The
+    desktop's "i" is not drawn."""
     from playwright.sync_api import sync_playwright
     parts = """() => [...document.querySelectorAll('.v-about .v-part')].map((b) => [b.dataset.part, b.getAttribute('aria-expanded'),
         b.nextElementSibling?.classList.contains('v-part-text') ? b.nextElementSibling.textContent : null])"""
@@ -453,12 +461,20 @@ def test_maps_help_phone(site):
             _tap_on(page, ".v-part[data-part='levels']")
             got = page.evaluate(parts)
             assert [e for _, e, _ in got] == ["true", "false", "false"] and got[0][2] == WORDS["ui.view.map.levels_help"], got
+            _tap_on(page, ".v-part[data-part='levels']")  # the open part's head pressed: it stays open (one always is)
+            assert [e for _, e, _ in page.evaluate(parts)] == ["true", "false", "false"]
             _state(page, "view.setLevel('area');")
             _tap_on(page, ".v-part[data-part='best']")
             got = page.evaluate(parts)
             assert [e for _, e, _ in got] == ["false", "true", "false"], got
             assert got[1][2] == f"{WORDS['ui.view.map.best_help']}. {WORDS['ui.view.map.best_area']}", got
             _tap_on(page, ".v-help-button .v-info")
+            page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
+            # its close (the mock-up's ×): 44 px on a touch screen
+            _tap_on(page, ".v-help-button .v-info")
+            page.wait_for_selector(".v-over > .v-about", timeout=WAIT)
+            assert page.evaluate("() => { const r = document.querySelector('.v-about .v-about-x').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }") == [44, 44]
+            _tap_on(page, ".v-about .v-about-x")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
             page.context.close()
             page = _view(browser, site, SMALL_PHONE, run=PLAIN)

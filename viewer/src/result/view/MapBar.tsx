@@ -23,7 +23,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { AccessKey, AccessMark, ACCESS_STATES, accessWord, useAccessHelp } from "../../access";
 import { t } from "../../i18n";
 import { COLORS } from "../../style";
-import type { Snap } from "../../ui/components";
+import { IconButton, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import type { Legend, ShapeKind, SpotMap } from "../SpotMap";
 import type { Best, SpotView } from "../spots";
@@ -172,10 +172,10 @@ const GAP = 8;  // px between the foot's boxes (R7)
 
 type Part = "levels" | "best" | "anchors";
 
-/** The map's one "i" and its help (the user's 7 b): the part open ("none": the panel with every part folded; a desktop
- *  shows every text whatever the part), or null: closed. Esc closes it (before the frame's own order of Esc). */
-function useMapHelp(): [Part | "none" | null, (open: Part | "none" | null) => void] {
-  const [open, setOpen] = useState<Part | "none" | null>(null);
+/** The map's one "i" and its help (the user's 7 b): the part open (a desktop shows every text whatever the part), or
+ *  null: closed. Esc closes it (before the frame's own order of Esc). */
+function useMapHelp(): [Part | null, (open: Part | null) => void] {
+  const [open, setOpen] = useState<Part | null>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -194,25 +194,38 @@ function bestText(area: boolean): string {
   return `${t("ui.view.map.best_help")}.${area ? " " + t("ui.view.map.best_area") : ""}`;
 }
 
+/** The help's close (the mock-up's ×): the panel also closes by its own "i" and by Esc. */
+function HelpClose({onClose}: {onClose(): void}) {
+  return <IconButton icon="close" label={t("ui.view.map.help_close")} plain class="v-about-x" onClick={onClose} />;
+}
+
 /** The map's help as a desktop shows it: both texts, under the switch. */
-function HelpAll({area}: {area: boolean}) {
+function HelpAll({area, onClose}: {area: boolean; onClose(): void}) {
   return <div class="v-help v-about v-about-all" id="v-about" role="note" data-map-control>
-    <p><b>{t("ui.view.map.help_levels")}.</b> {t("ui.view.map.levels_help")}</p>
-    <p><b>{t("ui.view.map.help_best")}.</b> {bestText(area)}</p>
+    <div class="v-about-txt">
+      <p><b>{t("ui.view.map.help_levels")}.</b> {t("ui.view.map.levels_help")}</p>
+      <p><b>{t("ui.view.map.help_best")}.</b> {bestText(area)}</p>
+    </div>
+    <HelpClose onClose={onClose} />
   </div>;
 }
 
-/** The map's help as a phone shows it: its parts, one open at a time (`open`), the others folded to a row. */
-function HelpParts({open, onPart, area, access}: {open: Part | null; onPart(part: Part | null): void; area: boolean; access: boolean}) {
+/** The map's help as a phone shows it: its parts, one always open (`open`; a press on another opens that one and
+ *  folds the first: the mock-up's), the others folded to a row. */
+function HelpParts({open, onPart, onClose, area, access}: {open: Part; onPart(part: Part): void; onClose(): void; area: boolean;
+                                                           access: boolean}) {
   const part = (id: Part, title: string, text: ComponentChildren) => <>
-    <button type="button" class="v-part" data-part={id} aria-expanded={open === id} onClick={() => onPart(open === id ? null : id)}>
+    <button type="button" class="v-part" data-part={id} aria-expanded={open === id} onClick={() => onPart(id)}>
       <Icon name={open === id ? "down" : "next"} /><b>{title}</b></button>
     {open === id && <div class="v-part-text">{text}</div>}
   </>;
   return <div class="v-help v-about v-about-parts" id="v-about" role="group" aria-label={t("ui.view.map.about")} data-map-control>
-    {part("levels", t("ui.view.map.help_levels"), <p>{t("ui.view.map.levels_help")}</p>)}
-    {part("best", t("ui.view.map.help_best"), <p>{bestText(area)}</p>)}
-    {access && part("anchors", t("ui.access.legend"), <AccessKey />)}
+    <div class="v-about-txt">
+      {part("levels", t("ui.view.map.help_levels"), <p>{t("ui.view.map.levels_help")}</p>)}
+      {part("best", t("ui.view.map.help_best"), <p>{bestText(area)}</p>)}
+      {access && part("anchors", t("ui.access.legend"), <AccessKey />)}
+    </div>
+    <HelpClose onClose={onClose} />
   </div>;
 }
 
@@ -222,6 +235,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   const [, setTick] = useState(0);
   useEffect(() => map?.subscribe(() => setTick((n) => n + 1)), [map]);
   const [about, setAbout] = useMapHelp();
+  const aboutRef = useRef<HTMLButtonElement>(null);
   // A phone's legend (the user's decision of 2026-11-17): by itself it is unfolded while the sheet is low and folded
   // while the sheet is at half or higher, and folded too while, unfolded, it would reach the map's own controls at
   // the top (the zoom buttons, the shore's chip, the switch). A person's fold or unfold (`choice`) holds until the
@@ -366,10 +380,12 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   // the map's one "i" (the user's 7 b): a desktop's at the switch's end, a phone's in the foot's row; a phone's opens
   // on the access key where the run has the mark
   const aboutButton = <button type="button" class={cx("u-ib u-plain v-info", about && "u-on")} aria-label={t("ui.view.map.about")}
-                              title={t("ui.view.map.about")} aria-expanded={!!about} aria-controls="v-about"
+                              title={t("ui.view.map.about")} aria-expanded={!!about} aria-controls="v-about" ref={aboutRef}
                               onClick={() => setAbout(about ? null : wide || !access ? "levels" : "anchors")}><Icon name="info" /></button>;
-  const aboutBox = about && (wide ? <HelpAll area={area} />
-    : <HelpParts open={about === "none" ? null : about} area={area} access={access} onPart={(part) => setAbout(part ?? "none")} />);
+  /** The help's × closes it; the focus goes back to its "i". */
+  const closeAbout = () => { setAbout(null); aboutRef.current?.focus({preventScroll: true}); };
+  const aboutBox = about && (wide ? <HelpAll area={area} onClose={closeAbout} />
+    : <HelpParts open={about === "anchors" && !access ? "levels" : about} area={area} access={access} onPart={setAbout} onClose={closeAbout} />);
   // the status line; on a phone the measuring tip or the map's message is its first line while it lasts (one box for
   // the map's words)
   const statusBox = <div class={cx("v-status", status.refused && "v-refused")} role="status" data-map-control>
