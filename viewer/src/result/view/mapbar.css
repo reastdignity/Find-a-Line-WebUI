@@ -64,8 +64,9 @@
 .ui .v-lay-1 { background: var(--layer-1); } .ui .v-lay-2 { background: var(--layer-2); } .ui .v-lay-3 { background: var(--layer-3); }
 .ui .v-lay-4 { background: var(--layer-4); } .ui .v-lay-5 { background: var(--layer-5); }
 .ui .v-lg-note { flex-basis: 100%; color: var(--muted); }
-/* a label and its items kept on one row of a wrapping legend ("Anchors" and the access marks), the legend's own gap */
-.ui .v-lg-group { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px 16px; max-width: 100%; }
+/* a label and its items kept on one row of a wrapping legend ("Anchors" and the access marks), the legend's own gap:
+   the group moves to a row of its own as one item; only a legend narrower than the group wraps inside it */
+.ui .v-lg-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; max-width: 100%; }
 .ui .v-by { font-weight: 600; max-width: 100%; }
 /* the marks of the map 1:1 (40 x 24 px, their text at 12 px: R1): the map's own paper and ink in both themes */
 .ui .v-sh { width: 40px; height: 24px; flex: none; }
@@ -150,6 +151,11 @@
 /* The run's actions in a phone's pill (icons, after the caller's): plain, as the pill's other buttons */
 .ui .v-result .c-pill .r-actions { flex-wrap: nowrap; gap: 4px; }
 .ui .v-result .c-pill .r-actions .u-ib { box-shadow: none; }
+/* their menus (Share, Download) open under the whole pill, as wide as it: under the button they ran off a 390 px
+   screen's left edge (fix round 1's pictures) */
+.ui .v-result .c-pill { position: relative; }
+.ui .v-result .c-pill .r-actions .r-popwrap { position: static; }
+.ui .v-result .c-pill .r-actions .r-pop { left: 0; right: 0; width: auto; }
 
 /* the map's message on a desktop: a dark box at the top, under the switch (a phone: in the status line's box) */
 .ui .v-map > .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);

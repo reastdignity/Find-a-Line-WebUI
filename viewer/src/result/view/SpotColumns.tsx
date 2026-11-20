@@ -583,9 +583,9 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
-                       measured: () => Line | null, fitMeasured: (l: Line) => void) {
-  const latest = useRef({sheet, covered, padding, measured, fitMeasured});
-  latest.current = {sheet, covered, padding, measured, fitMeasured};
+                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
+  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue});
+  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -698,11 +698,13 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       map.off("movestart move zoomstart", onMove);
       stop.current = snap;
       const r = room(), below = ends()?.some((q) => q.y > r.bottom) ?? false;
-      // a measured line shown (its profile is the one in the sheet): it is kept in sight, not the selected line (the
-      // desktop's keepFree too; the code review of B3's catch-up, finding 1)
+      // a measured line shown (its profile is the one in the sheet): it, not the selected line, is kept in sight (the
+      // desktop's keepFree too; the code review of B3's catch-up, finding 1): fitted at the rest that follows its
+      // first show only (`fitDue`), and not over a move of the person's meanwhile; later stops leave the map as they
+      // left it
       const kept = latest.current.measured();
       if (kept) {
-        if (roomy() && !lineInRoom(kept, r)) latest.current.fitMeasured(kept);
+        if (latest.current.fitDue() && !moved && roomy() && !lineInRoom(kept, r)) latest.current.fitMeasured(kept);
         if (roomy()) seen.current = inSight();
         count();
         return;
@@ -794,7 +796,9 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   const [measuring, setMeasuring] = useState(false);
   useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
   const tip = useMeasureTip();
-  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, () => paddingAt("half"), () => setSnap("half"));
+  const fitDue = useRef(false);  // a measured line just shown: kept in sight at the rest of the sheet's rise (only)
+  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, () => paddingAt("half"),
+                   () => { fitDue.current = snap !== "half"; setSnap("half"); });  // (already at half: no rest follows)
   useMeasuredDrawn(canvas, measured);
   const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
   // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
@@ -809,7 +813,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                padding, () => measured, (l) => canvas?.zoomToLine(l, padding()));
+                padding, () => measured, (l) => canvas?.zoomToLine(l, padding()),
+                () => { const due = fitDue.current; fitDue.current = false; return due; });
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
