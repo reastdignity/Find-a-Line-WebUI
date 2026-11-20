@@ -362,6 +362,9 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   const help = useAccessHelp(undefined, true);
   const legend = map?.legend(), access = view.model.hasAccess;
   const shown = legend && map && !folded;  // (the columns' legend folds only in the phone's arrangement: `compact`)
+  // the legend unfolded or folded (a press on "Legend", the card's short foot): the canvas places its numbers clear of
+  // it at once, not at the frame's next rest (no number under the legend meanwhile)
+  useLayoutEffect(() => { map?.refresh(); }, [map, !!shown]);
   const legendBox = shown && <div class={cx("v-legend", !wide && "v-legend-phone")} id="v-legend" role="group" aria-label={t("ui.view.map.legend")} data-map-control
                                   style={compact && !asPanel && room < natural.current
                                     ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`, ...(wide ? {overflowY: "auto"} : {})} : undefined}>
