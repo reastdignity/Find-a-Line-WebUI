@@ -194,8 +194,11 @@
 .ui .vl-fan .vl-cols > span { white-space: normal; text-align: right; }
 .ui .vl-fan .vl-cols > span:first-child { text-align: left; }
 .ui .vl-fan .vl-rows { padding: 0; }
-/* a line over trees or buildings: the list's words under the first value (the fan's rows have no swatch column) */
+/* a line over trees or buildings: the list's words under the first value (the fan's rows have no swatch column), and
+   the list's 4 px above and below its two lines (`.vl-over > .vl-main`), which the rows' `padding: 0 4px` takes away:
+   the words nearer their own values than the next row's, clear of the keyboard's ring inside the row */
 .ui .vl-fan .vl-over-words { grid-column: 2 / -1; }
+.ui .vl-fan .vl-over > .vl-main { padding-block: 4px; }
 @media (pointer: coarse) { .ui .vl-fan-sort .u-seg button { min-height: 44px; } }
 
 /* ---- the table of spots under a press (raised, over the map) ---- */
@@ -207,6 +210,8 @@
 .ui .vl-choose-title { display: flex; align-items: center; margin: 0; padding: 0 0 4px 4px; color: var(--ink-2); }
 .ui .vl-choose .vl-main, .ui .vl-choose .vl-cols { grid-template-columns: 40px 12px repeat(3, minmax(0, 1fr)); padding: 0 4px; border-left: 0; }
 .ui .vl-choose .vl-main { border-radius: var(--r-1); }
+/* a line over trees or buildings: the list's 4 px above and below its two lines, as in the fan */
+.ui .vl-choose .vl-over > .vl-main { padding-block: 4px; }
 .ui .vl-choose .vl-cols { margin: 0; }
 .ui .vl-choose .vl-rows { padding: 0; }
 
