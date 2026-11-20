@@ -638,7 +638,7 @@ What still shows English from the code:
   "Cancelled" `ui.card.cancelled` and `ui.kit.status.cancelled`): a key for each sense, the older ones named for
   their component.
 - **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
-  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 335 keys.
+  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 336 keys.
 - **Text nodes and pixels**: Chromium places a line's glyphs by its text nodes, so the same words in other nodes can
   differ by a shade (seen on the search's "Centre …" line and the mini maps' credit). `i18n.parts` keeps a text's
   values as nodes of their own where they were; the pictures of `tools/ui_shots.py`'s states are pixel-identical to
