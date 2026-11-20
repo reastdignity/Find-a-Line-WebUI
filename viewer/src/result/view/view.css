@@ -263,6 +263,8 @@
 /* in a row of two lines the star's icon stands on the values' line: a pick's second, a line over trees' first */
 .ui .vl-pick > .vl-star { align-self: end; align-items: flex-end; padding-bottom: 4px; }
 .ui .vl-over > .vl-star { align-self: start; align-items: flex-start; padding-top: 4px; }
+/* a pick over trees has three lines (its name, the values, the words): the values' line is the middle one */
+.ui .vl-pick.vl-over > .vl-star { align-self: center; align-items: center; padding: 0; }
 /* a favourite's dash wears the map's gold halo */
 .ui .vl-sw.vl-sw-fav { box-shadow: 0 0 0 3px var(--fav); }
 .ui .vl-list .vl-rows.vl-starred { padding-right: 0; }
