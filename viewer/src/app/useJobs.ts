@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { api, subscribe, type Job, type JobEvent } from "./api";
 import { beingSaved, FINISHED } from "./jobStatus";
+import { t } from "../i18n";
 
 export interface Bar {
   bar: string;
@@ -23,11 +24,6 @@ export interface JobView extends Job {
   bars: Record<string, Bar>;   // "Download", "Compute"
   log: JobEvent[];             // messages seen since the page was opened
 }
-
-/** The status of a job in words. */
-export const STATUS: Record<Job["status"], string> = {
-  queued: "waiting", downloading: "downloading data", ready: "data ready, waiting to compute",
-  computing: "computing", done: "done", failed: "failed", cancelled: "cancelled"};
 
 export { beingSaved };
 const LOG_KEEP = 500;  // messages kept per job
@@ -159,5 +155,6 @@ export function jobProgress(job: JobView): JobProgress {
       fraction = Math.min(1, ((t - 1) + (n - 1 + share(job.bars.Compute)) / steps) / tiles);
     }
   } else if (job.status === "ready") fraction = 0;
-  return {state, label: STATUS[job.status], step: finished ? "" : job.step, fraction, finished};
+  // the status of the job in words: ui.jobs.<status>
+  return {state, label: t(`ui.jobs.${job.status}`), step: finished ? "" : job.step, fraction, finished};
 }
