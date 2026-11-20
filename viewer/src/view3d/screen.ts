@@ -51,9 +51,10 @@ export function targetInside(scene: SceneCore, element: HTMLElement, at: {x: num
   element.style.setProperty("--v3-ty", `${targetShift(at.y, canvas.clientHeight).toFixed(1)}px`);
 }
 
-/** Of the shown marks `among` (fan dots, other lines' labels), the one whose centre lies nearest to the press at
+/** Of the shown marks `among` (fan dots, other lines' labels), the one whose centre lies nearest to the point
  *  (clientX, clientY), else null: a mark's target is larger than the mark (24 px, 44 px on a touch screen:
- *  view3d.css) and two may overlap, where the nearer mark's centre wins, not the order they are drawn in. */
+ *  view3d.css) and two may overlap, where the nearer mark's centre wins, not the order they are drawn in
+ *  (pressedMark: for a press on no mark's drawn box). */
 export function nearestMark<T extends HTMLElement>(among: Iterable<T>, clientX: number, clientY: number): T | null {
   let best: T | null = null, bestDistance = Infinity;
   for (const mark of among) {
@@ -66,10 +67,28 @@ export function nearestMark<T extends HTMLElement>(among: Iterable<T>, clientX: 
   return best;
 }
 
-/** The mark a click goes to: the nearest's (nearestMark) for a press of a pointer, the clicked one itself for a
- *  click without a place (a key, a script's click: `detail` 0). */
+/** Whether the point lies on the mark's own drawn box (not only on its larger, invisible target). */
+function onDrawnBox(mark: HTMLElement, clientX: number, clientY: number): boolean {
+  if (mark.classList.contains("v3-hidden") || mark.closest(".v3-hidden")) return false;
+  const r = mark.getBoundingClientRect();
+  return (r.width > 0 || r.height > 0) && clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+}
+
+/** The mark a click on `clicked` goes to. A press on a mark's own drawn box goes to that mark: the clicked one when
+ *  the press is on its box, else the mark whose drawn box lies under the press (another mark's invisible target may
+ *  lie over it and take the click); the nearest centre if several drawn boxes hold it. Only a press on no drawn box
+ *  is decided by the centres alone: the nearest (nearestMark) of the marks whose targets hold the press (the
+ *  elements at that point: a target's press reports its mark). With a mouse the targets are smaller (24 px, none
+ *  for a label) and the same order holds. A click without a place (a key, a script's click: `detail` 0) stays with
+ *  the clicked mark. */
 export function pressedMark<T extends HTMLElement>(clicked: T, among: Iterable<T>, e: MouseEvent): T {
-  return e.detail > 0 ? nearestMark(among, e.clientX, e.clientY) ?? clicked : clicked;
+  if (!(e.detail > 0)) return clicked;
+  const x = e.clientX, y = e.clientY, marks = [...among];
+  if (onDrawnBox(clicked, x, y)) return clicked;
+  const drawn = marks.filter((m) => onDrawnBox(m, x, y));
+  if (drawn.length) return nearestMark(drawn, x, y) ?? clicked;
+  const under = new Set<Element>(typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : []);
+  return nearestMark(marks.filter((m) => m === clicked || under.has(m)), x, y) ?? clicked;
 }
 
 const raycaster = new Raycaster();

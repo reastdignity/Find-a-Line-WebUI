@@ -11,8 +11,9 @@
 .v3-opt-dot::before { content: ""; position: absolute; left: 4px; top: 4px; width: 10px; height: 10px;
                       box-sizing: border-box; border-radius: 50%; background: var(--clear); border: 2px solid #ffffff;
                       box-shadow: 0 0 0 1px rgb(0 0 0 / .55); }
-/* its target (row 43): 24 px with a mouse, 44 px on a touch screen, invisible and centred on the dot; where two
-   overlap, the dot whose centre is nearer to the press takes it (fan.ts) */
+/* its target (row 43): 24 px with a mouse, 44 px on a touch screen, invisible and centred on the dot; a press on a
+   dot's drawn box is that dot's, and where only targets overlap the dot whose centre is nearer to the press takes it
+   (fan.ts, screen.ts pressedMark) */
 .v3-opt-dot::after { content: ""; position: absolute; inset: -3px; }
 /* on a touch screen the target of a dot near the stage's edge is moved inside by --v3-tx/--v3-ty (fan.ts, screen.ts
    targetInside), so the whole 44 px can be pressed: a dot 19 px from a phone's right edge had 41.4 px of it */

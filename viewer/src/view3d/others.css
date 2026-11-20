@@ -1,7 +1,8 @@
 /* The other lines of the 3D view (otherlines.ts): their labels over the stage and the note of the tool "Saved lines".
    A label is a pill button of at least 28 px high at the point of its line, in the orbit view only (like the anchors'
    handles: the walker's views have the camera on the line itself); on a touch screen its target is 44 px (row 43:
-   invisible, centred on the label; where two overlap, the label whose centre is nearer to the press takes it). */
+   invisible, centred on the label; a press on a label's drawn box is that label's, and where only targets overlap
+   the label whose centre is nearer to the press takes it: screen.ts pressedMark). */
 .v3-others { position: absolute; inset: 0; pointer-events: none; }
 .v3-other-at { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .v3-other { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;

@@ -185,7 +185,8 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
         const at = el("div", "v3-other-at v3-hidden"), button = el("button", "v3-other");
         button.type = "button";
         button.dataset.other = key;
-        // a press where targets overlap goes to the nearest label (others.css: 44 px targets on a touch screen)
+        // a press on a label's drawn box is that label's; where only targets overlap, the nearest label's
+        // (screen.ts pressedMark; others.css: 44 px targets on a touch screen)
         button.addEventListener("click", (e) => {
           const pressed = pressedMark(button, [...labels.values()].map((l) => l.button), e);
           activate(pressed.dataset.other ?? key);

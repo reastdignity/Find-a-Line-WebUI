@@ -125,17 +125,19 @@ def _touch_targets(data, meta, keys, page_path):
             page.evaluate(CATCH)
             own = labels[0]["own"]
             assert "v3-other" in _tapped(page, (own[0] + own[2]) / 2, own[3] + 8)
-            page.evaluate("() => { document.querySelectorAll('.v3-other').forEach((b) => b.closest('.v3-other-at').remove()); }")
-            page.evaluate("() => { window.CATCHING = false; document.querySelector('.v3-tool[data-tool=point]').click(); }")
-            page.evaluate(POINT_CLICK)
-            page.wait_for_function("() => Number(document.getElementById('view3d').dataset.point) > 0", timeout=WAIT * 2)
+            assert page.errors == [], page.errors
+            page.context.close()
+            # the lines from a point, on a page of its own (test_view3d_layout._fan: the press at anchor 1 finds lines
+            # or none by the stage's height, so a height that gives dots is taken)
+            from test_view3d_layout import _fan
+            page = _fan(browser, p, f"{base}?level=full#run={meta['id']}&line={quote(keys[0], safe='')}")
             dots = page.evaluate(BOXES, ".v3-opt-dot")
             assert dots and all(_size(d["own"]) == (18, 18) and min(_size(d["target"])) >= 43.5 for d in dots), dots
             for sel in (".v3-opt-sort", ".v3-opt-row td"):
                 boxes = page.evaluate(BOXES, sel)
                 assert boxes and all(_size(b["own"])[1] >= 43.5 for b in boxes), (sel, boxes)
             own = dots[0]["own"]
-            page.evaluate("() => { window.CATCHING = true; }")
+            page.evaluate(CATCH)
             assert "v3-opt-dot" in _tapped(page, (own[0] + own[2]) / 2 + 16, (own[1] + own[3]) / 2)
             # the synthetic press on the terrain (POINT_CLICK) has no pointer for the page's capture: its error only
             assert [e for e in page.errors if "setPointerCapture" not in e] == [], page.errors
@@ -162,6 +164,103 @@ def _touch_targets(data, meta, keys, page_path):
             handles, labels = page.evaluate(BOXES, ".v3-handle"), page.evaluate(BOXES, ".v3-other")
             assert all(_size(h["target"]) == (24, 24) for h in handles), handles
             assert labels and all(b["target"] == b["own"] and _size(b["own"])[1] >= 28 for b in labels), labels
+            page.context.close()
+        finally:
+            browser.close()
+
+
+# Two shown labels side by side (the code review's case): the first as wide as a favourite's with a longer text, the
+# second 4 px right of it on the same row; the press 2 px inside the first's right end, which is nearer to the
+# second's centre (through the CSSOM as screen.ts place: no frame is drawn meanwhile, so it stays)
+SIDE = r"""() => { const ats = [...document.querySelectorAll('.v3-other-at')].filter((a) => !a.classList.contains('v3-hidden'));
+  const [a, b] = ats, A = a.firstElementChild, B = b.firstElementChild;
+  A.querySelector('.v3-other-text').textContent = '312 m (saved)';
+  const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(a.style.transform);
+  const ra = A.getBoundingClientRect(), rb0 = B.getBoundingClientRect();
+  b.style.transform = `translate(${+m[1] + ra.width / 2 + 4 + rb0.width / 2}px, ${m[2]}px)`;
+  const rb = B.getBoundingClientRect(), x = ra.right - 2, y = ra.top + ra.height / 2;
+  return {first: A.dataset.other, second: B.dataset.other, x, y,
+          hit: document.elementFromPoint(x, y).closest('.v3-other')?.dataset.other,
+          dA: Math.hypot(ra.left + ra.width / 2 - x, ra.top + ra.height / 2 - y),
+          dB: Math.hypot(rb.left + rb.width / 2 - x, rb.top + rb.height / 2 - y)}; }"""
+# Two fan dots, the second set 30 px under the first (their 44 px targets overlap, their 18 px boxes do not), for a
+# first dot whose place is free: the press 12 px under the first's centre lies on no drawn box, in both targets, on
+# the second dot's element (drawn later) and nearer to the first's centre (12 px against 18 px)
+DOTS = r"""() => { const dots = [...document.querySelectorAll('.v3-opt-dot')].filter((d) => !d.classList.contains('v3-hidden'));
+  const length = (d) => d.getAttribute('aria-label').replace(/^\D+/, '');
+  for (const a of dots) { const b = dots.find((d) => d !== a && dots.indexOf(d) > dots.indexOf(a)); if (!b) continue;
+    const kept = b.style.transform, m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(a.style.transform);
+    b.style.transform = `translate(${m[1]}px, ${+m[2] + 30}px)`;
+    for (const d of [a, b]) { d.style.setProperty('--v3-tx', '0px'); d.style.setProperty('--v3-ty', '0px'); }
+    const r = a.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2 + 12;
+    if (document.elementFromPoint(x, y) === b) return {x, y, first: length(a), second: length(b)};
+    b.style.transform = kept; }
+  return null; }"""
+
+
+def test_view3d_press_on_a_drawn_mark(clip_data, tmp_path, monkeypatch):
+    """A press on a mark's own drawn box goes to that mark, whatever centre is nearer (screen.ts pressedMark; the
+    code review's F1): of two labels side by side, the first much wider, a press 2 px inside the first's right end
+    is nearer to the second's centre and makes the first label's line the active one, with a mouse (no enlarged
+    targets: the click is on the first label's element) and with a finger (the second's 44 px target lies over the
+    first's end and takes the tap). Before, the nearer centre alone decided and the second label's line came up."""
+    from playwright.sync_api import sync_playwright
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
+    page_path = _script_page(data, "view3dpress", "")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            phone = {k: v for k, v in p.devices["Pixel 7"].items() if k != "default_browser_type"}
+            url = (f"http://127.0.0.1:{port}/{page_path}?level=full#run={meta['id']}&line={quote(keys[0], safe='')}"
+                   f"&also={quote(';'.join(keys[1:3]), safe='')}")
+            for name, context in (("mouse", {"viewport": {"width": 1200, "height": 800}}), ("finger", phone)):
+                page = _open(browser, url, context)
+                page.wait_for_function("() => Number(document.getElementById('view3d').dataset.others) > 1", timeout=WAIT)
+                side = page.evaluate(SIDE)
+                assert side["dB"] < side["dA"], (name, side)  # the case: the other label's centre is nearer
+                assert side["hit"] == (side["first"] if name == "mouse" else side["second"]), (name, side)
+                if name == "mouse":
+                    page.mouse.click(side["x"], side["y"])
+                else:
+                    _tap(page, side["x"], side["y"])
+                page.wait_for_function("([a, b]) => !document.querySelector(`[data-other=\"${a}\"]`) || "
+                                       "!document.querySelector(`[data-other=\"${b}\"]`)",
+                                       arg=[side["first"], side["second"]], timeout=WAIT)
+                left = page.evaluate("([a, b]) => [!!document.querySelector(`[data-other=\"${a}\"]`), "
+                                     "!!document.querySelector(`[data-other=\"${b}\"]`)]", [side["first"], side["second"]])
+                assert left == [False, True], (name, side, left)  # the first label's line is the active one
+                assert page.errors == [], page.errors
+                page.context.close()
+        finally:
+            browser.close()
+
+
+def test_view3d_dots_nearer_centre(clip_data, tmp_path, monkeypatch):
+    """Where only the fan dots' invisible targets overlap (a press on no dot's drawn box), the dot whose centre is
+    nearer takes the press, not the one drawn later (fan.ts through screen.ts pressedMark; the code review's F4: no
+    test held it for the dots): a finger's tap 12 px under one dot and 18 px above the next reaches the later
+    dot's element and chooses the earlier dot's line (the readout shows its length)."""
+    from playwright.sync_api import sync_playwright
+    from test_view3d_layout import _fan
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
+    page_path = _script_page(data, "view3ddotpair", "")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _fan(browser, p, f"http://127.0.0.1:{port}/{page_path}?level=full#run={meta['id']}"
+                                    f"&line={quote(keys[0], safe='')}")
+            pair = page.evaluate(DOTS)
+            assert pair and pair["first"] != pair["second"], pair
+            _tap(page, pair["x"], pair["y"])
+            page.wait_for_function("() => document.getElementById('view3d').dataset.point === ''", timeout=WAIT)
+            readout = page.evaluate("() => document.querySelector('.v3-readout').innerText")
+            assert pair["first"].replace(" m", "") in readout and pair["second"].replace(" m", "") not in readout, (pair, readout)
             page.context.close()
         finally:
             browser.close()

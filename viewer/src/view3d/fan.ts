@@ -144,7 +144,8 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
         dot.setAttribute("aria-label", `${t("ui.view3d.point_length")} ${o.len.toFixed(1)} m`);
         dot.addEventListener("pointerenter", () => handlers.hover(o.rank));
         dot.addEventListener("pointerleave", () => handlers.hover(null));
-        // a press where targets overlap goes to the nearest dot (view3d.css: 44 px targets on a touch screen)
+        // a press on a dot's drawn box is that dot's; where only targets overlap, the nearest dot's (screen.ts
+        // pressedMark; point.css: 44 px targets on a touch screen, 24 px with a mouse)
         dot.addEventListener("click", (e) => handlers.choose(Number(pressedMark(dot, dots, e).dataset.rank)));
         host.append(dot);
         dots.push(dot);
