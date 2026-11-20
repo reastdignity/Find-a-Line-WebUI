@@ -23,8 +23,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
-from test_shell_c_view_map import (COARSE, DESKTOP, HELPERS, PHONE, SMALL_PHONE, WAIT, WORDS, _open, _state,  # noqa: E402,F401
-                                   _tap, _tap_on, view_clip)
+from test_shell_c_view_map import (BOXES, COARSE, DESKTOP, HELPERS, PHONE, SMALL_PHONE, WAIT, WORDS, _apart, _open,  # noqa: E402,F401
+                                   _state, _tap, _tap_on, boxes_site, view_clip)
 from test_web import EDGE, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -621,6 +621,261 @@ def test_phone_measured_line_moved_away_stays_away(site):
         finally:
             browser.close()
     assert after == moved, (moved, after)
+
+
+def test_link_answer_during_a_measurement(site):
+    """A link's line outside the run, its profile on its way; Measure pressed and one point taken; then the link's
+    answer comes: the measurement goes on (Measure's start clears model.measuredLink, so openLinked drops the late
+    answer: the second code review's finding)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP, line=OUTSIDE, script=PROFILE_LATE)
+            page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
+            page.click(".c-result-top .r-actions button:has-text('Measure')")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            first = page.evaluate("() => F.empty(30)")
+            page.mouse.click(first["x"], first["y"])
+            page.evaluate("() => T.frames()")
+            before = page.evaluate(LATE_NOW)
+            page.evaluate("() => RELEASE(0)")
+            page.wait_for_function("() => ANSWERED === 1", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(LATE_NOW)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert (before["measuring"], before["points"]) == (True, 1), before
+    assert (after["measuring"], after["points"], after["frameMeasured"]) == (True, 1, False), after
+
+
+# Every control's box over the map (T.CONTROLS), and whether a point lies inside one (viewport px)
+UNDER = """([x, y]) => [...document.querySelectorAll(T.CONTROLS)].map((e) => e.getBoundingClientRect())
+  .filter((r) => r.width && r.height && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom).length"""
+
+
+def _ends_clear(page) -> list:
+    """The measured line's two ends in the viewport and the number of control boxes each lies in."""
+    ends = page.evaluate("() => F.ends(window.FINDALINE_VIEW.measured)")
+    return [[round(x), round(y), page.evaluate(UNDER, [x, y])] for x, y in ends]
+
+
+def test_phone_rest_fit_brings_the_ends_clear(site):
+    """A phone (390 x 664): Measure's points pressed at the low stop, one where the status line stands once the sheet
+    is at half; the answer comes, the sheet rises, and at its rest the measured line is moved so that both ends lie
+    clear of every control (the fit at the first rest firing; the second design review's N1)."""
+    from playwright.sync_api import sync_playwright
+    centre = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+    checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, SMALL_PHONE, script=PROFILE_STUB)
+            _state(page, "view.setLevel('spots');")
+            # where the status line stands at half (read at half, then back to the low stop)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            status = page.evaluate("() => F.rect('.v-status')")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            _tap_on(page, ".c-pill [aria-label='Measure']")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            a = [status[2] - 20, (status[1] + status[3]) / 2]  # under the status line at half; free map at the low stop
+            assert page.evaluate(UNDER, a) == 0, (a, status)
+            b = [a[0] - 150, a[1] + 60]
+            before = page.evaluate(centre)
+            checked = page.evaluate(checks)
+            for at in (a, b):
+                _tap(page, at[0], at[1])
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({checks})() > {checked} && !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            ends = _ends_clear(page)
+            after = page.evaluate(centre)
+            fits = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredFits || 0)")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("rest fits", fits, "moved", after != before, "ends", ends)
+    assert after != before and fits >= 1, (fits, "the rest did not move the map for the line")  # the fit at the first rest fired
+    assert all(n == 0 for _, _, n in ends), ends
+
+
+def test_fit_due_not_left_over_a_later_move(site):
+    """A phone: Measure's answer comes at the low stop (the sheet rises for it), the sheet is sent back to the low stop
+    before it rests at half; the person then pans the measured line out of the map and raises the sheet to half: the
+    map stays as they left it (the fit belongs to the rest after the first show only: the second code review)."""
+    from playwright.sync_api import sync_playwright
+    centre = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+    checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
+    still = "() => !window.FINDALINE_MAP._animatingZoom && !(window.FINDALINE_MAP._panAnim && window.FINDALINE_MAP._panAnim._inProgress)"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, PHONE, script=PROFILE_LATE)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            _measure_two(page, phone=True)
+            page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.evaluate("() => RELEASE(0)")
+            page.wait_for_function("() => F.snap() === 'half'", timeout=WAIT, polling="raf")
+            rested = page.evaluate("() => F.rest()")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.wait_for_function(still, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            _state(page, "leaflet.panBy([0, -600], {animate: false});")
+            moved = page.evaluate(centre)
+            before = page.evaluate(checks)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({checks})() > {before}", timeout=WAIT)
+            page.wait_for_function(still, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(centre)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert rested is False, "the sheet rested at half before it was sent back: the sequence was not reached"
+    assert after == moved, (moved, after)
+
+
+@pytest.mark.parametrize("device", [DESKTOP, SMALL_PHONE, PIXEL], ids=["desktop", "390", "412"])
+def test_fitted_measured_line_clear_of_controls(boxes_site, device):
+    """A link's measured line (always fitted) on a run with both coast boxes (the uncertain shore's, the coarser
+    terrain's): once fitted (a phone: the sheet at half and resting), both its ends lie outside every control's box
+    (the zoom, the layers button, the boxes or chips, the status line: the second design review's N1)."""
+    from playwright.sync_api import sync_playwright
+    phone = device is not DESKTOP
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"{boxes_site}#run={BOXES}&line={urllib.parse.quote(OUTSIDE, safe='')}"
+            page = _open(browser, url, device, script=FRAME + PROFILE_STUB)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW && !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+            page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            ends = _ends_clear(page)
+            fits = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredFits || 0)")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("link fitted", device.get("viewport"), "rest fits", fits, "ends", ends)
+    assert all(n == 0 for _, _, n in ends), ends
+
+
+def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
+    """A 1024 x 768 desktop with both coast boxes and a line selected: with the card folded by the person no control
+    covers another (T.boxes); the card open at that size (the map is higher than today's low threshold, LIMITS.low
+    420 px, so it opens) leaves controls covered, printed for the gate (the second design review's N4)."""
+    from playwright.sync_api import sync_playwright
+    low = {"viewport": {"width": 1024, "height": 768}}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", low, script=FRAME)
+            page.evaluate("() => { window.FINDALINE_MAP.zoomOut(1, {animate: false}); }")
+            # (under Auto: no level held, so no "Back to Auto", which _apart sizes for a finger)
+            _state(page, "view.select(view.inView.best[0] ?? view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            opened = page.evaluate("() => T.boxes()")
+            page.click(".r-card .r-fold")
+            page.wait_for_selector(".r-card.r-card-folded", timeout=WAIT)
+            page.evaluate("() => T.frames()")  # the foot rides down with the card a frame later
+            page.evaluate("() => T.frames()")
+            _apart(page, "1024 x 768, the card folded")
+            assert page.errors == []
+        finally:
+            browser.close()
+    names = sorted(opened)
+    covered = [(a, b) for k, a in enumerate(names) for b in names[k + 1:]
+               if min(opened[a][2], opened[b][2]) - max(opened[a][0], opened[b][0]) > 0.5
+               and min(opened[a][3], opened[b][3]) - max(opened[a][1], opened[b][1]) > 0.5]
+    print("1024 x 768, the card open: covered pairs", covered, {n: opened[n] for n in names})
+
+
+def test_list_at_1024_keeps_heads_and_values_apart(site):
+    """A 1024 px desktop (the list 320 px wide): no head or value of the list's rows overlaps its neighbour in the same
+    row, in "Best in view" and in the tree (the second design review's N3: the row star's room taken from the rows'
+    gaps and edges in a narrow list)."""
+    from playwright.sync_api import sync_playwright
+    read = """() => { const r = (e) => e.getBoundingClientRect(), bad = [], cut = [];
+      const row = (cells) => { for (let k = 1; k < cells.length; k++) { const a = r(cells[k - 1]), b = r(cells[k]);
+          if (a.width && b.width && a.bottom > b.top + 0.5 && b.bottom > a.top + 0.5 && a.right > b.left + 0.5)
+            bad.push([cells[k - 1].textContent.trim().slice(0, 14), cells[k].textContent.trim().slice(0, 14)]); } };
+      const heads = [...document.querySelectorAll('.c-col-list .vl-cols')], rows = [...document.querySelectorAll('.c-col-list .vl-main')];
+      heads.forEach((h) => row([...h.children]));
+      rows.forEach((m) => row([...m.children].filter((c) => !c.classList.contains('u-sr'))));
+      rows.forEach((m) => m.querySelectorAll('.vl-v').forEach((v) => { if (v.scrollWidth > v.clientWidth + 1) cut.push(v.textContent.trim().slice(0, 14)); }));
+      return {list: Math.round(r(document.querySelector('.c-col-list')).width), heads: heads.length, rows: rows.length,
+              tree: document.querySelectorAll('.c-col-list .vl-tree .vl-main').length, bad, cut}; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, {"viewport": {"width": 1024, "height": 768}})
+            _state(page, "view.setLevel('spots');")
+            got = page.evaluate(read)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got["list"] <= 360 and got["heads"] >= 2 and got["rows"] > 10 and got["tree"] > 0, got
+    assert got["bad"] == [] and got["cut"] == [], got
+
+
+def test_today_page_drops_a_late_answer(site):
+    """Today's page (no flag) shares Measure's guard: Measure, two points, its profile shown; Measure again, two points
+    (answer A held), Measure again and one point, A comes: still measuring and the dock as it was (the second code
+    review's probe of today's branch)."""
+    from playwright.sync_api import sync_playwright
+    points = """([k]) => { const r = document.querySelector('.c-col-map .leaflet-container').getBoundingClientRect();
+      return {x: r.left + r.width * (0.3 + 0.1 * k), y: r.top + r.height * (0.35 + 0.05 * k)}; }"""
+    now = """() => ({measuring: window.FINDALINE_RESULT.view.isMeasuring,
+                    titles: [...document.querySelectorAll('.r-dock-bar b')].map((b) => b.textContent)})"""
+    measure = ".c-result-top .r-actions button:has-text('Measure')"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=False, script=FRAME + PROFILE_LATE)
+            page.wait_for_function("() => !!window.FINDALINE_RESULT && !!document.querySelector('.c-col-map .leaflet-container')", timeout=WAIT)
+
+            def take(ks):
+                page.click(measure)
+                page.wait_for_function("() => window.FINDALINE_RESULT.view.isMeasuring", timeout=WAIT)
+                for k in ks:
+                    at = page.evaluate(points, [k])
+                    page.mouse.click(at["x"], at["y"])
+                    page.evaluate("() => T.frames()")
+            take((0, 3))
+            page.wait_for_function("() => HELD.length === 1", timeout=WAIT)
+            page.evaluate("() => RELEASE(0)")
+            page.wait_for_selector(".r-dock-bar b:has-text('Measured profile')", timeout=WAIT)
+            first = page.evaluate(now)
+            take((1, 4))
+            page.wait_for_function("() => HELD.length === 2", timeout=WAIT)
+            take((2,))
+            before = page.evaluate(now)
+            page.evaluate("() => RELEASE(1)")
+            page.wait_for_function("() => ANSWERED === 2", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(now)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert first["measuring"] is False and "Measured profile" in first["titles"], first
+    assert before["measuring"] is True and after == before, (before, after)
 
 
 def test_late_answer_after_crossing_the_phone_width(site):

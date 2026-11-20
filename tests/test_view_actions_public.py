@@ -103,6 +103,62 @@ def _actions(browser, site: str, path: str, who: str | None = None) -> list:
         context.close()
 
 
+# the app's job list answered with a finished job of A's run (AppC's editJob: "Edit & run again" in the pill)
+JOBS = """
+const realFetchOfJobs = window.fetch;
+window.fetch = (url, init) => String(url).replace(/^https?:\\/\\/[^/]+/, '').split('?')[0] !== '/api/jobs' || (init && init.method && init.method !== 'GET')
+  ? realFetchOfJobs(url, init)
+  : Promise.resolve(new Response(JSON.stringify({jobs: [{id: 'job-1', status: 'done', run_id: '%s', name: "A's run",
+      created: '2026-10-01T10:00:00', finished: '2026-10-01T10:05:00', own: true}], seq: 1, worker: true}), {headers: {'content-type': 'application/json'}}));
+""" % RUN_A
+
+
+def _kit_icon(name: str) -> str:
+    """The kit's icon's markup (viewer/src/ui/icons.tsx ICONS), as written there."""
+    import re
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "viewer", "src", "ui", "icons.tsx"),
+              encoding="utf-8") as f:
+        return re.search(r"\n  %s: '([^']*)'" % name, f.read()).group(1)
+
+
+@pytest.mark.parametrize("size", [(390, 664), (412, 839)], ids=["390", "412"])
+def test_owner_phone_pill(public_site, size):
+    """The owner's phone pill with "Edit & run again" and the run's three actions: the run's name keeps 133 px or more
+    (the second design review's N2: 118 px, the mock-up 150), Edit is the kit's "refresh" icon (polish 12), the icons
+    are 44 px targets, and Share's menu opens on the screen, under the whole pill (fix round 1)."""
+    from playwright.sync_api import sync_playwright
+    site, _ = public_site
+    phone = {"viewport": {"width": size[0], "height": size[1]}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        context = browser.new_context(**phone)
+        try:
+            context.add_init_script(FLAG + JOBS)
+            page = context.new_page()
+            page.goto(f"{site}/test-sign-in/a")
+            page.goto(f"{site}/?ui=c#run={RUN_A}")
+            page.wait_for_selector(".c-pill [aria-label='Share']", timeout=WAIT)
+            page.wait_for_selector(".c-pill a[aria-label='Edit & run again']", timeout=WAIT)
+            pill = page.evaluate("""() => { const r = (s) => document.querySelector(s).getBoundingClientRect();
+                const svg = document.querySelector(".c-pill a[aria-label='Edit & run again'] svg");
+                return {name: Math.round(r('.c-pill-name').width), names: [...document.querySelectorAll('.c-pill a, .c-pill button')].map((b) => b.getAttribute('aria-label')),
+                        icons: [...document.querySelectorAll('.c-pill .r-actions button, .c-pill a')].map((b) => Math.round(Math.min(b.getBoundingClientRect().width, b.getBoundingClientRect().height))),
+                        edit: svg.innerHTML}; }""")
+            page.tap(".c-pill [aria-label='Share']")
+            page.wait_for_selector(".r-share", timeout=WAIT)
+            menu = page.evaluate("() => { const m = document.querySelector('.c-pill .r-pop').getBoundingClientRect(), p = document.querySelector('.c-pill').getBoundingClientRect(); "
+                                 "return [Math.round(m.left), Math.round(m.right), Math.round(p.left), Math.round(p.right), innerWidth]; }")
+        finally:
+            context.close()
+            browser.close()
+    import re
+    refresh = re.search(r'd="([^"]+)"', _kit_icon("refresh")).group(1)  # the kit's "refresh" by its path
+    assert pill["names"][-4:] == ["Edit & run again", "Measure", "Share", "Download"], pill
+    assert pill["name"] >= 133 and min(pill["icons"]) >= 44, pill
+    assert f'd="{refresh}"' in pill["edit"], (refresh, pill["edit"])
+    assert menu[0] >= 0 and menu[1] <= menu[4] and menu[:2] == menu[2:4], menu
+
+
 def test_who_sees_which_actions_in_the_view(public_site):
     """The owner: Share and Download; another user on the owner's demo run: no Share; a visitor on the demo run's
     map.html and anyone on the share link's page: no Share, no Download."""
