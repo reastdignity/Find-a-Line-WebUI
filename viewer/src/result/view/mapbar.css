@@ -10,7 +10,7 @@
 /* What lies over the map (R8 "raised"): one look, the view's --surface with its shadow, no edge */
 .ui .v-levels, .ui .v-best, .ui .v-status, .ui .v-legend, .ui .v-help, .ui .v-fold, .ui .vl-hint, .ui .vl-hint-open,
 .ui .v-result .v-help-button .ac-info.u-plain, .ui .v-result .v-map .v-info.u-plain, .ui .v-result .v-map .leaflet-bar,
-.ui .v-result .v-map .leaflet-control-layers,
+.ui .v-result .v-map .leaflet-control-layers, .ui .v-result .c-col-map > .r-card,
 .ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill, .ui .vl-choose,
 .ui .c-placemap .leaflet-control-zoom, .ui .c-placemap .leaflet-control-layers, .ui .c-placemap .n-coverage {
   background: var(--surface); border: 0; border-radius: var(--r-2); box-shadow: var(--shadow); }
