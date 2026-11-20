@@ -213,6 +213,12 @@
 .ui .r-dock { min-width: 0; }
 /* the profile's bar's close and fold on a touch screen: a finger's 44 px (R2; the user's "12 a"), on both pages */
 @media (pointer: coarse) { .ui .r-dock .r-note-x { width: 44px; height: 44px; } }
+/* A compact dock outside a card (ProfileDock `compact`: the result view's phone docks, the mock-up's 4 d): the title,
+   "Rigging and layers" and the × on one line, the × at its end (in the column of the other closes: polish 10), a
+   measured line's facts on a row of their own under it; the words on reading the chart under the chart (polish 13) */
+.ui .r-dock-compact .r-dock-bar > b, .ui .r-dock-compact .r-dock-bar > button { flex: none; white-space: nowrap; }
+.ui .r-dock-compact .r-facts { order: 9; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.ui .r-dock-compact .r-hint-under { margin: 0; }
 
 /* The profile in a card (ProfileDock's fill mode and fold button: ProfileCard) */
 .ui .r-fold .u-ic { transition: transform .15s; }

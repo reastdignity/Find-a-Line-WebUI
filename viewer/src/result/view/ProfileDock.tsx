@@ -31,6 +31,12 @@ export interface ProfileDockProps {
   onClose?(): void;
   /** The dock fills its box (a card): the chart takes the height the bar and the controls leave. */
   fill?: boolean;
+  /** The compact profile (default: `fill`, the card's; the result view gives it to a phone's docks, the mock-up's 4 d):
+   *  no head row in the chart, the line's title for screen readers (.fal-profile-title) and its close in the bar (in
+   *  the column of the other closes: the mock-up's polish 10), the legend and the 1:1 scale under "Rigging and layers".
+   *  Outside a card the facts stand in the bar only for a measured line (a line's are the details' tiles above) and
+   *  the words on reading the chart stand under it (polish 13). */
+  compact?: boolean;
   /** Folded to its bar (with `onFold`). */
   folded?: boolean;
   /** Given: a fold button (▾/▴) beside the ×, which then stays in the bar (the panel's own is hidden). */
@@ -52,9 +58,10 @@ export function profileShown(model: ResultModel, measured?: Line | null, line?: 
   return !!(measured || (target && !(line === undefined && model.profileClosed)));
 }
 
-export function ProfileDock({model, view, line, measured, onCloseMeasured, onClose, fill, folded, onFold, onContent,
+export function ProfileDock({model, view, line, measured, onCloseMeasured, onClose, fill, compact, folded, onFold, onContent,
                              class: cls}: ProfileDockProps) {
   useModel(model);
+  const tight = compact ?? !!fill, docked = tight && !fill;  // compact; compact outside a card
   const target = line === undefined ? model.selected?.line || null : line;
   const [state, setState] = useState<State | null>(null);
   const [rigging, setRigging] = useState(false);
@@ -91,30 +98,32 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
                                  aria-label={folded ? "Unfold the profile" : "Fold the profile"}
                                  title={folded ? "Unfold the profile" : "Fold the profile"} aria-expanded={!folded}
                                  onClick={() => onFold(!folded)}><Icon name="down" /></button>;
-  return <section class={cx("r-dock", rigging && "r-rigging", fill && "r-dock-fill", onFold && "r-foldable",
-                            onFold && folded && "r-folded", cls)} aria-label="Profile">
+  const hint = touch ? "tap or drag along the chart" : "move the mouse along the chart";
+  return <section class={cx("r-dock", rigging && "r-rigging", fill && "r-dock-fill", docked && "r-dock-compact",
+                            onFold && "r-foldable", onFold && folded && "r-folded", cls)} aria-label="Profile">
     <div class="r-dock-bar">
       <b>{measured ? "Measured profile" : `Profile · ${num(shown.len)} m`}</b>
-      {fill && ready && title.title && <>
-        <span class="u-small r-facts" title={title.title} aria-hidden="true">{title.facts}</span>
+      {tight && ready && title.title && <>
+        {(fill || measured) && <span class="u-small r-facts" title={title.title} aria-hidden="true">{title.facts}</span>}
         <span class="u-sr fal-profile-title">{title.title}</span></>}
-      <span class="u-small r-hint">{touch ? "tap or drag along the chart" : "move the mouse along the chart"}</span>
+      {!docked && <span class="u-small r-hint">{hint}</span>}
       <span class="u-grow" />
       {ready && <button type="button" class={cx("u-chip", rigging && "u-on")} aria-expanded={rigging}
                         onClick={() => setRigging(!rigging)}>Rigging and layers<Icon name="down" /></button>}
       {fold}
-      {(!ready || onFold) && <button type="button" class="r-note-x" aria-label="Close the profile" onClick={close}>
+      {(!ready || onFold || tight) && <button type="button" class="r-note-x" aria-label="Close the profile" onClick={close}>
         <Icon name="close" /></button>}
     </div>
     {ready ? <div class="r-profile">
       <ProfilePanel line={shown} measured={!!measured} model={model.data.model} slope={model.data.slope}
                     leashFall={model.data.leash_fall} rigging={model.data.rigging} endZone={model.data.end_zone}
                     lift={model.data.lift} onHover={hover} onClose={close}
-                    fill={fill} compact={fill}
-                    onTitle={fill ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
+                    fill={fill} compact={tight}
+                    onTitle={tight ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
                       : {title: t, facts}) : undefined} />
     </div> : state && state.status === "error"
       ? <p class="r-dock-msg r-error"><Icon name="warn" />No profile: {state.error}</p>
       : <p class="r-dock-msg" aria-busy="true"><span class="r-spin" />Computing the terrain profile…</p>}
+    {docked && ready && <p class="u-small r-hint r-hint-under">{hint}</p>}
   </section>;
 }

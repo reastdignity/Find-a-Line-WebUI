@@ -813,7 +813,8 @@ def test_profile_text_and_touch_sizes(site):
     controls = """() => { document.querySelector('.r-dock-bar .u-chip')?.click(); return new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok({
       controls: [...document.querySelectorAll('.r-profile .fal-scale, .r-profile .fal-profile-head button, .r-profile .fal-profile-controls input[type=number], .r-profile .fal-layers label')]
         .filter((e) => e.getBoundingClientRect().height).map((e) => Math.round(e.getBoundingClientRect().height)),
-      bar: [...document.querySelectorAll('.r-dock-bar .r-note-x')].map((e) => [Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)])}))));
+      bar: [...document.querySelectorAll('.r-dock-bar .r-note-x')].map((e) => [Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)]),
+      head: !!document.querySelector('.r-profile .fal-profile-head')}))));
       }"""
     tablet = {**PHONE, "viewport": {"width": 1180, "height": 820}, "device_scale_factor": 2}  # the columns with a finger
     with sync_playwright() as p:
@@ -839,7 +840,8 @@ def test_profile_text_and_touch_sizes(site):
             page = _view(browser, site, PHONE, line=OUTSIDE, script=PROFILE_STUB)
             page.wait_for_selector(".u-sheet-body > .r-dock:first-child .fal-profile-chart", timeout=WAIT)
             got = page.evaluate(controls)
-            assert got["controls"] and min(got["controls"]) >= 44, got
+            # compact (the mock-up's 4 d): no head row, the close in the bar
+            assert got["controls"] and min(got["controls"]) >= 44 and got["bar"] == [[44, 44]] and got["head"] is False, got
             assert page.errors == []
             page.context.close()
             # today's page on a phone: the selected line's dock in the sheet
@@ -848,7 +850,51 @@ def test_profile_text_and_touch_sizes(site):
             page.evaluate("() => { const m = window.FINDALINE_RESULT.model; m.select(m.rows[0].group); }")
             page.wait_for_selector(".r-dock .fal-profile-chart", timeout=WAIT)
             got = page.evaluate(controls)
-            assert got["controls"] and min(got["controls"]) >= 44, got
+            # today's dock as it was: the profile's head row with its close, none in the bar
+            assert got["controls"] and min(got["controls"]) >= 44 and got["bar"] == [] and got["head"] is True, got
             assert page.errors == []
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_phone_dock_compact(site, device):
+    """A phone's docks in the view are compact (ProfileDock `compact`: B2's design review F1 and F2, the mock-up's 4 d
+    and polish 10 and 13): the selected line's dock in the details at half has no head row (the full title for screen
+    readers only), its bar holds the title, "Rigging and layers" and the close ("Close the profile", 44 px) in the
+    column of the selection's close, the words on reading the chart stand under it, and the chart's top is on the
+    screen at half (it was below the fold); the measured line's dock likewise, its facts on a row under the bar."""
+    from playwright.sync_api import sync_playwright
+    read = """() => { const d = document.querySelector('.u-sheet-body .r-dock'), r = (e) => e && e.getBoundingClientRect();
+      const x = d.querySelector('.r-dock-bar [aria-label="Close the profile"]'), sel = document.querySelector('.vl-dclose');
+      return {head: !!d.querySelector('.fal-profile-head'), sr: d.querySelector('.fal-profile-title')?.textContent ?? '',
+              bar: [...d.querySelector('.r-dock-bar').children].filter((e) => r(e).width && !e.classList.contains('u-grow')).map((e) => e.tagName.toLowerCase() + '.' + [...e.classList].join('.')),
+              close: x && [Math.round(r(x).right), Math.round(r(x).width), Math.round(r(x).height)], selRight: sel && Math.round(r(sel).right),
+              under: d.lastElementChild.classList.contains('r-hint-under') && r(d.querySelector('.r-hint-under')).top >= r(d.querySelector('.fal-profile-chart')).bottom,
+              facts: d.querySelector('.r-facts')?.textContent ?? null, chartTop: Math.round(r(d.querySelector('.fal-profile-chart')).top), height: innerHeight}; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device)
+            _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
+            if page.evaluate("() => F.snap()") == "peek":
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_selector(".u-sheet-body .vl-details .r-dock .fal-profile-chart", timeout=WAIT)
+            line = page.evaluate(read)
+            page.context.close()
+            page = _view(browser, site, device, line=OUTSIDE, script=PROFILE_STUB)
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_selector(".u-sheet-body > .r-dock:first-child .fal-profile-chart", timeout=WAIT)
+            measured = page.evaluate(read)
+            assert page.errors == []
+        finally:
+            browser.close()
+    for got in (line, measured):
+        assert got["head"] is False and got["sr"].strip() and got["under"] is True, got
+        assert got["close"] and got["close"][1:] == [44, 44] and got["bar"][-1] == "button.r-note-x", got
+        assert got["bar"][0] == "b." and "button.u-chip" in got["bar"] and "span.u-small.r-hint" not in got["bar"], got
+        assert got["chartTop"] < got["height"], got  # the chart's top on the screen at half
+    assert line["close"][0] == line["selRight"] and line["facts"] is None, line  # polish 10; the tiles hold the facts
+    assert measured["facts"], measured

@@ -805,7 +805,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP}
            header={<>{panels.hint({...p, place: "sheet"})}{panels.sheetHead(p)}</>}>
       {measured && <ProfileDock model={view.model} view={canvas} line={null} measured={measured} onCloseMeasured={closeMeasured}
-                                class="r-dock-sheet vl-dock" />}
+                                compact class="r-dock-sheet vl-dock" />}
       {panels.details(p)}
       {panels.lineActions?.(p)}
       {panels.list(p)}
