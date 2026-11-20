@@ -107,19 +107,24 @@ export function pointerRay(scene: SceneCore, clientX: number, clientY: number):
 }
 
 /** A drag of an overlay element with the pointer: `move` gets the pointer's client coordinates while it is down;
- *  the orbit controls are off meanwhile. Window listeners (synthetic events and lost captures work too). */
+ *  the orbit controls are off meanwhile. Window listeners (synthetic events and lost captures work too).
+ *  `fromCentre`: `move` gets the place of the element's centre instead, as the pointer carries it: the press's
+ *  offset from the centre is kept, so a press on the rim of a mark's target (22 px from the centre on a touch
+ *  screen) moves the mark by the pointer's movement and not by that offset too. */
 export function draggable(scene: SceneCore, element: HTMLElement, handlers: {
   start?(): void; move(clientX: number, clientY: number): void; end?(): void;
-}) {
+}, fromCentre = false) {
   element.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    const box = element.getBoundingClientRect();
+    const dx = fromCentre ? box.left + box.width / 2 - e.clientX : 0, dy = fromCentre ? box.top + box.height / 2 - e.clientY : 0;
     try { element.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
     scene.view.setControls(false);
     element.classList.add("v3-dragging");
     handlers.start?.();
-    const move = (m: PointerEvent) => { if (m.pointerId === e.pointerId) handlers.move(m.clientX, m.clientY); };
+    const move = (m: PointerEvent) => { if (m.pointerId === e.pointerId) handlers.move(m.clientX + dx, m.clientY + dy); };
     const up = (u: PointerEvent) => {
       if (u.pointerId !== e.pointerId) return;
       removeEventListener("pointermove", move);

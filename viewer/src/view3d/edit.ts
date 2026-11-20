@@ -204,7 +204,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
         askProfile();
         if (moved) valid!.moved(k);  // its reach is stale; asked once the profile is in
       },
-    });
+    }, true);  // the handle's centre is the anchor: a press on its target's rim keeps its offset
     return handle;
   });
 

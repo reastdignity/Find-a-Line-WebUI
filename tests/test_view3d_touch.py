@@ -264,3 +264,46 @@ def test_view3d_dots_nearer_centre(clip_data, tmp_path, monkeypatch):
             page.context.close()
         finally:
             browser.close()
+
+
+def test_view3d_handle_drag_keeps_its_offset(clip_data, tmp_path, monkeypatch):
+    """An anchor's handle pressed on the rim of its 44 px target (18 px beside or above its centre) and moved by
+    1 px goes where the same move from a press at its centre takes it: the press's offset is kept (screen.ts
+    draggable `fromCentre`; the code review's F2: before, the anchor went to the terrain under the pointer and the
+    rim press put the handle 16.7 px further, the offset on top). What a 1 px move from the centre itself does to
+    the handle is not this test's (docs/known-bugs.md: the anchor goes to the terrain under the pointer)."""
+    from playwright.sync_api import sync_playwright
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    keys = [_key_of(r) for r in _lines_of(data, meta["id"])]
+    page_path = _script_page(data, "view3ddrag", "")
+    centre = r"""(k) => { const r = document.querySelectorAll('.v3-handle')[k].getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2]; }"""
+    frames = "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))"
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            phone = {k: v for k, v in p.devices["Pixel 7"].items() if k != "default_browser_type"}
+            url = f"http://127.0.0.1:{port}/{page_path}?level=full#run={meta['id']}&line={quote(keys[0], safe='')}"
+            for anchor in (0, 1):
+                ends = {}
+                for name, dx, dy in (("centre", 0, 0), ("right rim", 18, 0), ("upper rim", 0, -18)):
+                    page = _open(browser, url, phone)
+                    start = page.evaluate(centre, anchor)
+                    x, y = start[0] + dx, start[1] + dy
+                    hit = page.evaluate("([x, y]) => document.elementFromPoint(x, y).className", [x, y])
+                    assert "v3-handle" in hit, (name, hit)  # the press is on the handle's target
+                    page.mouse.move(x, y)
+                    page.mouse.down()
+                    page.mouse.move(x + 1, y, steps=1)
+                    page.evaluate(frames)
+                    ends[name] = page.evaluate(centre, anchor)
+                    page.mouse.up()
+                    assert page.errors == [], page.errors
+                    page.context.close()
+                for name in ("right rim", "upper rim"):
+                    apart = ((ends[name][0] - ends["centre"][0]) ** 2 + (ends[name][1] - ends["centre"][1]) ** 2) ** 0.5
+                    assert apart <= 1.5, (anchor, name, ends)
+        finally:
+            browser.close()
