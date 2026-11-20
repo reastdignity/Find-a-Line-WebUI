@@ -92,6 +92,7 @@ export function creditsBox(box: HTMLElement, store: Store | null = browserStore(
       : `<span class="v3-credit"><button type="button" class="u-credits-toggle" aria-expanded="${open}">${label}` +
         `</button><span class="u-credits${open ? " u-open" : ""}">${e.html}</span></span>`).join(" ");  // trusted HTML only
     box.classList.toggle("v3-hidden", !list.length);
+    box.classList.toggle("v3-credits-open", open && entries.has(DATA_CREDITS));  // the phone's info button (view3d.css)
   };
   box.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;

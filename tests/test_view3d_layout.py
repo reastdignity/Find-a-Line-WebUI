@@ -135,19 +135,34 @@ CREDITS = [
      "WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by "
      "the European Union and ESA; all rights reserved", "licence": "CC BY-NC-SA 4.0",
      "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/"}]
-# The stage's bottom right corner: the credits' box and its toggle, the info button (its box; whether it is the
-# element at its own centre), the info box, the tools
+# The stage's bottom right corner: the credits' box (whether it is hidden; the box of its list's text) and its toggle,
+# the info button (its box, its target: the box joined with an absolutely positioned ::after, whose insets count
+# from inside the border; whether it is the element at its own centre), the info box (and the bottom of its notes
+# with its padding: its height by its content), the tools, the focus
 CORNER = r"""() => {
   const root = document.getElementById('view3d');
   const shown = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const R = (e) => { if (!shown(e)) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
   const button = root.querySelector('.v3-info'), toggle = root.querySelector('.v3-credits .u-credits-toggle');
+  const credits = root.querySelector('.v3-credits'), list = root.querySelector('.v3-credits-list');
+  const box = root.querySelector('.v3-infobox'), lines = box.querySelector('.v3-infobox-lines');
   const b = button.getBoundingClientRect(), at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
-  return {credits: R(root.querySelector('.v3-credits')), toggle: R(toggle), open: toggle && toggle.getAttribute('aria-expanded'),
-          button: R(button), onTop: at === button || button.contains(at), expanded: button.getAttribute('aria-expanded'),
-          box: R(root.querySelector('.v3-infobox')), stage: R(root.querySelector('.v3-stage')),
-          card: R(root.querySelector('.v3-pcard')),
-          tools: [...root.querySelectorAll('.v3-tool')].map(R).filter(Boolean), errors: window.ERRORS};
+  const a = getComputedStyle(button, '::after'), cs = getComputedStyle(button);
+  let target = [b.left, b.top, b.right, b.bottom];
+  if (a.content !== 'none' && a.position === 'absolute') {
+    const l = b.left + parseFloat(cs.borderLeftWidth) + parseFloat(a.left), t = b.top + parseFloat(cs.borderTopWidth) + parseFloat(a.top);
+    target = [Math.min(b.left, l), Math.min(b.top, t), Math.max(b.right, l + parseFloat(a.width)), Math.max(b.bottom, t + parseFloat(a.height))];
+  }
+  const range = document.createRange();
+  range.selectNodeContents(list);
+  const text = range.getBoundingClientRect();
+  return {credits: R(credits), hidden: getComputedStyle(credits).visibility === 'hidden',
+          text: [text.left, text.top, text.right, text.bottom], toggle: R(toggle), open: toggle && toggle.getAttribute('aria-expanded'),
+          button: R(button), target, onTop: at === button || button.contains(at), expanded: button.getAttribute('aria-expanded'),
+          box: R(box), notesEnd: shown(box) ? lines.getBoundingClientRect().bottom + parseFloat(getComputedStyle(box).paddingBottom) : null,
+          stage: R(root.querySelector('.v3-stage')), card: R(root.querySelector('.v3-pcard')),
+          tools: [...root.querySelectorAll('.v3-tool')].map(R).filter(Boolean),
+          focus: document.activeElement ? String(document.activeElement.className) : '', errors: window.ERRORS};
 }"""
 
 
@@ -624,21 +639,25 @@ def test_view3d_info_box_leaves_with_the_focus(clip_data, monkeypatch):
 
 def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
     """The info button and its box with the run's data credits (open from 768 px of width as on main, a phone held
-    sideways included; the user, 2026-11-20: "Open as before"). On a phone (390 x 664), a phone held sideways
-    (844 x 390) and a touch tablet (1024 x 600), with the credits open and folded, the card open and closed: the
-    button stands at the credits' box's start (its left top corner), 44 px, is the element at its own centre (no
-    tool, no credit over it) and a finger's tap on it opens the box; the open box cuts no line of the credits (it
-    lies over their whole box, as wide as they may be and reaching their top, or wholly under them), also when the
-    box holds one note less (a run with imagery) and so is lower than the credits by itself."""
+    sideways included; the user, 2026-11-20: "Open as before", "Keep open"). On a phone (390 x 664), a phone held
+    sideways (844 x 390) and a touch tablet (1024 x 600), with the credits open and folded, the card open and closed:
+    the button stands at the credits' box's start (its left top corner), its target 44 px, its centre on the line of
+    "Data credits", is the element at its own centre (no tool, no credit over it) and a finger's tap on it opens the
+    box. Open, the credits' box is as high as its text (no 8 px above and below it: the design review's P10). The
+    open box is as high as its notes (P9: it grew to the credits' top before), and while it is open the credits'
+    box is hidden where the box would overlap it, else stands wholly above it (also when the box holds one note less,
+    as a run with imagery: lower than the credits); both happen. Escape brings the credits back with the focus on the
+    button."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3dcorner")
+    hidden = set()
 
     def start(s):
         return abs(s["button"][0] - s["credits"][0]) <= 0.5 and abs(s["button"][1] - s["credits"][1]) <= 0.5
 
-    def not_cut(s):
-        c, b = s["credits"], s["box"]
-        return c[3] <= b[1] + 0.5 or (b[0] <= c[0] + 0.5 and b[1] <= c[1] + 0.5 and b[2] >= c[2] - 0.5 and b[3] >= c[3] - 0.5)
+    def clear_or_hidden(s):
+        hidden.add(s["hidden"])
+        return s["hidden"] or s["credits"][3] <= s["box"][1] + 0.5
 
     def tap(page, box):
         _tap(page, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
@@ -646,15 +665,21 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
 
     def button_and_box(page, where):
         s = page.evaluate(CORNER)
-        assert s["button"] and start(s) and s["onTop"], (where, s)
-        assert min(s["button"][2] - s["button"][0], s["button"][3] - s["button"][1]) >= 43.5, (where, s)
+        assert s["button"] and start(s) and s["onTop"] and not s["hidden"], (where, s)
+        assert min(s["target"][2] - s["target"][0], s["target"][3] - s["target"][1]) >= 43.5, (where, s)
+        t, b = s["toggle"], s["button"]
+        assert abs((t[1] + t[3]) / 2 - (b[1] + b[3]) / 2) <= 1.5, (where, s)  # on the line of "Data credits"
+        if s["open"] == "true":  # the open credits' box as high as its text
+            assert s["text"][1] - s["credits"][1] < 4 and s["credits"][3] - s["text"][3] < 4, (where, s)
         assert all(_apart(t, s["credits"]) for t in s["tools"]), (where, s)  # the credits' box right of the strip
         tap(page, s["button"])
         opened = page.evaluate(CORNER)
-        assert opened["expanded"] == "true" and opened["box"] and not_cut(opened), (where, opened)
+        assert opened["expanded"] == "true" and opened["box"] and clear_or_hidden(opened), (where, opened)
         assert opened["box"][1] >= opened["stage"][1] and opened["box"][3] <= opened["stage"][3], (where, opened)
+        assert opened["box"][3] - opened["box"][1] <= opened["notesEnd"] - opened["box"][1] + 1, (where, opened)
         page.keyboard.press("Escape")
-        assert page.evaluate(CORNER)["box"] is None, where
+        shut = page.evaluate(CORNER)
+        assert shut["box"] is None and not shut["hidden"] and "v3-info" in shut["focus"].split(), (where, shut)
         return s
 
     with _credits(data, clip_data[1]["id"]), _server(data, start_scheduler=True) as port, sync_playwright() as p:
@@ -688,6 +713,7 @@ def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
                 assert lower["open"] == "true" and lower["card"] is None, (width, lower)
                 assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], (width, page.errors)
                 page.context.close()
+            assert hidden == {True, False}, hidden  # the credits hidden under the box, and clear above it
         finally:
             browser.close()
 

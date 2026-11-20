@@ -10,7 +10,8 @@
 //
 // The notes stay where their modules put them and keep their own state (`v3-hidden`, the views' rules of
 // view3d.css); the box holds copies of them, made when it opens and again whenever the bar changes while it is
-// open, each with its note's classes, so the same rules show and hide a copy. Closed, the box is empty.
+// open, each with its note's classes, so the same rules show and hide a copy. Closed, the box is empty. Open, it
+// is as high as its notes, and the credits' box is hidden where the box would overlap it (the class `v3-covered`).
 // Plain DOM, no style attributes.
 
 import { t } from "../i18n";
@@ -64,27 +65,32 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   stage.append(box);
 
   let open = false;
-  // The box over the whole of open credits (both stand in the stage's bottom right corner, the box as wide as the
-  // credits may be: view3d.css): where the box's top edge would fall inside the credits' box, the box is made as
-  // high as reaches their top (never higher than the stage allows), so its edge cuts no line of the credits. The
-  // test is made with the box's own minimum off, in one pass: at the box's natural height
-  const cover = () => {
-    box.style.minHeight = "";
-    const credits = button.closest<HTMLElement>(".v3-credits");
-    if (!open || !credits) return;
-    const c = credits.getBoundingClientRect(), b = box.getBoundingClientRect();
-    if (c.height && c.top < b.top && c.bottom > b.top) {
-      box.style.minHeight = `${Math.min(Math.ceil(b.bottom - c.top), Math.floor(stage.clientHeight - 16))}px`;
+  // The box and the credits' box both stand in the stage's bottom right corner (view3d.css). While the box is open,
+  // the credits' box is hidden where the box would overlap it, so the box's edge cuts no line of the credits and the
+  // box stays as high as its notes (the design review's P9: it grew to the credits' top before, up to 439 px for three
+  // sentences); where the credits stand clear above the box (above an open card) they stay, with the pressed button.
+  // Hidden by `visibility` (the class v3-covered): their place and size stay, so the test cannot feed itself and
+  // what is placed by their box (optionlist.ts fit, the pin) does not move; their controls leave the Tab order
+  const hide = () => {
+    const c = button.closest<HTMLElement>(".v3-credits");
+    if (!c) return;
+    let over = false;
+    if (open) {
+      const a = c.getBoundingClientRect(), b = box.getBoundingClientRect();
+      over = a.height > 0 && b.height > 0 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5 &&
+        Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5;
     }
+    c.classList.toggle("v3-covered", over);
   };
   // What the page shows changed while the box is open: the box no longer shown (the window grew past the phone's
-  // width, a turn: view3d.css hides it) closes, so no Escape is spent on a box out of sight; else it is fitted to
-  // the credits again. In the next frame, never inside the observer's own call
+  // width, a turn: view3d.css hides it) closes, so no Escape is spent on a box out of sight; else the credits are
+  // tested again (the credits opened or folded, the card, a turn). In the next frame, never inside the observer's
+  // own call
   let frame = 0;
   const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
     if (!frame) frame = requestAnimationFrame(() => {
       frame = 0;
-      if (open && !box.getClientRects().length) self.close(); else cover();
+      if (open && !box.getClientRects().length) self.close(); else hide();
     });
   }) : null;
   const copy = () => {
@@ -94,7 +100,7 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       line.textContent = (parts.textContent ?? "").trim();
       return line;
     }));
-    cover();
+    hide();
   };
   // the bar while the box is open: a note shown, hidden, added or reworded
   const watch = typeof MutationObserver === "function" ? new MutationObserver(copy) : null;
@@ -139,8 +145,8 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPress, true);
       box.classList.add("v3-hidden");
-      box.style.minHeight = "";
       lines.replaceChildren();
+      hide();  // the credits back before the focus goes to the button in them
       button.setAttribute("aria-expanded", "false");
       if (focus) button.focus();
     },
