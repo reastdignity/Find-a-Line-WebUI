@@ -151,6 +151,11 @@ export interface SpotView {
   readonly fanMisses: number;
   /** Stop following the model. */
   destroy(): void;
+
+  // --- added in step 3c ---
+  /** Is a line hidden by "Top level only" alone: the chip is on, the line's `top` is 0, and it passes every other
+   *  filter (a link to it turns the chip off: the user's "6. a", view/viewlink.ts). */
+  topOnlyHides(row: number): boolean;
 }
 
 /** The farthest an anchor may lie from the fit's place of it, m (the planner, 2026-11-16): the fit takes the lowest
@@ -812,6 +817,24 @@ class Spots implements SpotView {
     if (this.fan) { this.closeFan(); return true; }
     if (this.selected) { this.select(null); return true; }
     return false;
+  }
+
+  // --- links ---
+
+  topOnlyHides(row: number): boolean {
+    if (!this.topOnly || !(row >= 0 && row < this.count) || this.top[row] !== 0) return false;
+    // the other filters as pass() reads them, for this one line
+    const m = this.model, f = m.filters, s = m.state, c = m.data.columns;
+    const none = (Object.keys(NO_FILTERS) as (keyof Filters)[])
+      .every((k) => k === "groupMin" || k === "favOnly" || f[k] === NO_FILTERS[k]);
+    let p = c.over[row] ? s.showOver : s.showClean;
+    if (p && !none) {
+      const cursor = new LineCursor(c);
+      cursor.i = row;
+      p = passesFilters(cursor, f, m.data.lift);
+    }
+    if (p && f.favOnly && m.favouritesOn) p = this.favourites.has(row);
+    return p;
   }
 }
 

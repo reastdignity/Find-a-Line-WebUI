@@ -81,8 +81,9 @@ interface ViewProps extends ResultColumnsProps {
   data: RunData;
 }
 
-/** The line a route names: a link as it is, or the `line` of a hash (#line=… of a map, #run=…&line=… of the app). */
-function linkOf(route: string | null): string | null {
+/** The line a route names: a link as it is, or the `line` of a hash (#line=… of a map, #run=…&line=… of the app).
+ *  Also the result view's (viewlink.ts). */
+export function linkOf(route: string | null): string | null {
   if (!route) return null;
   if (!route.startsWith("#")) return route;
   return new URLSearchParams(route.slice(1)).get("line");
