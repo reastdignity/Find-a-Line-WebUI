@@ -32,6 +32,7 @@ pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
 
 DESKTOP = {"viewport": {"width": 1400, "height": 900}}
 PHONE_KEYS = {"viewport": {"width": 390, "height": 664}}  # a phone's frame with a keyboard (the bottom bar)
+PHONE_LOW = {"viewport": {"width": 390, "height": 320}}  # the same, low: Home longer than the screen
 TOUCH = {"device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 TABLET = {"has_touch": True, "is_mobile": False}  # a touch tablet: a coarse pointer, the desktop's arrangement
 # The intros put away (ui/Intro.tsx) and the coverage layer as asked (coverageLayer.ts STORAGE_KEY)
@@ -153,14 +154,15 @@ def _cut(stop: dict) -> dict:
 
 
 @pytest.mark.parametrize("where, context", [("search", DESKTOP), ("more", DESKTOP), ("coverage", DESKTOP),
-                                            ("search", PHONE_KEYS), ("home", PHONE_KEYS)],
-                         ids=["search", "more-settings", "coverage", "search-phone", "home-phone"])
+                                            ("search", PHONE_KEYS), ("home", PHONE_KEYS), ("home", PHONE_LOW)],
+                         ids=["search", "more-settings", "coverage", "search-phone", "home-phone", "home-phone-low"])
 def test_rings_whole_after_the_focus_scroll(site, where, context):
     """Row 81: every Tab stop's ring lies inside its scroll boxes and the window, and clear of the phones' bottom bar
     (before: the form's goal cards, fields and "?" at the column's foot 3.7 to 4.5 px cut, the map's credits' links
     2.4 px at the map's foot, the coverage page's list rows and footer links 3 to 4 px at the window's foot, the
-    bottom bar's items 4 px at the screen's edges). The place map's own ring waits for line volume's round 6
-    (docs/known-bugs.md); a control with no ring of its own (the range, whose thumb has it) is not measured."""
+    bottom bar's items 4 px at the screen's edges; a low phone's Home, longer than its screen, scrolled a focused
+    control under the bottom bar). The place map's own ring waits for line volume's round 6 (docs/known-bugs.md); a
+    control with no ring of its own (the range, whose thumb has it) is not measured."""
     page = _open(site, where, context)
     stops = _walk(page)
     assert len(stops) > (4 if where == "home" else 8), stops  # the case: a page with its controls
@@ -168,6 +170,8 @@ def test_rings_whole_after_the_focus_scroll(site, where, context):
         assert any(s["name"] == "OpenStreetMap" for s in stops), stops  # the map's credits' links
     if where == "home":
         assert sum("u-bnav-item" in s["cls"] for s in stops) == 3, stops
+    if context is PHONE_LOW:  # the case: Home scrolls under the bottom bar
+        assert page.evaluate("() => { const m = document.querySelector('.c-main'); return m.scrollHeight - m.clientHeight; }") > 64
     cut = [(s["tag"], s["cls"][:40], s["name"], _cut(s)) for s in stops
            if s["ring"] and not s["map"] and not s["outline"] and _cut(s)]
     assert cut == [], cut
