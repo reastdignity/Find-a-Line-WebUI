@@ -198,9 +198,32 @@
 .ui .c-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .ui .c-admin-head b { overflow-wrap: anywhere; }
 .ui .c-admin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 4px; }
-.ui .c-admin-workers { margin: 10px 0 0; padding-left: 18px; }
+.ui .c-admin-workers { margin: 12px 0 0; padding-left: 16px; }
 .ui .c-admin-limits { margin: 8px 0 0; color: var(--ink-2); }
-.ui .c-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+/* a checkbox with its words ("Without limits", "Demo"): the whole row is its target (a press on the words ticks the
+   box), 24 px, 44 px on a touch screen (R2); a tools' row that no longer fits wraps. On a touch screen the checkbox,
+   last in its row, takes a line of its own under the buttons (the user's "Both", 2026-11-19), the line's whole width,
+   its target reaching up to the buttons over the row's 8 px gap (the words stay where they were): a finger's tap
+   beside it lands on it, never on "Approve", "Block…" or "Open", to which the browser's touch adjustment took a tap
+   in a gap (measured: 6 px above the words with the gap left open, every row on the iPhone) */
+.ui .c-check { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--fs-2); color: var(--ink-2);
+  cursor: pointer; }
+@media (pointer: coarse) {
+  .ui .c-check { min-height: 44px; }
+  .ui .c-admin-tools > .c-check { flex-basis: 100%; min-height: 52px; margin-top: -8px; padding-top: 8px; }
+}
+/* a question in place of a row's tools (AdminC.tsx Question: "Block them" / "Unblock them" / "Delete it" and "Keep"):
+   the two buttons alone in the row, 12 px apart, over a pad that takes a press and does nothing, between them, 16 px
+   beside and under them and 8 px above: a finger's tap beside "Block them" lands on the pad, never on the button by the browsers' touch
+   adjustment (it takes the nearest thing that answers a press) */
+.ui .c-ask { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+.ui .c-ask-pad { position: absolute; inset: -8px -16px -16px; }  /* 8 px above: not over the line before (a report's
+   run link, when no browser line stands between); taps 9 to 12 px above land on that line or on the pad, measured */
+.ui .c-ask > .u-btn { position: relative; }
+/* the page's badges (a user's state, "without limits", a report's kind, "demo") start with a capital, as the status
+   chips (.u-st-word): the words come in lower case from the server and the code; ::first-letter needs a block, which
+   a badge is as a flex item of .c-admin-head */
+.ui .c-admin .u-badge::first-letter { text-transform: uppercase; }
 .ui .c-user-pending { background: var(--warn); }
 .ui .c-user-blocked { background: var(--bad); }
 .ui .c-user-approved { background: var(--ok); }

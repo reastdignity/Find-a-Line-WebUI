@@ -416,8 +416,8 @@ under it and can switch the base map (main: at every size; the branch: on a tabl
 outlines are Tab stops before the pin and every control; on a desktop the Tab order in the map is coverage,
 layers, zoom (their order in the corner).
 
-The about page's long link ("ARSO's terms of use of its lidar data: http://...") is wider than its box on a phone:
-90 px over at 390 px (13 px text), 74 px on main (12.5 px); the page itself does not scroll sideways.
+The about page's long address ("ARSO's terms of use of its lidar data: http://...", plain text in a credit's notice)
+ran wider than its box on a phone: fixed by group D (DESIGN.md choice 53).
 
 Found by the probes on short screens and left, as on main (not made by the branch; measured on both codes,
 `local/ux-design-2026-11-16/3c-a/probes2/tables-compare.md`): on a phone the last rows of a page scroll under the
@@ -432,8 +432,37 @@ and 77.5 px with the usual one); on touch screens the bar is within 2 px of main
 Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
 (`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
 x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
-between a path's folders in Favourites, "Open map ›" on the sign-in page's example cards (`web.py`: outside the
-viewer).
+between a path's folders in Favourites ("Open map ›" on the sign-in page's example cards was one until group D:
+DESIGN.md choice 55).
+
+## Step 3c, group D (admin, privacy, about): known and left (2026-11-19)
+
+- **axe's `skip-link` on the admin page** (3 nodes on `c-admin` in every device and theme, axe's example
+  `.c-report-context > a`; measured 0 on `c-admin-end`, the same page scrolled to its end): a false
+  finding. With the `ui_shots` data the page has three hash links, all routes of the app, not anchors: a run's
+  "Open" and a problem report's run link (`#run=<id>`, `AdminC.tsx` `runHash`) and "OpenStreetMap extracts"
+  (`#osm`); axe's best-practice rule reads such a link as a same-page link to an element that does not exist. The
+  same on the base before group D.
+- **"All searches" with content is not in `tools/ui_shots.py`**: the tool's site has no job (a job would show on
+  the administrator's Home too and change that page's pictures). Group D pictured it with a probe in a folder of its
+  own (`local/ux-design-2026-11-16/3c-d/probes/`, three finished searches; its rows hold only a status chip and
+  kit buttons). The probe also gave the pending user a session: three buttons in one row on a phone, the checkbox on
+  its own line under them (DESIGN.md choice 50).
+- **The admin page's texts are English in the code** (`AdminC.tsx`, not in `locales/en.json`), its plurals made
+  there too; listed for the planner in `local/ux-design-2026-11-16/3c-d/admin-texts.md`. A problem report's context
+  line joins labelled values with " · " (`AdminC.tsx`, the `Reports` context: the run, "page …", "interface …",
+  "window …"): R9 allows "·" in a one-line meta line, never between values, and the line wraps to 2 lines on a 390 px
+  phone and 3 at 360 px (the design review's count): for step 3d, with the page's texts (colons and commas, or a list).
+- **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
+  ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
+  theme "Demo" and "Done" are the same pill), for the kit's round; the heading's "Users (2 waiting)" against the badge
+  "Pending"; "Open" in Runs with its arrow before the word where "Open map" has it after; the page's title the size of
+  its section titles; a wrapped ghost "End sessions" set in by its padding.
+- **The about page shows "<year of the run>" literally**: not a credit's own text. A credit names the year of the run
+  as `sources.YEAR` ("{year}"); where no run exists, the about page fills it with `sources.credit.YEAR_TEXT` (web.py
+  `about_page`, `src.dated(..., src.YEAR_TEXT)`): deliberate, left.
+- **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
+  accent); its row is the 44 px target (choice 50), the box itself is not restyled.
 
 ## A phone on its side at half: an uncertain shore's chip on the status line
 

@@ -3551,6 +3551,56 @@ def test_search_form_css_on_the_scales():
         assert 'cx("u-panel", !raised && "u-ground"' in f.read()  # `raised`: the one over the kit demo's map
 
 
+def test_admin_and_doc_pages_css():
+    """Group D of step 3c (2026-11-19): the admin page's checkbox and its words are one target, 24 px and 44 px on a
+    touch screen (R2), its badges start with a capital (as the status chips); the privacy and about pages' text rules
+    are scoped to .p-doc (the accepted sign-in page shares pages.css and none of them), their sizes from R5's tokens,
+    also inside an @media block. The row is the checkbox's target only while the input sits inside its label
+    (AdminC.tsx): every .c-check label holds its checkbox. On a touch screen the checkbox takes a line of its own
+    (the user's "Both", 2026-11-19; tests/test_shell_c.py::test_admin_block_asks_and_checkbox_apart taps it)."""
+    src = os.path.join(VIEWER, "src")
+    with open(os.path.join(src, "app", "c", "c.css"), encoding="utf-8") as f:
+        c = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    check = re.search(r"\.ui \.c-check \{([^}]*)\}", c)
+    assert check and "min-height: 24px" in check.group(1) and "var(--fs-2)" in check.group(1)
+    coarse = {s: b for s, b, m in _css_rules(c) if "pointer: coarse" in m}
+    assert "min-height: 44px" in coarse.get(".ui .c-check", ""), coarse
+    assert "flex-basis: 100%" in coarse.get(".ui .c-admin-tools > .c-check", ""), coarse
+    assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in c
+    with open(os.path.join(src, "app", "c", "AdminC.tsx"), encoding="utf-8") as f:
+        labels = re.findall(r'<label class="c-check">(.*?)</label>', f.read(), flags=re.S)
+    assert len(labels) == 2 and all('<input type="checkbox"' in label for label in labels), labels
+    with open(os.path.join(src, "ui", "pages.css"), encoding="utf-8") as f:
+        pages = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    prose = [(s, b) for s, b, _ in _css_rules(pages) if re.search(r"p-prose|p-facts", s)]
+    assert len(prose) >= 5
+    for selector, body in prose:
+        assert all(part.strip().startswith(".ui .p-doc ") for part in selector.split(",")), selector
+        for font in re.findall(r"font(?:-size)?:\s*([^;}]+)", body):
+            assert "var(--fs-" in font, (selector, font)
+    prose_rule = next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-prose")
+    assert "overflow-wrap: anywhere" in prose_rule
+    # about 75 characters a line (the user, 2026-11-20; DESIGN.md row 57): the whole doc column, centred
+    assert "max-width: calc(63ch + 32px)" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-page.p-doc")
+    assert "justify-content: flex-start" in next(b for s, b, _ in _css_rules(pages) if s == ".ui .p-doc .p-footer")
+
+
+def _css_rules(text: str) -> list:
+    """The style rules of a stylesheet without comments, also those inside @media (or any @-block): (selector, body,
+    the enclosing @-rules' preludes joined)."""
+    rules, stack, start = [], [], 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            stack.append(text[start:i].strip())
+            start = i + 1
+        elif ch == "}":
+            prelude = stack.pop() if stack else ""
+            if not prelude.startswith("@"):
+                rules.append((prelude, text[start:i], " ".join(stack)))
+            start = i + 1
+    return rules
+
+
 def test_placeholder_contrast():
     """Every text input's placeholder takes its colour from a token (ui/ui.css `.ui ::placeholder`, at full opacity:
     Firefox dims it otherwise) that reads at 4.5:1 or more on the fields' background (--surface, .u-input) in both

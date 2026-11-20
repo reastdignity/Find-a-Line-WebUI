@@ -409,6 +409,7 @@ def test_families_and_limits():
                 "page-privacy": "static", "c-result": "result", "c-line": "result", "map-shared": "result",
                 "c-basic-sea": "search", "c-new-more": "search", "c-layer-world": "layer", "c-layer-border": "layer",
                 "c-home": "home", "c-menu": "home", "c-osm": "home", "c-admin": "home", "c-account-end": "home",
+                "c-admin-end": "home", "page-about-end": "static",
                 "c-view": "view-b", "c-view-area": "view-b"}
     assert {name: ui_shots.page_family(name) for name in families} == families
     assert {ui_shots.page_family(name) for name in ui_shots.PAGES} == {
