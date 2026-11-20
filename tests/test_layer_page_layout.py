@@ -7,11 +7,11 @@ enlarged chart has its counts. L5: the panels' default widths are 340 and 485 px
 up that version's defaults and keeps a dragged width. L4: on a phone 600 px high or more the map stays at the top of
 the scrolling column, held sideways it scrolls away.
 The fix round (2026-11-20): a cell tapped on the phone's sticky map brings its card right under the map; the map is
-sticky after a turn of the phone (no inline position from Leaflet); the collapse tab and the map show the keyboard's
-ring; counts are parted by semicolons; the rails lead their counts with a colon and say "Expand the …" after their
-label; a bar's accessible name is its range and count, and in a chart too narrow for its counts a bar shows its own
-on the keyboard's focus; one container rule per count of bars from 1 to 24, a phone's enlarged chart 32 px a bar; a
-chart whose filter is off for the cubes in view has no bar to pick.
+sticky after a turn of the phone (no inline position from Leaflet); the collapse tab shows the keyboard's ring;
+counts are parted by semicolons; the rails lead their counts with a colon and say "Expand the …" after their
+label; a bar's accessible name is the count it writes, its range and count, and in a chart too narrow for its
+counts a bar shows its own on the keyboard's focus; one container rule per count of bars from 1 to 24, a phone's
+enlarged chart 32 px a bar; a chart whose filter is off for the cubes in view has no bar to pick.
 Every wait is an event with a deadline; a finger's taps keep test_shell_c_view_map's spacing (_tap, _tap_on)."""
 
 import json
@@ -417,11 +417,11 @@ def test_map_is_sticky_after_a_turn(site):
     page.context.close()
 
 
-def test_collapse_tab_and_map_show_the_keyboard_ring(site):
+def test_collapse_tab_shows_the_keyboard_ring(site):
     """The fix round's point 9 on a desktop, the focus brought by real presses of Tab: the left panel's collapse
     tab keeps its own shadow (two layers) and adds the kit's ring after it (2 px of the surface, 4 px of the
-    accent: four layers); the map, next in the order, draws its ring inside its box (an inset 2 px of the accent on
-    its ::after) and has no shadow of its own, which the panels would cover."""
+    accent: four layers). (The map's ring is not drawn inside its box: Leaflet focuses the map on a press, which
+    the browsers mark :focus-visible, so such a ring showed after every press: docs/known-bugs.md.)"""
     page = _page(site, DESKTOP)
     tab, shadow = ".c-mappage-3 > .c-col-left > .c-col-tab", "(s) => getComputedStyle(document.querySelector(s)).boxShadow"
     colours = page.evaluate(TOKENS_JS)
@@ -432,13 +432,6 @@ def test_collapse_tab_and_map_show_the_keyboard_ring(site):
     assert presses > 0 and page.evaluate("() => document.activeElement.matches(':focus-visible')")
     focused = _layers(page.evaluate(shadow, tab))
     assert focused == plain + [f"{colours['surface']} 0px 0px 0px 2px", f"{colours['accent']} 0px 0px 0px 4px"], (plain, focused)
-    _tab_to(page, "e.matches('.c-mappage-3 > .c-newmap')")
-    ring = page.evaluate("""() => { const map = document.activeElement, after = getComputedStyle(map, '::after');
-        return {visible: map.matches(':focus-visible'), own: getComputedStyle(map).boxShadow, after: after.boxShadow, content: after.content,
-                box: [after.position, after.top, after.right, after.bottom, after.left]}; }""")
-    assert ring["visible"] and ring["own"] == "none", ring
-    assert ring["after"] == f"{colours['accent']} 0px 0px 0px 2px inset" and ring["content"] == '""', ring
-    assert ring["box"] == ["absolute", "0px", "0px", "0px", "0px"], ring
     assert page.errors == [], page.errors
     page.context.close()
 

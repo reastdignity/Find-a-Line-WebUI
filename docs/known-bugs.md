@@ -513,6 +513,14 @@ layer's chart bars only (excepted by name in R2). Known and left:
   segments and the scale's: Enter and Space choose); on the coverage map a selected country stays drawn above its
   regions after its card closes (`flat.ts`); the map's shapes take no keyboard focus (every card is reached from
   the list).
+- **The layer's map shows no keyboard ring** (the design review's F10, inherited): the kit's ring lies outside the
+  map's box, under the side panels and the header. Drawn inside the box (the fix round's first build) it showed
+  after a press of a finger or a mouse too, so it was taken out: Leaflet focuses its container on a press
+  (`Map.Keyboard` `_onMouseDown`) and the browsers then mark that focus `:focus-visible`. Measured 2026-11-20, a
+  first press on a freshly loaded page: WebKit (iPhone 13) and Chromium (Pixel 7) after a tap, Chromium (1400 x 900)
+  after a click; the search page's map the same, with the kit's ring outside its box. A press after a press on
+  another control was not measured. A ring for the keyboard only needs the press told apart from a key, for the
+  place map of all three pages (`app/PlaceMap.ts`), not for the layer alone.
 - **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest: with the panels' new widths
   the map in headless Edge's window is 425 x 649 px (360 before) and the first lattice points of the first cut cell
   lay 3 px apart at the shared edge. Its points lie 2 px inside their parts, so another change of the map's size may
