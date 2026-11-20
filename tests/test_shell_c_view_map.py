@@ -70,9 +70,13 @@ window.T = {
   v() { return window.FINDALINE_VIEW; }, m() { return window.FINDALINE_MAP; },
   frames() { return new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0)))); },
   box() { return this.m().getContainer().getBoundingClientRect(); },
-  // the part of the map's box a person sees: above a phone's sheet
-  free() { const b = this.box(), sheet = document.querySelector(".u-sheet");
-    return [0, 0, b.width, sheet ? Math.min(b.height, sheet.getBoundingClientRect().top - b.top) : b.height]; },
+  // the part of the map's box a person sees: above a phone's sheet, above a desktop's profile card (the canvas's
+  // covered term, step 3c)
+  free() { const b = this.box(), sheet = document.querySelector(".u-sheet"), card = document.querySelector(".c-col-map > .r-card");
+    let bottom = b.height;
+    if (sheet) bottom = Math.min(bottom, sheet.getBoundingClientRect().top - b.top);
+    if (card) bottom = Math.min(bottom, Math.round(card.getBoundingClientRect().top - b.top));
+    return [0, 0, b.width, bottom]; },
   // a line's ends in the map's box, px (not rounded to whole pixels as Leaflet's own points are: a line that ends
   // within half a pixel of the view's edge would be counted on the wrong side of it)
   ends(row) { const c = this.v().view.model.data.columns, m = this.m(), origin = m.getPixelOrigin(), pane = m._getMapPanePos();
@@ -85,8 +89,8 @@ window.T = {
   away(px, py, [ax, ay, bx, by]) { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     const f = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0; return Math.hypot(px - ax - f * dx, py - ay - f * dy); },
   // every control over the map, by its own class (not by the page's own list of them, `data-map-control`): Leaflet's
-  // control containers, the bar's boxes, the frame's hint, the message, a phone's top bar
-  CONTROLS: ".v-map .leaflet-control, .v-levels, .v-best, .v-status, .v-fold, .v-help-button, .v-help, .v-legend, .v-hint-slot > *, .v-toast, .c-phone-top > *",
+  // control containers, the bar's boxes, the frame's hint, the message, a phone's top bar, a desktop's profile card
+  CONTROLS: ".v-map .leaflet-control, .v-levels, .v-best, .v-about-button, .v-status, .v-fold, .v-help-button, .v-help, .v-legend, .v-hint-slot > *, .v-toast, .c-phone-top > *, .c-col-map > .r-card",
   controls() { return [...document.querySelectorAll(this.CONTROLS)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height); },
   // the numbers of one kind on the map now: the middle of each in the viewport, its line and that line's spot
   numbersOf(kind) { const {view, map} = this.v();
@@ -112,6 +116,7 @@ window.T = {
     return null; },
   // the boxes of the map's controls by name (those on the page now), for "no control covers another"
   boxes() { const named = {status: ".v-status", legend: ".v-legend", fold: ".v-fold", help: ".v-help-button", levels: ".v-levels", best: ".v-best",
+      info: ".v-about-button", coarse: ".v-map .u-coarse",
       zoom: ".v-map .leaflet-control-zoom", layers: ".v-map .leaflet-control-layers", chip: ".v-map .u-shore-ctl", scale: ".v-map .leaflet-control-scale",
       credits: ".v-map .leaflet-control-attribution", toast: ".v-toast", top: ".c-phone-top > *", hint: ".v-hint-slot > *",
       back: ".v-status .v-back-auto"}, out = {};
@@ -136,6 +141,7 @@ window.T = {
       inPixels: Array.from(view.order).filter((s) => this.crosses(this.ends(view.shownOf(s)), f)),
       numbered: v.numbered, refused: v.refused, thin: v.strokes, strokes: d.strokes, numbers, picks: view.picks().length,
       legend: [...document.querySelectorAll(".v-legend [data-kind]")].map((e) => e.dataset.kind), shapes: Object.keys(map.legend().shapes),
+      runs: (map.legend().runs || []).length,
       status: document.querySelector(".v-status-text")?.textContent ?? null, bar: document.querySelector(".v-status")?.textContent ?? null,
       marked: !!document.querySelector(".v-status.v-refused"), mpp: view.mpp, zoom: this.m().getZoom(), size: [box.width, box.height], free: f,
       selected: sel && [sel.spot, sel.row], shown: sel && view.shownOf(sel.spot), fan: fan && {lines: fan.lines, rows: fan.rows.map((r) => [r.label, r.row]), xy: fan.xy},
@@ -305,9 +311,13 @@ def _numbers_hold(s: dict, labels: set):
 
 def _legend_holds(s: dict):
     """The legend lists exactly the shapes and colours on the map now (at Area the squares stand for the lines'
-    colours), then the access mark's three states."""
+    colours), then what is drawn besides the spots (a favourite's halo, the search area's outline, each other run of
+    Compare), then the access mark's three states only while an anchor of the selected line is in view (the canvas's
+    `ends`: the user's L b, 2026-11-20)."""
     kinds = ("sq", "P") if s["level"] == "area" else ("clear", "over", "P", "B", "pale", "A", "L", "here")
-    assert s["legend"] == [k for k in kinds if k in s["shapes"]] + ["access-2", "access-1", "access-0"], s["legend"]
+    shapes = s["shapes"]
+    want = [k for k in kinds if k in shapes] + [k for k in ("fav", "area") if k in shapes] + ["run"] * s["runs"]
+    assert s["legend"] == want + (["access-2", "access-1", "access-0"] if "ends" in shapes else []), (s["legend"], shapes)
 
 
 def _in_view_holds(s: dict):
@@ -457,6 +467,11 @@ def test_presses_with_a_mouse(site):
             number = s["numbers"][0]
             spot = s["bestSpots"][int(number["label"][1:]) - 1]
             page.mouse.click(box[0] + number["x"], box[1] + number["y"])
+            page.wait_for_selector(".c-col-map > .r-card", timeout=WAIT)
+            # the profile's card opened: the foot is the short one, the legend behind "Legend" (the user's 4 a)
+            assert page.evaluate("() => [!!document.querySelector('.v-legend'), document.querySelector('.v-fold')?.getAttribute('aria-expanded')]") == [False, "false"]
+            page.click(".v-fold")
+            page.wait_for_selector(".v-legend", timeout=WAIT)
             chosen = _state(page)
             assert chosen["selected"] == [spot, chosen["shown"]] and chosen["made"] == 1
             _legend_holds(chosen)
@@ -577,7 +592,10 @@ def test_phone_touch(site):
             _legend_holds(start)
             _numbers_hold(start, {f"B{k}" for k in range(1, 11)})
             fold = page.evaluate("() => [document.querySelector('.v-fold').getAttribute('aria-expanded'), document.querySelectorAll('.v-lg-line').length]")
-            assert fold == ["true", 2]  # the legend: two lines, unfolded while the sheet is low
+            # the legend unfolded while the sheet is low: the lines and numbers; what else is drawn (the search area's
+            # outline, a favourite, other runs); the access marks only with a selected line's anchor in view (L b)
+            lines = 1 + bool({"fav", "area"} & set(start["shapes"]) or start["runs"]) + ("ends" in start["shapes"])
+            assert fold == ["true", lines], (fold, start["shapes"])
             # the sheet raised to half: the view's rectangle is taken again, fewer spots are in view
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
@@ -693,6 +711,25 @@ CHIP = """() => { const holder = document.createElement("div");
   metres.className = "u-shore-chip-m"; metres.textContent = "1.6 km";
   document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(holder); }"""
 
+# A stand-in for the coarser terrain's box (coarserLayer.ts coarserControl: a Leaflet control at the map's top left,
+# never folded), which the clip's run does not have either: the same classes and help button (shoreLayer.ts
+# helpButton, the kit's "info" icon), its title and one fallback's row in the catalogue's words
+COARSE = """() => { const box = document.createElement("div");
+  box.className = "leaflet-control u-shore u-coarse";
+  const head = box.appendChild(document.createElement("div"));
+  head.className = "u-shore-head";
+  head.appendChild(document.createElement("b")).textContent = %s;
+  const help = head.appendChild(document.createElement("button"));
+  help.type = "button"; help.className = "u-ib u-plain u-shore-help"; help.setAttribute("aria-label", %s);
+  help.innerHTML = '<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>';
+  const row = box.appendChild(document.createElement("div"));
+  row.className = "u-shore-row";
+  row.appendChild(document.createElement("span")).className = "u-coarse-swatch";
+  row.appendChild(document.createElement("span")).textContent = %s;
+  document.querySelector(".v-map .leaflet-top.leaflet-left").appendChild(box); }""" % (
+    json.dumps(WORDS["ui.coarse.title"]), json.dumps(WORDS["ui.coarse.help_button"]),
+    json.dumps(WORDS["ui.coarse.km2"].replace("{{km2}}", "0.4").replace("{{res}}", "30").replace("{{name}}", "Copernicus GLO-30")))
+
 
 # The panels' hint hidden by its ×: on a phone its button then stands on the map, in the row of buttons beside "Legend"
 # (the frame's slot), the worst case of the pilot's arrangement (2026-11-18)
@@ -743,12 +780,13 @@ def _apart(page, state: str, known: tuple = ()) -> dict:
 
 
 def test_phone_controls_apart(site):
-    """A small phone (390 x 664) with the shore's chip on the map and the hint hidden (its button in the bar's row of
-    buttons: the pilot's worst case). At the sheet's low
-    stop and at half, no control of the map covers another (the status line, the legend, its fold, the key's "i", the
-    hint's button, the switch, Best, the zoom buttons, the layers button, the shore's chip, the scale, the credits,
-    the top bar; the message is the status line's first line, a part of its box; the access mark's key, opened,
-    lies above them as a panel) and each stands above
+    """A small phone (390 x 664) with the shore's chip and the coarser terrain's box on the map (the tests' stand-ins)
+    and the hint hidden (its button in the bar's row of buttons: the pilot's worst case). At the sheet's low
+    stop and at half, no control of the map covers another (the status line, the legend, its fold, the map's "i", the
+    hint's button, the switch, Best, the zoom buttons, the layers button (the kit's icon), the shore's chip, the
+    coarser box (its help was under the layers button before step 3c), the scale, the credits, the top bar with the
+    run's actions; the message is the status line's first line, a part of its box; the map's help, opened, lies above
+    them as a panel) and each stands above
     the sheet: at Area, Spots, Lines, Lines with All refused, and after a tap on several spots (the message up). The
     legend is unfolded by itself while the sheet is low and folded at half, where this phone has no room for it: a
     press on "Legend" there lowers the sheet and unfolds it. An opened layers list lies above the bar. A tap on a
@@ -765,8 +803,12 @@ def test_phone_controls_apart(site):
             page = _open(browser, f"{site}#run={BIG}", SMALL_PHONE)
             page.wait_for_function(settled % "s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]", timeout=WAIT)
             page.evaluate(CHIP)
+            page.evaluate(COARSE)
             page.evaluate(HINT)
             page.wait_for_function(HINT_SHOWN, timeout=WAIT)
+            # the layers button with the kit's "layers" icon (layersControl.ts), not Leaflet's picture
+            assert page.evaluate("() => { const t = document.querySelector('.v-map .leaflet-control-layers-toggle'); "
+                                 "return !!t.querySelector('svg.u-ic') && getComputedStyle(t).backgroundImage === 'none'; }")
             seen = {}
             for stop in ("low", "half"):
                 if stop == "half":
@@ -776,7 +818,7 @@ def test_phone_controls_apart(site):
                 for name, script in states:
                     s = _state(page, fit + script)
                     boxes = seen[stop, name] = _apart(page, f"{stop} {name}")
-                    assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "scale"} <= set(boxes), (stop, name, sorted(boxes))
+                    assert {"status", "fold", "help", "hint", "levels", "best", "zoom", "layers", "chip", "coarse", "scale"} <= set(boxes), (stop, name, sorted(boxes))
                     # the legend by itself: unfolded while the sheet is low, folded at half
                     assert page.evaluate(legend) == (["true", True] if stop == "low" else ["false", False]), (stop, name)
                     assert ("legend" in boxes) == (stop == "low")
@@ -799,13 +841,14 @@ def test_phone_controls_apart(site):
                             # 2026-11-18; before R2 and the pilot: under 70); _apart keeps it clear of every control
                             assert ramp["lines"] == 2 and ramp["whole"] and ramp["swatches"] == 5 and ramp["height"] < 120, ramp
                             assert ramp["text"].startswith("1") and ramp["text"].endswith("+") and "," in ramp["name"], ramp
-                # the access mark's key, opened by its "?": a panel above the controls, the others still apart
+                # the map's help, opened by its "i" on the access mark's key (the user's 7 b): a panel above the
+                # controls, the others still apart
                 _state(page, fit + "view.setTopOnly(true); view.setBest(10); view.setLevel('spots');")
                 _tap_on(page, ".v-help-button button")
                 page.wait_for_selector(".v-over > .v-help", timeout=WAIT)
                 page.evaluate("() => T.frames()")
-                _apart(page, f"{stop}, the access mark's key open")
-                key = _over_holds(page, ".v-over > .v-help", f"{stop}, the access mark's key")
+                _apart(page, f"{stop}, the map's help open")
+                key = _over_holds(page, ".v-over > .v-help", f"{stop}, the map's help")
                 assert key["box"][3] - key["box"][1] > 40, key
                 # its "i" says it is open, in words and in the kit's on-state (the soft accent)
                 look = "() => { const b = document.querySelector('.v-help-button button'), s = getComputedStyle(b); return [b.getAttribute('aria-expanded'), s.backgroundColor]; }"
@@ -903,8 +946,9 @@ def test_phone_controls_apart(site):
 def test_phone_on_its_side(site):
     """A phone on its side (667 x 375, the phone's layout), with the shore's chip (the test's stand-in): the zoom and
     the layers stand in the level switch's row, right of Best (the user's Q2 a of 2026-11-18), the chip after the zoom
-    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (at half with
-    a level held, the status line's longer sentence under the chip: docs/known-bugs.md). The map has no room for a
+    or on the next row. No control covers another at the low stop, nor at half, but for one known pair (with a level
+    held, the status line's longer sentence and its "Back to Auto" under the chip: at half, and since the user's W1
+    words at the low stop too; the user's P c of 2026-11-20, docs/known-bugs.md). The map has no room for a
     line of the legend even with the sheet low: the legend is folded by itself; a press on "Legend" opens it as a panel
     above the map's other controls, within the map's height, and says so (aria-expanded); the same button, Esc (which
     ends nothing else) and a press on the map close it; at half the press lowers the sheet and opens the panel."""
@@ -923,7 +967,10 @@ def test_phone_on_its_side(site):
             assert first["selected"] is not None and page.evaluate("() => document.querySelector('.v-fold').disabled") is False
             page.wait_for_function(closed, timeout=WAIT)  # folded by itself: no room
             page.evaluate("() => T.frames()")
-            side = _apart(page, "on its side, low")
+            # a level held: the status line's longer sentence since the user's W1 ("Kept while you zoom."), and its
+            # "Back to Auto", reach under the shore's chip at the low stop too (the user's P c of 2026-11-20: the phone
+            # held sideways stays a known bug; docs/known-bugs.md); every other control stays apart
+            side = _apart(page, "on its side, low", known=(("back", "chip"), ("chip", "status")))
             # the zoom and the layers up in the switch's row, the zoom right of Best; the chip after the zoom or below it
             assert side["zoom"][0] >= side["best"][2] and side["zoom"][3] <= side["levels"][3] + 0.5, side
             assert side["layers"][3] <= side["levels"][3] + 0.5 and side["chip"][0] >= side["zoom"][0], side
@@ -1338,7 +1385,7 @@ def test_flag_old_run_and_blocked_storage(site):
                 page.goto(address)
                 page.wait_for_function(ready, timeout=WAIT)
                 assert page.evaluate(which) == want, address
-            # the run's actions are not in the view yet; today's page has them
+            # today's page has the run's actions (the view too since step 3c: below)
             assert page.evaluate("() => !!document.querySelector('.r-actions')") is True
             page.close()
             # a run saved before the view's columns (a store without them): today's page, the console says why
@@ -1360,7 +1407,7 @@ def test_flag_old_run_and_blocked_storage(site):
             page.goto(f"{site}&view=b#run={BIG}")
             page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT)
             s = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")
-            assert s["level"] == "spots" and s["selected"] is not None and not page.evaluate("() => !!document.querySelector('.r-actions')")
+            assert s["level"] == "spots" and s["selected"] is not None and page.evaluate("() => !!document.querySelector('.c-result-top .r-actions')")
             _in_view_holds(s)
             page.goto("about:blank")
             page.goto(f"{site}#run={BIG}")
