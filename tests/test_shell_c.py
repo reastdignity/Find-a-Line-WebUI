@@ -2225,7 +2225,7 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    r = {"beside": [], "words": []}
+    r = {"beside": [], "words": [], "pad": []}
     try:
         deadline = time.monotonic() + 30
         while not server.started and time.monotonic() < deadline:
@@ -2287,6 +2287,19 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
                     page.touchscreen.tap((words[0] + words[2]) / 2, (words[1] + words[3]) / 2)
                     page.wait_for_timeout(700)
                     r["words"].append(next(u["unlimited"] for u in users.listing() if u["id"] == made["quiet one"]))
+                # Block's question open: a tap 8 px after "Keep" and 8 px before "Block them" lands on the pad around
+                # them (no request, the question stays open), not on a button by the touch adjustment
+                approved = page.locator(".c-admin-row", has_text="approved one")
+                approved.get_by_role("button", name="Block…").scroll_into_view_if_needed()
+                approved.get_by_role("button", name="Block…").tap()
+                focused(page, "Keep")
+                act, keep = approved.locator(".c-user-block").bounding_box(), approved.locator(".c-ask-keep").bounding_box()
+                for where, point in (("after Keep", (keep["x"] + keep["width"] + 8, keep["y"] + keep["height"] / 2)),
+                                     ("before the act", (act["x"] - 8, act["y"] + act["height"] / 2))):
+                    before = state()
+                    page.touchscreen.tap(*point)
+                    page.wait_for_timeout(700)
+                    r["pad"].append([where, state() == before, page.locator(".c-ask").count()])
                 context.close()
 
                 # a desktop: the checkbox in its row; Block… and Unblock… ask first
@@ -2351,6 +2364,7 @@ def test_admin_block_asks_and_checkbox_apart(tmp_path, clip_run, monkeypatch):
     assert all(beside[2:5] == [True, 0, True] for beside in r["beside"]), r["beside"]
     assert all(beside[5] for beside in r["beside"] if beside[1] == "end"), r["beside"]  # the line is the label's
     assert r["words"] == [True, False], r
+    assert r["pad"] == [["after Keep", True, 1], ["before the act", True, 1]], r["pad"]
     for row in r["desk_rows"]:  # a mouse: in the row, beside its buttons
         assert any(other[2] <= row["label"][1] + 24 and row["label"][3] >= other[2] for other in row["others"]), row
     assert r["asked"] == "Block them" and r["after_ask"] == r["after_keep"] == ("approved", 1), r
