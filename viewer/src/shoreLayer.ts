@@ -1,6 +1,7 @@
 // The uncertain shore on a Leaflet map (shore.ts): the segments as an overlay of the layer control, and a
-// small control (top left, under the run's title bar) with a legend of the two kinds, the metres of each in view and a
-// "?" with a longer explanation, shown only while the view holds some; on a phone folded into a one-line chip.
+// small control (top left, under the run's title bar) with a legend of the two kinds, the metres of each in view and
+// the kit's "info" icon opening a longer explanation, shown only while the view holds some; on a phone folded into a
+// one-line chip.
 
 import L from "leaflet";
 import { t } from "./i18n";
@@ -30,6 +31,24 @@ export function shoreTotal(m: number): string {
   return Math.round(m) >= 1000 ? t("ui.shore.km", {km: (m / 1000).toFixed(1)}) : t("ui.shore.m", {m: Math.round(m)});
 }
 
+/** The kit's "info" icon (ui/icons.tsx ICONS.info, drawn as its Icon draws it), copied: this file is also bundled
+ *  without the loader of the logo's .svg files that icons.tsx imports (viewer/test/shore_page.ts in
+ *  tests/test_viewer.py). tests/test_access_view.py holds the copy equal to the kit's. */
+export const INFO_ICON = '<svg class="u-ic" viewBox="0 0 24 24" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>';
+
+/** The help button of a box over the map (the shore's, the coarser terrain's): the kit's plain icon button with the
+ *  "info" icon (as access.tsx's key in the result view: R9, no "?" character), `label` its name and its title. */
+export function helpButton(parent: HTMLElement, label: string): HTMLButtonElement {
+  const help = L.DomUtil.create("button", "u-ib u-plain u-shore-help", parent);
+  help.type = "button";
+  help.innerHTML = INFO_ICON;
+  help.setAttribute("aria-label", label);
+  help.title = label;
+  help.setAttribute("aria-expanded", "false");
+  return help;
+}
+
 /** A chevron for the fold buttons, down (unfold) or up (fold). */
 function chevron(up: boolean): string {
   return `<svg class="u-shore-chev" viewBox="0 0 10 10" aria-hidden="true"><path d="${up ? "M2 6.5 5 3.5 8 6.5" : "M2 3.5 5 6.5 8 3.5"}"` +
@@ -37,7 +56,7 @@ function chevron(up: boolean): string {
 }
 
 /** The control of the uncertain shore in the map's view: a legend of the two kinds with the metres of each in
- *  view (updated on every move), and a "?" opening a longer explanation; hidden while the view holds none; at
+ *  view (updated on every move), and the info icon opening a longer explanation; hidden while the view holds none; at
  *  the top left of the map. On the phone layout (under 768 px, ui.css; ui/components.tsx `DESKTOP` is its
  *  opposite) it starts folded into a one-line chip (the swatches of the kinds in view, "Uncertain shore", the total
  *  in view, a chevron) that unfolds into the box; the box's title folds it again, and it stays as it is while the
@@ -75,11 +94,7 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
   fold.setAttribute("aria-label", t("ui.shore.fold"));
   L.DomUtil.create("span", "", fold).textContent = t("ui.shore.title");
   fold.insertAdjacentHTML("beforeend", chevron(true));
-  const help = L.DomUtil.create("button", "u-hint u-shore-help", head);
-  help.type = "button";
-  help.textContent = "?";
-  help.setAttribute("aria-label", t("ui.shore.help_button"));
-  help.setAttribute("aria-expanded", "false");
+  const help = helpButton(head, t("ui.shore.help_button"));
   const rows: Record<ShoreKind, HTMLElement> = {surface: L.DomUtil.create("div", "u-shore-row", box),
                                                  sea: L.DomUtil.create("div", "u-shore-row", box)};
   const texts: Record<ShoreKind, HTMLElement> = {} as Record<ShoreKind, HTMLElement>;

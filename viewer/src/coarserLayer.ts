@@ -1,11 +1,13 @@
 // The coarser terrain on a Leaflet map (coarser.ts): the regions a fallback filled as a hatched overlay of the layer
-// control, and a small control (top left, under the uncertain shore's) with each fallback's km² in view and a "?"
-// with a longer explanation, shown only while the view holds some. As shoreLayer.ts, whose box styles it shares.
+// control, and a small control (top left, under the uncertain shore's) with each fallback's km² in view and the kit's
+// "info" icon with a longer explanation, shown only while the view holds some. As shoreLayer.ts, whose box styles and
+// help button it shares.
 
 import L from "leaflet";
 import { t } from "./i18n";
 import { fallbacks, hasCoarser, km2InView, km2Text, regionBox, regionsBox } from "./coarser";
 import type { LatLngBox } from "./shore";
+import { helpButton } from "./shoreLayer";
 import type { TerrainSources } from "./types";
 
 /** The outline's colour for Leaflet's attribute; CSS (.u-coarse-area, the token --coarse) gives each theme its own. */
@@ -56,9 +58,9 @@ export function coarserLayer(sources: TerrainSources, renderer: L.SVG = L.svg({p
 }
 
 /** The control of the coarser terrain in the map's view: a row per fallback with its resolution, its name and the km²
- *  of its regions in view (updated on every move), and a "?" opening a longer explanation; hidden while the view
- *  holds none (or the overlay is off); at the top left of the map. `coarserControl(map, sources).remove()` takes it
- *  off. */
+ *  of its regions in view (updated on every move), and the info icon opening a longer explanation; hidden while the
+ *  view holds none (or the overlay is off); at the top left of the map. `coarserControl(map, sources).remove()` takes
+ *  it off. */
 export function coarserControl(map: L.Map, sources: TerrainSources, overlay?: L.Layer,
                                position: L.ControlPosition = "topleft"): L.Control {
   const boxes = sources.regions.map(regionBox);
@@ -67,11 +69,7 @@ export function coarserControl(map: L.Map, sources: TerrainSources, overlay?: L.
   L.DomEvent.disableClickPropagation(box);
   const head = L.DomUtil.create("div", "u-shore-head", box);
   L.DomUtil.create("b", "", head).textContent = t("ui.coarse.title");
-  const help = L.DomUtil.create("button", "u-hint u-shore-help", head);
-  help.type = "button";
-  help.textContent = "?";
-  help.setAttribute("aria-label", t("ui.coarse.help_button"));
-  help.setAttribute("aria-expanded", "false");
+  const help = helpButton(head, t("ui.coarse.help_button"));
   const first = fallbacks(sources)[0];
   const rows = sources.layers.map((layer) => {
     if (layer.role !== "fallback") return null;

@@ -2,12 +2,15 @@
 // lines" of the lines that pass the filters (the view's counts; thousands with a no-break space), how many lines
 // the filters hide ("Top level only" among them), and in a run made with the square rule the second line "2 010 351
 // found. Why so many?" whose link opens today's box (ResultSummary's WhyBox: its "Show" boxes are filters like the
-// others). Under them today's notes: the coarser terrain's and the model's. The legend is the map's (MapBar).
+// others). Under them, as on today's page: a run whose access mark was asked for and left out (its area too wide:
+// RunHead.access_skipped) says so in today's muted line (ResultSummary's AccessLegend, which for a run without the
+// mark draws only that line); then today's notes: the coarser terrain's and the model's. The legend is the map's
+// (MapBar).
 
 import { t } from "../../i18n";
 import type { SpotView } from "../spots";
 import { count } from "./common";
-import { CoarserNote, ResultNote, WhyBox } from "./ResultSummary";
+import { AccessLegend, CoarserNote, ResultNote, WhyBox } from "./ResultSummary";
 import { changePanels, panelState } from "./viewstate";
 
 /** The headline alone: the spots and lines that pass, and the lines hidden. */
@@ -36,6 +39,8 @@ export function SpotSummary({view, headline = true}: {view: SpotView; headline?:
                 onClick={() => setWhy(!ui.why)}>{t("ui.result.why")}</button></p>
       {ui.why && <WhyBox model={model} found={found as number} onClose={() => setWhy(false)} />}
     </>}
+    {/* the line "Anchors' access not marked: …" only (a run with the mark has its legend on the map) */}
+    {!model.hasAccess && <AccessLegend model={model} />}
     <CoarserNote model={model} />
     <ResultNote model={model} />
   </div>;
