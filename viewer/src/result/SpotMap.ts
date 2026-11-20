@@ -21,14 +21,25 @@
 //   finger; several spots about as near: the table of spots (onChoose), with a finger a zoom in around the point
 //   until the map shows CLOSE_MPP; a square zooms to itself; a right click or a press held 600 ms opens "Lines
 //   from here"; a mouse's hover thickens the line a press would take.
+// Step 3c (today's features on the canvas, none of them pressable): the run's search area as today's thin dashed
+// outline in the map's ink, over the squares' fills and under their values, the lines and the numbers (no obstacle
+// for a number); a favourite that is its spot's shown line on today's gold halo (the selected one gold in the dark
+// halo's place); Compare's other runs (ResultModel.others) in their colours with their dashed areas, under this
+// run's lines, never counted in the levels, the squares, Best N, "in view" or the picks; Measure (the members
+// RunActions' RunActionsMap needs: two presses are two points, black dashes between white points, Esc cancels, a
+// phone's map holds still) and a measured line the frame draws (drawMeasured); the bottom part the frame covers with
+// its profile card (setCovered) is not in view, as a phone's sheet is not.
 // The lines are drawn from their own latitudes and longitudes (Web Mercator by hand: two logarithms a line, no
 // object per point); the squares' corners and the pressed point go through the view's fit.
 
+import type { Geometry, Position } from "geojson";
 import L from "leaflet";
 import { accessMarkSvg, accessState, accessWord } from "../access";
+import { passes as passesFilters } from "../filters";
 import { t } from "../i18n";
 import { timed } from "../perf";
 import { COLORS } from "../style";
+import { LineCursor } from "../types";
 import type { Padding } from "./ResultMap";
 import type { FanRow, SpotChoice, SpotView } from "./spots";
 import { breaks, classOf, FAN_HERE, reader, squareAt, squareSide, squareValues, SQUARE_PX, type Level, type Quad,
@@ -56,9 +67,18 @@ export interface SpotMapOptions {
   padding?(): Padding;
 }
 
-/** What the map shows now, for its legend: the shapes and colours drawn, and at Area the squares' value and breaks. */
-export interface Legend { level: Level; shapes: {[K in ShapeKind]?: true}; by: SquareBy; breaks: number[] }
-export type ShapeKind = "sq" | "P" | "B" | "L" | "A" | "pale" | "here" | "clear" | "over";
+/** What the map shows now, for its legend: the shapes and colours drawn, and at Area the squares' value and breaks;
+ *  `runs`: Compare's other runs drawn in the part a person sees (a line or the area's outline), in model.others'
+ *  order. */
+export interface Legend { level: Level; shapes: {[K in ShapeKind]?: true}; by: SquareBy; breaks: number[]; runs: LegendRun[] }
+/** Step 3c's kinds: "fav" a favourite's gold halo in view, "area" the search area's outline crossing the part a person
+ *  sees, "measure" a measurement drawn, "ends" an anchor of the selected line (A1 or A2) in the part a person sees
+ *  (the legend's access marks: the user's "L b"). */
+export type ShapeKind = "sq" | "P" | "B" | "L" | "A" | "pale" | "here" | "clear" | "over" | "fav" | "area" | "measure" | "ends";
+/** Another run drawn on the map: its id, name and colour (others.ts colorOf: ShownRun.color). */
+export interface LegendRun { id: string; name: string; color: string }
+/** A line given by its ends (a measured line: not a row of the run). */
+export interface LineEnds { lat1: number; lon1: number; lat2: number; lon2: number }
 /** A number's shape on the map: B a box with round corners, P a diamond, L a six-sided tag, A a circle. */
 export type MarkKind = "B" | "P" | "L" | "A";
 
@@ -84,6 +104,56 @@ const TEXT_PX = 12;
 const MARK_FONT = `600 ${TEXT_PX}px system-ui, sans-serif`;
 const HALO = 1.25;  // px the halo of a square's value reaches beyond its letters (half its 2.5 px stroke)
 const D = Math.PI / 180;
+/** A number is left out when even its farthest place is nearer than this share of a box (32 × 23 px) to a number
+ *  placed before it; the numbers of "Lines from here" by the same rule, after the B and P numbers (the user's N1 b
+ *  and N2 a at gate 1, 2026-11-20; before: a quarter, the fan's numbers never). tools/view_numbers.py keeps a copy. */
+export const APART_MIN = 1 / 3;
+const BOX_W = 32, BOX_H = 23;
+/** Today's search area (ResultMap.ts): weight 1, dashes 6 (Leaflet's "6": 6 on, 6 off), here in the map's ink. */
+const OUTLINE_PX = 1, OUTLINE_DASH = [6, 6];
+/** A favourite's halo: today's line weight + 7 px at 60 % (dimmed with the lines); the selected one's gold in the
+ *  dark halo's place at 80 % (ResultMap.ts). The gold is today's (style.ts COLORS.favourite: light in both themes). */
+const FAV_PX = 10, FAV_ALPHA = 0.6, FAV_SELECTED = 0.8;
+/** Another run's lines: today's weight 2.5 px, over trees or buildings dashed "6 4", 90 % (ResultMap.ts). */
+const OTHER_PX = 2.5, OTHER_ALPHA = 0.9, OTHER_DASH = [6, 4];
+/** A measurement: black dashes "6 4" of 2 px between white points of radius 5 with a black 2 px ring (ResultMap.ts). */
+const MEASURE_PX = 2, MEASURE_DASH = [6, 4], MEASURE_R = 5;
+
+/** Unit Web Mercator (0 … 1 each way) of a latitude and a longitude: the canvas's own projection. */
+function mercX(lon: number): number { return lon / 360 + 0.5; }
+function mercY(lat: number): number { const s = Math.sin(lat * D); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); }
+
+/** A run's area as rings and lines in unit Web Mercator ([x0, y0, x1, y1, …] each), and its box; the GeoJSON of a
+ *  run's head (a Polygon or a MultiPolygon; a Feature, a collection or a line too, as Leaflet's geoJSON takes them). */
+function areaOf(g: unknown): {rings: Float64Array[]; box: L.LatLngBounds | null} {
+  const rings: Float64Array[] = [];
+  let box: L.LatLngBounds | null = null;
+  const line = (pts: Position[]) => {
+    const a = new Float64Array(2 * pts.length);
+    pts.forEach((p, k) => {
+      a[2 * k] = mercX(p[0]); a[2 * k + 1] = mercY(p[1]);
+      const at = L.latLng(p[1], p[0]);
+      if (box) box.extend(at); else box = L.latLngBounds(at, at);
+    });
+    if (pts.length > 1) rings.push(a);
+  };
+  const walk = (o: any) => {
+    switch (o?.type) {
+      case "Polygon": case "MultiLineString": (o.coordinates as Position[][]).forEach(line); break;
+      case "MultiPolygon": (o.coordinates as Position[][][]).forEach((p) => p.forEach(line)); break;
+      case "LineString": line(o.coordinates as Position[]); break;
+      case "GeometryCollection": (o.geometries as Geometry[]).forEach(walk); break;
+      case "Feature": walk(o.geometry); break;
+      case "FeatureCollection": (o.features as any[]).forEach((f) => walk(f?.geometry)); break;
+    }
+  };
+  walk(g);
+  return {rings, box};
+}
+
+/** An other run as the canvas draws it: its rings, its lines' ends and kinds, which of them pass the filters now. */
+interface OtherRunDrawn { id: string; name: string; color: string; rings: Float64Array[]; n: number;
+                          lat: ((i: number) => number)[]; lon: ((i: number) => number)[]; over: Uint8Array; ok: Uint8Array }
 
 /** The half width and height of a number's shape. */
 export function markSize(kind: MarkKind, text: string): [number, number] {
@@ -196,8 +266,21 @@ export class SpotMap {
   private checkTimer = 0;
   private by: SquareBy = "spots";
   private grid: SquareGrid | null = null;
-  private legendNow: Legend = {level: "area", shapes: {}, by: "spots", breaks: []};
+  private legendNow: Legend = {level: "area", shapes: {}, by: "spots", breaks: [], runs: []};
   private legendKey = "";
+  // step 3c
+  private readonly area: {rings: Float64Array[]; box: L.LatLngBounds | null};  // the run's search area
+  private otherRuns: OtherRunDrawn[] = [];  // Compare's other runs, as drawn now
+  private othersKey = "";                   // what otherRuns was made for
+  private coveredPx = 0;                    // the frame's box over the map's bottom (setCovered)
+  private measuring: ((a: L.LatLng, b: L.LatLng) => void) | null = null;
+  private measured: L.LatLng[] = [];        // the measurement's points drawn (0, 1 or 2)
+  private readonly measureListeners = new Set<(measuring: boolean) => void>();
+  private still: {drag: boolean; dbl: boolean} | null = null;  // a phone's map held still while measuring: what was on
+  private restore: (() => void) | null = null;  // its putting back, when it waits for the press under way to end
+  private stillTimer = 0;
+  private selectedRow = -1;                 // the selection the measurement last saw
+  private drewNow = {halos: 0, outline: false, others: [] as {id: string; lines: number}[]};  // drawn(): what was painted
   // what a press can take, in the layer's pixels of the last full paint: the lines (rank 2 bold: numbered, a pick,
   // the selected line; 1 thin; 0 pale), the numbers' shapes, the fan's lines
   private tx: number[] = [];
@@ -207,7 +290,7 @@ export class SpotMap {
   private values: Value[] = [];
   private fanLines: {x1: number; y1: number; x2: number; y2: number; row: number}[] = [];
   private strokes = 0;
-  private free = {x0: 0, y0: 0, x1: 0, y1: 0, rects: [] as number[][], sig: ""};
+  private free = {x0: 0, y0: 0, x1: 0, y1: 0, rects: [] as number[][], sig: "", cover: null as number[] | null};
   private scale = 1;
   private ox = 0;
   private oy = 0;
@@ -225,6 +308,8 @@ export class SpotMap {
     this.lat = [reader(c.lat1), reader(c.lat2)];
     this.lon = [reader(c.lon1), reader(c.lon2)];
     this.over = c.over;
+    this.area = areaOf(view.model.data.area);
+    this.selectedRow = view.selected?.row ?? -1;
     // a pane of its own above Leaflet's overlays (the shore's and the coarser terrain's outlines stay under the lines)
     // and below the markers
     const pane = map.getPane(PANE) ?? map.createPane(PANE);
@@ -240,7 +325,11 @@ export class SpotMap {
     el.addEventListener("pointermove", this.onPointerMove, true);
     el.addEventListener("pointerup", this.endHold, true);
     el.addEventListener("pointercancel", this.endHold, true);
+    // before the frame's own Esc (SpotColumns useEscape, added after this canvas is made): Esc while measuring ends
+    // the measuring alone and says so (defaultPrevented), the selection stays
+    document.addEventListener("keydown", this.onKey);
     this.unsubscribe = view.subscribe(() => {
+      this.selectionMoved();
       if (this.busy) return;
       this.paint(true);
       // "Lines from here" opened now (by a press here, or by the page through the model): the map moves for it, but
@@ -259,6 +348,10 @@ export class SpotMap {
     clearTimeout(this.flashTimer);
     clearTimeout(this.checkTimer);
     this.endHold();
+    document.removeEventListener("keydown", this.onKey);
+    this.cancelMeasure();
+    this.holdStill(false);  // a putting back still to come: now, while the map is there
+    this.measureListeners.clear();
     const map = this.map, el = map.getContainer();
     map.off("resize", this.refresh).off("click", this.onClick).off("contextmenu", this.onMenu);
     map.off("mousemove", this.onMouseMove).off("mouseout", this.onMouseOut).off("zoomend", this.afterZoom);
@@ -290,11 +383,31 @@ export class SpotMap {
 
   // --- the view's rectangle ---
 
-  /** The part of the map's box a person sees, in the container's pixels. */
+  /** The part of the map's box a person sees, in the container's pixels: without what `free` says is not seen (a
+   *  phone's sheet) and the bottom part the frame covers (setCovered: the desktop's card; the larger of the two). */
   private freeBox(): {left: number; top: number; right: number; bottom: number} {
-    const size = this.map.getSize(), p = this.options.free?.() ?? NONE;
+    const size = this.map.getSize(), p = this.options.free?.() ?? NONE, under = Math.max(0, p.bottom, this.coveredPx);
     const left = Math.min(Math.max(0, p.left), size.x), top = Math.min(Math.max(0, p.top), size.y);
-    return {left, top, right: Math.max(left, size.x - Math.max(0, p.right)), bottom: Math.max(top, size.y - Math.max(0, p.bottom))};
+    return {left, top, right: Math.max(left, size.x - Math.max(0, p.right)), bottom: Math.max(top, size.y - under)};
+  }
+
+  /** The px of the map's bottom the frame covers with a box of its own (the desktop's profile card: from the map
+   *  box's bottom edge up to the card's top; 0: none), not in view as a phone's sheet is not: "in view", the levels
+   *  under Auto, Best N and the numbers count only the map above it, a square's value keeps clear of it, and every
+   *  move of the map by the canvas keeps it free. A change redraws at once. */
+  setCovered(px: number) {
+    const next = px > 0 && isFinite(px) ? Math.round(px) : 0;
+    if (next === this.coveredPx) return;
+    this.coveredPx = next;
+    this.refresh();
+  }
+
+  /** The px set by setCovered (0 before). */
+  get covered(): number { return this.coveredPx; }
+
+  /** A padding of the map with the covered part kept free at the bottom too. */
+  private withCovered(p: Padding): Padding {
+    return this.coveredPx > p.bottom ? {...p, bottom: this.coveredPx} : p;
   }
 
   /** A full redraw: the canvas placed on the map as it is now, the view's rectangle and metres per pixel to the
@@ -358,7 +471,10 @@ export class SpotMap {
     };
     (el.parentElement ?? el).querySelectorAll("[data-map-control], .leaflet-control").forEach((e) => add(e.getBoundingClientRect()));
     this.options.obstacles().forEach(add);
-    return {x0: f.left + off.x, y0: f.top + off.y, x1: f.right + off.x, y1: f.bottom + off.y, rects, sig};
+    // the covered part (setCovered) as a box a square's value keeps clear of (a phone's sheet is not one: as before)
+    const size = map.getSize(), under = Math.min(this.coveredPx, size.y);
+    const cover = under > 0 ? [off.x, size.y - under + off.y, size.x + off.x, size.y + off.y] : null;
+    return {x0: f.left + off.x, y0: f.top + off.y, x1: f.right + off.x, y1: f.bottom + off.y, rects, sig, cover};
   }
 
   /** The pieces of a line (fractions of a → b) where the middle of a shape of half-size (hw, hh) may lie: the whole
@@ -414,11 +530,15 @@ export class SpotMap {
     ctx.clearRect(min.x, min.y, size.x, size.y);
     ctx.lineCap = "round";
     const shapes: Legend["shapes"] = {}, fan = view.fan, sel = view.selected, dim = sel || fan ? 0.3 : 1;
-    const p = new Float64Array(4), over = this.over;
+    const p = new Float64Array(4), over = this.over, f = this.free;
     const counted = new Set<number>();  // the lines stroked, each once (a line may be drawn twice: thin and bold)
     let found: number[] = [];
     const inFan = new Set<number>();
     if (fan) for (const row of fan.rows) if (row.label[0] !== "L") inFan.add(row.row);  // its number is drawn by the fan, once
+    const drew = {halos: 0, outline: false, others: [] as {id: string; lines: number}[]};
+    const runs: LegendRun[] = [];
+    /** Does a segment cross the part of the map a person sees (asked in a full paint: the free box measured then). */
+    const seen = (ax: number, ay: number, bx: number, by: number) => clipT(ax, ay, bx, by, f.x0, f.y0, f.x1, f.y1) !== null;
 
     const trace = (rows: ArrayLike<number>, which: number) => {  // which: 0 clear, 1 over, 2 every line
       let n = 0;
@@ -464,10 +584,16 @@ export class SpotMap {
       this.marks.push({kind, text, x, y, w, h, spot, row, end});
     };
     const badges: [number, number][] = [];
+    /** How far a place lies from the numbers placed before it, in boxes (the larger of its two shares of a box). */
+    const apartOf = (x: number, y: number): number => {
+      let near = 1e9;
+      for (const q of badges) near = Math.min(near, Math.max(Math.abs(q[0] - x) / BOX_W, Math.abs(q[1] - y) / BOX_H));
+      return near;
+    };
     /** Where the number of a line goes: on the longest piece of the line that is on the map and clear of the
-     *  controls, at the first of seven places a box away from every earlier number, else the farthest; nearer than a
-     *  quarter of a box to an earlier one, or with no free piece: null, no number on the map (the row keeps it). The
-     *  place counts as an earlier number's for the next. */
+     *  controls, at the first of seven places a box away from every earlier number, else the farthest; nearer than
+     *  APART_MIN of a box to an earlier one, or with no free piece: null, no number on the map (the row keeps it).
+     *  The place counts as an earlier number's for the next. */
     const placeBadge = (row: number, text: string, kind: MarkKind): [number, number] | null => {
       this.ends(row, p);
       const ax = p[0], ay = p[1], bx = p[2], by = p[3], [hw, hh] = markSize(kind, text);
@@ -478,12 +604,11 @@ export class SpotMap {
         for (const f of [0.5, 0.36, 0.64, 0.24, 0.76, 0.14, 0.86]) {
           if (apart >= 1) break;
           const s = parts[n][0] + (parts[n][1] - parts[n][0]) * f, x = ax + (bx - ax) * s, y = ay + (by - ay) * s;
-          let near = 1e9;
-          for (const q of badges) near = Math.min(near, Math.max(Math.abs(q[0] - x) / 32, Math.abs(q[1] - y) / 23));
+          const near = apartOf(x, y);
           if (near > apart) { apart = near; at = [x, y]; }
         }
       }
-      if (!at || apart < 0.25) return null;
+      if (!at || apart < APART_MIN) return null;
       badges.push(at);
       return at;
     };
@@ -492,8 +617,8 @@ export class SpotMap {
       const at = placeBadge(row, text, kind);
       if (at) mark(kind, at[0], at[1], text, spot, row);
     };
-    /** Where the number of a row of "Lines from here" goes: near its far end (the lines meet at the point), at 82 % of
-     *  the longest free piece of its line toward that end; null: no free piece, no number on the map. */
+    /** Where the number of a row of "Lines from here" would go: near its far end (the lines meet at the point), at
+     *  82 % of the longest free piece of its line toward that end; null: no free piece. */
     const fanPlace = (row: FanRow): {kind: MarkKind; x: number; y: number} | null => {
       this.ends(row.row, p);
       const near = row.near === 1 ? 0 : 2, far = 2 - near, kind: MarkKind = row.label[0] === "L" ? "L" : row.label[0] as MarkKind;
@@ -502,7 +627,81 @@ export class SpotMap {
       const s = parts[0][0] + (parts[0][1] - parts[0][0]) * 0.82;
       return {kind, x: p[near] + (p[far] - p[near]) * s, y: p[near + 1] + (p[far + 1] - p[near + 1]) * s};
     };
+    /** The numbers of "Lines from here" as drawn, once a paint and after the B and P numbers: each at its one place
+     *  (fanPlace), left out when nearer than APART_MIN of a box to a number placed before it (B, P or an earlier row
+     *  of the fan: the user's N2 a, the numbers' one rule), else counted as placed for the next. */
+    let fanKept: ({kind: MarkKind; x: number; y: number} | null)[] | null = null;
+    const fanNumbers = () => {
+      if (!fanKept) fanKept = (fan ? fan.rows : []).map((row) => {
+        const at = fanPlace(row);
+        if (!at || apartOf(at.x, at.y) < APART_MIN) return null;
+        badges.push([at.x, at.y]);
+        return at;
+      });
+      return fanKept;
+    };
     const shownOf = (spots: ArrayLike<number>) => Array.from(spots, (s) => view.shownOf(s));
+    const favourites = view.model.favouritesOn;
+    /** Of `lists`, the lines that wear the gold halo: a favourite that is its spot's shown line (B-3), but the
+     *  selected line (its halo is the selection's, below). */
+    const gold = (lists: ArrayLike<number>[]): number[] => {
+      if (!favourites) return [];
+      const out = new Set<number>(), own = sel && !fan ? sel.row : -1;
+      for (const rows of lists) {
+        for (let k = 0; k < rows.length; k++) {
+          const row = rows[k];
+          if (row !== own && view.isFavourite(row) && view.shownOf(view.spotOf(row)) === row) out.add(row);
+        }
+      }
+      return Array.from(out);
+    };
+    /** Today's gold halo under `rows`, dimmed with the lines. */
+    const halo = (rows: number[]) => {
+      if (!rows.length) return;
+      stroke(rows, FAV_PX, FAV_ALPHA * dim, COLORS.favourite);
+      drew.halos += rows.length;
+      if (full && rows.some((row) => { this.ends(row, p); return seen(p[0], p[1], p[2], p[3]); })) shapes.fav = true;
+    };
+    /** The run's search area (today's thin dashes in the map's ink) and Compare's other runs: each run's area in its
+     *  colour, then its lines that pass the filters (over trees or buildings dashed, the clear ones on top), dimmed
+     *  with the lines; never counted, never a target. */
+    const outlines = () => {
+      if (this.area.rings.length) {
+        this.traceRings(ctx, this.area.rings);
+        ctx.globalAlpha = 1; ctx.lineWidth = OUTLINE_PX; ctx.strokeStyle = INK; ctx.setLineDash(OUTLINE_DASH);
+        ctx.stroke(); ctx.setLineDash([]);
+        drew.outline = true;
+        if (full && this.ringsCross(this.area.rings)) shapes.area = true;
+      }
+      for (const run of this.others()) {
+        let inSight = false;
+        if (run.rings.length) {
+          this.traceRings(ctx, run.rings);
+          ctx.globalAlpha = 1; ctx.lineWidth = OUTLINE_PX; ctx.strokeStyle = run.color; ctx.setLineDash(OUTLINE_DASH);
+          ctx.stroke();
+          inSight = full && this.ringsCross(run.rings);
+        }
+        ctx.lineWidth = OTHER_PX; ctx.globalAlpha = OTHER_ALPHA * dim; ctx.strokeStyle = run.color;
+        let lines = 0;
+        for (const kind of [1, 0]) {
+          ctx.setLineDash(kind ? OTHER_DASH : []);
+          ctx.beginPath();
+          let n = 0;
+          for (let i = 0; i < run.n; i++) {
+            if (!run.ok[i] || run.over[i] !== kind) continue;
+            this.otherEnds(run, i, p);
+            ctx.moveTo(p[0], p[1]); ctx.lineTo(p[2], p[3]);
+            n++;
+            if (full && !inSight) inSight = seen(p[0], p[1], p[2], p[3]);
+          }
+          if (n) ctx.stroke();
+          lines += n;
+        }
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        drew.others.push({id: run.id, lines});
+        if (inSight) runs.push({id: run.id, name: run.name, color: run.color});
+      }
+    };
 
     if (level === "area") {
       const grid = timed("fal:view:squares", () => squareValues(view, squareSide(view.mpp), this.by));
@@ -513,26 +712,29 @@ export class SpotMap {
       // the numbers drawn over the squares placed first (their places do not depend on the squares): the picks' (drawn
       // after their lines, as ever), the fan's (L …, and a pick's P where the fan draws it) and the selected line's A1
       // and A2 (on its anchors; drawn in their own places below, by the same rules): the squares' values keep clear of
-      // them and of every control, and stay under the lines and the numbers
+      // them, of every control and of the covered part, and stay under the lines and the numbers
       const picks = view.picks(), lines = picks.map((pick) => pick.row);
       const placed = picks.map((pick) => inFan.has(pick.row) ? null : placeBadge(pick.row, "P" + pick.n, "P"));
       const taken = this.free.rects.slice(), take = (kind: MarkKind, text: string, x: number, y: number) => {
         const [w, h] = markSize(kind, text);
         taken.push([x - w, y - h, x + w, y + h]);
       };
+      if (this.free.cover) taken.push(this.free.cover);
       placed.forEach((at, n) => { if (at) take("P", "P" + picks[n].n, at[0], at[1]); });
-      if (fan) for (const row of fan.rows) { const at = fanPlace(row); if (at) take(at.kind, row.label, at.x, at.y); }
+      if (fan) fanNumbers().forEach((at, k) => { if (at) take(at.kind, fan.rows[k].label, at.x, at.y); });
       if (sel && !fan) {
         this.ends(sel.row, p);
         take("A", "A1", p[0], p[1]);
         take("A", "A2", p[2], p[3]);
       }
-      // only the squares on the canvas: their middles against the canvas's box in grid metres (the fit's corners)
+      // only the squares on the canvas: their middles against the canvas's box in grid metres (the fit's corners); the
+      // fills first, then the outlines over them, then the values (the mock-up's order: the values stay readable)
       const side = grid.side, px = side / view.mpp, label = px >= SQUARE_PX, font = px >= 44 ? TEXT_PX + 1 : TEXT_PX;
       const corners = [this.gridAt(min.x, min.y), this.gridAt(min.x + size.x, min.y), this.gridAt(min.x + size.x, min.y + size.y),
                        this.gridAt(min.x, min.y + size.y)];
       const gx0 = Math.min(...corners.map((c) => c[0])) - side, gx1 = Math.max(...corners.map((c) => c[0])) + side;
       const gy0 = Math.min(...corners.map((c) => c[1])) - side, gy1 = Math.max(...corners.map((c) => c[1])) + side;
+      const texts: {text: string; quad: [number, number][]; cls: number}[] = [];
       let drawn = 0;
       for (let k = 0; k < grid.cells.length; k++) {
         const cell = grid.cells[k], i = cell % grid.nx, j = (cell - i) / grid.nx;
@@ -543,21 +745,25 @@ export class SpotMap {
         ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(bb[0], bb[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath();
         ctx.globalAlpha = 0.62 * (dim < 1 ? 0.6 : 1); ctx.fillStyle = colours[cls]; ctx.fill();
         ctx.globalAlpha = 0.9; ctx.lineWidth = 0.8; ctx.strokeStyle = colours[cls]; ctx.stroke();
-        if (label) {
-          const text = String(Math.round(grid.values[k])), cx = (a[0] + c[0]) / 2, cy = (a[1] + c[1]) / 2;
-          ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          const hw = ctx.measureText(text).width / 2 + HALO, hh = font / 2 + HALO, at = valueAt([a, bb, c, d], hw, hh, taken);
-          if (at) {
-            ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, at[0], at[1]);
-            ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, at[0], at[1]);
-          }
-          const [x, y] = at ?? [cx, cy];
-          this.values.push({text, x, y, w: hw, h: hh, moved: at !== null && (x !== cx || y !== cy), left: at === null});
-        }
+        if (label) texts.push({text: String(Math.round(grid.values[k])), quad: [a, bb, c, d], cls});
         drawn++;
       }
       ctx.globalAlpha = 1;
       if (drawn) shapes.sq = true;
+      outlines();
+      ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      for (const {text, quad, cls} of texts) {
+        const cx = (quad[0][0] + quad[2][0]) / 2, cy = (quad[0][1] + quad[2][1]) / 2;
+        const hw = ctx.measureText(text).width / 2 + HALO, hh = font / 2 + HALO, at = valueAt(quad, hw, hh, taken);
+        if (at) {
+          ctx.lineWidth = 2.5; ctx.globalAlpha = 0.55; ctx.strokeStyle = cls >= 2 ? INK : PAPER; ctx.strokeText(text, at[0], at[1]);
+          ctx.globalAlpha = 1; ctx.fillStyle = cls >= 2 ? PAPER : INK; ctx.fillText(text, at[0], at[1]);
+        }
+        const [x, y] = at ?? [cx, cy];
+        this.values.push({text, x, y, w: hw, h: hh, moved: at !== null && (x !== cx || y !== cy), left: at === null});
+      }
+      ctx.globalAlpha = 1;
+      halo(gold([lines]));
       stroke(lines, 7, 0.55 * dim, PAPER);
       stroke(lines, 3.5, dim, undefined, true);
       target(lines, 2);
@@ -565,22 +771,24 @@ export class SpotMap {
       // the legend lists the pick's shape whenever a pick's line is in view, its number drawn or not: a number left out
       // for want of room took its row out of the legend, the foot shrank, and the number came back, again and again
       // (the user's decision of 2026-11-18; the pick's line is on the map either way)
-      const f = this.free;
-      if (picks.some((pick) => { this.ends(pick.row, p); return clipT(p[0], p[1], p[2], p[3], f.x0, f.y0, f.x1, f.y1) !== null; })) shapes.P = true;
+      if (picks.some((pick) => { this.ends(pick.row, p); return seen(p[0], p[1], p[2], p[3]); })) shapes.P = true;
     } else {
       this.grid = null;
+      outlines();
       const all = view.best === "all", refused = v.refused > 0;
       const isBest = new Set<number>(refused ? [] : Array.from(v.best));
       const rest = shownOf(Array.from(v.spots).filter((s) => !isBest.has(s)));
+      const thin = level === "lines" && v.thin ? v.thin : null;
+      const boldOn = !refused && !(level === "lines" && all), bold = boldOn ? shownOf(v.best) : [];
+      halo(gold(thin ? [rest, thin, bold] : [rest, bold]));
       stroke(rest, 1.5, 0.24 * dim, undefined, true);
       target(rest, 0);
       if (rest.length) shapes.pale = true;
-      if (level === "lines" && v.thin) {
-        stroke(v.thin, 1, (all ? 0.22 : 0.3) * dim, undefined, true);
-        target(v.thin, 1);
+      if (thin) {
+        stroke(thin, 1, (all ? 0.22 : 0.3) * dim, undefined, true);
+        target(thin, 1);
       }
-      if (!refused && !(level === "lines" && all)) {
-        const bold = shownOf(v.best);
+      if (boldOn) {
         if (level === "lines") stroke(bold, 6, 0.5 * dim, PAPER);
         stroke(bold, 3, 0.92 * dim, undefined, true);
         target(bold, all ? 1 : 2);
@@ -600,10 +808,18 @@ export class SpotMap {
       const own = Array.from(view.passingOf(sel.spot)).filter((row) => row !== sel.row);
       stroke(own, 1, 0.8, undefined, true);
       target(own, 1);
-      stroke([sel.row], 11, 0.45, "#000");
+      // a favourite selected: gold in the dark halo's place (today's)
+      const favourite = favourites && view.isFavourite(sel.row);
+      stroke([sel.row], 11, favourite ? FAV_SELECTED : 0.45, favourite ? COLORS.favourite : "#000");
       stroke([sel.row], 5, 1, undefined, true);
       target([sel.row], 2);
       this.ends(sel.row, p);
+      if (favourite) {
+        drew.halos++;
+        if (full && seen(p[0], p[1], p[2], p[3])) shapes.fav = true;
+      }
+      // an anchor in the part of the map a person sees: the legend shows the access marks (the user's "L b")
+      if ([0, 2].some((k) => p[k] >= f.x0 && p[k] <= f.x1 && p[k + 1] >= f.y0 && p[k + 1] <= f.y1)) shapes.ends = true;
       const states = [accessState(sel.line.access1), accessState(sel.line.access2)];
       const rings = [null, "--acc-map-hard", "--acc-map-tell", "--acc-map-easy"];
       for (const end of [1, 2] as const) {
@@ -614,15 +830,18 @@ export class SpotMap {
     }
     if (full) this.placeAnchorMarks();
     if (fan) {
-      const rows = fan.rows.map((row) => row.row);
+      const rows = fan.rows.map((row) => row.row), kept = fanNumbers();
       stroke(rows, 7, 0.5, PAPER);
       stroke(rows, 3.2, 1, undefined, true);
-      for (const row of fan.rows) {
+      fan.rows.forEach((row, k) => {
         this.ends(row.row, p);
         this.fanLines.push({x1: p[0], y1: p[1], x2: p[2], y2: p[3], row: row.row});
-        const at = fanPlace(row);
+        const at = kept[k];
         if (at) mark(at.kind, at.x, at.y, row.label, view.spotOf(row.row), row.row);
-      }
+      });
+      // the legend lists the fan's own number (L) whenever such a row's line is in view, drawn or not: the rule may
+      // leave every L out, and a legend row that comes and goes moves the foot and the numbers (as the pick's: above)
+      if (fan.rows.some((row) => { this.ends(row.row, p); return row.label[0] === "L" && seen(p[0], p[1], p[2], p[3]); })) shapes.L = true;
       const at = this.place(fan.xy[0], fan.xy[1]);
       ctx.beginPath(); ctx.arc(at[0], at[1], Math.max(9, FAN_HERE / view.mpp), 0, 2 * Math.PI);
       ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
@@ -630,21 +849,104 @@ export class SpotMap {
     }
     const hover = this.hovered ?? this.mapHovered;
     if (hover !== null && view.passes(hover)) stroke([hover], 7, 0.95);
+    // a measurement over everything the canvas draws (today's black dashes between white points), the profile's point
+    // above it
+    if (this.measured.length) {
+      const pts = this.measured.map((at): [number, number] => [mercX(at.lng) * this.scale - this.ox, mercY(at.lat) * this.scale - this.oy]);
+      ctx.globalAlpha = 1;
+      if (pts.length > 1) {
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]);
+        ctx.lineWidth = MEASURE_PX; ctx.strokeStyle = "#000"; ctx.setLineDash(MEASURE_DASH); ctx.stroke(); ctx.setLineDash([]);
+      }
+      for (const [x, y] of pts) {
+        ctx.beginPath(); ctx.arc(x, y, MEASURE_R, 0, 2 * Math.PI);
+        ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#000"; ctx.stroke();
+      }
+      shapes.measure = true;
+    }
     if (this.marker) {
       const at = map.latLngToLayerPoint(this.marker);
       ctx.beginPath(); ctx.arc(at.x, at.y, 6, 0, 2 * Math.PI);
       ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#000"; ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    this.drewNow = drew;
     if (!full) return;
     this.strokes = counted.size;
-    const legend: Legend = {level, shapes, by: this.by, breaks: found};
+    const legend: Legend = {level, shapes, by: this.by, breaks: found, runs};
     const key = JSON.stringify(legend);
     this.legendNow = legend;
     if (key !== this.legendKey) {
       this.legendKey = key;
       this.listeners.forEach((f) => f());
     }
+  }
+
+  /** Rings in unit Web Mercator (areaOf) as one path in the layer's pixels. */
+  private traceRings(ctx: CanvasRenderingContext2D, rings: Float64Array[]) {
+    const k = this.scale, ox = this.ox, oy = this.oy;
+    ctx.beginPath();
+    for (const r of rings) {
+      ctx.moveTo(r[0] * k - ox, r[1] * k - oy);
+      for (let i = 2; i < r.length; i += 2) ctx.lineTo(r[i] * k - ox, r[i + 1] * k - oy);
+    }
+  }
+
+  /** Does a ring cross the part of the map a person sees (the free box of the last full paint). */
+  private ringsCross(rings: Float64Array[]): boolean {
+    const k = this.scale, ox = this.ox, oy = this.oy, f = this.free;
+    for (const r of rings) {
+      for (let i = 2; i < r.length; i += 2) {
+        if (clipT(r[i - 2] * k - ox, r[i - 1] * k - oy, r[i] * k - ox, r[i + 1] * k - oy, f.x0, f.y0, f.x1, f.y1)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** An other run's line's ends in the layer's pixels, into `out` (x1, y1, x2, y2). */
+  private otherEnds(run: OtherRunDrawn, i: number, out: Float64Array) {
+    for (let e = 0; e < 2; e++) {
+      out[2 * e] = mercX(run.lon[e](i)) * this.scale - this.ox;
+      out[2 * e + 1] = mercY(run.lat[e](i)) * this.scale - this.oy;
+    }
+  }
+
+  /** Compare's other runs as the canvas draws them (ResultModel.others, in its order; their columns:
+   *  ResultModel.runColumns): which of their lines pass, by today's filtering of them (both kinds of lines as shown,
+   *  the filters with this run's lift, Favourites only; not "Top level only": their spots are not this run's), made
+   *  again only when what passes or the runs shown changed (the view's version, the favourites with Favourites only,
+   *  the runs). */
+  private others(): OtherRunDrawn[] {
+    const model = this.view.model;
+    if (!model.others.size) {
+      this.otherRuns = [];
+      this.othersKey = "";
+      return this.otherRuns;
+    }
+    const f = model.filters, s = model.state, favOnly = f.favOnly && model.favouritesOn;
+    const favs = favOnly ? model.favouriteLines().map((l) => model.indexOf(l)) : null;
+    let key = `${this.view.version}|${favs ? favs.join(",") : "-"}`;
+    for (const run of model.others.values()) key += `|${run.info.id}:${run.start}:${run.count}:${run.color}`;
+    if (key === this.othersKey) return this.otherRuns;
+    this.othersKey = key;
+    const lift = model.data.lift, out: OtherRunDrawn[] = [];
+    for (const run of model.others.values()) {
+      const cols = model.runColumns(run.info.id);
+      if (!cols) continue;
+      const n = cols.length, ok = new Uint8Array(n), cursor = new LineCursor(cols), over = cols.over;
+      const fav = favs ? new Set(favs.filter((at) => at >= run.start && at < run.start + n).map((at) => at - run.start)) : null;
+      for (let i = 0; i < n; i++) {
+        if (over[i] ? !s.showOver : !s.showClean) continue;
+        cursor.i = i;
+        if (!passesFilters(cursor, f, lift)) continue;
+        if (fav && !fav.has(i)) continue;
+        ok[i] = 1;
+      }
+      out.push({id: run.info.id, name: run.info.name, color: run.color, rings: areaOf(run.area).rings, n, over, ok,
+                lat: [reader(cols.lat1), reader(cols.lat2)], lon: [reader(cols.lon1), reader(cols.lon2)]});
+    }
+    this.otherRuns = out;
+    return out;
   }
 
   /** A layer point in grid metres (through the fit). */
@@ -686,14 +988,23 @@ export class SpotMap {
    *  thin and bold, pale and selected; its halo not counted)
    *  and the numbers with their boxes in the viewport; at Area the squares' values on the canvas with their boxes
    *  (with the halo), each moved from its square's middle or not, or left out (its box then the one it had there). */
-  drawn(): {strokes: number; numbers: {label: string; box: DOMRect}[]; values: {text: string; box: DOMRect; moved: boolean; left: boolean}[]} {
+  drawn(): {strokes: number; numbers: {label: string; box: DOMRect}[]; values: {text: string; box: DOMRect; moved: boolean; left: boolean}[];
+            halos: number; outline: boolean; others: {id: string; lines: number}[]; measured: {x: number; y: number}[]} {
     const box = this.map.getContainer().getBoundingClientRect();
     const rect = (x: number, y: number, w: number, h: number) => {
       const at = this.map.layerPointToContainerPoint([x, y]);
       return new DOMRect(box.left + at.x - w, box.top + at.y - h, 2 * w, 2 * h);
     };
+    // step 3c: the gold halos stroked (the selected favourite's one of them), whether the search area's outline was
+    // drawn, each other run's lines stroked, the measurement's points in the viewport
+    const d = this.drewNow;
     return {strokes: this.strokes, numbers: this.marks.map((m) => ({label: m.text, box: rect(m.x, m.y, m.w, m.h)})),
-            values: this.values.map((v) => ({text: v.text, box: rect(v.x, v.y, v.w, v.h), moved: v.moved, left: v.left}))};
+            values: this.values.map((v) => ({text: v.text, box: rect(v.x, v.y, v.w, v.h), moved: v.moved, left: v.left})),
+            halos: d.halos, outline: d.outline, others: d.others.map((o) => ({...o})),
+            measured: this.measured.map((at) => {
+              const q = this.map.latLngToContainerPoint(at);
+              return {x: box.left + q.x, y: box.top + q.y};
+            })};
   }
 
   // --- presses ---
@@ -762,6 +1073,8 @@ export class SpotMap {
   }
 
   private onClick = (e: L.LeafletMouseEvent) => {
+    // while measuring a press is a point, whatever lies under it (no hold is timed then: onPointerDown)
+    if (this.measuring) { this.swallowClick = false; this.addPoint(e.latlng); return; }
     if (this.swallowClick) { this.swallowClick = false; return; }  // the end of a press held: it opened the fan
     const view = this.view, pt = e.layerPoint, finger = this.byFinger(), m = this.markAt(pt.x, pt.y, finger);
     if (m) { this.pressMark(m); return; }
@@ -842,6 +1155,7 @@ export class SpotMap {
 
   private onMenu = (e: L.LeafletMouseEvent) => {
     e.originalEvent?.preventDefault?.();  // no menu of the browser on the map
+    if (this.measuring) return;  // no "Lines from here" while measuring
     if (performance.now() - this.heldAt < MENU_QUIET) return;  // the browser's own long-press event of the press held
     this.endHold();  // the browser's event came first (Chrome on a phone, after about 500 ms): the press is taken
     if (this.pressedBy !== "mouse") this.swallowClick = true;
@@ -853,7 +1167,7 @@ export class SpotMap {
     this.pressedBy = e.pointerType;
     this.swallowClick = false;
     this.endHold();
-    if (e.pointerType === "mouse" || !e.isPrimary || (e.target as HTMLElement).closest?.(".leaflet-control")) return;
+    if (this.measuring || e.pointerType === "mouse" || !e.isPrimary || (e.target as HTMLElement).closest?.(".leaflet-control")) return;
     const id = e.pointerId, x = e.clientX, y = e.clientY;
     this.hold = {id, x, y, timer: window.setTimeout(() => {
       this.hold = null;
@@ -876,10 +1190,10 @@ export class SpotMap {
 
   private afterZoom = () => { this.endHold(); };
 
-  // The line a press would take, under the mouse (thicker); none for the mouse events of a finger or while "Lines
-  // from here" is open
+  // The line a press would take, under the mouse (thicker); none for the mouse events of a finger, while "Lines
+  // from here" is open or while measuring
   private onMouseMove = (e: L.LeafletMouseEvent) => {
-    if (this.pressedBy === "touch" || this.view.fan || (e.originalEvent as any)?.sourceCapabilities?.firesTouchEvents) {
+    if (this.measuring || this.pressedBy === "touch" || this.view.fan || (e.originalEvent as any)?.sourceCapabilities?.firesTouchEvents) {
       this.setMapHovered(null, false);
       return;
     }
@@ -898,11 +1212,12 @@ export class SpotMap {
 
   // --- moves ---
 
-  private fitOptions(p: Padding, margin: number, maxMpp?: number): L.FitBoundsOptions {
+  private fitOptions(given: Padding, margin: number, maxMpp?: number): L.FitBoundsOptions {
     // What covers the map may leave no room (a phone's sheet at full: the bar's foot stands above the map's top):
     // FIT_ROOM px stay for the fitted thing each way, the paddings give way in their proportion (with none left,
-    // Leaflet's fit would ask for the zoom of a negative size)
-    const size = this.map.getSize();
+    // Leaflet's fit would ask for the zoom of a negative size). Every move keeps the covered part free too
+    // (setCovered), whatever padding the caller gave.
+    const size = this.map.getSize(), p = this.withCovered(given);
     const squeeze = (a: number, b: number, total: number): [number, number] => {
       const over = a + b - Math.max(0, total - FIT_ROOM);
       return over > 0 && a + b > 0 ? [a - over * a / (a + b), b - over * b / (a + b)] : [a, b];
@@ -921,7 +1236,7 @@ export class SpotMap {
     return Math.min(this.map.getMaxZoom(), Math.floor(want / SNAP + 1e-6) * SNAP);
   }
 
-  /** The frame's padding for the canvas's own moves. */
+  /** The frame's padding for the canvas's own moves (fitOptions adds the covered part). */
   private own(): Padding {
     return this.options.padding?.() ?? this.options.free?.() ?? NONE;
   }
@@ -947,6 +1262,13 @@ export class SpotMap {
   /** Fit the map to a line, `p` px kept free on each side plus a margin. */
   zoomTo(row: number, p: Padding = NONE) {
     this.map.fitBounds(this.lineBounds([row]), this.fitOptions(p, 60));
+  }
+
+  /** Fit the map to a line given by its ends (a measured line, a link's measured line: not a row of the run), `p` px
+   *  kept free on each side plus zoomTo's margin, the covered part too; not closer than the run's last zoom.
+   *  Default: the frame's padding of the canvas's own moves. */
+  zoomToLine(line: LineEnds, p: Padding = this.own()) {
+    this.map.fitBounds(L.latLngBounds([line.lat1, line.lon1], [line.lat2, line.lon2]), this.fitOptions(p, 60));
   }
 
   /** Bring a line of the list into view: the map moves only when the line is not inside the view less 8 % or is
@@ -979,5 +1301,135 @@ export class SpotMap {
   hoverAt(at: L.LatLngExpression | null) {
     this.marker = at ? L.latLng(at as any) : null;
     this.paint(false);
+  }
+
+  // --- measuring: what RunActions' RunActionsMap needs, as today's ResultMap has it ---
+
+  /** Measure mode is on (from startMeasure to its second point, cancelMeasure, Esc or a change of the selection). */
+  get isMeasuring(): boolean {
+    return this.measuring !== null;
+  }
+
+  /** Call `listener` when measure mode starts (true) or ends (false); returns the function that stops it. */
+  onMeasuring(listener: (measuring: boolean) => void): () => void {
+    this.measureListeners.add(listener);
+    return () => { this.measureListeners.delete(listener); };
+  }
+
+  /** Measure mode: the next two presses on the map are the points, given to `done` after the second; a measurement
+   *  drawn before goes. While measuring a press selects nothing and opens no "Lines from here", the mouse thickens no
+   *  line, the cursor is a crosshair, and a phone's map holds still (holdStill). Esc cancels. */
+  startMeasure(done: (a: L.LatLng, b: L.LatLng) => void) {
+    this.measured = [];
+    this.measuring = done;
+    this.selectedRow = this.view.selected?.row ?? -1;
+    this.endHold();
+    this.setMapHovered(null, false);
+    this.map.getContainer().style.cursor = "crosshair";  // the CSSOM, not an attribute (the CSP)
+    this.holdStill(true);
+    this.measureListeners.forEach((f) => f(true));
+    this.paint(true);
+  }
+
+  /** Leave measure mode (the points drawn stay until clearMeasure). */
+  cancelMeasure() {
+    this.endMeasure(false);
+  }
+
+  /** Measure mode ends; `later`: a phone's map moves again only once the press that ended it is over (a quick second
+   *  tap is a double tap, and its dblclick comes after the click that took the point: it must not zoom). */
+  private endMeasure(later: boolean) {
+    if (!this.measuring) return;
+    this.measuring = null;
+    this.map.getContainer().style.cursor = "";
+    this.holdStill(false, later);
+    this.measureListeners.forEach((f) => f(false));
+  }
+
+  /** Remove the points and the line of a measurement (while measuring, the points taken so far too). */
+  clearMeasure() {
+    if (!this.measured.length) return;
+    this.measured = [];
+    this.paint(true);
+  }
+
+  /** Draw a measured line the frame holds (a link's measured line; the frame's own after the canvas was made again
+   *  across the phone's width) as a measurement is drawn, in place of what is drawn; measure mode does not change.
+   *  null: nothing drawn (as clearMeasure). */
+  drawMeasured(line: LineEnds | null) {
+    this.measured = line ? [L.latLng(line.lat1, line.lon1), L.latLng(line.lat2, line.lon2)] : [];
+    this.paint(true);
+  }
+
+  /** The bounds of the run's search area (Compare's box of the run); without an area, the box of its lines. */
+  areaBounds(): L.LatLngBounds {
+    const area = this.area.box, box = this.view.model.data.box;
+    if (area) return L.latLngBounds(area.getSouthWest(), area.getNorthEast());
+    if (box) return this.bounds([[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]);
+    const at = this.view.model.data.center;
+    return L.latLngBounds(at, at);
+  }
+
+  private addPoint(at: L.LatLng) {
+    const done = this.measuring;
+    if (!done) return;
+    this.measured = this.measured.concat([at]);
+    this.paint(true);
+    if (this.measured.length < 2) return;
+    const [a, b] = this.measured;
+    this.endMeasure(true);
+    done(a, b);
+  }
+
+  /** A change of the selection ends a measurement: while measuring any change cancels it and clears its points
+   *  (today's ResultMap.render); a measurement drawn goes when a line is selected, not when the selection ends
+   *  (today's useMeasureEnds). Called before the view's change is drawn. */
+  private selectionMoved() {
+    const row = this.view.selected?.row ?? -1;
+    if (row === this.selectedRow) return;
+    this.selectedRow = row;
+    if (this.measuring) {
+      this.cancelMeasure();
+      this.measured = [];
+    } else if (row >= 0) this.measured = [];
+  }
+
+  /** Esc while measuring cancels it and clears its points, and nothing else: the frame's own Esc (the table of spots,
+   *  "Lines from here", the selection: SpotColumns useEscape) skips an event already taken. An event taken before
+   *  (a menu closed itself) is left alone, as today. */
+  private onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Escape" || e.defaultPrevented || !this.measuring) return;
+    this.cancelMeasure();
+    this.clearMeasure();
+    e.preventDefault();
+  };
+
+  /** A phone's map holds still while measuring (the accepted mock-up: the points are pressed on a map that does not
+   *  move): no drag and no double tap's zoom from startMeasure until measuring ends; the zoom buttons and a pinch
+   *  still zoom. What was on is put back: at once, or (`later`) after the events of the press now under way. */
+  private holdStill(on: boolean, later = false) {
+    if (this.restore) {  // a putting back still to come: now
+      clearTimeout(this.stillTimer);
+      this.restore();
+    }
+    const map = this.map;
+    if (on) {
+      if (this.still || !this.options.phone) return;
+      this.still = {drag: map.dragging.enabled(), dbl: map.doubleClickZoom.enabled()};
+      map.dragging.disable();
+      map.doubleClickZoom.disable();
+    } else if (this.still) {
+      const was = this.still;
+      this.still = null;
+      const restore = () => {
+        this.restore = null;
+        if (was.drag) map.dragging.enable();
+        if (was.dbl) map.doubleClickZoom.enable();
+      };
+      if (later) {
+        this.restore = restore;
+        this.stillTimer = window.setTimeout(restore, 0);
+      } else restore();
+    }
   }
 }

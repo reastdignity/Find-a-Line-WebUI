@@ -156,6 +156,9 @@ export interface SpotView {
   /** Is a line hidden by "Top level only" alone: the chip is on, the line's `top` is 0, and it passes every other
    *  filter (a link to it turns the chip off: the user's "6. a", view/viewlink.ts). */
   topOnlyHides(row: number): boolean;
+  /** Is a line of this run one of the user's favourites (while they are known: model.favouritesOn); the canvas's gold
+   *  halo (SpotMap.ts) goes under a spot's shown line that is one. */
+  isFavourite(row: number): boolean;
 }
 
 /** The farthest an anchor may lie from the fit's place of it, m (the planner, 2026-11-16): the fit takes the lowest
@@ -835,6 +838,10 @@ class Spots implements SpotView {
     }
     if (p && f.favOnly && m.favouritesOn) p = this.favourites.has(row);
     return p;
+  }
+
+  isFavourite(row: number): boolean {
+    return this.favourites.has(row);
   }
 }
 

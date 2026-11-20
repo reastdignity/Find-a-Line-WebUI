@@ -29,7 +29,7 @@ def bundle(tmp_path_factory):
     stub.write_text("module.exports = {Renderer: {extend: () => function Draw() {}}};\n", encoding="utf-8")
     src = os.path.join(VIEWER, "src").replace("\\", "/")
     entry = folder / "entry.ts"
-    entry.write_text(f'export {{ valueAt, markSize }} from "{src}/result/SpotMap";\n', encoding="utf-8")
+    entry.write_text(f'export {{ valueAt, markSize, APART_MIN }} from "{src}/result/SpotMap";\n', encoding="utf-8")
     out = folder / "values.cjs"
     subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
                                   "bundle: true, format: 'cjs', platform: 'node', "
@@ -125,6 +125,19 @@ def test_left_out(tmp_path, bundle):
              [sq, 8, 7.25, [[100, 200, 140, 214], [100, 226, 140, 240], [100, 214, 140, 226]]],  # three bands: nothing left
              [square(100, 200, 26), 15.5, 7.25, [[110, 210, 116, 216]]]]  # too wide to move, the middle taken
     assert value_at(tmp_path, bundle, cases) == [None, None, None]
+
+
+def test_the_numbers_rule_and_its_copy(tmp_path, bundle):
+    """The numbers' rule (SpotMap.ts APART_MIN: a number, and a number of "Lines from here", is left out nearer than a
+    third of a box to one placed before it: the user's N1 b and N2 a) and tools/view_numbers.py's copy of it (its
+    rule "today") are the same, for both kinds of numbers."""
+    import sys
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import view_numbers
+    script = tmp_path / "rule.cjs"
+    script.write_text("process.stdout.write(JSON.stringify(require(process.argv[2]).APART_MIN));\n", encoding="utf-8")
+    page = json.loads(subprocess.run(["node", str(script), str(bundle)], capture_output=True, text=True, check=True).stdout)
+    assert page == 1 / 3 and view_numbers.RULES["today"] == (page, page)
 
 
 def test_a_pick_number_beside_the_middle(tmp_path, bundle):

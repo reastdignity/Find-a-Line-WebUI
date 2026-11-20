@@ -316,6 +316,12 @@ export class ResultModel {
     return id === this.runId ? this.tables[0] : this.tables.find((t) => t.run?.info.id === id);
   }
 
+  /** The columns of a run shown (this run's, or another run's shown with it), by its id; null: not shown. Read
+   *  only (the result view's canvas draws Compare's other runs from them: SpotMap.ts). */
+  runColumns(id: string): LineColumns | null {
+    return this.tableOfRun(id)?.cols ?? null;
+  }
+
   /** The run holding index `at`. */
   private tableOf(at: number): Table | undefined {
     for (const t of this.tables) if (at >= t.start && at < t.start + t.cols.length) return t;
