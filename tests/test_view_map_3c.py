@@ -321,6 +321,11 @@ def test_measure(site, device):
             pts = page.evaluate("() => window.FINDALINE_VIEW.map.drawn().measured")
             ends = page.evaluate("([a, b, c, d]) => [[a, b], [c, d]].map(([lat, lng]) => { const p = window.FINDALINE_MAP.latLngToContainerPoint([lat, lng]), x = T.box(); return [p.x + x.left, p.y + x.top]; })", line)
             assert len(pts) == 2 and all(abs(p["x"] - e[0]) < 0.01 and abs(p["y"] - e[1]) < 0.01 for p, e in zip(pts, ends))
+            # the profile's point under the cursor on the measured line: drawn above it (after its two points)
+            ops = page.evaluate("([a, b, c, d]) => { window.FINDALINE_VIEW.map.hoverAt([(a + c) / 2, (b + d) / 2]); return B.ops(); }", line)
+            k = max(j for j, o in enumerate(ops) if o["op"] == "stroke" and o["dash"] == "6,4" and o["stroke"] == "#000000")
+            assert sum(1 for o in ops[k:] if o["op"] == "fill" and o["fill"] == "#ffffff") == 3, ops[k:]
+            page.evaluate("() => window.FINDALINE_VIEW.map.hoverAt(null)")
             page.evaluate("() => window.FINDALINE_VIEW.map.drawMeasured(null)")
             assert page.evaluate("() => window.FINDALINE_VIEW.map.drawn().measured") == []
             # areaBounds: the area's box
