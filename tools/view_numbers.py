@@ -632,12 +632,14 @@ def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, be
 
 
 def of_interest(states: list):
-    """The map state that left out the most numbers today (then the most wanted) and the fan state with the most
-    numbers: their records (None where there is none)."""
+    """The map state that left out the most numbers today (then the one whose numbers, none left out, overlap the
+    most by more than a quarter, then the most wanted) and the fan state with the most numbers: their records (None
+    where there is none)."""
     measured = [s for s in states if s.get("rules")]
     maps = [s for s in measured if s["case"] == "map"]
     fans = [s for s in measured if s["case"] == "fan"]
-    best_map = max(maps, key=lambda s: (s["rules"][TODAY]["left_out"], s["wanted"]), default=None)
+    best_map = max(maps, key=lambda s: (s["rules"][TODAY]["left_out"], s["rules"]["never"]["overlaps"][">1/4"], s["wanted"]),
+                   default=None)
     best_fan = max(fans, key=lambda s: (s["wanted"], s["rules"]["never"]["overlaps"]["any"]), default=None)
     return best_map, best_fan
 
