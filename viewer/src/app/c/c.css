@@ -236,7 +236,13 @@
    side panels of ui/SidePanel.tsx (sidepanel.css: their widths, edges and rails), each one's content in a scroll box;
    the right one's a container (layer-right) for the charts' grid (LayerHistograms) */
 .ui .c-mappage-3 { min-height: 0; }
-.ui .c-mappage-3 > .c-newmap { flex: 1; min-width: 0; min-height: 0; }
+/* position: relative here, in every layout: Leaflet writes it inline on a map it finds static (Map.js
+   _initLayout), and that inline value would then outrank the phone's sticky map after a turn or a resize */
+.ui .c-mappage-3 > .c-newmap { flex: 1; min-width: 0; min-height: 0; position: relative; }
+/* the map's keyboard ring inside its box: the panels and the header lie over what is outside it */
+.ui .c-mappage-3 > .c-newmap:focus-visible { box-shadow: none; }
+.ui .c-mappage-3 > .c-newmap:focus-visible::after { content: ""; position: absolute; inset: 0; z-index: 1100; pointer-events: none;
+  box-shadow: var(--focus-in); }
 .ui .c-col-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 /* the scrollbar's room is kept on both panels, so a chart's width does not jump when the column starts to scroll */
 .ui .c-col-right > .c-col-scroll { container: layer-right / inline-size; scrollbar-gutter: stable; }
