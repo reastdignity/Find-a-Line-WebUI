@@ -67,13 +67,8 @@ function browserStore(): Store | null {
   try { return window.localStorage; } catch { return null; }
 }
 
-/** Wide enough for the open credits: not a phone held sideways (a touch screen at most 480 px high, view3d.css's
- *  one-row bar: 844 x 390 is "wide", and the open credits covered 139 of the stage's 248 px there). */
 function wideScreen(): boolean {
-  try {
-    return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches &&
-      !matchMedia("(pointer: coarse) and (max-height: 480px)").matches;
-  } catch { return false; }
+  try { return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches; } catch { return false; }
 }
 
 /** The credits box: entries sorted by their order, hidden while empty. The run's data credits (DATA_CREDITS) fold
