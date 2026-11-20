@@ -3672,6 +3672,21 @@ def test_view3d_trees_text_contrast():
     assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
 
 
+def test_viewer_media_queries_older_webkit():
+    """The viewer's CSS asks its media in the old syntax (min-width, max-width), never the range syntax ("width >
+    600px"): WebKit before Safari 16.4 (an iPhone kept on iOS 15) knows no range syntax and drops the whole query
+    (the code review's N1: it dropped the 3D view's one row held sideways, which keys on a class since: chrome.ts
+    oneRow, whose matchMedia asks for the negation of "(max-width: 600px)")."""
+    found = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in (n for n in names if n.endswith(".css")):
+            text = re.sub(r"/\*.*?\*/", "", open(os.path.join(folder, name), encoding="utf-8").read(), flags=re.S)
+            found += [(name, query.strip()) for query in re.findall(r"@media([^{]*)\{", text) if re.search("[<>]", query)]
+    assert found == [], found
+    chrome = open(os.path.join(VIEWER, "src", "view3d", "chrome.ts"), encoding="utf-8").read()
+    assert 'narrow: "(max-width: 600px)"' in chrome and "!narrow.matches" in chrome
+
+
 def test_result_intro_names_the_default_line_of_a_spot():
     """"How to read the result" says which line a spot shows as the page does: by default the highest on average
     (model.ts: the state's `by` starts at BY_MEAN), the others as "Show per spot" offers them (report defect 9: it

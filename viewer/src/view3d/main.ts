@@ -20,7 +20,7 @@ import { measure, timed } from "../perf";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createCanopy } from "./canopy";
-import { stepAside } from "./chrome";
+import { oneRow, stepAside } from "./chrome";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createInfo } from "./info";
@@ -83,6 +83,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   credits.append(info.button, el("span", "v3-credits-list"));
   root.append(top, stage, bar);
   root.classList.toggle("v3-phone", page.level === "phone");
+  oneRow(root, page.level === "phone");  // the phone's one-row bar on a touch screen over 600 px wide (chrome.ts)
   // The loading's message and bar while the status shows a stage (progress), made once and changed in place
   let staged: {message: HTMLElement; meter: HTMLElement; fill: HTMLElement} | null = null;
   return {

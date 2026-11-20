@@ -65,6 +65,24 @@ export function createActivity(box: HTMLElement): Activity {
   };
 }
 
+/** The media of the phone's one-row bar (`oneRow`): a touch screen, the compact bar's width (the "max-width: 600px"
+ *  block of view3d.css: the widths it takes keep its two rows; asked as its negation, so no width lies between the
+ *  two, a zoomed page's 600.5 px neither, and older WebKit, which knows no range syntax, reads it) and a phone's
+ *  height held sideways (app/PlaceMap.ts PHONE). */
+export const ROW_MEDIA = {touch: "(pointer: coarse)", narrow: "(max-width: 600px)", low: "(max-height: 480px)"};
+
+/** The phone's one-row bar on `root` (the class `v3-row`, view3d.css; docs/DESIGN.md row 37): on a touch screen
+ *  wider than 600 px at the phone level (`phone`: a touch tablet at its default level, a phone held sideways) or at
+ *  most 480 px high (a phone held sideways at the full level); never with a mouse (the desktop keeps the bar with
+ *  words, its `?level=phone` too). Kept as the window turns or changes its size, or a mouse comes or goes. */
+export function oneRow(root: HTMLElement, phone: boolean): void {
+  if (typeof matchMedia !== "function") return;
+  const touch = matchMedia(ROW_MEDIA.touch), narrow = matchMedia(ROW_MEDIA.narrow), low = matchMedia(ROW_MEDIA.low);
+  const set = () => root.classList.toggle("v3-row", touch.matches && !narrow.matches && (phone || low.matches));
+  for (const media of [touch, narrow, low]) media.addEventListener?.("change", set);
+  set();
+}
+
 /** The gap the card's slot keeps from the tool strip (CSS pixels). */
 export const ASIDE_GAP_PX = 8;
 

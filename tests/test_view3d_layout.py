@@ -183,28 +183,84 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
         try:
             for width, height in ((844, 390), (667, 375)):
                 page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", _phone(p, width, height))
-                states = {}
-                for kinds in ("two", "four"):
-                    if kinds == "four":
-                        page.evaluate(FOUR)
-                    for view in ("eyes", "behind", "orbit"):
-                        page.evaluate(VIEW, view)
-                        page.wait_for_function(VIEWED, arg=view, timeout=WAIT)
-                        states[kinds, view] = page.evaluate(BAR)
-                for key, state in states.items():
-                    where = (width, key, state)
-                    assert state["view"] == key[1] and state["rows"] == 1, where
-                    assert state["overlaps"] == [] and state["outside"] == [], where
-                    assert state["words"] == 0 and state["select"] and not state["segment"], where
-                    # the athlete's views add the zoom's three pieces (and the phone's motion where there is one)
-                    assert state["count"] >= states[key[0], "orbit"]["count"] + (0 if key[1] == "orbit" else 3), where
-                    assert state["slider"] >= 64, where
-                    assert state["notes"] == [["Check every line on the spot.", 16]], where
-                heights = {state["bar"] for state in states.values()}
-                # 96.1 px: 80.5 px (the readout's line and the row) and the sentence's line of 15.6 px
-                assert len(heights) == 1 and heights.pop() < 100, (width, states)
-                assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+                _assert_one_row(page, width)
                 page.context.close()
+        finally:
+            browser.close()
+
+
+def _bar_states(page):
+    """The bar (BAR) in the athlete's eyes, behind the athlete and the orbit, with two kinds of imagery and with
+    four, keyed by (kinds, view)."""
+    states = {}
+    for kinds in ("two", "four"):
+        if kinds == "four":
+            page.evaluate(FOUR)
+        for view in ("eyes", "behind", "orbit"):
+            page.evaluate(VIEW, view)
+            page.wait_for_function(VIEWED, arg=view, timeout=WAIT)
+            states[kinds, view] = page.evaluate(BAR)
+    return states
+
+
+def _assert_one_row(page, where):
+    """Row 37's one row in every view with two and four kinds of imagery: no control over another or outside the
+    window, the views' switch and the tools as icons, the imagery's select and never its segment, the safety sentence
+    the only note, and the bar as high in every one of those states (96.1 px: 80.5 px for the readout's line and the
+    row, 15.6 px for the sentence's line)."""
+    states = _bar_states(page)
+    for key, state in states.items():
+        at = (where, key, state)
+        assert state["view"] == key[1] and state["rows"] == 1, at
+        assert state["overlaps"] == [] and state["outside"] == [], at
+        assert state["words"] == 0 and state["select"] and not state["segment"], at
+        # the athlete's views add the zoom's three pieces (and the phone's motion where there is one)
+        assert state["count"] >= states[key[0], "orbit"]["count"] + (0 if key[1] == "orbit" else 3), at
+        assert state["slider"] >= 64, at
+        assert state["notes"] == [["Check every line on the spot.", 16]], at
+    heights = {state["bar"] for state in states.values()}
+    assert len(heights) == 1 and heights.pop() < 100, (where, states)
+    assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+
+
+def test_view3d_tablet_one_row(clip_data, monkeypatch):
+    """Row 37 on a touch tablet (the user, 2026-11-20: "C: the one-row bar of a phone held sideways"): at its default
+    level (the phone level) upright and sideways (768 x 1024, 820 x 1180, 1024 x 600, 1180 x 820) the bar is the
+    phone held sideways' one row in every view, with two and with four kinds of imagery, nothing over another or
+    outside the window, one bar height (with the wide bar's words, 768 x 1024 had the walk, the speed and the
+    imagery outside the window in the athlete's views, as on main). A mouse keeps the bar with words: the desktop's
+    `?level=phone` (1024 x 600) shows the views' names and the imagery's segment. A phone at the full level turned
+    without a reload (390 x 844 to 844 x 390 and back) takes the one row held sideways and its two rows upright
+    (chrome.ts oneRow follows the window)."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dtablet")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            url = f"http://127.0.0.1:{port}/{path}"
+            for width, height in ((768, 1024), (820, 1180), (1024, 600), (1180, 820)):
+                page = _open(browser, url + line, _phone(p, width, height))
+                assert page.evaluate("() => document.getElementById('view3d').classList.contains('v3-phone')")
+                _assert_one_row(page, (width, height))
+                page.context.close()
+            # a mouse at the phone level: the bar with words, the imagery's segment
+            page = _open(browser, url + "?level=phone" + line, {"viewport": {"width": 1024, "height": 600}})
+            mouse = page.evaluate(BAR)
+            assert mouse["words"] >= 3 and mouse["segment"] and not mouse["select"], mouse
+            page.context.close()
+            # a phone at the full level, turned
+            page = _open(browser, url + "?level=full" + line, _phone(p, 390, 844))
+            rows = []
+            for width, height in ((390, 844), (844, 390), (390, 844)):
+                page.set_viewport_size({"width": width, "height": height})
+                page.evaluate(FRAMES)
+                page.evaluate(FRAMES)
+                state = page.evaluate(BAR)
+                rows.append((state["rows"], state["select"], state["words"], round(state["bar"])))
+                assert state["overlaps"] == [] and state["outside"] == [], (width, state)
+            assert rows[0] == rows[2] and rows[0][0] == 2 and rows[1][0] == 1, rows
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
         finally:
             browser.close()
 
