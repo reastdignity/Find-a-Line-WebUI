@@ -163,7 +163,10 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
    place it on its point, stay): 24 px with a mouse, 44 px on a touch screen; the inset counts from inside the
    handle's 3 px rim (16 px). Where two handles' targets overlap, the one drawn later (anchor 2) takes the press */
 .v3-handle::after { content: ""; position: absolute; inset: -4px; }
-@media (pointer: coarse) { .v3-handle::after { inset: -14px; } }
+/* on a touch screen a handle near the stage's edge has its target moved inside by --v3-tx/--v3-ty (edit.ts, screen.ts
+   targetInside; at most 11 px: it still covers the handle), as the fan's dots (point.css) */
+@media (pointer: coarse) { .v3-handle::after { left: calc(-14px + var(--v3-tx, 0px)); right: calc(-14px - var(--v3-tx, 0px));
+                                               top: calc(-14px + var(--v3-ty, 0px)); bottom: calc(-14px - var(--v3-ty, 0px)); } }
 .v3-handle.v3-dragging { cursor: grabbing; background: var(--accent); }
 .v3-at { width: 0; height: 0; }
 .v3-grip { position: absolute; left: -14px; bottom: 0; width: 28px; pointer-events: none; touch-action: none; }

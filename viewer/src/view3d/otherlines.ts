@@ -23,7 +23,9 @@ import "./others.css";
 import { OTHERS_MAX, canonicalKey, currentPage, type PageRequest } from "./page";
 import type { Current, Favourites } from "./save";
 import type { SceneCore } from "./scene";
-import { overlayOf, place, pressedMark, toScreen } from "./screen";
+import {
+  LABEL_SHIFT_MAX_PX, LABEL_TARGET_MARGIN_PX, overlayOf, place, pressedMark, TARGET_HALF_PX, targetInside, toScreen,
+} from "./screen";
 import { resample, verdictOf, webbing, type Verdict } from "./webbing";
 
 /** The tool's icon: two curves one above the other (the `d` of a path in a 16 × 16 box). */
@@ -242,11 +244,16 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
   line.onProfile(() => { learn(); for (const b of shown) caption(b); scene.invalidate(); });
   favourites.onChange(refresh);
 
-  // Labels follow the lines after each frame drawn
+  // Labels follow the lines after each frame drawn; a label at the stage's edge keeps its whole target on a touch
+  // screen (others.css), as the fan's dots: the target's half-sizes from the label's own width (its height 28 px)
   scene.view.onDrawn(() => {
     for (const b of shown) {
       const label = labels.get(b.placed.key);
-      if (label) place(label.at, toScreen(scene, scene.toScene(...b.at)));
+      if (!label) continue;
+      const on = toScreen(scene, scene.toScene(...b.at));
+      place(label.at, on);
+      if (on) targetInside(scene, label.button, on, {x: label.button.offsetWidth / 2 + LABEL_TARGET_MARGIN_PX,
+                                                      y: TARGET_HALF_PX}, LABEL_SHIFT_MAX_PX);
     }
   });
 

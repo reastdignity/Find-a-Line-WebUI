@@ -27,7 +27,7 @@ import { createValid, type PointReach, type Valid } from "./overlay";
 import { currentPage, type PageRequest } from "./page";
 import type { ReachGet } from "./reach";
 import type { SceneCore } from "./scene";
-import { draggable, overlayOf, place, pointerRay, toScreen } from "./screen";
+import { draggable, HANDLE_SHIFT_MAX_PX, overlayOf, place, pointerRay, targetInside, toScreen } from "./screen";
 
 export interface Edit {
   /** The found line's profile (or its error) once /api/profile answered: shown unless the anchors were moved. */
@@ -170,6 +170,14 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     return {x: g.x, y: g.y, distance: hit.distance};
   };
 
+  // While a handle is dragged the bar keeps its height, so the stage under the finger keeps its size: on a phone the
+  // first move adds the bar's row ("Back to the found line", the readout's "Moved, not saved"), which made the stage
+  // 44 px lower and put the handle 24 px off the finger (docs/known-bugs.md); that row shows after the release
+  // (docs/DESIGN.md row 84). Through the CSSOM (the CSP)
+  const bar = scene.toolbar.closest<HTMLElement>(".v3-bar");
+  const hold = (on: boolean) => { if (bar) bar.style.height = on ? `${bar.getBoundingClientRect().height}px` : ""; };
+  scene.onDispose(() => hold(false));
+
   const handles = [0, 1].map((n) => {
     const k = n as 0 | 1;
     const handle = document.createElement("div");
@@ -179,7 +187,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     overlayOf(scene).append(handle);
     let moved = false;
     draggable(scene, handle, {
-      start() { pickable(); cancelProfile(); onEdit(); state("moving"); moved = false; valid!.grab(k); },
+      start() { hold(true); pickable(); cancelProfile(); onEdit(); state("moving"); moved = false; valid!.grab(k); },
       move(x, y) {
         const {raycaster} = pointerRay(scene, x, y);
         const hit = raycaster.intersectObjects(scene.pickTargets, false)[0];
@@ -199,6 +207,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
         reset!.classList.remove("v3-hidden");
       },
       end() {
+        hold(false);
         // a grab without a move still asks again: the grab cancelled the request of the last release
         if (!edited) { state(""); return; }
         askProfile();
@@ -210,7 +219,12 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
 
   const at = new Vector3();
   scene.view.onDrawn(() => {
-    line.anchors.forEach((a, k) => place(handles[k], toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)))));
+    line.anchors.forEach((a, k) => {
+      const on = toScreen(scene, at.copy(scene.toScene(a.x, a.y, a.h)));
+      place(handles[k], on);
+      // a handle at the stage's edge keeps its whole target on a touch screen (view3d.css), as the fan's dots
+      targetInside(scene, handles[k], on, undefined, HANDLE_SHIFT_MAX_PX);
+    });
   });
 
   return edit;

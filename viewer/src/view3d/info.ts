@@ -114,6 +114,14 @@ export function createInfo(stage: HTMLElement, bar: HTMLElement): Info {
   };
   const onKey = (e: KeyboardEvent) => {
     pressing = false;
+    // Shift+Tab out of the box (from "Close", its first control, or the box itself): closed, the focus back on its
+    // button, as Tab out of it closes it and goes on (the credits hidden under the box are out of the Tab order
+    // until it closes, so the browser's own step went past the button, to the strip's last tool)
+    if (open && e.key === "Tab" && e.shiftKey && (document.activeElement === shut || document.activeElement === box)) {
+      e.preventDefault();
+      self.close(true);
+      return;
+    }
     if (e.key !== "Escape" || !open) return;
     if (!box.getClientRects().length) { self.close(); return; }  // not shown: the press is for what is
     // the box first: the same press does not also end "Lines from a point" (point.ts listens on the window)

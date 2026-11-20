@@ -134,14 +134,15 @@ export function stepAside(stage: HTMLElement, tools: HTMLElement, card: HTMLElem
   return {fit, dispose() { sizes?.disconnect(); children?.disconnect(); if (frame) cancelAnimationFrame(frame); }};
 }
 
-/** The tool strip in `box`: buttons of an icon and a label, in their `order`. */
+/** The tool strip in `box`: buttons of an icon and a label, in their `order` in the DOM, so the Tab order is the
+ *  order on screen (a tool of the same order after those added before it). */
 export function createTools(box: HTMLElement): Tools {
   return {
     add(spec: ToolSpec): ToolButton {
       const button = el("button", "u-btn v3-tool");
       button.type = "button";
       button.dataset.tool = spec.id;
-      button.style.order = String(spec.order);
+      button.dataset.order = String(spec.order);
       const svg = document.createElementNS(SVG, "svg"), path = document.createElementNS(SVG, "path");
       svg.setAttribute("viewBox", "0 0 16 16");
       svg.setAttribute("aria-hidden", "true");
@@ -163,7 +164,8 @@ export function createTools(box: HTMLElement): Tools {
       self.setLabel(spec.label);
       if (spec.toggle) self.setPressed(false);
       button.addEventListener("click", () => spec.onClick());
-      box.append(button);
+      const after = [...box.children].find((tool) => Number((tool as HTMLElement).dataset.order ?? 0) > spec.order);
+      box.insertBefore(button, after ?? null);
       return self;
     },
   };

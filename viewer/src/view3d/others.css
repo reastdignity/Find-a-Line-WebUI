@@ -11,8 +11,10 @@
             font: inherit; font-size: var(--fs-1); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink);
             background: color-mix(in srgb, var(--surface) 84%, transparent); border: 2px solid var(--muted);
             border-radius: var(--r-full); box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
-/* the target counts from inside the 2 px edge: 24 px high, so 10 px each way make 44 */
-@media (pointer: coarse) { .v3-other::after { content: ""; position: absolute; inset: -10px; } }
+/* the target counts from inside the 2 px edge: 24 px high, so 10 px each way make 44; near the stage's edge it is moved
+   inside by --v3-tx/--v3-ty (otherlines.ts, screen.ts targetInside; at most 8 px: it still covers the label) */
+@media (pointer: coarse) { .v3-other::after { content: ""; position: absolute; left: calc(-10px + var(--v3-tx, 0px));
+  right: calc(-10px - var(--v3-tx, 0px)); top: calc(-10px + var(--v3-ty, 0px)); bottom: calc(-10px - var(--v3-ty, 0px)); } }
 .v3-other:hover, .v3-other:focus-visible { background: var(--surface); }
 /* the keyboard's ring beside the label's own shadow */
 .v3-other:focus-visible { box-shadow: 0 1px 4px rgb(0 0 0 / .35), var(--focus); }
