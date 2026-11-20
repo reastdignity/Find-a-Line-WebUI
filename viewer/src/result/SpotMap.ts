@@ -880,18 +880,31 @@ export class SpotMap {
     }
     const hover = this.hovered ?? this.mapHovered;
     if (hover !== null && view.passes(hover)) stroke([hover], 7, 0.95);
-    // a measurement (today's black dashes between white points) over every line, under the numbers' shapes (PRODUCT.md
-    // principle 9: no label is crossed; the design review's F1): each shape is cut out of the dashes' clip (a clip
-    // per shape, so overlapping shapes stay cut); its two points on top, the profile's point above them
+    // a measurement (today's black dashes between white points) over every line, under the numbers' shapes and the
+    // squares' values (PRODUCT.md principle 9: no label is crossed; the design review's F1, the code review's F2): each
+    // label the segment crosses (its box grown by CUT_GROW and half the dashes' width; usually none to three) is cut
+    // out of the dashes' clip, a clip each, so overlapping labels stay cut, and no clip for a label it misses (a clip
+    // per label cost a paint about 3.5 times its time: the second code review's F1); its two points on top, the
+    // profile's point above them
     if (this.measured.length) {
       const pts = this.measured.map((at): [number, number] => [mercX(at.lng) * this.scale - this.ox, mercY(at.lat) * this.scale - this.oy]);
       ctx.globalAlpha = 1;
       if (pts.length > 1) {
         ctx.save();
+        const [ax, ay] = pts[0], [bx, by] = pts[1], g = CUT_GROW + MEASURE_PX / 2;
+        const crosses = (x: number, y: number, w: number, h: number) => clipT(ax, ay, bx, by, x - w - g, y - h - g, x + w + g, y + h + g) !== null;
         for (const k of this.marks) {
+          if (!crosses(k.x, k.y, k.w, k.h)) continue;
           ctx.beginPath();
           ctx.rect(min.x, min.y, size.x, size.y);
           shapePath(ctx, k.kind, k.x, k.y, k.text, false, CUT_GROW);
+          ctx.clip("evenodd");
+        }
+        for (const v of this.values) {  // a value's box holds its halo; one left out is not drawn
+          if (v.left || !crosses(v.x, v.y, v.w, v.h)) continue;
+          ctx.beginPath();
+          ctx.rect(min.x, min.y, size.x, size.y);
+          ctx.rect(v.x - v.w - CUT_GROW, v.y - v.h - CUT_GROW, 2 * (v.w + CUT_GROW), 2 * (v.h + CUT_GROW));
           ctx.clip("evenodd");
         }
         ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]);

@@ -136,6 +136,21 @@ def test_the_command_line(tmp_path):
             vn.main(["--out", str(out), "--runs", str(run)] + bad)
 
 
+def test_main_passes_stub_tiles(tmp_path, monkeypatch):
+    """`--stub-tiles` on the command line reaches measure_runs as stub_tiles=True (the pictures offline); without the
+    flag, False (the base map's tiles, as before)."""
+    run = _old_run(tmp_path)
+    seen = []
+
+    def fake(*args, **kwargs):
+        seen.append(kwargs.get("stub_tiles"))
+        return {"runs": []}
+    monkeypatch.setattr(vn, "measure_runs", fake)
+    base = ["--out", str(tmp_path / "out"), "--runs", str(run), "--data-dir", str(tmp_path / "data")]
+    assert vn.main(base + ["--stub-tiles"]) == 0 and vn.main(base) == 0
+    assert seen == [True, False]
+
+
 def test_stub_tile_is_one_plain_picture():
     """The stub tile (offline pictures: `--stub-tiles`): a 256 x 256 PNG, every pixel the map's background colour."""
     import io

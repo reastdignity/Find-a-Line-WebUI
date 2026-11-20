@@ -277,7 +277,10 @@ def test_measure(site, device):
                 page.wait_for_function("() => { const s = T.state(); return s.free[3] < s.size[1] && s.free[3] > s.size[1] * 0.6; }", timeout=WAIT)
             press = (lambda x, y: _tap(page, x, y)) if finger else (lambda x, y: page.mouse.click(x, y))
             sel = _state(page, "view.setLevel('spots'); view.select(view.order[0]);")["selected"]
-            touch = page.evaluate("() => getComputedStyle(window.FINDALINE_MAP.getContainer()).touchAction")
+            # an inline touch-action of its own on the map box (pan-y: not Leaflet's none), so the checks after measuring
+            # prove it is put back and not left at none
+            touch = page.evaluate("() => { const c = window.FINDALINE_MAP.getContainer(); c.style.touchAction = 'pan-y'; return getComputedStyle(c).touchAction; }")
+            assert touch == "pan-y"
             page.evaluate(MEASURE)
             m = page.evaluate(MEASURED)
             assert m["on"] is True and m["events"] == [True] and m["cursor"] == "crosshair" and m["points"] == []
@@ -631,6 +634,67 @@ def test_measured_line_under_numbers(site, device):
             browser.close()
 
 
+# Two labels near a measured line, one crossed and one not: the line through the first's middle (horizontal, 60 px
+# beyond its box each way), the second within 30 px of the line, its box (grown by the cut's 2.5 px and 1 px more)
+# clear of it; the clips of the paint recorded (the canvas's path calls between a beginPath and a clip: each clip's
+# shape, the canvas's rect left out, by its middle in the layer's pixels), and the crossed box's pixels before and
+# after. `kind`: "mark" (the numbers, Spots) or "value" (the squares' values, Area).
+PAIR = r"""([kind]) => { const {map} = window.FINDALINE_VIEW, L = window.FINDALINE_MAP, cv = document.querySelector('.v-canvas'), ctx = cv.getContext('2d');
+  const items = kind === 'mark' ? map.marks.map((k) => ({x: k.x, y: k.y, w: k.w, h: k.h, label: k.text}))
+    : map.values.filter((v) => !v.left).map((v) => ({x: v.x, y: v.y, w: v.w, h: v.h, label: v.text}));
+  let pair = null;
+  for (const a of items) { const x0 = a.x - a.w - 60, x1 = a.x + a.w + 60;
+    const b = items.find((o) => o !== a && o.x > x0 && o.x < x1 && Math.abs(o.y - a.y) > o.h + 3.5 && Math.abs(o.y - a.y) < o.h + 30);
+    if (b) { pair = {a, b, x0, x1}; break; } }
+  if (!pair) return {items: items.length, pair: null};
+  const {a, b, x0, x1} = pair, r = cv.getBoundingClientRect(), s = cv.width / r.width, box = L.getContainer().getBoundingClientRect();
+  const toView = (x, y) => { const q = L.layerPointToContainerPoint([x, y]); return [q.x + box.left, q.y + box.top]; };
+  const [vl, vt] = toView(a.x - a.w, a.y - a.h);
+  const grab = () => Array.from(ctx.getImageData(Math.round((vl - r.left) * s), Math.round((vt - r.top) * s), Math.round(2 * a.w * s), Math.round(2 * a.h * s)).data);
+  const before = grab();
+  const p0 = L.layerPointToLatLng([x0, a.y]), p1 = L.layerPointToLatLng([x1, a.y]);
+  const P = CanvasRenderingContext2D.prototype, keep = {}, clips = []; let path = {rects: 0, pts: [], arcs: []};
+  // a path's points (a circle by its centre alone, a rounded box by its middle; the first rect, the canvas's, left out)
+  const mean = (q) => [q.reduce((m, v) => m + v[0], 0) / q.length, q.reduce((m, v) => m + v[1], 0) / q.length];
+  for (const name of ['beginPath', 'rect', 'moveTo', 'lineTo', 'arc', 'roundRect', 'clip']) { keep[name] = P[name];
+    P[name] = function (...args) { if (this === ctx) {
+        if (name === 'beginPath') path = {rects: 0, pts: [], arcs: []};
+        else if (name === 'rect') { if (path.rects++ >= 1) path.pts.push([args[0] + args[2] / 2, args[1] + args[3] / 2]); }
+        else if (name === 'roundRect') path.pts.push([args[0] + args[2] / 2, args[1] + args[3] / 2]);
+        else if (name === 'arc') path.arcs.push([args[0], args[1]]);
+        else if (name === 'moveTo' || name === 'lineTo') path.pts.push([args[0], args[1]]);
+        else if (name === 'clip') { const q = path.arcs.length ? path.arcs : path.pts; if (q.length) clips.push(mean(q)); } }
+      return keep[name].apply(this, args); }; }
+  try { map.drawMeasured({lat1: p0.lat, lon1: p0.lng, lat2: p1.lat, lon2: p1.lng}); } finally { for (const name of Object.keys(keep)) P[name] = keep[name]; }
+  const after = grab(), near = (c, o) => Math.abs(c[0] - o.x) < 1 && Math.abs(c[1] - o.y) < 1;
+  return {items: items.length, pair: [a.label, b.label], clips: clips.length, crossed: clips.some((c) => near(c, a)), missed: clips.some((c) => near(c, b)),
+          same: before.length > 0 && before.every((v, i) => v === after[i])}; }"""
+
+
+@pytest.mark.parametrize("kind", ["mark", "value"])
+def test_measured_line_cuts_only_the_labels_it_crosses(site, kind):
+    """The measured line's cut (PRODUCT.md principle 9; the second code review's F1 and F2): a label the segment
+    crosses gets a clip of its own and keeps every pixel of its box, a label near the line but missed gets none, and
+    the paint holds no more clips than the labels crossed. For the numbers at Spots and for the squares' values at
+    Area."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _page(browser, site, DESKTOP)
+            if kind == "mark":
+                _state(page, "view.setLevel('spots'); view.setBest(30);")
+            else:
+                _state(page, "leaflet.fitBounds(map.areaBounds(), {animate: false}); view.setLevel('area');")
+            assert page.evaluate("() => B.settle()")
+            got = page.evaluate(PAIR, [kind])
+            assert got["pair"], got  # two labels of the clip near each other
+            assert got["crossed"] and not got["missed"] and got["same"], got
+            assert 1 <= got["clips"] < got["items"], got
+            assert page.errors == [], page.errors
+        finally:
+            browser.close()
+
 def test_measure_hover_and_presses(site):
     """While measuring the mouse thickens no line (no hover, no pointer cursor) and a press on a line is a point (it
     selects nothing); on a phone a press held on an anchor opens no "Lines from here" (no hold is timed: onPointerDown)."""
@@ -695,7 +759,10 @@ def test_destroy_while_measuring(site):
             def keydowns():
                 document = cdp.send("Runtime.evaluate", {"expression": "document"})["result"]["objectId"]
                 return sum(1 for e in cdp.send("DOMDebugger.getEventListeners", {"objectId": document})["listeners"] if e["type"] == "keydown")
-            touch = page.evaluate("() => getComputedStyle(window.FINDALINE_MAP.getContainer()).touchAction")
+            # an inline touch-action of its own on the map box (pan-y: not Leaflet's none), so the checks after measuring
+            # prove it is put back and not left at none
+            touch = page.evaluate("() => { const c = window.FINDALINE_MAP.getContainer(); c.style.touchAction = 'pan-y'; return getComputedStyle(c).touchAction; }")
+            assert touch == "pan-y"
             before = keydowns()
             page.evaluate(MEASURE)
             assert page.evaluate(MEASURED)["drag"] is False
@@ -748,9 +815,16 @@ def test_kept_layer_after_zoom_and_resize(site):
             hover = "([k]) => { const {view, map} = window.FINDALINE_VIEW; return B.ops(() => map.highlight(view.shownOf(view.order[k]))); }"
             for change in ("leaflet.setZoom(leaflet.getZoom() + 0.5, {animate: false});", "resize", "leaflet.panBy([90, 40], {animate: false});"):
                 if change == "resize":
-                    width = page.evaluate("() => window.FINDALINE_MAP.getSize().x")
+                    # the layer drawn again by the map's own resize handler, at the resize (read by a listener added after
+                    # SpotMap's), not by a later redraw (the frame's own refresh comes 120 ms after; B.settle redraws too)
+                    before = page.evaluate("""() => { const {map} = window.FINDALINE_VIEW, L = window.FINDALINE_MAP; window.AT_RESIZE = null;
+                        L.once('resize', () => { const b = map.renderer._bounds;
+                          window.AT_RESIZE = {key: map.otherLayer.key, bounds: `|${b.min.x},${b.min.y},${b.getSize().x},${b.getSize().y},`}; });
+                        return map.otherLayer.key; }""")
                     page.set_viewport_size({"width": 1200, "height": 800})
-                    page.wait_for_function("([w]) => window.FINDALINE_MAP.getSize().x !== w", arg=[width], timeout=WAIT)
+                    page.wait_for_function("() => window.AT_RESIZE !== null", timeout=WAIT)
+                    at = page.evaluate("() => window.AT_RESIZE")
+                    assert at["key"] != before and at["bounds"] in at["key"], (before, at)
                 else:  # the move's own full redraw draws the layer again (at its new zoom or place)
                     ops = page.evaluate("() => B.ops(() => { const leaflet = window.FINDALINE_MAP; %s })" % change)
                     assert any(o["on"] == "layer" for o in ops), change
