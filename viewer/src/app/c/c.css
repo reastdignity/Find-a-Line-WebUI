@@ -366,28 +366,44 @@
 /* the keyboard's ring: the kit's (--focus), above the bars beside it */
 .ui .c-layer-bar:focus-visible { position: relative; z-index: 1; border-radius: var(--r-1); }
 .ui .c-layer-bar { scroll-margin: 8px; }  /* the ring's 4 px stay inside the panel when the keyboard scrolls to a bar */
+/* a bar of a chart too narrow for its counts shows its own while it has the keyboard's focus: a raised label at the
+   chart's top, over the bars beside it (data-count; the bar keeps its height; the wide charts' rules take it away) */
+.ui .c-layer-bar:focus-visible::after { content: attr(data-count); position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  padding: 0 4px; border-radius: var(--r-1); background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
+  font-size: var(--fs-1); line-height: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
 .ui .c-layer-hist-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); font-size: var(--fs-1); color: var(--muted);
   text-align: center; font-variant-numeric: tabular-nums; margin-top: 4px; }
 .ui .c-layer-hist-axis span { display: flex; justify-content: center; white-space: nowrap; }
 .ui .c-layer-hist-axis span:nth-child(even) { visibility: hidden; }
 .ui .c-layer-hist-edges { display: flex; justify-content: space-between; }
 .ui .c-layer-hist-edges span { flex: 0 0 auto; }
-/* 32 px a bar: a chart of n bars shows its counts and every tick from 32 n px (2 to 16 bars) */
-@container layer-hist (min-width: 64px) { .ui .c-layer-hist[data-bars="2"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="2"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 96px) { .ui .c-layer-hist[data-bars="3"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="3"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 128px) { .ui .c-layer-hist[data-bars="4"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="4"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 160px) { .ui .c-layer-hist[data-bars="5"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="5"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 192px) { .ui .c-layer-hist[data-bars="6"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="6"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 224px) { .ui .c-layer-hist[data-bars="7"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="7"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 256px) { .ui .c-layer-hist[data-bars="8"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="8"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 288px) { .ui .c-layer-hist[data-bars="9"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="9"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 320px) { .ui .c-layer-hist[data-bars="10"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="10"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 352px) { .ui .c-layer-hist[data-bars="11"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="11"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 384px) { .ui .c-layer-hist[data-bars="12"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="12"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 416px) { .ui .c-layer-hist[data-bars="13"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="13"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 448px) { .ui .c-layer-hist[data-bars="14"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="14"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 480px) { .ui .c-layer-hist[data-bars="15"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="15"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
-@container layer-hist (min-width: 512px) { .ui .c-layer-hist[data-bars="16"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="16"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } }
+/* 32 px a bar: a chart of n bars shows its counts and every tick from 32 n px, and then no bar shows a count of
+   its own on focus (1 to 24 bars: a container query takes no variable, so one rule per count;
+   tests/test_layer_page_layout.py reads them; .claude/rules/country-layer.md) */
+@container layer-hist (min-width: 32px) { .ui .c-layer-hist[data-bars="1"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="1"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="1"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 64px) { .ui .c-layer-hist[data-bars="2"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="2"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="2"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 96px) { .ui .c-layer-hist[data-bars="3"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="3"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="3"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 128px) { .ui .c-layer-hist[data-bars="4"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="4"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="4"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 160px) { .ui .c-layer-hist[data-bars="5"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="5"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="5"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 192px) { .ui .c-layer-hist[data-bars="6"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="6"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="6"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 224px) { .ui .c-layer-hist[data-bars="7"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="7"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="7"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 256px) { .ui .c-layer-hist[data-bars="8"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="8"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="8"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 288px) { .ui .c-layer-hist[data-bars="9"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="9"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="9"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 320px) { .ui .c-layer-hist[data-bars="10"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="10"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="10"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 352px) { .ui .c-layer-hist[data-bars="11"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="11"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="11"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 384px) { .ui .c-layer-hist[data-bars="12"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="12"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="12"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 416px) { .ui .c-layer-hist[data-bars="13"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="13"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="13"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 448px) { .ui .c-layer-hist[data-bars="14"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="14"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="14"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 480px) { .ui .c-layer-hist[data-bars="15"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="15"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="15"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 512px) { .ui .c-layer-hist[data-bars="16"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="16"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="16"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 544px) { .ui .c-layer-hist[data-bars="17"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="17"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="17"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 576px) { .ui .c-layer-hist[data-bars="18"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="18"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="18"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 608px) { .ui .c-layer-hist[data-bars="19"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="19"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="19"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 640px) { .ui .c-layer-hist[data-bars="20"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="20"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="20"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 672px) { .ui .c-layer-hist[data-bars="21"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="21"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="21"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 704px) { .ui .c-layer-hist[data-bars="22"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="22"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="22"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 736px) { .ui .c-layer-hist[data-bars="23"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="23"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="23"] .c-layer-bar::after { content: none; } }
+@container layer-hist (min-width: 768px) { .ui .c-layer-hist[data-bars="24"] .c-layer-bar-n { display: block; } .ui .c-layer-hist[data-bars="24"] .c-layer-hist-axis span { visibility: visible; overflow: hidden; } .ui .c-layer-hist[data-bars="24"] .c-layer-bar::after { content: none; } }
 .ui .c-layer-waiting .c-layer-stat, .ui .c-layer-waiting .c-layer-hist-bars { opacity: .55; }
 
 /* Phones */
@@ -435,10 +451,11 @@
   scroll-snap-type: x proximity; scroll-padding-inline: 16px; }
 .ui.c-narrow .c-layer-hist { flex: none; width: 148px; scroll-snap-align: start; }
 .ui.c-narrow .c-layer-hist[data-hist="length"] { width: 236px; }
-/* enlarged: 272 px, or 34 px a bar where the cube has more bars (--bars, LayerHistograms.tsx), up to the screen's width */
-.ui.c-narrow .c-layer-hist-open { width: min(calc(100vw - 32px), max(272px, calc(var(--bars) * 34px))); box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
+/* enlarged: 272 px (the length chart 300), or 32 px a bar where the cube has more bars (--bars, LayerHistograms.tsx),
+   up to the screen's width */
+.ui.c-narrow .c-layer-hist-open { width: min(calc(100vw - 32px), max(272px, calc(var(--bars) * 32px))); box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
   border-radius: var(--r-1); }
-.ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: 300px; }
+.ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: min(calc(100vw - 32px), max(300px, calc(var(--bars) * 32px))); }
 .ui.c-narrow .c-layer-hist .c-layer-hist-bars { height: 64px; }
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-bars { height: 108px; }
 .ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: var(--fs-1); margin-bottom: 0; }

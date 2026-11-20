@@ -2,7 +2,9 @@
 // (cube.json's edges and kinds: the length and fifteen more), from /api/countries/<id>/histogram summed over the
 // cubes in view, in three topics (layerState.ts TOPICS: The line, Anchors and terrain, Rigging; the length chart
 // leads). Each histogram is a row of buttons: a bar's height is log10(1 + count) over log10(1 + the largest), the
-// count above it, the bins inside the current limit pressed. The length histogram sets the range (a click one bin,
+// count above it (where the chart has room: c.css; else on the bar's keyboard focus), the bins inside the current
+// limit pressed; a bar's accessible name is its range and its count. A dimension whose filter is off for the cubes
+// in view (`off`: no surface model, no A-frames counted) has bars that cannot be picked. The length histogram sets the range (a click one bin,
 // shift-click extends the range to it); the others set a limit by their kind (a floor: the bin's lower edge; a
 // "below": the bin's upper edge, the last bin "any"; an at_most: the bin's upper edge, the last bin "any"); the
 // unknown bin ("?") cannot be picked. The chart of the dimension changed last (`open`) is ringed on a desktop, where
@@ -118,7 +120,8 @@ export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle,
         const count = <span class="c-layer-bar-n">{b.value > 0 ? short(b.value).replace(" ", "") : ""}</span>;
         return b.pickable
           ? <button key={k} type="button" class={`c-layer-bar${b.pressed ? " u-on" : ""}`} data-value={b.value}
-                    aria-pressed={b.pressed} title={b.title} onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
+                    data-count={short(b.value).replace(" ", "")} aria-label={b.title} aria-pressed={b.pressed} title={b.title}
+                    onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
           : <span key={k} class="c-layer-bar c-layer-bar-off" data-value={b.value} title={b.title}>{count}{fill}</span>;
       })}
     </div>
