@@ -95,6 +95,8 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov .cov-sw2.cov-swh { background: repeating-linear-gradient(135deg, var(--cov-l2) 0 3px, var(--cov-land) 3px 6px); }
 /* the scale's switch: the kit's segments (ui.css .u-seg: 32 px, 44 px on a touch screen), as wide as its words */
 .cov .cov-scale { align-self: flex-start; flex-wrap: wrap; }
+/* each segment as wide as its words (the kit's `flex: 1` made three equal ones, too narrow for "Everyday sizes") */
+.ui.cov .cov-scale button { flex: none; }
 .cov-world button { font-size: inherit; }
 /* the stars (card.tsx Stars): the kit's star drawn filled, the ones not reached in the edge colour (choice 63) */
 .cov .cov-stars { display: inline-flex; gap: 2px; color: var(--cov-l1); vertical-align: -2px; flex: none; }
