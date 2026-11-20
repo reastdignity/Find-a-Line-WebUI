@@ -1,7 +1,7 @@
 // The terrain profile of the selected line (or of two points measured on the map) in a dock: the
 // ProfilePanel (Profile.tsx) with the profile from model.profile (saved, computed before or
 // asked from the server), a loading and an error state; the point under the cursor or the finger is
-// shown on the map (ResultMap.hoverAt). In a card (ProfileCard) it fills the card's height (`fill`: the
+// shown on the map (ProfileMap.hoverAt: ResultMap's). In a card (ProfileCard) it fills the card's height (`fill`: the
 // chart takes what the bar and the controls leave) and has a fold button beside its × (`onFold`); the card's
 // profile is compact: the line's facts in the bar (the full title for screen readers and tests in
 // .fal-profile-title, visually hidden), the legend and the 1:1 scale under "Rigging and layers".
@@ -12,13 +12,15 @@ import { Icon } from "../../ui/icons";
 import { ProfilePanel } from "../../Profile";
 import type { Line } from "../../types";
 import type { ResultModel } from "../model";
-import type { ResultMap } from "../ResultMap";
 import { cx, num, useModel } from "./common";
+
+/** What the dock and its card need of the map: the profile's point under the cursor or the finger (null: none). */
+export interface ProfileMap { hoverAt(at: [number, number] | null): void }
 
 export interface ProfileDockProps {
   model: ResultModel;
   /** The map layer, for the point under the cursor. */
-  view?: ResultMap | null;
+  view?: ProfileMap | null;
   /** The line whose profile is shown (default: the selected one). */
   line?: Line | null;
   /** Two points measured on the map (RunActions' onMeasured): shown instead of the line while set. */

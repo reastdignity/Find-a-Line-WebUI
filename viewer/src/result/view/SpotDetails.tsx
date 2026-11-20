@@ -226,4 +226,5 @@ export const SLOTS = {
   sheetHead: (p: PanelProps) => <SheetHead {...p} />,
   hint: (p: PanelProps) => <Hint {...p} />,
   chooser: (p: ChooserProps) => <SpotChooser key={`${p.at.x},${p.at.y}`} {...p} />,
+  lineActions: (_p: PanelProps) => null,  // the selected line's actions: empty until step 3c's details fill it
 };

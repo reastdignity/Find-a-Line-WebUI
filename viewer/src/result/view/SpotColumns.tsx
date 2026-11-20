@@ -8,7 +8,11 @@
 // data credits), the canvas (SpotMap), the toast, where the table of spots stands, and Esc.
 //
 // Not here yet (they join with today's other features, step 3c): the run's actions (Download, Measure, Share,
-// Compare: their place in the header stays free), the profile card, a line's links and the `#line=` route.
+// Compare), the profile card, a line's links and the `#line=` route. Their places are empty slots, each marked in
+// the JSX below: the run's actions (the header; a phone's pill), the profile card over the map (the columns), the
+// profile's dock (a phone's sheet) and the selected line's actions (SpotPanels `lineActions`, after the details).
+// The props they need reach Desktop and Phone (`line`, `nav`, `hashOf`, `show`; not read yet), and the caller's
+// `linkOf` and `view3dOf` go on to the panels (PanelProps).
 //
 // For tests and the console: window.FINDALINE_MAP is the Leaflet map (as on today's page) and
 // window.FINDALINE_VIEW = {view, map} (the SpotView and the SpotMap) is set once the view was drawn for the first
@@ -290,7 +294,8 @@ function useFootClear(col: {current: HTMLElement | null}, canvas: SpotMap | null
   }, deps);
 }
 
-function Desktop({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
+function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
+                  panels}: FrameProps) {
   useSpotView(view);
   const layout = useLayout();
   const colsRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
@@ -335,7 +340,7 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top, right: box.right, bottom: box.bottom};
   };
-  const p: PanelProps = {view, map: canvas, wide: true, padding};
+  const p: PanelProps = {view, map: canvas, wide: true, padding, linkOf, view3dOf};
   const sel = view.selected;
   return <div class="c-result v-result">
     <header class="c-subtop c-result-top">
@@ -343,6 +348,8 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
       <Title data={data} />
       <span class="u-grow" />
       {actions?.(false)}
+      {/* slot, empty: the run's actions (Download, Measure, Share, Compare; `show`), after the caller's as on today's
+          page; step 3c's frame fills it */}
     </header>
     <div class="c-cols" ref={colsRef}>
       <FramePanel side="list" class="c-col-list" label={t("ui.view.map.panel_list")} column={fit.list}
@@ -355,11 +362,13 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
         <MapBar view={view} map={canvas} wide
                 hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
         {toast && <div class="v-toast" role="status">{toast}</div>}
+        {/* slot, empty: the selected line's profile as a card over the map's bottom (today's ProfileCard); how it
+            shares the room with the bar's foot is open; step 3c's frame fills it */}
       </div>
       <FramePanel side="details" class="c-col-details" label={t("ui.view.map.panel_details")} column={fit.details}
                   max={maxColumnWidth("details", width, fit)} layout={layout} onOpen={setOpen}
                   rail={{icon: "info", text: sel ? t("ui.view.map.rail_spot", {label: view.label(sel.spot)}) : t("ui.view.map.rail_details")}}>
-        <div class="c-col-dbody">{panels.details(p)}</div>
+        <div class="c-col-dbody">{panels.details(p)}{panels.lineActions?.(p)}</div>
       </FramePanel>
     </div>
     {choice && canvas && panels.chooser?.({...p, choices: choice.choices, at: choice.at, area: freeArea(), onClose: closeChoice})}
@@ -369,7 +378,8 @@ function Desktop({view, data, back, actions, ortho, base, folder, panels}: Frame
 const PHONE_TOP = 116;  // px of a phone's map under its top bar and the switch (8 + 44 + 8 + 52, and 4)
 const SHEET_PEEK = 132, SHEET_TOP = 64;  // the phone's sheet: its lowest height, and what it leaves free at the top
 
-function Phone({view, data, back, actions, ortho, base, folder, panels}: FrameProps) {
+function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
+                panels}: FrameProps) {
   useSpotView(view);
   // the view opens with the sheet low (the user's decision of 2026-11-17: the map first)
   const [snap, setSnap] = useState<Snap>("peek");
@@ -409,7 +419,7 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top + 64, right: box.right, bottom: box.bottom - covered()};
   };
-  const p: PanelProps = {view, map: canvas, wide: false, padding, sheet: {snap, setSnap}};
+  const p: PanelProps = {view, map: canvas, wide: false, padding, sheet: {snap, setSnap}, linkOf, view3dOf};
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
@@ -422,12 +432,17 @@ function Phone({view, data, back, actions, ortho, base, folder, panels}: FramePr
         {back && <IconButton icon="back" label={back.label} plain round class="c-back" onClick={back.onClick} />}
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
+        {/* slot, empty: the run's actions with icons only (`show`; a phone has no Compare), after the caller's;
+            today's page draws them beside the pill, in .c-phone-top; step 3c's frame fills it */}
       </div>
     </div>
     {/* the sheet from its top: the handle, the hint (its first line, B.2 item 12), the head's row, then the body */}
     <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP}
            header={<>{panels.hint({...p, place: "sheet"})}{panels.sheetHead(p)}</>}>
       {panels.details(p)}
+      {panels.lineActions?.(p)}
+      {/* slot, empty: the profile's dock (today's ProfileDock in the sheet, under the line's actions as there);
+          step 3c's frame fills it */}
       {panels.list(p)}
     </Sheet>
     {choice && canvas && panels.chooser?.({...p, choices: choice.choices, at: choice.at, area: freeArea(), onClose: closeChoice})}

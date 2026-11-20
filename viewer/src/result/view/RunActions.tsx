@@ -3,6 +3,7 @@
 // (the run's lines as CSV and GeoJSON, made by the worker from the run's store for each download, where the page can
 // ask for it: mayExport; no run keeps the files since store wave 4).
 
+import type L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
@@ -12,14 +13,23 @@ import { listOthers, NEARBY_KM, colorOf } from "../../others";
 import type { Line, RunData, RunInfo } from "../../types";
 import { loadOtherRun, loadRunList } from "../load";
 import type { ResultModel } from "../model";
-import type { ResultMap } from "../ResultMap";
 import { LinkField } from "./LineDetails";
 import { Popover, Swatch, useModel } from "./common";
 import { day } from "../../time";
 
+/** What the run's actions need of the map: Measure's mode and its two points, Compare's box of the run's area. */
+export interface RunActionsMap {
+  readonly isMeasuring: boolean;
+  onMeasuring(listener: (measuring: boolean) => void): () => void;
+  startMeasure(done: (a: L.LatLng, b: L.LatLng) => void): void;
+  cancelMeasure(): void;
+  clearMeasure(): void;
+  areaBounds(): L.LatLngBounds;
+}
+
 export interface RunActionsProps {
   model: ResultModel;
-  view?: ResultMap | null;
+  view?: RunActionsMap | null;
   /** A measured line (or null when measuring starts again or fails): the shell shows it in ProfileDock. */
   onMeasured?(line: Line | null): void;
   /** Buttons with icons only (phones). */
