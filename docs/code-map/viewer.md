@@ -272,6 +272,8 @@ notice's dismiss, the sorted head, a favourite's star); `screen.ts` `pressedMark
 screen, hold it: the fan's dots, the labels), `targetInside` (a dot's target kept inside the stage) and `draggable`'s
 `fromCentre` (a handle's drag keeps the press's offset). The
 phone's layout (rows 37 to 39): `chrome.ts` `stepAside`, the profile card's slot right of the tool strip where the
-card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes; the bar of a
-phone held sideways is one block of `view3d.css` (`tests/test_view3d_layout.py`). The
+card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes (the credits'
+box hidden where the open box would overlap it); the one-row bar of a phone held sideways and a touch tablet is
+`chrome.ts` `oneRow` (the class `v3-row`, the one place of its condition) and its rules in `view3d.css`
+(`tests/test_view3d_layout.py`). The
 contract of its waves and every decision: docs/3d-view-contract.md; the research: docs/3d-view.md

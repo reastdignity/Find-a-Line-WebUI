@@ -71,3 +71,6 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   sight, as the safety sentence does (`.v3-check`, `INFO_KEPT`: the user's word, never into the box). The button and
   the box are for touch and the phone level: a mouse window keeps its lines at every width. A size that depends on the card (`chrome.ts` `stepAside`) is tested with its own effect off, never from the
   state it made (`tests/test_view3d_layout.py`).
+- **The one-row bar** (DESIGN.md row 37: a phone held sideways, a touch tablet) keys on the class `v3-row`, whose
+  condition lives in `chrome.ts` `oneRow` alone; a media query of the viewer never takes the range syntax
+  (`width > 600px`: WebKit before Safari 16.4 drops the whole query; `test_viewer_media_queries_older_webkit`).
