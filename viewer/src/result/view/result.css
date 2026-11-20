@@ -211,6 +211,8 @@
 .ui .r-dock.r-rigging .r-dock-bar .u-chip .u-ic { transform: rotate(180deg); }
 .ui .r-dock-msg { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; color: var(--ink-2); }
 .ui .r-dock { min-width: 0; }
+/* the profile's bar's close and fold on a touch screen: a finger's 44 px (R2; the user's "12 a"), on both pages */
+@media (pointer: coarse) { .ui .r-dock .r-note-x { width: 44px; height: 44px; } }
 
 /* The profile in a card (ProfileDock's fill mode and fold button: ProfileCard) */
 .ui .r-fold .u-ic { transition: transform .15s; }
@@ -262,6 +264,9 @@
 .ui .r-tip { position: absolute; top: calc(100% + 6px); left: 0; white-space: nowrap; padding: 4px 8px; border-radius: 6px;
   background: var(--ink); color: var(--bg); z-index: 1100; }
 .ui .r-tip.r-error { background: var(--bad); color: #fff; }
+/* the tip beside the button, before it (the result view's header: the mock-up's "Cancel" with its tip): plain words */
+.ui .r-act .r-tip.r-tip-beside { position: static; align-self: center; margin-right: 8px; padding: 0; border-radius: 0;
+  background: none; color: var(--ink-2); font-size: var(--fs-2); line-height: 18px; }
 
 /* The demo page (?ui=kit-result): on desktops the panel as a column on the left (its edge a Splitter, a rail
    when collapsed) beside the map with the profile card; a sheet on phones */

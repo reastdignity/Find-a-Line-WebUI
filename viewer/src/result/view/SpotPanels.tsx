@@ -7,6 +7,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Snap } from "../../ui/components";
+import type { Line } from "../../types";
 import type { Padding } from "../ResultMap";
 import type { SpotMap } from "../SpotMap";
 import type { SpotChoice, SpotView } from "../spots";
@@ -27,7 +28,11 @@ export interface PanelProps { view: SpotView; map: SpotMap | null; wide: boolean
                                *  frame got them (ResultColumnsProps: called with `view.model`; none: not on this page,
                                *  e.g. no 3D view in a run's map.html). No panel reads them yet (step 3c). */
                               linkOf?: ResultColumnsProps["linkOf"];
-                              view3dOf?: ResultColumnsProps["view3dOf"] }
+                              view3dOf?: ResultColumnsProps["view3dOf"];
+                              /** The frame's measured line shown now (Measure's two points, or a link's line measured
+                               *  outside the run: in the frame's card or its own dock); none or null: none. While it
+                               *  is set the details draw no profile dock. */
+                              measured?: Line | null }
 
 /** The table of spots' own: the spots a press reached, its point in the viewport, the part of the viewport the map
  *  shows free (LineChooser's placing), and how it closes (the frame also closes it when the map moves, the view

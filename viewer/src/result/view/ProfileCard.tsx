@@ -28,6 +28,8 @@ export interface ProfileCardProps {
   /** Two points measured on the map, shown in the same card. */
   measured?: Line | null;
   onCloseMeasured?(): void;
+  /** The given line's profile was closed (ProfileDock's `onClose`; the result view: model.closeProfile). */
+  onClose?(): void;
   layout: Layout;
   /** A new layout: `commit` true when it should be kept now. */
   onLayout(next: Layout, commit: boolean): void;
@@ -56,7 +58,7 @@ export function cardHeightAhead(layout: Layout, mapHeight: number): number {
 }
 const FOLDED_HEIGHT = 46;  // px: the folded card (its bar)
 
-export function ProfileCard({model, view, line, measured, onCloseMeasured, layout, onLayout,
+export function ProfileCard({model, view, line, measured, onCloseMeasured, onClose, layout, onLayout,
                              onSettle}: ProfileCardProps) {
   useModel(model);
   const ref = useRef<HTMLDivElement>(null);
@@ -168,7 +170,7 @@ export function ProfileCard({model, view, line, measured, onCloseMeasured, layou
               onToggle={() => setFolded(!folded)} />
     {side("l")}
     {side("r")}
-    <ProfileDock model={model} view={view} line={line} measured={measured} onCloseMeasured={onCloseMeasured} fill
+    <ProfileDock model={model} view={view} line={line} measured={measured} onCloseMeasured={onCloseMeasured} onClose={onClose} fill
                  folded={folded} onFold={setFolded} onContent={() => redraw((n) => n + 1)} />
   </div>;
 }

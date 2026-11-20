@@ -76,8 +76,10 @@ const GAP = 8;  // px between the card's top and a corner raised above it
 /** Keeps each bottom corner of the map in `mapBox` (the attribution, the scale) above the profile card
  *  (`.r-card`, ProfileCard) where the card covers it horizontally, in its own place elsewhere, while `on`.
  *  `cardBox` is the card or its positioned parent (the map's column, the card one of its children): the card
- *  comes and goes with the selection, and its size is followed as it is dragged or folded. */
-export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
+ *  comes and goes with the selection, and its size is followed as it is dragged or folded. `onCredits`: the card
+ *  stands on the attribution's line (the result view's 4 a), so the attribution stays in its own place and only the
+ *  scale goes above the card. */
+export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean, onCredits = false) {
   useEffect(() => {
     const map = element(mapBox), holder = element(cardBox);
     if (!on || !map || !holder) return;
@@ -100,7 +102,7 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
       const a = attribution?.getBoundingClientRect(), s = scale?.getBoundingClientRect();
       const covers = (r?: DOMRect) => !!(up && r && r.width && box!.left < r.right + GAP / 2 &&
                                          box!.right > r.left - GAP / 2);
-      const attributionUp = covers(a), scaleUp = covers(s);
+      const attributionUp = !onCredits && covers(a), scaleUp = covers(s);
       if (attribution) {
         attribution.style.bottom = attributionUp ? `${up}px` : "";
         attribution.style.left = attribution.style.right = "";

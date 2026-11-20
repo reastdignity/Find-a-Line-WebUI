@@ -5,7 +5,7 @@
 
 import type L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Button, IconButton } from "../../ui/components";
+import { Button, IconButton, TOUCH, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { api, ApiError, canChange, user, type RunListed } from "../../app/api";
 import { t } from "../../i18n";
@@ -34,17 +34,29 @@ export interface RunActionsProps {
   onMeasured?(line: Line | null): void;
   /** Buttons with icons only (phones). */
   compact?: boolean;
+  /** The icons without a box of their own (the result view's phone: in the top bar's pill). */
+  plain?: boolean;
+  /** Where Measure's tip "Click two points on the map" stands while measuring: under the button (default, today's
+   *  page), beside it before the button (the result view's header), or nowhere (the result view's phone: the status
+   *  line's first line, MapBar's `tip`). */
+  tip?: "below" | "beside" | "none";
   /** Which actions (default all that can work here). */
   show?: ("measure" | "compare" | "share" | "download")[];
   /** The folder of the runs' folders (default "/runs/"). */
   base?: string;
 }
 
+/** Measure's tip while measuring, a tap's words on a touch screen (MapBar's too on a phone of the result view). */
+export function useMeasureTip(): string {
+  return useMedia(TOUCH) ? t("ui.result.measure_tip_touch") : t("ui.result.measure_tip");
+}
+
 /** Measure: the next two clicks on the map; the profile between them is computed by the server. */
-function Measure({model, view, onMeasured, compact}: RunActionsProps) {
+function Measure({model, view, onMeasured, compact, plain, tip = "below"}: RunActionsProps) {
   // The map's mode, not a copy: a phone turned round draws another RunActions while measuring goes on
   const [measuring, setMeasuring] = useState(!!view?.isMeasuring);
   const [error, setError] = useState("");
+  const words = useMeasureTip();
   useEffect(() => {
     if (!view) return;
     setMeasuring(view.isMeasuring);
@@ -64,10 +76,11 @@ function Measure({model, view, onMeasured, compact}: RunActionsProps) {
   };
   const label = measuring ? "Cancel measuring" : "Measure";
   return <span class="r-act">
-    {compact ? <IconButton icon="ruler" label={label} on={measuring} onClick={toggle} />
+    {measuring && tip === "beside" && <span class="r-tip r-tip-beside u-small">{words}</span>}
+    {compact ? <IconButton icon="ruler" label={label} on={measuring} plain={plain} onClick={toggle} />
       : <Button icon="ruler" class={measuring ? "r-on" : ""} aria-pressed={measuring} onClick={toggle}>
           {measuring ? "Cancel" : "Measure"}</Button>}
-    {measuring && <span class="r-tip u-small">Click two points on the map</span>}
+    {measuring && tip === "below" && <span class="r-tip u-small">{words}</span>}
     {error && <span class="r-tip r-error u-small" role="alert">{error}
       <button type="button" class="r-note-x" aria-label="Close the message" onClick={() => setError("")}>
         <Icon name="close" /></button></span>}
@@ -132,7 +145,7 @@ const num0 = (v: number) => v.toFixed(0);
 
 /** Share (the public site, the owner's runs): a link that opens the run's map for anyone who has it;
  *  nothing unless the run is the user's own. */
-function Share({model, compact}: RunActionsProps) {
+function Share({model, compact, plain}: RunActionsProps) {
   const runId = model.runId;
   const [run, setRun] = useState<RunListed | null>(null);
   const [url, setUrl] = useState("");
@@ -149,7 +162,7 @@ function Share({model, compact}: RunActionsProps) {
   const stop = () => api.unshare(run.id).then(() => { setUrl(""); setError(""); changed(false); },
                                               (e) => setError(e.message));
   return <Popover label="Share" align="right"
-                  button={(open, toggle) => compact ? <IconButton icon="share" label="Share" expanded={open} onClick={toggle} />
+                  button={(open, toggle) => compact ? <IconButton icon="share" label="Share" expanded={open} plain={plain} onClick={toggle} />
                     : <Button icon="share" aria-expanded={open} onClick={toggle}>Share</Button>}>
     <div class="r-share">
       <b class="u-h4">Share this run</b>
@@ -247,7 +260,7 @@ function startExport(id: string, format: Format) {
 /** Download of a run read from its store: each row asks the worker for the file and waits ("Preparing the
  *  file…" in the pressed row, the other row off, the ring on the button), then the browser saves it; a failure is
  *  a red line under the rows, in a menu that opens again if it was closed (startExport). */
-function Export({model, compact}: RunActionsProps) {
+function Export({model, compact, plain}: RunActionsProps) {
   const id = model.runId;
   const [, setDrawn] = useState(0);
   const self = useRef({id, open: false}).current;  // this Export's menu as its button last drew it
@@ -273,8 +286,8 @@ function Export({model, compact}: RunActionsProps) {
     const mark = busy ? ring : <Icon name="download" />;
     const name = busy ? t("ui.result.export_preparing_label") : "Download";
     return compact
-      ? <button type="button" class={open ? "u-ib u-on" : "u-ib"} aria-label={name} title={name} aria-expanded={open}
-                onClick={toggle}>{mark}</button>
+      ? <button type="button" class={["u-ib", open && "u-on", plain && "u-plain"].filter(Boolean).join(" ")} aria-label={name} title={name}
+                aria-expanded={open} onClick={toggle}>{mark}</button>
       : <Button aria-expanded={open} aria-label={busy ? name : undefined} onClick={toggle}>{mark}Download</Button>;
   };
   // A closed menu takes its failure's line with it
