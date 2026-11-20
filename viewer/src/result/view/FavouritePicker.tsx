@@ -1,19 +1,34 @@
 // The favourite button of a line's details with its folders (as a browser's "bookmark this page"): a
 // click opens the user's folders; picking one marks the line there, or moves it there when it is a
 // favourite already; "New folder" makes one in the folder highlighted and saves the line into it;
-// "Remove" unmarks it. The list's star (LinesTable) adds to the last folder used without asking.
+// "Remove" unmarks it. The list's star (LinesTable) adds to the last folder used without asking. The result view's
+// details (SpotActions.tsx) draw its button as the kit's star icon (`icon`) and follow its opening (`onOpen`).
 
 import { useState } from "preact/hooks";
-import { Button } from "../../ui/components";
+import { Button, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { FOLDER_DEPTH_MAX } from "../../folders";
 import type { Line } from "../../types";
 import type { ResultModel } from "../model";
 import { cx, Popover, useModel } from "./common";
 
-export function FavouritePicker({model, line}: {model: ResultModel; line: Line}) {
+export interface FavouritePickerProps {
+  model: ResultModel;
+  line: Line;
+  /** The button as the kit's star icon (filled for a favourite) with the worded button's name and title, its folders
+   *  opening under it towards the left (the result view: the star at the right end of the details' head). */
+  icon?: boolean;
+  /** Told when the folders open and close (a phone's sheet rises for them). */
+  onOpen?(open: boolean): void;
+}
+
+export function FavouritePicker({model, line, icon, onOpen}: FavouritePickerProps) {
   useModel(model);
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (v: boolean) => {
+    if (v !== open) onOpen?.(v);
+    setOpenState(v);
+  };
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,11 +62,14 @@ export function FavouritePicker({model, line}: {model: ResultModel; line: Line})
         <Icon name={id === null ? "star" : "folder"} /><span class="u-grow">{label}</span>
         {id === folder && <Icon name="check" />}</button></li>;
 
-  return <Popover label="Favourite folders" open={open} onOpen={(v) => { setOpen(v); if (!v) setNaming(false); }}
-                  button={(on, toggle) =>
-                    <Button class={cx("r-fav", favourite && "r-on")} aria-expanded={on} onClick={toggle}
-                            title={favourite ? `In ${where}` : "Add to favourites"}>
-                      <Icon name="star" fav={favourite} />{favourite ? "Favourite" : "Add to favourites"}
+  const title = favourite ? `In ${where}` : "Add to favourites", named = favourite ? "Favourite" : "Add to favourites";
+  return <Popover label="Favourite folders" open={open} align={icon ? "right" : "left"}
+                  onOpen={(v) => { setOpen(v); if (!v) setNaming(false); }}
+                  button={(on, toggle) => icon
+                    ? <IconButton icon="star" label={named} title={title} plain fav={favourite} expanded={on}
+                                  class={cx("r-fav", favourite && "r-on")} onClick={toggle} />
+                    : <Button class={cx("r-fav", favourite && "r-on")} aria-expanded={on} onClick={toggle} title={title}>
+                      <Icon name="star" fav={favourite} />{named}
                       <Icon name="down" /></Button>}>
     {() => <div class="r-picker">
       <b class="u-h4">{favourite ? "Move to a folder" : "Save to a folder"}</b>

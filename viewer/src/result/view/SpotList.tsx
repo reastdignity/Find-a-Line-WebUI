@@ -7,10 +7,15 @@
 //
 // A row (the UX session's requirement 13): a list item that is no control itself; its main part is ONE button that
 // selects the row's spot (pressed again: ends the selection; `aria-pressed` says it); any other control of a row
-// (the door "›", off until a spot's cards exist: DOOR) is the button's sibling. One tab stop per list (the selected
-// row, else the first), the arrows, Home and End move inside it; Enter and Space are the button's own. A row reads
-// the run's columns (SpotView.values, the columns' `at`): no Line is made for a row. A row's values carry their
-// columns' names for a screen reader (the headings above are hidden from it).
+// (its star where the page keeps favourites, step 3c; the door "›", off until a spot's cards exist: DOOR) is the
+// button's sibling. One tab stop per list (the selected row, else the first), the arrows, Home and End move inside it
+// (the right arrow to a row's star, rowKeys); Enter and Space are the button's own. A row reads the run's columns
+// (SpotView.values, the columns' `at`): no Line is made for a row (a star's state comes from the favourites' rows,
+// its Line at a press). A row's values carry their columns' names for a screen reader (the headings above are hidden
+// from it, the columns' help button is not).
+//
+// Step 3c also put here: the model's note first in the list (ListNote), the list's place when no line passes the
+// filters (NonePass), and the columns' help under the top block's heads (ColumnHelp).
 //
 // This file also holds the pieces the view's other panels share: a row's cells (Cells), metres and the hook that
 // follows a view and its panel state (useViewPanels); the marks' shapes are the map's (Shape.tsx). Styles in
@@ -26,11 +31,12 @@ import type { SpotMap } from "../SpotMap";
 import type { Best, Pick as SpotPick, SectorRow, SpotView, ViewSort } from "../spots";
 import { BEST_ROWS } from "../viewgeom";
 import { Icon } from "../../ui/icons";
+import { IconButton } from "../../ui/components";
 import { count, cx, Swatch, TightIcon, TightKey } from "./common";
 import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
-import { ViewFilters, ViewMoreFilters } from "./ViewFilters";
+import { clearAll, ViewFilters, ViewMoreFilters } from "./ViewFilters";
 import { changePanels, follow, isOpen, limitOf, panelState, showMore, sortBy, SORTS, watchPanels } from "./viewstate";
 import "./view.css";
 
@@ -67,12 +73,13 @@ export const tightRow = (view: SpotView, row: number): boolean => isTight(view.v
 export const overRow = (view: SpotView, row: number): boolean => view.model.data.columns.over[row] === 1;
 
 /** The cells of a line that every row of the view shares: its colour (clear, or over trees or buildings: then
- *  also in words for a screen reader, unless the row shows them: `words`), length,
- *  mean height (`height` "hmax": the highest point in its place) and clearance with the tight mark. */
-export function Cells({view, row, height = "hmean", words}: {view: SpotView; row: number; height?: "hmean" | "hmax"; words?: boolean}) {
+ *  also in words for a screen reader, unless the row shows them: `words`; a favourite's with the map's gold halo:
+ *  `fav`), length, mean height (`height` "hmax": the highest point in its place) and clearance with the tight mark. */
+export function Cells({view, row, height = "hmean", words, fav}: {view: SpotView; row: number; height?: "hmean" | "hmax"; words?: boolean;
+                                                                fav?: boolean}) {
   const v = view.values, over = overRow(view, row);
   return <>
-    <Swatch color={over ? COLORS.over : COLORS.clean} class="vl-sw" />
+    <Swatch color={over ? COLORS.over : COLORS.clean} class={cx("vl-sw", fav && "vl-sw-fav")} />
     {over && !words && <span class="u-sr">{t("ui.result.legend_over")} </span>}
     <Value name={t("ui.list.col.length")}>{metres(v.len[row])}</Value>
     {height === "hmax" ? <Value name={t("ui.list.col.highest")}>{metres(v.hmax[row])}</Value>
@@ -94,16 +101,74 @@ export function RowAccess({view, row}: {view: SpotView; row: number}) {
   return <span class="vl-cell-acc"><AccessPair line={{access1: c.access1.at(row), access2: c.access2.at(row)}} /></span>;
 }
 
-/** Arrows, Home and End move the focus among a list's rows (`.vl-main` under the element that has the handler). */
+/** Arrows, Home and End move the focus among a list's rows (`.vl-main` under the element that has the handler); a row's
+ *  star (its button's sibling, out of the tab order) is reached by the right arrow from the row and left by the left
+ *  arrow, and from a star the others move to the next row's star, as in a grid's column (to the row's button in a row
+ *  without one). */
 export function rowKeys(e: KeyboardEvent) {
+  const target = e.target as HTMLElement, star = target.closest?.(".vl-star") as HTMLElement | null;
+  const at = (star ? star.parentElement?.querySelector(":scope > .vl-main") : target.closest?.(".vl-main")) as HTMLElement | null;
+  if (!at) return;
+  if (e.key === "Tab") {
+    // one tab stop per list: Tab (Shift+Tab) from a row or a star the arrows reached leaves the list in one press, also
+    // when the list's tab stop lies after it (before it): the stop is out of the tab order for this press only (never
+    // focused on the way: a row's focus may draw its line on the map, the table of spots'), back once the browser moved
+    // the focus
+    const list = e.currentTarget as HTMLElement, stop = list.querySelector<HTMLElement>(".vl-main[tabindex='0']");
+    if (stop && stop !== target && target.compareDocumentPosition(stop) & (e.shiftKey ? 2 : 4)) {
+      stop.tabIndex = -1;
+      // back only while it is still the list's stop: a drawing in between that made another row the stop set that
+      // row's 0 (never two stops in a list)
+      setTimeout(() => {
+        if (stop.isConnected && stop.tabIndex === -1 && !list.querySelector(".vl-main[tabindex='0']")) stop.tabIndex = 0;
+      });
+    }
+    return;
+  }
+  const starOf = (main: HTMLElement | undefined) => main?.parentElement?.querySelector<HTMLElement>(":scope > .vl-star") ?? null;
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    const to = e.key === "ArrowRight" ? (star ? null : starOf(at)) : (star ? at : null);
+    if (to) { e.preventDefault(); to.focus(); }
+    return;
+  }
   const by = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
   if (!by && e.key !== "Home" && e.key !== "End") return;
-  const at = (e.target as HTMLElement).closest?.(".vl-main") as HTMLElement | null;
-  if (!at) return;
   const all = Array.from((e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>(".vl-main"));
   const to = by ? all[all.indexOf(at) + by] : e.key === "Home" ? all[0] : all[all.length - 1];
   e.preventDefault();
-  to?.focus();
+  (star && starOf(to)) ? starOf(to)!.focus() : to?.focus();
+}
+
+/** The rows of this run's favourites (from ResultModel.favouriteLines: a Line is made for each favourite, never one per
+ *  row), kept while the view's version stands (a change of the favourites counts as one: SpotView.version) and while
+ *  the page keeps favourites as it did. */
+const favouritesOf = new WeakMap<SpotView, {version: number; on: boolean; rows: Set<number>}>();
+export function favouriteRows(view: SpotView): Set<number> {
+  const model = view.model, on = model.favouritesOn;
+  let known = favouritesOf.get(view);
+  if (!known || known.version !== view.version || known.on !== on) {
+    const rows = new Set<number>();
+    if (on) {
+      for (const l of model.favouriteLines()) {
+        const at = model.indexOf(l);
+        if (at >= 0 && at < view.count) rows.add(at);
+      }
+    }
+    known = {version: view.version, on, rows};
+    favouritesOf.set(view, known);
+  }
+  return known.rows;
+}
+
+/** A row's star (LinesTable's: today's names and titles): a press adds the row's line to the folder used last, or
+ *  removes it (ResultModel.toggleFavourite: its Line made at the press only). Out of the tab order: the list's arrows
+ *  reach it (rowKeys). */
+function RowStar({view, row}: {view: SpotView; row: number}) {
+  const on = favouriteRows(view).has(row), model = view.model;
+  return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
+                 aria-label={on ? "Remove from favourites" : "Add to favourites"} aria-pressed={on}
+                 title={on ? "favourite" : "add to favourites"} onClick={() => model.toggleFavourite(model.lineAt(row))}>
+    <Icon name="star" fav={on} /></button>;
 }
 
 // the line a row thickens on the map while the mouse is over it
@@ -145,9 +210,9 @@ let focused: Element | null = null, focusedPlace: {list: string; index: number; 
  *  effect, a frame later) and tries for 6. */
 const LOSS_FRAMES = 12;
 
-/** A row's list and index, when the element is a row's button of the top block or of a sector. */
+/** A row's list and index, when the element is a row's button (or its star) of the top block or of a sector. */
 function placeOf(e: Element): typeof focusedPlace {
-  const li = e.classList.contains("vl-main") ? e.parentElement : null, ul = li?.parentElement;
+  const li = e.classList.contains("vl-main") || e.classList.contains("vl-star") ? e.parentElement : null, ul = li?.parentElement;
   if (!li || !ul?.classList.contains("vl-rows")) return null;
   const sec = ul.closest<HTMLElement>(".vl-sec"), index = Array.prototype.indexOf.call(ul.children, li);
   if (sec) return {list: `.vl-sec[data-sector="${sec.dataset.sector}"] .vl-rows`, index, head: `#vl-sec-${Number(sec.dataset.sector) + 1}`};
@@ -241,6 +306,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
     if (now) map?.reveal(now.row, padding());  // a list's selection may move the map
   };
   const label = view.label(spot), hover = useHover(map, row), over = overRow(view, row);
+  const stars = view.model.favouritesOn;
   drawn.rows++;
   return <li class={cx("vl-row", on && "vl-sel", pick && "vl-pick", over && "vl-over")} id={id}>
     <button type="button" class="vl-main" aria-pressed={on} tabIndex={tab ? 0 : -1} data-spot={spot} data-row={row}
@@ -248,39 +314,66 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
             {...hover}>
       {mark ? <Shape text={mark} /> : <span class="vl-num">{label}</span>}
       {pick && <span class="vl-lab" title={pick}>{pick}</span>}
-      <Cells view={view} row={row} height={height} words />
+      <Cells view={view} row={row} height={height} words fav={stars && favouriteRows(view).has(row)} />
       {withAccess(view) && <RowAccess view={view} row={row} />}
       <Value name={t("ui.list.col.lines")} class="vl-n">{count(view.passingCount(spot))}</Value>
       {over && <OverWords />}
     </button>
+    {stars && <RowStar view={view} row={row} />}
     {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
   </li>;
 }
 
-/** A heading of a list's column; `by`: the list is sorted by it (the kit's "sort" icon before its words). */
+/** A heading of a list's column, hidden from a screen reader (a row's values carry their names); `by`: the list is
+ *  sorted by it (the kit's "sort" icon before its words). */
 export function Head({by, text}: {by: boolean; text: string}) {
-  return <span class={by ? "vl-by" : undefined}>{by && <Icon name="sort" />}{text}</span>;
+  return <span class={by ? "vl-by" : undefined} aria-hidden="true">{by && <Icon name="sort" />}{text}</span>;
 }
 
-/** The headings of the rows (hidden from a screen reader: a row's values carry their names); sorted by the highest
- *  point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked with
- *  the sort icon (not for the picks, which are not ranked). */
-function Heads({view, ranked}: {view: SpotView; ranked: boolean}) {
+/** The columns' names and their help texts (today's titles of the list's columns: LinesTable), in a row's order. */
+function columnHelp(view: SpotView): [string, string][] {
+  const out: [string, string][] = [[t("ui.list.col.length"), t("ui.list.col.length_title")],
+    view.sort === "hmax" ? [t("ui.list.col.highest"), t("ui.list.col.highest_title")] : [t("ui.list.col.mean"), t("ui.list.col.mean_title")],
+    [t("ui.view.col.clear"), t("ui.list.col.clear_title")]];
+  if (withAccess(view)) out.push([t("ui.list.col.anchors"), t("ui.list.col.anchors_title")]);
+  out.push([t("ui.list.col.lines"), t("ui.list.col.lines_title")]);
+  return out;
+}
+
+const COL_HELP = "vl-help-cols";  // the id of the columns' help text
+
+/** The headings of the rows (each hidden from a screen reader: a row's values carry their names); sorted by the
+ *  highest point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked
+ *  with the sort icon (not for the picks, which are not ranked); `help`: the columns' info button in the first cell,
+ *  above the marks (the top block's heads only; a screen reader reaches it); `stars`: the rows end with a star. */
+function Heads({view, ranked, help, stars}: {view: SpotView; ranked: boolean; help?: {open: boolean; toggle(): void}; stars: boolean}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
   const head = (key: string, text: string) => <Head by={by === key} text={text} />;
-  return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc")} aria-hidden="true">
-    <span /><span />
+  return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc", stars && "vl-starred")}>
+    {help ? <IconButton icon="info" label={t("ui.view.col.about")} plain expanded={help.open} aria-controls={COL_HELP}
+                        class="vl-info vl-cols-info" onClick={help.toggle} />
+      : <span aria-hidden="true" />}
+    <span aria-hidden="true" />
     {head("len", t("ui.list.col.length"))}
     {head("h", t(view.sort === "hmax" ? "ui.list.col.highest" : "ui.list.col.mean"))}
     {head("clr", t("ui.view.col.clear"))}
-    {withAccess(view) && <span class="vl-cell-acc">{t("ui.list.col.anchors")}</span>}
+    {withAccess(view) && <span class="vl-cell-acc" aria-hidden="true">{t("ui.list.col.anchors")}</span>}
     {head("n", t("ui.list.col.lines"))}
   </div>;
 }
 
-/** The rows' list: its label, the keys, the class of a run with the access marks. */
-function Rows({view, label, children}: {view: SpotView; label: string; children: ComponentChildren}) {
-  return <ul class={cx("vl-rows", withAccess(view) && "vl-with-acc")} aria-label={label} onKeyDown={rowKeys}>{children}</ul>;
+/** The columns' help, opened in place under the heads by their info button: each column's name and today's words
+ *  for it (no box: R8). */
+function ColumnHelp({view}: {view: SpotView}) {
+  return <dl class="vl-helpt" id={COL_HELP}>
+    {columnHelp(view).map(([name, text]) => <div key={name}><dt>{name}</dt><dd>{text}</dd></div>)}
+  </dl>;
+}
+
+/** The rows' list: its label, the keys, the class of a run with the access marks and of rows with stars. */
+function Rows({view, label, stars, children}: {view: SpotView; label: string; stars: boolean; children: ComponentChildren}) {
+  return <ul class={cx("vl-rows", withAccess(view) && "vl-with-acc", stars && "vl-starred")} aria-label={label} onKeyDown={rowKeys}>
+    {children}</ul>;
 }
 
 /** Which row of a list carries its tab stop: the selected spot's when it is among them, else the first. */
@@ -293,10 +386,12 @@ function tabStop(view: SpotView, spots: ArrayLike<number>): number {
 const NEXT_BEST: Record<string, {best: Best; text: string}> = {
   10: {best: 30, text: "ui.view.show_30"}, 30: {best: 100, text: "ui.view.show_100"}, 100: {best: "all", text: "ui.view.show_all"}};
 
-/** The top block: "Start here" at the Area level, else the best spots in view (with All: the spots in view). */
+/** The top block: "Start here" at the Area level, else the best spots in view (with All: the spots in view); the
+ *  columns' help under its heads. */
 function TopBlock(p: PanelProps) {
   const {view} = p, area = view.level === "area", all = view.best === "all", v = view.inView;
-  const height = view.sort === "hmax" ? "hmax" : "hmean";
+  const height = view.sort === "hmax" ? "hmax" : "hmean", stars = view.model.favouritesOn;
+  const [help, setHelp] = useState(false);
   let title: string, rows: ComponentChildren[] = [], note = "", more: {best: Best; text: string} | null = null, tight = false;
   if (area) {
     title = t("ui.view.start");
@@ -305,7 +400,6 @@ function TopBlock(p: PanelProps) {
     rows = picks.map((k, r) => <Row key={k.kind} {...p} spot={k.spot} row={k.row} id={`vl-top-${k.kind}`} tab={r === stop}
                                     mark={"P" + k.n} pick={t(`ui.view.pick.${k.kind}`)} height={height} />);
     tight = picks.some((k) => tightRow(view, k.row));
-    if (!picks.length) note = t("ui.view.none_pass");
   } else {
     title = all ? t("ui.view.in_view", {count: v.m, n: count(v.m)}) : t("ui.view.best", {n: v.best.length, m: count(v.m)});
     const shown = v.best.subarray(0, BEST_ROWS), stop = tabStop(view, shown);
@@ -328,8 +422,9 @@ function TopBlock(p: PanelProps) {
       }}>{t(more.text)}</button>}</div>
     {note && <p class="u-small vl-note">{note}</p>}
     {rows.length > 0 && <>
-      <Heads view={view} ranked={!area} />
-      <Rows view={view} label={title}>{rows}</Rows>
+      <Heads view={view} ranked={!area} stars={stars} help={{open: help, toggle: () => setHelp(!help)}} />
+      {help && <ColumnHelp view={view} />}
+      <Rows view={view} label={title} stars={stars}>{rows}</Rows>
     </>}
     {tight && <TightKey lift={view.model.data.lift} drawn />}
   </section>;
@@ -341,7 +436,7 @@ function SectorRows({p, sector, k}: SectorProps) {
   const {view, map} = p, ui = panelState(view), n = sector.n;
   const open = isOpen(ui, n, k), limit = limitOf(ui, n);
   const name = t("ui.view.sector", {n: n + 1, word: sector.word});
-  const height = view.sort === "hmax" ? "hmax" : "hmean";
+  const height = view.sort === "hmax" ? "hmax" : "hmean", stars = view.model.favouritesOn;
   const shown = open ? sector.spots.slice(0, limit) : [], stop = tabStop(view, shown), rest = sector.spots.length - limit;
   const up = Number.isFinite(sector.hmeanMax) ? sector.hmeanMax.toFixed(0) : "–";
   return <div class="vl-sec" data-sector={n}>
@@ -358,8 +453,8 @@ function SectorRows({p, sector, k}: SectorProps) {
               onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
-      <Heads view={view} ranked />
-      <Rows view={view} label={name}>
+      <Heads view={view} ranked stars={stars} />
+      <Rows view={view} label={name} stars={stars}>
         {shown.map((spot, r) => <Row key={spot} {...p} spot={spot} row={view.shownOf(spot)} id={`vl-row-${spot}`}
                                      tab={r === stop} height={height} />)}
       </Rows>
@@ -377,12 +472,15 @@ function SectorRows({p, sector, k}: SectorProps) {
 
 interface SectorProps { p: PanelProps; sector: SectorRow; k: number; sig?: string }
 
-/** Everything a sector's picture depends on: the lines that pass and their order (the view's version, the sort),
- *  whether it is open and how many rows, the selected spot when it is one of its own, the canvas. */
+/** Everything a sector's picture depends on: the lines that pass and their order (the view's version, the sort; a
+ *  change of the favourites counts in the version), whether it is open and how many rows, the selected spot when it is
+ *  one of its own, the canvas, and whether the page keeps favourites (the rows' stars: known after the first draw, and
+ *  with none saved the version stays). */
 function sectorSig({view, map, wide}: PanelProps, sector: SectorRow, k: number): string {
   const ui = panelState(view), sel = view.selected;
   const mine = sel && view.sectorOf(sel.spot) === sector.n ? sel.spot : -1;
-  return [view.version, view.sort, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0].join("|");
+  return [view.version, view.sort, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0,
+          view.model.favouritesOn ? 1 : 0].join("|");
 }
 
 /** A sector, drawn again only when its picture changes (a move of the map redraws the list at its end: the top
@@ -407,9 +505,97 @@ function Tree(p: PanelProps) {
         <select class="r-sort" value={view.sort} onChange={(e) => sortBy(view, e.currentTarget.value as ViewSort)}>
           {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label></div>
     {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} sig={sectorSig(p, s, k)} />)}
-    {!sectors.length && <p class="u-small vl-note">{t("ui.view.none_pass")}</p>}
     {tight && <TightKey lift={view.model.data.lift} drawn />}
   </section>;
+}
+
+/** The model's note first in the list (item 8 of the accepted mock-up, the user's "11 a"): a link's ("The line of the
+ *  link is hidden by the filters." with its action "clear filters", not in the run, not measured: model.ts openLinked)
+ *  or a favourite's failure, in today's words; a plain line with the info icon, the action a link in the sentence, and
+ *  today's × (the planner's choice of 2026-11-20: a favourite's failure stays dismissable). */
+function ListNote({view}: {view: SpotView}) {
+  const model = view.model, note = model.note;
+  if (!note) return null;  // a new note is brought into view by SpotList (useNoteInView)
+  return <div class="vl-lnote" role="status"><Icon name="info" />
+    <p class="vl-lnote-text">{note.text}
+      {note.action && <>{" "}<button type="button" class="r-link vl-lnote-act" onClick={() => note.onAction?.()}>{note.action}</button></>}</p>
+    <IconButton icon="close" label="Close" plain class="vl-lnote-x" onClick={() => {
+      model.setNote(null);
+      keepFocus(...FOCUS_REST);  // the × goes with the note
+    }} />
+  </div>;
+}
+
+/** A note's place in its scroller (the list's body, a phone's sheet body: neither scrolls the page or the map, which
+ *  scrollIntoView would): where the note is not wholly in its view, the scroller puts it at its top (8 px under its
+ *  edge); one wholly in view stays where it is. */
+function noteIntoView(note: HTMLElement) {
+  const box = note.closest<HTMLElement>(".vl-body, .u-sheet-body");
+  if (!box || !note.isConnected) return;
+  const r = note.getBoundingClientRect(), b = box.getBoundingClientRect();
+  if (r.top < b.top || r.bottom > b.bottom) box.scrollTop += r.top - b.top - 8;
+}
+
+/** How long a phone's sheet may take to come to rest at its new stop before a note is placed all the same, ms (it
+ *  moves in .22 s: ui.css .u-sheet; SpotColumns.tsx waits as long for its own checks). */
+const SHEET_REST_MS = 1500;
+
+/** `then` once a phone's sheet rests at a stop above the low one (its drawn height its style's), or after
+ *  SHEET_REST_MS; returns what cancels the wait. */
+function whenSheetRests(sheet: HTMLElement | null, then: () => void): () => void {
+  const started = performance.now();
+  let frame = 0;
+  const check = () => {
+    const target = sheet ? parseFloat(sheet.style.height) : NaN;
+    const resting = !sheet || (!sheet.classList.contains("u-peek") && target > 0
+                               && Math.abs(sheet.getBoundingClientRect().height - target) < 1);
+    if (resting || performance.now() - started > SHEET_REST_MS) then();
+    else frame = requestAnimationFrame(check);
+  };
+  frame = requestAnimationFrame(check);
+  return () => cancelAnimationFrame(frame);
+}
+
+/** The notes each view has brought into view: a note is placed once (model.ts makes a new object for every note, so
+ *  the same text again is a new note; the same object drawn again, or the list drawn again across the phone's width,
+ *  is not). */
+const notesPlaced = new WeakMap<SpotView, object>();
+
+/** A new note of the model (a link's, a favourite's failure) brought into view where it stands, first in the list
+ *  (`root`: the list's body on a desktop, the list in a phone's sheet). Called by SpotList after its own scroll that
+ *  follows a selection, so that within one commit the note comes last and wins: a refused save's rollback brings the
+ *  note and a new version of the view, which follows the selected row again (the code review 2's F1: the note's
+ *  scroll, a child's effect, ran first and the row's undid it). A phone's low sheet rises to half first, and the note
+ *  is placed once the sheet rests there (at the low stop its body has no height: the code review 2's L1). */
+function useNoteInView(view: SpotView, root: {current: HTMLElement | null}, sheet: PanelProps["sheet"]) {
+  const pending = useRef<(() => void) | null>(null);
+  useEffect(() => () => pending.current?.(), []);
+  useEffect(() => {
+    const note = view.model.note, el = root.current?.querySelector<HTMLElement>(".vl-lnote");
+    if (!note || !el || notesPlaced.get(view) === note) return;
+    notesPlaced.set(view, note);
+    pending.current?.();
+    pending.current = null;
+    if (sheet?.snap === "peek") {
+      sheet.setSnap("half");
+      pending.current = whenSheetRests(el.closest<HTMLElement>(".u-sheet"), () => { pending.current = null; noteIntoView(el); });
+      return;
+    }
+    noteIntoView(el);
+  });
+}
+
+/** No line passes the filters (W9 a): the sentence and "Clear all", which clears what the chips' "Clear all" clears
+ *  (every filter of the model and both kinds of lines; "Top level only" stays). */
+function NonePass({view}: {view: SpotView}) {
+  return <div class="vl-none">
+    <p class="vl-none-text">{t("ui.view.none_pass")}</p>
+    <button type="button" class="u-btn vl-none-clear" onClick={() => {
+      clearAll(view);
+      // the block goes: the focus to the list's rows
+      keepFocus(".vl-topblock .vl-main[tabindex='0']", ...FOCUS_REST);
+    }}>{t("ui.view.chip.clear")}</button>
+  </div>;
 }
 
 /** Scroll the nearest scrolling ancestor of a row so that the row is in it (not scrollIntoView, which would scroll
@@ -452,6 +638,8 @@ export function SpotList(p: PanelProps) {
       ?? root.current.querySelector<HTMLElement>(`#vl-row-${ui.followed}`);
     if (row) scrollToRow(row);
   });
+  // after the scroll above: a new note comes last and wins (useNoteInView)
+  useNoteInView(view, root, p.sheet);
   // a focused row this drawing took away (a filter, the map's move under the top block): the focus to the row that
   // took its place; only a row that was on the page when this drawing began (the moment of its loss)
   const live = useRef<Element | null>(null);
@@ -460,14 +648,19 @@ export function SpotList(p: PanelProps) {
     if (lostRow(live.current)) keepFocus(...lostRowPlaces(), ...FOCUS_REST);
     live.current = null;
   });
-  const blocks = <><ViewMoreFilters view={view} /><TopBlock {...p} /><Tree {...p} /></>;
+  // no line passes the filters: the sentence and its "Clear all" in the blocks' place (on a phone first in the sheet's
+  // body, before the summary and the filters: in view at the stop the state opens at)
+  const none = view.counts.lines === 0;
+  const blocks = <><ViewMoreFilters view={view} />{!none && <><TopBlock {...p} /><Tree {...p} /></>}</>;
   if (wide) {
     return <>
       <div class="c-col-head vl-head"><SpotSummary view={view} /><ViewFilters view={view} /></div>
-      <div class="c-col-body vl-body" ref={root}>{blocks}</div>
+      <div class="c-col-body vl-body" ref={root}><ListNote view={view} />{none && <NonePass view={view} />}{blocks}</div>
     </>;
   }
   return <div class="vl-list" ref={root}>
+    <ListNote view={view} />
+    {none && <NonePass view={view} />}
     <SpotSummary view={view} headline={!!view.selected || !!view.fan} />
     <ViewFilters view={view} />
     {blocks}

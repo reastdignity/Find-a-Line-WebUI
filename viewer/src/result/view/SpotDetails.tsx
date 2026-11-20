@@ -3,16 +3,18 @@
 // selected line's four values as tiles (length, mean height, clearance, highest point; a tight line's clearance tile
 // in the warning colour with the word "Tight": the pilot of 2026-11-18, no banner), "Reaching the anchors" (in a run
 // with the access mark: "A1", "A2"), "‹ Line 1 of 104 ›" stepping through every passing line of
-// the spot by mean height (the map does not move), "Stands for: …" in phase 4's two forms, the two buttons "Lines
-// from anchor A1 / A2" (they open "Lines from here" at that anchor) and the line's facts as a table with a column per
-// anchor (viewFacts: the view's own words; today's page keeps LineDetails' lineFacts). While "Lines
-// from here" is open its panel stands here instead (FanPanel). Not here yet (they join with today's other features,
-// step 3c): "Open spot", the star, the profile, the 3D view, the line's links.
+// the spot by mean height (the map does not move), "Stands for …" in the view's own words (W5 a), the line's actions
+// ("3D view", "Copy link", "Profile" after the profile was closed: SpotActions.tsx), the two buttons "Lines from
+// anchor A1 / A2" (they open "Lines from here" at that anchor) and the line's facts as a table with a column per
+// anchor (viewFacts: the view's own words; today's page keeps LineDetails' lineFacts). Step 3c joined today's
+// features in the accepted mock-up's places (the user's "11 a", "4 d"): the star in the head (beside ×), a phone's
+// profile dock under the four values, "Report this line" below the facts (the `lineActions` slot); today's "Zoom" is
+// left out. While "Lines from here" is open its panel stands here instead (FanPanel). "Open spot" stays hidden (B-5).
 //
 // This file also holds what stands in the frame's slots (SLOTS, which SpotPanels.tsx PANELS calls): the list, these
-// details, the table of spots, the hint, and a phone's sheet head (what is open: the title of "Lines from here"
-// with "Close", the spot's title with ×, or the headline; the buttons of a head work while the sheet is at its
-// lowest, where its body is cut off).
+// details, the table of spots, the hint, a phone's sheet head (what is open: the title of "Lines from here" with
+// "Close", the spot's title with its star and ×, or the headline; the buttons of a head work while the sheet is at its
+// lowest, where its body is cut off) and the line's actions after the details (Report).
 
 import { useEffect, useRef } from "preact/hooks";
 import L from "leaflet";
@@ -24,26 +26,28 @@ import { dh } from "../../filters";
 import { t } from "../../i18n";
 import { clearanceText, isTight } from "../../tight";
 import type { Line } from "../../types";
-import type { SpotView } from "../spots";
 import { count, cx, num, TightIcon } from "./common";
 import { FanHead, FanPanel } from "./FanPanel";
 import { Hint } from "./Hint";
 import { ordinal } from "./LineDetails";
+import { LineActions, LineDock, LineStar, ReportLine } from "./SpotActions";
 import { SpotChooser } from "./SpotChooser";
 import { FOCUS_REST, keepFocus, metres, SpotList, useViewPanels } from "./SpotList";
 import { panelState } from "./viewstate";
 import type { ChooserProps, PanelProps } from "./SpotPanels";
 import { SpotCount } from "./SpotSummary";
 
-/** "Spot 7.1" with "104 lines" beside it (the spot's passing lines), the selected line's two access marks, and ×. */
-export function SpotHead({view}: {view: SpotView}) {
-  const sel = view.selected;
+/** "Spot 7.1" with "104 lines" beside it (the spot's passing lines), the selected line's two access marks, its star
+ *  (where the page keeps favourites: SpotActions.tsx LineStar) and ×. */
+export function SpotHead(p: PanelProps) {
+  const {view} = p, sel = view.selected;
   if (!sel) return null;
   const n = view.passingCount(sel.spot);
   return <>
     <h3 class="vl-spot-title">{t("ui.view.spot", {label: view.label(sel.spot)})}
       {" "}<span class="vl-spot-count">{t("ui.view.spot_lines", {count: n, n: count(n)})}</span>
       {hasAccess(sel.line) && <>{" "}<AccessPair line={sel.line} /></>}</h3>
+    <LineStar {...p} />
     <IconButton icon="close" label={t("ui.view.close")} plain class="vl-dclose" onClick={() => view.select(null)} />
   </>;
 }
@@ -128,11 +132,10 @@ function Facts({facts}: {facts: Fact[]}) {
   </table>;
 }
 
-/** A line's "Stands for" in phase 4's words: "Stands for: 41 found lines between the same two anchor squares", or,
- *  for a line that stands for itself, "this line only: no other was found between its two anchor squares". */
+/** A line's "Stands for" in the view's own words (the user's W5 a; today's page keeps phase 4's, LineDetails'
+ *  lineFacts): "Stands for 41 lines found a few metres apart", or "Stands for this line only". */
 export function standsFor(n: number): string {
-  const words = t("ui.details.stands_for_n", {count: n, n: count(n)});
-  return n === 1 ? words : t("ui.view.stands_for", {text: words});
+  return t("ui.view.stands_for_n", {count: n, n: count(n)});
 }
 
 /** The details; `head` false: without the title and × (a phone's sheet shows them in its head). */
@@ -161,7 +164,7 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
     view.openFan(L.latLng(end === 1 ? l.lat1 : l.lat2, end === 1 ? l.lon1 : l.lon2), {row: sel.row, end});
   };
   return <div class={cx("vl-details", !wide && "vl-phone", l.over && "r-over")} ref={root} data-spot={sel.spot} data-row={sel.row}>
-    {head && <div class="vl-dhead"><SpotHead view={view} /></div>}
+    {head && <div class="vl-dhead"><SpotHead {...p} /></div>}
     <div class="vl-tiles">
       <Tile value={num(l.len)} label={t("ui.view.tile.len")} />
       <Tile value={num(l.hmean, 1)} label={t("ui.view.tile.mean")} />
@@ -170,6 +173,8 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
       <Tile value={clearanceText(l.clr)} label={t(l.over ? "ui.view.tile.clear_terrain" : "ui.view.tile.clear")} tight={isTight(l.clr)} lift={lift} />
       <Tile value={num(l.hmax)} label={t("ui.view.tile.highest")} />
     </div>
+    {/* a phone's profile right under the four values (4 d); a desktop's is the frame's card */}
+    {!wide && <LineDock {...p} />}
     {hasAccess(l) && <AccessRows line={l} />}
     <div class="vl-step">
       <IconButton icon="back" label={t("ui.view.line_before")} plain class="vl-prev" disabled={at <= 0} onClick={() => step(-1)} />
@@ -177,6 +182,7 @@ export function SpotDetails({head = true, ...p}: PanelProps & {head?: boolean}) 
       <IconButton icon="next" label={t("ui.view.line_next")} plain class="vl-next" disabled={at >= n - 1} onClick={() => step(1)} />
     </div>
     {typeof l.stands_for === "number" && <p class="vl-stands">{standsFor(l.stands_for)}</p>}
+    <LineActions {...p} />
     <div class="vl-acts">
       <Button full class="vl-from-1" onClick={() => fan(1)}>{t("ui.view.from_anchor", {n: 1})}</Button>
       <Button full class="vl-from-2" onClick={() => fan(2)}>{t("ui.view.from_anchor", {n: 2})}</Button>
@@ -211,10 +217,11 @@ function Details(p: PanelProps) {
 
 /** A phone's sheet head: the head of what is open ("Lines from here" with "Close", the spot with its ×), else the
  *  headline. */
-function SheetHead({view}: PanelProps) {
+function SheetHead(p: PanelProps) {
+  const {view} = p;
   useViewPanels(view);
   return <div class="vl-sheet-row">
-    {view.fan ? <FanHead view={view} /> : view.selected ? <SpotHead view={view} /> : <SpotCount view={view} />}
+    {view.fan ? <FanHead view={view} /> : view.selected ? <SpotHead {...p} /> : <SpotCount view={view} />}
   </div>;
 }
 
@@ -226,5 +233,6 @@ export const SLOTS = {
   sheetHead: (p: PanelProps) => <SheetHead {...p} />,
   hint: (p: PanelProps) => <Hint {...p} />,
   chooser: (p: ChooserProps) => <SpotChooser key={`${p.at.x},${p.at.y}`} {...p} />,
-  lineActions: (_p: PanelProps) => null,  // the selected line's actions: empty until step 3c's details fill it
+  // drawn after the details: "Report this line" below the facts (the line's other actions stand inside the details)
+  lineActions: (p: PanelProps) => <ReportLine {...p} />,
 };
