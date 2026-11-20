@@ -1,8 +1,9 @@
 """tools/view_numbers.py: the page's placement of the view's numbers run again in Python under other rules. The
-greedy, its quarter, the overlaps in both readings (compared unrounded), the check against the page, the command
-line (offline, no browser); then the tool on the result view's clip run (clip_runs.view_clip) in Edge, on the desktop
-and a phone's profile: in every state the greedy at today's rule gives exactly the page's own numbers (labels, places,
-sizes), in one of them today's quarter and a third give different numbers (the page's threshold is pinned), a fan
+greedy, today's third (the fan's numbers too; a quarter before 2026-11-20), the overlaps in both readings (compared
+unrounded), the check against the page, the command line (offline, no browser); then the tool on the result view's
+clip run (clip_runs.view_clip) in Edge, on the desktop and a phone's profile: in every state the greedy at today's
+rule gives exactly the page's own numbers (labels, places, sizes), in one of them today's third and the quarter of
+before give different numbers (the page's threshold is pinned), a fan
 state is counted once, and the sheets show the page's numbers as the page draws them. Run from PowerShell
 (.claude/rules/browser-tests.md)."""
 
@@ -27,16 +28,17 @@ def _n(label, cand, fan=False, kind=None):
 
 
 def test_place_follows_the_page_and_the_rules():
-    """The first number takes its first place; a place a quarter of a box from another is kept today (not nearer
-    than a quarter), left out under a third; a number without a free piece has no room; a number tries its places
-    in order until one is a box away; a fan number has one place, never left out today, left out under "quarter"."""
+    """The first number takes its first place; a place a quarter of a box from another is left out today (nearer
+    than a third: the user's N1 b), kept under "before" (the page's quarter until 2026-11-20); a number without a free
+    piece has no room; a number tries its places in order until one is a box away; a fan number has one place, left
+    out today and under "quarter" (the user's N2 a), never under "before"."""
     numbers = [_n("B1", [(100, 100)]), _n("B2", [(108, 100)]), _n("B3", []),
                _n("B4", [(100, 103), (200, 200), (300, 300)]), _n("L1", [(101, 100)], fan=True)]
-    today = {n["label"]: n for n in vn.place(numbers, "today")}
-    assert [today[k]["status"] for k in ("B1", "B2", "B3", "B4", "L1")] == ["drawn", "drawn", "no room", "drawn", "drawn"]
-    assert (today["B2"]["apart"], today["B4"]["x"], today["B4"]["y"]) == (0.25, 200, 200)  # 8 px is a quarter of 32
-    third = {n["label"]: n["status"] for n in vn.place(numbers, "third")}
-    assert third == {"B1": "drawn", "B2": "left out", "B3": "no room", "B4": "drawn", "L1": "left out"}
+    before = {n["label"]: n for n in vn.place(numbers, "before")}
+    assert [before[k]["status"] for k in ("B1", "B2", "B3", "B4", "L1")] == ["drawn", "drawn", "no room", "drawn", "drawn"]
+    assert (before["B2"]["apart"], before["B4"]["x"], before["B4"]["y"]) == (0.25, 200, 200)  # 8 px is a quarter of 32
+    today = {n["label"]: n["status"] for n in vn.place(numbers, "today")}
+    assert today == {"B1": "drawn", "B2": "left out", "B3": "no room", "B4": "drawn", "L1": "left out"}
     assert {n["label"]: n["status"] for n in vn.place(numbers, "quarter")}["L1"] == "left out"
     never = vn.place(numbers, "never")
     assert [n["status"] for n in never] == ["drawn", "drawn", "no room", "drawn", "drawn"]
@@ -45,16 +47,24 @@ def test_place_follows_the_page_and_the_rules():
     assert (far[1]["status"], far[1]["x"], far[1]["apart"]) == ("drawn", 12, 12 / 32)
 
 
-def test_the_quarter_is_the_line_today():
-    """Today's rule leaves a number out at 0.24 of a box (dx 7.68 px), keeps one at 0.30 (9.6 px), which a third
-    leaves out; vertically the box is 23 px (0.24: 5.52 px out, 0.30: 6.9 px kept)."""
-    numbers = [_n("B1", [(0, 0)]), _n("B2", [(0.24 * 32, 0)]), _n("B3", [(100, 0)]), _n("B4", [(100 + 0.30 * 32, 0)]),
-               _n("B5", [(300, 0)]), _n("B6", [(300, 0.24 * 23)]), _n("B7", [(500, 0)]), _n("B8", [(500, 0.30 * 23)])]
+def test_the_third_is_the_line_today():
+    """Today's rule (a third, SpotMap.ts APART_MIN) leaves a number out at 0.30 of a box (dx 9.6 px), keeps one at
+    0.34 (10.88 px); vertically the box is 23 px (0.30: 6.9 px out, 0.34: 7.82 px kept); "before" (a quarter) kept
+    both at 0.30 and left out at 0.24. A fan number is left out today at 0.30 of a box from a B number, kept at 0.34."""
+    numbers = [_n("B1", [(0, 0)]), _n("B2", [(0.30 * 32, 0)]), _n("B3", [(100, 0)]), _n("B4", [(100 + 0.34 * 32, 0)]),
+               _n("B5", [(300, 0)]), _n("B6", [(300, 0.30 * 23)]), _n("B7", [(500, 0)]), _n("B8", [(500, 0.34 * 23)]),
+               _n("B9", [(700, 0)]), _n("B10", [(700 + 0.24 * 32, 0)]),
+               _n("L1", [(0, 0.30 * 23 + 300)], fan=True), _n("L2", [(0, 300 + 23)], fan=True),
+               _n("L3", [(0.34 * 32, 300 + 23)], fan=True)]
     today = [n["status"] for n in vn.place(numbers, "today")]
-    assert today == ["drawn", "left out", "drawn", "drawn", "drawn", "left out", "drawn", "drawn"]
-    assert [n["status"] for n in vn.place(numbers, "third")][3::4] == ["left out", "left out"]
+    assert today == ["drawn", "left out", "drawn", "drawn", "drawn", "left out", "drawn", "drawn", "drawn", "left out",
+                     "drawn", "drawn", "drawn"]
+    numbers[10]["cand"] = [[0, 0.30 * 23]]  # L1 at 0.30 of a box under B1: left out today, never before
+    assert vn.place(numbers, "today")[10]["status"] == "left out" and vn.place(numbers, "before")[10]["status"] == "drawn"
+    assert [n["status"] for n in vn.place(numbers, "before")][:10] == ["drawn"] * 9 + ["left out"]
     s = vn.summary_of(numbers, "today")
-    assert (s["drawn"], s["left_out"], s["left_out_marks"], s["left_out_fan"]) == (6, 2, 2, 0)
+    assert (s["drawn"], s["left_out"], s["left_out_marks"], s["left_out_fan"]) == (9, 4, 3, 1)
+    assert vn.RULES["today"] == (1 / 3, 1 / 3)
 
 
 def test_overlaps_count_both_readings_unrounded():
@@ -126,6 +136,30 @@ def test_the_command_line(tmp_path):
             vn.main(["--out", str(out), "--runs", str(run)] + bad)
 
 
+def test_main_passes_stub_tiles(tmp_path, monkeypatch):
+    """`--stub-tiles` on the command line reaches measure_runs as stub_tiles=True (the pictures offline); without the
+    flag, False (the base map's tiles, as before)."""
+    run = _old_run(tmp_path)
+    seen = []
+
+    def fake(*args, **kwargs):
+        seen.append(kwargs.get("stub_tiles"))
+        return {"runs": []}
+    monkeypatch.setattr(vn, "measure_runs", fake)
+    base = ["--out", str(tmp_path / "out"), "--runs", str(run), "--data-dir", str(tmp_path / "data")]
+    assert vn.main(base + ["--stub-tiles"]) == 0 and vn.main(base) == 0
+    assert seen == [True, False]
+
+
+def test_stub_tile_is_one_plain_picture():
+    """The stub tile (offline pictures: `--stub-tiles`): a 256 x 256 PNG, every pixel the map's background colour."""
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(vn.stub_tile()))
+    assert img.format == "PNG" and img.size == (256, 256)
+    assert img.convert("RGB").getcolors() == [(256 * 256, vn.STUB_TILE_RGB)]
+
+
 def test_default_launch_launches_the_engine():
     class Engine:
         def launch(self):
@@ -150,15 +184,18 @@ def view_clip(tmp_path_factory):
 @pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
 def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
     """The tool on the clip run in Edge (the desktop's and Pixel 7's profiles), Best 10 and 100: every state
-    measured, the greedy at a quarter equal to the page's numbers (labels, places, sizes) in each; in some state the
-    quarter and a third give different numbers, so the page's threshold is the quarter; a fan state counted once
+    measured, the greedy at today's rule (a third, the fan's numbers too) equal to the page's numbers (labels,
+    places, sizes) in each; in some state today's rule and "before" (a quarter, the fan's never) give different
+    numbers, so the page's threshold is today's; a fan state counted once
     (another stop that reached it names it); the sheets made under the label, with the note, the page's numbers in
-    them as counted and today's numbers drawn over the bare map as the page draws them (map and fan)."""
+    them as counted and today's numbers drawn over the bare map as the page draws them (map and fan). Offline: every
+    request outside the local server is answered by the tool's stub (`stub_tiles`), so the pictures hold the numbers
+    and lines over a plain map and do not depend on the internet's tiles or their timing."""
     out = tmp_path / "out"
     edge = lambda pw, engine: pw.chromium.launch(channel="msedge", headless=True)  # noqa: E731
     result = vn.measure_runs([str(view_clip)], str(out), str(tmp_path / "data"), ["desktop", "pixel"], [1], [10, 100],
                              sheets=True, launch=edge, labels={view_clip.name: "clip"},
-                             notes={view_clip.name: "The result view's clip run."})
+                             notes={view_clip.name: "The result view's clip run."}, stub_tiles=True)
     entry = result["runs"][0]
     assert not entry.get("left_out") and set(entry["devices"]) == {"desktop", "pixel"}
     assert (entry["label"], entry["note"]) == ("clip", "The result view's clip run.")
@@ -173,14 +210,14 @@ def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
                 assert s["stop"] in first["also_stops"] and s["zoom"] == first["zoom"] and "rules" not in s
                 continue
             assert s["today_matches"] and s["rules"], (device, s.get("error"))
-            pinned += s["rules"]["today"]["drawn"] != s["rules"]["third"]["drawn"]
+            pinned += s["rules"]["today"]["drawn"] != s["rules"]["before"]["drawn"]
             if s["case"] == "fan":
                 assert s["fan_rows"] >= 2 and s["wanted_fan"] == s["fan_rows"]
         for p in d["pictures"]:
             assert p["same_numbers_as_counted"] and (out / p["sheet"]).is_file() and "clip-" in p["sheet"], p
             # the overlay redraws the page's numbers as they are (one number missing is about 0.0005 of the pixels)
             assert p["today_over_bare_vs_page"]["pixels_apart"] < 1e-4, p
-    assert pinned >= 1, "no state where today's quarter and a third differ: the page's threshold is not pinned"
+    assert pinned >= 1, "no state where today's third and the quarter of before differ: the page's threshold is not pinned"
     text = (out / "view_numbers.md").read_text("utf-8")
     assert "| first view |" in text and "Lines from here" in text and "The result view's clip run." in text
     assert "the page's box of 32 × 23 px" in text and result["made_by"]["commit"] in text
@@ -192,7 +229,7 @@ def test_the_clip_run_on_a_desktop_and_a_phone(tmp_path, view_clip):
         assert view_clip.name not in written and not vn.COORDINATES.search(written)
     # the zoom stops with the run's best spot in the middle of the map: measured as well
     best = vn.measure_runs([str(view_clip)], str(tmp_path / "best"), str(tmp_path / "data"), ["desktop"], [1], [10],
-                           launch=edge, around="best")
+                           launch=edge, around="best", stub_tiles=True)
     states = best["runs"][0]["devices"]["desktop"]["states"]
     assert best["around"] == "best" and vn.not_measured(best) == 0 and {s["stop"] for s in states} == {0, 1}
     assert all(s["today_matches"] for s in states if "same_as_stop" not in s)

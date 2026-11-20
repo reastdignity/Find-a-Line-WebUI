@@ -3,25 +3,25 @@ Run by hand: how the numbers of the result view's map pile up (docs/roadmap.md, 
 docs/line-volume/spec-view.md B.2 item 8). The page places a number (B1 … of the best spots, P1 … of the picks at
 the Area level) on the longest free piece of its line, at the first of seven places that is a box (32 × 23 px) away
 from every number placed before it, else at the farthest of them, and leaves it out when even that place is nearer
-than a quarter of a box (viewer/src/result/SpotMap.ts, `badge` in `draw`). This tool counts, in each state of the
-view, how many numbers the view wants to draw, how many it draws, how many it leaves out, and for the rules
-"left out when nearer than a third / a half of a box" and "never left out (only for want of a free piece)" how many
-would be drawn and how many pairs of drawn numbers would overlap by more than a quarter, a third and a half of a
-box's area. It has no pass or fail: the user picks the rule from the numbers.
+than a third of a box (viewer/src/result/SpotMap.ts, `badge` in `draw`, APART_MIN; the user's N1 b at gate 1,
+2026-11-20: a quarter before). This tool counts, in each state of the view, how many numbers the view wants to draw,
+how many it draws, how many it leaves out, and for the rules "left out when nearer than a quarter / a half of a box"
+and "never left out (only for want of a free piece)" how many would be drawn and how many pairs of drawn numbers
+would overlap by more than a quarter, a third and a half of a box's area. It has no pass or fail.
 
 How (no hook added to the page, and the page's rule is not changed): in each state, two frames after it settled,
 one script reads the live canvas (window.FINDALINE_VIEW.map, whose private members the browser tests read too:
 `ends`, `freeParts`, `freeBox`, `marks`) and returns, for each number the view wants to draw in the page's order,
 its kind, half sizes and every place the page would try (the free pieces × the seven fractions; none: no free
 piece). Python then runs the page's greedy again for each rule, from scratch (which numbers are kept changes where
-the later ones land). A state is measured only when the greedy at a quarter gives exactly the page's own numbers
-(labels and places: `today_matches`); else it is recorded as not measured, with the difference.
-- "Lines from here" (the fan): its own numbers sit at 0.82 of their line's first free piece, and the page leaves
-  none out for want of distance (today's rule there: B numbers at a quarter among themselves, the fan's never). The
-  other rules here are a stated definition, and under them the fan's numbers lose today's exemption: a fan number,
-  after the B numbers, is left out when its one place is nearer than the rule's distance to a number placed before
-  it (a B number or an earlier fan number); the rule "quarter" applies the page's quarter to the fan's numbers too.
-  The fan's rows count the numbers each rule leaves out apart: fan numbers and B (or P) numbers. Opening the fan may
+the later ones land). A state is measured only when the greedy at today's rule (a third) gives exactly the page's
+own numbers (labels and places: `today_matches`); else it is recorded as not measured, with the difference.
+- "Lines from here" (the fan): its own numbers sit at 0.82 of their line's first free piece; by the same rule (the
+  user's N2 a), after the B numbers, a fan number is left out when its one place is nearer than the rule's distance
+  to a number placed before it (a B number or an earlier fan number). The rule "before" is the page's until
+  2026-11-20 (B numbers at a quarter among themselves, the fan's own numbers never left out); "quarter" applies a
+  quarter to the fan's numbers too. The fan's rows count the numbers each rule leaves out apart: fan numbers and B (or
+  P) numbers. Opening the fan may
   fit the map to it (SpotMap.showFan): a fan row says the zoom it was measured at, and a fan state reached again from
   a later stop (the same zoom and numbers) is counted once, the later stops named beside it.
 - Overlap, in two readings: the intersection of two numbers' boxes (each shape's bounding box: B 25 × 21 px, B10 and
@@ -55,12 +55,15 @@ the most numbers, a picture of the page as drawn, and one per rule: the page's m
 rule's numbers drawn over it in the page's own shapes, font and order (with a fan open: the B numbers dimmed, then
 the fan's lines and the ring of "here" drawn again over them, then the fan's numbers; P numbers at full strength); the
 four rules side by side at equal size in <out>/sheets/<label>-<device>-<state>.png, under a header naming the run,
-its note and the commit. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap).
+its note and the commit. The pictures load the base map's tiles (OpenTopoMap, OpenStreetMap), whose arrival makes
+the page's picture and the overlay's differ by a share of their pixels; `--stub-tiles` (the tests: offline) answers
+every request outside the local server itself, a tile with one plain picture in the map's background colour, so the
+pictures show the numbers and lines alone and are the same at every run.
 
     uv sync --group ui; uv run playwright install chromium webkit; cd viewer; npm ci; node build.mjs   (once)
     uv run tools/view_numbers.py --out <folder> --runs <run> [<run> ...] [--data <data folder>]
                                  [--reference-dir <folder>] [--devices desktop,iphone,pixel] [--best 10,30,100]
-                                 [--zooms 1,2] [--around centre|best] [--sheets] [--data-dir <scratch>]
+                                 [--zooms 1,2] [--around centre|best] [--sheets] [--stub-tiles] [--data-dir <scratch>]
                                  [--label NAME=SHORT ...] [--note NAME=TEXT ...]
 
 Writes <out>/view_numbers.json and view_numbers.md (and pictures/, sheets/). Exit code 1 when a state was not
@@ -95,13 +98,13 @@ FAN_AT = 0.82  # of the first free piece toward the far end: a fan number's one 
 TODAY = "today"
 # A rule: the distance (in boxes) under which a B or P number is left out, and the fan numbers' (None: never)
 RULES = {
-    "today": (0.25, None),     # the page: a quarter of a box; the fan's own numbers never left out
-    "quarter": (0.25, 0.25),   # a quarter, the fan's numbers too (differs from today only in the fan)
-    "third": (1 / 3, 1 / 3),
+    "today": (1 / 3, 1 / 3),   # the page (SpotMap.ts APART_MIN): a third of a box, the fan's numbers too (N1 b, N2 a)
+    "before": (0.25, None),    # the page until 2026-11-20: a quarter of a box; the fan's own numbers never left out
+    "quarter": (0.25, 0.25),   # a quarter, the fan's numbers too (differs from "before" only in the fan)
     "half": (0.5, 0.5),
     "never": (None, None),     # only a number without a free piece is left out
 }
-SHEET_RULES = ("today", "third", "half", "never")  # the four pictures of a sheet (the user's choice)
+SHEET_RULES = ("today", "before", "half", "never")  # the four pictures of a sheet
 OVERLAPS = ((">1/4", 0.25), (">1/3", 1 / 3), (">1/2", 0.5))
 DEVICE_NAMES = ("desktop", "iphone", "pixel")
 WAIT_MS = 30000
@@ -387,7 +390,7 @@ def state_record(raw: dict, recipe: dict) -> dict:
               "wanted": len(raw["numbers"]), "wanted_fan": sum(1 for n in raw["numbers"] if n["fan"]),
               "candidates": [len(n["cand"]) for n in raw["numbers"]], "today_matches": ok}
     if not ok:
-        record["error"] = "the greedy at a quarter differs from the page: " + why
+        record["error"] = "the greedy at today's rule (a third) differs from the page: " + why
         return record
     record["rules"] = {}
     for rule in RULES:
@@ -697,12 +700,46 @@ def default_launch(pw, engine: str):
     return getattr(pw, engine).launch()
 
 
+# One plain tile in the map's own background colour (--map-bg, #ecebdf: a tile fading in shows no change), 256 px
+STUB_TILE_RGB = (0xEC, 0xEB, 0xDF)
+
+
+def stub_tile() -> bytes:
+    """A 256 × 256 PNG of STUB_TILE_RGB (made with zlib: no picture library needed)."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    row = b"\x00" + bytes(STUB_TILE_RGB) * 256
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 256, 256, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * 256, 9)) + chunk(b"IEND", b""))
+
+
+def stub_outside(context, url: str):
+    """Every request of `context` that is not to the local server `url` answered here: an image with the stub tile,
+    anything else with an empty 404. The pictures then show the numbers and lines over a plain map, the same at every
+    run and offline (the base map's tiles come from the internet: OpenTopoMap, OpenStreetMap, the orthophoto)."""
+    tile = stub_tile()
+
+    def answer(route):
+        request = route.request
+        if request.url.startswith(url):
+            route.continue_()
+        elif request.resource_type == "image":
+            route.fulfill(status=200, content_type="image/png", body=tile)
+        else:
+            route.fulfill(status=404, body="")
+    context.route("**/*", answer)
+
+
 def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, bests: list, sheets: bool = False,
                  launch=default_launch, labels: dict | None = None, around: str = "centre", notes: dict | None = None,
-                 command: str | None = None) -> dict:
+                 command: str | None = None, stub_tiles: bool = False) -> dict:
     """Every run of `runs` (folders) on every device: the result (also written to <out>/view_numbers.json and
     .md). `launch(pw, engine)`: the browser of an engine (ui_shots.DEVICES' "chromium" or "webkit"); `labels`,
-    `notes`: by the run folder's name, its short name and its description; `command`: the command line recorded."""
+    `notes`: by the run folder's name, its short name and its description; `command`: the command line recorded;
+    `stub_tiles`: nothing from the internet, every tile the plain stub tile (stub_outside; the tests: offline)."""
     os.makedirs(out, exist_ok=True)
     made_by = provenance_of(command or "tools/view_numbers.py measure_runs (called from Python)")
     result = {"made_by": made_by, "rules": {k: list(v) for k, v in RULES.items()}, "overlaps": [n for n, _ in OVERLAPS],
@@ -742,6 +779,8 @@ def measure_runs(runs: list, out: str, data: str, devices: list, stops: list, be
             try:
                 for entry, run_id in shown:
                     context = ui_shots.pass_context(browser, pw, device, "light")
+                    if stub_tiles:
+                        stub_outside(context, url)
                     try:
                         page = open_view(context, url, run_id)
                         states = measure_page(page, stops, bests, around)
@@ -774,10 +813,13 @@ def of_interest(states: list):
     return best_map, best_fan
 
 
-RULE_NAMES = {"today": "today: left out under 1/4 box", "quarter": "left out under 1/4 box, the fan's numbers too",
-              "third": "left out under 1/3 box", "half": "left out under 1/2 box", "never": "never left out"}
-FAN_RULE = ("Under \"1/4 fan too\", 1/3 and 1/2 the fan's numbers lose today's exemption: each, at its one place, is "
-            "placed after the B numbers and left out when nearer than the rule's distance to a number placed before it.")
+RULE_NAMES = {"today": "today: left out under 1/3 box, the fan's numbers too",
+              "before": "before 2026-11-20: left out under 1/4 box, the fan's numbers never",
+              "quarter": "left out under 1/4 box, the fan's numbers too", "half": "left out under 1/2 box",
+              "never": "never left out"}
+FAN_RULE = ("Under today's rule (1/3), \"1/4 fan too\" and 1/2 the fan's numbers have no exemption: each, at its one "
+            "place, is placed after the B numbers and left out when nearer than the rule's distance to a number placed "
+            "before it; under \"before\" the fan's own numbers were never left out.")
 
 
 def caption(state: dict, rule: str) -> list:
@@ -786,9 +828,8 @@ def caption(state: dict, rule: str) -> list:
     r = state["rules"][rule]
     o = r["overlaps"]
     fan = state["case"] == "fan"
-    lost = fan and rule in ("quarter", "third", "half")
     out = f"; left out: {r['left_out_fan']} of the fan's, {r['left_out_marks']} B or P" if fan else ""
-    return [RULE_NAMES[rule] + (" (the fan's numbers lose their exemption)" if lost else ""),
+    return [RULE_NAMES[rule],
             f"{r['drawn']} of {state['wanted']} drawn{out}",
             "overlap pairs over 1/4, 1/3, 1/2 of the smaller shape's box: " + ", ".join(str(o["smaller"][k]) for k, _ in OVERLAPS),
             "of the page's 32 x 23 box: " + ", ".join(str(o["box"][k]) for k, _ in OVERLAPS)]
@@ -851,9 +892,9 @@ LEGEND = (
     "**the smaller shape's own box** (B 25 × 21 px, B10 and over 30 × 21, P 38 × 27, L 35 × 21) · the same of **the "
     "page's box of 32 × 23 px**, the box of B.2 item 8). \"Wanted\": the numbers the view tries to draw (B of the best "
     "spots in view, P of the picks at Area, the fan's rows); \"no room\": without a free piece of their line (the row "
-    "keeps the number); \"left out today\": by today's rule (nearer than 1/4 box). Rules: today (1/4 box; the fan's own "
-    "numbers never), 1/3, 1/2, never (only for want of a free piece). " + "{fan} Zoom: the map's zoom the state was "
-    "measured at.")
+    "keeps the number); \"left out today\": by today's rule (nearer than 1/3 box). Rules: today (1/3 box, the fan's "
+    "numbers too), before (1/4 box; the fan's own numbers never: the page until 2026-11-20), 1/2, never (only for want of "
+    "a free piece). " + "{fan} Zoom: the map's zoom the state was measured at.")
 
 
 def markdown(result: dict) -> str:
@@ -882,7 +923,7 @@ def markdown(result: dict) -> str:
                 lines += [f"**{device}**: not measured: {d['error']}", ""]
                 continue
             lines += [f"**{device}**, the map", "",
-                      "| Stop | Zoom | Level | Best | Spots in view | Wanted | No room | Left out today | Today | 1/3 | 1/2 | Never |",
+                      "| Stop | Zoom | Level | Best | Spots in view | Wanted | No room | Left out today | Today (1/3) | Before (1/4) | 1/2 | Never |",
                       "|---|---:|---|---|---:|---:|---:|---:|---|---|---|---|"]
             for s in [s for s in d["states"] if s["case"] == "map"]:
                 level = s.get("level", "–") + (" (held)" if s.get("held") else "")
@@ -893,10 +934,10 @@ def markdown(result: dict) -> str:
                     continue
                 today = s["rules"][TODAY]
                 lines.append(f"| {stop_name(s)} | {s['zoom']} | {level} | {best} | {s['in_view']} | {s['wanted']} | "
-                             f"{today['no_room']} | {today['left_out']} | {cell(s, 'today')} | {cell(s, 'third')} | "
+                             f"{today['no_room']} | {today['left_out']} | {cell(s, 'today')} | {cell(s, 'before')} | "
                              f"{cell(s, 'half')} | {cell(s, 'never')} |")
             lines += ["", f"**{device}**, \"Lines from here\"", "",
-                      "| Opened from | Zoom | Level | Best | Rows | Wanted (fan) | No room | Today | 1/4 fan too | 1/3 | 1/2 | Never |",
+                      "| Opened from | Zoom | Level | Best | Rows | Wanted (fan) | No room | Today (1/3) | Before (1/4, fan never) | 1/4 fan too | 1/2 | Never |",
                       "|---|---:|---|---|---:|---:|---:|---|---|---|---|---|"]
             # the zoom of each stop's map (Auto), to say where the fan fitted the map to itself
             stop_zoom = {s["stop"]: s.get("zoom") for s in d["states"] if s["case"] == "map" and not s.get("held")}
@@ -913,8 +954,8 @@ def markdown(result: dict) -> str:
                                  f"not measured: {s.get('error')} | | | | |")
                     continue
                 lines.append(f"| {opened} | {s['zoom']} | {s['level']} | {best} | {s['fan_rows']} | {s['wanted']} ({s['wanted_fan']}) | "
-                             f"{s['rules'][TODAY]['no_room']} | {cell(s, 'today', True)} | {cell(s, 'quarter', True)} | "
-                             f"{cell(s, 'third', True)} | {cell(s, 'half', True)} | {cell(s, 'never', True)} |")
+                             f"{s['rules'][TODAY]['no_room']} | {cell(s, 'today', True)} | {cell(s, 'before', True)} | "
+                             f"{cell(s, 'quarter', True)} | {cell(s, 'half', True)} | {cell(s, 'never', True)} |")
             for p in d.get("pictures") or []:
                 lines.append(f"- sheet {p['sheet']} (the page's own picture {p['page']}; numbers as counted: "
                              f"{p['same_numbers_as_counted']}; today's drawn over the bare map against the page: "
@@ -968,6 +1009,8 @@ def main(argv=None) -> int:
     p.add_argument("--around", choices=("centre", "best"), default="centre",
                    help="the zoom stops: around the middle of the map a person sees, or the run's best spot put there")
     p.add_argument("--sheets", action="store_true", help="pictures and contact sheets of the states of interest")
+    p.add_argument("--stub-tiles", action="store_true", help="no base map from the internet: every tile one plain "
+                                                             "picture (offline, the same at every run)")
     p.add_argument("--data-dir", help="a scratch data folder (kept; default: a temporary one, removed)")
     args = p.parse_args(argv)
     devices = [d for d in args.devices.split(",") if d]
@@ -982,7 +1025,7 @@ def main(argv=None) -> int:
     data = args.data_dir or tempfile.mkdtemp(prefix=TEMP_PREFIX)
     try:
         result = measure_runs(folders, args.out, data, devices, stops, bests, args.sheets, labels=labels, around=args.around,
-                              notes=notes, command=command)
+                              notes=notes, command=command, stub_tiles=args.stub_tiles)
     finally:
         if not args.data_dir:
             gc.collect()
