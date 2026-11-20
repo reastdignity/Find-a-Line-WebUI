@@ -102,8 +102,9 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
                                         font-weight: 600; line-height: 1.4; cursor: pointer; }
 #view3d .v3-credits .u-credits-toggle:hover { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
 #view3d .v3-credits .u-credits-toggle::after { content: none; }
-/* on a touch screen a 44 px target (R2) without a taller box: the box's height is measured by the list's and the
-   pin's placing (optionlist.ts fit, interact.ts pinPlacement) */
+/* on a touch screen a 44 px target (R2) around the 26 px pill, without a taller box where the box holds the credits
+   alone (a touch tablet at the full level); on phones the info button beside it makes the box 44 px high anyway.
+   The list of "Lines from a point" fits itself above the bottom column, whatever its height (optionlist.ts fit) */
 @media (pointer: coarse) {
   #view3d .v3-credits .u-credits-toggle::after { content: ""; position: absolute; inset: -9px -4px; }
 }

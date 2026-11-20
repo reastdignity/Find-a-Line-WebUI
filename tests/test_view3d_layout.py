@@ -197,7 +197,7 @@ def test_view3d_sideways_one_row(clip_data, monkeypatch):
                     assert state["overlaps"] == [] and state["outside"] == [], where
                     assert state["words"] == 0 and state["select"] and not state["segment"], where
                     # the athlete's views add the zoom's three pieces (and the phone's motion where there is one)
-                    assert state["count"] >= states[kinds, "orbit"]["count"] + (0 if key[1] == "orbit" else 3), where
+                    assert state["count"] >= states[key[0], "orbit"]["count"] + (0 if key[1] == "orbit" else 3), where
                     assert state["slider"] >= 64, where
                     assert state["notes"] == [["Check every line on the spot.", 16]], where
                 heights = {state["bar"] for state in states.values()}
@@ -272,6 +272,66 @@ def test_view3d_card_steps_aside(clip_data, monkeypatch):
             assert all(_apart(t, found["card"]) for t in found["tools"]), found
             assert found["errors"] == [] and page.errors == [], (found, page.errors)
             page.context.close()
+        finally:
+            browser.close()
+
+
+def test_view3d_card_aside_the_same_both_ways(clip_data, monkeypatch):
+    """The step-aside rule is tested with its own effect off (chrome.ts stepAside: the class removed, the card
+    measured at its full width, in one pass), so the answer at a window's height does not depend on where the
+    window came from: a 390 px wide phone with five tools and the card open, its height swept from 600 to 800 px
+    and back in steps of 8 px, gives the same answer at every height both ways, and both answers occur (aside on
+    the lower windows, the full width on the higher). With the class left on during the test (the code review's
+    mutation) the card stays aside on the way down where it was not on the way up."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dsweep")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}?level=full{line}", _phone(p, 390, 600))
+            page.evaluate(FIFTH)
+            page.evaluate("() => document.querySelector('.v3-tool[data-tool=profile]').click()")
+            page.wait_for_function(CHART, timeout=WAIT)
+            heights, answers = list(range(600, 801, 8)), {"up": {}, "down": {}}
+            for way, order in (("up", heights), ("down", heights[::-1])):
+                for height in order:
+                    page.set_viewport_size({"width": 390, "height": height})
+                    page.evaluate(FRAMES)
+                    page.evaluate(FRAMES)
+                    found = page.evaluate(CARD)
+                    answers[way][height] = found["aside"]
+                    assert found["aside"] == (found["margin"] == "60px"), (way, height, found)
+                    assert all(_apart(t, found["card"]) for t in found["tools"]), (way, height, found)
+            assert answers["up"] == answers["down"], [h for h in heights if answers["up"][h] != answers["down"][h]]
+            assert set(answers["up"].values()) == {True, False}, answers["up"]
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+        finally:
+            browser.close()
+
+
+def test_view3d_landmarks(clip_data, monkeypatch):
+    """The 3D page's landmarks (docs/DESIGN.md row 48): the top bar a banner (`header`), the stage the page's one
+    `main`, the bar a region with its name ("The line and its controls"), the tool strip a named toolbar; on a
+    desktop and on a phone."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dlandmarks")
+    marks = r"""() => { const q = (s) => document.querySelectorAll(s).length;
+      const bar = document.querySelector('.v3-bar'), tools = document.querySelector('.v3-tools');
+      return {mains: q('main'), stage: q('main.v3-stage'), banner: q('header.v3-top'), inMain: q('main canvas.v3-canvas'),
+              bar: [bar.tagName, bar.getAttribute('aria-label')], barInMain: !!bar.closest('main'),
+              tools: [tools.getAttribute('role'), tools.getAttribute('aria-label'), !!tools.closest('main')],
+              title: q('header.v3-top h1')}; }"""
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for context in ({"viewport": {"width": 1200, "height": 800}}, _phone(p, 390, 664)):
+                page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", context)
+                found = page.evaluate(marks)
+                assert found == {"mains": 1, "stage": 1, "banner": 1, "inMain": 1,
+                                 "bar": ["SECTION", "The line and its controls"], "barInMain": False,
+                                 "tools": ["toolbar", "Tools", True], "title": 1}, found
+                page.context.close()
         finally:
             browser.close()
 
