@@ -30,7 +30,7 @@ from test_web import EDGE, _playwright  # noqa: E402
 BROWSER = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
                              reason="needs Microsoft Edge and Playwright (group ui)")
 
-# model.ts openLinked's notes (the view keeps today's words: viewlink.ts HIDDEN_NOTE, CLEAR_FILTERS)
+# model.ts openLinked's notes: today's words, in the catalogue since step 3c (ui.link.*; viewlink.ts takes the same keys)
 HIDDEN = "The line of the link is hidden by the filters."
 NOT_HERE = "The line of the link is not in this run."
 CLEAR = "clear filters"
@@ -83,7 +83,7 @@ window.K = {
   // both anchors of a line in that part (in the viewport's pixels)
   inView(row) { const e = T.ends(row), box = T.box(), r = this.room();
     return [[e[0], e[1]], [e[2], e[3]]].every(([x, y]) => x + box.left >= r[0] && x + box.left <= r[2] && y + box.top >= r[1] && y + box.top <= r[3]); },
-  state() { const {view, measured} = this.v(), m = view.model, sel = view.selected, note = document.querySelector(".vl-summary .r-note");
+  state() { const {view, measured} = this.v(), m = view.model, sel = view.selected, note = document.querySelector(".vl-lnote");
     return {selected: sel && [sel.spot, sel.row], link: sel && m.lineLink(sel.line), topOnly: view.topOnly,
             chip: document.querySelector(".vl-top")?.getAttribute("aria-pressed") ?? null,
             hash: decodeURIComponent(location.hash), history: history.length,
@@ -99,19 +99,27 @@ window.K = {
 
 
 def test_note_words_are_models():
-    """viewlink.ts copies model.ts openLinked's note of a line the filters hide and its action word for word."""
-    import re
-    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "viewer", "src", "result")
+    """model.ts openLinked's three notes and the action of a line the filters hide come from the catalogue (the user's
+    W10 a: today's words, unchanged), and viewlink.ts sets the note of a line the filters hide with the same two keys
+    (no copy of its own)."""
+    import json
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = os.path.join(repo, "viewer", "src", "result")
     with open(os.path.join(src, "view", "viewlink.ts"), encoding="utf-8") as f:
         link = f.read().replace("\r\n", "\n")
     with open(os.path.join(src, "model.ts"), encoding="utf-8") as f:
         model = f.read().replace("\r\n", "\n")
-    hidden = re.search(r'export const HIDDEN_NOTE = "([^"]*)";', link).group(1)
-    clear = re.search(r'export const CLEAR_FILTERS = "([^"]*)";', link).group(1)
+    with open(os.path.join(repo, "locales", "en.json"), encoding="utf-8") as f:
+        words = json.load(f)
     opened = model[model.index("  openLinked("):]
     opened = opened[:opened.index("\n  }\n")]
-    assert f'this.note = {{text: "{hidden}", action: "{clear}", onAction:' in opened
-    assert (hidden, clear) == (HIDDEN, CLEAR)
+    hidden = 'text: t("ui.link.hidden"), action: t("ui.link.clear_filters"), onAction:'
+    assert "this.note = {" + hidden in opened and "model.setNote({" + hidden in link
+    assert 'this.note = {text: t("ui.link.not_in_run")};' in opened
+    assert 'this.note = {text: t("ui.link.not_measured", {error: (e as Error).message})};' in opened
+    assert "The line of the link" not in opened and "The line of the link" not in link and '"clear filters"' not in link
+    assert (words["ui.link.hidden"], words["ui.link.clear_filters"], words["ui.link.not_in_run"]) == (HIDDEN, CLEAR, NOT_HERE)
+    assert words["ui.link.not_measured"] == "The line of the link could not be measured: {{error}}"
 
 
 def _page(browser, url: str, context: dict, script: str = ""):
@@ -315,7 +323,7 @@ def test_top_level_only(site, device):
             if device == "phone":  # the note stands in the sheet's body (the list's head): the link raised it to half
                 hidden = _wait(page, "s.snap === 'half'")
             assert hidden["shown"].startswith(HIDDEN)
-            page.click(f".vl-summary .r-note button:text-is('{CLEAR}')")
+            page.click(f".vl-lnote button:text-is('{CLEAR}')")
             cleared = _wait(page, "s.selected !== null")
             assert cleared["selected"] == [top["spot"], top["row"]] and cleared["topOnly"] is False, cleared
             assert cleared["note"] is None and cleared["lenMin"] is None
@@ -525,7 +533,7 @@ def test_share_page(share_site, device):
             hidden = _wait(page, "s.note !== null" + (" && s.snap === 'half'" if device == "phone" else ""))
             assert hidden["note"] == [HIDDEN, CLEAR] and hidden["selected"] is None, hidden
             assert hidden["hash"] == f"#line={a['link']}" and hidden["shown"].startswith(HIDDEN), hidden
-            page.click(f".vl-summary .r-note button:text-is('{CLEAR}')")
+            page.click(f".vl-lnote button:text-is('{CLEAR}')")
             cleared = _wait(page, f"s.selected !== null && s.selected[1] === {a['row']}")
             assert cleared["note"] is None and cleared["lenMin"] is None and cleared["hash"] == f"#line={a['link']}"
             # Back and Forward

@@ -11,8 +11,9 @@
 //   back to all, then the link opened again), the link kept in the address while nothing is selected;
 // - a line not among the run's: model.openLinked as on today's page (measured where the page may ask profiles: the
 //   line handed to the frame, the link's key in model.measuredLink and in the address; else today's note).
-// The notes show where the view shows model.note (SpotSummary's ResultNote); a link that ends in one tells the frame
-// (`onNote`: a phone raises its sheet to half, where the note shows). The selection goes into the hash
+// The notes (their words the catalogue's, as model.ts openLinked's) show where the view shows model.note: first in the
+// list (SpotList's ListNote); a link that ends in one tells the frame (`onNote`: a phone raises its sheet to half,
+// where the note shows). The selection goes into the hash
 // (history.replaceState: never a new entry; only while the hash is this run's page); no selection writes the run's
 // hash without a line (on a map's page: the address without a hash), but for the link of a line the filters hide or
 // of a measured line, which stays. A new selection ends a measured line (today's useMeasureEnds). The route is opened
@@ -21,15 +22,11 @@
 
 import { useEffect, useRef } from "preact/hooks";
 import { NO_FILTERS, saveFilters } from "../../filters";
+import { t } from "../../i18n";
 import type { Line } from "../../types";
 import type { Padding, SpotMap } from "../SpotMap";
 import type { SpotView } from "../spots";
 import { linkOf, type ResultColumnsProps } from "./ResultColumns";
-
-/** Today's note of a link whose line the filters hide and its action: the words of model.ts openLinked (they are
- *  not in the catalogue there either). */
-export const HIDDEN_NOTE = "The line of the link is hidden by the filters.";
-export const CLEAR_FILTERS = "clear filters";
 
 /** Open the line of `route` (a hash, or a line's value) in the view: its row once it is selected, else -1 (a note, or
  *  a measurement under way). `show(row)` puts a selected line in view; `onMeasured` gets a line outside the run once
@@ -52,7 +49,8 @@ export function openLink(view: SpotView, route: string, show: (row: number) => v
     show(row);
     return row;
   }
-  model.setNote({text: HIDDEN_NOTE, action: CLEAR_FILTERS, onAction: () => {
+  // today's note and action, model.ts openLinked's keys of the catalogue (the user's W10 a)
+  model.setNote({text: t("ui.link.hidden"), action: t("ui.link.clear_filters"), onAction: () => {
     // as model.openLinked's action: no filter, both kinds of lines; one change the view follows (setState)
     model.filters = {...NO_FILTERS};
     saveFilters(model.filters);

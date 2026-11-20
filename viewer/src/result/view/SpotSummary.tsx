@@ -4,22 +4,30 @@
 // found. Why so many?" whose link opens today's box (ResultSummary's WhyBox: its "Show" boxes are filters like the
 // others). Under them, as on today's page: a run whose access mark was asked for and left out (its area too wide:
 // RunHead.access_skipped) says so in today's muted line (ResultSummary's AccessLegend, which for a run without the
-// mark draws only that line); then today's notes: the coarser terrain's and the model's. The legend is the map's
-// (MapBar).
+// mark draws only that line); then today's note of the coarser terrain. The model's note (a link's, a favourite's
+// failure) stands first in the list (SpotList's ListNote: step 3c). The legend is the map's (MapBar).
 
 import { t } from "../../i18n";
 import type { SpotView } from "../spots";
 import { count } from "./common";
-import { AccessLegend, CoarserNote, ResultNote, WhyBox } from "./ResultSummary";
+import { AccessLegend, CoarserNote, WhyBox } from "./ResultSummary";
 import { changePanels, panelState } from "./viewstate";
+
+/** The lines hidden in the headline's words: "5 965 hidden by Top level only" when that chip alone hides lines (every
+ *  line hidden passes the other filters: the user's W7 a), else "… hidden by filters"; "" when none is. */
+export function hiddenText(view: SpotView): string {
+  const c = view.counts;
+  if (!(c.hidden > 0)) return "";
+  return t(view.topOnly && c.hidden === c.topHidden ? "ui.view.hidden_top" : "ui.result.hidden", {n: count(c.hidden)});
+}
 
 /** The headline alone: the spots and lines that pass, and the lines hidden. */
 export function SpotCount({view}: {view: SpotView}) {
-  const c = view.counts;
+  const c = view.counts, hidden = hiddenText(view);
   return <div class="r-summary-count vl-count">
     <span class="u-h">{t("ui.view.headline", {spots: t("ui.result.spots", {count: c.spots, n: count(c.spots)}),
                                                lines: t("ui.result.lines", {count: c.lines, n: count(c.lines)})})}</span>
-    {c.hidden > 0 && <span class="u-small">{t("ui.result.hidden", {n: count(c.hidden)})}</span>}
+    {hidden && <span class="u-small">{hidden}</span>}
   </div>;
 }
 
@@ -42,6 +50,5 @@ export function SpotSummary({view, headline = true}: {view: SpotView; headline?:
     {/* the line "Anchors' access not marked: …" only (a run with the mark has its legend on the map) */}
     {!model.hasAccess && <AccessLegend model={model} />}
     <CoarserNote model={model} />
-    <ResultNote model={model} />
   </div>;
 }

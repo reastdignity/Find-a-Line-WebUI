@@ -15,7 +15,7 @@
 import { dh, drop, lowerAnchor, needClass, NO_FILTERS, passes, prominence, Ranger, saveFilters, savedFilters,
          upperAnchor, wallAngle, type FilterRanges, type Filters, type LinesState, type Range } from "../filters";
 import { groupIndices, type Group, type GroupInput } from "../grouping";
-import { detailMessage } from "../i18n";
+import { detailMessage, t } from "../i18n";
 import { addFolder, loadRunFavourites, moveFavourite, saveFavourite, type FavouriteFolder,
          type RunFavourites } from "../favourites";
 import { FolderTree } from "../folders";
@@ -965,12 +965,12 @@ export class ResultModel {
         }, (e) => {
           if (this.measuredLink !== wanted) return;
           this.measuredLink = null;
-          this.note = {text: "The line of the link could not be measured: " + (e as Error).message};
+          this.note = {text: t("ui.link.not_measured", {error: (e as Error).message})};
           this.notify();
         });
         return null;
       }
-      this.note = {text: "The line of the link is not in this run."};
+      this.note = {text: t("ui.link.not_in_run")};
       this.notify();
       return null;
     }
@@ -982,7 +982,7 @@ export class ResultModel {
       this.select(line);
       return line;
     }
-    this.note = {text: "The line of the link is hidden by the filters.", action: "clear filters", onAction: () => {
+    this.note = {text: t("ui.link.hidden"), action: t("ui.link.clear_filters"), onAction: () => {
       this.filters = {...NO_FILTERS};
       saveFilters(this.filters);
       this.state = {...this.state, showClean: true, showOver: true};

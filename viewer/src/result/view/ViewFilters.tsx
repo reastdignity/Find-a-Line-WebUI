@@ -6,8 +6,8 @@
 // "Top level only" hides or shows. "Only clear" is in More filters only, and "How to read the result" is not in
 // the view. The filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
-import { useEffect, useRef } from "preact/hooks";
-import { Chip, Chips } from "../../ui/components";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { Chip, Chips, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { active, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
 import { t } from "../../i18n";
@@ -40,9 +40,23 @@ export function lengthLabel(f: Pick<Filters, "lenMin" | "lenMax">): string {
   return t("ui.view.chip.length");
 }
 
-/** The chips, the editor and the sentence. The caller follows the view (SpotList's useViewPanels). */
+/** "Clear all": every filter of the model and both kinds of lines, each a change of the model (a pass over every line)
+ *  only where it changes something, and the chip's editor closed; "Top level only" is not a filter of the model: it
+ *  stays. The chips' and the empty list's (SpotList's NonePass). */
+export function clearAll(view: SpotView) {
+  const model = view.model, s = model.state;
+  if (!s.showClean || !s.showOver) model.setState({...s, showClean: true, showOver: true});
+  if (active(model.filters) > 0) model.clearFilters();
+  changePanels(view, (p) => { p.editing = null; });
+}
+
+const TOP_HELP = "vl-help-top";  // the id of "Top level only"'s help text
+
+/** The chips, the editor and the sentence; "Top level only" with its info button beside it (the two wrap together),
+ *  whose help opens in place under the chips. The caller follows the view (SpotList's useViewPanels). */
 export function ViewFilters({view}: {view: SpotView}) {
   const model = view.model, f = model.filters, r = model.ranges, s = model.state, ui = panelState(view);
+  const [help, setHelp] = useState(false);
   const edit = (editing: PanelState["editing"]) => changePanels(view, (p) => { p.editing = editing; });
   const change = (part: Partial<Filters>) => model.setFilters({...model.filters, ...part});
   const toggle = (which: PanelState["editing"]) => edit(ui.editing === which ? null : which);
@@ -79,20 +93,20 @@ export function ViewFilters({view}: {view: SpotView}) {
                        onRemove={f.heightMin !== null ? () => removed("height", {heightMin: null}) : undefined}
                        removeLabel={t("ui.view.chip.height_remove")}>
         {f.heightMin !== null ? t("ui.view.chip.height_min", {a: num(f.heightMin)}) : t("ui.view.chip.height")}</Chip>}
-      <button type="button" class={cx("u-chip vl-top", view.topOnly && "u-on")} aria-pressed={view.topOnly}
-              title={t("ui.view.chip.top_help")} onClick={() => view.setTopOnly(!view.topOnly)}>{t("ui.view.chip.top")}</button>
+      <span class="vl-chipi">
+        <button type="button" class={cx("u-chip vl-top", view.topOnly && "u-on")} aria-pressed={view.topOnly}
+                title={t("ui.view.chip.top_help")} onClick={() => view.setTopOnly(!view.topOnly)}>{t("ui.view.chip.top")}</button>
+        <IconButton icon="info" label={t("ui.view.chip.top_about")} plain expanded={help} aria-controls={TOP_HELP}
+                    class="vl-info vl-top-info" onClick={() => setHelp(!help)} /></span>
       <Chip add icon="filter" on={ui.editing === "more" || extra > 0} onClick={() => toggle("more")}>
         {t("ui.view.chip.more")}{extra > 0 && <span class="u-badge">{extra}</span>}</Chip>
       {anything && <button type="button" class="r-link vl-clear" onClick={() => {
-        // each a change of the model (a pass over every line): only the ones that change something; "Top level
-        // only" is not a filter of the model: it stays
-        if (!s.showClean || !s.showOver) model.setState({...s, showClean: true, showOver: true});
-        if (active(f) > 0) model.clearFilters();
-        edit(null);
+        clearAll(view);
         // the link goes: the focus to the chip before it, More filters
         keepFocus(".vl-filters .u-chip.u-add", ".vl-filters .vl-top", ...FOCUS_REST);
       }}>{t("ui.view.chip.clear")}</button>}
     </Chips>
+    {help && <p class="vl-helpt" id={TOP_HELP}>{t("ui.view.chip.top_help")}</p>}
     {editing && <div class="r-editor" role="group" aria-label={t("ui.view.chip.editor")}
                      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEditor(e); } }}>
       <MainEditor model={model} which={editing} />
