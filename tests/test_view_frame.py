@@ -79,12 +79,22 @@ window.F = {
   legendWith(extra) { const {map} = this.v(), own = map.legend.bind(map);
     map.legend = () => { const l = own(); return {...l, shapes: {...l.shapes, ...extra.shapes}, runs: extra.runs ?? l.runs ?? []}; };
     map.listeners.forEach((f) => f()); },
-  // an empty point of the map in its free room, `r` px clear of every control
-  empty(r) { const room = this.room(), box = window.FINDALINE_MAP.getContainer().getBoundingClientRect(), {map} = this.v();
+  // an empty point of the map in its free room, `r` px clear of every control, and `apart` px or more from `from` (a
+  // point taken before: two presses of a measurement at two places)
+  empty(r, from = null, apart = 80) { const room = this.room(), box = window.FINDALINE_MAP.getContainer().getBoundingClientRect(), {map} = this.v();
     const boxes = T.controls();
     for (let y = room[3] - 40; y > room[1] + 40; y -= 17) for (let x = room[0] + 40; x < room[2] - 40; x += 23) {
+      if (from && Math.hypot(x - from.x, y - from.y) < apart) continue;
       if (boxes.some((c) => x > c.left - r && x < c.right + r && y > c.top - r && y < c.bottom + r)) continue;
       if (map.pickAt(x - box.left, y - box.top, false).length === 0) return {x, y}; }
+    return null; },
+  // a spot in view whose shown line has both anchors in the map's top `share` of its height (well above where the
+  // card comes), else null; `low`: one whose lower anchor lies in the bottom 100 px instead
+  spotAt(share, low = false) { const {view} = this.v(), box = window.FINDALINE_MAP.getContainer().getBoundingClientRect();
+    for (const spot of Array.from(view.inView.spots)) { const e = T.ends(view.shownOf(spot));
+      const ys = [e[1], e[3]], xs = [e[0], e[2]];
+      if (xs.some((x) => x < 40 || x > box.width - 40) || ys.some((y) => y < 60)) continue;
+      if (low ? Math.max(...ys) > box.height - 100 && Math.max(...ys) < box.height - 10 : Math.max(...ys) < box.height * share) return spot; }
     return null; },
 };
 """
@@ -156,6 +166,29 @@ def F_actions(page, sel: str) -> list:
     return page.evaluate("([sel]) => F.actions(sel)", [sel])
 
 
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_map_page_actions(site, device):
+    """A run's own map.html in the view: today's rules of who sees what (RunActions: mayExport, the spec store's U9):
+    no Download (the page has no token to ask the worker for the files) and no Share (the local app has no owner's
+    link); the header's or the pill's other actions as on the app's page."""
+    from playwright.sync_api import sync_playwright
+    root = site.split("/runs/")[0]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{root}/runs/{urllib.parse.quote(BIG)}/map.html", device, script=FRAME)
+            _state(page)
+            if device is DESKTOP:  # (Measure where the canvas can measure and the page can ask profiles)
+                got = F_actions(page, ".c-result-top")
+                assert "Compare" in got and set(got) <= {"Measure", "Compare"}, got
+            else:
+                got = page.evaluate("() => [...document.querySelectorAll('.c-pill .r-actions button')].map((b) => b.getAttribute('aria-label'))")
+                assert set(got) <= {"Measure"}, got
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
 def test_profile_card_and_short_foot(site):
     """A desktop with a line selected: its profile in a card over the map's bottom (the chart, "Rigging and layers",
     fold, close), the card standing on the run's credits' line (8 px above them), the scale above the card, the bar's
@@ -220,6 +253,40 @@ def test_profile_card_and_short_foot(site):
             browser.close()
 
 
+def test_card_moves_the_map_only_for_a_line_under_it(site):
+    """A desktop's selection opens the card: a line with both anchors well above it leaves the map as it is (its zoom
+    and centre); a line with an anchor where the card comes is brought out from under it (today's page's keepFree: a
+    fit), both anchors then above the card's top."""
+    from playwright.sync_api import sync_playwright
+    where = "() => { const m = window.FINDALINE_MAP, c = m.getCenter(); return [m.getZoom(), +c.lat.toFixed(7), +c.lng.toFixed(7)]; }"
+    above = """() => { const {view} = window.FINDALINE_VIEW, e = T.ends(view.selected.row), card = F.rect('.c-col-map > .r-card'), b = T.box();
+      return Math.max(e[1], e[3]) + b.top <= card[1]; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP)
+            _state(page, "view.setLevel('spots');")
+            spot = page.evaluate("() => F.spotAt(0.4)")
+            assert spot is not None, "no line with both anchors in the map's top 40 %"
+            before = page.evaluate(where)
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            assert page.evaluate(where) == before and page.evaluate(above)
+            _state(page, "view.select(null);")
+            page.wait_for_selector(".r-card", state="detached", timeout=WAIT)
+            # the map moved so that the line's lower anchor lies 50 px above the map's bottom, where the card comes
+            _state(page, f"const e = T.ends(view.shownOf({spot})), b = T.box(); leaflet.panBy([0, Math.round(Math.max(e[1], e[3]) - (b.height - 50))], {{animate: false}});")
+            assert page.evaluate(f"() => F.spotAt(0, true) !== null && Math.max(T.ends(window.FINDALINE_VIEW.view.shownOf({spot}))[1], T.ends(window.FINDALINE_VIEW.view.shownOf({spot}))[3]) > T.box().height - 100")
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(f"() => !window.FINDALINE_MAP._animatingZoom && ({above})()", timeout=WAIT)
+            assert page.errors == []
+        finally:
+            browser.close()
+
+
 def test_card_is_not_in_view(site):
     """The card's height goes to the canvas (setCovered: B1's covered term), so what lies under it is not "in view":
     the canvas's covered px are the map's bottom up to the card's top, 0 once the card is closed. (Needs the canvas
@@ -258,9 +325,10 @@ def test_measuring_desktop(site):
             tip = page.evaluate("""() => { const t = document.querySelector('.r-act .r-tip-beside'), b = t.parentElement.querySelector('button');
                 return [t.textContent, b.textContent.trim(), b.getAttribute('aria-pressed'), t.getBoundingClientRect().right <= b.getBoundingClientRect().left]; }""")
             assert tip == [WORDS["ui.result.measure_tip"], "Cancel", "true", True], tip
-            for _ in range(2):
-                at = page.evaluate("() => F.empty(30)")
-                assert at, "no empty point on the map"
+            first = page.evaluate("() => F.empty(30)")
+            second = page.evaluate("([p]) => F.empty(30, p)", [first])
+            assert first and second, "no two empty points on the map"
+            for at in (first, second):  # two places 80 px or more apart (no double click)
                 page.mouse.click(at["x"], at["y"])
                 page.evaluate("() => T.frames()")
             page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
@@ -293,9 +361,10 @@ def test_measuring_phone(site):
             tip = page.evaluate("() => [document.querySelector('.v-status').firstElementChild.className, document.querySelector('.v-status .v-tip')?.textContent, "
                                 "!!document.querySelector('.c-pill .r-tip')]")
             assert tip == ["v-msg v-tip", WORDS["ui.result.measure_tip_touch"], False], tip
-            for _ in range(2):
-                at = page.evaluate("() => F.empty(30)")
-                assert at, "no empty point on the map"
+            first = page.evaluate("() => F.empty(30)")
+            second = page.evaluate("([p]) => F.empty(30, p)", [first])
+            assert first and second, "no two empty points on the map"
+            for at in (first, second):  # two places 80 px or more apart
                 _tap(page, at["x"], at["y"])
             page.wait_for_function("() => !!window.FINDALINE_VIEW.measured && F.snap() === 'half' && F.rest()", timeout=WAIT)
             page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
