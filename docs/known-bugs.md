@@ -493,13 +493,19 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
     `probe-misc/D1280short-card.png`; 844 x 390: the strip in two columns, three tools over the card,
     `probe-misc/D844short-card.png`).
   - The phone level's bar with words (a touch tablet, the desktop's `?level=phone`) is longer than the window in
-    the athlete's views with four kinds of imagery: at 1024 x 600 "Shaded" and "Edges" stand outside the window
-    and the speed under "Satellite (Esri)" (`probe-misc/T1024-eyes-four.png`), at 1180 x 820 "Edges" by 21 px, at
-    768 x 1024 the walk, the speed and all four kinds, on the desktop's `?level=phone` at 844 x 390 three kinds
-    (`probe-misc/D844phone-eyes-four.png`). With two kinds nothing leaves the window. As before the branch; one
-    rule does not mend it (a row that wraps makes the bar a row higher in the athlete's views only; the select in
-    the segment's place changes every tablet's bar). The views' buttons stand 4 px apart there and their targets do
-    not overlap (115 px each at 1024 x 600).
+    the athlete's views on narrower screens, as on main (measured with the tests' clip on this branch,
+    `probe-misc2/`, and with main's bundle e5967f6a, `probe-misc-main/`). With two kinds of imagery: at 768 x 1024
+    (a tablet upright, at its default level) the walk, the speed and both kinds stand outside the window or over
+    one another, the same on main (`probe-misc2/T768-eyes-two.png`); on the desktop's `?level=phone` at 844 x 390
+    "Edges" stands 2.5 px outside (on main the speed lay under "Shaded" there); at 1024 x 600 and 1180 x 820
+    nothing overlaps or leaves the window (on main the speed lay under "Shaded"). With four kinds: at 1024 x 600
+    "Shaded" and "Edges" outside and the speed under "Satellite (Esri)" (`probe-misc/T1024-eyes-four.png`; the
+    same two outside on main), at 1180 x 820 "Edges" outside by 21 px (on main the speed under "Satellite (Esri)",
+    nothing outside), at 768 x 1024 the walk, the speed and all four, on the desktop's `?level=phone` three kinds
+    (`probe-misc/D844phone-eyes-four.png`; two on main). Not mended here: letting that row wrap (and the slider
+    count 64 px for it) would keep everything inside the window, but the bar would then be a row higher in the
+    athlete's views than in the orbit on those screens, a layout nobody has seen yet. The views' buttons stand
+    4 px apart there and their targets do not overlap (115 px each at 1024 x 600).
   - At 360 px of width the title is cut to 97 of its 115 px ("3D view of a…") between the two buttons (its 20 px
     of row 46).
   - On the narrower card beside the strip (the chart 298 px against 350 px) the chart's own labels "min.
