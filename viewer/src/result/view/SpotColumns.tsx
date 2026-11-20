@@ -52,7 +52,7 @@ import { useRunCredits } from "./credits";
 import type { Area } from "./LineChooser";
 import { DEFAULT_LAYOUT, LIMITS, fitColumns, maxColumnWidth, type Column, type Layout } from "./layout";
 import { MapBar } from "./MapBar";
-import { ProfileCard } from "./ProfileCard";
+import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock } from "./ProfileDock";
 import type { BackAction, ResultColumnsProps } from "./ResultColumns";
 import { RunActions, useMeasureTip, type RunActionsMap } from "./RunActions";
@@ -374,6 +374,18 @@ function useCardCover(col: {current: HTMLElement | null}, canvas: FrameMap | nul
   return cover;
 }
 
+/** The height of the short foot that stands above a desktop's card (MapBar `short`): the scale, "Legend" and the
+ *  status line's row with their gaps, as drawn where they are (the fold's row and the scale: their least before). */
+function shortFoot(col: HTMLElement | null): number {
+  const height = (sel: string, least: number) => {
+    const r = col?.querySelector(sel)?.getBoundingClientRect();
+    return r && r.height ? r.height : least;
+  };
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  return height(".leaflet-bottom.leaflet-left .leaflet-control-scale", 24) + 8 + height(".v-fold", touch ? 44 : 32) + 8 +
+    height(".v-foot .v-row:not(.v-buttons)", 28) + 8 + 4;
+}
+
 /** A line's anchors both in the part of the map `padding` leaves free (with `slack` px to spare): today's page's. */
 function lineFree(map: L.Map, l: Line, padding: Padding, slack = 16): boolean {
   const size = map.getSize();
@@ -417,10 +429,19 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   const fit = width ? fitColumns(layout.layout, width, prefer)
     : {list: {open: layout.layout.list.open, width: layout.layout.list.w, forced: false},
        details: {open: layout.layout.details.open, width: layout.layout.details.w, forced: false}};
-  /** The bar's room, and the profile's card under the foot (its top; also before the foot was moved above it). */
+  /** The map's bottom the profile's card covers: as drawn, or as it will be when it is about to appear (a selection
+   *  or a measured line moves the map before the card is drawn, as on today's page: cardHeightAhead), on the credits'
+   *  line. */
+  const cardBottom = (): number => {
+    const col = colRef.current, drawn = cardCovers(col);
+    if (drawn || !col || !(measured || (view.selected && !view.model.profileClosed))) return drawn;
+    const credits = col.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right .leaflet-control-attribution")?.offsetHeight ?? 0;
+    return cardHeightAhead(layout.latest.current, col.clientHeight) + credits + CARD_GAP;
+  };
+  /** The bar's room; with the card, the short foot above it (also before the foot was moved there). */
   const padding = (): Padding => {
-    const p = barPadding(colRef.current, BAR_TOP, BAR_BOTTOM), card = cardCovers(colRef.current);
-    return card ? {...p, bottom: Math.max(p.bottom, card + 4)} : p;
+    const p = barPadding(colRef.current, BAR_TOP, BAR_BOTTOM), card = cardBottom();
+    return card ? {...p, bottom: Math.max(p.bottom, card + shortFoot(colRef.current))} : p;
   };
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
   const closeChoice = () => setChoice(null);
@@ -448,11 +469,17 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   // The map's size follows the panels at once (also where no frame is drawn, so no ResizeObserver reports)
   useLayoutEffect(() => { map?.invalidateSize(); },
                   [map, fit.list.open, fit.list.width, fit.details.open, fit.details.width]);
-  /** The card appeared or was resized: the selected line is brought out from under it (today's page's keepFree). */
+  /** The card appeared or was resized: the selected line is brought out from under it (today's page's keepFree: a
+   *  fit, only where an anchor lies under the card; the bar's foot above the card does not count, nor the margins). */
   const keepFree = () => {
     const now = view.selected;
     if (!now || measured || !map || !canvas) return;
-    const check = () => { if (view.selected?.row === now.row && !lineFree(map, now.line, padding())) canvas.zoomTo(now.row, padding()); };
+    const check = () => {
+      const card = cardCovers(colRef.current);
+      if (view.selected?.row === now.row && card && !lineFree(map, now.line, {top: -Infinity, right: -Infinity, left: -Infinity, bottom: card}, 0)) {
+        canvas.zoomTo(now.row, padding());
+      }
+    };
     if (moving(map)) map.once("moveend", check);
     else check();
   };
