@@ -104,9 +104,11 @@ keys (`field.<name>.label`/`unit`/`help`, `choice.<field>.<value>`, `topic.<id>`
 `ui.common.*` the words several share, `ui.app.*` the pages' names, `ui.kit.*` the kit's, `ui.panel.*` the side
 panels'), `page.*` (the server-rendered pages: `web.page_text`)), i18next's JSON v4 (`{{name}}`, plurals `_zero`/`_one`/`_other`); `messages.text` formats it
 on the server as i18next does, `viewer/src/i18n.ts` (i18next core, no React bindings: `t`, `label`, `parts` for a
-text with an element or a value as a part of its own) in the page. Every word a page shows comes from it but those
-`tests/test_texts_in_catalogue.py` names (since step 3d's G4; the privacy page, the kit's demo pages and the Python
-texts outside the moved pages: docs/known-bugs.md). The
+text with an element or a value as a part of its own) in the page. Since step 3d's G4 the words of the files
+`tests/test_texts_in_catalogue.py` names and of web.py's sign-in, examples, area total, about page and footer come
+from it; English still in code: line volume's result-view files, today's result page, the kit's demo pages, the
+privacy page and the coverage page's shell in web.py, and the Python texts outside the moved pages
+(docs/known-bugs.md). The
 CLI keeps its own texts (`params.py` descriptions). Coded errors and notes: `messages.UserError` (a ValueError),
 `ServiceError` (a RuntimeError), `Note` (a str: a search's warning), `search.SearchError` and `jobs.QuotaExceeded`
 carry `code` and `params` (`messages.Coded`): str() is the command line's text (option names), `web_text()` the

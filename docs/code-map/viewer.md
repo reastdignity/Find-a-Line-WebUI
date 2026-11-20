@@ -182,8 +182,9 @@ header that scrolls away; a row too for a country covered only in some regions),
 by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
 the `translator` of both catalogues (coverage.js carries the app's too: `ui/components.tsx` imports `ui/Hint.tsx`,
 which reads `i18n.ts`); `i18n.ts` the app's `t`, `label` and `parts` (a text with an icon, a link or a value as a part
-of its own; the app's words all come from `locales/en.json`, the exceptions named in
-`tests/test_texts_in_catalogue.py`); `ui/fonts.css` Barlow Condensed (woff2 of
+of its own; the words of the files `tests/test_texts_in_catalogue.py` names come from `locales/en.json`, while line
+volume's result-view files, today's result page and the kit's demo pages still hold English in code: known-bugs.md);
+`ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
 
 **The result view of mock-up 2** (docs/line-volume/spec-view.md part B, step 3b: built beside today's result page and
