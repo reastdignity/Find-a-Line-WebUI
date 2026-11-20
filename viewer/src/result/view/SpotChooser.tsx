@@ -2,8 +2,9 @@
 // by the canvas when a press reached several spots about as near): "{n} spots here: which one?", at most six rows:
 // the spots that carry a number on the map first, by their number and with their shape (such a row selects the
 // spot's bold line), then the others by their distance from the press under their fixed label ("1.3"); each with
-// its line's colour, length, mean height and clearance (the tight mark; its key under the rows). A row is a list
-// item with one button (SpotList's rows); the pointer over a row or its focus thickens its line on the map; a press
+// its line's colour, length, mean height and clearance (the tight mark; its key under the rows), and for a line over
+// trees or buildings the list's words on a line of their own under its values (R4.2, as SpotList's rows). A row is a
+// list item with one button (SpotList's rows); the pointer over a row or its focus thickens its line on the map; a press
 // selects and closes (the map does not move: a press on the map never moves it). Its ×, a press outside, and by
 // the frame Esc, a move of the map and any change of the view close it. Beside the press's point within the free
 // part of the map; on a phone at the bottom of the screen.
@@ -15,7 +16,7 @@ import type { SpotChoice } from "../spots";
 import { cx, TightKey } from "./common";
 import type { Area } from "./LineChooser";
 import { Shape } from "./Shape";
-import { Cells, FOCUS_REST, keepFocus, rowKeys, tightRow } from "./SpotList";
+import { Cells, FOCUS_REST, keepFocus, OverWords, overRow, rowKeys, tightRow } from "./SpotList";
 import type { ChooserProps } from "./SpotPanels";
 
 const GAP = 12;  // px between the press's point and the panel
@@ -83,15 +84,17 @@ export function SpotChooser({view, map, wide, choices, at, area, onClose}: Choos
     <div class="vl-cols" aria-hidden="true"><span /><span />
       <span>{t("ui.list.col.length")}</span><span>{t("ui.list.col.mean")}</span><span>{t("ui.view.col.clear")}</span></div>
     <ul class="vl-rows" aria-label={t("ui.view.chooser.label")} onKeyDown={rowKeys}>
-      {rows.map((c, k) => <li class={cx("vl-row", view.selected?.spot === c.spot && "vl-sel")} key={c.spot}>
-        <button type="button" class="vl-main" tabIndex={k === 0 ? 0 : -1} data-spot={c.spot} data-row={c.row}
-                aria-pressed={view.selected?.spot === c.spot} onClick={() => choose(c)}
-                onFocus={() => map?.highlight(c.row)}
-                onPointerEnter={() => map?.highlight(c.row)} onPointerLeave={() => map?.highlight(null)}>
-          {c.label ? <Shape text={c.label} /> : <span class="vl-num">{view.label(c.spot)}</span>}
-          <Cells view={view} row={c.row} />
-        </button>
-      </li>)}
+      {rows.map((c, k) => { const over = overRow(view, c.row);
+        return <li class={cx("vl-row", view.selected?.spot === c.spot && "vl-sel", over && "vl-over")} key={c.spot}>
+          <button type="button" class="vl-main" tabIndex={k === 0 ? 0 : -1} data-spot={c.spot} data-row={c.row}
+                  aria-pressed={view.selected?.spot === c.spot} onClick={() => choose(c)}
+                  onFocus={() => map?.highlight(c.row)}
+                  onPointerEnter={() => map?.highlight(c.row)} onPointerLeave={() => map?.highlight(null)}>
+            {c.label ? <Shape text={c.label} /> : <span class="vl-num">{view.label(c.spot)}</span>}
+            <Cells view={view} row={c.row} words />
+            {over && <OverWords />}
+          </button>
+        </li>; })}
     </ul>
     {rows.some((c) => tightRow(view, c.row)) && <TightKey lift={view.model.data.lift} drawn />}
   </div>;

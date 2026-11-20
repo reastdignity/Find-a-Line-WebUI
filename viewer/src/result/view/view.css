@@ -194,6 +194,8 @@
 .ui .vl-fan .vl-cols > span { white-space: normal; text-align: right; }
 .ui .vl-fan .vl-cols > span:first-child { text-align: left; }
 .ui .vl-fan .vl-rows { padding: 0; }
+/* a line over trees or buildings: the list's words under the first value (the fan's rows have no swatch column) */
+.ui .vl-fan .vl-over-words { grid-column: 2 / -1; }
 @media (pointer: coarse) { .ui .vl-fan-sort .u-seg button { min-height: 44px; } }
 
 /* ---- the table of spots under a press (raised, over the map) ---- */
