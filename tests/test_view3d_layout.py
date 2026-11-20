@@ -637,6 +637,45 @@ def test_view3d_info_box_leaves_with_the_focus(clip_data, monkeypatch):
             browser.close()
 
 
+@pytest.mark.parametrize("device, engine", [("iPhone 13", "webkit"), ("Pixel 7", "chromium")])
+def test_view3d_info_box_closes_on_a_press_beside(clip_data, monkeypatch, device, engine):
+    """A press beside the open info box closes it by itself (info.ts: the document's pointerdown), also where the
+    press moves no focus, so the box's focusout rule cannot close it: Safari's (Playwright's WebKit with the iPhone
+    profile, a tap on the stage; measured 2026-11-20: without the press's own rule the box stayed open there, while
+    in Chromium the tap moved the focus to the page and the focusout rule closed it: the code review's N2) and, in
+    Edge, a tap whose mousedown does not move the focus (its default prevented by the test). The box's own text keeps
+    it open."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dbeside")
+    expanded = "() => document.querySelector('.v3-info').getAttribute('aria-expanded')"
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        kind = getattr(p, engine)
+        if engine == "webkit" and not os.path.exists(kind.executable_path):
+            pytest.skip("Playwright's webkit is not installed")
+        # the offline proxy of the tests' environment (_offline_env) would also take WebKit's requests to the server
+        browser = (kind.launch(env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
+                   if engine == "webkit" else kind.launch(channel="msedge", headless=True))
+        try:
+            context = {k: v for k, v in p.devices[device].items() if k != "default_browser_type"}
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", {**context, "viewport": {"width": 390, "height": 664}})
+            if engine == "chromium":
+                page.evaluate("() => document.addEventListener('mousedown', (e) => e.preventDefault(), true)")
+            button = page.evaluate(INFO)["button"]
+            _tap(page, (button[0] + button[2]) / 2, (button[1] + button[3]) / 2)
+            page.wait_for_function(f"() => ({expanded})() === 'true'", timeout=WAIT)
+            box = page.evaluate(INFO)["box"]
+            _tap(page, (box[0] + box[2]) / 2, box[3] - 30)  # the box's own text
+            page.evaluate(FRAMES)
+            assert page.evaluate(expanded) == "true", "a press on the box's text keeps it"
+            _tap(page, (box[0] + box[2]) / 2, box[1] - 40)  # the stage above the box
+            page.evaluate(FRAMES)
+            assert page.evaluate(expanded) == "false" and page.evaluate(INFO)["box"] is None, (engine, page.evaluate(INFO))
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+        finally:
+            browser.close()
+
+
 def test_view3d_info_button_and_the_credits(clip_data, monkeypatch):
     """The info button and its box with the run's data credits (open from 768 px of width as on main, a phone held
     sideways included; the user, 2026-11-20: "Open as before", "Keep open"). On a phone (390 x 664), a phone held
