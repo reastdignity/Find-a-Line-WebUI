@@ -1,6 +1,7 @@
 // "About this view" on a phone (docs/3d-view-contract.md, "Step 3c, group B: the phone's layout"; the user,
-// 2026-11-19: "A: info button beside \"Data credits\""): where the compact bar shows (the phone level, under
-// 600 px, a touch screen at most 480 px high: view3d.css) the bar's notes that explain (the preview's note, the
+// 2026-11-19: "A: info button beside \"Data credits\""): on phones (the phone level, a touch screen at most
+// 600 px wide or at most 480 px high: view3d.css; never a mouse window at the full level, which keeps its lines) the
+// bar's notes that explain (the preview's note, the
 // phone level's, the hints, what the imagery's control says is drawn) are not shown in the bar; one button in the
 // credits' box opens a box over the stage with them. The bar keeps its height when the box opens and when the view
 // changes. What failed stays in the bar (the notes of class `v3-alert`, the walk's and the motion's notes), and so

@@ -285,7 +285,7 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
     level's note; the button says whether the box is open, the focus goes into the box, Escape closes it and gives
     the focus back (and ends nothing else: "Lines from a point" stays on), and so does the box's own button; a
     failure's note stays in the bar. A desktop keeps its lines
-    in the bar and has no button."""
+    in the bar and has no button, in a mouse window under 600 px too."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3dinfo")
     with _server(data, start_scheduler=True) as port, sync_playwright() as p:
@@ -356,8 +356,21 @@ def test_view3d_phone_notes_in_the_box(clip_data, monkeypatch):
             assert desk["button"] is None and desk["box"] is None, desk
             assert any("v3-imagery-note" in cls for cls in desk["inBar"]), desk
             # the preview's note whole, one paragraph, as before
-            assert ("A visual preview: heights and clearance come from the site's elevation data, the imagery may be "
-                    "off by metres. Check every line on the spot.") in desk["inBarText"], desk
+            whole = ("A visual preview: heights and clearance come from the site's elevation data, the imagery may be "
+                     "off by metres. Check every line on the spot.")
+            assert whole in desk["inBarText"], desk
+            page.context.close()
+            # a mouse window under 600 px (the full level): its compact bar keeps the three notes (no imagery, the
+            # preview's whole, the anchors' hint) and has no button: the box is for touch
+            page = _open(browser, url, {"viewport": {"width": 580, "height": 800}})
+            narrow = page.evaluate(INFO)
+            assert narrow["button"] is None and narrow["box"] is None, narrow
+            assert len(narrow["inBar"]) == 3 and whole in narrow["inBarText"], narrow
+            page.context.close()
+            # the same window with a finger: the button, and only the sentence in the bar
+            page = _open(browser, url.replace("#", "?level=full#"), _phone(p, 580, 800))
+            touch = page.evaluate(INFO)
+            assert touch["button"] and touch["inBarText"] == ["Check every line on the spot."], touch
             page.context.close()
         finally:
             browser.close()
