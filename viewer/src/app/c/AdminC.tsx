@@ -70,9 +70,9 @@ function Users({users, onChange, onError}: {users: AdminUser[]; onChange(): void
         {u.admin ? t("ui.account.administrator") : word("ui.admin.user", u.status)}</span>
       {u.unlimited && !u.admin && <span class="u-badge u-n">{t("ui.admin.without_limits")}</span>}
     </div>
-    <div class="u-small">{parts("ui.admin.user_since", {day: day(u.created, "?")})}
-      {" · "}{parts("ui.admin.user_last", {time: at(u.last_login, t("ui.admin.never"))})}
-      {" · "}{parts("ui.admin.sessions", {n: u.sessions}, u.sessions)}</div>
+    {/* labelled values, each word and value a text node of its own as before (a browser places the glyphs by them) */}
+    <div class="u-small">{`${t("ui.admin.since")} `}{day(u.created, "?")}{` · ${t("ui.admin.last_sign_in")} `}
+      {at(u.last_login, t("ui.admin.never"))}{" · "}{u.sessions} {t("ui.admin.sessions", {count: u.sessions})}</div>
     {/* the buttons first, the checkbox last: on a touch screen it stands on a line of its own (c.css .c-check) */}
     {!u.admin && <div class="c-admin-tools">
       {q.asking === `${u.id} block`
