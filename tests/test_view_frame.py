@@ -811,6 +811,7 @@ def test_maps_help_desktop(site):
             # finding 4, the design review's F7)
             page.click(".v-info")
             page.wait_for_selector(".v-about", timeout=WAIT)
+            page.evaluate("() => T.frames()")  # (the help's Esc listener comes with an effect after the paint)
             page.focus(".v-about .v-about-x")
             page.keyboard.press("Escape")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
@@ -867,6 +868,7 @@ def test_maps_help_phone(site):
             # Esc with the focus on a part: closed, the focus back on the "i"
             _tap_on(page, ".v-help-button .v-info")
             page.wait_for_selector(".v-over > .v-about", timeout=WAIT)
+            page.evaluate("() => T.frames()")  # (the help's Esc listener comes with an effect after the paint)
             page.focus(".v-part[data-part='best']")
             page.keyboard.press("Escape")
             page.wait_for_selector(".v-about", state="detached", timeout=WAIT)
