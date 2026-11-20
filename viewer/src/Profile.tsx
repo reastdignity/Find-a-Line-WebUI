@@ -37,8 +37,9 @@ const LAYERS: [LayerName, string, string][] = [
 // The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
 const HEIGHT = 170, CHART_MIN = 120;
 // The chart's text, px (R1's smallest: the user's "12 a", 11 before), and its labels' boxes for labels.ts' layout at
-// that size, 2 px kept free around each (they stood on touching lines on the narrow card: the UX task's P1)
-const TEXT_PX = 12, LABEL_BOXES = {ascent: 10, descent: 3, pad: 2};
+// that size: the glyphs' cells (measured in Edge on Windows: 13 px above the baseline, 3 below), 2 px kept free around
+// each (they stood on touching lines on the narrow card: the UX task's P1)
+const TEXT_PX = 12, LABEL_BOXES = {ascent: 13, descent: 3, pad: 2};
 
 function Swatch({style, class: cls}: {style?: string; class?: string}) {
   return <span class={"fal-swatch" + (cls ? " " + cls : "")} style={style}></span>;
