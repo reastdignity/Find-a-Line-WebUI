@@ -2641,7 +2641,7 @@ console.log(JSON.stringify(out));""")
 
 def test_view3d_imagery_counts_in_the_pill(tmp_path):
     """view3d/imagery.ts (round 2, point 2): the tiles loaded are counted in the stage's activity pill (entry
-    "imagery": "Imagery 3 / 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
+    "imagery": "Imagery 3 of 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
     is cleared when the loading ends, when Shaded or Edges replaces it, and on dispose; a kind started over another
     keeps one entry."""
     from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
@@ -2676,9 +2676,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     loaded = found["loaded"]
     sets = [e for e in loaded if e[0] == "set"]
     assert sets and loaded[-1] == ["clear", "imagery"] and all(e[1] == "imagery" for e in loaded)
-    total = int(re.search(r"/ (\d+)$", sets[0][2]).group(1))
-    assert total > 3 and sets[0][2] == f"Imagery 0 / {total}" and sets[0][3] == 0
-    assert sets[-1][2] == f"Imagery {total} / {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
+    total = int(re.search(r" of (\d+)$", sets[0][2]).group(1))
+    assert total > 3 and sets[0][2] == f"Imagery 0 of {total}" and sets[0][3] == 0
+    assert sets[-1][2] == f"Imagery {total} of {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
     fractions = [e[3] for e in sets]
     assert fractions == sorted(fractions) and len(sets) < total  # at most every COUNT_MS: fewer than the tiles
     assert [e[0] for e in found["second"]][-1] == "clear" and found["second"][0][0] == "set"
@@ -2721,7 +2721,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const state = () => {{
   const log = activity.splice(0), mine = log.filter((e) => e[1] === "imagery-failed").at(-1) || null;
   return {{notice: mine && mine[0] === "notice" ? mine.slice(2) : mine && "cleared", loads: loads.splice(0).length,
-          total: Number((log.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+          total: Number((log.find((e) => e[0] === "set") || [0, 0, " of 0"])[2].split(" of ")[1]),
           last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1])}};
 }};
 (async () => {{
@@ -3457,6 +3457,18 @@ def test_view_tokens():
         assert contrast(tokens["--accent-ink"], tokens["--accent-soft"]) >= 4.5 and contrast(tokens["--on-accent"], tokens["--accent"]) >= 4.5, theme
 
 
+def test_view3d_icons_are_the_kits():
+    """view3d/icon.ts keeps copies of the kit's icons it draws (ui/icons.tsx imports the logo's SVG files, which the
+    Node tests' bundles of the 3D view's modules cannot load): each copy is the kit's path, character for character."""
+    import re
+    kit = open(os.path.join(VIEWER, "src", "ui", "icons.tsx"), encoding="utf-8").read()
+    copy = open(os.path.join(VIEWER, "src", "view3d", "icon.ts"), encoding="utf-8").read()
+    copies = dict(re.findall(r"^  (\w+): '([^']*)',$", copy.split("KIT_ICONS = {")[1].split("}")[0], re.M))
+    assert set(copies) == {"close", "info", "sort", "star"}, copies
+    for name, path in copies.items():
+        assert f"  {name}: '{path}'," in kit, name
+
+
 def test_3d_view_doc_accent_in_step():
     """docs/3d-view.html (a page of its own, no bundle) copies the accent: its three theme blocks (light, dark by the
     system, dark chosen) hold `ui/tokens.css`'s --accent and --accent-soft (docs/DESIGN.md "The pilot's look", choice 1:
@@ -3658,6 +3670,21 @@ def test_view3d_trees_text_contrast():
     for theme, colour in shown.items():
         assert contrast(colour, themes[theme]["--surface"]) >= 4.5, (theme, colour)
     assert themes["light"]["--trees"] == "#ef8300" and themes["dark"]["--trees"] == "#ff9f30"
+
+
+def test_viewer_media_queries_older_webkit():
+    """The viewer's CSS asks its media in the old syntax (min-width, max-width), never the range syntax ("width >
+    600px"): WebKit before Safari 16.4 (an iPhone kept on iOS 15) knows no range syntax and drops the whole query
+    (the code review's N1: it dropped the 3D view's one row held sideways, which keys on a class since: chrome.ts
+    oneRow, whose matchMedia asks for the negation of "(max-width: 600px)")."""
+    found = []
+    for folder, _, names in os.walk(os.path.join(VIEWER, "src")):
+        for name in (n for n in names if n.endswith(".css")):
+            text = re.sub(r"/\*.*?\*/", "", open(os.path.join(folder, name), encoding="utf-8").read(), flags=re.S)
+            found += [(name, query.strip()) for query in re.findall(r"@media([^{]*)\{", text) if re.search("[<>]", query)]
+    assert found == [], found
+    chrome = open(os.path.join(VIEWER, "src", "view3d", "chrome.ts"), encoding="utf-8").read()
+    assert 'narrow: "(max-width: 600px)"' in chrome and "!narrow.matches" in chrome
 
 
 def test_result_intro_names_the_default_line_of_a_spot():

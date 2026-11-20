@@ -62,3 +62,15 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
   `unsafe-eval`) Playwright's `wait_for_function` needs a function string (`"() => (...)"`); its screenshots in WebKit
   report a refused stylesheet (its own caret style), not the page's. A DOM overlay (the anchors' handles) is never
   hidden by terrain while the webbing near an anchor can be.
+- **Sizes on a touch screen** (DESIGN.md rows 43, 45): keyed on `@media (pointer: coarse)`, never on `.v3-phone` (the
+  desktop's `?level=phone` has a mouse, a phone's `?level=full` a finger). A mark over the stage (fan dot, label, handle)
+  grows its target with a positioned `::after`, never its own size or margins: those place it on its point
+  (`screen.ts` `place`; `tests/test_view3d_touch.py`).
+- **A new note in the bar** (DESIGN.md row 39): one that explains goes behind the phone's "About this view" button by
+  itself (`info.ts` `INFO_NOTES`); one that says what failed or answers a tap gets the class `v3-alert` and stays in
+  sight, as the safety sentence does (`.v3-check`, `INFO_KEPT`: the user's word, never into the box). The button and
+  the box are for touch and the phone level: a mouse window keeps its lines at every width. A size that depends on the card (`chrome.ts` `stepAside`) is tested with its own effect off, never from the
+  state it made (`tests/test_view3d_layout.py`).
+- **The one-row bar** (DESIGN.md row 37: a phone held sideways, a touch tablet) keys on the class `v3-row`, whose
+  condition lives in `chrome.ts` `oneRow` alone; a media query of the viewer never takes the range syntax
+  (`width > 600px`: WebKit before Safari 16.4 drops the whole query; `test_viewer_media_queries_older_webkit`).

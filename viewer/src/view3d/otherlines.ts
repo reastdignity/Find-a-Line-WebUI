@@ -13,6 +13,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { t } from "../i18n";
+import { kitIcon } from "./icon";
 import type { Anchor3d } from "./decode";
 import type { Edit } from "./edit";
 import { raised, type Webbing } from "./geometry";
@@ -22,7 +23,7 @@ import "./others.css";
 import { OTHERS_MAX, canonicalKey, currentPage, type PageRequest } from "./page";
 import type { Current, Favourites } from "./save";
 import type { SceneCore } from "./scene";
-import { overlayOf, place, toScreen } from "./screen";
+import { overlayOf, place, pressedMark, toScreen } from "./screen";
 import { resample, verdictOf, webbing, type Verdict } from "./webbing";
 
 /** The tool's icon: two curves one above the other (the `d` of a path in a 16 × 16 box). */
@@ -87,7 +88,7 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
 
   const container = el("div", "v3-others");
   overlayOf(scene).prepend(container);  // first, so the anchors' handles stand over the labels
-  const note = el("p", "v3-note v3-others-note v3-hidden", t("ui.view3d.others_none"));
+  const note = el("p", "v3-note v3-alert v3-others-note v3-hidden", t("ui.view3d.others_none"));
   note.setAttribute("role", "status");
   notes.parent.insertBefore(note, notes.before);
 
@@ -138,7 +139,11 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
     const key = b.placed.key, m = String(Math.round(b.span));
     const label = labels.get(key)!;
     label.button.replaceChildren();
-    if (favourites.saved.has(key)) label.button.append(el("span", "v3-other-star", "★"));
+    if (favourites.saved.has(key)) {
+      const star = el("span", "v3-other-star");
+      star.append(kitIcon("star"));
+      label.button.append(star);
+    }
     label.button.append(el("span", "v3-other-text", t("ui.view3d.other_label", {m})));
     label.button.setAttribute("aria-label", t("ui.view3d.other_make", {m}));
     label.button.title = t("ui.view3d.other_make", {m});
@@ -180,7 +185,12 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
         const at = el("div", "v3-other-at v3-hidden"), button = el("button", "v3-other");
         button.type = "button";
         button.dataset.other = key;
-        button.addEventListener("click", () => activate(key));
+        // a press on a label's drawn box is that label's; where only targets overlap, the nearest label's
+        // (screen.ts pressedMark; others.css: 44 px targets on a touch screen)
+        button.addEventListener("click", (e) => {
+          const pressed = pressedMark(button, [...labels.values()].map((l) => l.button), e);
+          activate(pressed.dataset.other ?? key);
+        });
         at.append(button);
         container.append(at);
         labels.set(key, {at, button});

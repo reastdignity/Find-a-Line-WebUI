@@ -4,6 +4,7 @@
 // sizes through the CSSOM.
 
 import { t } from "../i18n";
+import { kitIcon } from "./icon";
 import type { Activity, ActivityAction, ToolButton, Tools, ToolSpec } from "./scene-api";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -24,7 +25,8 @@ export function createActivity(box: HTMLElement): Activity {
   const meter = el("span", "u-prog v3-activity-meter"), fill = el("i", "");
   const action = el("button", "u-btn v3-activity-action"), dismiss = el("button", "u-btn v3-activity-dismiss");
   action.type = dismiss.type = "button";
-  // its cross is drawn by view3d.css: the pill's text stays the message alone
+  // the kit's "close" icon: the pill's text stays the message alone
+  dismiss.append(kitIcon("close"));
   dismiss.setAttribute("aria-label", t("ui.view3d.dismiss"));
   dismiss.title = t("ui.view3d.dismiss");
   meter.append(fill);
@@ -61,6 +63,75 @@ export function createActivity(box: HTMLElement): Activity {
     },
     clear(id) { if (entries.delete(id)) render(); },
   };
+}
+
+/** The media of the phone's one-row bar (`oneRow`): a touch screen, the compact bar's width (the "max-width: 600px"
+ *  block of view3d.css: the widths it takes keep its two rows; asked as its negation, so no width lies between the
+ *  two, a zoomed page's 600.5 px neither, and older WebKit, which knows no range syntax, reads it) and a phone's
+ *  height held sideways (app/PlaceMap.ts PHONE). */
+export const ROW_MEDIA = {touch: "(pointer: coarse)", narrow: "(max-width: 600px)", low: "(max-height: 480px)"};
+
+/** The phone's one-row bar on `root` (the class `v3-row`, view3d.css; docs/DESIGN.md row 37): on a touch screen
+ *  wider than 600 px at the phone level (`phone`: a touch tablet at its default level, a phone held sideways) or at
+ *  most 480 px high (a phone held sideways at the full level); never with a mouse (the desktop keeps the bar with
+ *  words, its `?level=phone` too). Kept as the window turns or changes its size, or a mouse comes or goes. */
+export function oneRow(root: HTMLElement, phone: boolean): void {
+  if (typeof matchMedia !== "function") return;
+  const touch = matchMedia(ROW_MEDIA.touch), narrow = matchMedia(ROW_MEDIA.narrow), low = matchMedia(ROW_MEDIA.low);
+  const set = () => root.classList.toggle("v3-row", touch.matches && !narrow.matches && (phone || low.matches));
+  for (const media of [touch, narrow, low]) media.addEventListener?.("change", set);
+  set();
+}
+
+/** The gap the card's slot keeps from the tool strip (CSS pixels). */
+export const ASIDE_GAP_PX = 8;
+
+/** The card steps aside (docs/3d-view-contract.md, "Step 3c, group B: the phone's layout"): where the open card in
+ *  `card` (its slot) would reach the tool strip `tools` (its top less than ASIDE_GAP_PX under the strip's foot) and
+ *  the strip shows icons alone, `stage` gets the class `v3-aside` and the slot starts right of the strip
+ *  (view3d.css); `--v3-strip` on the stage is the strip's right edge and the gap whenever the strip has a tool (the
+ *  tools' own boxes are measured: a second column lies outside the strip's box). The test is made with the class
+ *  off, in one pass without a frame between: at the card's full width, so the narrower, higher card never feeds the
+ *  test that narrows it and the choice cannot undo itself; a card that becomes lower ("Rigging and layers" closed)
+ *  gets its width back. Run when the stage, the strip or the slot changes its size (its own change of the slot
+ *  brings one more run with the same answer), when a tool or the card comes or goes, and by `fit()`; `changed`
+ *  after a change (the
+ *  caller draws a frame, so what is placed by the bottom column's box is placed again). */
+export function stepAside(stage: HTMLElement, tools: HTMLElement, card: HTMLElement, changed: () => void):
+    {fit(): void; dispose(): void} {
+  let was = "";
+  const fit = () => {
+    const box = stage.getBoundingClientRect();
+    let foot = 0, right = 0, icons = true;
+    for (const tool of tools.children) {
+      const r = tool.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      foot = Math.max(foot, r.bottom - box.top);
+      right = Math.max(right, r.right - box.left);
+      if (tool.querySelector(".v3-tool-label")?.getClientRects().length) icons = false;
+    }
+    const strip = right ? Math.round(right + ASIDE_GAP_PX) : 0;
+    if (strip) stage.style.setProperty("--v3-strip", `${strip}px`); else stage.style.removeProperty("--v3-strip");
+    stage.classList.remove("v3-aside");
+    const aside = icons && strip > 0 && !!card.firstElementChild &&
+      card.getBoundingClientRect().top - box.top < foot + ASIDE_GAP_PX;
+    stage.classList.toggle("v3-aside", aside);
+    const now = `${aside}:${strip}`;
+    if (now !== was) { was = now; changed(); }
+  };
+  // A change of size is answered before the next frame's layout, never inside the observer's own call (changing the
+  // slot there ends the observer's round with "ResizeObserver loop completed with undelivered notifications"); a
+  // card opened or closed and a tool added or removed are answered at once, before any frame shows them (the strip's
+  // box does not grow with a second column, so its size alone would miss that tool)
+  let frame = 0;
+  const later = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; fit(); }); };
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(later) : null;
+  for (const e of [stage, tools, card]) sizes?.observe(e);
+  const children = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
+  // a tool shown or hidden by its class too ("Other saved lines"): WebKit kept the one column's 60 px beside two
+  children?.observe(tools, {childList: true, subtree: true, attributes: true, attributeFilter: ["class"]});
+  children?.observe(card, {childList: true});
+  return {fit, dispose() { sizes?.disconnect(); children?.disconnect(); if (frame) cancelAnimationFrame(frame); }};
 }
 
 /** The tool strip in `box`: buttons of an icon and a label, in their `order`. */

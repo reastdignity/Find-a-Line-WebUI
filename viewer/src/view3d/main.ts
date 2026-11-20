@@ -20,8 +20,10 @@ import { measure, timed } from "../perf";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createCanopy } from "./canopy";
+import { oneRow, stepAside } from "./chrome";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
+import { createInfo } from "./info";
 import { createLine } from "./line";
 import { createOthers } from "./otherlines";
 import { createPin } from "./pin";
@@ -42,7 +44,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 }
 
 /** The page's frame: the top bar with the way back, the stage of the canvas with its status and credits, the
- *  bar below with the toolbar's row, the readout and the preview's note. */
+ *  bar below with the toolbar's row, the readout and the preview's note. Landmarks: the top bar is the banner, the
+ *  stage the main part, the bar a region named by `ui.view3d.bar`. */
 function frame(root: HTMLElement, page: PageRequest) {
   document.title = t("ui.view3d.title");
   const top = el("header", "v3-top");
@@ -51,7 +54,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   const copy = el("button", "u-btn v3-copy", t("ui.view3d.copy_link"));
   copy.type = "button";
   top.append(back, el("h1", "v3-title", t("ui.view3d.title")), copy);
-  const stage = el("div", "v3-stage"), status = el("div", "v3-status");
+  const stage = el("main", "v3-stage"), status = el("div", "v3-status");
   status.setAttribute("role", "status");
   const credits = el("div", "v3-credits v3-hidden");
   credits.setAttribute("aria-label", t("ui.view3d.credits"));
@@ -64,13 +67,23 @@ function frame(root: HTMLElement, page: PageRequest) {
   const bottom = el("div", "v3-bottom"), card = el("div", "v3-card");
   bottom.append(credits, card);
   stage.append(status, activity, tools, bottom);
-  const bar = el("div", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
+  const bar = el("section", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
+  bar.setAttribute("aria-label", t("ui.view3d.bar"));
   readout.setAttribute("aria-live", "polite");
-  const note = el("p", "v3-note", t("ui.view3d.preview_note"));
+  // The preview's note: what the view is, and the safety sentence in a part of its own, which stays in the bar on
+  // a phone too while the rest goes behind "About this view" (view3d.css, info.ts); one paragraph on the desktop
+  const note = el("p", "v3-note v3-preview");
+  note.append(el("span", "v3-preview-text", t("ui.view3d.preview_note")), " ",
+              el("span", "v3-check", t("ui.view3d.check_note")));
   bar.append(readout, toolbar, note);
   if (page.level === "phone") bar.append(el("p", "v3-note v3-phone-note", t("ui.view3d.phone_level")));
+  // On a phone the notes are behind the "About this view" button in the credits' box (info.ts; view3d.css shows
+  // the button and hides the bar's notes where the compact bar shows)
+  const info = createInfo(stage, bar);
+  credits.append(info.button, el("span", "v3-credits-list"));
   root.append(top, stage, bar);
   root.classList.toggle("v3-phone", page.level === "phone");
+  oneRow(root, page.level === "phone");  // the phone's one-row bar on a touch screen over 600 px wide (chrome.ts)
   // The loading's message and bar while the status shows a stage (progress), made once and changed in place
   let staged: {message: HTMLElement; meter: HTMLElement; fill: HTMLElement} | null = null;
   return {
@@ -240,6 +253,10 @@ async function start() {
     console.error(e);
     return;
   }
+  // the profile's card steps aside where it would reach the tool strip (chrome.ts); a frame after a change, so
+  // the list of "Lines from a point" fits the bottom column again
+  const aside = stepAside(ui.stage, ui.tools, ui.card, () => scene?.invalidate());
+  scene.onDispose(() => aside.dispose());
   const line = createLine(scene, ui.readout);
   let edit: Edit | null = null;
   if (line) {

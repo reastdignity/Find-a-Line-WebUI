@@ -464,6 +464,78 @@ DESIGN.md choice 55).
 - **The admin page's checkbox** is the browser's own (13 px box, not the search form's 20 px `.s-check` in the
   accent); its row is the 44 px target (choice 50), the box itself is not restyled.
 
+## Step 3c, group B (the 3D view): left, inherited, and what the probes found (2026-11-19)
+
+Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept (rows 40 to 49). Left as it is:
+
+- **Inherited from the profile chart** (`Profile.tsx`, `profile.css`: shared with today's result page and line
+  volume's round 6, not changed here): its text at 11 px (116 characters a state with the card open: R1; the only
+  text under 12 px left in the 3D view's states), the card's facts joined by " · ", "→" and "Δh" (R9), and on a
+  touch screen the controls of "Rigging and layers" under 44 px (five number fields, three or four checkboxes by
+  their labels, the "1:1 scale" button: R2; measured in the probe with that box open on both phones, sideways too).
+- **The phone's three layout questions** were answered on a mock-up and built (DESIGN.md rows 37 to 39: the bar in
+  one row held sideways, the card stepping aside, the notes behind "About this view" with the safety sentence kept
+  in the bar). What they leave, measured after the fix round of 2026-11-20 (`local/ux-design-2026-11-16/3c-b/fixes/`: `tip/`,
+  `probe-misc/`, `probe-pointcard/`):
+  - Held sideways the open card covers most of the stage and scrolls inside (165 of 244 px shown at 844 x 390, 150
+    of 244 px at 667 x 375; the mock-up's extra option A2 was not picked).
+  - Held sideways at 844 x 390 the data credits start open, as everywhere from 768 px (the user, 2026-11-20: "Open
+    as before", and after the design review's second look "Keep open, as you chose"): 560 x 139 px of the stage's
+    844 x 233 px (60 % of its height) until they are folded, over the found line and its pin
+    (`local/ux-design-2026-11-16/3c-b/fixes2/corner-1/S844-loaded.png`).
+  - The list of "Lines from a point" (the full level on a phone: by its address only) keeps its least height of
+    80 px. With the card open it lies over the credits' box by 34 px at 390 x 664 and is left with its head and
+    21 px of its first row (`probe-pointcard/point-upright-list-card.png`); held sideways it lies over the card by
+    72 px (`point-sideways-list-card.png`), where it lay before too.
+  - On a touch screen 601 to under 620 px wide with the one row (held sideways, or a tablet's window at the phone
+    level) the row wraps in the athlete's views (measured at 610 x 360: the bar 159.6 px there, 115.6 px in the
+    orbit; at 601 and 610 x 900: 140.1 and 96.1 px; one row, 96.1 px, at 620 and 640 px).
+  - A strip with its labels still lies over a card that reaches it (the card steps aside of a strip of icons only,
+    row 38): a touch tablet at `?level=full` (1024 x 600: four tools over the card,
+    `probe-misc/T1024full-card.png`) and a short desktop window (1280 x 500: four tools,
+    `probe-misc/D1280short-card.png`; 844 x 390: the strip in two columns, three tools over the card,
+    `probe-misc/D844short-card.png`).
+  - The phone level's bar with words, since 2026-11-20 only the desktop's `?level=phone` (a mouse: a touch tablet
+    has the one row of row 37, the user's "C: the one-row bar of a phone held sideways"), is longer than the window
+    in the athlete's views in a narrower window, as on main. Measured 2026-11-20 (the tests' clip,
+    `local/ux-design-2026-11-16/3c-b/fixes2/row-1/`): at 844 x 390 "Edges" stands outside with two kinds of
+    imagery, three kinds with four and the speed under "Satellite (Esri)"; at 1024 x 600 "Edges" outside with four
+    kinds.
+  - At 360 px of width the title is cut to 97 of its 115 px ("3D view of a…") between the two buttons (its 20 px
+    of row 46).
+  - On the narrower card beside the strip (the chart 298 px against 350 px) the chart's own labels "min.
+    clearance" and "highest … above terrain" stand on touching lines (`Profile.tsx`: inherited;
+    `local/ux-design-2026-11-16/3c-b-review/design/mock/sheets/390x664-s2A-five-tools-card-light__chromium-390x664-full-card-light.png`).
+  - While "About this view" is open, the credits' box, its button with it, is hidden where the box would overlap it
+    (the design review's P9) until the box is closed ("Close", Escape, a press beside it, Tab out of it); where the
+    credits stand clear above it (above an open card) they stay, with the pressed button.
+  - A fan dot near the stage's edge keeps its whole 44 px target (`screen.ts` `targetInside`: on the Pixel of
+    `ui_shots` the 312 m line's dot stood 19 px off the right edge, which cut its target to 41.4 px); the labels of
+    other lines and the anchors' handles at an edge are still cut by it.
+- **An anchor's handle jumps at the first move of a drag on a phone** (main does the same; measured on the tests'
+  clip with a Pixel's profile at the full level, `probe-drag-before/drag.json` in
+  `local/ux-design-2026-11-16/3c-b/fixes/`): a press at the handle's centre moved by 1 px puts the handle 24 px away
+  ((11.4, -21.1) px at anchor 1, (-9.5, -21.2) px at anchor 2); from there it follows the pointer. The cause, measured
+  by the code review's second round (`local/ux-design-2026-11-16/3c-b-review/code-review-r2.md`, also on main's
+  bundle e5967f6a): the first edit makes the bar 44 px higher ("Back to the found line" appears and the readout gains
+  "Moved, not saved"; 148.1 to 192.1 px here), so the stage and the canvas get 44 px lower and both handles go up
+  21 px at the first move; after the release they move about 10.5 px towards the centre (it fits the camera's aspect
+  following a frame later: not traced). It is not a pick's mismatch (the ray's terrain hit and `heightAt` 0.09 m
+  apart); later moves follow the finger to 1 px; on the desktop the bar keeps its height and the handle moves 1 px.
+  A remedy would keep the bar's height during a drag (the row of "Back to the found line" and the edit's line
+  reserved on a phone). A press on the rim of the handle's 44 px target no longer adds its offset to that
+  (`test_view3d_handle_drag_keeps_its_offset`).
+- **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
+  3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
+  pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
+  representatives) the dot, drawn later, takes the press, as before. Two labels closer than 44 px share part of
+  their targets (31.9 px apart in `ui_shots`' "view3d-others" on an iPhone): a press on a label's own drawn box is
+  that label's, and where only the targets overlap the nearer centre wins. The two
+  handles' targets overlap only when the anchors stand under 44 px apart on the screen (the camera far out): there
+  anchor 2's, drawn later, takes the press. Dots under the list or the open credits stay under them (as before).
+- **Measured from states the tools do not have**: the imagery notice is made by a script in the probes (the clip's
+  run has no orthophoto and the probes run without an Esri key), its words the catalogue's.
+
 ## A phone on its side at half: an uncertain shore's chip on the status line
 
 On a phone held sideways in the phone's layout (667 x 375) the zoom and the layers stand in the level switch's row

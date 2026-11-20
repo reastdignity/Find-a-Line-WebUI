@@ -87,7 +87,7 @@ export function createCanopy(scene: SceneCore, options: CanopyOptions = {}): Can
   const page = options.page ?? currentPage(), url = options.url ?? canopyUrl(page);
   const root = scene.stage.closest<HTMLElement>(".ui") ?? document.documentElement;
   const note = document.createElement("p");
-  note.className = "v3-note v3-hidden";
+  note.className = "v3-note v3-alert v3-hidden";  // a failure: in sight on a phone too (info.ts)
   note.setAttribute("role", "alert");
   scene.toolbar.insertAdjacentElement("afterend", note);
 

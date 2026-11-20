@@ -265,5 +265,15 @@ the staying anchor from `/api/reach` as `Scene3D.setOverlay`'s picture, a dragge
 (`/api/patch?part=canopy`, a tool only when the patch's meta has `surface`); `others.ts`/`otherlines.ts` the address's
 `&also=` lines and the user's other saved lines of the run (a click makes one the active line:
 `Edit.setAnchors(anchors, key)`); `options.ts`/`fan.ts`/`optionlist.ts`/`point.ts` the lines from a clicked point (the
-point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). The
+point's reach, its representatives the result's spots through `grouping.ts` with the meta's `group_distance`). Step
+3c, group B (2026-11-19; docs/DESIGN.md rows 40 to 49): `icon.ts` the kit's icons for the plain DOM (`kitIcon`: the
+notice's dismiss, the sorted head, a favourite's star); `screen.ts` `pressedMark`/`nearestMark`, the mark a press goes to
+(the mark whose drawn box holds it; else the nearest centre of the marks whose invisible targets, 44 px on a touch
+screen, hold it: the fan's dots, the labels), `targetInside` (a dot's target kept inside the stage) and `draggable`'s
+`fromCentre` (a handle's drag keeps the press's offset). The
+phone's layout (rows 37 to 39): `chrome.ts` `stepAside`, the profile card's slot right of the tool strip where the
+card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes (the credits'
+box hidden where the open box would overlap it); the one-row bar of a phone held sideways and a touch tablet is
+`chrome.ts` `oneRow` (the class `v3-row`, the one place of its condition) and its rules in `view3d.css`
+(`tests/test_view3d_layout.py`). The
 contract of its waves and every decision: docs/3d-view-contract.md; the research: docs/3d-view.md

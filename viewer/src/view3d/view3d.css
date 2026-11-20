@@ -1,5 +1,8 @@
 /* The 3D view's page (main.ts): the app's tokens and components under the .ui root #view3d, the canvas
-   filling the window between a top bar and the bar of the readout, the toolbar's controls and the note. */
+   filling the window between a top bar and the bar of the readout, the toolbar's controls and the note.
+   The pilot's look (step 3c, group B; docs/DESIGN.md "The pilot's look", rows 40 to 49): sizes from the scales
+   (--fs-*, --r-*, spacing on the 4 px grid), the bars on the ground, what lies over the stage raised, 44 px
+   controls on a touch screen (R2: keyed on the pointer, never on the phone level). */
 @import "../ui/ui.css";
 
 html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
@@ -8,16 +11,20 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 @media (prefers-color-scheme: dark) { #view3d:not([data-theme="light"]) { --paper: #4a504c; } }
 #view3d[data-theme="dark"] { --paper: #4a504c; }
 #view3d { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink);
-          font: 14px/1.5 var(--font); }
-.v3-top { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface);
+          font: var(--fs-3)/1.5 var(--font); }
+/* The top bar and the bar below the stage on the ground, parted from the stage by thin rules (row 40) */
+.v3-top { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--bg);
           border-bottom: 1px solid var(--rule); }
-.v3-title { margin: 0; font: 600 18px/1.2 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3-title { margin: 0; font: 600 var(--fs-5)/1.2 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .v3-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
 .v3-canvas { display: block; width: 100%; height: 100%; }
+/* What lies over the stage is raised (row 41): the surface and its shadow, no edge, 8 px corners: the status, the
+   activity pill (a pill), the credits, the list of "Lines from a point" (point.css), the profile's card
+   (profilecard.css), the tool strip's buttons */
 .v3-status { position: absolute; inset: 0; margin: auto; width: fit-content; height: fit-content; z-index: 1;
-             max-width: min(420px, calc(100% - 32px)); box-sizing: border-box; padding: 14px 18px;
+             max-width: min(420px, calc(100% - 32px)); box-sizing: border-box; padding: 16px;
              display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
-             background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow); }
+             background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow); }
 .v3-hidden, .v3-status.v3-hidden, .v3-read.v3-hidden, #view3d .v3-hidden { display: none; }
 .v3-message { margin: 0; }
 .v3-status .v3-prog { width: min(260px, 70vw); }
@@ -31,34 +38,42 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
    left (icons alone at the phone level and under 600 px), and at the bottom a column of the credits with the
    card's slot under them, so the credits stand above an open card */
 .v3-activity { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex;
-               align-items: center; gap: 8px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 6px 12px;
-               border-radius: 999px; background: var(--surface); border: 1px solid var(--rule); box-shadow: var(--shadow);
+               align-items: center; gap: 8px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 4px 12px;
+               min-height: 32px; border-radius: var(--r-full); background: var(--surface); box-shadow: var(--shadow);
                font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .v3-activity .v3-spin { width: 14px; height: 14px; flex: none; }
 .v3-activity-meter { display: block; flex: none; width: 70px; height: 4px; }
 /* A notice in the pill's place (chrome.ts notice: imagery tiles that could not be loaded): no spinner, the
-   warning's colours, its action's button and one to dismiss it; its text may wrap */
+   warning's colours and its 1 px warning edge (its signal, row 41), its action's button and one to dismiss it (the
+   kit's "close" icon); its text may wrap */
 .v3-activity.v3-activity-notice { width: max-content; max-width: min(680px, calc(100% - 16px)); white-space: normal;
-                                  border-radius: 14px; border-color: var(--warn); background: var(--warn-soft);
+                                  border-radius: var(--r-2); border: 1px solid var(--warn); background: var(--warn-soft);
                                   font-weight: 500; }
-/* at the phone level and on narrow screens the notice starts right of the tool strip's icons */
-#view3d.v3-phone .v3-activity.v3-activity-notice { left: 60px; right: 8px; transform: none; width: auto; max-width: none; }
+/* at the phone level and on narrow screens the notice starts right of the tool strip's icons (--v3-strip: the
+   strip's measured right edge and 8 px, chrome.ts stepAside; 60 px until it is measured) */
+#view3d.v3-phone .v3-activity.v3-activity-notice { left: var(--v3-strip, 60px); right: 8px; transform: none; width: auto; max-width: none; }
 @media (max-width: 600px) {
-  #view3d .v3-activity.v3-activity-notice { left: 60px; right: 8px; transform: none; width: auto; max-width: none; }
+  #view3d .v3-activity.v3-activity-notice { left: var(--v3-strip, 60px); right: 8px; transform: none; width: auto; max-width: none; }
 }
 #view3d .v3-activity-action { flex: none; min-height: 28px; padding: 0 12px; white-space: nowrap; }
 #view3d .v3-activity-dismiss { flex: none; min-width: 28px; min-height: 28px; padding: 0; border-color: transparent;
-                               background: transparent; font-size: 18px; line-height: 1; }
-#view3d .v3-activity-dismiss::before { content: "\00d7"; }
-.v3-tools { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; align-items: flex-start;
-            gap: 4px; }
+                               background: transparent; color: var(--ink-2); }
+#view3d .v3-activity-dismiss .u-ic { width: 16px; height: 16px; }
+/* a strip higher than the stage (five tools on a phone held sideways) goes on in a second column: no tool is cut by
+   the stage's foot or lies over the bar */
+.v3-tools { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-flow: column wrap;
+            align-items: flex-start; align-content: flex-start; gap: 4px; max-height: calc(100% - 16px); }
 .v3-tools:empty { display: none; }
-#view3d .v3-tool { justify-content: flex-start; gap: 7px; padding: 0 10px 0 8px; box-shadow: var(--shadow); }
-#view3d .v3-tool.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+/* The tool strip's buttons in the raised look of the map's controls (row 42): no edge, the shadow, 8 px corners;
+   the keyboard's ring beside the shadow (the button's own shadow outranks the kit's ring) */
+#view3d .v3-tool { justify-content: flex-start; gap: 8px; padding: 0 12px 0 8px; border-color: transparent;
+                   box-shadow: var(--shadow); }
+#view3d .v3-tool:focus-visible { box-shadow: var(--shadow), var(--focus); }
+#view3d .v3-tool.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 .v3-tool-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
                 stroke-linecap: round; stroke-linejoin: round; }
 .v3-phone .v3-tool-label { display: none; }
-#view3d.v3-phone .v3-tool { padding: 0 8px; }
+#view3d.v3-phone .v3-tool { justify-content: center; padding: 0 8px; }
 /* The column never higher than the stage (8 px clear of its top): the card's slot gives way and the card (at most
    60 % of the window) scrolls inside; a phone held sideways had a stage of 219 px under a card of 234 px, whose head
    the stage cut off */
@@ -67,33 +82,45 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-bottom > * { pointer-events: auto; }
 .v3-card { align-self: stretch; margin: 0 8px 8px; min-height: 0; display: flex; flex-direction: column; }
 .v3-card:empty { display: none; }
-/* The credits box (scene.ts creditsBox): readable type on the surface's full colour with the border and the
-   shadow of the other boxes, inside the stage's corner. The run's data credits fold behind their button at every
-   width (ui.css shows the button and folds only under 768 px), the imagery's and the ring's credits beside it never */
-.v3-credits { box-sizing: border-box; max-width: min(calc(100% - 16px), 560px); margin: 0 8px 8px; padding: 5px 10px;
-              font-size: 12.5px; line-height: 1.45; color: var(--ink-2); background: var(--surface);
-              border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); }
+/* The card steps aside (row 38; the user, 2026-11-19: "A: the card steps aside"): where the open card would reach
+   the tool strip's icons, its slot starts right of the strip (chrome.ts stepAside sets the class and --v3-strip);
+   where it does not reach it, the card keeps its full width */
+.v3-stage.v3-aside .v3-card { margin-left: var(--v3-strip, 60px); }
+/* The credits box (scene.ts creditsBox): readable type (13 px, R5) on the surface's full colour, raised (no edge),
+   inside the stage's corner. The run's data credits fold behind their button at every width (ui.css shows the
+   button and folds only under 768 px), the imagery's and the ring's credits beside it never */
+.v3-credits { box-sizing: border-box; max-width: min(calc(100% - 16px), 560px); margin: 0 8px 8px; padding: 4px 12px;
+              font-size: var(--fs-2); line-height: 1.45; color: var(--ink-2); background: var(--surface);
+              border-radius: var(--r-2); box-shadow: var(--shadow); }
 .v3-credits a { color: inherit; }
-/* The data credits' button: a pill of the accent with a chevron before its label (pointing right: folded; down:
-   open), so it reads as the control it is (ui.css draws a small triangle after the label: not here) */
-#view3d .v3-credits .u-credits-toggle { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;
-                                        padding: 3px 12px 3px 10px; border-radius: 999px; background: var(--accent-soft);
-                                        color: var(--accent); font-size: 13px; font-weight: 600; line-height: 1.4;
-                                        cursor: pointer; }
+/* The data credits' button: a pill of the soft accent (its text in --accent-ink) with a chevron before its label
+   (pointing right: folded; down: open), so it reads as the control it is (ui.css draws a small triangle after the
+   label: not here) */
+#view3d .v3-credits .u-credits-toggle { position: relative; display: inline-flex; align-items: center; gap: 8px;
+                                        vertical-align: middle; padding: 4px 12px 4px 8px; border-radius: var(--r-full);
+                                        background: var(--accent-soft); color: var(--accent-ink); font-size: var(--fs-2);
+                                        font-weight: 600; line-height: 1.4; cursor: pointer; }
 #view3d .v3-credits .u-credits-toggle:hover { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
 #view3d .v3-credits .u-credits-toggle::after { content: none; }
+/* on a touch screen a 44 px target (R2) around the 26 px pill, without a taller box where the box holds the credits
+   alone (a touch tablet at the full level); on phones the info button beside it makes the box 44 px high anyway.
+   The list of "Lines from a point" fits itself above the bottom column, whatever its height (optionlist.ts fit) */
+@media (pointer: coarse) {
+  #view3d .v3-credits .u-credits-toggle::after { content: ""; position: absolute; inset: -9px -4px; }
+}
 #view3d .v3-credits .u-credits-toggle::before { content: ""; flex: none; box-sizing: border-box; width: 9px; height: 9px;
                                                 border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
                                                 transform: translateX(-2px) rotate(-45deg); }
 #view3d .v3-credits .u-credits-toggle[aria-expanded="true"]::before { transform: translateY(-2px) rotate(45deg); }
-#view3d .v3-credits .u-credits-toggle[aria-expanded="true"] { margin-right: 6px; }
+#view3d .v3-credits .u-credits-toggle[aria-expanded="true"] { margin-right: 8px; }
 #view3d .v3-credits .u-credits:not(.u-open) { display: none; }
-.v3-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 12px; background: var(--surface);
+/* rows 4 px apart (6 before: on the grid, the bar no higher than before) */
+.v3-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 8px 12px; background: var(--bg);
           border-top: 1px solid var(--rule); }
-.v3-readout { display: flex; flex-wrap: wrap; gap: 4px 14px; font-weight: 600; }
+.v3-readout { display: flex; flex-wrap: wrap; gap: 4px 16px; font-weight: 600; }
 /* The trees' readout as text: the line's orange (--trees) darkened towards the ink in the light theme (2.65:1 on
-   --surface alone, 4.96:1 so), the orange itself in the dark one (8.44:1) */
-#view3d { --v3-trees-text: color-mix(in srgb, var(--trees) 65%, var(--ink)); }
+   --bg alone, 4.86:1 so), the orange itself in the dark one (8.62:1 on --bg) */
+#view3d { --v3-trees-text: color-mix(in srgb, var(--trees) 60%, var(--ink)); }
 @media (prefers-color-scheme: dark) { #view3d.ui:not([data-theme="light"]) { --v3-trees-text: var(--trees); } }
 #view3d.ui[data-theme="dark"] { --v3-trees-text: var(--trees); }
 .v3-read.v3-trees { color: var(--v3-trees-text); }
@@ -102,21 +129,22 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-field { display: flex; align-items: center; gap: 8px; }
 .v3-field-label { color: var(--ink-2); }
 .v3-slider { width: min(260px, 50vw); min-height: var(--touch); accent-color: var(--accent); }
-.v3-note { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.v3-note { flex-basis: 100%; margin: 0; font-size: var(--fs-1); color: var(--muted); }
 .v3-read:empty { display: none; }
-.v3-read.v3-edited { color: var(--accent); }
+/* "Anchors moved": a state in words, in the ink as the readout's values (row 4) */
+.v3-read.v3-edited { color: var(--ink); }
 .v3-read.v3-failed { color: var(--bad); font-weight: 400; }
 .v3-read.v3-nofit { color: var(--bad); }
-.v3-walkbox { display: flex; align-items: center; gap: 6px; flex: none; }
-.v3-speed { min-width: 44px; padding: 0 10px; }
+.v3-walkbox { display: flex; align-items: center; gap: 8px; flex: none; }
+.v3-speed { min-width: 44px; padding: 0 12px; }
 /* The views' switch and the phone's motion (views.ts): icons with their names; outside the orbit no anchor's
    handle, no grip (the walker is dragged in the orbit only) and no edit hint; in the walker's eyes no pin */
-.v3-viewbox { display: flex; align-items: center; gap: 6px; flex: none; }
-#view3d .v3-views button { padding: 0 10px; }
+.v3-viewbox { display: flex; align-items: center; gap: 8px; flex: none; }
+#view3d .v3-views button { padding: 0 12px; }
 .v3-motion { padding: 0 12px; }
-.v3-motion.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.v3-motion.u-on { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 /* The zoom of the walker's views (views.ts): -, the indicator (the eyes' factor, the distance behind), + */
-.v3-zoom { display: flex; align-items: center; gap: 2px; flex: none; }
+.v3-zoom { display: flex; align-items: center; gap: 4px; flex: none; }
 .v3-zoom-value { min-width: 3.4em; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums;
                  color: var(--ink-2); white-space: nowrap; }
 #view3d:not([data-view="orbit"]) .v3-handle, #view3d:not([data-view="orbit"]) .v3-grip,
@@ -131,6 +159,11 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
              background: color-mix(in srgb, var(--accent) 55%, transparent); border: 3px solid #ffffff;
              box-shadow: 0 0 0 1px rgb(0 0 0 / .6), 0 1px 4px rgb(0 0 0 / .45); pointer-events: auto; cursor: grab;
              touch-action: none; }
+/* A mark's target larger than the mark, invisible, centred on it (row 43; the mark's own size and margins, which
+   place it on its point, stay): 24 px with a mouse, 44 px on a touch screen; the inset counts from inside the
+   handle's 3 px rim (16 px). Where two handles' targets overlap, the one drawn later (anchor 2) takes the press */
+.v3-handle::after { content: ""; position: absolute; inset: -4px; }
+@media (pointer: coarse) { .v3-handle::after { inset: -14px; } }
 .v3-handle.v3-dragging { cursor: grabbing; background: var(--accent); }
 .v3-at { width: 0; height: 0; }
 .v3-grip { position: absolute; left: -14px; bottom: 0; width: 28px; pointer-events: none; touch-action: none; }
@@ -139,7 +172,9 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 /* The pin over a small walker: a drop of the accent with a white rim and a dark outline, readable on imagery,
    shaded terrain, light and dark; its tip stands on the point .v3-pin-tip (pin.ts moves it: 14 px over the unloaded
    webbing at the walker's place, or just over the head); the rotated square's tip lies 3.73 px (9 (sqrt 2 - 1)) below its
-   box. The leader from the tip down to the head: 1.5 px, light at 65 % with a faint dark edge (pin.ts rotates it) */
+   box. The leader from the tip down to the head: 1.5 px, light at 65 % with a faint dark edge (pin.ts rotates it).
+   The pin and the handles keep the theme's accent, not --accent-map (row 44: on the dark theme's Shaded and Edges
+   grounds the light accent stands at 1.06:1 and 1.26:1 where the theme's has 3.01:1 and 4.01:1) */
 .v3-pin-tip { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .v3-pin { display: none; position: absolute; left: -9px; bottom: 3.73px; width: 18px; height: 18px;
           pointer-events: none; box-sizing: border-box; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
@@ -155,30 +190,45 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
    (imagery.ts): shown under 600 px instead of the segmented control */
 .v3-short, .v3-select { display: none; }
 
+/* Touch screens (R2, row 45): the tools, the views' and the speed's buttons, the phone's motion, the notice's
+   action and dismiss 44 px in both directions (the kit's --touch gives the height) */
+@media (pointer: coarse) {
+  #view3d .v3-tool, #view3d .v3-views button, #view3d .v3-speed, #view3d .v3-motion { min-width: 44px; }
+  #view3d .v3-activity-action { min-height: 44px; }
+  #view3d .v3-activity-dismiss { min-width: 44px; min-height: 44px; }
+}
+
 /* The compact bar of phones and narrow screens: the readout on one line (wrapping, never scrolling), the walk,
-   the slider and the imagery control in one row, the notes in small type; the canvas gets the rest */
-.v3-phone .v3-bar { padding: 4px 8px; gap: 2px 8px; }
-.v3-phone .v3-readout { flex: 1 1 100%; gap: 0 10px; font-size: 12.5px; }
+   the slider and the imagery control in one row; of the notes only what failed and the safety sentence stay in it,
+   in small type (the others: "About this view", row 39); the canvas gets the rest. The bar's rows
+   without a gap (2 px before: on the grid; the notes' 12 px of R1 take a line more on a phone, the gap gives it back) */
+.v3-phone .v3-bar { padding: 4px 8px; gap: 0 8px; }
+.v3-phone .v3-readout { flex: 1 1 100%; gap: 0 12px; font-size: var(--fs-2); }
 .v3-phone .v3-toolbar { flex: 1 1 100%; flex-wrap: nowrap; gap: 8px; min-width: 0; }
 .v3-phone .v3-field { flex: 1 1 auto; min-width: 64px; }
 .v3-phone .v3-field-label { display: none; }
 .v3-phone .v3-slider { width: 100%; }
-.v3-phone .v3-toolbar .u-row { flex: 0 1 auto; flex-wrap: nowrap; gap: 6px; min-width: 0; }
-.v3-phone .v3-toolbar .u-seg button { padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
-.v3-phone .v3-reduced, .v3-phone .v3-toolbar .u-small { font-size: 11px; line-height: 1.3; }
+/* at the phone level with the wide bar's words (the desktop's ?level=phone, a mouse; a touch tablet and a phone held
+   sideways have the one row of row 37 since) the row's pieces 4 px apart and the views' buttons and the walk 8 px
+   inside. In a short window the row is still longer than the window in the athlete's views (docs/known-bugs.md) */
+.v3-phone .v3-toolbar .u-row { flex: 0 1 auto; flex-wrap: nowrap; gap: 4px; min-width: 0; }
+.v3-phone .v3-walkbox, .v3-phone .v3-viewbox { gap: 4px; }
+#view3d.v3-phone .v3-views button, #view3d.v3-phone .v3-walk { padding: 0 8px; }
+.v3-phone .v3-toolbar .u-seg button { padding: 0 8px; font-size: var(--fs-2); white-space: nowrap; }
+.v3-phone .v3-reduced, .v3-phone .v3-toolbar .u-small { font-size: var(--fs-1); line-height: 1.3; }
 .v3-phone .v3-walkbox { flex: 0 1 auto; min-width: 0; }
 .v3-phone .v3-viewbox { flex: none; }
-.v3-phone .v3-motion-note { font-size: 11px; line-height: 1.3; }
-.v3-phone .v3-note { font-size: 11px; line-height: 1.3; }
+.v3-phone .v3-motion-note { font-size: var(--fs-1); line-height: 1.3; }
+.v3-phone .v3-note { font-size: var(--fs-1); line-height: 1.3; }
 /* Under 600 px (both levels): the short readout; the toolbar's controls (the walk's box and the imagery's row
    unwrapped into it) in one row that may wrap (Back to the found line at level full), the select instead of the
    segmented control, the notes of the row (no imagery, loading, reduced motion) each on a line of its own
    under it */
 @media (max-width: 600px) {
-  #view3d .v3-bar { padding: 4px 8px; gap: 2px 8px; }
-  #view3d .v3-readout { flex: 1 1 100%; gap: 0 10px; font-size: 12.5px; }
+  #view3d .v3-bar { padding: 4px 8px; gap: 0 8px; }
+  #view3d .v3-readout { flex: 1 1 100%; gap: 0 12px; font-size: var(--fs-2); }
   #view3d .v3-long, #view3d .v3-tool-label { display: none; }
-  #view3d .v3-tool { padding: 0 8px; }
+  #view3d .v3-tool { justify-content: center; padding: 0 8px; }
   #view3d .v3-short { display: inline; }
   #view3d .v3-toolbar { flex: 1 1 100%; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
   #view3d .v3-toolbar .u-row, #view3d .v3-walkbox, #view3d .v3-viewbox { display: contents; }
@@ -187,7 +237,7 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
   .v3-slider { width: 100%; }
   #view3d .v3-toolbar .u-seg { display: none; }
   #view3d .v3-toolbar .u-seg.v3-views { display: flex; flex: none; order: 1; }
-  #view3d .v3-views button { padding: 0 7px; }
+  #view3d .v3-views button { padding: 0 8px; }
   #view3d .v3-motion { padding: 0 8px; order: 1; }
   #view3d .v3-zoom { order: 1; }
   /* the switch starts a row of its own in every view (in the walker's views with the zoom and the phone's motion
@@ -198,12 +248,109 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
   #view3d .v3-toolbar::before { content: ""; order: 1; flex-basis: 100%; height: 0; }
   #view3d :is(.v3-views, .v3-zoom, .v3-motion, .v3-reset, .v3-imagery-note, .v3-reduced,
               .v3-motion-note) { margin-top: 4px; }
-  #view3d .v3-zoom-value { min-width: 2.8em; font-size: 12.5px; }
-  #view3d .v3-select { display: block; flex: 0 1 auto; width: auto; min-width: 0; max-width: 50%; padding: 0 6px; }
-  #view3d .v3-walk { padding: 0 10px; }
+  #view3d .v3-zoom-value { min-width: 2.8em; font-size: var(--fs-2); }
+  #view3d .v3-select { display: block; flex: 0 1 auto; width: auto; min-width: 0; max-width: 50%; padding: 0 8px; }
+  #view3d .v3-walk { padding: 0 8px; }
   #view3d .v3-speed { min-width: 40px; padding: 0 8px; }
-  #view3d .v3-reset { padding: 0 10px; }
+  #view3d .v3-reset { padding: 0 12px; }
   #view3d .v3-imagery-note, #view3d .v3-reduced, #view3d .v3-motion-note {
-    flex: 1 1 100%; order: 2; font-size: 11px; line-height: 1.3; }
-  .v3-note { font-size: 11px; line-height: 1.3; }
+    flex: 1 1 100%; order: 2; font-size: var(--fs-1); line-height: 1.3; }
+  .v3-note { font-size: var(--fs-1); line-height: 1.3; }
 }
+/* the touch screen's 44 px after the narrow screen's sizes above (the same specificity: the later rule wins) */
+@media (max-width: 600px) and (pointer: coarse) {
+  #view3d .v3-speed { min-width: 44px; }
+}
+/* "About this view" (row 39; the user, 2026-11-19: "A: info button beside \"Data credits\""; info.ts): on phones
+   (the phone level; a touch screen at most 600 px wide or at most 480 px high) the bar's notes that explain
+   are not shown in it; a button in the credits' box (shown there even without credits) opens a box with them over
+   the stage's bottom. What failed (.v3-alert), the walk's and the motion's notes stay in the bar, and of the
+   preview's note its safety sentence (.v3-check; the user, 2026-11-20: "Keep that one sentence in the bar"), one
+   line under the controls. The desktop keeps its lines, in a mouse window under 600 px too (its compact bar has
+   the notes: the media below ask for a coarse pointer). The same rules three times: the level's class, the two
+   media */
+/* The box is as wide as the credits' box may be (560 px, both in the stage's bottom right corner) and as high as its
+   notes; while it is open the credits' box is hidden where the box would overlap it (info.ts: the class
+   v3-covered; its place kept), so no line of the credits is cut. In the credits' box the button stands at the start,
+   on the first line beside "Data credits" whether they are open or folded, and the box keeps right of the tool strip
+   (--v3-strip), so the button is never under a tool. Folded the list has 8 px above and below it (its first line
+   centred on the 44 px button; a credit of the imagery beside it may wrap); open (v3-credits-open, scene.ts) the
+   list starts at the box's top and the button is drawn as high as that line (28 px) with an invisible 44 px target,
+   so the open box is as high as its list (139.2 px of ui_shots' credits; 155.2 px with the 8 px above and below the
+   list: the design review's P10) */
+#view3d .v3-credits.v3-covered { visibility: hidden; }
+#view3d .v3-infobox { display: none; }
+#view3d .v3-info { display: none; flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
+                   color: var(--ink-2); }
+#view3d .v3-info:hover, #view3d .v3-infobox-close:hover { background: var(--hover); }
+#view3d .v3-info[aria-expanded="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.v3-infobox { position: absolute; z-index: 3; right: 8px; bottom: 8px; box-sizing: border-box;
+              width: min(560px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow-y: auto;
+              overscroll-behavior: contain; padding: 0 4px 12px 16px; font-size: var(--fs-2); line-height: 1.5;
+              color: var(--ink-2); background: var(--surface); border-radius: var(--r-2); box-shadow: var(--shadow); }
+/* the head stays at the box's top while the notes scroll under it (a low stage: four notes of 260 px in a stage of
+   217 px held sideways left 6 of the 44 px of "Close" in the box); the box's top padding is the head's */
+.v3-infobox-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center;
+                   justify-content: space-between; gap: 8px; padding-top: 4px; background: var(--surface); }
+#view3d .v3-infobox-title { margin: 0; font: 600 var(--fs-3)/1.4 var(--font); color: var(--ink); }
+#view3d .v3-infobox-close { flex: none; min-width: var(--touch); padding: 0; border-color: transparent; background: transparent;
+                            color: var(--ink-2); }
+/* a line of the box: a copy of a note with the note's classes (the views' rules and .v3-hidden hide it as they hide
+   the note), in the box's own type */
+#view3d .v3-infobox .v3-infobox-line { flex: none; margin: 0 12px 8px 0; font-size: var(--fs-2); line-height: 1.5;
+                                       color: var(--ink-2); }
+#view3d .v3-infobox .v3-infobox-line:last-child { margin-bottom: 0; }
+#view3d.v3-phone .v3-bar > .v3-note:not(.v3-alert, .v3-preview), #view3d.v3-phone .v3-bar .v3-imagery-note,
+#view3d.v3-phone .v3-bar > .v3-preview > .v3-preview-text { display: none; }
+#view3d.v3-phone .v3-info { display: inline-flex; }
+#view3d.v3-phone .v3-infobox:not(.v3-hidden) { display: block; }
+#view3d.v3-phone .v3-credits { display: flex; align-items: flex-start; gap: 4px; padding: 0 12px 0 0;
+                               max-width: min(calc(100% - var(--v3-strip, 60px) - 8px), 560px); }
+#view3d.v3-phone .v3-credits.v3-hidden { padding: 0; }
+#view3d.v3-phone .v3-credits-list { min-width: 0; padding: calc((var(--touch) - 28px) / 2) 0; }
+#view3d.v3-phone .v3-credits.v3-credits-open .v3-credits-list { padding: 0; }
+#view3d.v3-phone .v3-credits.v3-credits-open .v3-info { position: relative; min-height: 28px; }
+#view3d.v3-phone .v3-credits.v3-credits-open .v3-info::after { content: ""; position: absolute; inset: -9px 0; }
+@media (max-width: 600px) and (pointer: coarse), (pointer: coarse) and (max-height: 480px) {
+  #view3d .v3-bar > .v3-note:not(.v3-alert, .v3-preview), #view3d .v3-bar .v3-imagery-note,
+  #view3d .v3-bar > .v3-preview > .v3-preview-text { display: none; }
+  #view3d .v3-info { display: inline-flex; }
+  #view3d .v3-infobox:not(.v3-hidden) { display: block; }
+  #view3d .v3-credits { display: flex; align-items: flex-start; gap: 4px; padding: 0 12px 0 0;
+                        max-width: min(calc(100% - var(--v3-strip, 60px) - 8px), 560px); }
+  #view3d .v3-credits.v3-hidden { padding: 0; }
+  #view3d .v3-credits-list { min-width: 0; padding: calc((var(--touch) - 28px) / 2) 0; }
+  #view3d .v3-credits.v3-credits-open .v3-credits-list { padding: 0; }
+  #view3d .v3-credits.v3-credits-open .v3-info { position: relative; min-height: 28px; }
+  #view3d .v3-credits.v3-credits-open .v3-info::after { content: ""; position: absolute; inset: -9px 0; }
+}
+/* The phone's one row (row 37; the user, 2026-11-19: "A: one row" for a phone held sideways; 2026-11-20, for a touch
+   tablet: "C: the one-row bar of a phone held sideways"): the class v3-row on the root (chrome.ts oneRow, the one
+   place of its condition: a touch screen wider than 600 px, every width the "max-width: 600px" block leaves, at the
+   phone level (a touch tablet at its default level, a phone held sideways) or at most 480 px high (a phone held
+   sideways at the full level, the height of app/PlaceMap.ts PHONE); a mouse keeps the bar with words, the desktop's
+   ?level=phone too). The readout's sentences on a line, under it ONE
+   row of the phone's own pieces: the views' switch as icons, in the athlete's views the zoom and the phone's motion,
+   the slider, the walk, the speed, the imagery's select (never the segment). Nothing is laid over anything: the
+   boxes are unwrapped into the row, which wraps when its pieces do not fit (the notes of the row each on a line of
+   their own under it). The select counts 64 px for the wrapping and grows to its own width before the slider gets
+   the rest (grow 1000 against 1), so the row holds in the athlete's views with four kinds of imagery from about
+   616 px of width; the bar is as high in every view. The tool strip shows icons alone, as at the phone level */
+#view3d.v3-row .v3-bar { padding: 4px 8px; gap: 0 8px; }
+#view3d.v3-row .v3-readout { flex: 1 1 100%; gap: 0 12px; font-size: var(--fs-2); }
+#view3d.v3-row .v3-toolbar { flex: 1 1 100%; flex-wrap: wrap; gap: 0 8px; min-width: 0; }
+#view3d.v3-row .v3-toolbar .u-row, #view3d.v3-row .v3-walkbox, #view3d.v3-row .v3-viewbox { display: contents; }
+#view3d.v3-row .v3-views .v3-long, #view3d.v3-row .v3-motion .v3-long, #view3d.v3-row .v3-tool-label { display: none; }
+#view3d.v3-row .v3-tool { justify-content: center; padding: 0 8px; }
+#view3d.v3-row .v3-views { flex: none; }
+#view3d.v3-row .v3-views button, #view3d.v3-row .v3-motion, #view3d.v3-row .v3-walk, #view3d.v3-row .v3-speed { padding: 0 8px; }
+#view3d.v3-row .v3-zoom-value { min-width: 2.8em; font-size: var(--fs-2); }
+#view3d.v3-row .v3-field { flex: 1 1 72px; min-width: 72px; }
+#view3d.v3-row .v3-field-label { display: none; }
+#view3d.v3-row .v3-slider { width: 100%; }
+#view3d.v3-row .v3-toolbar .u-row .u-seg { display: none; }
+#view3d.v3-row .v3-select { display: block; flex: 1000 1 64px; width: auto; min-width: 0; max-width: max-content; padding: 0 8px; }
+#view3d.v3-row .v3-reset { padding: 0 12px; }
+#view3d.v3-row .v3-imagery-note, #view3d.v3-row .v3-reduced, #view3d.v3-row .v3-motion-note {
+  flex: 1 1 100%; order: 2; font-size: var(--fs-1); line-height: 1.3; }
+#view3d.v3-row .v3-note { font-size: var(--fs-1); line-height: 1.3; }
