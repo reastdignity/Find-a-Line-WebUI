@@ -702,13 +702,13 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     <section class="c-layer-view" aria-live="polite">
       <div class="c-layer-total">
         {status === "ready" && outlineMode ? <span><b>{inView.length.toLocaleString("en")}</b> {t("ui.layer.countries_in_view", {count: inView.length})}
-            {histStatus === "ready" && hist && <>, <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
+            {histStatus === "ready" && hist && <>; <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
           : status === "ready" ? <>
-              <span><b>{total.toLocaleString("en")}</b> {noun}, <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
+              <span><b>{total.toLocaleString("en")}</b> {noun}; <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
                 {mode === "lines" ? t("ui.layer.spots_in_view") : t("ui.layer.lines_in_view")}</span>
               {border === "all" && split && split.owned + split.partner > 0 && <div class="c-layer-split">
                 {t("ui.layer.split", {across: (split.owned + split.partner).toLocaleString("en")})}
-                {split.partner > 0 ? `, ${t("ui.layer.split_beyond", {beyond: split.partner.toLocaleString("en")})}` : ""}</div>}
+                {split.partner > 0 ? `; ${t("ui.layer.split_beyond", {beyond: split.partner.toLocaleString("en")})}` : ""}</div>}
               <div class="u-small">{t("ui.layer.cells_here", {name: levelName(cellDeg(cube0, level)), size: sizeText(cellDeg(cube0, level), centreLat)})}
                 {state.level === "auto" ? ` ${t("ui.layer.auto_note")}` : ""}</div>
             </>
@@ -748,8 +748,8 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
           ? (picked.side ? t("ui.layer.cell_beyond", {km2: picked.km2.toFixed(2)}) : t("ui.layer.cell_inside", {km2: picked.km2.toFixed(2), name: pickedCube.name}))
           : `${picked.km2.toFixed(2)} km²`}</div>
       <div><b>{picked.count.toLocaleString("en")}</b> {noun}
-        {otherInCell !== null && <>, <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
-        {", "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
+        {otherInCell !== null && <>; <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
+        {"; "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
       {picked.side ? <div class="c-layer-cell-border">{t("ui.layer.cell_partner")}</div>
         : acrossInCell ? <div class="c-layer-cell-border">{t("ui.layer.cell_across", {n: acrossInCell.toLocaleString("en")})}</div> : null}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}
