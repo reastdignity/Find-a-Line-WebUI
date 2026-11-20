@@ -430,10 +430,15 @@ the bar's height), before it a row lies there as on any page longer than the scr
 a focused control or a card's panel scrolled into view stops above the bar (DESIGN.md row 81). "Stay in Advanced"
 (cut at 390 px) and the rings cut at a scrolling column's edge or the map's credits were mended by step 3d
 (DESIGN.md rows 81 and 83); the map's own ring, on its right edge, waits for line volume's round 6 (`PlaceMap.ts`).
-Left after step 3d: WebKit reveals a text field's caret, not its box, when Tab focuses it, so a field at a scroll
-box's foot keeps its lower 12 px and its ring below the edge (Playwright's WebKit with the iPhone profile,
-c-basic-first's "Go to a place": 15.7 px; a scroll-padding of 8 px on the column moves it by 8 px, scroll-margin not
-at all; Chromium scrolls the whole box in); a phone's keyboard is rare, a tablet's is not: for the planner.
+Left after step 3d: in Playwright's WebKit with the iPhone profile a text field that Tab focuses at a scroll box's
+foot is scrolled in only to about 12 px above its own foot, so its ring and its lower part stay below the edge
+(c-basic-first's "Go to a place": 11.7 px from a fresh scroll, 15.7 px in the probe's walk; a scroll-padding of 8 px on
+the column moves it by 8 px, the kit's scroll-margin not at all; Chromium scrolls the whole box in). Perhaps WebKit
+reveals the caret's line rather than the box: not traced. A phone's keyboard is rare, a tablet's is not: for the
+planner. Also for the planner (step 3d, DESIGN.md row 82: the arrows move and choose): in Advanced the goal cards are
+a radio group, so an arrow from "Custom" applies the next goal's values over the user's own, as a click on that card
+did; an arrow back to "Custom" keeps the goal's values (`useSearch.ts` `applyPreset`: "Custom" only marks the values
+as one's own), so the user's earlier values are gone.
 The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
 are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
 and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
@@ -523,19 +528,17 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
     `ui_shots` the 312 m line's dot stood 19 px off the right edge, which cut its target to 41.4 px); the labels of
     other lines and the anchors' handles too since step 3d (DESIGN.md row 84). A mark whose own drawn box the edge
     cuts keeps a cut target (no target can cover it and stay inside).
-- **An anchor's handle jumps at the first move of a drag on a phone** (main does the same; measured on the tests'
-  clip with a Pixel's profile at the full level, `probe-drag-before/drag.json` in
-  `local/ux-design-2026-11-16/3c-b/fixes/`): a press at the handle's centre moved by 1 px puts the handle 24 px away
-  ((11.4, -21.1) px at anchor 1, (-9.5, -21.2) px at anchor 2); from there it follows the pointer. The cause, measured
-  by the code review's second round (`local/ux-design-2026-11-16/3c-b-review/code-review-r2.md`, also on main's
-  bundle e5967f6a): the first edit makes the bar 44 px higher ("Back to the found line" appears and the readout gains
-  "Moved, not saved"; 148.1 to 192.1 px here), so the stage and the canvas get 44 px lower and both handles go up
-  21 px at the first move; after the release they move about 10.5 px towards the centre (it fits the camera's aspect
-  following a frame later: not traced). It is not a pick's mismatch (the ray's terrain hit and `heightAt` 0.09 m
-  apart); later moves follow the finger to 1 px; on the desktop the bar keeps its height and the handle moves 1 px.
-  A remedy would keep the bar's height during a drag (the row of "Back to the found line" and the edit's line
-  reserved on a phone). A press on the rim of the handle's 44 px target no longer adds its offset to that
-  (`test_view3d_handle_drag_keeps_its_offset`).
+- **An anchor's handle jumped at the first move of a drag on a phone**, mended by step 3d (DESIGN.md row 84): the
+  first edit makes the bar 44 px higher ("Back to the found line" appears and the readout gains "Moved, not saved"),
+  which made the stage 44 px lower under the finger and put the handle 24 px off it ((11.4, -21.1) px at anchor 1 on
+  the Pixel, `local/ux-design-2026-11-16/3c-b/fixes/probe-drag-before/drag.json`; the cause measured by
+  `3c-b-review/code-review-r2.md`). The bar now keeps its height while the drag lasts (`edit.ts` `hold`): the handle
+  stays under the finger (0.1 px on the Pixel, 0.2 px in WebKit's iPhone at the first 1 px, the stage's height the
+  same through the drag; `test_view3d_handle_stays_under_the_finger`). Left, as the planner chose: at the release
+  the bar's row appears, the stage gets 44 px lower (63.5 px on the iPhone 1.5 s after the release, as before the
+  change) and the handles move with the scene, (12.3, -20.9) px on the Pixel and (20.5, -30.2) px on the iPhone
+  (`local/ux-design-2026-11-16/3d/g1/after/view3d.json`). A press on the rim of the handle's 44 px target adds no
+  offset (`test_view3d_handle_drag_keeps_its_offset`).
 - **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
   3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
   pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the

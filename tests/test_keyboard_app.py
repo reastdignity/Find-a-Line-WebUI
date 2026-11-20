@@ -6,6 +6,7 @@ page:
   bottom bar (the browser scrolls a focused control in with room for its ring: ui.css `scroll-margin`; the credits'
   links and the bottom bar's items draw their ring inside);
 - with forced colours (Windows' contrast themes, which draw no shadow) every stop shows an outline;
+- "Coverage map"'s ring in the dark theme holds 3:1 on every side;
 - the radio groups (the kit's Segmented, the goal cards, the coverage page's scale) are one Tab stop each and the
   arrows move the focus and choose (WAI-ARIA's radio group; ui/radios.ts);
 - a focused segment's ring lies above the selected segment beside it;
@@ -39,6 +40,7 @@ TABLET = {"has_touch": True, "is_mobile": False}  # a touch tablet: a coarse poi
 SEEN = ("try { localStorage.setItem('findaline.intro.search', 'seen'); localStorage.setItem('findaline.intro.result', 'seen');"
         " localStorage.setItem('findaline.layer.coverage', %s); } catch (e) {}")
 POINT = "() => window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
+FRAMES = "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))"
 # A temporary element at the start of <body> holds the focus, so the first Tab goes to the page's first control
 START = """() => { document.activeElement?.blur?.(); const s = document.createElement('span'); s.id = 'kb-start'; s.tabIndex = -1;
   document.body.prepend(s); s.focus(); window.KB = window.KB || {ids: new WeakMap(), n: 0}; }"""
@@ -124,15 +126,20 @@ def _open(site, where: str, context: dict, coverage: bool = False, **extra):
     return page
 
 
+def _tab(page):
+    """One Tab press, then two frames: the focus's scroll (at once: reduced motion) and its style are in place."""
+    page.keyboard.press("Tab")
+    page.evaluate("() => document.getElementById('kb-start')?.remove()")
+    page.evaluate(FRAMES)
+
+
 def _walk(page, limit: int = 220) -> list:
     """The stops of real Tab presses from the page's start until the focus comes back to a stop already seen."""
     page.mouse.move(1, 1)
     page.evaluate(START)
     stops, seen = [], set()
     for _ in range(limit):
-        page.keyboard.press("Tab")
-        page.evaluate("() => document.getElementById('kb-start')?.remove()")
-        page.wait_for_timeout(30)  # the focus's scroll (reduced motion: at once)
+        _tab(page)
         stop = page.evaluate(RING)
         if stop is None:
             continue
@@ -198,9 +205,7 @@ def test_forced_colours_show_an_outline(site, where, context):
     page.evaluate(START)
     unchanged = []
     for n in range(min(len(stops), 40)):
-        page.keyboard.press("Tab")
-        page.evaluate("() => document.getElementById('kb-start')?.remove()")
-        page.wait_for_timeout(30)
+        _tab(page)
         stop = page.evaluate(RING)
         if stop is None or stop["map"]:
             continue
@@ -212,6 +217,7 @@ def test_forced_colours_show_an_outline(site, where, context):
         clip = {"x": x, "y": y, "width": w, "height": h}
         focused = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip, scale="css"))).convert("RGB")).astype(int)
         page.evaluate("() => { window.KBEL = document.activeElement; document.activeElement.blur(); }")
+        page.evaluate(FRAMES)
         blurred = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip, scale="css"))).convert("RGB")).astype(int)
         page.evaluate("() => window.KBEL.focus({preventScroll: true})")
         if not (np.abs(focused - blurred).max(axis=2) > 40).any():
@@ -239,6 +245,7 @@ def test_radio_groups_take_the_arrows(site, where):
     choose it, ← and ↑ to the one before (round the group), End and Home to the last and the first. The search page's
     "Where" (the kit's Segmented) and the goal cards; the coverage page's language, theme and view (Segmented) and the
     quality scale (card.tsx). Before: every radio a Tab stop, the arrows did nothing."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
     page = _open(site, where, DESKTOP)
     groups = page.evaluate(GROUPS)
     labels = [g["label"] for g in groups]
@@ -256,8 +263,12 @@ def test_radio_groups_take_the_arrows(site, where):
         at = enabled.index(stop)
         for key, step in (("ArrowRight", 1), ("ArrowDown", 1), ("ArrowLeft", -1), ("ArrowUp", -1), ("End", None), ("Home", None)):
             page.keyboard.press(key)
-            page.wait_for_timeout(50)
             at = (len(enabled) - 1 if key == "End" else 0) if step is None else (at + step) % len(enabled)
+            try:  # the choice's render (a group's own state, a page's language) settled on the expected radio
+                page.wait_for_function(f"([k, i]) => {{ const s = ({STATE})(k); return s[0] === i && s[1] === i; }}",
+                                       arg=[k, enabled[at]], timeout=WAIT)
+            except PlaywrightTimeout:
+                pass  # the assertion below says what is there
             focused, checked, stops = page.evaluate(STATE, k)
             assert focused == enabled[at] and checked == enabled[at] and stops == 1, (g["label"], key, focused, checked, stops)
     page.context.close()
@@ -303,6 +314,52 @@ def test_coverage_outlines_are_no_tab_stops(site):
     page.mouse.move(hit[0], hit[1])
     page.mouse.move(hit[0] + 2, hit[1] + 1)
     page.wait_for_selector(".leaflet-tooltip", timeout=WAIT)
+    page.context.close()
+
+
+def _ratio(a, b) -> float:
+    """WCAG's contrast ratio of two sRGB colours."""
+    def lum(c):
+        v = [x / 255 for x in c[:3]]
+        v = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in v]
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_coverage_link_ring_in_the_dark_theme(site):
+    """Row 81 (the scope's A10): "Coverage map", the coverage box's link, focused by Tab in the dark theme: on each side
+    its ring (the kit's: 2 px of the surface, then 2 px of the accent) reaches 3:1 against what lies just outside it
+    (R3's non-text contrast). Measured 7.71:1 on every side at db84edbc (the review's 1.38:1 at the bottom was not
+    reproduced): pinned here, no change made."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+    page = _open(site, "search", DESKTOP, coverage=True, color_scheme="dark")
+    page.wait_for_selector(".n-coverage-link:not([hidden])", timeout=WAIT)
+    page.mouse.move(1, 1)
+    page.evaluate(START)
+    for _ in range(60):
+        _tab(page)
+        if page.evaluate("() => document.activeElement?.classList.contains('n-coverage-link')"):
+            break
+    got = page.evaluate("""() => { const e = document.activeElement, r = e.getBoundingClientRect();
+      return {link: e.classList.contains('n-coverage-link'), visible: e.matches(':focus-visible'), box: [r.left, r.top, r.right, r.bottom],
+              accent: getComputedStyle(e).getPropertyValue('--accent').trim()}; }""")
+    assert got["link"] and got["visible"] and got["accent"] == "#62c3cc", got  # the case: the dark theme's ring
+    shot = np.asarray(Image.open(io.BytesIO(page.screenshot(scale="css"))).convert("RGB")).astype(int)
+    left, top, right, bottom = got["box"]
+    mx, my = int((left + right) / 2), int((top + bottom) / 2)
+    # the pixel 3 px out (in the accent's band, 2 to 4 px out) and the one 7 px out, at each side's middle
+    sides = {"left": ((int(left - 3), my), (int(left - 7), my)), "right": ((int(right + 3), my), (int(right + 7), my)),
+             "top": ((mx, int(top - 3)), (mx, int(top - 7))), "bottom": ((mx, int(bottom + 3)), (mx, int(bottom + 7)))}
+    found = {}
+    for side, ((rx, ry), (ox, oy)) in sides.items():
+        ring, outside = shot[ry, rx], shot[oy, ox]
+        found[side] = (list(ring), list(outside), round(_ratio(ring, outside), 2))
+        assert np.abs(ring - np.array([0x62, 0xc3, 0xcc])).max() <= 40, (side, found)  # the ring's pixel
+        assert found[side][2] >= 3, (side, found)
     page.context.close()
 
 

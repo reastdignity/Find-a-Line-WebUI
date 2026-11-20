@@ -973,8 +973,10 @@ Rows 81 to 84 are step 3d's group G1 (2026-11-20): the keyboard, the focus rings
 session was changing, with no layout change and no mock-up; the planner's three decisions come from the plan the user
 approved ("Yes, as planned"): WAI-ARIA's radio group, invisible targets on touch tablets, the stage's size kept while
 a drag lasts. Each is "for now" as the rest. Checked on the branch on 2026-11-20: every place a row names switched
-in the sources in three batches with a build and the new tests run, then restored (each failed test the switched
-place's own: `local/ux-design-2026-11-16/3d/g1/mutations.md`).
+in the sources in four batches with a build and the new tests run, then restored (each failed test the switched
+place's own: `local/ux-design-2026-11-16/3d/g1/mutations.md`). "Coverage map"'s ring in the dark theme (the scope's
+A10) needed no change: 7.71:1 on every side at db84edbc, the review's 1.38:1 not reproduced; pinned by
+`test_keyboard_app.py::test_coverage_link_ring_in_the_dark_theme`.
 
 Not exactly the mock-up, and why: the map is the real one (its marks drawn on a canvas, their text at 12 px); the
 pictures' run is the Żabi Koń clip of `tools/ui_shots.py`, which has no line over trees (the tool's step
