@@ -71,6 +71,12 @@ function Item({kind, mark, children}: {kind: string; mark: ComponentChildren; ch
   return <span class="v-lg" data-kind={kind}>{mark}<span class="v-lg-t">{children}</span></span>;
 }
 
+/** A favourite's sign in the legend as the map draws it: the line inside its gold band (the map's own colours,
+ *  style.ts COLORS; the accepted mock-up's sign, the design review's F5). */
+function FavSign() {
+  return <span class="v-fav" style={{background: COLORS.favourite}} aria-hidden="true"><i style={{background: COLORS.clean}} /></span>;
+}
+
 /** A dashed outline's sign in the legend (the search area's, another run's in its colour): the dashes on a chip of
  *  the map's own paper, as the outline lies on the light tiles in both themes (the mock-up's polish 14). */
 function Dash({color}: {color?: string}) {
@@ -120,7 +126,7 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
   // Compare's other runs (their names)
   const runs = legend.runs;
   const extra = <>
-    {on.fav && <Item kind="fav" mark={<Swatch color={COLORS.favourite} class="r-sw-fav" />}>{t("ui.result.legend_favourite")}</Item>}
+    {on.fav && <Item kind="fav" mark={<FavSign />}>{t("ui.result.legend_favourite")}</Item>}
     {on.area && <Item kind="area" mark={<Dash />}>{word("area")}</Item>}
     {runs.map((run) => <span class="v-lg" data-kind="run" key={run.id}>
       <span class="v-runmark"><Swatch color={run.color} /><Dash color={run.color} /></span><span class="v-lg-t">{run.name}</span></span>)}
@@ -137,7 +143,8 @@ function LegendItems({view, map, legend, short}: {view: SpotView; map: SpotMap; 
   }
   return <>
     {squares}{lines}{numbers}{anchor}{fan}{extra}
-    {access && <><span class="v-lg"><b>{t("ui.access.legend")}</b></span>{access}</>}
+    {/* "Anchors" and its three marks on one row (a wrapped legend never parts them: the design review's F4) */}
+    {access && <span class="v-lg-group"><span class="v-lg"><b>{t("ui.access.legend")}</b></span>{access}</span>}
   </>;
 }
 
@@ -168,15 +175,20 @@ const GAP = 8;  // px between the foot's boxes (R7)
 type Part = "levels" | "best" | "anchors";
 
 /** The map's one "i" and its help (the user's 7 b): the part open (a desktop shows every text whatever the part), or
- *  null: closed. Esc closes it (before the frame's own order of Esc). */
-function useMapHelp(): [Part | null, (open: Part | null) => void] {
+ *  null: closed. Esc closes it (before the frame's own order of Esc); from inside the help the focus goes to `back`
+ *  (its "i"), as its × gives it. */
+function useMapHelp(back: () => void): [Part | null, (open: Part | null) => void] {
   const [open, setOpen] = useState<Part | null>(null);
+  const latest = useRef(back);
+  latest.current = back;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       e.preventDefault();  // this Esc closes the help only
+      const inside = document.activeElement instanceof Element && !!document.activeElement.closest("#v-about");
       setOpen(null);
+      if (inside) latest.current();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -229,8 +241,10 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   const pressed = view.auto ? "auto" : view.level, status = statusOf(view), area = view.level === "area";
   const [, setTick] = useState(0);
   useEffect(() => map?.subscribe(() => setTick((n) => n + 1)), [map]);
-  const [about, setAbout] = useMapHelp();
   const aboutRef = useRef<HTMLButtonElement>(null);
+  const [about, setAbout] = useMapHelp(() => aboutRef.current?.focus({preventScroll: true}));
+  // a phone's help is not drawn while the sheet is at full (the map unseen): closed then, so Esc is not taken by it
+  useEffect(() => { if (!wide && sheet === "full" && about) setAbout(null); }, [wide, sheet, about]);
   // A phone's legend (the user's decision of 2026-11-17): by itself it is unfolded while the sheet is low and folded
   // while the sheet is at half or higher, and folded too while, unfolded, it would reach the map's own controls at
   // the top (the zoom buttons, the shore's chip, the switch). A person's fold or unfold (`choice`) holds until the
@@ -347,7 +361,10 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
       if (drawn.scrollHeight + 2 > next) { lower(); return; }
       setChoice({at: choice.at, folded: false});
     }
-    const status = el.querySelector(".v-status")?.getBoundingClientRect(), ceiling = column.querySelector(".v-switch")?.getBoundingClientRect().top ?? col.top;
+    // the panels over the map (the map's help, the access key, the legend as a panel) stop under the level switch's
+    // row, which the help explains (the mock-up's 7 b; the design review's F3)
+    const switchBox = column.querySelector(".v-switch")?.getBoundingClientRect();
+    const status = el.querySelector(".v-status")?.getBoundingClientRect(), ceiling = switchBox ? switchBox.bottom + GAP : col.top;
     if (status) {
       const at = {bottom: Math.round(col.bottom - status.top) + GAP, max: Math.max(60, Math.floor(status.top - GAP - ceiling))};
       if (!over || over.bottom !== at.bottom || over.max !== at.max) setOver(at);
@@ -361,6 +378,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
   });
   const help = useAccessHelp(undefined, true);
   const legend = map?.legend(), access = view.model.hasAccess;
+  const keyShown = access && !!legend?.shapes.ends;  // the access key's "i" and panel follow its rows (L b)
   const shown = legend && map && !folded;  // (the columns' legend folds only in the phone's arrangement: `compact`)
   // the legend unfolded or folded (a press on "Legend", the card's short foot): the canvas places its numbers clear of
   // it at once, not at the frame's next rest (no number under the legend meanwhile)
@@ -369,12 +387,12 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
                                   style={compact && !asPanel && room < natural.current
                                     ? {maxHeight: `${Math.max(room, LEGEND_LINE)}px`, ...(wide ? {overflowY: "auto"} : {})} : undefined}>
     <LegendItems view={view} map={map} legend={legend} short={!wide} />
-    {!compact && access && legend.shapes.ends && help.button}
+    {!compact && keyShown && help.button}
     {wide && area && legend.shapes.sq && <span class="v-lg-note">{t("ui.view.map.squares_note")}</span>}
   </div>;
-  // the access mark's key (the columns: in the legend, or in the short foot's row); a phone's key is a part of the
-  // map's help
-  const helpBox = wide && access && help.panel && (compact || legend?.shapes.ends) && <div class="v-help" data-map-control>{help.panel}</div>;
+  // the access mark's key (the columns: in the legend, or in the short foot's row), as its rows only while an anchor
+  // of the selected line is in view (the user's L b); a phone's key is a part of the map's help
+  const helpBox =wide && keyShown && help.panel && <div class="v-help" data-map-control>{help.panel}</div>;
   // the map's one "i" (the user's 7 b): a desktop's at the switch's end, a phone's in the foot's row; a phone's opens
   // on the access key where the run has the mark
   const aboutButton = <button type="button" class={cx("u-ib u-plain v-info", about && "u-on")} aria-label={t("ui.view.map.about")}
@@ -422,7 +440,7 @@ export function MapBar({view, map, wide, hint, sheet, onSheet, message, tip, sho
         <button type="button" class={cx("v-fold", folded && "v-folded")} aria-expanded={!folded} aria-controls="v-legend"
                 title={t(folded ? "ui.view.map.legend_show" : "ui.view.map.legend_hide")} data-map-control
                 onClick={pressLegend}>{t("ui.view.map.legend_fold")}<Icon name="down" /></button>
-        {wide ? access && <span class="v-help-button" data-map-control>{help.button}</span>
+        {wide ? keyShown && <span class="v-help-button" data-map-control>{help.button}</span>
           : <span class="v-help-button" data-map-control>{aboutButton}</span>}
         {!wide && hint}
       </div>}
