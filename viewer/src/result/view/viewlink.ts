@@ -106,7 +106,8 @@ export function useViewLink(view: SpotView, map: SpotMap | null, line: string | 
     if (sel && view.model.lineLink(sel.line) === linkOf(line)) return;  // selected already
     let waiting: (() => void) | null = null;  // the wait for a measurement's outcome
     const end = () => { waiting?.(); waiting = null; };
-    const row = openLink(view, line, (r) => showRow(view, r), (l) => { end(); frames.get(view)?.current.onMeasured(l); });
+    const measured = (l: Line) => { end(); frames.get(view)?.current.onMeasured(l); };
+    const row = openLink(view, line, (r) => showRow(view, r), measured);
     const model = view.model, noted = () => frames.get(view)?.current.onNote?.();
     if (row >= 0) return;
     if (model.note) { noted(); return; }  // hidden by the filters, or not in the run
