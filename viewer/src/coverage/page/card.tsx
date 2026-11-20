@@ -3,6 +3,7 @@
 import { COVERAGE, areaOf, regionsOf } from "../data";
 import { areaName, ct, noteText, resText, surveyText, type Lang } from "../i18n";
 import type { Level } from "../types";
+import { Icon } from "../../ui/icons";
 import { parseKey } from "./geo";
 
 export type Scale = "words" | "life" | "stars";
@@ -35,9 +36,12 @@ const LifeIcon = ({level}: {level: Level}) =>
   <svg class="cov-life" viewBox="0 0 54 40" aria-hidden="true"
        dangerouslySetInnerHTML={{__html: LIFE[level]}} />;
 
-export const Stars = ({level}: {level: Level}) =>
-  <span class="cov-stars" role="img" aria-label={`${4 - level}/3`}>{"★".repeat(4 - level)}
-    <span class="cov-off">{"★".repeat(level - 1)}</span></span>;
+/** The stars of a level: one drawn star (the kit's icon, filled) three times, the ones not reached in the edge
+ *  colour (the user's pick "Drawn stars", 2026-11-19); `small` in the legend and the list. The images and videos
+ *  (coverage/draw/layout.ts) still write the character. */
+export const Stars = ({level, small}: {level: Level; small?: boolean}) =>
+  <span class={small ? "cov-stars cov-stars-s" : "cov-stars"} role="img" aria-label={`${4 - level}/3`}>
+    {[1, 2, 3].map(n => <Icon key={n} name="star" class={n <= 4 - level ? "cov-star" : "cov-star cov-off"} />)}</span>;
 
 /** The resolutions of a level as the legend tags them. */
 export const LEVEL_TAGS: Record<Level, string> = {1: "≤ 1 m", 2: "2–5 m", 3: "30 m"};
@@ -88,7 +92,7 @@ export function Card({areaKey, lang, scale, onClose, onPick}:
         {rest && <Fact icon="hole" label={ct(lang, "fact.notes")}>{ct(lang, "page.rest")}</Fact>}
         {regions.length > 0 && <Fact icon="grid" label={ct(lang, "partly.rest")}>
           <ul class="cov-regions">{regions.map(r =>
-            <li key={r}><button type="button" class="cov-link" onClick={() => onPick(r)}>{areaName(r, lang)}</button></li>)}</ul>
+            <li key={r}><button type="button" class="u-chip" onClick={() => onPick(r)}>{areaName(r, lang)}</button></li>)}</ul>
         </Fact>}
         <Fact icon="tree" label={ct(lang, "fact.trees")}>{ct(lang, "trees.rough")}</Fact>
         <Fact icon="db" label={ct(lang, "fact.data")}>{world.provider}</Fact>
@@ -120,12 +124,12 @@ export function Legend({lang, scale, onScale}: {lang: Lang; scale: Scale; onScal
     <ul class="cov-items">
       {levels.map(level => <li key={level} class="cov-it">
         <span class={`cov-sw cov-sw${level}`} />
-        <span>{scale === "stars" && <span class="cov-stars-s" aria-hidden="true">{"★".repeat(4 - level)} </span>}
+        <span>{scale === "stars" && <><Stars level={level} small />{" "}</>}
           {levelName(level, scale, lang)} <span class="cov-tag">{tagOf(level, lang)}</span></span></li>)}
       <li class="cov-it"><span class="cov-sw cov-swh" /><span>{ct(lang, "legend.partial")}</span></li>
     </ul>
-    <div class="cov-scale" role="radiogroup" aria-label={ct(lang, "page.scale")}>
-      {SCALES.map(s => <button type="button" key={s} role="radio" aria-checked={s === scale} class={s === scale ? "cov-on" : ""}
+    <div class="cov-scale u-seg" role="radiogroup" aria-label={ct(lang, "page.scale")}>
+      {SCALES.map(s => <button type="button" key={s} role="radio" aria-checked={s === scale} class={s === scale ? "u-on" : ""}
                                onClick={() => onScale(s)}>{ct(lang, `scale.${s}`)}</button>)}
     </div>
   </div>;

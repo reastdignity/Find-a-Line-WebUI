@@ -168,6 +168,7 @@
   "page.scale": "Skala jakości",
   "page.rest": "Dokładne dane tego kraju nie sięgają tej części: tu są globalne dane 30 m.",
   "page.list.title": "Wszystkie obszary z dokładnymi danymi",
+  "page.list.rest": "reszta kraju",
   "page.list.lead": "To samo co na mapie, słowami. Wybierz obszar, by otworzyć jego kartę.",
   "page.col.area": "Kraj lub region",
   "page.trees.yes": "Znane",

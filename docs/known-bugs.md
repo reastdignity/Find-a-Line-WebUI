@@ -474,3 +474,58 @@ status line, with the scale at its right end. With a level held, the status line
 by you. Back to Auto") reaches under the chip. Measured with the test's stand-in on the test site's run: the
 status line at 159-387 x 137-165 px, the chip at 347-542 x 112-156. `test_phone_on_its_side` excepts this pair
 by name. Under Auto, and at the low stop, nothing covers another. Found 2026-11-18 (the UX pilot's Q2 probes).
+
+## Step 3c, group C (the coverage page, the highline layer): what is left, and what the probes found (2026-11-20)
+
+Group C brought the coverage page and the layer explorer to DESIGN.md's rules with the user's seven picks and, after
+its reviews, five answers more ("The pilot's look", choices 60 to 77). Measured after (`tools/ui_metrics.py pages`):
+no text under 12 px outside a map's credits and scale; no control under the bound on the desktop; on the phones the
+layer's chart bars only (excepted by name in R2). Known and left:
+
+- **The stars in the images and videos**: `coverage/draw/layout.ts` writes "★★★ Best" as text for the canvas, so the
+  images and videos of `tools/coverage_*.py` keep the character while the page draws its stars (the user's pick,
+  2026-11-19: the page first).
+- **A star not reached and a filled one are close in lightness** (1.37:1 light, 1.33:1 dark): the price of the
+  grey that holds 3:1 on every ground (the user's pick, 2026-11-20; DESIGN.md, choice 63). The hue and the mark's
+  name ("2/3") tell them apart.
+- **The legend's "≤ 1 m"** (`card.tsx` `LEVEL_TAGS`): R9 allows ≤ in a filter's chip only; the charts' ticks ("≥10",
+  "<2") and "0.6 × 0.9 km" are the same kind. Left for the planner.
+- **Texts over R10's limits**, listed and not rewritten: the coverage page's `page.lead` (35 words; 30); the layer's
+  `scale_fit_note` (35; 25), `hist.strip_note` (38), `search_border` (27), `search_partner` and `_any` (31, 32).
+- **axe's `skip-link` on the layer's selected cell** (3 nodes): its "Search here" links are hash links
+  (`#new&cell=…`), which the rule takes for skip links to a missing target. A false finding.
+- **The chart rule's range**: `c.css` holds a rule per count of bars from 1 to 24 (32 px a bar); a chart of more
+  bars would show no counts at any width. On a phone an enlarged chart is at most the screen's width less 32 px, so
+  it shows its counts up to 10 bars at 360 px of width (328 px of chart) and up to 11 at 390 px (358 px); today's
+  cubes have 6, 7 and 9 bars. The charts' text was built and checked on the test cube only, not on a real cube's
+  numbers (docs/roadmap.md, "The page's readability on a real cube").
+- **The coverage page's zoom buttons at 360 px of width** wrap onto two rows (96 px over the map), in English and
+  Polish; at 390 px they hold one row.
+- **A touch tablet and a phone held sideways at 768 px or more keep the desktop's arrangement** of the layer: the
+  panels' collapse tab is 24 x 44 px and a rail 36 px wide there (under 44 px in one direction), as in the result
+  view. On the coverage page at 844 x 390 a card opened from the map is taller than what is left of the screen and
+  scrolls inside.
+- **A collapsed panel's rail**: the tab at its middle lies over a long label ("Histograms: 62 M lines in view" at
+  390 px of height), as before.
+- **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
+  above their names (the build's `align-items: flex-end`, as before).
+- **Inherited and left** (the design review's F10): arrow keys do nothing in the pages' switches (the kit's
+  segments and the scale's: Enter and Space choose); on the coverage map a selected country stays drawn above its
+  regions after its card closes (`flat.ts`); the map's shapes take no keyboard focus (every card is reached from
+  the list).
+- **The layer's map and the keyboard's ring** (the design review's F10, inherited): the kit's ring lies outside the
+  map's box, on a desktop under the side panels and the header (not seen); on a phone its lower edge shows as a line
+  under the sticky map, after a tap too (seen in the tap probe's pictures at the fix round's tip; the same rules as
+  before the round, so presumably as before, not measured on the old build). Drawn inside the box (the fix round's
+  first build) it showed after a press of a finger or a mouse too, so it was taken out: Leaflet focuses its
+  container on a press (`Map.Keyboard` `_onMouseDown`) and the browsers then mark that focus `:focus-visible`.
+  Measured 2026-11-20, a first press on a freshly loaded page: WebKit (iPhone 13) and Chromium (Pixel 7) after a
+  tap, Chromium (1400 x 900) after a click; the search page's map the same, with the kit's ring outside its box. A
+  press after a press on another control was not measured. A ring for the keyboard only needs the press told apart
+  from a key, for the place map of all three pages (`app/PlaceMap.ts`), not for the layer alone.
+- **`test_layer_page_in_edge`'s cut step** picks the cut cell whose two parts are deepest: with the panels' new widths
+  the map in headless Edge's window is 425 x 649 px (360 before) and the first lattice points of the first cut cell
+  lay 3 px apart at the shared edge. Its points lie 2 px inside their parts, so another change of the map's size may
+  need new points.
+- **The scrolls of a row's press on a wide screen** (to the map, and back on closing) are eased unless the system
+  asks for reduced motion; the tests run with reduced motion, so the eased scroll itself is untested.

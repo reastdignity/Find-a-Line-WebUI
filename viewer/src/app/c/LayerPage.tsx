@@ -192,6 +192,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const shown = useRef<number[] | null>(null);  // the breaks the cells are coloured by now (eased)
   const anim = useRef(0);
   const outlineCache = useRef(new Map<string, Promise<CountryOutline>>());
+  const reveal = useRef(false);                 // a cell was just chosen on the map: its card is shown (below)
   const set = (change: Partial<LayerState>) => setState((s) => ({...s, ...change}));
   const mode: LayerMode = state.mode;
 
@@ -199,9 +200,10 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const pickedOf = (country: string, data: CountryCells, row: number[]): PickedCell =>
     ({country, level: data.level, deg: data.cell_deg, i: row[0], j: row[1], side: rowSide(row), count: row[2],
       corners: row.slice(3, 11), km2: cellKm2(data, row), whole: wholeKm2(row), shape: cellShape(data, row)});
-  const choose = (country: string, row: number[]) => {
+  const choose = (country: string, row: number[], onMap = false) => {
     const answer = cellsRef.current.find((c) => c.country === country)?.data;
     if (!answer) return;
+    reveal.current = onMap;
     base.current = {country, i: row[0] * answer.level, j: row[1] * answer.level, side: rowSide(row)};
     setPicked(pickedOf(country, answer, row));
   };
@@ -220,8 +222,8 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     if (first.view) map.setView([first.view.lat, first.view.lon], first.view.zoom, {animate: false});
     else fitCountry(first.country && cubes.some((c) => c.id === first.country) ? first.country : cube0.id);
     const noun = () => stateRef.current.mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
-    layer.current = new CellsLayer(map, choose, fitCountry, (count, density, side) =>
-      `${count.toLocaleString("en")} ${noun()} · ${densityText(density)} ${t("ui.layer.per_km2")}${side ? ` · ${t("ui.layer.beyond_short")}` : ""}`);
+    layer.current = new CellsLayer(map, (country, row) => choose(country, row, true), fitCountry, (count, density, side) =>
+      `${count.toLocaleString("en")} ${noun()}; ${densityText(density)} ${t("ui.layer.per_km2")}${side ? `; ${t("ui.layer.beyond_short")}` : ""}`);
     const moved = () => {
       const c = map.getCenter();
       set({view: {lat: c.lat, lon: c.lng, zoom: map.getZoom()}});
@@ -454,6 +456,16 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     layer.current?.draw(cells, outlines, shown.current || target, CLASS_BREAKS[mode]);
   }, [cells, outlines, mode, theme]);
   useEffect(() => { layer.current?.pick(picked); }, [picked, theme]);
+  // A cell chosen on the phone's sticky map (c.css: the map stays while the column scrolls under it): the column
+  // scrolls so that the cell's card stands right under the map (the user's pick, 2026-11-20). At once, not eased.
+  // Where the map is not sticky (a desktop, a phone held sideways) nothing moves.
+  useEffect(() => {
+    if (!reveal.current || !picked) return;
+    reveal.current = false;
+    const box = place.map.getContainer();
+    if (getComputedStyle(box).position !== "sticky") return;
+    box.parentElement?.querySelector(".c-layer-cell")?.scrollIntoView({block: "start"});
+  }, [picked]);
 
   const current = cubes.find((c) => c.id === state.country) || inView[0] || cube0;
   const shownCubes = inView.length ? inView : [current];  // the cubes in view (the selected one when none is)
@@ -515,7 +527,10 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const otherTotal = hist?.totals ? (mode === "lines" ? hist.totals.spots : hist.totals.lines) : null;
   const split = histStatus === "ready" && hist?.border ? hist.border : null;
 
-  const right = <LayerHistograms cube={cube0} state={state} hist={hist} status={histStatus} error={histError}
+  /** A filter the cubes in view cannot answer (no surface model; counted without the no-fall zone and the A-frames):
+   *  its select is disabled and its chart's bars cannot be picked. */
+  const filterOff = (d: string) => (d === "clearance_trees" && !dsm) || ((d === "lift_needed" || d === "lift_no_zone") && !lifts);
+  const right = <LayerHistograms cube={cube0} state={state} hist={hist} status={histStatus} error={histError} off={filterOff}
                                  countries={inView.length} ctx={ctx} open={open} wide={wide} border={border === "all"}
                                  onLength={onLength} onLimit={onLimit} onOpen={setOpen} />;
   // The right panel: its own tree rendered into MapPage's right panel after each render (no portal: preact/compat
@@ -532,8 +547,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       : kind === "below" ? [["", any || t("ui.layer.any")], ...limitEdges(cube0, d).map((v) => [String(v), `< ${withUnit(v)}`] as [string, string])]
       : [["", any || t("ui.layer.any")], ...e.map((v) => [String(v), v === 0 ? t("ui.layer.none_needed") : `≤ ${withUnit(v)}`] as [string, string])];
     const shownValue = kind === "floor" ? String(value ?? e[0]) : value === null || !limitOn(cube0, d, value) ? "" : String(value);
-    const disabled = (d === "clearance_trees" && !dsm) || ((d === "lift_needed" || d === "lift_no_zone") && !lifts);
-    return <NumberSelect id={`layer-${d}`} label={label} value={shownValue} options={options} disabled={disabled}
+    return <NumberSelect id={`layer-${d}`} label={label} value={shownValue} options={options} disabled={filterOff(d)}
                          onChange={(v) => onLimit(d, v === "" ? null : +v)} />;
   };
   const WIDE = new Set(["lift_needed", "lift_no_zone", "clearance_trees", "high_pct", "height_diff", "elevation"]);
@@ -657,7 +671,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
         <Icon name="down" /></summary>
       <div class="c-layer-more-body">
         {fold.map((topic) => <div key={topic.id} class="c-layer-fold-topic">
-          <h3 class="c-layer-topic-name">{t(`ui.layer.topic.${topic.id}`)}</h3>
+          <h2 class="c-layer-topic-name">{t(`ui.layer.topic.${topic.id}`)}</h2>
           <div class="c-layer-filters c-layer-fold">{topic.dims.map((d) =>
             <div key={d} class={WIDE.has(d) ? "c-layer-wide" : undefined}>{foldField(d)}</div>)}</div>
         </div>)}
@@ -690,13 +704,13 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     <section class="c-layer-view" aria-live="polite">
       <div class="c-layer-total">
         {status === "ready" && outlineMode ? <span><b>{inView.length.toLocaleString("en")}</b> {t("ui.layer.countries_in_view", {count: inView.length})}
-            {histStatus === "ready" && hist && <> · <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
+            {histStatus === "ready" && hist && <>; <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
           : status === "ready" ? <>
-              <span><b>{total.toLocaleString("en")}</b> {noun}, <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
+              <span><b>{total.toLocaleString("en")}</b> {noun}; <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
                 {mode === "lines" ? t("ui.layer.spots_in_view") : t("ui.layer.lines_in_view")}</span>
               {border === "all" && split && split.owned + split.partner > 0 && <div class="c-layer-split">
                 {t("ui.layer.split", {across: (split.owned + split.partner).toLocaleString("en")})}
-                {split.partner > 0 ? `, ${t("ui.layer.split_beyond", {beyond: split.partner.toLocaleString("en")})}` : ""}</div>}
+                {split.partner > 0 ? `; ${t("ui.layer.split_beyond", {beyond: split.partner.toLocaleString("en")})}` : ""}</div>}
               <div class="u-small">{t("ui.layer.cells_here", {name: levelName(cellDeg(cube0, level)), size: sizeText(cellDeg(cube0, level), centreLat)})}
                 {state.level === "auto" ? ` ${t("ui.layer.auto_note")}` : ""}</div>
             </>
@@ -714,7 +728,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
         <Segmented label={t("ui.layer.cells")} value={state.level} onChange={(l) => set({level: l})} options={levels} />
       </Field>
       <p class="u-small c-layer-note">{t("ui.layer.sizes", {sizes: levelValues.map((l) =>
-        `${levelName(cellDeg(cube0, l))} ≈ ${sizeText(cellDeg(cube0, l), centreLat)}`).join(" · "), lat: Math.round(centreLat)})}</p>
+        t("ui.layer.size_of", {name: levelName(cellDeg(cube0, l)), size: sizeText(cellDeg(cube0, l), centreLat)})).join(", "), lat: Math.round(centreLat)})}</p>
       <div class="c-layer-link">
         <Button icon="link" onClick={copyLink}>{t("ui.layer.copy_link")}</Button>
         {copied === "ok" && <span class="u-small">{t("ui.layer.copied")}</span>}
@@ -732,18 +746,18 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
             : t("ui.layer.where_border", {country: pickedCube.name}))
           : pickedCube.name}</div>
       <div>{t("ui.layer.cell_size", {name: levelName(picked.deg), size: sizeText(picked.deg, centre ? centre[0] : centreLat)})}
-        {" · "}{picked.km2 < picked.whole * 0.999
+        {", "}{picked.km2 < picked.whole * 0.999
           ? (picked.side ? t("ui.layer.cell_beyond", {km2: picked.km2.toFixed(2)}) : t("ui.layer.cell_inside", {km2: picked.km2.toFixed(2), name: pickedCube.name}))
           : `${picked.km2.toFixed(2)} km²`}</div>
       <div><b>{picked.count.toLocaleString("en")}</b> {noun}
-        {otherInCell !== null && <> · <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
-        {" · "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
+        {otherInCell !== null && <>; <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
+        {"; "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
       {picked.side ? <div class="c-layer-cell-border">{t("ui.layer.cell_partner")}</div>
         : acrossInCell ? <div class="c-layer-cell-border">{t("ui.layer.cell_across", {n: acrossInCell.toLocaleString("en")})}</div> : null}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}
       <div class="c-layer-search">
         {pickedBands.map((b) => <Button key={b.name} icon="search" href={cellHash(pickedCube.id, b.name, picked.level, picked.i, picked.j)}>
-          {t("ui.layer.search_here")}: {b.name} · {range(b.lengths[0], b.lengths[1])}</Button>)}
+          {t("ui.layer.search_here")}: {b.name}, {range(b.lengths[0], b.lengths[1])}</Button>)}
       </div>
       {cardHint ? <p class="c-layer-search-hint"><Icon name="info" /><span>{cardHint}</span></p>
         : <p class="u-small">{t("ui.layer.search_note")}</p>}

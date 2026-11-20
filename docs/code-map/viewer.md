@@ -139,8 +139,8 @@ the search (it waits for the saved rigs: a request to edit opens Basic or Advanc
 `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
 app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
 (`ui/SidePanel.tsx`; `layout.ts` `fitPanels` with `LAYER_LIMITS`: left 320-560 px, right 300-640, the map at least
-360; kept under `findaline.layer.layout`), each one's content in a scroll box, the rails' labels from the page
-(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges; on the left
+360, the defaults 340 and 485; kept under `findaline.layer.layout`, version 2, a version 1 value's old default widths read as the defaults), each one's content in a scroll box, the rails' labels from the page
+(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges, the map sticky at its top on a screen 600 px high or more; on the left
 the filters (today's seven open, the cube's other dimensions of `kinds` in the fold "More filters" by topic, a closed
 fold naming its set filters as chips; the A-frame pair disabled for a cube counted without the no-fall zone and the
 A-frames, the clearance over trees without a surface model, each with its note), the legend (the partner cells'
@@ -152,7 +152,7 @@ row's side) and the notes ("Across the borders" from cube.json's `neighbours`: a
 country's data until it has one), the map in the middle, on the right the sixteen histograms of the counts in view
 (`LayerHistograms.tsx`: by topic, `layerState.ts` `TOPICS`, The line, Anchors and terrain, Rigging, the fold's order
 too; a bar per bin, a click sets the length range or the limit by the dimension's kind; two a row while the panel's
-content holds two of 220 px, a container query on its scroll box; the chart of the filter changed last ringed and
+content holds two of 210 px, a container query on its scroll box, the length chart across both; a chart with 32 px or more of its width per bar shows the bars' counts and every tick, a narrower one no counts and every other tick (`data-bars`, a container rule per count of bars in `c.css`); the chart of the filter changed last ringed and
 scrolled to, on phones a swiped strip per topic with that chart enlarged); every country's cube whose box reaches the
 view at once, a study area (`CountryCube.study`) or a country of another layer profile (`profile`, R7) only alone
 (`layerState.ts` `activeCubes`, `summedWith`, `countriesFirst`; `LayerSource`: `countries`, `cells`, `histogram`,
@@ -176,8 +176,9 @@ run of more than `MAX_LINES` lines its box and count only, a failure the card's 
 `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
 (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,
 `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
-and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales, list of the
-areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
+and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales and drawn stars, list of the
+areas: a table, on a phone one row per area with the card as a sheet over the list, which keeps its place, and a
+header that scrolls away; a row too for a country covered only in some regions), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
 by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage* (a box of its own with a button on a desktop, a row of the layers' box on a phone: `place`; on while its group is on the map, remembered but for the map's own removal); `app/PlaceMap.ts` the app's place map (the search page, the OSM page, the highline layer's page) with two arrangements of its controls by the media query `PHONE` (a desktop or tablet: zoom, layers and the coverage's box at one corner; a phone: zoom across at the top left, the layers' button at the top right, its box closed, the drawing tools in a row beside the zoom), their look from `result/view/mapbar.css` (`.c-placemap`); tests `tests/test_shell_c_search_page.py`; `translator.ts`
 the `translator` of both catalogues (so coverage.js holds only its own); `ui/fonts.css` Barlow Condensed (woff2 of
 weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)

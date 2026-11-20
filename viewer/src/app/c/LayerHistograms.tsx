@@ -2,11 +2,16 @@
 // (cube.json's edges and kinds: the length and fifteen more), from /api/countries/<id>/histogram summed over the
 // cubes in view, in three topics (layerState.ts TOPICS: The line, Anchors and terrain, Rigging; the length chart
 // leads). Each histogram is a row of buttons: a bar's height is log10(1 + count) over log10(1 + the largest), the
-// count above it, the bins inside the current limit pressed. The length histogram sets the range (a click one bin,
+// count above it (where the chart has room: c.css; else on the bar's keyboard focus), the bins inside the current
+// limit pressed; a bar's accessible name is its short count, its range and its exact count. A dimension whose
+// filter is off for the cubes in view (`off`: no surface model, no A-frames counted) has bars that cannot be picked.
+// The length histogram sets the range (a click one bin,
 // shift-click extends the range to it); the others set a limit by their kind (a floor: the bin's lower edge; a
 // "below": the bin's upper edge, the last bin "any"; an at_most: the bin's upper edge, the last bin "any"); the
 // unknown bin ("?") cannot be picked. The chart of the dimension changed last (`open`) is ringed on a desktop, where
-// the charts stand two a row while the panel holds two of 220 px (a container query, c.css), and scrolled into view;
+// the charts stand two a row while the panel holds two of 210 px (a container query, c.css; the length chart across
+// both), and scrolled into view; a chart with 32 px or more of its width per bar shows each bar's count and every
+// tick, a narrower one no counts and every other tick (c.css, by `data-bars`: the user's pick L3 b, 2026-11-19);
 // on phones each topic is a swiped strip of small charts and that chart is enlarged in place (its strip scrolls to
 // it, the column does not move; a tap on a chart's title enlarges it).
 
@@ -106,16 +111,22 @@ export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle,
   const max = Math.max(1, ...bars.map((b) => b.value));
   const height = (v: number) => `${Math.round(100 * Math.log10(1 + v) / Math.log10(1 + max))}%`;
   const edges = axis.length === bars.length + 1;
-  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} aria-label={title}>
+  return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
+                  style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
       : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
       {bars.map((b, k) => {
         const fill = <span class="c-layer-bar-fill" style={{height: height(b.value)}} aria-hidden="true" />;
-        const count = <span class="c-layer-bar-n">{b.value > 0 ? short(b.value).replace(" ", "") : ""}</span>;
+        const written = b.value > 0 ? short(b.value).replace(" ", "") : "";
+        const count = <span class="c-layer-bar-n">{written}</span>;
+        // the accessible name begins with the count the bar may show (a label in its name: WCAG 2.5.3, axe's
+        // label-content-name-mismatch), then the range and the exact count
         return b.pickable
           ? <button key={k} type="button" class={`c-layer-bar${b.pressed ? " u-on" : ""}`} data-value={b.value}
-                    aria-pressed={b.pressed} title={b.title} onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
+                    data-count={short(b.value).replace(" ", "")} aria-label={written ? `${written}, ${b.title}` : b.title}
+                    aria-pressed={b.pressed} title={b.title}
+                    onClick={(e) => onPick(k, e.shiftKey)}>{count}{fill}</button>
           : <span key={k} class="c-layer-bar c-layer-bar-off" data-value={b.value} title={b.title}>{count}{fill}</span>;
       })}
     </div>
@@ -135,10 +146,10 @@ const axisEdge = (v: number) => v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : Strin
 const isOpen = (open: string | null, dimension: string) =>
   !!open && (open === dimension || (open === "elevation" && dimension.startsWith("elevation_")));
 
-export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, onLength, onLimit, onOpen}:
+export function LayerHistograms({cube, state, hist, status, error, countries, ctx, open, wide, border, off, onLength, onLimit, onOpen}:
                                 {cube: CountryCube; state: LayerState; hist: SummedHistogram | null;
                                  status: "waiting" | "ready" | "error"; error: string; countries: number; ctx: DimensionContext;
-                                 open: string | null; wide: boolean; border: boolean;
+                                 open: string | null; wide: boolean; border: boolean; off(dimension: string): boolean;
                                  onLength(lo: number, hi: number, extend: boolean): void;
                                  onLimit(dimension: string, value: number | null): void; onOpen(dimension: string | null): void}) {
   const edges = cube.edges;
@@ -173,7 +184,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
           : `${e[k - 1]}–${u(e[k])}`;
       }
       if (unknown) title = t("ui.layer.hist.unknown");
-      return {value: count, pressed, pickable: !unknown, title: `${title}: ${n(count)}`};
+      return {value: count, pressed, pickable: !unknown && !off(d), title: `${title}: ${n(count)}`};
     });
   };
   const axisOf = (d: string): string[] => {
@@ -232,11 +243,11 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       {status !== "error" && hist
         ? <>
             <div class="c-layer-stat"><span class="c-layer-stat-n" title={hist.total.toLocaleString("en")}>{short(hist.total)}</span>
-              <span class="c-layer-stat-u">{noun}{mode === "spots" ? ` · ${t("ui.layer.upper_bound")}` : ""}
-                {countries > 1 ? ` · ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
+              <span class="c-layer-stat-u">{noun}{mode === "spots" ? `, ${t("ui.layer.upper_bound")}` : ""}
+                {countries > 1 ? `, ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
             {other !== undefined && <div class="c-layer-inview-more">
               <b>{short(other)}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}
-              {border && cross !== null && cross > 0 && <> · <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
+              {border && cross !== null && cross > 0 && <>, <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
           </>
         : status === "error" ? <p class="c-error u-small" role="alert">{t("ui.layer.hist.failed")} {error}</p>
         : <p class="u-small">{t("ui.layer.counting")}</p>}

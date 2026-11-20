@@ -30,3 +30,11 @@ What each part holds: docs/code-map/viewer.md (`coverage/`) and docs/code-map/to
   docs/images/coverage-* again (`STORIES`, `LENGTHS`, `FORMATS` and `GROUPS` of the tool repeat `FAL_MEDIA`'s lists:
   it stops when they differ); a change of the 30 m comparison is `tools/coverage_contrast.py` and the roadmap's table
   of priority 2.
+- The page's phone tests (`coverage/page`): the list as rows and the card as a sheet share one query, `AreaList.tsx`
+  `PHONE` = `page.css`'s `@media (max-width: 699px)` blocks (`CoveragePage.tsx` `pick` asks it too: a sheet keeps the
+  list's place, a card in the map's box scrolls to the map); the header's own test is wider, `(max-width: 699px),
+  (pointer: coarse) and (max-height: 480px)` (its second half as `app/PlaceMap.ts` `PHONE`). A list row stays
+  unpositioned (no `position`, no `z-index`): the card's sheet lives in `.cov-mapbox`'s isolated box and would be
+  painted under it (`tests/test_coverage_page_layout.py::test_row_press_keeps_the_place_on_a_phone`). A country of
+  coverage.json's `partly` that is no area has a row "(rest of the country)" in both list forms: the tests count
+  areas + those + 1.

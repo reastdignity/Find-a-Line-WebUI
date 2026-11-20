@@ -239,6 +239,9 @@ RIGGERS = {"one-rig": ("21", THREE_RIGS[:1]), "three-rigs": ("22", THREE_RIGS),
            "ten-rigs": ("23", THREE_RIGS + [(f"Rig {n}", STARTING_RIG if n % 2 else TARGET_RIG) for n in range(4, 11)])}
 # The highline layer's selected cell at the top of its panel, the notes under it ("c-layer-border")
 BORDER_CARD_SHOWN = "document.querySelector('.c-layer-cell')?.scrollIntoView({block: 'start'})"
+# The highline layer's open chart in view ("c-layer-chart"); the coverage page's list at the top ("page-coverage-list")
+CHART_SHOWN = "document.querySelector('.c-layer-hist-open')?.scrollIntoView({block: 'center'})"
+COVERAGE_LIST_SHOWN = "document.querySelector('.cov-list')?.scrollIntoView({block: 'start'})"
 # The highline layer's fold "More filters" in view ("c-layer-chips", "c-layer-fold")
 FOLD_SHOWN = "document.querySelector('.c-layer-more')?.scrollIntoView({block: 'start'})"
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
@@ -375,6 +378,9 @@ PAGES = {
     "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "c-layer-collapsed": ("c", "#layer", None),   # the left panel collapsed to its rail (LAYER_LAYOUTS)
+    # a bar of the clearance chart pressed: its chart ringed (a desktop), enlarged in its strip with its counts (phones)
+    "c-layer-chart": ("c", "#layer", [".c-layer-hist[data-hist=clearance] button.c-layer-bar:nth-of-type(2)",
+                                      "wait:document.querySelector('.c-layer-hist-open')", "js:" + CHART_SHOWN]),
     # two filters of the fold "More filters" set: the closed fold names them as chips; opened
     "c-layer-chips": ("c", "#layer&drop=60&elevation_low=1000", "js:" + FOLD_SHOWN),
     "c-layer-fold": ("c", "#layer&drop=60&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
@@ -437,6 +443,8 @@ PAGES = {
     "page-coverage-life": ("/coverage?lang=en", "", [".cov-scale button:nth-child(2)",
                                                      "js:" + COVERAGE_CLICK.format(key="us-ak")], "visitor"),
     "page-coverage-pl": ("/coverage?lang=pl", "", ["js:" + COVERAGE_CLICK.format(key="cz"), "full"], "visitor"),
+    # the list of the areas at the top of the screen (a phone: one row per area; a desktop: the table), the stars' scale
+    "page-coverage-list": ("/coverage?lang=en", "", [".cov-scale button:nth-child(3)", "js:" + COVERAGE_LIST_SHOWN], "visitor"),
     # the 3D view of the first line at the device's level (a coarse pointer: the phone's), then at the other one;
     # its imagery Esri's with ESRI_API_KEY set (the clip's run has no orthophoto), else the terrain shaded
     "view3d": ("/view3d", VIEW3D, VIEW3D_READY),
@@ -510,7 +518,7 @@ LOWEST = """(sel) => {
 # The highline layer's side panels kept in localStorage ("findaline.layer.layout", result/view/layout.ts) for a page;
 # every other page starts from none (the defaults)
 LAYER_LAYOUTS = {
-    "c-layer-collapsed": {"v": 1, "left": {"w": 400, "open": False}, "right": {"w": 620, "open": True}},
+    "c-layer-collapsed": {"v": 2, "left": {"w": 340, "open": False}, "right": {"w": 485, "open": True}},
 }
 
 INTROS = ("search", "result")  # the intros of ui/Intro.tsx (localStorage "findaline.intro.<name>")
