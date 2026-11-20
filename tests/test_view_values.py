@@ -101,6 +101,22 @@ def test_moved_inside_its_square(tmp_path, bundle):
         assert at is not None and inside(at, w, h, corners) and clear(at, w, h, boxes), (corners, boxes, at)
 
 
+def test_the_order_of_the_places(tmp_path, bundle):
+    """The eight places in their order: the sides' middles (top, bottom, left, right), then the corners (top left, top
+    right, bottom left, bottom right). Each case takes the middle and the places before one, all the later ones free:
+    the first free one wins; with all nine taken, none."""
+    sq, hw, hh = square(100, 200, 60), 8, 7.25
+    x0, x1, y0, y1, mx, my = 100 + hw, 160 - hw, 200 + hh, 260 - hh, 130, 230
+    places = [(mx, y0), (mx, y1), (x0, my), (x1, my), (x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+    dot = lambda x, y: [x - 1, y - 1, x + 1, y + 1]  # a box that takes the one place whose box covers it
+    for k, (x, y) in enumerate(places):  # (each dot lies in its own place's box only, PAD included)
+        others = [q for n, q in enumerate([(mx, my)] + places) if n != k + 1]
+        assert all(abs(q[0] - x) > 2 * hw + PAD + 1 or abs(q[1] - y) > 2 * hh + PAD + 1 for q in others), (k, x, y)
+    cases = [[sq, hw, hh, [dot(mx, my)] + [dot(x, y) for x, y in places[:k]]] for k in range(9)]
+    got = value_at(tmp_path, bundle, cases)
+    assert got == [list(q) for q in places] + [None], got
+
+
 def test_left_out(tmp_path, bundle):
     """No clear place: null (the value is left out, its square stays). A value wider than its square cannot move
     inside it: under a box in the middle it is left out at once."""

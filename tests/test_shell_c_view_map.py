@@ -1097,9 +1097,10 @@ def test_pick_row_kept_in_the_legend(site):
 # class (T.controls) and every number's shape: a value drawn crosses none of them (1 px kept: the canvas keeps PAD,
 # 2 px, from the controls' boxes rounded outwards); one in its square's middle stands exactly there; one moved or left
 # out had its middle taken (within PAD and that rounding, 3.5 px) and a moved one lies inside its square; every
-# square a person sees has one value, of its own number. `cell`: the grid's cell of one square, its value returned.
+# square a person sees has one value, of its own number. `cell`: the grid's cell of one square, its value returned;
+# `byNumber`: the kinds of the numbers (P, L, A) whose box lies within 2 px of a value's middle.
 VALUES = r"""([cell]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, g = map.grid, box = T.box(), f = T.free(), d = map.drawn();
-  const others = T.controls().concat(d.numbers.map((n) => n.box)), wrong = [], cells = new Map();
+  const others = T.controls().concat(d.numbers.map((n) => n.box)), wrong = [], cells = new Map(), byNumber = new Set();
   const cross = (b, r, pad) => b.left < r.right + pad && b.right > r.left - pad && b.top < r.bottom + pad && b.bottom > r.top - pad;
   const corners = (i, j) => [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, w]) => { const p = m.latLngToContainerPoint(view.fit.toLatLng(g.x0 + (i + u) * g.side, g.y0 + (j + w) * g.side));
     return [p.x + box.left, p.y + box.top]; });
@@ -1112,6 +1113,7 @@ VALUES = r"""([cell]) => { const {view, map} = window.FINDALINE_VIEW, m = window
     if (g.cells[k] === cell) mine = {text: v.text, moved: v.moved, left: v.left};
     const c = corners(i, j), cx = (c[0][0] + c[2][0]) / 2, cy = (c[0][1] + c[2][1]) / 2, xs = c.map((p) => p[0]).sort((p, q) => p - q), ys = c.map((p) => p[1]).sort((p, q) => p - q);
     const middle = new DOMRect(cx - b.width / 2, cy - b.height / 2, b.width, b.height), taken = others.some((r) => cross(middle, r, 3.5));
+    d.numbers.forEach((n) => { if (cross(middle, n.box, 2)) byNumber.add(n.label[0]); });
     if (v.text !== String(Math.round(g.values[k]))) wrong.push(["not its square's number", v.text, g.values[k]]);
     if (v.left) { left++; if (!taken) wrong.push(["left out with its middle free", v.text]); continue; }
     if (others.some((r) => cross(b, r, 1))) wrong.push(["under a control or a number", v.text, [b.left, b.top, b.right, b.bottom]]);
@@ -1124,7 +1126,7 @@ VALUES = r"""([cell]) => { const {view, map} = window.FINDALINE_VIEW, m = window
   const labelled = g.side / view.mpp >= 26;
   g.cells.forEach((n, k) => { const i = n % g.nx, j = (n - i) / g.nx, c = corners(i, j), cx = (c[0][0] + c[2][0]) / 2 - box.left, cy = (c[0][1] + c[2][1]) / 2 - box.top;
     if (cx > f[0] && cx < f[2] && cy > f[1] && cy < f[3] && labelled !== cells.has(k)) wrong.push(["a square a person sees without its value", k]); });
-  return {values: d.values.length, moved, left, wrong, mine, labelled}; }"""
+  return {values: d.values.length, moved, left, wrong, mine, labelled, byNumber: [...byNumber].sort()}; }"""
 
 
 def test_area_values_clear(site):
@@ -1178,7 +1180,48 @@ def test_area_values_clear(site):
             browser.close()
 
 
-LANDSCAPES = ((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
+def test_area_values_clear_of_the_fan_and_selection(site):
+    """At Area held the squares' values keep clear of the numbers drawn after the squares too: "Lines from here"
+    opened at P1's first anchor (the fan's L1 … and P1 drawn by the fan), then P1's line selected (A1 and A2 on its
+    anchors). On the desktop and the small phone with the shore's chip: every value holds VALUES' rule (none under a
+    control or a number), and in each of the two states a number of that kind took some value's middle (else the
+    state would test nothing)."""
+    from playwright.sync_api import sync_playwright
+    fit = "map.fitArea({top: 115, right: 10, bottom: T.box().height - T.free()[3] + 80, left: 10});"
+    area = "view.setTopOnly(true); view.setBest(10); view.setLevel('area');"
+    fan = ("const row = view.picks()[0].row, c = view.model.data.columns; "
+           "view.openFan({lat: c.lat1.at(row), lng: c.lon1.at(row)}, {row, end: 1});")
+    select = "view.closeFan(); const pick = view.picks()[0]; view.select(pick.spot, pick.row);"
+    took = {"fan": set(), "selected": set()}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, context in (("desktop", DESKTOP), ("phone", SMALL_PHONE)):
+                page = _open(browser, f"{site}#run={BIG}", context)
+                if context is SMALL_PHONE:
+                    page.wait_for_function("() => { const s = T.state(); return s.free[3] > s.size[1] * 0.75 && s.free[3] < s.size[1]; }", timeout=WAIT)
+                    page.evaluate(CHIP)
+                _state(page, fit + area)
+                for state, script, kinds in (("fan", fan, {"L", "P"}), ("selected", select, {"A"})):
+                    page.evaluate("() => { const {view} = window.FINDALINE_VIEW; %s }" % script)
+                    page.wait_for_function("() => !window.FINDALINE_MAP._animatingZoom", timeout=WAIT)
+                    s = _state(page)
+                    labels = {n["label"][0] for n in s["numbers"]}
+                    assert s["level"] == "area" and not s["auto"] and kinds & labels, (name, state, s["level"], sorted(labels))
+                    assert (s["fan"] is not None) == (state == "fan") and (s["selected"] is not None) == (state == "selected"), (name, state)
+                    got = page.evaluate(VALUES, [-1])
+                    assert got["labelled"] and not got["wrong"], (name, state, got)
+                    took[state] |= set(got["byNumber"]) & kinds
+                    print(f"{name}, {state}: numbers {sorted(n['label'] for n in s['numbers'])}; {got['values']} values, "
+                          f"{got['moved']} moved, {got['left']} left out; middles taken by {got['byNumber']}")
+                assert page.errors == [], (name, page.errors)
+                page.context.close()
+        finally:
+            browser.close()
+    assert "L" in took["fan"] and took["selected"] == {"A"}, took  # (an L is the fan's own: a P may be a pick's)
+
+
+LANDSCAPES =((844, 390), (852, 393), (915, 412), (932, 430))  # phones held sideways, 768 px wide or more: the columns
 # A run's long data credits (this run has none; the ui_shots clip's run to 8 lines in the columns): credits.ts's own
 # markup (layers.ts creditsHtml with its "Data credits" button) put into the map's attribution
 LONG_CREDITS = """() => { const words = 'Source: Glowny Urzad Geodezji i Kartografii, the numerical terrain model (CC BY 4.0) | FABDEM V1-2 (CC BY-NC-SA 4.0) | ';

@@ -5,8 +5,9 @@
 // - the part of the map a person sees goes to the view as a Quad in the run's grid metres with its metres per
 //   pixel (SpotView.setView: the level under Auto, the spots in view, their numbers);
 // - Area: the squares (viewgeom.ts squareValues) in five classes with their values, the picks of "Start here"
-//   bold with P1 …; a value clear of every control and pick's number (valueAt: in its square's middle, else nearer a
-//   side or a corner of it, else left out: the square's colour still tells it); Spots: the best spots' shown lines
+//   bold with P1 …; a value clear of every control and of the numbers drawn over the squares (the picks', the fan's,
+//   A1 and A2; valueAt: in its square's middle, else nearer a side or a corner of it, else left out: the square's
+//   colour still tells it); Spots: the best spots' shown lines
 //   bold with B1 …, the other spots in view pale; Lines: the best spots' lines not beaten thin, their shown line
 //   bold with a halo (with All every passing line in view, thin); above 5 000 thin lines none, only the pale lines
 //   (the view counts and refuses);
@@ -29,7 +30,7 @@ import { t } from "../i18n";
 import { timed } from "../perf";
 import { COLORS } from "../style";
 import type { Padding } from "./ResultMap";
-import type { SpotChoice, SpotView } from "./spots";
+import type { FanRow, SpotChoice, SpotView } from "./spots";
 import { breaks, classOf, FAN_HERE, reader, squareAt, squareSide, squareValues, SQUARE_PX, type Level, type Quad,
          type SquareBy, type SquareGrid } from "./viewgeom";
 
@@ -116,11 +117,12 @@ function clipT(ax: number, ay: number, bx: number, by: number, x0: number, y0: n
 
 /** Where a square's value goes at Area (the design review's list of step 3c, item 3): `corners` the square's four
  *  corners in px (in order round it), (hw, hh) the half size of the value's box, `boxes` what it keeps PAD px clear
- *  of ([x0, y0, x1, y1] each: the controls over the map, the picks' numbers). The square's middle when the box there
- *  is clear: the value stands where it always stood, whatever its width; else the first clear place of eight nearer
- *  the square's sides (top, bottom, left, right) and corners with the whole box inside the square (a square of the
- *  run's grid looks slightly turned on the web map: inside its corners' middle two coordinates each way); none:
- *  null, the value is left out (the square stays, its colour tells the value's class). */
+ *  of ([x0, y0, x1, y1] each: the controls over the map, the numbers drawn over the squares). The square's middle
+ *  when the box there is clear: the value stands where it always stood, whatever its width; else the first clear
+ *  place of eight nearer the square's sides (top, bottom, left, right) and corners (top left, top right, bottom left,
+ *  bottom right) with the whole box inside the square (a square of the run's grid looks slightly turned on the web
+ *  map: inside its corners' middle two coordinates each way); none: null, the value is left out (the square stays,
+ *  its colour tells the value's class). */
 export function valueAt(corners: [number, number][], hw: number, hh: number, boxes: number[][]): [number, number] | null {
   const clear = (x: number, y: number) =>
     boxes.every((r) => x + hw <= r[0] - PAD || x - hw >= r[2] + PAD || y + hh <= r[1] - PAD || y - hh >= r[3] + PAD);
@@ -490,6 +492,16 @@ export class SpotMap {
       const at = placeBadge(row, text, kind);
       if (at) mark(kind, at[0], at[1], text, spot, row);
     };
+    /** Where the number of a row of "Lines from here" goes: near its far end (the lines meet at the point), at 82 % of
+     *  the longest free piece of its line toward that end; null: no free piece, no number on the map. */
+    const fanPlace = (row: FanRow): {kind: MarkKind; x: number; y: number} | null => {
+      this.ends(row.row, p);
+      const near = row.near === 1 ? 0 : 2, far = 2 - near, kind: MarkKind = row.label[0] === "L" ? "L" : row.label[0] as MarkKind;
+      const [hw, hh] = markSize(kind, row.label), parts = this.freeParts(p[near], p[near + 1], p[far], p[far + 1], hw, hh);
+      if (!parts.length) return null;
+      const s = parts[0][0] + (parts[0][1] - parts[0][0]) * 0.82;
+      return {kind, x: p[near] + (p[far] - p[near]) * s, y: p[near + 1] + (p[far + 1] - p[near + 1]) * s};
+    };
     const shownOf = (spots: ArrayLike<number>) => Array.from(spots, (s) => view.shownOf(s));
 
     if (level === "area") {
@@ -498,16 +510,23 @@ export class SpotMap {
       this.grid = grid;
       found = br;
       const colours = this.layerColours();
-      // the picks' numbers placed first (their places do not depend on the squares) and drawn after their lines, as
-      // ever: the squares' values keep clear of them and of every control, and stay under the lines and the numbers
+      // the numbers drawn over the squares placed first (their places do not depend on the squares): the picks' (drawn
+      // after their lines, as ever), the fan's (L …, and a pick's P where the fan draws it) and the selected line's A1
+      // and A2 (on its anchors; drawn in their own places below, by the same rules): the squares' values keep clear of
+      // them and of every control, and stay under the lines and the numbers
       const picks = view.picks(), lines = picks.map((pick) => pick.row);
       const placed = picks.map((pick) => inFan.has(pick.row) ? null : placeBadge(pick.row, "P" + pick.n, "P"));
-      const taken = this.free.rects.slice();
-      placed.forEach((at, n) => {
-        if (!at) return;
-        const [w, h] = markSize("P", "P" + picks[n].n);
-        taken.push([at[0] - w, at[1] - h, at[0] + w, at[1] + h]);
-      });
+      const taken = this.free.rects.slice(), take = (kind: MarkKind, text: string, x: number, y: number) => {
+        const [w, h] = markSize(kind, text);
+        taken.push([x - w, y - h, x + w, y + h]);
+      };
+      placed.forEach((at, n) => { if (at) take("P", "P" + picks[n].n, at[0], at[1]); });
+      if (fan) for (const row of fan.rows) { const at = fanPlace(row); if (at) take(at.kind, row.label, at.x, at.y); }
+      if (sel && !fan) {
+        this.ends(sel.row, p);
+        take("A", "A1", p[0], p[1]);
+        take("A", "A2", p[2], p[3]);
+      }
       // only the squares on the canvas: their middles against the canvas's box in grid metres (the fit's corners)
       const side = grid.side, px = side / view.mpp, label = px >= SQUARE_PX, font = px >= 44 ? TEXT_PX + 1 : TEXT_PX;
       const corners = [this.gridAt(min.x, min.y), this.gridAt(min.x + size.x, min.y), this.gridAt(min.x + size.x, min.y + size.y),
@@ -601,12 +620,8 @@ export class SpotMap {
       for (const row of fan.rows) {
         this.ends(row.row, p);
         this.fanLines.push({x1: p[0], y1: p[1], x2: p[2], y2: p[3], row: row.row});
-        // its number near the far end (the lines meet at the point), on the free piece of the line
-        const near = row.near === 1 ? 0 : 2, far = 2 - near, kind: MarkKind = row.label[0] === "L" ? "L" : row.label[0] as MarkKind;
-        const [hw, hh] = markSize(kind, row.label), parts = this.freeParts(p[near], p[near + 1], p[far], p[far + 1], hw, hh);
-        if (!parts.length) continue;
-        const s = parts[0][0] + (parts[0][1] - parts[0][0]) * 0.82;
-        mark(kind, p[near] + (p[far] - p[near]) * s, p[near + 1] + (p[far + 1] - p[near + 1]) * s, row.label, view.spotOf(row.row), row.row);
+        const at = fanPlace(row);
+        if (at) mark(at.kind, at.x, at.y, row.label, view.spotOf(row.row), row.row);
       }
       const at = this.place(fan.xy[0], fan.xy[1]);
       ctx.beginPath(); ctx.arc(at[0], at[1], Math.max(9, FAN_HERE / view.mpp), 0, 2 * Math.PI);
