@@ -316,3 +316,17 @@
   .ui .vl-cols.vl-starred { margin-right: 24px; }
   .ui .vl-main, .ui .vl-cols { column-gap: 2px; padding-left: 2px; padding-right: 2px; }
 }
+/* the same list on a touch screen (a tablet held sideways: 1024 px), its star 44 px: the heads keep the star's room
+   (else the rule above beats the touch one: the third code review), and the 20 px more come from the rows' edges,
+   1 px of each gap and the anchors' column at its heading's width; the value columns shared by what they hold (the
+   widest value or heading, measured: 39 / 43 / 53 / 28 px) */
+@media (pointer: coarse) {
+  @container vl-list (max-width: 360px) {
+    .ui .vl-rows.vl-starred { padding-left: 0; }
+    .ui .vl-cols.vl-starred { margin-left: 0; margin-right: 44px; }
+    .ui .vl-starred .vl-main, .ui .vl-cols.vl-starred { column-gap: 1px; padding-left: 0; padding-right: 0;
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
+    .ui .vl-starred.vl-with-acc .vl-main, .ui .vl-cols.vl-starred.vl-with-acc {
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) 45px minmax(0, 28fr); }
+  }
+}
