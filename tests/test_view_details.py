@@ -190,7 +190,10 @@ def test_line_actions_and_links(site):
             page = _open(browser, f"{site}#run={BIG}", DESKTOP, script=SCRIPT)
             _view(page)
             many = page.evaluate("() => { const v = D.v(); return Array.from(v.order).find((s) => v.passingCount(s) > 2); }")
+            made = page.evaluate("() => D.m().madeLines")
             _select(page, str(many))
+            # the 3D view's other lines are read from the columns: the selection makes its own line only
+            assert page.evaluate("() => D.m().madeLines") - made <= 1
             parts = page.evaluate("() => D.parts()")
             assert parts.index("vl-stands") + 1 == parts.index("vl-lacts") == parts.index("vl-acts") - 1, parts
             assert "vl-dock" not in " ".join(page.evaluate("() => [...document.querySelectorAll('.vl-details > *')].map((e) => e.className)")), parts

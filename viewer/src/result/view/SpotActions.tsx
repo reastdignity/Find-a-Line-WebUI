@@ -13,8 +13,9 @@
 import { useMemo, useState } from "preact/hooks";
 import { Button } from "../../ui/components";
 import { t } from "../../i18n";
+import { lineCoords } from "../../keys";
 import { canReport, openReport } from "../../report";
-import type { Line } from "../../types";
+import { LineCursor, type Line } from "../../types";
 import { alsoParam, OTHERS_MAX } from "../../view3d/page";
 import type { SpotView } from "../spots";
 import { FavouritePicker } from "./FavouritePicker";
@@ -39,12 +40,15 @@ export function LineStar({view, sheet}: Props) {
 }
 
 /** The keys of the 3D view's other lines: the spot's passing lines but the selected one, in the spot's order, at most
- *  OTHERS_MAX (the model's links, ResultModel.lineLink: the 3D view's keys of the same lines). */
+ *  OTHERS_MAX; each its link as ResultModel.lineLink writes it (keys.lineCoords, the 3D view's key of the same line),
+ *  read through a cursor on the run's columns: no Line is made for them (a selection makes only its own line). */
 export function alsoKeys(view: SpotView, spot: number, row: number): string[] {
-  const model = view.model, keys: string[] = [];
+  const cursor = new LineCursor(view.model.data.columns), keys: string[] = [];
   for (const r of view.passingOf(spot)) {
     if (keys.length >= OTHERS_MAX) break;
-    if (r !== row) keys.push(model.lineLink(model.lineAt(r)));
+    if (r === row) continue;
+    cursor.i = r;
+    keys.push(lineCoords(cursor));
   }
   return keys;
 }
