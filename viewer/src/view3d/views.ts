@@ -16,7 +16,7 @@
 
 import { Vector3 } from "three";
 import { t } from "../i18n";
-import { markRadioStop, radioKeys } from "../ui/radios";
+import { radioKeys } from "../ui/radios";
 import type { LineView } from "./line";
 import {
   BEHIND_CLEARANCE, behindDistance, cameraFov, cameraPose, clampGaze, clampZoom, deviceLook, dragGaze, gazeMoved,
@@ -85,7 +85,7 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
   seg.className = "u-seg v3-views";
   seg.setAttribute("role", "radiogroup");
   seg.setAttribute("aria-label", t("ui.view3d.view"));
-  seg.addEventListener("keydown", radioKeys);  // one Tab stop, the arrows move and choose (mark() sets the stop)
+  seg.onkeydown = radioKeys;  // one Tab stop (mark()), the arrows move and choose
   const buttons = new Map<ViewName, HTMLButtonElement>();
   for (const name of VIEWS) {
     const b = document.createElement("button");
@@ -302,8 +302,8 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
     buttons.forEach((b, k) => {
       b.className = k === view ? "u-on" : "";
       b.setAttribute("aria-checked", String(k === view));
+      b.tabIndex = k === view ? 0 : -1;
     });
-    markRadioStop(seg);
     root.dataset.view = view;
     line.walker.group.visible = view !== "eyes";
     motionButton.classList.toggle("v3-hidden", view === "orbit");

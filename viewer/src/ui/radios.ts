@@ -2,9 +2,9 @@
 // and choose): one Tab stop a group (the checked radio, else the first that can be pressed), → and ↓ the next radio,
 // ← and ↑ the one before (round the group), Home the first, End the last; a disabled radio is passed over. One way for
 // every group: the kit's Segmented (ui/components.tsx), the goal cards (search/BasicPane.tsx), the coverage page's
-// scale (coverage/page/card.tsx) and the 3D view's switches (view3d/views.ts, imagery.ts), which are plain DOM: no
-// Preact here. The search's tabs (search/SearchPanel.tsx) are WAI-ARIA's tabs: there the arrows move the focus only
-// and Enter or Space chooses (going back to Basic may ask first).
+// scale (coverage/page/card.tsx) and the 3D view's switches (view3d/views.ts, imagery.ts: plain DOM, which set the
+// stop's tabIndex with the checked radio), so no Preact here. The search's tabs (search/SearchPanel.tsx) are WAI-ARIA's
+// tabs: there the arrows move the focus only and Enter or Space chooses (going back to Basic may ask first).
 
 const pressable = (radio: HTMLElement) => !(radio as HTMLButtonElement).disabled;
 
@@ -41,12 +41,4 @@ export function radioKeys(e: KeyboardEvent): void {
   if (to === from) return;
   to.focus();
   to.click();
-}
-
-/** Plain DOM: the Tab stop of `group`'s radios set after its checked radio (aria-checked) changed. */
-export function markRadioStop(group: Element): void {
-  const radios = [...group.querySelectorAll<HTMLElement>("[role=radio]")];
-  const stop = radioStop(radios.length, radios.findIndex((r) => r.getAttribute("aria-checked") === "true"),
-                         (i) => pressable(radios[i]));
-  radios.forEach((r, i) => { r.tabIndex = i === stop ? 0 : -1; });
 }
