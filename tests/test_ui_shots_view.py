@@ -41,7 +41,7 @@ def test_the_views_states():
     """Every state of the view is a page of the app's result with the flag "b", left out for a run without the
     view's columns, and waits for the view to be drawn before anything else; every other page pins today's page."""
     assert ui_shots.VIEWS and set(ui_shots.VIEWS) <= set(ui_shots.PAGES) and set(ui_shots.VIEWS.values()) == {"b"}
-    for name in ui_shots.VIEWS:
+    for name in set(ui_shots.VIEWS) - set(ui_shots.VIEW_STATES):  # step 3d's: tests/test_ui_shots_view_states.py
         ui, hash_, steps = ui_shots.PAGES[name][:3]
         assert (ui, hash_) == ("c", "#run={run}") and steps[0] == ui_shots.VIEW_READY == "wait:window.FINDALINE_VIEW", name
         assert ui_shots.NEEDS[name] == "view" and all(step.startswith(("js:", "wait:")) for step in steps), name
@@ -53,7 +53,7 @@ def test_the_views_states():
     # a run without the columns: the view's states are left out before any load, with the reason
     left = ui_shots.left_out_by_run(ui_shots.PAGES, {"lift", "found"})
     assert set(ui_shots.VIEWS) <= set(left) and left["c-view"] == ui_shots.LACKS["view"]
-    assert not set(ui_shots.VIEWS) & set(ui_shots.left_out_by_run(ui_shots.PAGES, {"view"}))
+    assert not set(ui_shots.VIEWS) & set(ui_shots.left_out_by_run(ui_shots.PAGES, {"view", "shore"}))
     # the steps' scripts name the page's own objects
     assert "window.FINDALINE_VIEW" in ui_shots.VIEW_AT and "map.zoomOf(1)" in ui_shots.VIEW_AT % 1
     # c-view-area: the line then in the middle of the map's part between the switch and the bar's foot (a phone's
