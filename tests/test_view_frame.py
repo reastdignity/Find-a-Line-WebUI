@@ -1183,7 +1183,10 @@ SELECTIONS = r"""async ([run, start, n]) => {
     const row = view.shownOf(spot);
     if (view.selected?.row === row) continue;
     let fit = null;
-    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); };
+    // an end clear: in the bar's room (BAR) and under no control (fix round 5: one anchor in view)
+    const clear = (e) => { const pad = (""" + BAR + r""")(), size = m.getSize();
+      return e.filter(([x, y]) => x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom && U8.under([[x, y]]) === 0).length; };
+    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); fit.clear = clear(fit); };
     m.on('moveend', rec);
     location.hash = '#run=' + run + '&line=' + encodeURIComponent(model.lineLink(model.lineAt(row)));
     let k = 0;
@@ -1191,7 +1194,8 @@ SELECTIONS = r"""async ([run, start, n]) => {
     await frame(); await frame();
     m.off('moveend', rec);
     const now = U8.ends(row), shift = fit ? Math.max(...now.map((q, i) => Math.hypot(q[0] - fit[i][0], q[1] - fit[i][1]))) : null;
-    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(now), shift: shift === null ? null : Math.round(shift * 10) / 10});
+    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(now), fitClear: fit ? fit.clear : null, clear: clear(now),
+              shift: shift === null ? null : Math.round(shift * 10) / 10});
   }
   return out; }"""
 
@@ -1201,8 +1205,9 @@ def test_selection_check_moves_only_for_a_gain(boxes_site, where):
     """120 lines of the list's order opened by their links, the run with both coast boxes or chips: 390 x 664 at half
     and 1024 x 768 with a line's card open. The check after a selected line's fit moves the map only where that leaves
     strictly fewer ends under a control than the fit did (the fourth code review's finding 2: 71 of 120 moved sideways
-    with nothing gained on 390 x 664; the planner's rule). The gains stay: the reviewer counted 48 lines with fewer
-    ends under a control on 390 x 664 and 112 on 1024 x 768 (11 + 37, 17 + 95); within a few here."""
+    with nothing gained on 390 x 664; the planner's rule), or an end in view where the fit left none (a phone: fix
+    round 5's one anchor in view). The gains stay: the reviewer counted 48 lines with fewer ends under a control on
+    390 x 664 and 112 on 1024 x 768 (11 + 37, 17 + 95); within a few here."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -1227,10 +1232,14 @@ def test_selection_check_moves_only_for_a_gain(boxes_site, where):
         finally:
             browser.close()
     moved = [g for g in got if g["shift"] is not None and g["shift"] > 0.5]
-    no_gain = [g for g in moved if not g["under"] < g["fitUnder"]]
+    # a gain: fewer ends under a control (fix round 4), or an end in view where the fit left none (fix round 5: the
+    # user's G-E a, one anchor in view)
+    viewed = [g for g in got if g["fitClear"] == 0 and g["clear"] > 0]
+    no_gain = [g for g in moved if not (g["under"] < g["fitUnder"] or g in viewed)]
     gains = [g for g in got if g["fitUnder"] is not None and g["under"] < g["fitUnder"]]
     print("selections", where, "lines", len(got), "fit with an end under", sum(1 for g in got if g["fitUnder"]),
-          "moved", len(moved), "gains", len(gains), "brought clear", sum(1 for g in gains if g["under"] == 0), "no gain", no_gain[:5])
+          "moved", len(moved), "gains", len(gains), "brought clear", sum(1 for g in gains if g["under"] == 0),
+          "an end brought into view", len(viewed), "none in view after", sum(1 for g in got if g["clear"] == 0), "no gain", no_gain[:5])
     assert where != "390-half" or snap == "half", snap
     assert len(got) >= 110 and all(g["fitUnder"] is not None for g in got), got[:3]
     assert no_gain == [], no_gain
