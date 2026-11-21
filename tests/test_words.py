@@ -100,16 +100,19 @@ def test_no_character_for_a_word_in_the_coverage_catalogue(rel):
 
 # The free code that wrote ≤, ≥ or × before the user's answers (the layer's filters, ticks, bar titles, legend and
 # sizes; the coverage tags, page and place map; the form's height difference): none of the three in its code (comments
-# aside)
+# aside), nor an ASCII "<", ">", "<=" or ">=" before a template's value (`< ${x}`: 7 lines on main 4c56919c, the code
+# review's pattern)
 WRITTEN_OUT = ["viewer/src/app/c/LayerHistograms.tsx", "viewer/src/app/c/LayerPage.tsx", "viewer/src/app/c/layerState.ts",
                "viewer/src/coverage/page/card.tsx", "viewer/src/app/coverageLayer.ts", "viewer/src/search/SearchPanel.tsx"]
+ASCII_SIGN = re.compile(r"[<>]=?\s?\$\{")
 
 
 @pytest.mark.parametrize("rel", WRITTEN_OUT)
 def test_no_comparison_or_times_sign_in_the_code(rel):
     with open(os.path.join(REPO, rel), encoding="utf-8") as f:
         code = ui_metrics.strip_comments(f.read())
-    found = [(n, line.strip()) for n, line in enumerate(code.splitlines(), 1) if any(c in line for c in "≤≥×")]
+    found = [(n, line.strip()) for n, line in enumerate(code.splitlines(), 1)
+             if any(c in line for c in "≤≥×") or ASCII_SIGN.search(line)]
     assert found == [], found
 
 
