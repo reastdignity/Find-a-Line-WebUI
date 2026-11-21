@@ -427,7 +427,9 @@ def open_result(browser, site: str, run: str, timeout: float, out: str, keep_pag
     page = context.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)[:200]))
-    page.goto(f"{site}/{'?view=b' if view else ''}#run={quote(run, safe='')}", wait_until="commit")
+    import today_page  # without `view` today's page pinned, whatever SpotColumns.tsx VIEW_DEFAULT is
+    address = f"{site}/#run={quote(run, safe='')}"
+    page.goto(address.replace("/#", "/?view=b#", 1) if view else today_page.today(address), wait_until="commit")
     try:
         page.wait_for_selector(".c-result, .c-result-wait .c-error", timeout=timeout * 1000)
         failed = page.evaluate("() => document.querySelector('.c-result-wait .c-error')?.textContent || null")

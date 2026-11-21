@@ -258,7 +258,10 @@ def check_browser(run_dir: str, work: str, found: dict) -> list:
             if time.time() > deadline or app.poll() is not None:
                 return ["the app did not start for the browser check"]
             time.sleep(0.2)
-        url = f"http://127.0.0.1:{port}/runs/{os.path.basename(folder)}/zz_check.html"
+        # today's page pinned (tools/today_page.py): its count of spots is the export's grouping
+        sys.path.insert(0, os.path.join(REPO, "tools"))
+        import today_page
+        url = today_page.today(f"http://127.0.0.1:{port}/runs/{os.path.basename(folder)}/zz_check.html")
         result = subprocess.run([shutil.which(browser) or browser, "--headless", "--disable-gpu",
                                  f"--user-data-dir={os.path.join(work, 'browser-profile')}",
                                  "--virtual-time-budget=20000", "--dump-dom", url],

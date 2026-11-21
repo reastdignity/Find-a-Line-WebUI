@@ -55,6 +55,7 @@ RESULT, PROFILE, HOME, POPOVER, FORM, chip()) read the page's classes.
     uv sync --group ui
     uv run playwright install chromium webkit
     uv run tools/ui_walks.py --out <folder> [--only R1,F2]
+    uv run tools/ui_walks.py --out <folder> --view [--only VR2]    (the result view's walks: a run of their own)
     uv run tools/ui_walks.py compare <folder1>/walks.json <folder2>/walks.json
     uv run tools/ui_walks.py probe --out <folder> --user admin --device desktop --start "/?ui=c#run={run} | <selector>"
 
@@ -62,12 +63,14 @@ RESULT, PROFILE, HOME, POPOVER, FORM, chip()) read the page's classes.
 surface's controls and words at an address (after clicks on the selectors given after " | "), for writing walks.
 
 The walks (WALKS) are proposals of the UX plan, not confirmed tasks: data, easy to change. Each has its user (a key of
-serve()'s cookies or "visitor"), its device (a key of ui_shots.DEVICES), what the browser remembers (MEMORIES), its
-start address ("{run}", "{line}" filled), its steps (the functions tap, type_, key, unmade, swipe, sign_in, wait,
+serve()'s cookies or "visitor"), its device (a key of ui_shots.DEVICES), what the browser remembers (MEMORIES), the
+result page it opens ("page": "today", the default, today's result page pinned whatever SpotColumns.tsx VIEW_DEFAULT
+is, tools/today_page.py; or "view", the result view), its start address ("{run}", "{line}" filled), its steps (the functions tap, type_, key, unmade, swipe, sign_in, wait,
 screen, note), and optionally "needs" (what the fixtures lack for the whole walk, shown with a dead end) or "skip"
 (not walked, and why). A swipe is one pointer action (made as scrolling the element into view); a tap on an element
 outside the viewport is flagged in walks.md (the walk then lacks a swipe). Seconds are indicative: the machine's load
-and Playwright's polling are in them.
+and Playwright's polling are in them. The result view's walks (VIEW_WALKS: today's result walks done in the view) are
+walked only in a run of their own (`--view`, or `--only` naming them), on a fresh data folder like every run.
 """
 
 import argparse
@@ -83,6 +86,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
+import today_page  # noqa: E402
 import ui_shots  # noqa: E402
 
 TIMEOUT_MS = 20000  # how long an element or an expected state may take before the step is a dead end
@@ -95,6 +99,8 @@ POINTER = ("tap", "unmade", "swipe")
 # What the browser remembers at the start: "first": just signed in (the beta notice and the intros not yet seen);
 # "new": the intros not yet seen (the notice was seen at the sign-in); "returning": all put away, as ui_shots does
 MEMORIES = ("first", "new", "returning")
+# The result page a walk opens: today's (pinned) or the result view; their init scripts (the page's own answers)
+RESULT_PAGES = {"today": today_page.SCRIPT, "view": today_page.VIEW}
 VISITOR = "visitor"
 # The page's requests that would start work in the worker: refused, and the walk fails
 FORBIDDEN = [("POST", re.compile(r"/api/jobs(/[^/]+/again)?/?$")), ("POST", re.compile(r"/api/osm/?$"))]
@@ -320,6 +326,121 @@ WALKS = {
 }
 
 
+# --- The result view's walks (line volume round 6, step 3d): today's result walks done in the view ("page": "view",
+# the view asked for in the browser), one each with "mirrors" naming today's walk, so the two count the same task on
+# the same tree. Where the view does a step its own way the walk does it so and a note says so; a step the view
+# cannot do is a dead end. The view's own marks: its list's rows (.vl-rows' .vl-main, the first visible one: "Best in
+# view" above the tree), the details' head (.vl-dhead: the star, the line's facts), the profile in the desktop's card
+# or in a phone's sheet (.r-card, .u-sheet-body), the phone's sheet handle. They are not in WALKS: a run walks them
+# only when asked (`--view`, or `--only` naming them), never together with today's (VR4 saves a favourite into a
+# folder and makes a share link, as R4 does), so each kind counts on a fresh data folder of its own and a run of every
+# walk is the base's (walks_of).
+VIEW_RESULT = "!!window.FINDALINE_VIEW && !!document.querySelector('.vl-rows .vl-main')"  # the view drawn, its list
+VIEW_ROWS = ".vl-rows > li > .vl-main"
+VIEW_PROFILE = "!!document.querySelector('.r-card .fal-profile-chart, .u-sheet-body .fal-profile-chart')"
+VIEW_OPEN_RUN = [tap(CARD + " .c-card-open", VIEW_RESULT, "the result view: the list, the map, the details' column"),
+                 screen("the result")]
+VIEW_WALKS = {
+    "VR2": {
+        "title": "From a finished search to the best lines of a wanted length and height (the view)", "user": "admin",
+        "device": "desktop", "memory": "returning", "page": "view", "mirrors": "R2", "start": "/?ui=c",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            tap(".r-filters >> role=button[name='Length']", "!!document.querySelector('.r-editor')",
+                "the length filter's editor under the chips"),
+            screen("the length filter"),
+            tap("role=spinbutton[name='Length from']", None, "the field has the focus"),
+            type_("role=spinbutton[name='Length from']", "100"),
+            key("Enter", chip("Length ≥ 100"), "the chip reads Length ≥ 100 m, the list shorter"),
+            tap(".r-filters >> role=button[name='Height']", "!!document.querySelector('.r-editor')",
+                "the height filter's editor"),
+            screen("the height filter"),
+            tap("role=spinbutton[name='Height above the ground at least']", None, "the field has the focus"),
+            type_("role=spinbutton[name='Height above the ground at least']", "20"),
+            key("Enter", chip("Height ≥ 20"), "the chip reads Height ≥ 20 m"),
+            tap(VIEW_ROWS, f"{LINE} && {VIEW_PROFILE}", "the line's details and its profile in the card over the map"),
+            screen("the line: details and profile"),
+        ]},
+    "VF2": {
+        "title": "Understanding the first result (the view)", "user": "admin", "device": "iphone", "memory": "new",
+        "page": "view", "mirrors": "F2", "start": "/?ui=c",
+        "steps": [
+            note("as the administrator: the only user with a finished run in ui_shots.serve()"),
+            wait(HOME), screen("Home"),
+            tap(CARD + " .c-card-open", None, "the result loads"),
+            wait(f"({VIEW_RESULT}) || {DIALOG}"),
+            screen("the result's first view"),
+            note("the view opens with its sheet low (the hint, the run's counts): the list lies under it"),
+            tap(".u-sheet-handle", "!!document.querySelector('.u-sheet.u-half')", "the sheet at half: the list"),
+            screen("the list"),
+            swipe(VIEW_ROWS, None, "the list's first rows under the filters, into view"),
+            tap(VIEW_ROWS, LINE, "the line's details in the sheet, its profile under the four values"),
+            screen("the line's details"),
+            swipe(".u-sheet-body .fal-profile-chart", None, "the profile in the sheet"),
+            screen("the line's profile"),
+        ]},
+    "VR3": {
+        "title": "Compare: another run on the same map, and two lines (the view)", "user": "admin",
+        "device": "desktop", "memory": "returning", "page": "view", "mirrors": "R3", "start": "/?ui=c",
+        "needs": "a second run of the user with lines in the same area (ui_shots.serve() has one run): Compare's "
+                 "list is empty",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            tap("role=button[name='Compare']", POPOVER, "Compare's popover: the other runs to show on the map"),
+            screen("Compare"),
+            note("with one run Compare says 'No other runs with lines.': adding a run is not walked (fixture)"),
+            key("Escape", NO_POPOVER, "the popover closed"),
+            note("two lines: no side-by-side comparison; one line's details, then another's"),
+            tap(VIEW_ROWS + " >> nth=0", LINE, "the first line's details and profile"),
+            screen("line 1"),
+            tap(VIEW_ROWS + " >> nth=1",
+                "document.querySelectorAll('.vl-rows > li > .vl-main')[1]?.getAttribute('aria-pressed') === 'true'",
+                "the second line's details replace the first's"),
+            screen("line 2"),
+        ]},
+    "VR4": {
+        "title": "Save, sort and share (the view)", "user": "admin", "device": "desktop", "memory": "returning",
+        "page": "view", "mirrors": "R4", "start": "/?ui=c",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            note("the list's star saves to the top level at once; a folder is chosen with the star in the line's head"),
+            tap(VIEW_ROWS, LINE, "the line's details"),
+            screen("the line's details"),
+            tap(".vl-dhead >> role=button[name='Add to favourites']", POPOVER, "Save to a folder"),
+            screen("Save to a folder"),
+            tap("role=dialog[name='Favourite folders'] >> role=button[name='New folder']",
+                "!!document.querySelector('.r-newfolder input')", "the folder's name field, with the focus"),
+            type_("role=textbox[name=\"New folder's name\"]", "Tatras"),
+            key("Enter", "!!document.querySelector('.vl-dhead .r-fav.r-on')", "the line is a favourite, in Tatras"),
+            note("the view's list sorts by a select (\"Sort by\"), not by its column heads"),
+            tap(".vl-sort select", None, "the sort's choices open"),
+            key("l", None, "length marked among the choices"),
+            key("Enter", "document.querySelector('.vl-sort select')?.value === 'len'", "the tree sorted by length"),
+            tap("role=button[name='Share']", POPOVER, "Share's popover"),
+            screen("Share"),
+            tap("role=dialog[name='Share'] >> role=button[name=/^(Make a link|New link)$/]",
+                "!!document.querySelector('.r-pop input')?.value", "the link, shown once"),
+            screen("the link"),
+        ]},
+}
+
+
+def walks_of(only: str = "", view: bool = False) -> dict:
+    """The walks of a run: today's (WALKS, R4 last) by default; the view's (VIEW_WALKS) with `view` or when `only`
+    names them; `only` narrows either (a name of neither list is ignored, as before). Today's and the view's never in
+    one run: ValueError."""
+    wanted = [w for w in only.split(",") if w]
+    views = [w for w in wanted if w in VIEW_WALKS]
+    todays = [w for w in wanted if w in WALKS]
+    if (view or views) and todays:
+        raise ValueError(f"today's walks ({', '.join(todays)}) and the view's run apart, each on a fresh data folder")
+    chosen = VIEW_WALKS if view or views else WALKS
+    return {wid: w for wid, w in chosen.items() if not wanted or wid in wanted}
+
+
 def walk_errors(walks: dict, users, devices) -> list:
     """What is wrong with the walks' data (empty: nothing): known users, devices, memories, step kinds and fields."""
     errors = []
@@ -337,6 +458,8 @@ def walk_errors(walks: dict, users, devices) -> list:
             errors.append(f"{wid}: unknown device {w.get('device')!r}")
         if w.get("memory") not in MEMORIES:
             errors.append(f"{wid}: unknown memory {w.get('memory')!r}")
+        if w.get("page", "today") not in RESULT_PAGES:
+            errors.append(f"{wid}: unknown result page {w.get('page')!r}")
         if not str(w.get("start", "")).startswith("/"):
             errors.append(f"{wid}: the start is not a path")
         for i, s in enumerate(w.get("steps", [])):
@@ -603,7 +726,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             dead = {"step": end + 1, "why": f"error: {type(e).__name__}", "error": True}
     record = {"id": walk.get("id", ""), "title": walk.get("title", ""), "user": walk.get("user"),
               "device": walk.get("device"), "memory": walk.get("memory"), "needs": walk.get("needs"),
-              "steps": steps, "dead_end": dead}
+              "page": walk.get("page", "today"), "steps": steps, "dead_end": dead}
     record["totals"] = totals(record, desktop=not touch)
     return record
 
@@ -810,7 +933,8 @@ def markdown(records: list) -> str:
                 cells[-1] += " (error)"
         lines.append(f"| {r['id']} {r['title']} | " + " | ".join(cells) + " |")
     for r in records:
-        lines += ["", f"## {r['id']} {r['title']} ({r['user']}, {r['device']}, {r['memory']} visit)", ""]
+        view = ", the result view" if r.get("page") == "view" else ""
+        lines += ["", f"## {r['id']} {r['title']} ({r['user']}, {r['device']}, {r['memory']} visit{view})", ""]
         if r.get("skipped"):
             lines.append(f"Not walked: {r['skipped']}")
             continue
@@ -864,15 +988,17 @@ def _cookies(cookie: str | None, memory: str) -> list:
     return found
 
 
-def _context(pw, browsers: dict, device: str, memory: str, cookie: str | None, site: str):
-    """A fresh browser context of the device in the light theme, with what the browser remembers (MEMORIES) and a
-    guard that refuses the requests of FORBIDDEN (listed in the second value)."""
+def _context(pw, browsers: dict, device: str, memory: str, cookie: str | None, site: str, page: str = "today"):
+    """A fresh browser context of the device in the light theme, with what the browser remembers (MEMORIES), the
+    result page it opens (RESULT_PAGES) and a guard that refuses the requests of FORBIDDEN (listed in the second
+    value)."""
     engine, profile = ui_shots.DEVICES[device]
     if engine not in browsers:
         browsers[engine] = getattr(pw, engine).launch()
     options = dict(pw.devices[profile]) if profile else dict(ui_shots.DESKTOP)
     options.pop("default_browser_type", None)
     context = browsers[engine].new_context(**options, color_scheme="light", ignore_https_errors=True)
+    context.add_init_script(RESULT_PAGES[page])
     if memory == "returning":  # the intros put away, as ui_shots does
         context.add_init_script("try { localStorage.setItem('findaline-theme', 'light'); "
                                 + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); "
@@ -898,7 +1024,8 @@ def _walk(pw, browsers: dict, site: str, cookies: dict, values: dict, wid: str, 
     refused, context = [], None
     touch = walk["device"] != "desktop"
     try:
-        context, refused = _context(pw, browsers, walk["device"], walk["memory"], cookies.get(walk["user"]), site)
+        context, refused = _context(pw, browsers, walk["device"], walk["memory"], cookies.get(walk["user"]), site,
+                                    walk.get("page", "today"))
 
         def session(page, user, address, memory=walk["memory"]):
             page.context.clear_cookies()
@@ -958,6 +1085,8 @@ def main():
         p.add_argument("--out", required=p is probe, help="folder of the output")
         p.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
     parser.add_argument("--only", default="", help="walks by id (comma-separated)")
+    parser.add_argument("--view", action="store_true",
+                        help="the result view's walks (VIEW_WALKS) instead of today's: a run of their own")
     probe.add_argument("--user", default="admin")
     probe.add_argument("--device", default="desktop", choices=list(ui_shots.DEVICES))
     probe.add_argument("--memory", default="returning", choices=MEMORIES)
@@ -972,7 +1101,11 @@ def main():
         return
     if not args.out:
         parser.error("--out is needed")
-    errors = walk_errors(WALKS, list(ui_shots.RIGGERS) + ["admin", "walker"], ui_shots.DEVICES)
+    try:
+        chosen = walks_of(args.only, args.view)
+    except ValueError as e:
+        parser.error(str(e))
+    errors = walk_errors({**WALKS, **VIEW_WALKS}, list(ui_shots.RIGGERS) + ["admin", "walker"], ui_shots.DEVICES)
     if errors:
         sys.exit("\n".join(errors))
     for name in ("ESRI_API_KEY", "DATAFORDELER_API_KEY"):  # no key in the app this tool starts
@@ -1026,10 +1159,7 @@ def main():
                 context.close()
                 refused_all += refused
             else:
-                wanted = [w for w in args.only.split(",") if w]
-                for wid, walk in WALKS.items():
-                    if wanted and wid not in wanted:
-                        continue
+                for wid, walk in chosen.items():
                     if walk.get("skip"):
                         records.append({"id": wid, "title": walk["title"], "user": walk["user"],
                                         "device": walk["device"], "memory": walk["memory"], "steps": [],

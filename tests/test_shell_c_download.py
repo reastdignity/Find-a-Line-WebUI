@@ -108,7 +108,7 @@ def _data(tmp_path, clip, other: bool = False):
         assert _listed(folder)[OTHER].get("store"), "the second run has no store"
     listed = _listed(folder)
     assert listed[SMALL].get("store"), ("the clip's run has no store", listed[SMALL])
-    page_path = stub_page(folder, "downloadtest")
+    page_path = stub_page(folder, "downloadtest", today=True)
     html = (folder / page_path).read_text("utf-8")
     assert f'<meta name="findaline-token" content="{TOKEN}">' in html, "the app's page has no token: no export there"
     assert "findaline-token" not in (folder / "runs" / SMALL / "map.html").read_text("utf-8")

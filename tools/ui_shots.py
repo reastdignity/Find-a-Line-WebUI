@@ -464,7 +464,7 @@ LAYOUTS = {
 }
 
 # The pages of the result view: the page's flag kept in localStorage ("findaline.view", SpotColumns.tsx viewWanted) is
-# set to the page's value; every other page starts without it (today's result page)
+# set to the page's value; every other page has it "today" (today's result page pinned: page_storage)
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
                                 "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half",
                                 "c-view-selected", "c-view-selected-half", "c-view-fan", "c-view-sector", "c-view-all-levels",
@@ -481,6 +481,178 @@ NEEDS = {
 LACKS = {"lift": "the run has no no-fall zone or A-frames", "shore": "the run has no uncertain shore",
          "found": "the run was not made with the square rule",
          "view": "the run's store has no columns of the result view"}
+
+# --- The result view's states of step 3d (line volume round 6: the features joined in step 3c, the workers' lists of
+# B1, B2 and B3's screenshot gate). One block: its states join PAGES, VIEWS (the page's flag "b"), NEEDS and LAYOUTS.
+# A favourite of these states is never saved on the site (VIEW_FAV_STUB answers its request in the page): the site's
+# favourites stay as Home and Favourites show them in every pass. A measured line outside the run gets a made-up
+# profile (VIEW_PROFILE_STUB, as tests/test_view_frame.py): the clip's file has no ground there. A state of a desktop
+# alone clicks the header's run name first (VIEW_DESKTOP: a phone has no such header, so it leaves the state out),
+# a phone's alone the pill's run name (VIEW_PHONE); the coast boxes' states need a run with an uncertain shore (NEEDS
+# "shore", --run: the clip has none).
+VIEW_DESKTOP = ".c-result-top .c-run-name"  # the header's run name (a phone has none: its pill)
+VIEW_PHONE = ".c-phone-top .c-pill-name"  # the phone's pill: its run's name (a desktop has none)
+VIEW_FAV_STUB = ("js:(() => { const f = window.fetch; window.fetch = (url, init) => (init && init.method === 'POST' && "
+                 "/\\/favourites(\\/folder)?$/.test(String(url))) ? Promise.resolve(new Response('{}', "
+                 "{headers: {'content-type': 'application/json'}})) : f(url, init); })()")
+VIEW_PROFILE_STUB = ("js:(() => { const f = window.fetch; window.fetch = (url, init) => !String(url).startsWith('/api/profile') "
+                     "? f(url, init) : Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], "
+                     "z: [300, 296, 292, 296, 301], min: [40, 7.5], water_m: 0, filled_m: 0}), "
+                     "{headers: {'content-type': 'application/json'}})); })()")
+# The server refuses a favourite's save (the state's own picture: the note first in the list)
+VIEW_FAV_REFUSED = ("js:(() => { const f = window.fetch; window.fetch = (url, init) => (init && init.method === 'POST' && "
+                    "/\\/favourites$/.test(String(url))) ? Promise.resolve(new Response(JSON.stringify({detail: "
+                    "'refused for the picture'}), {status: 500, headers: {'content-type': 'application/json'}})) "
+                    ": f(url, init); })()")
+VIEW_FAV_KNOWN = "wait:window.FINDALINE_VIEW && window.FINDALINE_VIEW.view.model.favouritesOn"
+VIEW_CHART = "wait:document.querySelector('.r-card .fal-profile-chart, .u-sheet-body .fal-profile-chart')"
+VIEW_DOCK_DONE = "wait:!document.querySelector('.r-dock [aria-busy=true]')"
+# A run's action of the header (a desktop) or the phone's pill, pressed by its name
+VIEW_ACTION = ("js:[...document.querySelectorAll('.r-actions button')].find((b) => "
+               "(b.getAttribute('aria-label') || b.textContent).trim() === %r)?.click()")
+# The map fitted to the search area (the canvas's own box of it), clear of the switch and the foot
+VIEW_AREA_FIT = ("js:(() => { const {map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, box = m.getContainer().getBoundingClientRect(), "
+                 "sw = document.querySelector('.v-switch')?.getBoundingClientRect(), foot = document.querySelector('.v-foot')?.getBoundingClientRect(); "
+                 "m.fitBounds(map.areaBounds(), {animate: false, paddingTopLeft: [24, sw ? sw.bottom - box.top + 12 : 24], "
+                 "paddingBottomRight: [24, foot ? box.bottom - foot.top + 12 : 24]}); })()")
+VIEW_LEGEND = "js:document.querySelector('.v-fold[aria-expanded=\"false\"]')?.click()"
+# Favourites among the best spots in view: the shown lines of the first `%s` (their halos on the canvas)
+VIEW_FAVS = ("js:" + VIEW_DO % ("const m = view.model; for (const s of Array.from(view.inView.best).slice(0, %s)) "
+                                "m.toggleFavourite(m.lineAt(view.shownOf(s)))"))
+# Measure pressed, then two points of the map's upper part (Leaflet's click there, which the canvas takes while
+# measuring), clear of the coast boxes at the map's top left
+VIEW_MEASURE = [VIEW_ACTION % "Measure", "wait:window.FINDALINE_VIEW.map.isMeasuring",
+                "js:(() => { const m = window.FINDALINE_MAP, s = m.getSize(), at = (x, y) => { "
+                "const p = m.layerPointToContainerPoint(m.containerPointToLayerPoint([Math.round(x), Math.round(y)])); "
+                "m.fire('click', {latlng: m.containerPointToLatLng(p), containerPoint: p, layerPoint: m.containerPointToLayerPoint(p)}); }; "
+                "at(s.x * 0.45, s.y * 0.42); at(s.x * 0.8, s.y * 0.47); })()",
+                "wait:!!window.FINDALINE_VIEW.measured", VIEW_CHART]
+# A link's line arriving after the load (as Back, Forward or a pasted link): the route's hash given a line
+VIEW_LINK = "js:location.hash = '#run=' + encodeURIComponent(window.FINDALINE_VIEW.view.model.runId) + '&line=' + %s"
+VIEW_OUTSIDE = "'49.5,19.1,49.5004,19.1005'"  # far from the clip: outside the run
+VIEW_CENTRE = ("(() => { const c = window.FINDALINE_VIEW.view.model.data.center; return [c[0], c[1], c[0] + 0.0004, c[1] + 0.0005]"
+               ".map((v) => v.toFixed(6)).join(','); })()")
+# Compare's other run: this run moved east by 0.6 of its area's width, added through the model's addRun (Compare's own
+# path), the map fitted to both (B3's gate, G7)
+VIEW_OTHER_RUN = """js:(() => { const {view, map} = window.FINDALINE_VIEW, m = view.model, c = m.data.columns, NC = c.lon1.constructor;
+  const b = map.areaBounds(), d = (b.getEast() - b.getWest()) * 0.6;
+  const shift = (col) => new NC(Float64Array.from({length: c.length}, (_, i) => col.at(i) + d), 0);
+  const area = JSON.parse(JSON.stringify(m.data.area)), move = (q) => { if (typeof q[0] === 'number') q[0] += d; else q.forEach(move); };
+  const walk = (o) => { if (!o) return; if (o.coordinates) move(o.coordinates); else if (o.geometry) walk(o.geometry); else if (o.features) o.features.forEach((f) => walk(f.geometry)); else if (o.geometries) o.geometries.forEach(walk); };
+  walk(area);
+  window.FINDALINE_MAP.fitBounds([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast() + d]], {animate: false});
+  m.addRun({id: '2026-11-20_120000_Other_00000000000000b1', name: 'Other run', created: '2026-11-20T12:00:00', has_lines: true},
+           {...m.data, area, columns: {...c, lon1: shift(c.lon1), lon2: shift(c.lon2)}});
+  view.setLevel('spots'); })()"""
+# A link to the best spot's shown line, hidden by a length filter: the route opens it (today's note first in the list)
+VIEW_NOTE = "js:" + VIEW_DO % ("const m = view.model, l = m.lineAt(view.shownOf(view.order[0])); m.setFilters({...m.filters, lenMin: Math.ceil(l.len) + 1}); "
+                               "location.hash = '#run=' + encodeURIComponent(m.runId) + '&line=' + encodeURIComponent(m.lineLink(l))")
+VIEW_SPOTS = "js:" + VIEW_DO % "view.setLevel('spots')"
+VIEW_ZOOM_OUT = "js:window.FINDALINE_MAP.zoomOut(1, {animate: false})"
+VIEW_SHORE = "wait:document.querySelector('.u-shore-ctl:not([hidden])')"
+VIEW_SELECTED_AT = [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_SELECT, VIEW_SELECTED]
+VIEW_LINE = [VIEW_READY, VIEW_SPOTS, "js:" + VIEW_HALF, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART, VIEW_DOCK_DONE]
+VIEW_FULL = [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_HALF]
+VIEW_STATES = {
+    # B1: the map fitted to the search area at Area, its dashed outline, the legend open (the gate's G5); two best
+    # spots' lines favourites (their halos); Lines with the best line a favourite and selected; Measure's finished line
+    # (G4a: its card, a phone's dock at half); Compare's other run beside the run (G7; a desktop: phones have no Compare)
+    "c-view-area-outline": ("c", "#run={run}", [VIEW_READY, VIEW_AREA_FIT, "js:" + VIEW_DO % "view.setLevel('area')", VIEW_LEGEND,
+                                                "wait:document.querySelector('.v-legend [data-kind=area]')"]),
+    "c-view-fav": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_STUB, VIEW_FAV_KNOWN, "js:" + VIEW_AT % 1, VIEW_SPOTS, VIEW_FAVS % 2]),
+    "c-view-lines-fav-selected": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_STUB, VIEW_FAV_KNOWN, "js:" + VIEW_AT % 0.3, VIEW_FAVS % 1,
+                                                      "js:" + VIEW_SELECT, VIEW_SELECTED]),
+    "c-view-measured": ("c", "#run={run}", [VIEW_READY, VIEW_SPOTS] + VIEW_MEASURE),
+    "c-view-other-run": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_OTHER_RUN, VIEW_LEGEND]),
+    # B2 and the gate's G2: a line selected (a desktop: its card; a phone: the sheet at half, the dock under the four
+    # values); the star's folders; the selected line a favourite; the profile closed ("Profile" among the line's
+    # actions); Copy link pressed; stars in the list's rows (a phone at full); the two help texts; a favourite the
+    # server refuses (G10); a phone's details down to "Report this line"
+    "c-view-line": ("c", "#run={run}", VIEW_LINE),
+    "c-view-picker": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_STUB] + VIEW_SELECTED_AT[1:] + [
+        "js:" + VIEW_PRESS % ".vl-dhead .r-fav, .vl-sheet-row .r-fav", "wait:document.querySelector('.r-picker')"]),
+    "c-view-line-fav": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_STUB] + VIEW_SELECTED_AT[1:] + [
+        "js:" + VIEW_DO % "view.model.saveTo(view.selected.line, null)", "wait:document.querySelector('.r-fav.r-on')"]),
+    "c-view-closed": ("c", "#run={run}", VIEW_SELECTED_AT + ["js:" + VIEW_DO % "view.model.closeProfile()",
+                                                            "wait:document.querySelector('.r-reprofile')"]),
+    "c-view-copied": ("c", "#run={run}", VIEW_SELECTED_AT + ["js:" + VIEW_DO % "view.model.closeProfile()", "js:" + VIEW_PRESS % ".r-copy",
+                                                            "wait:document.querySelector('.r-copied, .r-linkfield')"]),
+    "c-view-stars": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_STUB, *VIEW_FULL[1:], VIEW_FAV_KNOWN,
+                                         "js:" + VIEW_DO % ("const m = view.model; for (const s of Array.from(view.sectors[0].spots).slice(1, 3)) "
+                                                            "m.saveTo(m.lineAt(view.shownOf(s)), null)"),
+                                         "wait:document.querySelectorAll('.vl-star.vl-on').length >= 2",
+                                         "js:document.querySelector('.vl-tree .vl-sec .vl-rows')?.scrollIntoView({block: 'center'})"]),
+    "c-view-help-top": ("c", "#run={run}", VIEW_FULL + ["js:" + VIEW_PRESS % ".vl-top-info", "wait:document.querySelector('#vl-help-top')"]),
+    "c-view-help-cols": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1, "js:" + VIEW_PRESS % ".vl-cols-info",
+                                             "wait:document.querySelector('#vl-help-cols')",
+                                             "js:document.querySelector('.vl-topblock .vl-block-head')?.scrollIntoView({block: 'start'})"]),
+    "c-view-refused": ("c", "#run={run}", [VIEW_READY, VIEW_FAV_REFUSED, VIEW_SPOTS, "js:" + VIEW_HALF,
+                                           "js:document.querySelector('.vl-rows > li > .vl-star')?.click()",
+                                           "wait:document.querySelector('.vl-lnote')",
+                                           "js:" + VIEW_PRESS % ".vl-cols .vl-cols-info", "wait:document.querySelector('.vl-helpt')",
+                                           "js:(document.querySelector('.u-sheet-body') || document.querySelector('.c-col-list .vl-body'))?.scrollTo(0, 0)"]),
+    "c-view-report": ("c", "#run={run}", VIEW_SELECTED_AT + ["js:" + VIEW_HALF, VIEW_DOCK_DONE,
+                                                            "js:document.querySelector('.r-report')?.scrollIntoView({block: 'end'})"]),
+    # the gate: the owner's header with "Edit & run again" (a finished job of the run, answered in the page:
+    # PAGE_SCRIPTS) and Share's menu open (G3); a link's measured line outside the run (G4b; its profile made up); the
+    # map's "i" open (G8: a desktop's both texts, a phone's parts open on the first); Measure's tip while measuring
+    "c-view-share": ("c", "#run={run}", [VIEW_READY, "wait:document.querySelector('[aria-label=\"Edit & run again\"], "
+                                                     ".c-result-top a[href*=\"edit\"]')",
+                                         VIEW_ACTION % "Share", "wait:document.querySelector('.r-share')"]),
+    "c-view-link": ("c", "#run={run}", [VIEW_READY, VIEW_PROFILE_STUB, VIEW_LINK % VIEW_OUTSIDE, "wait:!!window.FINDALINE_VIEW.measured",
+                                        VIEW_CHART]),
+    "c-view-help": ("c", "#run={run}", [VIEW_READY, "js:[...document.querySelectorAll('.v-about-button button, .v-help-button button')]"
+                                                    ".find((b) => b.offsetParent)?.click()", "wait:document.querySelector('.v-help')"]),
+    "c-view-measuring": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, VIEW_ACTION % "Measure", "wait:window.FINDALINE_VIEW.map.isMeasuring"]),
+    # the desktop's card: open (a line selected, its profile drawn), folded; both side panels as rails (LAYOUTS)
+    "c-view-card": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART]),
+    "c-view-card-folded": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP, VIEW_SPOTS, "js:" + VIEW_SELECT, VIEW_SELECTED, VIEW_CHART,
+                                               ".r-card .r-fold", "wait:document.querySelector('.r-card-folded')"]),
+    "c-view-rails": ("c", "#run={run}", [VIEW_READY, VIEW_DESKTOP]),
+    # a run's own map.html and a share link's page in the view: the first view; with the link's line selected
+    "c-view-map": ("map", "", [VIEW_READY]),
+    "c-view-map-line": ("map", "#line={line}", [VIEW_READY, VIEW_SELECTED]),
+    "c-view-shared": ("shared", "#line={line}", [VIEW_READY, VIEW_SELECTED, "js:" + VIEW_HALF]),
+    # a run with an uncertain shore and coarser terrain (--run): zoomed out a level, the boxes (a desktop) or their
+    # chips (a phone); a phone at half with a level held (G9, the known bug of the two chips); a phone at half with the
+    # coarser terrain's box opened, and the shore's (X1); a link's line at the run's centre among them (G4c)
+    "c-view-boxes": ("c", "#run={run}", [VIEW_READY, VIEW_ZOOM_OUT, VIEW_SHORE]),
+    "c-view-chips-held": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, VIEW_ZOOM_OUT, VIEW_SHORE, VIEW_SPOTS, "js:" + VIEW_HALF]),
+    "c-view-box-coarser": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, VIEW_ZOOM_OUT, VIEW_SHORE, "js:" + VIEW_HALF,
+                                               "js:document.querySelector('.u-coarse-ctl .u-shore-chip')?.click()",
+                                               "wait:document.querySelector('.u-coarse-ctl:not(.u-shore-folded)')"]),
+    "c-view-box-shore": ("c", "#run={run}", [VIEW_READY, VIEW_PHONE, VIEW_ZOOM_OUT, VIEW_SHORE, "js:" + VIEW_HALF,
+                                             "js:document.querySelector('.u-shore-ctl:not(.u-coarse-ctl) .u-shore-chip')?.click()",
+                                             "wait:document.querySelector('.u-shore-ctl:not(.u-coarse-ctl):not(.u-shore-folded)')"]),
+    "c-view-link-centre": ("c", "#run={run}", [VIEW_READY, VIEW_ZOOM_OUT, VIEW_SHORE, VIEW_LINK % VIEW_CENTRE,
+                                               "wait:!!window.FINDALINE_VIEW.measured", VIEW_CHART]),
+    # last of all (the filters they set are kept in the browser, "findaline.filters", for the pass's later pages): a link
+    # to a line the filters hide (the note first in the list); no line passing the filters (the sentence, "Clear all")
+    "c-view-note": ("c", "#run={run}", [VIEW_READY, VIEW_NOTE, "wait:document.querySelector('.vl-lnote')"]),
+    "c-view-none": ("c", "#run={run}", [VIEW_READY, "js:" + VIEW_HALF, "js:" + VIEW_AT % 1,
+                                        "js:" + VIEW_DO % "const m = view.model; m.setFilters({...m.filters, lenMin: 1000000})",
+                                        "wait:document.querySelector('.vl-none')"]),
+}
+# A finished job of the shown run in the app's list of jobs, so the header has the run's "Edit & run again"
+# (AppC.tsx editJob): /api/jobs answered in the page before the app asks (the site's jobs are not written), the run's
+# id from the address. An init script of the page (page_storage adds PAGE_SCRIPTS' after the storage)
+VIEW_JOB_STUB = ("(() => { const run = decodeURIComponent((location.hash.match(/run=([^&]+)/) || [])[1] || ''), "
+                 "f = window.fetch; window.fetch = (url, init) => "
+                 "new URL(String(url), location.href).pathname !== '/api/jobs' "
+                 "|| (init && init.method && init.method !== 'GET') ? f(url, init) "
+                 ": Promise.resolve(new Response(JSON.stringify({jobs: [{id: 'job-shots-1', status: 'done', "
+                 "run_id: run, name: 'Żabi Koń clip', created: '2026-11-21T10:00:00', finished: '2026-11-21T10:05:00', "
+                 "own: true}], "
+                 "seq: 1, worker: true}), {headers: {'content-type': 'application/json'}})); })();")
+PAGE_SCRIPTS = {"c-view-share": VIEW_JOB_STUB}
+# Not here: the gate's 1024 x 768 pictures (G9's desktop column, X3: the list's heads with a mouse and on touch) need a
+# device ui_shots does not have (DEVICES); X2 is a sheet of c-view-line's pictures beside the mock-up
+PAGES.update(VIEW_STATES)
+VIEWS.update({name: "b" for name in VIEW_STATES})
+NEEDS.update({name: "view" for name in VIEW_STATES})
+NEEDS.update({name: ("view", "shore") for name in ("c-view-boxes", "c-view-chips-held", "c-view-box-coarser",
+                                                   "c-view-box-shore", "c-view-link-centre")})
+LAYOUTS["c-view-rails"] = LAYOUTS["c-result-rails"]
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
 # its scrolling panel (or above a bar that stays there, data-hint-floor), then marked for the click
@@ -794,8 +966,15 @@ def store_has_view(run_folder: str) -> bool:
 
 
 def left_out_by_run(pages, features: set) -> dict:
-    """The pages of `pages` whose feature (NEEDS) the run lacks: name -> the reason."""
-    return {name: LACKS[NEEDS[name]] for name in pages if name in NEEDS and NEEDS[name] not in features}
+    """The pages of `pages` whose feature (NEEDS: one, or a tuple of them all needed) the run lacks: name -> the reason
+    (the first feature it lacks)."""
+    found = {}
+    for name in pages:
+        needs = NEEDS.get(name, ())
+        lacking = [n for n in ((needs,) if isinstance(needs, str) else needs) if n not in features]
+        if lacking:
+            found[name] = LACKS[lacking[0]]
+    return found
 
 
 MARKER = "ui-shots.json"  # in a kept data folder: the key of the code that made it, the clip's run shown there
@@ -997,15 +1176,14 @@ def page_steps(steps) -> list:
 
 def page_storage(name: str) -> str:
     """The init script of a page: its kept layouts (LAYOUTS, LAYER_LAYOUTS) set, or removed for the defaults; the
-    result view's flag (VIEWS) set for its pages, removed for every other page (one context serves a whole pass)."""
-    kept, layer, view = LAYOUTS.get(name), LAYER_LAYOUTS.get(name), VIEWS.get(name)
-    return "try { " + (
-        f"localStorage.setItem('findaline.view', {json.dumps(view)}); " if view
-        else "localStorage.removeItem('findaline.view'); ") + (
+    result view's flag (VIEWS) set for its pages, every other page with today's page pinned ("today", the page's own
+    answer: tools/today_page.py), whatever SpotColumns.tsx VIEW_DEFAULT is (one context serves a whole pass)."""
+    kept, layer, view = LAYOUTS.get(name), LAYER_LAYOUTS.get(name), VIEWS.get(name, "today")
+    return "try { " + f"localStorage.setItem('findaline.view', {json.dumps(view)}); " + (
         f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
         else "localStorage.removeItem('findaline.layout'); ") + (
         f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
-        else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}"
+        else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}" + PAGE_SCRIPTS.get(name, "")
 
 
 def page_url(site: dict, ui: str, hash_: str) -> str:

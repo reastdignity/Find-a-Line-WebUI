@@ -171,8 +171,10 @@ def _unlist(data_dir, *run_ids):
 
 def _test_map(data_dir, run_id: str, name: str):
     """A copy of a run's map.html (`name`) with the stubs before and the test script after it."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page  # today's page pinned
     folder = data_dir / "runs" / run_id
-    (folder / "map_stubs.js").write_text(C_STUBS, encoding="utf-8")
+    (folder / "map_stubs.js").write_text(today_page.SCRIPT + C_STUBS, encoding="utf-8")
     (folder / "map_test.js").write_text(HELPERS + MAP_SCRIPT % {"folder": f"/runs/{run_id}/"}, encoding="utf-8")
     page = (folder / "map.html").read_text(encoding="utf-8")
     (folder / name).write_text(page.replace("<head>", '<head><script src="map_stubs.js"></script>')
@@ -191,7 +193,7 @@ def test_unlisted_runs_read_the_store_in_edge(data, tmp_path):
     import mapping
     mapping.install_viewer(str(data / "runs"))
     _unlist(data, SMALL, OLD)
-    page = stub_page(data, "capp", APP_SCRIPT % {"run": SMALL})
+    page = stub_page(data, "capp", APP_SCRIPT % {"run": SMALL}, today=True)
     with _server(data) as port:
         own = _edge(port, _test_map(data, SMALL, "probe.html"), tmp_path / "edge-map")
         old = _edge(port, _test_map(data, OLD, "probe.html"), tmp_path / "edge-old")
@@ -259,13 +261,15 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
     from jobs import Jobs
     from settings import PublicSettings
     from test_web import CSP_STUB
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     site = f"http://localhost:{port}"
     stubs = tmp_path / "stubs"
     stubs.mkdir()
-    (stubs / "csp_stub.js").write_text(CSP_STUB, encoding="utf-8")
+    (stubs / "csp_stub.js").write_text(today_page.SCRIPT + CSP_STUB, encoding="utf-8")  # today's page pinned
     (stubs / "share_test.js").write_text(SHARE_SCRIPT, encoding="utf-8")
     data = tmp_path / "data"
     data.mkdir()

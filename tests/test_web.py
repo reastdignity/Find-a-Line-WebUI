@@ -13,6 +13,8 @@ import pytest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, "tests", "data")
 sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page)
 import messages  # noqa: E402
 from jobs import Jobs, Scheduler  # noqa: E402
 from settings import Limits  # noqa: E402
@@ -1639,13 +1641,14 @@ def store_with(folder, head: dict | None = None, first: dict | None = None):
 
 def _map_page(folder, name: str, script: str, before_data: str = "", head: dict | None = None,
               first: dict | None = None) -> str:
-    """A copy of the run's map.html with test scripts (`before_data` first in its head, `script` at the end); its file
-    name. The page reads the run's store over http; `head` and `first` change the store first (store_with)."""
+    """A copy of the run's map.html with test scripts (`before_data` first in its head, `script` at the end; today's
+    page pinned before them: tools/today_page.py); its file name. The page reads the run's store over http; `head`
+    and `first` change the store first (store_with)."""
     if head or first:
         store_with(folder, head, first)
     page = (folder / "map.html").read_text(encoding="utf-8")
     assert "<style" not in page and " style=" not in page and 'src="data.js"' not in page
-    for suffix, content in (("before", before_data), ("test", script)):
+    for suffix, content in (("before", today_page.SCRIPT + before_data), ("test", script)):
         (folder / f"{name}_{suffix}.js").write_text(content, encoding="utf-8")
     (folder / f"{name}.html").write_text(
         page.replace("<head>", f'<head><script src="{name}_before.js"></script>')
@@ -1831,7 +1834,7 @@ def test_run_map_loads_its_store(tmp_path, monkeypatch):
     for where in (folder, missing):
         page = (where / "map.html").read_text(encoding="utf-8")
         assert 'src="data.js"' not in page
-        (where / "load_stub.js").write_text(CSP_STUB, encoding="utf-8")
+        (where / "load_stub.js").write_text(today_page.SCRIPT + CSP_STUB, encoding="utf-8")
         (where / "load_test.js").write_text(LOAD_SCRIPT, encoding="utf-8")
         (where / "load.html").write_text(page.replace("<head>", '<head><script src="load_stub.js"></script>')
                                          .replace("</body>", '<script src="load_test.js"></script></body>'), encoding="utf-8")

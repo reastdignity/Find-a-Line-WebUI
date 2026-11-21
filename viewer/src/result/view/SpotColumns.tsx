@@ -1,5 +1,5 @@
 // The result view's frame (docs/line-volume/spec-view.md B.2: "Today's page stays as the frame"), beside today's
-// page (ResultColumns.tsx, which opens it only behind the flag: viewWanted, opensView): a header (the caller's way
+// page (ResultColumns.tsx, which opens it where viewWanted and opensView say: VIEW_DEFAULT): a header (the caller's way
 // back, the run's name and date without the line count (the user's W8), the caller's actions, then the run's:
 // Measure, Compare, Share, Download, RunActions as on today's page) and three columns: the list | the map with its
 // bar (MapBar) and the selected line's profile in a card over the map's bottom (ProfileCard, today's) | the details;
@@ -64,31 +64,38 @@ import "./mapbar.css";
 
 // --- the flag ---
 
+/** Is the result view a run's page by default (step 3d: switched on at gate 2, after the phone test and on the
+ *  user's word). False: today's page opens and `?view=b` asks for the view; true: the view opens and today's page
+ *  stays behind `?view=today` (and for the runs the view cannot show: opensView). */
+export const VIEW_DEFAULT: boolean = false;
+
 const VIEW_KEY = "findaline.view";
 
-/** Is the result view asked for in this browser: `?view=b` in the address asks for it and is remembered
- *  (localStorage "findaline.view" = "b"), `?view=today` ends it; the address decides this load also where the
- *  storage is blocked (nothing is remembered then). */
-export function viewWanted(): boolean {
+/** Is the result view wanted in this browser: the address asks (`?view=b` the view, `?view=today` today's page), and
+ *  an answer other than the default is remembered (localStorage "findaline.view" = "b" or "today") while one equal to
+ *  it forgets the kept answer; without either, `byDefault` (VIEW_DEFAULT; a test gives the other). The address
+ *  decides this load also where the storage is blocked (nothing is remembered then). */
+export function viewWanted(byDefault: boolean = VIEW_DEFAULT): boolean {
   let asked: string | null = null;
   try {
     asked = new URLSearchParams(location.search).get("view");
   } catch { /* no address to read */ }
+  const said = asked === "b" || asked === "today";
   try {
-    if (asked === "b") localStorage.setItem(VIEW_KEY, "b");
-    else if (asked === "today") localStorage.removeItem(VIEW_KEY);
+    if (said && (asked === "b") === byDefault) localStorage.removeItem(VIEW_KEY);
+    else if (said) localStorage.setItem(VIEW_KEY, asked!);
   } catch { /* storage blocked: only this load */ }
-  if (asked === "b" || asked === "today") return asked === "b";
+  if (said) return asked === "b";
   try {
-    return localStorage.getItem(VIEW_KEY) === "b";
-  } catch {
-    return false;
-  }
+    const kept = localStorage.getItem(VIEW_KEY);
+    if (kept === "b" || kept === "today") return kept === "b";
+  } catch { /* storage blocked: the default */ }
+  return byDefault;
 }
 
-/** Does this run open in the result view: the flag is set and the run can be shown there (spots.ts viewOf: the
- *  view's columns, its spots in runs, a grid the fit reaches). A run that cannot opens in today's page, and the
- *  console says why. */
+/** Does this run open in the result view: the view is wanted (viewWanted) and the run can be shown there (spots.ts
+ *  viewOf: the view's columns, its spots in runs, a grid the fit reaches). A run that cannot opens in today's page,
+ *  and the console says why. */
 export function opensView(data: RunData): boolean {
   if (!viewWanted()) return false;
   const base = viewOf(data);
