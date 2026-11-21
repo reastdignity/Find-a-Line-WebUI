@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_shell_c import (BIG, C_STUBS, CARD_JS, EDITOR_JS, STEADY_JS, TOO_LARGE_STUBS, _corners,  # noqa: E402
                           add_credits, copy_clip, drop_store, stub_page)
 from test_shell_c_view_list import _count  # noqa: E402
-from test_shell_c_view_map import DESKTOP, FLAG, PHONE, WAIT, WORDS, _open, _state, view_clip  # noqa: E402,F401
+from test_shell_c_view_map import DESKTOP, FLAG, PHONE, WAIT, WORDS, _crowded, _open, _state, view_clip  # noqa: E402,F401
 from test_web import EDGE, _playwright, _server, store_with  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -34,6 +34,19 @@ NOFOUND = "2026-10-28_130000_Plain_00000000000000c2"      # the clip's run with 
 RUN_DATA = ("lines.arrow", "profiles.arrow", "data.js", "lines.js")
 POINT = [50.1559508, 19.7562722]  # the job's centre (Edit & run again)
 NARROW = {"viewport": {"width": 900, "height": 460}}
+# A line outside the run (the 3D view's moved anchors) and the server's profile of it, stubbed (80 m), every ask kept
+# (today's test_shell_c_link_outside_the_run)
+OUTSIDE = "49.5,19.1,49.5004,19.1005"
+PROFILE_STUB = """
+window.PROFILE_ASKS = [];
+const fetchBeforeProfiles = window.fetch;
+window.fetch = (url, init) => {
+  if (!String(url).startsWith("/api/profile")) return fetchBeforeProfiles(url, init);
+  PROFILE_ASKS.push(decodeURIComponent(String(url).split("line=")[1]));
+  return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
+    water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
+};
+"""
 WIDE = {"viewport": {"width": 1400, "height": 900}}
 
 # The walks' helpers (window.Q), beside test_shell_c_view_map's T: today's LAYOUT_JS, MAP_JS and HELPERS as they apply
@@ -41,7 +54,11 @@ PARITY = r"""
 window.Q = {
   v() { return window.FINDALINE_VIEW.view; },
   m() { return this.v().model; },
-  pause(ms = 300) { return new Promise((ok) => setTimeout(ok, ms)); },
+  /** `ok()` true, checked at every frame; rejected after `ms` with `what` (the row's ID) and the layout's state. */
+  until(ok, what, ms = 30000) { const start = performance.now();
+    return new Promise((done, fail) => { const tick = () => { let v = false; try { v = ok(); } catch (e) { v = false; }
+      if (v) done(v); else if (performance.now() - start > ms) fail(new Error(`${what}: not reached; list ${this.width("list")}, details ${this.width("details")}, kept ${localStorage.getItem("findaline.layout")}`));
+      else requestAnimationFrame(tick); }; tick(); }); },
   text(s) { return (document.querySelector(s) || {}).textContent || ""; },
   kept() { return JSON.parse(localStorage.getItem("findaline.layout") || "null"); },
   sep(side) { return document.querySelector(`.c-col-${side} > .c-split`); },
@@ -51,10 +68,15 @@ window.Q = {
   key(el, k, shift = false) { el.dispatchEvent(new KeyboardEvent("keydown", {key: k, shiftKey: shift, bubbles: true, cancelable: true})); },
   pointer(el, type, x, y) { el.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse",
     button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: x, clientY: y})); },
-  /** A drag of `el` by dx, dy: the layout kept while the pointer is down, then once released (today's drag). */
-  async drag(el, dx, dy) { const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 40);
+  /** A drag of `el` by dx, dy (today's drag): once `moved()` shows the page followed the pointer, the layout kept while
+   *  the pointer is still down is read (returned); then released. */
+  async drag(el, dx, dy, moved, what) { const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 40);
     this.pointer(el, "pointerdown", x, y); this.pointer(el, "pointermove", x + dx / 2, y + dy / 2); this.pointer(el, "pointermove", x + dx, y + dy);
-    await this.pause(); const during = this.kept(); this.pointer(el, "pointerup", x + dx, y + dy); await this.pause(); return during; },
+    await this.until(moved, what); const during = this.kept(); this.pointer(el, "pointerup", x + dx, y + dy); return during; },
+  /** The card's height and its left edge in the map's column, px. */
+  card() { const c = document.querySelector(".r-card"); if (!c) return null;
+    return {height: c.offsetHeight, left: Math.round(c.getBoundingClientRect().left - document.querySelector(".c-col-map").getBoundingClientRect().left),
+            folded: c.classList.contains("r-card-folded")}; },
   shown(s) { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; },
   credits() { return {toggle: this.shown(".u-credits-toggle"), credits: this.shown(".u-credits")}; },
   rect(s) { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; },
@@ -194,30 +216,44 @@ def test_desktop_layout_kept(parity_site):
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _view(browser, parity_site, WIDE)
-            r = page.evaluate("""async () => { await Q.pause(); const r = {};
+            r = page.evaluate("""async () => { const listMax = () => Math.min(560, document.querySelector('.c-cols').clientWidth - 360 - 380);
+              await Q.until(() => Q.sep('list') && Q.sep('details') && Q.width('list') === 372 && Q.width('details') === 380, 'KB1: the start');
+              const r = {}, kept = (side) => (Q.kept() || {})[side] || {};
               r.start = {cols: document.querySelector('.c-cols').clientWidth, list: Q.width('list'), details: Q.width('details'), kept: Q.kept(),
                          listAria: Q.aria(Q.sep('list')), detailsAria: Q.aria(Q.sep('details')),
                          tabs: [document.querySelector('.c-col-list > .c-col-tab').getAttribute('aria-label'), document.querySelector('.c-col-details > .c-col-tab').getAttribute('aria-label')]};
-              Q.key(Q.sep('list'), 'ArrowRight'); await Q.pause(); Q.key(Q.sep('list'), 'ArrowRight', true); await Q.pause();
-              r.listKeys = {width: Q.width('list'), aria: Q.aria(Q.sep('list')), kept: Q.kept().list.w};
-              Q.key(Q.sep('list'), 'Home'); await Q.pause(); r.listHome = Q.width('list');
-              Q.key(Q.sep('list'), 'End'); await Q.pause(); r.listEnd = Q.width('list');
-              Q.sep('list').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); await Q.pause();
-              r.listReset = [Q.width('list'), Q.kept().list.w];
-              const during = await Q.drag(Q.sep('list'), 40, 0); r.listDrag = {width: Q.width('list'), during: during.list.w, kept: Q.kept().list.w};
-              Q.sep('list').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); await Q.pause();
-              Q.key(Q.sep('details'), 'ArrowLeft'); await Q.pause(); r.detailsKey = [Q.width('details'), Q.kept().details.w];
-              const d2 = await Q.drag(Q.sep('details'), -30, 0); r.detailsDrag = {width: Q.width('details'), during: d2.details.w, kept: Q.kept().details.w};
-              Q.sep('details').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); await Q.pause();
-              r.detailsReset = [Q.width('details'), Q.kept().details.w];
-              document.querySelector('.c-col-list > .c-col-tab').click(); await Q.pause();
+              Q.key(Q.sep('list'), 'ArrowRight'); await Q.until(() => Q.width('list') === 388, 'KB1: ArrowRight');
+              Q.key(Q.sep('list'), 'ArrowRight', true); await Q.until(() => Q.width('list') === 452 && kept('list').w === 452, 'KB1: Shift+ArrowRight');
+              r.listKeys = {width: Q.width('list'), aria: Q.aria(Q.sep('list')), kept: kept('list').w};
+              Q.key(Q.sep('list'), 'Home'); await Q.until(() => Q.width('list') === 260, 'KB1: Home'); r.listHome = Q.width('list');
+              Q.key(Q.sep('list'), 'End'); await Q.until(() => Q.width('list') === listMax(), 'KB1: End'); r.listEnd = Q.width('list');
+              Q.sep('list').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+              await Q.until(() => Q.width('list') === 372 && kept('list').w === 372, 'KB1: a double click');
+              r.listReset = [Q.width('list'), kept('list').w];
+              const during = await Q.drag(Q.sep('list'), 40, 0, () => Q.width('list') === 412, 'KB2: the list followed the pointer');
+              await Q.until(() => kept('list').w === 412, 'KB2: the list kept when released');
+              r.listDrag = {width: Q.width('list'), during: during.list.w, kept: kept('list').w};
+              Q.sep('list').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+              await Q.until(() => Q.width('list') === 372 && kept('list').w === 372, 'KB1: a double click again');
+              Q.key(Q.sep('details'), 'ArrowLeft'); await Q.until(() => Q.width('details') === 396 && kept('details').w === 396, 'KB1: the details by a key');
+              r.detailsKey = [Q.width('details'), kept('details').w];
+              const d2 = await Q.drag(Q.sep('details'), -30, 0, () => Q.width('details') === 426, 'KB2: the details followed the pointer');
+              await Q.until(() => kept('details').w === 426, 'KB2: the details kept when released');
+              r.detailsDrag = {width: Q.width('details'), during: d2.details.w, kept: kept('details').w};
+              Q.sep('details').dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+              await Q.until(() => Q.width('details') === 380 && kept('details').w === 380, 'KB1: the details by a double click');
+              r.detailsReset = [Q.width('details'), kept('details').w];
+              document.querySelector('.c-col-list > .c-col-tab').click();
+              await Q.until(() => document.querySelector('.c-col-list.c-collapsed') && document.activeElement === Q.rail('list') && kept('list').open === false, 'KB3: the tab');
               r.listRail = {collapsed: document.querySelector('.c-col-list').className, width: Q.width('list'), focus: document.activeElement === Q.rail('list'),
-                            label: Q.text('.c-col-list > .c-rail .c-rail-text'), auto: !!document.querySelector('.c-col-list .c-rail-auto'), kept: Q.kept().list.open};
-              Q.rail('list').click(); await Q.pause();
-              r.listOpen = {open: !document.querySelector('.c-col-list.c-collapsed'), focus: document.activeElement === Q.sep('list'), kept: Q.kept().list.open};
-              Q.key(Q.sep('details'), 'Enter'); await Q.pause();
+                            label: Q.text('.c-col-list > .c-rail .c-rail-text'), auto: !!document.querySelector('.c-col-list .c-rail-auto'), kept: kept('list').open};
+              Q.rail('list').click();
+              await Q.until(() => !document.querySelector('.c-col-list.c-collapsed') && document.activeElement === Q.sep('list') && kept('list').open === true, 'KB3: the rail');
+              r.listOpen = {open: !document.querySelector('.c-col-list.c-collapsed'), focus: document.activeElement === Q.sep('list'), kept: kept('list').open};
+              Q.key(Q.sep('details'), 'Enter');
+              await Q.until(() => document.querySelector('.c-col-details.c-collapsed') && document.activeElement === Q.rail('details') && kept('details').open === false, 'KB3: Enter');
               r.detailsRail = {collapsed: !!document.querySelector('.c-col-details.c-collapsed'), focus: document.activeElement === Q.rail('details'),
-                               label: Q.text('.c-col-details > .c-rail .c-rail-text'), kept: Q.kept().details.open};
+                               label: Q.text('.c-col-details > .c-rail .c-rail-text'), kept: kept('details').open};
               r.lines = Q.v().counts.lines;
               return r; }""")
             s = r["start"]
@@ -245,15 +281,26 @@ def test_desktop_layout_kept(parity_site):
             page.wait_for_function("() => !document.querySelector('.c-col-details.c-collapsed') && document.activeElement === Q.sep('details')", timeout=WAIT)
             # the card: its least height, ArrowUp, a drag of its top; its left edge; its fold; the credits' button
             page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
-            c = page.evaluate("""async () => { await Q.pause(600); const card = () => document.querySelector('.r-card'), top = () => document.querySelector('.r-card .r-card-top');
-              const r = {}; r.credits = Q.credits();
-              Q.key(top(), 'Home'); await Q.pause(); r.home = {height: card().offsetHeight, kept: Q.kept().profile.h, aria: Q.aria(top())};
-              Q.key(top(), 'ArrowUp'); await Q.pause(); r.up = {height: card().offsetHeight, kept: Q.kept().profile.h};
-              const during = await Q.drag(top(), 0, -40); r.drag = {height: card().offsetHeight, during: during.profile.h, kept: Q.kept().profile.h};
-              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight'); await Q.pause();
-              r.left = {left: Math.round(card().getBoundingClientRect().left - document.querySelector('.c-col-map').getBoundingClientRect().left), kept: [Q.kept().profile.l, Q.kept().profile.r]};
-              document.querySelector('.r-card .r-fold').click(); await Q.pause(); r.folded = [card().classList.contains('r-card-folded'), Q.kept().profile.folded];
-              document.querySelector('.r-card .r-fold').click(); await Q.pause(); r.unfolded = [card().classList.contains('r-card-folded'), Q.kept().profile.folded];
+            c = page.evaluate("""async () => { const card = () => document.querySelector('.r-card'), top = () => document.querySelector('.r-card .r-card-top');
+              const profile = () => (Q.kept() || {}).profile || {}, r = {};
+              await Q.until(() => card() && card().offsetHeight > 100 && Q.credits().toggle && !Q.credits().credits, 'P4, M4: the card and the credits folded');
+              r.credits = Q.credits();
+              Q.key(top(), 'Home');
+              await Q.until(() => { const a = Q.aria(top()); return profile().h === card().offsetHeight && a[0] === card().offsetHeight && a[0] === a[1]; }, 'P4: Home');
+              r.home = {height: card().offsetHeight, kept: profile().h, aria: Q.aria(top())};
+              const h = card().offsetHeight;
+              Q.key(top(), 'ArrowUp'); await Q.until(() => card().offsetHeight === h + 16 && profile().h === h + 16, 'P4: ArrowUp');
+              r.up = {height: card().offsetHeight, kept: profile().h};
+              const during = await Q.drag(top(), 0, -40, () => card().offsetHeight === h + 56, 'P4: the card followed the pointer');
+              await Q.until(() => profile().h === h + 56, 'P4: the card kept when released');
+              r.drag = {height: card().offsetHeight, during: during.profile.h, kept: profile().h};
+              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight');
+              await Q.until(() => Q.card().left === 28 && profile().l === 28, 'P4: the left edge');
+              r.left = {left: Q.card().left, kept: [profile().l, profile().r]};
+              document.querySelector('.r-card .r-fold').click(); await Q.until(() => Q.card().folded && profile().folded === true, 'P5: folded');
+              r.folded = [Q.card().folded, profile().folded];
+              document.querySelector('.r-card .r-fold').click(); await Q.until(() => !Q.card().folded && profile().folded === false, 'P5: unfolded');
+              r.unfolded = [Q.card().folded, profile().folded];
               return r; }""")
             assert c["credits"] == {"toggle": True, "credits": False}, f"M4: {c['credits']}"
             assert c["home"]["height"] == c["home"]["kept"] == c["home"]["aria"][1] == c["home"]["aria"][0], f"P4: {c['home']}"
@@ -270,17 +317,19 @@ def test_desktop_layout_kept(parity_site):
             page.wait_for_function("() => document.querySelector('.u-credits-toggle').getAttribute('aria-expanded') === 'false'", timeout=WAIT)
             assert page.evaluate("() => Q.credits()") == {"toggle": True, "credits": False}, "M4: the credits folded again"
             # a layout to find again: the list collapsed, wider details, a taller card, its left edge further in
-            before = page.evaluate("""async () => { document.querySelector('.c-col-list > .c-col-tab').click(); await Q.pause();
-              Q.key(Q.sep('details'), 'ArrowLeft', true); await Q.pause();
-              Q.key(document.querySelector('.r-card .r-card-top'), 'ArrowUp', true); await Q.pause();
-              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight', true); await Q.pause();
+            before = page.evaluate("""async () => { const kept = (side) => (Q.kept() || {})[side] || {};
+              document.querySelector('.c-col-list > .c-col-tab').click(); await Q.until(() => kept('list').open === false, 'KB5: the list collapsed');
+              Q.key(Q.sep('details'), 'ArrowLeft', true); await Q.until(() => Q.width('details') === 444 && kept('details').w === 444, 'KB5: the details wider');
+              const h = Q.card().height; Q.key(document.querySelector('.r-card .r-card-top'), 'ArrowUp', true);
+              await Q.until(() => Q.card().height === h + 64 && kept('profile').h === h + 64, 'KB5: the card taller');
+              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight', true); await Q.until(() => Q.card().left === 92 && kept('profile').l === 92, 'KB5: the left edge');
               return Q.kept(); }""")
             assert before["list"]["open"] is False and before["details"]["w"] == 444 and before["profile"]["l"] == 92, f"KB5: {before}"
             _clean(page, "W2")
             page.reload()
             page.wait_for_function("() => !!window.FINDALINE_VIEW && !!document.querySelector('.r-card .fal-profile-chart') && !!document.querySelector('.c-col-list > .c-rail')",
                                    timeout=WAIT)
-            page.evaluate("() => Q.pause(600)")
+            page.evaluate("() => Q.until(() => Q.card() && Q.card().left === 92 && Q.card().height === Q.kept().profile.h && Q.width('details') === 444, 'KB5: the layout after the reload')")
             again = page.evaluate("""() => ({list: document.querySelector('.c-col-list').className, details: Q.width('details'), kept: Q.kept(),
                 card: Math.round(document.querySelector('.r-card').getBoundingClientRect().height),
                 left: Math.round(document.querySelector('.r-card').getBoundingClientRect().left - document.querySelector('.c-col-map').getBoundingClientRect().left)})""")
@@ -300,10 +349,13 @@ def test_narrow_and_low_window(parity_site):
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _view(browser, parity_site, NARROW)
-            r = page.evaluate("""async () => { await Q.pause(); const r = {};
+            r = page.evaluate("""async () => { await Q.until(() => document.querySelector('.c-col-details.c-forced') && Q.width('list') === 372, 'KB6: the details collapsed by the window');
+              const r = {};
               r.forced = {details: document.querySelector('.c-col-details').className, auto: Q.text('.c-col-details .c-rail-auto'),
                           list: [!document.querySelector('.c-col-list.c-collapsed'), Q.width('list')], kept: Q.kept()};
-              Q.rail('details').click(); await Q.pause();
+              Q.rail('details').click();
+              await Q.until(() => !document.querySelector('.c-col-details.c-collapsed') && document.querySelector('.c-col-list.c-forced') && document.activeElement === Q.sep('details'),
+                            'KB6: the details expanded, the list collapsed');
               r.preferred = {details: [!document.querySelector('.c-col-details.c-collapsed'), Q.width('details')], list: document.querySelector('.c-col-list').className,
                              auto: !!document.querySelector('.c-col-list .c-rail-auto'), focus: document.activeElement === Q.sep('details'), kept: Q.kept()};
               return r; }""")
@@ -315,15 +367,15 @@ def test_narrow_and_low_window(parity_site):
             assert pr["focus"] and pr["kept"]["list"]["open"] is True, f"KB6: {pr}"
             # a low map: the card opens folded; nothing done there is kept
             low = page.evaluate("""async () => { const before = localStorage.getItem('findaline.layout'), {view} = window.FINDALINE_VIEW;
-              view.select(Array.from(view.order)[0]); for (let k = 0; k < 50 && !document.querySelector('.r-card'); k++) await Q.pause(100);
-              await Q.pause(); const card = () => document.querySelector('.r-card');
-              const r = {folded: card().classList.contains('r-card-folded'), mapHeight: document.querySelector('.c-col-map').clientHeight, credits: Q.credits()};
-              document.querySelector('.r-card .r-fold').click(); await Q.pause(); r.unfolded = !card().classList.contains('r-card-folded');
-              Q.key(document.querySelector('.r-card .r-card-top'), 'Home'); await Q.pause();
-              await Q.drag(document.querySelector('.r-card .r-card-top'), 0, -20);
-              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight'); await Q.pause();
+              view.select(Array.from(view.order)[0]); await Q.until(() => Q.card() && Q.credits().toggle, 'P7: the card');
+              const r = {folded: Q.card().folded, mapHeight: document.querySelector('.c-col-map').clientHeight, credits: Q.credits()};
+              document.querySelector('.r-card .r-fold').click(); await Q.until(() => !Q.card().folded, 'P7: unfolded'); r.unfolded = !Q.card().folded;
+              Q.key(document.querySelector('.r-card .r-card-top'), 'Home'); await T.frames();
+              const h = Q.card().height, most = Math.round(0.7 * document.querySelector('.c-col-map').clientHeight);
+              await Q.drag(document.querySelector('.r-card .r-card-top'), 0, -20, () => Q.card().height !== h || h >= most - 1, 'P7: the card followed the pointer');
+              Q.key(document.querySelector('.r-card .r-card-l'), 'ArrowRight'); await Q.until(() => Q.card().left === 28, 'P7: the left edge');
               r.same = localStorage.getItem('findaline.layout') === before;
-              r.left = Math.round(card().getBoundingClientRect().left - document.querySelector('.c-col-map').getBoundingClientRect().left);
+              r.left = Q.card().left;
               return r; }""")
             assert low["folded"] and low["mapHeight"] < 420 and low["credits"] == {"toggle": True, "credits": False}, f"P7: {low}"
             assert low["unfolded"] and low["same"] and low["left"] == 28, f"P7: {low}"
@@ -382,12 +434,14 @@ def _thin_point(page):
 
 def test_details_and_profile(parity_site):
     """A desktop: 14 px beside a line a finger's tap takes it and the mouse's click does not, also as WebKit sends a
-    tap (M11); the card's compact form (no head row, the line's facts in its bar and its title "Profile: …", the
+    tap (M11); with a spot selected, Esc on the table of spots closes it and the selection stays (M13); the card's
+    compact form (no head row, the line's facts in its bar and its title "Profile: …", the
     legend and the 1:1 scale under "Rigging and layers", toggled) (P3); its bar and readout show their whole text, the
     chart at least 120 px, the scale and the credits clear of the card, and the card, chart and readout steady under a
     moving cursor at the default width and at the narrowest and lowest (P9); a touch on the chart puts the point on the
-    map, gone with the next line (P12, M23); a thin line of the selected spot pressed selects that line (M8b); the facts'
-    values are today's for the same line (D15); a tight line's card writes its clearance rounded down as the rows do
+    map, gone with the next line (P12, M23); a thin line of the selected spot pressed selects that line (M8b); the card
+    closed by its x and brought back by "Profile" (D14, P6); the facts' values are today's for the same line (D15); a
+    link to a line outside the run measured with today's bar and title, asked once (P13); a tight line's card writes its clearance rounded down as the rows do
     (P10); the star's "New folder" makes a folder and saves the line into it (F2); a measurement the server refuses
     shows "Not computed: …" (E4)."""
     from playwright.sync_api import sync_playwright
@@ -401,6 +455,18 @@ def test_details_and_profile(parity_site):
             assert beside, "M11: no point 14 px beside a line that a finger alone reaches"
             taps = page.evaluate(TAPS_JS, beside)
             assert taps == {"mouse": None, "finger": beside["spot"], "webkit": beside["spot"]}, f"M11: {taps}"
+            # a spot selected, then a click where several spots lie about as near: the table of spots; Esc closes it and the
+            # selection stays
+            _state(page, "view.select(Array.from(view.order)[0]);")
+            chosen = page.evaluate("() => Q.v().selected.spot")
+            at = _crowded(page, False)
+            assert at, "M13: no point where a click reaches several spots"
+            page.mouse.click(at["x"], at["y"])
+            page.wait_for_selector(".vl-choose:not(.vl-choose-new)", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.vl-choose')", timeout=WAIT)
+            page.keyboard.press("Escape")
+            page.wait_for_selector(".vl-choose", state="detached", timeout=WAIT)
+            assert page.evaluate("() => Q.v().selected && Q.v().selected.spot") == chosen, "M13: Esc on the table ended the selection"
             _state(page, "view.select(Array.from(view.order).find((s) => view.passingCount(s) >= 3));")
             page.wait_for_selector(".r-card .fal-profile-chart svg", timeout=WAIT)
             page.wait_for_function("() => /FABDEM/.test(document.querySelector('.leaflet-control-attribution').textContent)", timeout=WAIT)
@@ -455,6 +521,15 @@ def test_details_and_profile(parity_site):
             page.mouse.click(thin["x"], thin["y"])
             page.wait_for_function(f"() => Q.v().selected && Q.v().selected.row === {thin['row']}", timeout=WAIT)
             assert page.evaluate("() => [Q.v().selected.spot, Q.v().selected.row]") == [spot, thin["row"]], f"M8b: {thin}"
+            # the card closed by its x: "Profile" among the line's actions brings it back (a desktop's button, as today's)
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            page.click(".r-card .r-dock-bar [aria-label='Close the profile']")
+            page.wait_for_selector(".r-card", state="detached", timeout=WAIT)
+            page.wait_for_selector(".c-col-details .r-reprofile", timeout=WAIT)
+            assert page.evaluate("() => [Q.text('.c-col-details .r-reprofile'), Q.m().profileClosed]") == ["Profile", True], "D14, P6: the closed card's button"
+            page.click(".c-col-details .r-reprofile")
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            assert page.evaluate("() => [!!document.querySelector('.r-reprofile'), Q.m().profileClosed]") == [False, False], "D14, P6: the card back"
             # the facts of the selected line against today's page's for the same line
             link = page.evaluate("() => Q.m().lineLink(Q.v().selected.line)")
             page.wait_for_selector(".vl-facts", timeout=WAIT)
@@ -487,6 +562,21 @@ def test_details_and_profile(parity_site):
             else:
                 assert stands_text == WORDS["ui.view.stands_for_n_other"].replace("{{n}}", _count(stands)), f"D15 (stands for): {stands_text}"
                 assert joined(kv[WORDS["ui.details.stands_for"]]).startswith(f"{stands} "), f"D15 (stands for): {kv}"
+            # a link to a line outside the run: measured, the dock's bar and the profile's title as today's, asked once, no
+            # note, nothing selected, the link kept
+            page = _open(browser, f"{parity_site['url']}#run={BIG}&line={urllib.parse.quote(OUTSIDE, safe='')}", WIDE, script=PARITY + PROFILE_STUB)
+            page.wait_for_selector(".r-card .fal-profile-chart svg", timeout=WAIT)
+            measured = page.evaluate("""() => ({bar: Q.text('.r-card .r-dock-bar > b'), title: Q.text('.r-card .fal-profile-title'), asked: window.PROFILE_ASKS,
+                link: Q.m().measuredLink, note: Q.m().note, selected: !!Q.v().selected, hash: decodeURIComponent(location.hash), lift: Q.m().data.lift || 0})""")
+            # the anchors' heights are the stub's ends raised by the run's A-frames (2 m here; today's test ran a run
+            # without them: "A1 300.0 m → A2 301.0 m"; today's page shows the same title on this run)
+            title = f"Measured: 80 m, A1 {300 + measured['lift']:.1f} m → A2 {301 + measured['lift']:.1f} m"
+            assert measured["bar"] == "Measured profile" and measured["title"].startswith(title), f"P13: {measured}"
+            assert measured["asked"] == ["49.5000000,19.1000000,49.5004000,19.1005000"], f"P13: {measured}"
+            assert measured["link"] == OUTSIDE and measured["note"] is None and measured["selected"] is False, f"P13: {measured}"
+            assert measured["hash"] == f"#run={BIG}&line={OUTSIDE}", f"P13: {measured}"
+            _clean(page, "W4, the measured link")
+            page.context.close()
             # a tight line's card: its clearance rounded down as the rows write it
             page = _view(browser, parity_site, WIDE)
             tight = page.evaluate("""() => { const v = Q.v(); const s = Array.from(v.order).find((x) => v.values.clr[v.shownOf(x)] < 1);
