@@ -44,12 +44,17 @@ def test_the_states_open_the_view():
         assert ui_shots.PAGES[name] == (ui, hash_, steps, *who) and ui_shots.VIEWS[name] == "b", name
         assert (ui, hash_) in (("c", "#run={run}"), ("map", ""), ("map", "#line={line}"), ("shared", "#line={line}")), name
         assert steps[0] == ui_shots.VIEW_READY and ui_shots.page_family(name) == "view-b", name
-        assert ui_shots.NEEDS[name] == ("shore" if name in SHORE else "view"), name
+        assert ui_shots.NEEDS[name] == (("view", "shore") if name in SHORE else "view"), name
         assert all(s.startswith(("js:", "wait:")) or s in CLICKS for s in steps), name
         assert "localStorage.setItem('findaline.view', \"b\")" in ui_shots.page_storage(name), name
     assert ui_shots.LAYOUTS["c-view-rails"] == ui_shots.LAYOUTS["c-result-rails"]
-    # the clip's run (the view's columns, no shore) leaves out the coast boxes' states before any load
-    assert set(ui_shots.left_out_by_run(ui_shots.VIEW_STATES, {"view"})) == SHORE
+    # the clip's run (the view's columns, no shore) leaves out the coast boxes' states before any load; a coastal run
+    # saved before the view's columns leaves out every state of the view, the coast ones too (no wait for a view that
+    # never comes)
+    assert ui_shots.left_out_by_run(ui_shots.VIEW_STATES, {"view"}) == {n: ui_shots.LACKS["shore"] for n in SHORE}
+    no_view = {n: ui_shots.LACKS["view"] for n in ui_shots.VIEW_STATES}
+    assert ui_shots.left_out_by_run(ui_shots.VIEW_STATES, {"shore"}) == no_view
+    assert ui_shots.left_out_by_run(ui_shots.VIEW_STATES, {"view", "shore"}) == {}
     # a desktop's state: a phone finds no header's middle; a phone's: a desktop has no pill
     desktop = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_DESKTOP in p[2]]
     phone = [n for n, p in ui_shots.VIEW_STATES.items() if ui_shots.VIEW_PHONE in p[2]]
@@ -79,3 +84,14 @@ def test_todays_pages_are_pinned():
         script = ui_shots.page_storage(name)
         assert f"localStorage.setItem('{today_page.KEY}', \"today\")" in script and "removeItem('findaline.view')" not in script, name
     assert json.dumps("today") in today_page.SCRIPT.replace("'", '"')
+
+
+def test_the_owners_header_has_edit_and_run_again():
+    """G3: c-view-share's page gets a finished job of its run in the app's list (answered in the page, after the storage
+    of its init script), so the header has "Edit & run again"; no other page has the stub."""
+    assert set(ui_shots.PAGE_SCRIPTS) == {"c-view-share"}
+    assert ui_shots.page_storage("c-view-share").endswith(ui_shots.VIEW_JOB_STUB)
+    assert all(ui_shots.VIEW_JOB_STUB not in ui_shots.page_storage(n) for n in ui_shots.PAGES if n != "c-view-share")
+    assert "pathname !== '/api/jobs'" in ui_shots.VIEW_JOB_STUB and "init.method !== 'GET'" in ui_shots.VIEW_JOB_STUB
+    assert "Edit & run again" in ui_shots.PAGES["c-view-share"][2][1]
+

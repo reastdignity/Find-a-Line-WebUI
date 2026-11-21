@@ -593,9 +593,12 @@ VIEW_STATES = {
                                            "js:(document.querySelector('.u-sheet-body') || document.querySelector('.c-col-list .vl-body'))?.scrollTo(0, 0)"]),
     "c-view-report": ("c", "#run={run}", VIEW_SELECTED_AT + ["js:" + VIEW_HALF, VIEW_DOCK_DONE,
                                                             "js:document.querySelector('.r-report')?.scrollIntoView({block: 'end'})"]),
-    # the gate: the owner's Share menu (G3); a link's measured line outside the run (G4b; its profile made up); the
+    # the gate: the owner's header with "Edit & run again" (a finished job of the run, answered in the page:
+    # PAGE_SCRIPTS) and Share's menu open (G3); a link's measured line outside the run (G4b; its profile made up); the
     # map's "i" open (G8: a desktop's both texts, a phone's parts open on the first); Measure's tip while measuring
-    "c-view-share": ("c", "#run={run}", [VIEW_READY, VIEW_ACTION % "Share", "wait:document.querySelector('.r-share')"]),
+    "c-view-share": ("c", "#run={run}", [VIEW_READY, "wait:document.querySelector('[aria-label=\"Edit & run again\"], "
+                                                     ".c-result-top a[href*=\"edit\"]')",
+                                         VIEW_ACTION % "Share", "wait:document.querySelector('.r-share')"]),
     "c-view-link": ("c", "#run={run}", [VIEW_READY, VIEW_PROFILE_STUB, VIEW_LINK % VIEW_OUTSIDE, "wait:!!window.FINDALINE_VIEW.measured",
                                         VIEW_CHART]),
     "c-view-help": ("c", "#run={run}", [VIEW_READY, "js:[...document.querySelectorAll('.v-about-button button, .v-help-button button')]"
@@ -630,11 +633,25 @@ VIEW_STATES = {
                                         "js:" + VIEW_DO % "const m = view.model; m.setFilters({...m.filters, lenMin: 1000000})",
                                         "wait:document.querySelector('.vl-none')"]),
 }
+# A finished job of the shown run in the app's list of jobs, so the header has the run's "Edit & run again"
+# (AppC.tsx editJob): /api/jobs answered in the page before the app asks (the site's jobs are not written), the run's
+# id from the address. An init script of the page (page_storage adds PAGE_SCRIPTS' after the storage)
+VIEW_JOB_STUB = ("(() => { const run = decodeURIComponent((location.hash.match(/run=([^&]+)/) || [])[1] || ''), "
+                 "f = window.fetch; window.fetch = (url, init) => "
+                 "new URL(String(url), location.href).pathname !== '/api/jobs' "
+                 "|| (init && init.method && init.method !== 'GET') ? f(url, init) "
+                 ": Promise.resolve(new Response(JSON.stringify({jobs: [{id: 'job-shots-1', status: 'done', "
+                 "run_id: run, name: 'Żabi Koń clip', created: '2026-11-21T10:00:00', finished: '2026-11-21T10:05:00', "
+                 "own: true}], "
+                 "seq: 1, worker: true}), {headers: {'content-type': 'application/json'}})); })();")
+PAGE_SCRIPTS = {"c-view-share": VIEW_JOB_STUB}
+# Not here: the gate's 1024 x 768 pictures (G9's desktop column, X3: the list's heads with a mouse and on touch) need a
+# device ui_shots does not have (DEVICES); X2 is a sheet of c-view-line's pictures beside the mock-up
 PAGES.update(VIEW_STATES)
 VIEWS.update({name: "b" for name in VIEW_STATES})
 NEEDS.update({name: "view" for name in VIEW_STATES})
-NEEDS.update({name: "shore" for name in ("c-view-boxes", "c-view-chips-held", "c-view-box-coarser", "c-view-box-shore",
-                                         "c-view-link-centre")})
+NEEDS.update({name: ("view", "shore") for name in ("c-view-boxes", "c-view-chips-held", "c-view-box-coarser",
+                                                   "c-view-box-shore", "c-view-link-centre")})
 LAYOUTS["c-view-rails"] = LAYOUTS["c-result-rails"]
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -949,8 +966,15 @@ def store_has_view(run_folder: str) -> bool:
 
 
 def left_out_by_run(pages, features: set) -> dict:
-    """The pages of `pages` whose feature (NEEDS) the run lacks: name -> the reason."""
-    return {name: LACKS[NEEDS[name]] for name in pages if name in NEEDS and NEEDS[name] not in features}
+    """The pages of `pages` whose feature (NEEDS: one, or a tuple of them all needed) the run lacks: name -> the reason
+    (the first feature it lacks)."""
+    found = {}
+    for name in pages:
+        needs = NEEDS.get(name, ())
+        lacking = [n for n in ((needs,) if isinstance(needs, str) else needs) if n not in features]
+        if lacking:
+            found[name] = LACKS[lacking[0]]
+    return found
 
 
 MARKER = "ui-shots.json"  # in a kept data folder: the key of the code that made it, the clip's run shown there
@@ -1159,7 +1183,7 @@ def page_storage(name: str) -> str:
         f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
         else "localStorage.removeItem('findaline.layout'); ") + (
         f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
-        else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}"
+        else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}" + PAGE_SCRIPTS.get(name, "")
 
 
 def page_url(site: dict, ui: str, hash_: str) -> str:

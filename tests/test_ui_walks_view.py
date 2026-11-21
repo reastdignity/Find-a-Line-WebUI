@@ -21,16 +21,16 @@ def _source(*names) -> str:
 def test_the_views_walks_mirror_todays():
     """Each view's walk names today's walk it mirrors: the same user, device and memory, its page "view"; every other
     walk opens today's page (the default "today"); the walks' data has no error."""
-    assert set(uw.VIEW_WALKS) == {"VR2", "VF2", "VR3", "VR4"} and set(uw.VIEW_WALKS) <= set(uw.WALKS)
+    assert set(uw.VIEW_WALKS) == {"VR2", "VF2", "VR3", "VR4"} and not set(uw.VIEW_WALKS) & set(uw.WALKS)
     for wid, walk in uw.VIEW_WALKS.items():
         today = uw.WALKS[walk["mirrors"]]
         assert walk["page"] == "view" and today.get("page", "today") == "today", wid
         assert (walk["user"], walk["device"], walk["memory"], walk["start"]) == \
             (today["user"], today["device"], today["memory"], today["start"]), wid
         assert walk.get("needs") == today.get("needs"), wid  # R3's fixture lacks a second run in both
-    assert all(w.get("page", "today") == "today" for wid, w in uw.WALKS.items() if wid not in uw.VIEW_WALKS)
-    assert uw.walk_errors(uw.WALKS, ["admin", "walker"], ui_shots.DEVICES) == []
-    assert uw.walk_errors({"X": {**uw.WALKS["VR2"], "page": "b"}}, ["admin"], ui_shots.DEVICES) == \
+    assert all(w.get("page", "today") == "today" for w in uw.WALKS.values())
+    assert uw.walk_errors({**uw.WALKS, **uw.VIEW_WALKS}, ["admin", "walker"], ui_shots.DEVICES) == []
+    assert uw.walk_errors({"X": {**uw.VIEW_WALKS["VR2"], "page": "b"}}, ["admin"], ui_shots.DEVICES) == \
         ["X: unknown result page 'b'"]
 
 
@@ -49,3 +49,19 @@ def test_the_view_has_what_its_walks_press():
         assert re.search(rf'["\s]{cls}["\s]', src), cls
     assert "Favourite folders" in src and "New folder's name" in src and "Add to favourites" in src
     assert "VR4" == list(uw.VIEW_WALKS)[-1]  # it saves a favourite, as R4: last of its run
+
+
+def test_the_views_walks_run_apart():
+    """A run of every walk walks today's walks as before this round (R4 last); the view's only with --view or when
+    --only names them, never with today's in one run (VR4 saves a favourite and a link, as R4 does)."""
+    assert list(uw.walks_of()) == ["R1", "R2", "R3", "F1", "F2", "F3", "R4"] == list(uw.WALKS)
+    assert list(uw.walks_of(view=True)) == ["VR2", "VF2", "VR3", "VR4"]
+    assert list(uw.walks_of("VR4,VF2")) == ["VF2", "VR4"] and list(uw.walks_of("R2,F2")) == ["R2", "F2"]
+    assert list(uw.walks_of("VR2", view=True)) == ["VR2"] and list(uw.walks_of("nothing")) == []
+    for only, view in (("R2,VR2", False), ("R2", True)):
+        try:
+            uw.walks_of(only, view)
+        except ValueError as e:
+            assert "run apart" in str(e)
+        else:
+            raise AssertionError((only, view))

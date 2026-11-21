@@ -55,6 +55,7 @@ RESULT, PROFILE, HOME, POPOVER, FORM, chip()) read the page's classes.
     uv sync --group ui
     uv run playwright install chromium webkit
     uv run tools/ui_walks.py --out <folder> [--only R1,F2]
+    uv run tools/ui_walks.py --out <folder> --view [--only VR2]    (the result view's walks: a run of their own)
     uv run tools/ui_walks.py compare <folder1>/walks.json <folder2>/walks.json
     uv run tools/ui_walks.py probe --out <folder> --user admin --device desktop --start "/?ui=c#run={run} | <selector>"
 
@@ -68,7 +69,8 @@ is, tools/today_page.py; or "view", the result view), its start address ("{run}"
 screen, note), and optionally "needs" (what the fixtures lack for the whole walk, shown with a dead end) or "skip"
 (not walked, and why). A swipe is one pointer action (made as scrolling the element into view); a tap on an element
 outside the viewport is flagged in walks.md (the walk then lacks a swipe). Seconds are indicative: the machine's load
-and Playwright's polling are in them.
+and Playwright's polling are in them. The result view's walks (VIEW_WALKS: today's result walks done in the view) are
+walked only in a run of their own (`--view`, or `--only` naming them), on a fresh data folder like every run.
 """
 
 import argparse
@@ -329,10 +331,10 @@ WALKS = {
 # the same tree. Where the view does a step its own way the walk does it so and a note says so; a step the view
 # cannot do is a dead end. The view's own marks: its list's rows (.vl-rows' .vl-main, the first visible one: "Best in
 # view" above the tree), the details' head (.vl-dhead: the star, the line's facts), the profile in the desktop's card
-# or in a phone's sheet (.r-card, .u-sheet-body), the phone's sheet handle. They stand before R4, which stays last;
-# VR4 saves a favourite too (the list's second line, so R4's first one is not a favourite yet in a run of every
-# walk; R4 then sees VR4's favourite and folder on Home): a comparison counts the view's walks in a tool run of their
-# own (--only VR2,VF2,VR3,VR4) and today's in another, each on a fresh data folder.
+# or in a phone's sheet (.r-card, .u-sheet-body), the phone's sheet handle. They are not in WALKS: a run walks them
+# only when asked (`--view`, or `--only` naming them), never together with today's (VR4 saves a favourite into a
+# folder and makes a share link, as R4 does), so each kind counts on a fresh data folder of its own and a run of every
+# walk is the base's (walks_of).
 VIEW_RESULT = "!!window.FINDALINE_VIEW && !!document.querySelector('.vl-rows .vl-main')"  # the view drawn, its list
 VIEW_ROWS = ".vl-rows > li > .vl-main"
 VIEW_PROFILE = "!!document.querySelector('.r-card .fal-profile-chart, .u-sheet-body .fal-profile-chart')"
@@ -405,8 +407,7 @@ VIEW_WALKS = {
             wait(HOME), screen("Home"),
             *VIEW_OPEN_RUN,
             note("the list's star saves to the top level at once; a folder is chosen with the star in the line's head"),
-            note("the list's second line (R4 saves the first: see above)"),
-            tap(VIEW_ROWS + " >> nth=1", LINE, "the line's details"),
+            tap(VIEW_ROWS, LINE, "the line's details"),
             screen("the line's details"),
             tap(".vl-dhead >> role=button[name='Add to favourites']", POPOVER, "Save to a folder"),
             screen("Save to a folder"),
@@ -425,7 +426,19 @@ VIEW_WALKS = {
             screen("the link"),
         ]},
 }
-WALKS = {**{k: w for k, w in WALKS.items() if k != "R4"}, **VIEW_WALKS, "R4": WALKS["R4"]}  # R4 last
+
+
+def walks_of(only: str = "", view: bool = False) -> dict:
+    """The walks of a run: today's (WALKS, R4 last) by default; the view's (VIEW_WALKS) with `view` or when `only`
+    names them; `only` narrows either (a name of neither list is ignored, as before). Today's and the view's never in
+    one run: ValueError."""
+    wanted = [w for w in only.split(",") if w]
+    views = [w for w in wanted if w in VIEW_WALKS]
+    todays = [w for w in wanted if w in WALKS]
+    if (view or views) and todays:
+        raise ValueError(f"today's walks ({', '.join(todays)}) and the view's run apart, each on a fresh data folder")
+    chosen = VIEW_WALKS if view or views else WALKS
+    return {wid: w for wid, w in chosen.items() if not wanted or wid in wanted}
 
 
 def walk_errors(walks: dict, users, devices) -> list:
@@ -1072,6 +1085,8 @@ def main():
         p.add_argument("--out", required=p is probe, help="folder of the output")
         p.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
     parser.add_argument("--only", default="", help="walks by id (comma-separated)")
+    parser.add_argument("--view", action="store_true",
+                        help="the result view's walks (VIEW_WALKS) instead of today's: a run of their own")
     probe.add_argument("--user", default="admin")
     probe.add_argument("--device", default="desktop", choices=list(ui_shots.DEVICES))
     probe.add_argument("--memory", default="returning", choices=MEMORIES)
@@ -1086,7 +1101,11 @@ def main():
         return
     if not args.out:
         parser.error("--out is needed")
-    errors = walk_errors(WALKS, list(ui_shots.RIGGERS) + ["admin", "walker"], ui_shots.DEVICES)
+    try:
+        chosen = walks_of(args.only, args.view)
+    except ValueError as e:
+        parser.error(str(e))
+    errors = walk_errors({**WALKS, **VIEW_WALKS}, list(ui_shots.RIGGERS) + ["admin", "walker"], ui_shots.DEVICES)
     if errors:
         sys.exit("\n".join(errors))
     for name in ("ESRI_API_KEY", "DATAFORDELER_API_KEY"):  # no key in the app this tool starts
@@ -1140,10 +1159,7 @@ def main():
                 context.close()
                 refused_all += refused
             else:
-                wanted = [w for w in args.only.split(",") if w]
-                for wid, walk in WALKS.items():
-                    if wanted and wid not in wanted:
-                        continue
+                for wid, walk in chosen.items():
                     if walk.get("skip"):
                         records.append({"id": wid, "title": walk["title"], "user": walk["user"],
                                         "device": walk["device"], "memory": walk["memory"], "steps": [],

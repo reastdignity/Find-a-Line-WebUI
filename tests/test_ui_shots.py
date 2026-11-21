@@ -455,7 +455,7 @@ def test_tables_name_pages():
     """Every page that NEEDS, LAYOUTS and LAYER_LAYOUTS name is a page of PAGES; every feature has its reason."""
     for table in (ui_shots.NEEDS, ui_shots.LAYOUTS, ui_shots.LAYER_LAYOUTS):
         assert set(table) <= set(ui_shots.PAGES), set(table) - set(ui_shots.PAGES)
-    assert set(ui_shots.NEEDS.values()) == set(ui_shots.LACKS)
+    assert {n for v in ui_shots.NEEDS.values() for n in ((v,) if isinstance(v, str) else v)} == set(ui_shots.LACKS)
 
 
 def _run_json(folder, params=None, shore=None):

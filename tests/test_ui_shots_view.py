@@ -54,6 +54,7 @@ def test_the_views_states():
     left = ui_shots.left_out_by_run(ui_shots.PAGES, {"lift", "found"})
     assert set(ui_shots.VIEWS) <= set(left) and left["c-view"] == ui_shots.LACKS["view"]
     assert not set(ui_shots.VIEWS) & set(ui_shots.left_out_by_run(ui_shots.PAGES, {"view", "shore"}))
+    assert set(ui_shots.VIEWS) <= set(ui_shots.left_out_by_run(ui_shots.PAGES, {"shore"}))  # no view: all left out
     # the steps' scripts name the page's own objects
     assert "window.FINDALINE_VIEW" in ui_shots.VIEW_AT and "map.zoomOf(1)" in ui_shots.VIEW_AT % 1
     # c-view-area: the line then in the middle of the map's part between the switch and the bar's foot (a phone's
