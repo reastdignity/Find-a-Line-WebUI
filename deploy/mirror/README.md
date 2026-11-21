@@ -275,7 +275,7 @@ at once after `docker start`; with the address there before the daemon started, 
 mirror's own project is not affected (it publishes no port). So after every reboot of the server, and after the
 link was down while Docker started, check the door in `publish/` once the link is up:
 ```sh
-docker compose ps                # sftp: running (healthy); Exited, or not listed: the address was missing
+docker compose ps -a             # sftp: running (healthy); Exited or Created: the address was missing
 docker compose up -d             # starts it, now that the address exists
 docker compose port sftp 2222    # PUBLISH_ADDRESS (<address>:<port>) again
 ```
@@ -312,7 +312,7 @@ sha1sum_command = none
 
 **If the door does not answer** (a publish stops at the connection), in this order:
 - your link is up (when the PC uses one), and the PC reaches `PUBLISH_ADDRESS`;
-- on the server in `publish/`: `docker compose ps` shows `sftp` running (healthy); if it is not running,
+- on the server in `publish/`: `docker compose ps -a` shows `sftp` running (healthy); if it is Exited or Created,
   `docker compose up -d` (after a reboot whose link came up after Docker: above), then
   `docker compose port sftp 2222` shows `PUBLISH_ADDRESS` again.
 
