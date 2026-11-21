@@ -220,7 +220,8 @@ def test_runs_the_view_cannot_show(site, bundles, device):
                             page.wait_for_function(STILL, polling=400, timeout=WAIT)
                             words[(default, run)] = page.evaluate(TEXT)
                         assert _load(page, f"{origin}/runs/{run}/map.html") == "today", (default, run, query)
-                        assert page.errors == [] and "app.js" in page.served, (default, run, query, page.errors)
+                        served = {"app.js", "viewer.js"} <= set(page.served)  # both from the scratch build
+                        assert page.errors == [] and served, (default, run, query, page.errors, page.served)
                         page.context.close()
             for run in (OLD, FAR):
                 a, b = words[(False, run)], words[(True, run)]
@@ -232,10 +233,10 @@ def test_runs_the_view_cannot_show(site, bundles, device):
 
 @pytest.mark.parametrize("default", [False, True], ids=["default-today", "default-view"])
 def test_storage_blocked(site, bundles, default):
-    """With the browser's storage blocked the default holds, the address decides its own load only, and nothing
-    throws (the desktop; a phone takes the same function)."""
+    """With the browser's storage blocked the default holds, the address decides its own load only, a run's map.html
+    too, and nothing throws (the desktop; a phone takes the same function)."""
     from playwright.sync_api import sync_playwright
-    app, _ = site
+    app, origin = site
     run = f"{app}#run={BIG}"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -244,7 +245,10 @@ def test_storage_blocked(site, bundles, default):
             seen = [_load(page, _with(run, q)) for q in ("", "view=today", "", "view=b", "")]
             first = "view" if default else "today"
             assert seen == [first, "today", first, "view", first]
-            assert page.evaluate(KEPT) == "blocked" and page.errors == [] and "app.js" in page.served
+            map_html = f"{origin}/runs/{BIG}/map.html"
+            assert [_load(page, _with(map_html, q)) for q in ("", "view=today", "view=b")] == [first, "today", "view"]
+            assert page.evaluate(KEPT) == "blocked" and page.errors == []
+            assert {"app.js", "viewer.js"} <= set(page.served), page.served
         finally:
             browser.close()
 

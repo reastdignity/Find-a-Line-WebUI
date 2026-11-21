@@ -148,7 +148,8 @@ def test_thumbnails_from_the_store(thumb_data, tmp_path):
     runs = list(DRAWN + FAILED + (LARGE,))
     stubs = THUMB_STUBS % {"hidden": json.dumps(list(HIDDEN)), "not_fetched": json.dumps(list(NOT_FETCHED))}
     page = stub_page(thumb_data, "cthumb", THUMB_SCRIPT % {"runs": json.dumps(runs),
-                                                           "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs)
+                                                           "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs,
+                     today=True)
     with _server(thumb_data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-thumb", size="1280,6000")  # every card in view
     assert "timeout" not in r and "error" not in r and "rejection" not in r, json.dumps(r)[:3000]
@@ -200,7 +201,8 @@ def test_thumbnail_over_and_clean_lines(tmp_path, big_clip):
     small_copy(data, big, lines=n, small=OVER, name=OVER)
     stubs = THUMB_STUBS % {"hidden": "[]", "not_fetched": "[]"}
     page = stub_page(data, "cthumb", THUMB_SCRIPT % {"runs": json.dumps([OVER]),
-                                                     "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs)
+                                                     "run_files": json.dumps(list(web.RUN_FILES))}, stubs=stubs,
+                     today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-over", size="1280,2000")
     assert "timeout" not in r and "error" not in r and "rejection" not in r, json.dumps(r)[:3000]

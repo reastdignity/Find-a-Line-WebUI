@@ -144,12 +144,13 @@ def small_copy(data_dir, run_id: str, lines: int = SMALL_LINES, small: str = SMA
     return small
 
 
-def stub_page(data_dir, folder: str, script: str = "", stubs: str = C_STUBS) -> str:
-    """The app's page in runs/<folder>/index.html with the stubs before and the script after the app."""
+def stub_page(data_dir, folder: str, script: str = "", stubs: str = C_STUBS, today: bool = False) -> str:
+    """The app's page in runs/<folder>/index.html with the stubs before and the script after the app; `today`: today's
+    result page pinned first in the stubs (tools/today_page.py: a test of today's page, whatever VIEW_DEFAULT is)."""
     path = os.path.join(str(data_dir), "runs", folder)
     os.makedirs(path, exist_ok=True)
     with open(os.path.join(path, "stubs.js"), "w", encoding="utf-8") as f:
-        f.write(stubs)
+        f.write((today_page.SCRIPT if today else "") + stubs)
     with open(os.path.join(path, "test.js"), "w", encoding="utf-8") as f:
         f.write(HELPERS + script if script else "")
     app = web.create_app(str(data_dir), token=TOKEN, start_scheduler=False)
@@ -371,7 +372,7 @@ def test_shell_c_desktop(data, tmp_path):
     ‹ › and a filter chip; a favourite shows in home's aside; Back and Forward; the copied link (without ?ui=)
     opens the line; Edit & run again opens the form with the job's request; no CSP violations."""
     import urllib.parse
-    page = stub_page(data, "ctest", DESKTOP_SCRIPT % {"big": BIG, "small": SMALL})
+    page = stub_page(data, "ctest", DESKTOP_SCRIPT % {"big": BIG, "small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -467,7 +468,7 @@ def test_shell_c_phone(data, tmp_path):
     sheet at half the map, at full it stays below the top bar, whose Home returns; nothing wider than the window;
     no CSP violations."""
     import urllib.parse
-    page = stub_page(data, "cphone", PHONE_SCRIPT % {"small": SMALL})
+    page = stub_page(data, "cphone", PHONE_SCRIPT % {"small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-phone", size="500,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -482,7 +483,7 @@ def test_shell_c_phone(data, tmp_path):
     assert r["csp"] == []
     # A line's link opened directly: its spot in the sheet's peek with ‹ ›; the sheet's heights; Home
     line = first_line(data, SMALL)
-    page = stub_page(data, "cphonelink", PHONE_LINK_SCRIPT % {"line": line})
+    page = stub_page(data, "cphonelink", PHONE_LINK_SCRIPT % {"line": line}, today=True)
     link = f"#run={urllib.parse.quote(SMALL, safe='')}&line={urllib.parse.quote(line, safe='')}"
     with _server(data) as port:
         r = _edge(port, page + "?ui=c" + link, tmp_path / "edge-phone-link", size="500,900")
@@ -576,7 +577,7 @@ def test_shell_c_link_outside_the_run(data, tmp_path):
     measured as two clicked points are: the profile asked for, the dock showing it as measured, no note, and the
     link kept in the address."""
     import urllib.parse
-    page = stub_page(data, "coutside", OUTSIDE_SCRIPT, OUTSIDE_STUBS)
+    page = stub_page(data, "coutside", OUTSIDE_SCRIPT, OUTSIDE_STUBS, today=True)
     link = f"#run={urllib.parse.quote(SMALL, safe='')}&line={urllib.parse.quote(OUTSIDE, safe='')}"
     with _server(data) as port:
         r = _edge(port, page + "?ui=c" + link, tmp_path / "edge-outside")
@@ -625,10 +626,10 @@ def test_shell_c_too_large(data, tmp_path):
     import mapping
     with open(os.path.join(REPO, "locales", "en.json"), encoding="utf-8") as f:
         words = json.load(f)["ui.result.too_large"]
-    page = stub_page(data, "ctoolarge", TOO_LARGE_SCRIPT, TOO_LARGE_STUBS)
+    page = stub_page(data, "ctoolarge", TOO_LARGE_SCRIPT, TOO_LARGE_STUBS, today=True)
     folder = data / "runs" / SMALL  # its own map.html, the stubs first
     mapping.install_viewer(str(data / "runs"))
-    (folder / "toolarge_stubs.js").write_text(TOO_LARGE_STUBS, encoding="utf-8")
+    (folder / "toolarge_stubs.js").write_text(today_page.SCRIPT + TOO_LARGE_STUBS, encoding="utf-8")
     (folder / "toolarge_test.js").write_text(HELPERS + TOO_LARGE_SCRIPT, encoding="utf-8")
     html = (folder / "map.html").read_text(encoding="utf-8")
     (folder / "toolarge.html").write_text(
@@ -690,10 +691,10 @@ def test_shell_c_store_or_none(data, tmp_path):
     small_copy(data, BIG, small=OLD)
     drop_store(data, OLD)
     add_credits(data, SMALL)
-    page = stub_page(data, "cwhich", WHICH_FILE_SCRIPT % {"small": SMALL, "old": OLD})
+    page = stub_page(data, "cwhich", WHICH_FILE_SCRIPT % {"small": SMALL, "old": OLD}, today=True)
     folder = data / "runs" / SMALL  # its own map.html with the test after it
     mapping_html = (folder / "map.html").read_text(encoding="utf-8")
-    (folder / "which_stubs.js").write_text(C_STUBS, encoding="utf-8")
+    (folder / "which_stubs.js").write_text(today_page.SCRIPT + C_STUBS, encoding="utf-8")
     (folder / "which_test.js").write_text(HELPERS + MAP_STORE_SCRIPT % {"small": SMALL}, encoding="utf-8")
     (folder / "which.html").write_text(
         mapping_html.replace("<head>", '<head><script src="which_stubs.js"></script>')
@@ -754,7 +755,7 @@ def test_shell_c_compare_from_the_store(data, tmp_path):
     small_copy(data, BIG, small=COMPARED, name="Compared run")
     small_copy(data, BIG, small=OLD, name="Old run")
     drop_store(data, OLD)
-    page = stub_page(data, "ccompare", COMPARE_SCRIPT % {"small": SMALL, "compared": COMPARED, "old": OLD})
+    page = stub_page(data, "ccompare", COMPARE_SCRIPT % {"small": SMALL, "compared": COMPARED, "old": OLD}, today=True)
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-compare")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -800,7 +801,7 @@ def test_shell_c_map_says_why_a_store_failed(data, tmp_path):
     mapping.install_viewer(str(data / "runs"))
     for run_id in (NEWER, BROKEN):
         folder = data / "runs" / run_id
-        (folder / "why_stubs.js").write_text(C_STUBS, encoding="utf-8")
+        (folder / "why_stubs.js").write_text(today_page.SCRIPT + C_STUBS, encoding="utf-8")
         (folder / "why_test.js").write_text(HELPERS + MAP_ERROR_SCRIPT, encoding="utf-8")
         html = (folder / "map.html").read_text(encoding="utf-8")
         (folder / "why.html").write_text(html.replace("<head>", '<head><script src="why_stubs.js"></script>')
@@ -928,7 +929,7 @@ def test_shell_c_result_extras(data, tmp_path):
     details), the attribution and the scale above it; the line's 3D view; where spots lie about as near, a click
     lists them next to it within the map, and a row selects its spot; no CSP violations."""
     add_credits(data, SMALL)
-    page = stub_page(data, "cextras", EXTRAS_SCRIPT % {"small": SMALL})
+    page = stub_page(data, "cextras", EXTRAS_SCRIPT % {"small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-extras")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -1206,8 +1207,8 @@ def test_shell_c_layout(data, tmp_path):
     mark, never kept, and expanding them collapses the list; in a low map the card opens folded and nothing changed
     there is kept. No CSP violations."""
     add_credits(data, SMALL)
-    page = stub_page(data, "clayout", LAYOUT_SCRIPT)
-    narrow = stub_page(data, "cnarrow", NARROW_SCRIPT)
+    page = stub_page(data, "clayout", LAYOUT_SCRIPT, today=True)
+    narrow = stub_page(data, "cnarrow", NARROW_SCRIPT, today=True)
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-layout", size="1400,900")
         n = _edge(port, narrow + f"?ui=c#run={SMALL}", tmp_path / "edge-narrow", size="900,460")
@@ -1337,7 +1338,7 @@ def test_shell_c_phone_extras(data, tmp_path):
     public site), the data credits folded behind their "Data credits" button, the choice of near spots docked over
     the sheet, the line's 3D view in the sheet; no CSP violations."""
     add_credits(data, SMALL)
-    page = stub_page(data, "cphonex", PHONE_EXTRAS_SCRIPT % {"small": SMALL})
+    page = stub_page(data, "cphonex", PHONE_EXTRAS_SCRIPT % {"small": SMALL}, today=True)
     with _server(data) as port:
         r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-phonex", size="500,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
@@ -1653,7 +1654,7 @@ def test_shell_c_filter_editor_and_sorted_column(data, tmp_path):
     aria-sort, which a button may not carry."""
     from playwright.sync_api import sync_playwright
     add_credits(data, SMALL)  # a source's credits: the credits wrap
-    page_path = stub_page(data, "cplay")
+    page_path = stub_page(data, "cplay", today=True)
     from test_web import DESKTOP, PHONE
     r = {}
     with _server(data) as port, sync_playwright() as p:
@@ -1866,8 +1867,8 @@ def test_shell_c_cancelled_search(tmp_path):
     jobs.set(ids["running"], "computing")
     jobs.set(ids["running"], "cancelled", when=("computing",))  # as the worker does after cancel_requested
     assert jobs.request_cancel(ids["waiting"])
-    page = stub_page(data, "ccancelled", CANCELLED_SCRIPT % {"jobs": json.dumps(ids)})
-    admin_page = stub_page(data, "ccancelled-admin", ADMIN_SCRIPT, ADMIN_STUBS)
+    page = stub_page(data, "ccancelled", CANCELLED_SCRIPT % {"jobs": json.dumps(ids)}, today=True)
+    admin_page = stub_page(data, "ccancelled-admin", ADMIN_SCRIPT, ADMIN_STUBS, today=True)
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-cancelled")
         r_admin = _edge(port, admin_page + "?ui=c", tmp_path / "edge-cancelled-admin")
@@ -1941,7 +1942,7 @@ def test_shell_c_remove_question_on_phones(tmp_path, device, engine):
     assert jobs.request_cancel(target)
     for k in range(3, 6):
         jobs.set(jobs.add(request, f"Failed {k}"), "failed", error="the server stopped")
-    page_path = stub_page(data, "cphones")
+    page_path = stub_page(data, "cphones", today=True)
     with _server(data) as port, sync_playwright() as p:
         kind = getattr(p, engine)
         if not os.path.exists(kind.executable_path):
@@ -2190,7 +2191,7 @@ def test_shell_c_sheet_shadow_and_card_text(data, tmp_path):
     from playwright.sync_api import sync_playwright
     from test_web import PHONE
     add_credits(data, SMALL)
-    page_path = stub_page(data, "csheet")
+    page_path = stub_page(data, "csheet", today=True)
     line = urllib.parse.quote(first_line(data, SMALL), safe="")
     r = {}
     with _server(data) as port, sync_playwright() as p:
