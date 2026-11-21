@@ -167,8 +167,8 @@ PLURALS = [  # (key, the call that passes the count (its file and the code), {co
      {1: "(1 shape)", 4: "(4 shapes; those that overlap or touch are one area)"}),
     ("ui.admin.limit_queue", "viewer/src/app/c/AdminC.tsx", 't("ui.admin.limit_queue", {count:',
      {1: "At most 1 search waiting or running.", 2: "At most 2 searches waiting or running."}),
-    ("page.examples.spots", "web.py", "page_text('page.examples.spots', count=", {1: "1 spot", 12: "12 spots"}),
-    ("page.examples.lines", "web.py", "page_text('page.examples.lines', count=", {1: "1 line", 2: "2 lines"}),
+    ("page.examples.spots", "web.py", "counted('page.examples.spots', spots)", {1: "1 spot", 12: "12 spots"}),
+    ("page.examples.lines", "web.py", "counted('page.examples.lines', lines)", {1: "1 line", 2: "2 lines"}),
     ("ui.search.warnings", "viewer/src/search/SearchPanel.tsx", 't("ui.search.warnings", {count:',
      {1: "1 warning", 3: "3 warnings"}),
 ]
