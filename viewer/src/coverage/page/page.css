@@ -23,7 +23,10 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
   text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
 .cov .cov-link:hover { text-decoration-color: currentColor; }
 
-/* header: sticky on a wide screen; on a phone it scrolls away with the page (the user's pick L6 b: the phone block) */
+/* header: sticky on a wide screen; on a phone it scrolls away with the page (the user's pick L6 b: the phone block).
+   What is scrolled into view stops under it (CoveragePage.tsx sets --cov-top, its height): a focused row of the list
+   by Shift+Tab was wholly under it (docs/DESIGN.md row 81) */
+html { scroll-padding-top: var(--cov-top, 0px); }
 .cov-top { position: sticky; top: 0; z-index: 1300; background: var(--bg); border-bottom: 1px solid var(--rule);
   padding-top: env(safe-area-inset-top, 0px); }
 .cov-top-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 56px; padding-block: 8px; }
@@ -45,7 +48,9 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
 .cov-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 
 /* the map */
-.cov-stage { position: relative; scroll-margin-top: 72px; }
+/* under the sticky header (the window's scroll-padding-top, below) with 15 px of room: 72 px from the top with the
+   header's one row, as before */
+.cov-stage { position: relative; scroll-margin-top: 15px; }
 .cov-mapbox { position: relative; isolation: isolate; height: min(68vh, 640px); min-height: 380px; border-radius: var(--r-3);
   overflow: hidden; border: 1px solid var(--rule); background: var(--cov-sea); }
 .cov-view { position: absolute; inset: 0; }
@@ -146,6 +151,7 @@ body.cov-body { background: #f2f5f5; }  /* --bg (the body lies outside .ui) */
    480 px high, as the app's PlaceMap.ts PHONE; back to sticky: the first declaration out) */
 @media (max-width: 699px), (pointer: coarse) and (max-height: 480px) {
   .cov-top { position: static; }
+  html { scroll-padding-top: 0; }
   .cov-stage { scroll-margin-top: 8px; }
 }
 @media (max-width: 699px) {

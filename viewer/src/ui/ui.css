@@ -318,8 +318,12 @@
 .ui .u-coarse-swatch.u-coarse-later { border-style: solid; }
 @media (max-width: 600px) { .ui .u-shore { max-width: min(240px, calc(100vw - 80px)); font-size: 12px; padding: 4px 8px; } }
 .ui .leaflet-control-attribution a { color: var(--accent); }
-/* the keyboard's ring inside a credit's link: the credits stand at the map's edge, which clips */
-.ui .leaflet-control-attribution a:focus-visible { box-shadow: var(--focus-in); }
+/* the keyboard's ring inside a credit's link: the credits stand at the map's edge, which clips. Clear of the letters:
+   the focused link's box 3 px wider each side (its margin gives them back: the line does not move) and as high as
+   the room between the credits' top and the map's edge (1 and 1.5 px), the underline off while the ring stands in
+   its place (the 10 to 11 px links ran into a 2 px ring in their own colour: the design review's F1) */
+.ui .leaflet-control-attribution a:focus-visible { box-shadow: var(--focus-in); padding: 1px 3px 1.5px; margin: 0 -3px;
+  text-decoration: none; }
 @media (forced-colors: active) { .ui .leaflet-control-attribution a:focus-visible { outline-offset: -2px; } }
 /* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */
 @media (max-width: 767px) { .ui .leaflet-control-attribution { font-size: 10px; line-height: 1.35; } }
