@@ -601,7 +601,7 @@ layer's chart bars only (excepted by name in R2). Known and left:
 
 ## Step 3d, group G5 (the words): what stays (2026-11-21)
 
-G5 built the words the user approved on the wording review (DESIGN.md choices 92 to 94; `local/ux-design-2026-11-16/
+G5 built the words the user approved on the wording review (DESIGN.md choices 92 to 95; `local/ux-design-2026-11-16/
 3d/g5/`). Left, by the user's answers or as named:
 
 - **Today's result page** keeps its intro (`intro.result.spots` 80 words, `filters` 48, `check` 38: over R10) and its
@@ -619,9 +619,9 @@ G5 built the words the user approved on the wording review (DESIGN.md choices 92
 - **The coverage legend at 360 px** shows "Very detailed" and its tag "up to 1 m" on two lines (one line on 390 px and
   wider; "≤ 1 m" fit beside the name): the legend one line taller, nothing cut.
 - **`ui_metrics.py pages` counts three more covered controls** on the iPhone's "c-layer-chart" (67 -> 70 in the
-  family): the next topic's chart titles stand under the bottom bar in that state on main too; the shorter strip note
-  moves the column's scroll by 1 px, which brings them onto the column's visible edge, where the tool counts them
-  (`local/ux-design-2026-11-16/3d/g5/build/covered-main.txt`, `covered-g5.txt`).
+  family), traced by the design review (`local/ux-design-2026-11-16/3d/g5-review/design-review.md`): the same three
+  chart names lie under the bottom bar at both commits; at the tip a 0.17 px sliver of them shows above the column's
+  edge (the shorter notes above move them 0.84 px up), so the tool counts them. Not a rise.
 
 ## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
 
@@ -654,7 +654,7 @@ What still shows English from the code:
 - **The same words under several keys** ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove",
   "Try again", "Auto", "All", "Done"; `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the
   older ones named for their component (the planner's ruling, 2026-11-20). The one-form plurals, the two about
-  wordings and "Report a problem…" in the two menus were G5's (closed: DESIGN.md choices 92 to 94, step 3d G5).
+  wordings and "Report a problem…" in the two menus were G5's (closed: DESIGN.md choice 95, step 3d G5).
 - **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
   which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 337 keys (main's
   `ui.card.cancelled` went: the kit's key says the same).
