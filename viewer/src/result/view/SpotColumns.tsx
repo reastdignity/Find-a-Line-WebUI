@@ -291,33 +291,14 @@ function barPadding(col: HTMLElement | null, top: number, bottom: number): Paddi
           bottom: box && foot && foot.height ? Math.max(bottom, Math.round(box.bottom - foot.top) + 4) : bottom};
 }
 
-const CLEAR_GAP = 8;   // px between a control over the map and the part a move keeps a line in
-const CLEAR_ROOM = 120;  // px of that part at the least: else the controls are not counted (a panel the person opened)
+const CLEAR_GAP = 8;   // px between a control over the map and a line's end brought clear of it
 
-/** The padding `p` of a move of the map grown by the controls over the map inside it (the boxes the canvas keeps its
- *  numbers clear of: [data-map-control] and Leaflet's controls; the zoom, the layers button, the shore's and the
- *  coarser terrain's boxes or chips, the status line, the scale): one whose middle lies in the upper half of the part
- *  of the map in view (under the bar, above `covered` px: a desktop's card, a phone's sheet; the third code review)
- *  moves the top down to under it, one in the lower half the bottom up to over it (the second design review's N1).
- *  Where that would leave less than CLEAR_ROOM px, `p` as it was (measured: a phone at half with both coast chips,
- *  and 390 x 664 at half whatever is shown, whose bar leaves 97 px). */
-function clearOfControls(col: HTMLElement | null, p: Padding, covered = 0): Padding {
-  const box = col?.getBoundingClientRect();
-  if (!col || !box || !box.height) return p;
-  const middle = (p.top + box.height - covered) / 2;
-  let top = p.top, bottom = p.bottom;
-  col.querySelectorAll<HTMLElement>("[data-map-control], .leaflet-control").forEach((e) => {
-    const r = e.getBoundingClientRect();
-    if (!r.width || !r.height || r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) return;
-    if (e.closest(".v-over, .v-about-all, .v-foot-off")) return;  // a panel the person opened; the foot unseen (full)
-    if ((r.top + r.bottom) / 2 - box.top < middle) top = Math.max(top, Math.round(r.bottom - box.top) + CLEAR_GAP);
-    else bottom = Math.max(bottom, Math.round(box.bottom - r.top) + CLEAR_GAP);
-  });
-  return box.height - top - bottom < CLEAR_ROOM ? p : {...p, top, bottom};
-}
-
-/** The boxes of the controls over the map (as clearOfControls reads them), in the map's container px, each CLEAR_GAP
- *  px larger. */
+/** The boxes of the controls over the map (the boxes the canvas keeps its numbers clear of: [data-map-control] and
+ *  Leaflet's controls; the zoom, the layers button, the shore's and the coarser terrain's boxes or chips, the status
+ *  line, the scale; not a panel the person opened, nor the foot unseen at full), in the map's container px, each
+ *  CLEAR_GAP px larger. Only a line's ends are kept clear of them (endsClear): every fit of the map goes into the
+ *  bar's room (the planner, fix round 3: the padding grown by the controls of fix round 2 drew the run and its lines
+ *  smaller wherever a control stood in the upper half). */
 function controlBoxes(col: HTMLElement | null, map: L.Map): [number, number, number, number][] {
   const at = map.getContainer().getBoundingClientRect(), out: [number, number, number, number][] = [];
   col?.querySelectorAll<HTMLElement>("[data-map-control], .leaflet-control").forEach((e) => {
@@ -356,7 +337,7 @@ function largestFree(size: L.Point, p: Padding, boxes: [number, number, number, 
 const ENDS_STEP = 0.25;  // a level: the map's zoom step (zoomSnap), so a line comes as close to LINE_LEAST as it can
 const ENDS_STEPS = 16;   // steps a measured line's map is zoomed in (to LINE_LEAST) or out (its ends clear) at most
 const END_MARGIN = 8;  // px a measured end keeps inside the free part (its point's circle)
-const LINE_LEAST = CLEAR_ROOM;  // px: a measured line is never made shorter on the screen (the planner's floor)
+const LINE_LEAST = 120;  // px: endsClear never makes a line shorter on the screen (the planner's floor)
 
 /** Does an end of the line lie under one of the map's controls (their boxes CLEAR_GAP px larger)? */
 function endsUnder(map: L.Map, col: HTMLElement | null, l: Line): boolean {
@@ -413,9 +394,9 @@ function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, gro
 }
 
 /** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
- *  keepFree): the bar's room, as before fix round 3 (the frame's padding with the controls made the line shorter
- *  wherever one stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 328 -> 224 px; the
- *  planner, fix round 3). Asked for just before the fit, it also arms a check of the map's move that follows at once
+ *  keepFree): the bar's room, as every fit's (a padding grown by the controls made the line shorter wherever one
+ *  stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 326 -> 224 px; the planner, fix
+ *  round 3). Asked for just before the fit, it also arms a check of the map's move that follows at once
  *  (the canvas's fits are not animated: SpotMap fitOptions): where an end of the selected line then lies under a
  *  control, its ends are brought clear (endsClear: the same floor, never shorter than LINE_LEAST or than it is, the
  *  same state kept when they cannot be). A fit that does not move the map (a reveal of a line in view) disarms it at
@@ -601,19 +582,19 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     const credits = col.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right .leaflet-control-attribution")?.offsetHeight ?? 0;
     return cardHeightAhead(layout.latest.current, col.clientHeight) + credits + CARD_GAP;
   };
-  /** The bar's room; with the card, the short foot above it (also before the foot was moved there). */
+  /** The bar's room; with the card, the short foot above it (also before the foot was moved there): the padding of
+   *  every move of the map (the canvas's own, as on the base; a line's fit, its ends then brought clear of the
+   *  controls: endsClear). */
   const bar = (): Padding => {
     const p = barPadding(colRef.current, BAR_TOP, BAR_BOTTOM), card = cardBottom();
     return card ? {...p, bottom: Math.max(p.bottom, card + shortFoot(colRef.current))} : p;
   };
-  /** The canvas's own moves' padding (the first fit, a sector's, the area square): the bar's room, clear of the
-   *  controls over the map too (N1). */
-  const padding = (): Padding => clearOfControls(colRef.current, bar(), cardBottom());
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
   const closeChoice = () => setChoice(null);
   const [toast, say] = useToast();
+  // the canvas's own moves (the first fit, a sector's, the area square) go into the bar's room, as on the base
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding, free: () => ({top: 0, right: 0, bottom: 0, left: 0}), obstacles: () => slotBoxes(hintRef.current),
+    padding: bar, free: () => ({top: 0, right: 0, bottom: 0, left: 0}), obstacles: () => slotBoxes(hintRef.current),
     onChoose: setChoice, onToast: say});
   /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
   const fitPadding = selectedFit(view, map, colRef, bar);
@@ -733,19 +714,17 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
 /** On a phone, when the sheet's stop changed and the sheet rests there: a selected line that was in the part of the
  *  map a person sees (SpotMap's free part: above the sheet) at the last move of the map, selection or rest, and now
  *  has an anchor under the sheet or under the data credits band (a press there opens a credit's link) is brought into
- *  the room under the switch (`bar`'s top) and above the credits: by the least pan at the same zoom, clear of the
- *  whole bar and the controls over the map (`padding`) where it fits there; by the least zoom out that fits only when
- *  it is longer than the room (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the
- *  sheet moved (a drag, its glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the
- *  map shows nothing under the switch (full) nothing moves and what was in sight is kept for the next stop; a line
- *  selected there counts as in sight. The map column's `data-sheet-checks` counts the checks made, each once its move
- *  ended (tests wait for it). */
+ *  the room under the switch and above the credits: by the least pan at the same zoom, clear of the whole bar
+ *  (`padding`) where it fits there; by the least zoom out that fits only when it is longer than the room
+ *  (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the sheet moved (a drag, its
+ *  glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the map shows nothing under
+ *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
+ *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
-                       bar: () => Padding, measured: () => Line | null, fitMeasured: (l: Line) => void,
-                       fitDue: () => boolean) {
-  const latest = useRef({sheet, covered, padding, bar, measured, fitMeasured, fitDue, snap});
-  latest.current = {sheet, covered, padding, bar, measured, fitMeasured, fitDue, snap};
+                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
+  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue, snap});
+  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue, snap};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -758,10 +737,9 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
   /** The map's height above the sheet, px. */
   const above = (): number => map ? map.getSize().y - latest.current.covered() : 0;
   /** The room a line is brought into, px of the map's container: under the switch, above the sheet and above the
-   *  data credits band (the scale may lie over the line). The switch's, not the controls' under it: counting them
-   *  (fix round 3's padding) would make a line that fits under the switch "longer than the room" and zoom out. */
+   *  data credits band (the scale may lie over the line). */
   const room = (): {top: number; bottom: number; width: number} => {
-    const top = latest.current.bar().top, el = map?.getContainer();
+    const top = latest.current.padding().top, el = map?.getContainer();
     let bottom = above();
     const credits = el?.querySelector(".leaflet-control-attribution")?.getBoundingClientRect();
     if (el && credits && credits.width && credits.height) {
@@ -929,10 +907,9 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     if (sheet && sheet.style.height) return Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top));
     return sheetAt(snap, box.height);
   };
+  /** The bar's room: the padding of every move of the map (the canvas's own, as on the base; a line's fit, its ends
+   *  then brought clear of the controls: endsClear) and the sheet's room. */
   const bar = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
-  /** The canvas's own moves' padding (the first fit, a sector's, the area square) and the sheet's clear target: the
-   *  bar's room, clear of the controls over the map too (N1). */
-  const padding = (): Padding => clearOfControls(colRef.current, bar(), covered());
   /** A padding as it will be with the sheet at a stop (the foot rides on the sheet; its height stays as it is now). */
   const shifted = (p: Padding, at: Snap): Padding => {
     const box = colRef.current?.getBoundingClientRect();
@@ -945,7 +922,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   const [toast, say] = useToast();
   // On a phone a spot is in view when its shown line crosses the part of the map a person sees: not under the sheet
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
+    padding: bar, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
     // the top bar lies over the map: no number under it
     obstacles: () => [...Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
                       ...slotBoxes(hintRef.current)],
@@ -1002,7 +979,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                padding, bar, () => measured, keepMeasured,
+                bar, () => measured, keepMeasured,
                 () => { const due = fitDue.current; fitDue.current = false; return due; });
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */

@@ -888,15 +888,11 @@ def _opened(page, row: int) -> list:
 
 
 def test_selected_fit_clear_of_controls_card_open(boxes_site):
-    """1920 x 1080, the run with both coast boxes, a line's card open at a kept height of 420 px (dragged so):
-    - the canvas's own padding (its first fit, a sector's) counts the controls over the map: the halves are taken of
-      the part of the map in view, above the card (the third code review's finding 3; with the column's halves the
-      scale above the card fell in the upper half and the padding stayed the bar's);
-    - a line of the run opened by its link (the selection's fit: into the bar's room, the planner's follow-up of fix
-      round 3) whose fit with the bar's padding puts an end under a control (that line found on the page first, among
-      the first 120 of the list's order) has both ends outside every control's box once fitted (its ends brought
-      clear: endsClear), at least LINE_LEAST px or as long as the plain fit.
-    Measured (B3's probe_fix3_card): at 1400 x 900 the column's halves count them with the default card too."""
+    """1920 x 1080, the run with both coast boxes, a line's card open at a kept height of 420 px (dragged so): a line of
+    the run opened by its link (the selection's fit: into the bar's room, the planner's follow-up of fix round 3) whose
+    fit with the bar's padding puts an end under a control (that line found on the page first, among the first 120 of
+    the list's order) has both ends outside every control's box once fitted (its ends brought clear: endsClear), at
+    least LINE_LEAST px or as long as the plain fit."""
     from playwright.sync_api import sync_playwright
     big = {"viewport": {"width": 1920, "height": 1080}}
     with sync_playwright() as p:
@@ -907,7 +903,7 @@ def test_selected_fit_clear_of_controls_card_open(boxes_site):
             page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
             page.wait_for_function(STILL, timeout=WAIT)
             page.evaluate("() => T.frames()")
-            bar, own = page.evaluate(BAR), page.evaluate("() => window.FINDALINE_VIEW.map.options.padding()")
+            bar = page.evaluate(BAR)
             found = page.evaluate(PICK, [bar])
             assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
             spot, row, plain, link = found
@@ -916,46 +912,28 @@ def test_selected_fit_clear_of_controls_card_open(boxes_site):
             assert page.errors == []
         finally:
             browser.close()
-    print("selected fit, card open: row", row, "ends", ends, _length(ends), "px; plain", round(plain, 1), "px; padding", own, "bar", bar)
-    assert own["top"] > bar["top"], (own, bar)
+    print("selected fit, card open: row", row, "ends", ends, _length(ends), "px; plain", round(plain, 1), "px; bar", bar)
     assert all(n == 0 for _, _, n in ends), ends
     assert _length(ends) >= min(LINE_LEAST, plain) - 1, (_length(ends), plain)
 
 
-def test_selected_fit_clear_of_controls_phone_half(site, boxes_site):
-    """412 x 839 at half:
-    - the view clip's run (no coast chips): the canvas's own padding counts the layers button under the switch (the
-      column's halves left it the bar's: the third code review);
-    - the run with both coast chips: a line of the run opened by its link while the sheet is at half (the selection's
-      fit, into the bar's room) whose fit with the bar's padding puts an end under a chip (found on the page first) has
-      both ends outside every control's box once fitted, at least LINE_LEAST px or as long as the plain fit, the sheet
-      still at half.
-    Not reachable for the canvas's padding (measured, B3's probe_fix3): 390 x 664 at half, whose bar leaves 97 px
-    (under CLEAR_ROOM), either phone at half with both chips (76 px), and this one with a level held ("Back to Auto" in
-    the foot: 108 px). The list's reveal at half puts no end under a chip (measured, probe_fix3_sel: it stops at
-    CLOSE_MPP, the line short in the room's middle)."""
+def test_selected_fit_clear_of_controls_phone_half(boxes_site):
+    """412 x 839 at half, the run with both coast chips: a line of the run opened by its link while the sheet is at
+    half (the selection's fit, into the bar's room) whose fit with the bar's padding puts an end under a chip (found on
+    the page first) has both ends outside every control's box once fitted, at least LINE_LEAST px or as long as the
+    plain fit, the sheet still at half. The list's reveal at half puts no end under a chip (measured, B3's
+    probe_fix3_sel: it stops at CLOSE_MPP, the line short in the room's middle)."""
     from playwright.sync_api import sync_playwright
-
-    def half(page):
-        page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
-        page.focus(".u-sheet-handle")
-        page.keyboard.press("ArrowUp")
-        page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
-        page.wait_for_function(STILL, timeout=WAIT)
-        page.evaluate("() => T.frames()")
-
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            # (under Auto: a level held adds "Back to Auto" to the foot, and the room left is then under CLEAR_ROOM)
-            page = _view(browser, site, PIXEL, script=HELP)
-            half(page)
-            own, bar = page.evaluate("() => window.FINDALINE_VIEW.map.options.padding()"), page.evaluate(BAR)
-            layers = page.evaluate("() => { const r = F.rect('.v-map .leaflet-control-layers'), b = T.box(); return r && [r[1] - b.top, r[3] - b.top]; }")
-            assert page.errors == []
-            page.context.close()
             page = _open(browser, f"{boxes_site}#run={BOXES}", PIXEL, script=HELP)
-            half(page)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
             found = page.evaluate(PICK, [page.evaluate(BAR)])
             assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
             spot, row, plain, link = found
@@ -965,11 +943,54 @@ def test_selected_fit_clear_of_controls_phone_half(site, boxes_site):
             assert page.errors == []
         finally:
             browser.close()
-    print("canvas's padding at half:", own, "bar", bar, "layers", layers, "; a link's line at half: row", row, "ends", ends,
-          _length(ends), "px; plain", round(plain, 1), "px; sheet", snap)
-    assert layers and own["top"] >= round(layers[1]) + 8 - 1 and own["top"] > bar["top"], (own, bar, layers)
+    print("a link's line at half: row", row, "ends", ends, _length(ends), "px; plain", round(plain, 1), "px; sheet", snap)
     assert snap == "half" and all(n == 0 for _, _, n in ends), (snap, ends)
     assert _length(ends) >= min(LINE_LEAST, plain) - 1, (_length(ends), plain)
+
+
+# Each fit of the Leaflet map from its making on (window.FINDALINE_MAP is set before the view's first fit): the
+# fit's padding (SpotMap fitOptions: the frame's padding with the fit's margin) and, at that moment, the bar's padding
+# as BAR reads it (a phone's sheet before it has a height covers its low stop's 132 px, as the frame's `covered`
+# counts it) and the map's size
+FITS = r"""
+window.FITS = [];
+(() => { let made = null;
+  const bar = () => { const col = document.querySelector('.c-col-map'), box = col.getBoundingClientRect();
+    const sw = col.querySelector('.v-switch')?.getBoundingClientRect(), foot = col.querySelector('.v-foot')?.getBoundingClientRect();
+    const sheet = document.querySelector('.u-sheet');
+    const covered = !sheet ? 0 : sheet.style.height ? Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top)) : 132;
+    return {top: sw && sw.height ? Math.round(sw.bottom - box.top) + 4 : 40,
+            bottom: foot && foot.height ? Math.max(60 + covered, Math.round(box.bottom - foot.top) + 4) : 60 + covered}; };
+  Object.defineProperty(window, "FINDALINE_MAP", {configurable: true, get() { return made; }, set(m) { made = m;
+    const own = m.fitBounds.bind(m);
+    m.fitBounds = (bounds, o) => { window.FITS.push({tl: o && o.paddingTopLeft, br: o && o.paddingBottomRight, bar: bar(),
+      size: [m.getSize().x, m.getSize().y]}); return own(bounds, o); }; } }); })();
+"""
+
+
+@pytest.mark.parametrize("device", [DESKTOP, SMALL_PHONE, PIXEL], ids=["desktop", "390", "412"])
+def test_first_view_is_the_bar_fit(site, device):
+    """The view's first fit of the run (the clip's run) is the base's: the run's area fitted into the bar's room (the
+    bar's padding as the page has it at that moment, and fitArea's 16 px margin), not a room made smaller by the
+    controls over the map (the zoom and the layers button put its top at 128 px against the bar's 52 on the desktop,
+    the run about 38 px lower, before the planner's last change of fix round 3)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device, script=FITS)
+            if device is not DESKTOP:
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            fits = page.evaluate("() => window.FITS")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the view's fits:", device.get("viewport"), fits)
+    first = fits[0]
+    assert abs(first["tl"][1] - 16 - first["bar"]["top"]) <= 1, first  # the top: the bar's (under the switch)
+    assert abs(first["br"][1] - 16 - first["bar"]["bottom"]) <= 1, first  # the bottom: the bar's (over the foot)
 
 
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
