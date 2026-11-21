@@ -214,3 +214,13 @@ def test_sheet_handle_says_its_height_in_words():
     with open(os.path.join(REPO, "viewer/src/ui/components.tsx"), encoding="utf-8") as f:
         code = f.read()
     assert 'state: stateWord(current)' in code and "state: current" not in code
+
+
+def test_one_wording_for_report_a_problem_in_the_menus():
+    """A menu item that opens a dialog ends with "…" in both menus (the account's and a search card's), the dialog's
+    title without it (the user's answer of 2026-11-21, left-07)."""
+    texts = catalogue()
+    assert texts["ui.account.report"] == texts["ui.card.report"] == "Report a problem…"
+    assert texts["ui.report.title"] == "Report a problem"
+    with open(os.path.join(REPO, "viewer/src/app/c/Account.tsx"), encoding="utf-8") as f:
+        assert 't("ui.account.report")' in f.read()

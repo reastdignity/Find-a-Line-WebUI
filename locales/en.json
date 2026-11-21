@@ -794,6 +794,7 @@
   "ui.account.administrator": "administrator",
   "ui.account.signed_in": "signed in",
   "ui.account.about": "About and data licences",
+  "ui.account.report": "Report a problem…",
   "ui.account.admins_only": "Administrators of the public site only.",
   "ui.osm.intro": "The coast and cliffs of <i>{{mode}}</i> come from the often overloaded Overpass API, or from disk with a Geofabrik extract (updated daily). A region the search stays in is enough.",
   "ui.osm.here": "At the map centre",

@@ -42,7 +42,7 @@ export function AccountBody({theme, setTheme, onPick, usage}:
       {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />{t("ui.app.osm")}</a>}
       {(user.local || user.admin) && <a class="c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />{t("ui.layer.title")}</a>}
       {canReport() && <button type="button" class="c-menu-item" onClick={() => { pick(); openReport(); }}>
-        <Icon name="warn" />{t("ui.report.title")}</button>}
+        <Icon name="warn" />{t("ui.account.report")}</button>}
       {!user.local && <a class="c-menu-item" href="/privacy" target="_blank"><Icon name="info" />{t("ui.app.privacy")}</a>}
       {!user.local && <a class="c-menu-item" href="/about" target="_blank"><Icon name="info" />{t("ui.account.about")}</a>}
     </nav>
