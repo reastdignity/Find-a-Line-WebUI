@@ -27,6 +27,9 @@ function remember(on: boolean) {
   try { localStorage.setItem(STORAGE_KEY, on ? "1" : "0"); } catch { /* not remembered */ }
 }
 
+/** A press on an outline moves no focus (the map keeps Leaflet's: its keys go on working). */
+const noFocus = (e: Event) => e.preventDefault();
+
 /** The fill's opacity at a zoom: strong on a continent, faint over a valley. */
 const opacity = (zoom: number, partial: boolean) => (partial ? 0.6 : 1) * Math.max(0.1, Math.min(0.45, 0.45 - (zoom - 5) * 0.06));
 
@@ -178,6 +181,17 @@ export class CoverageLayer {
           const id = (f as Shape).properties.id, area = areaOf(id)!;
           layer.bindTooltip(`${areaName(id, "en")}: ${ct("en", `level.${area.level}`)}, ${resText(area.res, "en")}` +
                             (area.partial ? ` (${ct("en", "legend.partial").toLowerCase()})` : ""), {sticky: true});
+          // Out of the Tab order: Leaflet listens for the focus on an outline with a tooltip, and Chromium makes an SVG
+          // shape with such a listener a Tab stop (83 before the pin and the map's controls); the coverage page's link
+          // is the keyboard's way. And no focus by a press: tabindex lets WebKit focus the outline on a press, which
+          // kept its tooltip open and stopped the arrows panning the map; with the press's default prevented the map
+          // keeps the focus Leaflet gives it on any press, in WebKit as before and in Chromium now too (where a press
+          // focused the outline). Each time the outline is drawn (its element is made anew when the layer is added)
+          layer.on("add", () => {
+            const outline = (layer as L.Path).getElement();
+            outline?.setAttribute("tabindex", "-1");
+            outline?.addEventListener("mousedown", noFocus);
+          });
         },
       }));
       this.paint();

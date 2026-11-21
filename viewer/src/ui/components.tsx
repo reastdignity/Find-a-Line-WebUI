@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n";
 import { Hint } from "./Hint";
 import { Icon, type IconName } from "./icons";
+import { radioKeys, radioStop } from "./radios";
 import "./ui.css";
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
@@ -99,12 +100,14 @@ export function Chips({children}: {children?: ComponentChildren}) {
 
 export interface Option<T extends string> { value: T; label: string; icon?: IconName }
 
-/** One of a few choices (a radio group). */
+/** One of a few choices (a radio group: one Tab stop, the arrows move and choose; radios.ts). */
 export function Segmented<T extends string>({options, value, onChange, label}:
                                             {options: Option<T>[]; value: T; onChange: (value: T) => void; label?: string}) {
-  return <div class="u-seg" role="radiogroup" aria-label={label}>
-    {options.map((o) => <button type="button" key={o.value} role="radio" aria-checked={o.value === value}
-                                class={o.value === value ? "u-on" : ""} onClick={() => onChange(o.value)}>
+  const stop = radioStop(options.length, options.findIndex((o) => o.value === value));
+  return <div class="u-seg" role="radiogroup" aria-label={label} onKeyDown={radioKeys}>
+    {options.map((o, i) => <button type="button" key={o.value} role="radio" aria-checked={o.value === value}
+                                   tabIndex={i === stop ? 0 : -1}
+                                   class={o.value === value ? "u-on" : ""} onClick={() => onChange(o.value)}>
       {o.icon && <Icon name={o.icon} />}{o.label}</button>)}
   </div>;
 }

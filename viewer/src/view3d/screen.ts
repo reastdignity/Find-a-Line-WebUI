@@ -30,25 +30,33 @@ export function place(element: HTMLElement, at: {x: number; y: number} | null) {
   if (at) element.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px)`;
 }
 
-/** Half of a mark's target on a touch screen (44 px, view3d.css) and the most a target is moved off its mark's
- *  centre (so it still covers the drawn mark: 18 px). */
+/** Half of a mark's target on a touch screen (44 px, view3d.css) and the most a fan dot's target is moved off its
+ *  centre (so it still covers the drawn dot: 18 px). An anchor's handle (22 px drawn) moves its target at most
+ *  HANDLE_SHIFT_MAX_PX, a label (its target 8 px beyond its drawn box each way, others.css) LABEL_SHIFT_MAX_PX. */
 export const TARGET_HALF_PX = 22;
 export const TARGET_SHIFT_MAX_PX = 13;
+export const HANDLE_SHIFT_MAX_PX = 11;
+export const LABEL_SHIFT_MAX_PX = 8;
+export const LABEL_TARGET_MARGIN_PX = 8;
 
-/** How far a target centred at `v` is moved to lie inside 0..`size` (CSS pixels; positive: towards larger values),
- *  at most TARGET_SHIFT_MAX_PX either way. */
-export function targetShift(v: number, size: number): number {
-  const shift = Math.max(0, TARGET_HALF_PX - v) - Math.max(0, v + TARGET_HALF_PX - size);
-  return Math.min(TARGET_SHIFT_MAX_PX, Math.max(-TARGET_SHIFT_MAX_PX, shift));
+/** How far a target of half-size `half` centred at `v` is moved to lie inside 0..`size` (CSS pixels; positive:
+ *  towards larger values), at most `most` either way. */
+export function targetShift(v: number, size: number, half = TARGET_HALF_PX, most = TARGET_SHIFT_MAX_PX): number {
+  const shift = Math.max(0, half - v) - Math.max(0, v + half - size);
+  return Math.min(most, Math.max(-most, shift));
 }
 
 /** Keep the touch target of the mark `element`, placed at `at`, inside the stage: `--v3-tx` and `--v3-ty` on the
- *  mark move its target (the mark's own place stays; point.css uses them on a touch screen only). */
-export function targetInside(scene: SceneCore, element: HTMLElement, at: {x: number; y: number} | null) {
+ *  mark move its target (the mark's own place stays; point.css, view3d.css and others.css use them on a touch screen
+ *  only). `half`: the target's half-sizes (a fan dot's and a handle's 22 px; a label's by its width), `most`: how far
+ *  it may move and still cover the drawn mark. */
+export function targetInside(scene: SceneCore, element: HTMLElement, at: {x: number; y: number} | null,
+                             half: {x: number; y: number} = {x: TARGET_HALF_PX, y: TARGET_HALF_PX},
+                             most = TARGET_SHIFT_MAX_PX) {
   if (!at) return;
   const canvas = scene.renderer.domElement;
-  element.style.setProperty("--v3-tx", `${targetShift(at.x, canvas.clientWidth).toFixed(1)}px`);
-  element.style.setProperty("--v3-ty", `${targetShift(at.y, canvas.clientHeight).toFixed(1)}px`);
+  element.style.setProperty("--v3-tx", `${targetShift(at.x, canvas.clientWidth, half.x, most).toFixed(1)}px`);
+  element.style.setProperty("--v3-ty", `${targetShift(at.y, canvas.clientHeight, half.y, most).toFixed(1)}px`);
 }
 
 /** Of the shown marks `among` (fan dots, other lines' labels), the one whose centre lies nearest to the point

@@ -263,6 +263,8 @@ INTERACT_SCRIPT = _with_until("""
     out.reset = !document.querySelector(".v3-reset").classList.contains("v3-hidden");
     pointer("pointerup", handle, x1, y1);
     out.released = root.dataset.edit;
+    out.resetAfter = !document.querySelector(".v3-reset").classList.contains("v3-hidden");
+    out.releasedText = readout();
     until(() => root.dataset.edit === "checked" || root.dataset.edit === "error", 20000, () => {
       out.checked = root.dataset.edit;
       out.edited = readout();
@@ -343,8 +345,11 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
         assert result["handles"] == 0 and result["hint"] == 0
     else:
         assert result["handles"] == 2 and result["hint"] == 1
-        assert result["moving"] == "moving" and result["reset"] and result["released"] == "waiting"
-        assert "Anchors moved: not saved" in result["dragged"] and "clear of the terrain" not in result["dragged"]
+        # the bar's new row ("Back to the found line", "Anchors moved: not saved") at the release, not during the drag
+        # (step 3d, DESIGN.md row 84: the bar keeps its size while a handle is dragged)
+        assert result["moving"] == "moving" and not result["reset"] and result["released"] == "waiting"
+        assert "Anchors moved: not saved" not in result["dragged"] and "clear of the terrain" not in result["dragged"]
+        assert result["resetAfter"] and "Anchors moved: not saved" in result["releasedText"], result
         assert result["checked"] == "checked" and result["filled"] == "1", result
         # the moved line of the clip runs into the terrain (about -2.8 m): it does not fit, in --bad
         assert "Anchors moved: not saved" in result["edited"] and "Does not fit: the clearance is -" in result["edited"]

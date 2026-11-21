@@ -116,6 +116,17 @@ export function limitText(kind: DimensionKind, dimension: string, value: number 
 
 interface Bar { value: number; pressed: boolean; pickable: boolean; title: string }
 
+/** A chart's name focused by the keyboard in a phone's swiped strip (c.css .c-layer-charts): the browser leaves a name
+ *  partly outside the strip (its focus scroll, then the strip's snapping: up to 98 px of it out of the window), so its
+ *  chart is brought to the strip's start, a snap position. Not for a press (no :focus-visible): the strip must not
+ *  move under a finger between its press and its click. */
+function revealInStrip(e: FocusEvent) {
+  const name = e.currentTarget as HTMLElement, chart = name.closest<HTMLElement>(".c-layer-hist"), strip = name.closest(".c-layer-charts");
+  if (!chart || !strip || getComputedStyle(strip).overflowX === "visible" || !name.matches(":focus-visible")) return;
+  const s = strip.getBoundingClientRect(), r = name.getBoundingClientRect();
+  if (r.left < s.left - 0.5 || r.right > s.right + 0.5) chart.scrollIntoView({block: "nearest", inline: "start"});
+}
+
 /** One histogram: `title` (on phones a button enlarging it), the bars (a button each when pickable), `axis` the
  *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`, `kind` the dimension's
  *  (data-kind: an at-most chart's "over 2" tick is drawn tighter, c.css). */
@@ -129,7 +140,8 @@ export function Histogram({name, title, bars, axis, open, wide, kind, onPick, on
   return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
                   data-kind={kind} style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
-      : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
+      : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}
+                onFocus={revealInStrip}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
       {bars.map((b, k) => {
         const fill = <span class="c-layer-bar-fill" style={{height: height(b.value)}} aria-hidden="true" />;

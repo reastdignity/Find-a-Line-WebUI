@@ -4,6 +4,7 @@ import { COVERAGE, areaOf, regionsOf } from "../data";
 import { areaName, ct, noteText, resText, surveyText, type Lang } from "../i18n";
 import type { Level } from "../types";
 import { Icon } from "../../ui/icons";
+import { radioKeys, radioStop } from "../../ui/radios";
 import { parseKey } from "./geo";
 
 export type Scale = "words" | "life" | "stars";
@@ -118,7 +119,7 @@ export function Card({areaKey, lang, scale, onClose, onPick}:
 
 /** The legend: the three levels in the chosen scale and the hatch of "only in parts"; the scale's switch. */
 export function Legend({lang, scale, onScale}: {lang: Lang; scale: Scale; onScale(scale: Scale): void}) {
-  const levels: Level[] = [1, 2, 3];
+  const levels: Level[] = [1, 2, 3], stop = radioStop(SCALES.length, SCALES.indexOf(scale));
   return <div class="cov-legend-body">
     <div class="cov-legend-head"><span class="cov-label">{ct(lang, scale === "life" ? "life.head" : "legend.title")}</span></div>
     <ul class="cov-items">
@@ -128,9 +129,9 @@ export function Legend({lang, scale, onScale}: {lang: Lang; scale: Scale; onScal
           {levelName(level, scale, lang)} <span class="cov-tag">{tagOf(level, lang)}</span></span></li>)}
       <li class="cov-it"><span class="cov-sw cov-swh" /><span>{ct(lang, "legend.partial")}</span></li>
     </ul>
-    <div class="cov-scale u-seg" role="radiogroup" aria-label={ct(lang, "page.scale")}>
-      {SCALES.map(s => <button type="button" key={s} role="radio" aria-checked={s === scale} class={s === scale ? "u-on" : ""}
-                               onClick={() => onScale(s)}>{ct(lang, `scale.${s}`)}</button>)}
+    <div class="cov-scale u-seg" role="radiogroup" aria-label={ct(lang, "page.scale")} onKeyDown={radioKeys}>
+      {SCALES.map((s, i) => <button type="button" key={s} role="radio" aria-checked={s === scale} class={s === scale ? "u-on" : ""}
+                                    tabIndex={i === stop ? 0 : -1} onClick={() => onScale(s)}>{ct(lang, `scale.${s}`)}</button>)}
     </div>
   </div>;
 }

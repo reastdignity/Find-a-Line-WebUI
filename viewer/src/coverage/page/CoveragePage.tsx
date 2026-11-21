@@ -53,6 +53,7 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   const [failed, setFailed] = useState(false);
   const [size, setSize] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLElement>(null);
   const viewBox = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLElement>(null);
@@ -68,6 +69,18 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
   }, [lang]);
   useEffect(() => {
     loadShapes(shapesUrl).then(shapes => setGeo(makeGeo(shapes))).catch(() => setFailed(true));
+  }, []);
+  // what is scrolled into view (a focused control, Shift+Tab up the list; the map after a pick) stops under the
+  // sticky header, as high as it is (one row or two): its height as --cov-top for the window's scroll-padding-top
+  // (page.css; 0 where the header scrolls away), through the CSSOM
+  useEffect(() => {
+    const top = header.current;
+    if (!top) return;
+    const fit = () => document.documentElement.style.setProperty("--cov-top", `${top.offsetHeight}px`);
+    const observer = new ResizeObserver(fit);
+    observer.observe(top);
+    fit();
+    return () => observer.disconnect();
   }, []);
   // the flat view and the globe are drawn for one size: a new size draws them again
   useEffect(() => {
@@ -141,7 +154,7 @@ export function CoveragePage({shapesUrl, site}: {shapesUrl: string; site: "publi
 
   const word = (key: string) => ct(lang, key);
   return <div ref={root} class="ui cov" data-theme={theme === "auto" ? undefined : theme}>
-    <header class="cov-top"><div class="cov-inner cov-top-row">
+    <header ref={header} class="cov-top"><div class="cov-inner cov-top-row">
       <a class="cov-brand" href="/" aria-label={word("page.open")}><Logo /></a>
       <span class="cov-name">{word("page.name")}</span>
       <span class="cov-spacer" />
