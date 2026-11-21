@@ -55,7 +55,7 @@ export class CoverageLayer {
     for (const level of [1, 2] as Level[]) {
       const item = L.DomUtil.create("li", "", list);
       L.DomUtil.create("span", `n-coverage-sw n-coverage-sw${level}`, item);
-      item.append(`${ct("en", `level.${level}`)} (${level === 1 ? "≤ 1 m" : "2–5 m"})`);
+      item.append(`${ct("en", `level.${level}`)} (${ct("en", `level.${level}.tag`)})`);  // the coverage page's tag
     }
     const rest = L.DomUtil.create("li", "", list);
     L.DomUtil.create("span", "n-coverage-sw n-coverage-sw3", rest);

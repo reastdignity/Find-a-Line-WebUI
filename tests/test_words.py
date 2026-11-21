@@ -99,8 +99,10 @@ def test_no_character_for_a_word_in_the_coverage_catalogue(rel):
 
 
 # The free code that wrote ≤, ≥ or × before the user's answers (the layer's filters, ticks, bar titles, legend and
-# sizes): none of the three in its code (comments aside)
-WRITTEN_OUT = ["viewer/src/app/c/LayerHistograms.tsx", "viewer/src/app/c/LayerPage.tsx", "viewer/src/app/c/layerState.ts"]
+# sizes; the coverage tags, page and place map; the form's height difference): none of the three in its code (comments
+# aside)
+WRITTEN_OUT = ["viewer/src/app/c/LayerHistograms.tsx", "viewer/src/app/c/LayerPage.tsx", "viewer/src/app/c/layerState.ts",
+               "viewer/src/coverage/page/card.tsx", "viewer/src/app/coverageLayer.ts", "viewer/src/search/SearchPanel.tsx"]
 
 
 @pytest.mark.parametrize("rel", WRITTEN_OUT)

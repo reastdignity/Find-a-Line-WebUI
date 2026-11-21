@@ -173,7 +173,7 @@ function KeyFields({s}: {s: SearchState}) {
     {byName.max_anchor_diff_m && <div data-field="max_anchor_diff_m"><Field
       label={<Dotted on={s.differs("max_anchor_diff_m")}>{label("max_anchor_diff_m")}</Dotted>}
       hintLabel={label("max_anchor_diff_m")} hint={hintOf(byName.max_anchor_diff_m)}
-      value={<>{`≤ ${diff} m`} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
+      value={<>{t("basic.diff_value", {diff})} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
       <Range label={label("max_anchor_diff_m")} value={diff} min={0} max={diffMax} step={1}
              onInput={(v) => s.setValue("max_anchor_diff_m", v)} />
     </Field></div>}

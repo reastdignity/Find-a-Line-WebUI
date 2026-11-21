@@ -209,6 +209,7 @@
   "basic.tab.basic": "Basic",
   "basic.tab.advanced": "Advanced",
   "basic.goals": "What are you looking for?",
+  "basic.diff_value": "up to {{diff}} m",
   "basic.where": "Where",
   "basic.sea_hint": "Sea cliffs searches along the coast. Say where, under Where.",
   "basic.sea_back_point": "Another goal brings your point back.",
