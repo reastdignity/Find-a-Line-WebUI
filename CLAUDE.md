@@ -20,7 +20,6 @@ Read the section you need, not the whole file (several are over 200 KB).
 - docs/code-map/: what each module and tool holds, in detail, one file per area (table below).
 - [docs/PRODUCT.md](docs/PRODUCT.md) (who the interface is for), [docs/DESIGN.md](docs/DESIGN.md) (the look as
   built, the rules the user picked), [docs/design-review.md](docs/design-review.md) (the design reviewer's checks).
-- [docs/wording.md](docs/wording.md): the words to use and not to use in a UI text or the docs' prose.
 - [docs/workflow.md](docs/workflow.md): the environment, finishing a task (squash, tag), the test lock's
   modes and the conventions, in full.
 - [docs/agent-workflow.md](docs/agent-workflow.md): work larger than a few edits: scope first with the

@@ -7,8 +7,8 @@ nothing, and each row names its source:
 - **user-inputs**: `local/ux-design-2026-11-16/user-inputs.md`, the user's words of the UX/UI design task, verbatim
   and dated (local, not in the repository), by the date and the title of its section.
 - **G5's rows**: the wording review of step 3d, group G5 (2026-11-21): `local/ux-design-2026-11-16/3d/g5/proposal.json`
-  with the user's answers in `3d/g5/answers/decisions/`, by row id; every row there was answered "Use proposed" or
-  "(a) Written out" (user-inputs, "Step 3d G5: the wording review page").
+  with the user's answers in `3d/g5/answers/decisions/`, by row id; each row the user answered took "Use proposed"
+  or "(a) Written out" (user-inputs, "Step 3d G5: the wording review page"), not a row's (b) variant.
 - **DESIGN**: [DESIGN.md](DESIGN.md)'s rules (R9, R10) and its choices by number.
 
 `tests/test_words.py` reads the "Not" column of the first table (each word in backticks, every form listed: the
@@ -56,7 +56,7 @@ R9 (DESIGN, the user's pick "R9 b", 2026-11-17): in a text the user reads no cha
 | "+ " (for "and" or "more") | left out; before a command the kit's plus icon | "+ 2 more settings" -> "2 more settings"; "+ Add a rig" -> the icon and "Add a rig" | G5's rows char-07, char-08 |
 | " · " between values | a label with a colon, the parts joined by "; " | "page: …; interface: …; window: …" | G5's row left-08 |
 | "/" for "and" | and | "About and data licences" | G5's row left-06 |
-| a sign in a chart's tick | the bare value, the word in the chart's title | "Clearance, m (at least)" over "5", "10", "20" | G5's row char-18 |
+| a sign in a chart's tick | the bare value, the word in the chart's title | "≥10", "<2", "≤1" -> "10", "2", "1" under a title that says "at least", "under" or "up to" | G5's row char-18 |
 
 Kept, where a sign stays:
 
