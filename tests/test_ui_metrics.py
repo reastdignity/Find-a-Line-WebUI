@@ -169,6 +169,40 @@ def test_dense_strings_per_literal(tmp_path):
     assert len(r["chars_in_code"]) == 6
 
 
+def test_spacing_and_r10_counts(tmp_path):
+    """R7: the px lengths of padding, margins and gaps (signs dropped; one inside calc() or env() not counted), those
+    up to 32 px off the steps listed with their place; R10: the texts over their kind's limit and R10_BY_ROLE's over
+    their role's, in the app's catalogue and the coverage page's (one missing is skipped)."""
+    (tmp_path / "viewer" / "src" / "ui").mkdir(parents=True)
+    (tmp_path / "locales" / "coverage").mkdir(parents=True)
+    (tmp_path / "viewer" / "src" / "ui" / "tokens.css").write_text(".ui { --gap: 6px; }", encoding="utf-8")
+    (tmp_path / "viewer" / "src" / "s.css").write_text(
+        "/* .x { padding: 7px } */\n.ui .a { padding: 8px 6px; margin: -6px 0 2px; gap: 4px 12px; }\n"
+        "@media (pointer: coarse) { .ui .b { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); "
+        "margin-inline-start: 34px; row-gap: 10px; width: 6px; } }\n", encoding="utf-8")
+    many = " ".join(["word"] * 41)
+    (tmp_path / "locales" / "en.json").write_text(json.dumps({
+        "intro.a": many, "intro.b": "Short.", "field.x.help": many, "ui.y.help": "Two words",
+        "error.e": " ".join(["word"] * 31), "ui.osm.intro": " ".join(["word"] * 31), "ui.search.draw_hint": "Draw."}),
+        encoding="utf-8")
+    (tmp_path / "locales" / "coverage" / "en.json").write_text(json.dumps({"page.lead": many}), encoding="utf-8")
+    r = ui_metrics.static(str(tmp_path))
+    assert {x["value"]: x["count"] for x in r["spacing"]} == {"6px": 2, "8px": 1, "2px": 1, "4px": 1, "12px": 1,
+                                                              "34px": 1, "10px": 1}
+    assert r["spacing_uses"] == 8
+    assert [(x["line"], x["selector"], x["property"], x["value"]) for x in r["spacing_off_r7"]] == [
+        (2, ".ui .a", "padding", "6px"), (2, ".ui .a", "margin", "-6px"), (2, ".ui .a", "margin", "2px"),
+        (3, ".ui .b", "row-gap", "10px")]
+    assert [(x["catalogue"], x["key"], x["kind"], x["words"], x["limit"]) for x in r["r10_over"]] == [
+        ("locales/en.json", "intro.a", "intro", 41, 30), ("locales/en.json", "field.x.help", "help", 41, 40),
+        ("locales/en.json", "error.e", "error", 31, 30), ("locales/en.json", "ui.osm.intro", "role", 31, 30),
+        ("locales/coverage/en.json", "page.lead", "role", 41, 30)]
+    assert r["r10_counts"] == {"help": 1, "intro": 1, "hint": 0, "error": 1, "role": 2}
+    md = ui_metrics.static_markdown(r)
+    assert "## Spacing (7 distinct px lengths in 8 uses; 4 off R7's steps" in md
+    assert "Over R10's limits" in md and "| locales/coverage/en.json | page.lead | role | 41 | 30 |" in md
+
+
 def test_static_is_deterministic(tree, tmp_path_factory):
     """The same tree gives the same JSON and Markdown."""
     first, second = tmp_path_factory.mktemp("a"), tmp_path_factory.mktemp("b")
