@@ -324,6 +324,110 @@ WALKS = {
 }
 
 
+# --- The result view's walks (line volume round 6, step 3d): today's result walks done in the view ("page": "view",
+# the view asked for in the browser), one each with "mirrors" naming today's walk, so the two count the same task on
+# the same tree. Where the view does a step its own way the walk does it so and a note says so; a step the view
+# cannot do is a dead end. The view's own marks: its list's rows (.vl-rows' .vl-main, the first visible one: "Best in
+# view" above the tree), the details' head (.vl-dhead: the star, the line's facts), the profile in the desktop's card
+# or in a phone's sheet (.r-card, .u-sheet-body), the phone's sheet handle. They stand before R4, which stays last;
+# VR4 saves a favourite too (the list's second line, so R4's first one is not a favourite yet in a run of every
+# walk; R4 then sees VR4's favourite and folder on Home): a comparison counts the view's walks in a tool run of their
+# own (--only VR2,VF2,VR3,VR4) and today's in another, each on a fresh data folder.
+VIEW_RESULT = "!!window.FINDALINE_VIEW && !!document.querySelector('.vl-rows .vl-main')"  # the view drawn, its list
+VIEW_ROWS = ".vl-rows > li > .vl-main"
+VIEW_PROFILE = "!!document.querySelector('.r-card .fal-profile-chart, .u-sheet-body .fal-profile-chart')"
+VIEW_OPEN_RUN = [tap(CARD + " .c-card-open", VIEW_RESULT, "the result view: the list, the map, the details' column"),
+                 screen("the result")]
+VIEW_WALKS = {
+    "VR2": {
+        "title": "From a finished search to the best lines of a wanted length and height (the view)", "user": "admin",
+        "device": "desktop", "memory": "returning", "page": "view", "mirrors": "R2", "start": "/?ui=c",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            tap(".r-filters >> role=button[name='Length']", "!!document.querySelector('.r-editor')",
+                "the length filter's editor under the chips"),
+            screen("the length filter"),
+            tap("role=spinbutton[name='Length from']", None, "the field has the focus"),
+            type_("role=spinbutton[name='Length from']", "100"),
+            key("Enter", chip("Length ≥ 100"), "the chip reads Length ≥ 100 m, the list shorter"),
+            tap(".r-filters >> role=button[name='Height']", "!!document.querySelector('.r-editor')",
+                "the height filter's editor"),
+            screen("the height filter"),
+            tap("role=spinbutton[name='Height above the ground at least']", None, "the field has the focus"),
+            type_("role=spinbutton[name='Height above the ground at least']", "20"),
+            key("Enter", chip("Height ≥ 20"), "the chip reads Height ≥ 20 m"),
+            tap(VIEW_ROWS, f"{LINE} && {VIEW_PROFILE}", "the line's details and its profile in the card over the map"),
+            screen("the line: details and profile"),
+        ]},
+    "VF2": {
+        "title": "Understanding the first result (the view)", "user": "admin", "device": "iphone", "memory": "new",
+        "page": "view", "mirrors": "F2", "start": "/?ui=c",
+        "steps": [
+            note("as the administrator: the only user with a finished run in ui_shots.serve()"),
+            wait(HOME), screen("Home"),
+            tap(CARD + " .c-card-open", None, "the result loads"),
+            wait(f"({VIEW_RESULT}) || {DIALOG}"),
+            screen("the result's first view"),
+            note("the view opens with its sheet low (the hint, the run's counts): the list lies under it"),
+            tap(".u-sheet-handle", "!!document.querySelector('.u-sheet.u-half')", "the sheet at half: the list"),
+            screen("the list"),
+            swipe(VIEW_ROWS, None, "the list's first rows under the filters, into view"),
+            tap(VIEW_ROWS, LINE, "the line's details in the sheet, its profile under the four values"),
+            screen("the line's details"),
+            swipe(".u-sheet-body .fal-profile-chart", None, "the profile in the sheet"),
+            screen("the line's profile"),
+        ]},
+    "VR3": {
+        "title": "Compare: another run on the same map, and two lines (the view)", "user": "admin",
+        "device": "desktop", "memory": "returning", "page": "view", "mirrors": "R3", "start": "/?ui=c",
+        "needs": "a second run of the user with lines in the same area (ui_shots.serve() has one run): Compare's "
+                 "list is empty",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            tap("role=button[name='Compare']", POPOVER, "Compare's popover: the other runs to show on the map"),
+            screen("Compare"),
+            note("with one run Compare says 'No other runs with lines.': adding a run is not walked (fixture)"),
+            key("Escape", NO_POPOVER, "the popover closed"),
+            note("two lines: no side-by-side comparison; one line's details, then another's"),
+            tap(VIEW_ROWS + " >> nth=0", LINE, "the first line's details and profile"),
+            screen("line 1"),
+            tap(VIEW_ROWS + " >> nth=1",
+                "document.querySelectorAll('.vl-rows > li > .vl-main')[1]?.getAttribute('aria-pressed') === 'true'",
+                "the second line's details replace the first's"),
+            screen("line 2"),
+        ]},
+    "VR4": {
+        "title": "Save, sort and share (the view)", "user": "admin", "device": "desktop", "memory": "returning",
+        "page": "view", "mirrors": "R4", "start": "/?ui=c",
+        "steps": [
+            wait(HOME), screen("Home"),
+            *VIEW_OPEN_RUN,
+            note("the list's star saves to the top level at once; a folder is chosen with the star in the line's head"),
+            note("the list's second line (R4 saves the first: see above)"),
+            tap(VIEW_ROWS + " >> nth=1", LINE, "the line's details"),
+            screen("the line's details"),
+            tap(".vl-dhead >> role=button[name='Add to favourites']", POPOVER, "Save to a folder"),
+            screen("Save to a folder"),
+            tap("role=dialog[name='Favourite folders'] >> role=button[name='New folder']",
+                "!!document.querySelector('.r-newfolder input')", "the folder's name field, with the focus"),
+            type_("role=textbox[name=\"New folder's name\"]", "Tatras"),
+            key("Enter", "!!document.querySelector('.vl-dhead .r-fav.r-on')", "the line is a favourite, in Tatras"),
+            note("the view's list sorts by a select (\"Sort by\"), not by its column heads"),
+            tap(".vl-sort select", None, "the sort's choices open"),
+            key("l", None, "length marked among the choices"),
+            key("Enter", "document.querySelector('.vl-sort select')?.value === 'len'", "the tree sorted by length"),
+            tap("role=button[name='Share']", POPOVER, "Share's popover"),
+            screen("Share"),
+            tap("role=dialog[name='Share'] >> role=button[name=/^(Make a link|New link)$/]",
+                "!!document.querySelector('.r-pop input')?.value", "the link, shown once"),
+            screen("the link"),
+        ]},
+}
+WALKS = {**{k: w for k, w in WALKS.items() if k != "R4"}, **VIEW_WALKS, "R4": WALKS["R4"]}  # R4 last
+
+
 def walk_errors(walks: dict, users, devices) -> list:
     """What is wrong with the walks' data (empty: nothing): known users, devices, memories, step kinds and fields."""
     errors = []
