@@ -464,7 +464,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {t("basic.receipt.change")}<Icon name="next" /></button>}
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
-        {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {n: warnings.length})}`}
+        {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {count: warnings.length})}`}
         {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
           <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>{t("ui.search.retry")}</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
