@@ -11,6 +11,7 @@ import { EstimateBar, SearchPanel, useRigs, useSearch, type RigsState, type Usag
 import { api, type Schema, type SearchRequest } from "../api";
 import { PlaceMap } from "../PlaceMap";
 import { layerHash, parseCell } from "./route";
+import { t } from "../../i18n";
 
 /** The form and the bar, once the map, the schema, the saved rigs and the request to edit are there. */
 function Form({place, schema, rigs, initial, cell, usage, wide, onStarted}:
@@ -19,7 +20,7 @@ function Form({place, schema, rigs, initial, cell, usage, wide, onStarted}:
   const search = useSearch({place, schema, rigs, onStarted, initial, cell});
   (window as any).FINDALINE_SEARCH = search;  // for tests and the browser console
   return <>
-    <aside class="c-form" aria-label="New search">
+    <aside class="c-form" aria-label={t("ui.app.new_search")}>
       <SearchPanel search={search} usage={usage.usage} phone={!wide} />
     </aside>
     <footer class="c-bar"><EstimateBar search={search} usage={usage.usage} phone={!wide} /></footer>
@@ -46,7 +47,7 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
   }, []);
   useEffect(() => {
     if (edit) api.job(edit).then((job) => setInitial(job.request), (e) => setError(e.message));
-    else if (cell && !ofCell) setError("This is not a cell of the highline layer.");
+    else if (cell && !ofCell) setError(t("ui.new.not_a_cell"));
     else if (ofCell) {
       api.countryRequest(ofCell.country, ofCell.band, ofCell.level, ofCell.i, ofCell.j)
         .then(setInitial, (e) => setError(e.message));
@@ -55,9 +56,9 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
 
   return <div class="c-newsearch">
     <div class="c-subtop">
-      {ofCell ? <Button kind="ghost" icon="back" href={layerHash(ofCell.country)}>Layer</Button>
-        : <Button kind="ghost" icon="back" href="#home">Home</Button>}
-      <h1 class="c-subtitle">{edit ? "Edit & run again" : cell ? "Search a cell" : "New search"}</h1>
+      {ofCell ? <Button kind="ghost" icon="back" href={layerHash(ofCell.country)}>{t("ui.new.back_layer")}</Button>
+        : <Button kind="ghost" icon="back" href="#home">{t("ui.app.home")}</Button>}
+      <h1 class="c-subtitle">{t(edit ? "ui.app.edit_again" : cell ? "ui.new.cell" : "ui.app.new_search")}</h1>
     </div>
     <div class="c-newmap" ref={mapRef} />
     {error && <p class="c-error c-form">{error}</p>}

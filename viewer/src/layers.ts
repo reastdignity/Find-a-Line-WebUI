@@ -2,6 +2,7 @@
 // view's imagery: view3d/tiles.ts, view3d/credits.ts) and the data credits of a run.
 
 import type { Credit, Ortho } from "./types";
+import { t } from "./i18n";
 
 /** The operator's API key of ArcGIS Location Platform (settings.WebKeys, restricted to the site's address):
  *  from the server's runs.js (window.FINDALINE_APP) or the app page's meta; none on a map opened from disk,
@@ -58,8 +59,10 @@ export const PROCESSED_NOTE = "Find-a-Line's lines, heights, profiles and maps a
  *  leaves the link out (the highline layer of the local app: no page with the notices). */
 export function creditsHtml(credits: Credit[], notices: string, toggle?: {label: string; open: boolean}): string {
   const parts = credits.map((c) => escape(c.attribution) + " (" + linked(c.licence, c.url) + ")");
-  const html = "Data: " + Array.from(new Set(parts)).join(" | ") + ". " + escape(PROCESSED_NOTE) +
-    (notices ? ' <a href="' + escape(notices) + '" target="_blank">Notices</a>' : "");
+  // ui.credits.data and ui.credits.notices go into the HTML as they are (the catalogue is trusted: a word with "&" or
+  // "<" would need escape(), docs/known-bugs.md)
+  const html = t("ui.credits.data") + " " + Array.from(new Set(parts)).join(" | ") + ". " + escape(PROCESSED_NOTE) +
+    (notices ? ' <a href="' + escape(notices) + '" target="_blank">' + t("ui.credits.notices") + "</a>" : "");
   if (!toggle) return html;
   return '<button type="button" class="u-credits-toggle" aria-expanded="' + toggle.open + '">' + escape(toggle.label) +
     '</button><span class="u-credits' + (toggle.open ? " u-open" : "") + '">' + html + "</span>";

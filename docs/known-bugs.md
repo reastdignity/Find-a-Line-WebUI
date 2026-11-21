@@ -448,11 +448,11 @@ DESIGN.md choice 55).
   own (`local/ux-design-2026-11-16/3c-d/probes/`, three finished searches; its rows hold only a status chip and
   kit buttons). The probe also gave the pending user a session: three buttons in one row on a phone, the checkbox on
   its own line under them (DESIGN.md choice 50).
-- **The admin page's texts are English in the code** (`AdminC.tsx`, not in `locales/en.json`), its plurals made
-  there too; listed for the planner in `local/ux-design-2026-11-16/3c-d/admin-texts.md`. A problem report's context
-  line joins labelled values with " · " (`AdminC.tsx`, the `Reports` context: the run, "page …", "interface …",
-  "window …"): R9 allows "·" in a one-line meta line, never between values, and the line wraps to 2 lines on a 390 px
-  phone and 3 at 360 px (the design review's count): for step 3d, with the page's texts (colons and commas, or a list).
+- **The admin page's texts** moved into `locales/en.json` in step 3d (group G4, `ui.admin.*`; its plurals by the
+  catalogue's forms). A problem report's context line still joins labelled values with " · " (`AdminC.tsx`, the
+  `Reports` context: the run, "page …", "interface …", "window …"): R9 allows "·" in a one-line meta line, never
+  between values, and the line wraps to 2 lines on a 390 px phone and 3 at 360 px (the design review's count): step
+  3d's G5 (colons and commas, the plan).
 - **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
   ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
   theme "Demo" and "Done" are the same pill), for the kit's round; the heading's "Users (2 waiting)" against the badge
@@ -601,3 +601,57 @@ layer's chart bars only (excepted by name in R2). Known and left:
   need new points.
 - **The scrolls of a row's press on a wide screen** (to the map, and back on closing) are eased unless the system
   asks for reduced motion; the tests run with reduced motion, so the eased scroll itself is untested.
+
+## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
+
+G4 moved the English of the app's pages, the kit, the side panels and web.py's sign-in, examples, area total, about
+page and footer into `locales/en.json`, word for word (DESIGN.md choice 85; `tests/test_texts_in_catalogue.py`).
+What still shows English from the code:
+
+- **Python texts outside web.py's moved pages**, not counted by step 3d's scope and not moved (each needs its own way
+  into the catalogue, a code as the coded errors have): the job's progress line on Home's cards ("Tile 3/15 · Step
+  3/5: evaluating anchor pairs", the search's progress through the worker's events, `useJobs.ts` `step`), a job's
+  messages and an error without a code (its str()), the examples' settings line on the sign-in page
+  (`runs.params_summary`), web.py's HTTP errors without a code ("no such sign-in", "too many sign-in attempts:
+  try again later"), and the coverage page's shell (`web.COVERAGE_HTML`: its title "Data coverage · Find-a-Line", its
+  description and its noscript line; the page's own words are `locales/coverage/`).
+- **The privacy page** (`web.privacy_page`): its words are the user's to approve (the plan); its code is untouched and
+  its HTML byte for byte as before (the footer it shares now comes from the catalogue with the same bytes).
+- **The kit's demo pages** (`ui/Gallery.tsx`, `search/KitSearch.tsx`, `result/view/KitResult.tsx`): developer pages
+  (the plan, Q13 a). **Line volume round 6's files and today's result page's** (`result/view/*`, `Profile.tsx`,
+  `result/model.ts`, `list.ts`, …): after round 6, or out. The side panels' labels ("Collapse the …") take the panel's
+  name from the caller: the layer page's from the catalogue (`ui.panel.filters`, `ui.panel.histograms`), round 6's
+  `ResultColumns.tsx` and `SpotColumns.tsx` pass their side's identifier ("list", "details") as the word.
+  `coarser.ts` ("under 0.001", the shares) is shown in round 6's coarser box.
+- **Formats and values**: `time.ts`' month names and the numbers' `toLocaleString("en")` (a language would format them
+  with `Intl`, not the catalogue); unit symbols; the sheet handle's state word (`peek`, `half`, `full`: the code's
+  value inside `ui.kit.sheet_handle`).
+- **Names and required wording**: Find-a-Line, OpenStreetMap, OpenTopoMap, SRTM, GeoJSON, CSV; Esri's attribution and
+  "Powered by Esri" (its terms); the processed-data note (`layers.ts` `PROCESSED_NOTE`, word for word with
+  `sources.credit.PROCESSED_NOTE`: `tests/test_catalogue.py`).
+- **Developer diagnostics**: the store's reading errors (`result/load.ts`, `types.ts`: written to the console; the
+  page shows `ui.result.store_failed`) and the vendored `view3d/martini.ts`.
+- **Words left as they were for G5** (not one word changed): one form for every number where the code wrote one
+  ("Delete “X”, 1 folders in it …", "1 warning(s)", "(1 shapes; …)", "At most 1 searches waiting or running.", the
+  examples' "1 spots · 1 lines"); "About and data licences" (account menu) against "About / data licences" (footer,
+  the about page); "Report a problem…" (a card's menu) against "Report a problem"; the same words under several keys
+  ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove", "Try again", "Auto", "All", "Done";
+  `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the older ones named for their component
+  (the planner's ruling, 2026-11-20).
+- **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
+  which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 337 keys (main's
+  `ui.card.cancelled` went: the kit's key says the same).
+- **Text nodes and pixels**: Chromium places a line's glyphs by its text nodes, so the same words in other nodes can
+  differ by a shade (seen on the search's "Centre …" line, the mini maps' credit, Admin's user line, and in the
+  reviews on Favourites' "Export this folder" and its 0-line delete question). `i18n.parts` keeps a text's values as
+  nodes of their own where they were; the pictures of `tools/ui_shots.py`'s states and of the states it has no page for
+  (Favourites with rows, menus, "Move to", the delete question with 0, 1 and 2 lines; Admin's "All searches" rows; the
+  estimate paused and unavailable; the area file's six errors; the report dialog's kinds; the beta notice; a card's
+  Share and Delete panels) are pixel-identical to main's on the desktop, the iPhone and the Pixel but for live map
+  tiles and shades of 1/255 on a control's corners that main against main shows too
+  (`local/ux-design-2026-11-16/3d/g4/fix/`). Two lines keep the same words with a space in another node than main's
+  (the delete question's " and" " ", the trip list's empty line): the same pixels.
+- **The map credits' catalogue words go into HTML unescaped** (`baselayers.ts` `osmCredit` and the OpenTopoMap
+  credit, `layers.ts` `creditsHtml`: `ui.map.*`, `ui.credits.data`, `ui.credits.notices`), as Leaflet's attribution
+  takes HTML; `web.page_text` escapes its texts' &, < and >. No word holds either today; a later word (G5, a language)
+  with "&" or "<" needs escaping there.

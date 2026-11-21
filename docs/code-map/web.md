@@ -76,7 +76,9 @@ topics (from the message catalogue, `messages.text`; the fields of each topic: `
 Basic form and Advanced's cards (`params.PRESETS`: best, long, first, sea, everything and custom, each with all
 eleven `PRESET_FIELDS` = `GOAL_FIELDS`, `preset_values`; `web.presets`: unavailable when a value it sends is outside the
 user's bounds or not allowed, or a default it leaves is outside them); the privacy and about pages
-(`privacy_page`, `about_page`, `PAGE_HTML`; server-rendered, no script); `/coverage` (public in both modes,
+(`privacy_page`, `about_page`, `PAGE_HTML`; server-rendered, no script; the sign-in page's, the examples', the area
+total's, the about page's and the footer's words from the catalogue's `page.*` through `page_text`, the privacy
+page's in Python); `/coverage` (public in both modes,
 `COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); `font/woff2` registered with `mimetypes` (Python on
 Windows has no type for it); the audit log through `record`; the page is `viewer/src/app`
 
@@ -98,8 +100,15 @@ whatever the Range and deletes it afterwards, also when the client breaks off or
 
 The message catalogue of the web interface: `locales/<language>.json` (English only now: `en.json`), flat namespaced
 keys (`field.<name>.label`/`unit`/`help`, `choice.<field>.<value>`, `topic.<id>`, `preset.<id>` and `goal.<id>.text`
-(the goals), `basic.*` and `rig.*` (the Basic form, its rigs), `hint.*`, `error.<code>`, `ui.*`), i18next's JSON v4 (`{{name}}`, plurals `_zero`/`_one`/`_other`); `messages.text` formats it
-on the server as i18next does, `viewer/src/i18n.ts` (i18next core, no React bindings: `t`, `label`) in the page. The
+(the goals), `basic.*` and `rig.*` (the Basic form, its rigs), `hint.*`, `error.<code>`, `ui.*` (the app's pages:
+`ui.common.*` the words several share, `ui.app.*` the pages' names, `ui.kit.*` the kit's, `ui.panel.*` the side
+panels'), `page.*` (the server-rendered pages: `web.page_text`)), i18next's JSON v4 (`{{name}}`, plurals `_zero`/`_one`/`_other`); `messages.text` formats it
+on the server as i18next does, `viewer/src/i18n.ts` (i18next core, no React bindings: `t`, `label`, `parts` for a
+text with an element or a value as a part of its own) in the page. Since step 3d's G4 the words of the files
+`tests/test_texts_in_catalogue.py` names and of web.py's sign-in, examples, area total, about page and footer come
+from it; English still in code: line volume's result-view files, today's result page, the kit's demo pages, the
+privacy page and the coverage page's shell in web.py, and the Python texts outside the moved pages
+(docs/known-bugs.md). The
 CLI keeps its own texts (`params.py` descriptions). Coded errors and notes: `messages.UserError` (a ValueError),
 `ServiceError` (a RuntimeError), `Note` (a str: a search's warning), `search.SearchError` and `jobs.QuotaExceeded`
 carry `code` and `params` (`messages.Coded`): str() is the command line's text (option names), `web_text()` the

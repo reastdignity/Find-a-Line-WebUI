@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Button } from "../ui/components";
 import { Icon, Logo } from "../ui/icons";
 import { canReport, ISSUES_URL, openReport, siteContact } from "../report";
+import { t } from "../i18n";
+import { Rich } from "../ui/Intro";
 import "./notices.css";
 
 const WELCOME = "__Host-findaline-welcome";  // web.WELCOME_COOKIE
@@ -38,26 +40,23 @@ export function BetaNotice() {
   const contact = siteContact();
   const close = () => ref.current?.close();
   return <dialog ref={ref} class="ui u-dialog n-beta" aria-labelledby="n-beta-title">
-    <div class="n-head"><Logo /><span class="u-badge">beta</span></div>
-    <h2 class="u-h" id="n-beta-title">An early beta</h2>
-    <p>Find-a-Line is still young: results, data sources and the interface change, and some of it will be wrong.
-      Check every line on the spot before you rig it.</p>
-    <p class="n-warn"><Icon name="warn" /><span><b>A break of the main is not part of the calculation.</b> The
-      clearance under a line assumes the main holds; a fall onto the backup, which sags lower, is not checked.</span></p>
-    <p>Please tell us what goes wrong or what you miss, above all:</p>
+    <div class="n-head"><Logo /><span class="u-badge">{t("ui.beta.badge")}</span></div>
+    <h2 class="u-h" id="n-beta-title">{t("ui.beta.title")}</h2>
+    <p>{t("ui.beta.young")}</p>
+    <p class="n-warn"><Icon name="warn" /><span><Rich text={t("ui.beta.main")} /></span></p>
+    <p>{t("ui.beta.tell")}</p>
     <ul>
-      <li>lines you expected at a place but did not get, or results you did not expect;</li>
-      <li>a water surface at a wrong height (a lake or the sea too high or too low);</li>
-      <li>bugs of the interface.</li>
+      <li>{t("ui.beta.lines")}</li>
+      <li>{t("ui.beta.water")}</li>
+      <li>{t("ui.beta.bugs")}</li>
     </ul>
     <p class="n-ways">
-      <a href={ISSUES_URL} target="_blank" rel="noopener"><Icon name="link" />GitHub issues</a>
-      {contact && <span><Icon name="info" />E-mail: <Contact contact={contact} /></span>}
+      <a href={ISSUES_URL} target="_blank" rel="noopener"><Icon name="link" />{t("ui.beta.issues")}</a>
+      {contact && <span><Icon name="info" />{`${t("ui.beta.email")} `}<Contact contact={contact} /></span>}
       <button type="button" class="c-link" onClick={() => { close(); openReport(); }}>
-        <Icon name="warn" />Report a problem here</button>
+        <Icon name="warn" />{t("ui.beta.report")}</button>
     </p>
-    <p class="u-small">You find Report a problem later in the account menu, in a line's details and in a search's
-      menu of actions.</p>
-    <div class="n-actions"><Button kind="primary" onClick={close}>Understood</Button></div>
+    <p class="u-small">{t("ui.beta.later")}</p>
+    <div class="n-actions"><Button kind="primary" onClick={close}>{t("ui.beta.ok")}</Button></div>
   </dialog>;
 }

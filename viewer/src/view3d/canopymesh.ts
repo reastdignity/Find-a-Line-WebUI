@@ -9,6 +9,7 @@
 // is made coarser (k grows) until the mesh fits the vertex budget. No triangles over no data.
 
 import { inflate, splitAnswer } from "./decode";
+import { t } from "../i18n";
 import { toScene, type Origin } from "./geometry";
 
 /** The meta of the answer for `part=canopy`. */
@@ -51,9 +52,9 @@ export async function decodeCanopy(answer: ArrayBuffer, sha: (b: Uint8Array) => 
   } catch (e) {
     throw new CanopyError((e as Error).message);
   }
-  if (meta.part !== "canopy" || !(meta.width > 0 && meta.height > 0)) throw new CanopyError("not the canopy block");
+  if (meta.part !== "canopy" || !(meta.width > 0 && meta.height > 0)) throw new CanopyError(t("ui.view3d.canopy_not"));
   const digest = await sha(body);
-  if (digest !== null && digest !== meta.sha256) throw new CanopyError("the block's checksum differs");
+  if (digest !== null && digest !== meta.sha256) throw new CanopyError(t("ui.view3d.canopy_checksum"));
   let values: Uint8Array;
   try {
     values = await inflate(body);
@@ -61,7 +62,7 @@ export async function decodeCanopy(answer: ArrayBuffer, sha: (b: Uint8Array) => 
     throw new CanopyError((e as Error).message);
   }
   if (values.byteLength !== meta.width * meta.height) {
-    throw new CanopyError(`expected ${meta.width * meta.height} values, got ${values.byteLength}`);
+    throw new CanopyError(t("ui.view3d.canopy_values", {expected: meta.width * meta.height, got: values.byteLength}));
   }
   return {meta, values};
 }

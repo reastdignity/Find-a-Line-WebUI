@@ -21,9 +21,11 @@ import { SearchedLine } from "./Searched";
 import { AdminC } from "./AdminC";
 import { OsmC } from "./OsmC";
 import { go } from "./route";
+import { t } from "../../i18n";
 
-const THEMES = [{value: "auto" as const, label: "Auto"}, {value: "light" as const, label: "Light"},
-                {value: "dark" as const, label: "Dark"}];
+const themes = () => [{value: "auto" as const, label: t("ui.account.theme_auto")},
+                      {value: "light" as const, label: t("ui.account.theme_light")},
+                      {value: "dark" as const, label: t("ui.account.theme_dark")}];
 
 export function AccountBody({theme, setTheme, onPick, usage}:
                             {theme: Theme; setTheme(t: Theme): void; onPick?(): void; usage?: Usage | null}) {
@@ -31,23 +33,23 @@ export function AccountBody({theme, setTheme, onPick, usage}:
   return <div class="c-account">
     <div class="c-account-who">
       <span class="c-avatar"><Icon name="user" /></span>
-      <span><b>{user.local ? "This computer" : user.name}</b>
-        <span class="u-small">{user.local ? "the local app: no account" : user.admin ? "administrator" : "signed in"}</span></span>
+      <span><b>{user.local ? t("ui.account.local_name") : user.name}</b>
+        <span class="u-small">{t(user.local ? "ui.account.local_who" : user.admin ? "ui.account.administrator" : "ui.account.signed_in")}</span></span>
     </div>
     <SearchedLine usage={usage} />
     <nav class="c-account-links">
-      {!user.local && user.admin && <a class="c-menu-item" href="#admin" onClick={pick}><Icon name="user" />Admin</a>}
-      {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />OpenStreetMap extracts</a>}
-      {(user.local || user.admin) && <a class="c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />Highline layer</a>}
+      {!user.local && user.admin && <a class="c-menu-item" href="#admin" onClick={pick}><Icon name="user" />{t("ui.app.admin")}</a>}
+      {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />{t("ui.app.osm")}</a>}
+      {(user.local || user.admin) && <a class="c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />{t("ui.layer.title")}</a>}
       {canReport() && <button type="button" class="c-menu-item" onClick={() => { pick(); openReport(); }}>
-        <Icon name="warn" />Report a problem</button>}
-      {!user.local && <a class="c-menu-item" href="/privacy" target="_blank"><Icon name="info" />Privacy</a>}
-      {!user.local && <a class="c-menu-item" href="/about" target="_blank"><Icon name="info" />About and data licences</a>}
+        <Icon name="warn" />{t("ui.report.title")}</button>}
+      {!user.local && <a class="c-menu-item" href="/privacy" target="_blank"><Icon name="info" />{t("ui.app.privacy")}</a>}
+      {!user.local && <a class="c-menu-item" href="/about" target="_blank"><Icon name="info" />{t("ui.account.about")}</a>}
     </nav>
-    <div class="c-account-theme"><span class="u-small">Theme</span>
-      <Segmented label="Theme" options={THEMES} value={theme} onChange={(t) => { storeTheme(t); setTheme(t); }} /></div>
+    <div class="c-account-theme"><span class="u-small">{t("ui.account.theme")}</span>
+      <Segmented label={t("ui.account.theme")} options={themes()} value={theme} onChange={(t) => { storeTheme(t); setTheme(t); }} /></div>
     {!user.local && <Button kind="danger" class="c-signout"
-                            onClick={() => api.logout().finally(() => { location.href = "/"; })}>Sign out</Button>}
+                            onClick={() => api.logout().finally(() => { location.href = "/"; })}>{t("ui.app.sign_out")}</Button>}
   </div>;
 }
 
@@ -55,11 +57,11 @@ export function AccountBody({theme, setTheme, onPick, usage}:
 export function AccountMenu({theme, setTheme, usage}:
                             {theme: Theme; setTheme(t: Theme): void; usage?: Usage | null}) {
   const [open, setOpen] = useState(false);
-  return <Popover label="Account" align="right" open={open} onOpen={setOpen}
+  return <Popover label={t("ui.app.account")} align="right" open={open} onOpen={setOpen}
                   button={(on, toggle) => <button type="button" class={`c-account-btn${on ? " u-on" : ""}`}
                                                   aria-expanded={on} onClick={toggle}>
                     <span class="c-avatar"><Icon name="user" /></span>
-                    <span class="c-account-name">{user.local ? "Local" : user.name}</span>
+                    <span class="c-account-name">{user.local ? t("ui.account.local") : user.name}</span>
                     <Icon name="down" /></button>}>
     <AccountBody theme={theme} setTheme={setTheme} onPick={() => setOpen(false)} usage={usage} />
   </Popover>;
@@ -147,26 +149,26 @@ export function MapPage({title, aside, children}:
     </div>;
   }
   return <div class="c-mappage c-mappage-3" ref={cols}>
-    <SidePanel {...props("left")} name="filters" label={title} rail={{icon: "filter", text: rails[0] || title}}>
+    <SidePanel {...props("left")} name={t("ui.panel.filters")} label={title} rail={{icon: "filter", text: rails[0] || title}}>
       <div class="c-col-scroll" data-scroll="left">
         <h1 class="u-h">{title}</h1>
         {place && right && children(place, right, extras.current)}
       </div>
     </SidePanel>
     <div class="c-newmap" ref={ref} />
-    <SidePanel {...props("right")} name="histograms" label={aside} rail={{icon: "bars", text: rails[1] || aside}}>
+    <SidePanel {...props("right")} name={t("ui.panel.histograms")} label={aside} rail={{icon: "bars", text: rails[1] || aside}}>
       <div class="c-col-scroll" data-scroll="right" ref={setRight} />
     </SidePanel>
   </div>;
 }
 
 export function AdminPage({jobs}: {jobs: Job[]}) {
-  if (user.local || !user.admin) return <div class="c-page"><p>Administrators of the public site only.</p></div>;
+  if (user.local || !user.admin) return <div class="c-page"><p>{t("ui.account.admins_only")}</p></div>;
   return <AdminC jobs={jobs} />;
 }
 
 export function OsmPage() {
-  if (!user.local && !user.admin) return <div class="c-page"><p>The local app and administrators only.</p></div>;
-  return <MapPage title="OpenStreetMap extracts">{(place) => <OsmC place={place} onStarted={() => go("#home")} />}</MapPage>;
+  if (!user.local && !user.admin) return <div class="c-page"><p>{t("ui.layer.admins_only")}</p></div>;
+  return <MapPage title={t("ui.app.osm")}>{(place) => <OsmC place={place} onStarted={() => go("#home")} />}</MapPage>;
 }
 

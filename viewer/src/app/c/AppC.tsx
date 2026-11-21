@@ -18,13 +18,14 @@ import { ResultPage } from "./ResultPage";
 import { go, parseRoute, type Route } from "./route";
 import { FavouritesPage } from "./FavouritesPage";
 import { LayerPage } from "./LayerPage";
+import { t } from "../../i18n";
 import "./c.css";
 
 type Nav = "home" | "favourites" | "account";
-const NAV: NavItem<Nav>[] = [
-  {value: "home", label: "Home", icon: "home"},
-  {value: "favourites", label: "Favourites", icon: "star"},
-  {value: "account", label: "Account", icon: "user"},
+const navItems = (): NavItem<Nav>[] => [
+  {value: "home", label: t("ui.app.home"), icon: "home"},
+  {value: "favourites", label: t("ui.app.favourites"), icon: "star"},
+  {value: "account", label: t("ui.app.account"), icon: "user"},
 ];
 
 function initialTheme(): Theme {
@@ -51,11 +52,11 @@ function Header({route, theme, setTheme, usage}:
                 {route: Route; theme: Theme; setTheme(t: Theme): void; usage: Usage | null}) {
   const on = (page: Route["page"]) => route.page === page ? "c-nav-item u-on" : "c-nav-item";
   return <header class="c-top">
-    <a class="c-logo" href="#home" aria-label="Find-a-Line: home"><Logo /></a>
-    <nav class="c-nav" aria-label="Main">
-      <a class={on("home")} href="#home" aria-current={route.page === "home" ? "page" : undefined}><Icon name="home" />Home</a>
+    <a class="c-logo" href="#home" aria-label={t("ui.app.logo")}><Logo /></a>
+    <nav class="c-nav" aria-label={t("ui.kit.nav")}>
+      <a class={on("home")} href="#home" aria-current={route.page === "home" ? "page" : undefined}><Icon name="home" />{t("ui.app.home")}</a>
       <a class={on("favourites")} href="#favourites" aria-current={route.page === "favourites" ? "page" : undefined}>
-        <Icon name="star" />Favourites</a>
+        <Icon name="star" />{t("ui.app.favourites")}</a>
     </nav>
     <span class="u-grow" />
     <AccountMenu theme={theme} setTheme={setTheme} usage={usage} />
@@ -64,7 +65,7 @@ function Header({route, theme, setTheme, usage}:
 
 /** The phones' header of the pages with the bottom navigation. */
 function PhoneHeader() {
-  return <header class="c-top c-top-phone"><a class="c-logo" href="#home" aria-label="Find-a-Line: home"><Logo /></a></header>;
+  return <header class="c-top c-top-phone"><a class="c-logo" href="#home" aria-label={t("ui.app.logo")}><Logo /></a></header>;
 }
 
 export function AppC() {
@@ -127,11 +128,11 @@ export function AppC() {
       page = <ResultPage key={route.id} id={route.id} line={route.line} nav={navs} editJob={editJob} wide={wide} />;
       break;
     case "favourites":
-      page = <div class="c-page c-page-wide"><Panel title="Favourite lines" class="c-favs c-favs-page">
+      page = <div class="c-page c-page-wide"><Panel title={t("ui.app.favourite_lines")} class="c-favs c-favs-page">
         <FavouritesPage wide={wide} /></Panel></div>;
       break;
     case "account":
-      page = <div class="c-page"><Panel title="Account"><AccountBody theme={theme} setTheme={setTheme} usage={usage.usage} /></Panel></div>;
+      page = <div class="c-page"><Panel title={t("ui.app.account")}><AccountBody theme={theme} setTheme={setTheme} usage={usage.usage} /></Panel></div>;
       break;
     case "admin":
       page = <AdminPage jobs={jobs.jobs} />;
@@ -150,6 +151,6 @@ export function AppC() {
     {!focused && (wide ? <Header route={route} theme={theme} setTheme={setTheme} usage={usage.usage} /> : <PhoneHeader />)}
     {error && <p class="c-error c-app-error">{error}</p>}
     <main class={`c-main c-main-${route.page}`}>{page}</main>
-    {!wide && nav && <BottomNav items={NAV} value={nav} onChange={(v) => go("#" + v)} />}
+    {!wide && nav && <BottomNav items={navItems()} value={nav} onChange={(v) => go("#" + v)} />}
   </Screen>;
 }
