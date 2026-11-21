@@ -464,7 +464,7 @@ LAYOUTS = {
 }
 
 # The pages of the result view: the page's flag kept in localStorage ("findaline.view", SpotColumns.tsx viewWanted) is
-# set to the page's value; every other page starts without it (today's result page)
+# set to the page's value; every other page has it "today" (today's result page pinned: page_storage)
 VIEWS = {name: "b" for name in ("c-view", "c-view-area", "c-view-spots", "c-view-lines", "c-view-best30", "c-view-all",
                                 "c-view-held", "c-view-crowded", "c-view-controls", "c-view-half",
                                 "c-view-selected", "c-view-selected-half", "c-view-fan", "c-view-sector", "c-view-all-levels",
@@ -997,11 +997,10 @@ def page_steps(steps) -> list:
 
 def page_storage(name: str) -> str:
     """The init script of a page: its kept layouts (LAYOUTS, LAYER_LAYOUTS) set, or removed for the defaults; the
-    result view's flag (VIEWS) set for its pages, removed for every other page (one context serves a whole pass)."""
-    kept, layer, view = LAYOUTS.get(name), LAYER_LAYOUTS.get(name), VIEWS.get(name)
-    return "try { " + (
-        f"localStorage.setItem('findaline.view', {json.dumps(view)}); " if view
-        else "localStorage.removeItem('findaline.view'); ") + (
+    result view's flag (VIEWS) set for its pages, every other page with today's page pinned ("today", the page's own
+    answer: tools/today_page.py), whatever SpotColumns.tsx VIEW_DEFAULT is (one context serves a whole pass)."""
+    kept, layer, view = LAYOUTS.get(name), LAYER_LAYOUTS.get(name), VIEWS.get(name, "today")
+    return "try { " + f"localStorage.setItem('findaline.view', {json.dumps(view)}); " + (
         f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
         else "localStorage.removeItem('findaline.layout'); ") + (
         f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer

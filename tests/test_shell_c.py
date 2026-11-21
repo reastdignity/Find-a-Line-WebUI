@@ -22,6 +22,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from test_public import ACCOUNTS, FakeProviders, RUN_A, clip_run, copy_run, session_of  # noqa: E402,F401
 from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _result_of, _server, _violations  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page)
 
 BIG = "2026-10-27_100000_Big_00000000000000b1"     # the clip's run: about 27,000 lines, its mini map skips them
 SMALL = "2026-10-28_120000_Small_00000000000000c1"  # its first lines only: the mini map draws them
@@ -1527,7 +1529,7 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
     monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
     stubs = tmp_path / "stubs"
     stubs.mkdir()
-    (stubs / "stubs.js").write_text(C_STUBS, encoding="utf-8")
+    (stubs / "stubs.js").write_text(today_page.SCRIPT + C_STUBS, encoding="utf-8")  # today's page pinned
     script = tmp_path / "script"  # the check depends on who signs in: written before each sign-in
     script.mkdir()
     monkeypatch.setattr(web, "APP_HTML", web.APP_HTML.replace(

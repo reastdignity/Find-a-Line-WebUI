@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
 from test_web import EDGE, _playwright, _server  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page, whatever SpotColumns.tsx VIEW_DEFAULT is)
+DEFAULT = today_page.view_default()  # is the result view the default (VIEW_DEFAULT; false until gate 2)
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
                                 reason="needs Microsoft Edge and Playwright (group ui)")
@@ -247,10 +250,11 @@ window.T = {
 """
 
 
-def _open(browser, url: str, context: dict, flag: bool = True, script: str = ""):
-    """The run's page with the page's helpers; with `flag` the result view is asked for and awaited."""
+def _open(browser, url: str, context: dict, flag: bool | None = True, script: str = ""):
+    """The run's page with the page's helpers; with `flag` the result view is asked for and awaited; False: today's
+    page pinned (tools/today_page.py); None: neither (the browser's default)."""
     ctx = browser.new_context(**context)
-    ctx.add_init_script(HELPERS + (FLAG if flag else "") + script)
+    ctx.add_init_script(HELPERS + (FLAG if flag else today_page.SCRIPT if flag is False else "") + script)
     page = ctx.new_page()
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
@@ -1502,18 +1506,18 @@ def test_focus_rings(site):
 
 
 def test_flag_old_run_and_blocked_storage(site):
-    """Without the flag every run opens in today's page; `?view=b` opens the view and is remembered, `?view=today`
-    ends it; a run without the view's columns opens today's page also with the flag, and the console says why;
-    with the browser's storage blocked `?view=b` still opens the view for that load and it works."""
+    """Without the flag a run opens in the default (DEFAULT: today's page until gate 2); `?view=b` opens the view and
+    is remembered, `?view=today` ends it; a run without the view's columns opens today's page also with the flag, and
+    the console says why; with the browser's storage blocked `?view=b` still opens the view for that load and it works."""
     from playwright.sync_api import sync_playwright
     which = "() => [!!window.FINDALINE_VIEW, !!window.FINDALINE_RESULT]"
     ready = "() => !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT)"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=False)
+            page = _open(browser, f"{site}#run={BIG}", DESKTOP, flag=None)
             page.wait_for_function(ready, timeout=WAIT)
-            assert page.evaluate(which) == [False, True]
+            assert page.evaluate(which) == [DEFAULT, not DEFAULT]
             for address, want in ((f"{site}&view=b#run={BIG}", [True, False]), (f"{site}#run={BIG}", [True, False]),
                                   (f"{site}&view=today#run={BIG}", [False, True]), (f"{site}#run={BIG}", [False, True])):
                 page.goto("about:blank")
@@ -1547,6 +1551,6 @@ def test_flag_old_run_and_blocked_storage(site):
             page.goto("about:blank")
             page.goto(f"{site}#run={BIG}")
             page.wait_for_function(ready, timeout=WAIT)
-            assert page.evaluate(which) == [False, True] and errors == []
+            assert page.evaluate(which) == [DEFAULT, not DEFAULT] and errors == []
         finally:
             browser.close()

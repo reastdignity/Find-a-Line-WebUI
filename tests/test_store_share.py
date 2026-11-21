@@ -259,13 +259,15 @@ def test_share_links_read_the_store_in_edge(tmp_path, clip_run, account_settings
     from jobs import Jobs
     from settings import PublicSettings
     from test_web import CSP_STUB
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     site = f"http://localhost:{port}"
     stubs = tmp_path / "stubs"
     stubs.mkdir()
-    (stubs / "csp_stub.js").write_text(CSP_STUB, encoding="utf-8")
+    (stubs / "csp_stub.js").write_text(today_page.SCRIPT + CSP_STUB, encoding="utf-8")  # today's page pinned
     (stubs / "share_test.js").write_text(SHARE_SCRIPT, encoding="utf-8")
     data = tmp_path / "data"
     data.mkdir()

@@ -17,6 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_shell_c import BIG, SMALL, copy_clip, small_copy, stub_page  # noqa: E402
 from test_web import EDGE, _basic_page, _playwright, _search_page, _server  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import today_page  # noqa: E402  (the pin of today's page)
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
                                 reason="needs Microsoft Edge and Playwright (group ui)")
@@ -65,8 +67,10 @@ def _layout(width: int) -> str:
 
 
 def _open(browser, url: str, kept: int | None = None, **context):
-    """The result's page (its list drawn), with a kept layout of the list's width `kept`."""
+    """The result's page (today's, pinned: tools/today_page.py; its list drawn), with a kept layout of the list's
+    width `kept`."""
     page = browser.new_page(**context)
+    page.add_init_script(today_page.SCRIPT)
     if kept:
         page.add_init_script(f"localStorage.setItem('findaline.layout', {json.dumps(_layout(kept))})")
     page.goto(url)

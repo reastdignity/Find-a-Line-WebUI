@@ -1407,8 +1407,13 @@ def test_frame_in_edge(tmp_path, run):
         words = json.load(f)
     ok, _ = run.passing()
     spots = len(run.order(ok))
-    # the flag: off until it is set in the browser's storage; a run without the view's columns never opens the view
-    assert out["flag"] == {"before": [False, False], "wanted": True, "opens": True, "old": False} and out["after"] is False
+    # the flag: the default (SpotColumns.tsx VIEW_DEFAULT, read by tools/today_page.py) until it is set in the browser's
+    # storage; a run without the view's columns never opens the view
+    import sys
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import today_page
+    on = today_page.view_default()
+    assert out["flag"] == {"before": [on, on], "wanted": True, "opens": True, "old": False} and out["after"] is on
     first = out["first"]
     assert out["drawn"] is True and (first["level"], first["auto"], first["best"]) == ("area", True, 10)
     assert first["m"] == first["spots"] == spots and first["status"] == words["ui.view.map.status_area"]

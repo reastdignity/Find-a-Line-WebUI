@@ -62,8 +62,9 @@ RESULT, PROFILE, HOME, POPOVER, FORM, chip()) read the page's classes.
 surface's controls and words at an address (after clicks on the selectors given after " | "), for writing walks.
 
 The walks (WALKS) are proposals of the UX plan, not confirmed tasks: data, easy to change. Each has its user (a key of
-serve()'s cookies or "visitor"), its device (a key of ui_shots.DEVICES), what the browser remembers (MEMORIES), its
-start address ("{run}", "{line}" filled), its steps (the functions tap, type_, key, unmade, swipe, sign_in, wait,
+serve()'s cookies or "visitor"), its device (a key of ui_shots.DEVICES), what the browser remembers (MEMORIES), the
+result page it opens ("page": "today", the default, today's result page pinned whatever SpotColumns.tsx VIEW_DEFAULT
+is, tools/today_page.py; or "view", the result view), its start address ("{run}", "{line}" filled), its steps (the functions tap, type_, key, unmade, swipe, sign_in, wait,
 screen, note), and optionally "needs" (what the fixtures lack for the whole walk, shown with a dead end) or "skip"
 (not walked, and why). A swipe is one pointer action (made as scrolling the element into view); a tap on an element
 outside the viewport is flagged in walks.md (the walk then lacks a swipe). Seconds are indicative: the machine's load
@@ -83,6 +84,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
+import today_page  # noqa: E402
 import ui_shots  # noqa: E402
 
 TIMEOUT_MS = 20000  # how long an element or an expected state may take before the step is a dead end
@@ -95,6 +97,8 @@ POINTER = ("tap", "unmade", "swipe")
 # What the browser remembers at the start: "first": just signed in (the beta notice and the intros not yet seen);
 # "new": the intros not yet seen (the notice was seen at the sign-in); "returning": all put away, as ui_shots does
 MEMORIES = ("first", "new", "returning")
+# The result page a walk opens: today's (pinned) or the result view; their init scripts (the page's own answers)
+RESULT_PAGES = {"today": today_page.SCRIPT, "view": today_page.VIEW}
 VISITOR = "visitor"
 # The page's requests that would start work in the worker: refused, and the walk fails
 FORBIDDEN = [("POST", re.compile(r"/api/jobs(/[^/]+/again)?/?$")), ("POST", re.compile(r"/api/osm/?$"))]
@@ -337,6 +341,8 @@ def walk_errors(walks: dict, users, devices) -> list:
             errors.append(f"{wid}: unknown device {w.get('device')!r}")
         if w.get("memory") not in MEMORIES:
             errors.append(f"{wid}: unknown memory {w.get('memory')!r}")
+        if w.get("page", "today") not in RESULT_PAGES:
+            errors.append(f"{wid}: unknown result page {w.get('page')!r}")
         if not str(w.get("start", "")).startswith("/"):
             errors.append(f"{wid}: the start is not a path")
         for i, s in enumerate(w.get("steps", [])):
@@ -603,7 +609,7 @@ def run_walk(page, walk: dict, out: str | None = None, values: dict | None = Non
             dead = {"step": end + 1, "why": f"error: {type(e).__name__}", "error": True}
     record = {"id": walk.get("id", ""), "title": walk.get("title", ""), "user": walk.get("user"),
               "device": walk.get("device"), "memory": walk.get("memory"), "needs": walk.get("needs"),
-              "steps": steps, "dead_end": dead}
+              "page": walk.get("page", "today"), "steps": steps, "dead_end": dead}
     record["totals"] = totals(record, desktop=not touch)
     return record
 
@@ -810,7 +816,8 @@ def markdown(records: list) -> str:
                 cells[-1] += " (error)"
         lines.append(f"| {r['id']} {r['title']} | " + " | ".join(cells) + " |")
     for r in records:
-        lines += ["", f"## {r['id']} {r['title']} ({r['user']}, {r['device']}, {r['memory']} visit)", ""]
+        view = ", the result view" if r.get("page") == "view" else ""
+        lines += ["", f"## {r['id']} {r['title']} ({r['user']}, {r['device']}, {r['memory']} visit{view})", ""]
         if r.get("skipped"):
             lines.append(f"Not walked: {r['skipped']}")
             continue
@@ -864,15 +871,17 @@ def _cookies(cookie: str | None, memory: str) -> list:
     return found
 
 
-def _context(pw, browsers: dict, device: str, memory: str, cookie: str | None, site: str):
-    """A fresh browser context of the device in the light theme, with what the browser remembers (MEMORIES) and a
-    guard that refuses the requests of FORBIDDEN (listed in the second value)."""
+def _context(pw, browsers: dict, device: str, memory: str, cookie: str | None, site: str, page: str = "today"):
+    """A fresh browser context of the device in the light theme, with what the browser remembers (MEMORIES), the
+    result page it opens (RESULT_PAGES) and a guard that refuses the requests of FORBIDDEN (listed in the second
+    value)."""
     engine, profile = ui_shots.DEVICES[device]
     if engine not in browsers:
         browsers[engine] = getattr(pw, engine).launch()
     options = dict(pw.devices[profile]) if profile else dict(ui_shots.DESKTOP)
     options.pop("default_browser_type", None)
     context = browsers[engine].new_context(**options, color_scheme="light", ignore_https_errors=True)
+    context.add_init_script(RESULT_PAGES[page])
     if memory == "returning":  # the intros put away, as ui_shots does
         context.add_init_script("try { localStorage.setItem('findaline-theme', 'light'); "
                                 + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); "
@@ -898,7 +907,8 @@ def _walk(pw, browsers: dict, site: str, cookies: dict, values: dict, wid: str, 
     refused, context = [], None
     touch = walk["device"] != "desktop"
     try:
-        context, refused = _context(pw, browsers, walk["device"], walk["memory"], cookies.get(walk["user"]), site)
+        context, refused = _context(pw, browsers, walk["device"], walk["memory"], cookies.get(walk["user"]), site,
+                                    walk.get("page", "today"))
 
         def session(page, user, address, memory=walk["memory"]):
             page.context.clear_cookies()
