@@ -4,7 +4,7 @@
 // and, in "Clearance model", the rigging saved as a rig. Where (Point · Area · Along cliffs · File) is one block
 // shown in either tab. The bar with the size word, the receipt and the start is a bar of its own (EstimateBar),
 // which the page places under the panel (NewSearch's bottom bar). UsageMeters shows the user's quotas;
-// SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
+// SearchIntro, "How a search works", opens from its link. Styles in search.css (s-*), under the kit's .ui root.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
@@ -513,7 +513,7 @@ const TABS = ["basic", "advanced"] as const;
 
 /** The panel of the state `search`. */
 export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
-  const intro = useIntro("search");
+  const intro = useIntro("search", false);  // from its link only (the user's answer of 2026-11-21: Q-F1 b)
   const [ask, setAsk] = useState<ReturnAsk | null>(null);
   const [rig, setRig] = useState<RigAsk | null>(null);
   const tabs = useRef<HTMLDivElement>(null);

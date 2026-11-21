@@ -457,27 +457,19 @@ const SMALL = "%(small)s";
 const seen = (name) => localStorage.getItem("findaline.intro." + name);
 const dialog = () => $(".n-intro[open]");
 run({
-  search(next) { wait(() => $(".s-panel") && dialog(), () => {
-    result.search = {title: text(".n-intro[open] h2"), checked: $(".n-intro[open] .n-again input").checked,
-                     limits: text(".n-intro[open] .n-limits"),
-                     examples: $$(".n-intro[open] .n-examples li b").length, before: seen("search")};
-    button("Got it").click();
+  // the search's intro opens from its link only (the user's answer of 2026-11-21, step 3d G5: Q-F1 b)
+  search(next) { wait(() => $(".s-panel"), () => later(() => {
+    result.search = {opened: !!dialog(), before: seen("search")};
+    $(".s-intro .n-intro-link").click();
     later(() => {
-      result.search.closed = !dialog();
-      result.search.after = seen("search");
-      location.hash = "#home";
-      wait(() => $(".c-new"), () => { $(".c-new").click(); wait(() => $(".s-panel"), () => later(() => {
-        result.search.again = !!dialog();  // put away: not opened again
-        $(".s-intro .n-intro-link").click();
-        later(() => {
-          result.search.link = text(".n-intro[open] h2");
-          $(".n-intro[open] .n-again input").click();  // unchecked: shown on the next page load
-          button("Got it").click();
-          later(() => { result.search.unchecked = [!dialog(), seen("search")]; next(); });
-        });
-      })); });
+      result.search.link = text(".n-intro[open] h2");
+      result.search.again = !!$(".n-intro[open] .n-again");  // no "Do not show again": it never opens by itself
+      result.search.limits = text(".n-intro[open] .n-limits");
+      result.search.examples = $$(".n-intro[open] .n-examples li b").length;
+      button("Got it").click();
+      later(() => { result.search.closed = [!dialog(), seen("search")]; next(); });
     });
-  }); },
+  })); },
   result(next) {
     location.hash = "#run=" + SMALL;
     wait(() => $(".r-filters") && dialog(), () => {
@@ -497,10 +489,9 @@ run({
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_intros(data, tmp_path):
-    """The intro of a new search ("How a search works") opens once: Got it with "Do not show again" (checked at
-    first) puts it away in localStorage, so the next new search opens none; the link in the panel opens it again,
-    and Got it without "Do not show again" forgets it. The local app has no limits. A result opens "How to read the
-    result" once (the colours' swatches), and its link in the filters opens it again."""
+    """The intro of a new search ("How a search works") opens from its link in the panel only, without "Do not show
+    again" (the user's answer of 2026-11-21, step 3d G5), and remembers nothing. The local app has no limits. A result
+    opens "How to read the result" once (the colours' swatches), and its link in the filters opens it again."""
     from test_shell_c import C_STUBS
     from test_web import INTROS_SEEN
     stubs = C_STUBS.replace(INTROS_SEEN, "") + 'try { localStorage.removeItem("findaline.intro.search"); localStorage.removeItem("findaline.intro.result"); } catch (e) {}\n'
@@ -509,10 +500,10 @@ def test_shell_c_intros(data, tmp_path):
         r = _edge(port, page + "?ui=c#new", tmp_path / "edge-intro")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     search = r["search"]
-    assert search["title"] == "How a search works" and search["checked"] and search["before"] is None, r
+    assert not search["opened"] and search["before"] is None, r  # G5 (2026-11-21): not by itself
+    assert search["link"] == "How a search works" and not search["again"], r
     assert search["limits"] == "This computer has no limits." and search["examples"] >= 10, r
-    assert search["closed"] and search["after"] == "seen" and not search["again"], r
-    assert search["link"] == "How a search works" and search["unchecked"] == [True, None], r
+    assert search["closed"] == [True, None], r
     assert r["result"] == {"title": "How to read the result", "swatches": 3, "spot": "spot", "closed": [True, "seen"],
                            "link": "How to read the result"}, r
     assert r["csp"] == []

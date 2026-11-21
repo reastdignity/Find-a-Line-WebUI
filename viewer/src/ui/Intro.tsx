@@ -1,7 +1,9 @@
 // An introduction that opens once: a native <dialog> (showModal: Esc, the focus kept in it, the page
 // behind inert) with a title, its text, "Do not show again" (checked at first) and "Got it". The
 // browser remembers it in localStorage ("findaline.intro.<name>"); where the storage is blocked it
-// opens once per page load. A link (IntroLink) opens it again. Styles in app/notices.css (n-intro*),
+// opens once per page load. A link (IntroLink) opens it again. An intro that does not open by itself
+// (`useIntro(name, false)`: the search's, the user's answer of 2026-11-21, so a first search reads fewer
+// words) opens from its link only, without "Do not show again". Styles in app/notices.css (n-intro*),
 // the dialogs' look of the kit.
 
 import type { ComponentChildren } from "preact";
@@ -33,19 +35,21 @@ function remember(name: string, again: boolean) {
 
 export interface IntroState {
   open: boolean;
+  auto: boolean;  // opens by itself once (else from its link only)
   show(): void;
   close(dontShow: boolean): void;
 }
 
-/** The state of the intro `name`: open at first when it was not seen. */
-export function useIntro(name: string): IntroState {
+/** The state of the intro `name`: open at first when it was not seen (`auto`), else closed until its link. */
+export function useIntro(name: string, auto = true): IntroState {
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (introSeen(name)) return;
+    if (!auto || introSeen(name)) return;
     shown.add(name);
     setOpen(true);
   }, []);
-  return {open, show: () => setOpen(true), close: (dontShow) => { remember(name, !dontShow); setOpen(false); }};
+  return {open, auto, show: () => setOpen(true),
+          close: (dontShow) => { if (auto) remember(name, !dontShow); setOpen(false); }};
 }
 
 let ids = 0;
@@ -75,7 +79,7 @@ export function Intro({state, title, children, class: cls}:
     <h2 class="u-h" id={id}>{title}</h2>
     <div class="n-intro-body">{children}</div>
     <div class="n-actions n-intro-foot">
-      <label class="n-again"><input type="checkbox" ref={check} defaultChecked />{t("intro.dont_show")}</label>
+      {state.auto && <label class="n-again"><input type="checkbox" ref={check} defaultChecked />{t("intro.dont_show")}</label>}
       <Button kind="primary" onClick={done}>{t("intro.got_it")}</Button>
     </div>
   </dialog>;
