@@ -776,6 +776,7 @@ their `--out` and data folders.
   and the code that wrote ≤, ≥, × before, with what is kept named); whether a `·` stands in a meta line: the design
   reviewer.
 - Not picked: a. no `·` at all; c. only the values follow the rule.
+- **Words**: each character and the words it is written as, and what is kept: [wording.md](wording.md).
 
 ### R10 Text length
 
@@ -783,6 +784,7 @@ their `--out` and data folders.
   longer story goes behind a link or a "?". The user's pick: "R10-text a".
 - **In force, for the flow**: at most 400 visible words before a first search (the sign-in page to Start on a
   phone). The user's pick: "R10-flow a".
+- **Words**: which words to use and which not, in a text of any length: [wording.md](wording.md).
 - **Today** [S; O for the counts over a limit, words split on spaces as [S] does]:
 
 | Kind | Texts | Median | Longest | Over the limit |

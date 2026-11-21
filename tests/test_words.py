@@ -257,6 +257,55 @@ def test_the_users_words_after_the_reviews():
             '{ letter-spacing: -0.03em; }') in css
 
 
+# ---- docs/wording.md: no word its first table rules out (the user, 2026-11-21: "what words are not to be used") ----
+
+WORDING = os.path.join(REPO, "docs", "wording.md")
+TICKED = re.compile(r"`([^`]+)`")
+
+
+def wording_rows(heading: str) -> list:
+    """The rows of the table under `## heading` in docs/wording.md, each a list of its cells."""
+    with open(WORDING, encoding="utf-8") as f:
+        text = f.read().replace("\r\n", "\n")
+    part = text.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
+    lines = [line.strip() for line in part.split("\n") if line.startswith("| ")]
+    return [[cell.strip() for cell in line.strip("|").split(" | ")] for line in lines[2:]]  # past the head
+
+
+def readable_texts() -> dict:
+    """{where: text} of what a person reads: the catalogues' values ("<file> <key>") and the server pages' text
+    ("page <name>"), their {{placeholders}} and markup left out."""
+    import html as html_lib
+    sys.path.insert(0, REPO)
+    import accounts as ac
+    import web
+    out = {f"{rel} {key}": value for rel in ("locales/en.json", "locales/coverage/en.json")
+           for key, value in catalogue(rel).items() if isinstance(value, str)}
+    waiting = ac.User(id=7, provider="github", subject="1", name="Ann", status="pending", admin=False)
+    pages = {"sign-in": web.signin_page(["github", "google"], total=(5.0, 1)),
+             "sign-in, waiting": web.signin_page(["github"], waiting, "token"),
+             "about": web.about_page("admin@example.org", esri=True, ring=True),
+             "privacy": web.privacy_page("admin@example.org", 30, ring=True)}
+    for name, page in pages.items():
+        out[f"page {name}"] = html_lib.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)\b.*?</\1>", " ",
+                                                                               page)))
+    return {where: re.sub(r"<[^>]+>", " ", re.sub(r"\{\{[^}]*\}\}", " ", text)) for where, text in out.items()}
+
+
+def test_no_word_the_wording_guide_rules_out():
+    """docs/wording.md's first table: no catalogue value and no server page's text holds a word of its "Not" column
+    (whole words, in any case) but the exceptions the doc lists, and each listed exception still holds its word."""
+    nots = {w for row in wording_rows("Words to use and words not to use") for w in TICKED.findall(row[1])}
+    assert {"walker", "slackliner", "histogram", "threshold", "pending", "How searching works",
+            "About / data licences"} <= nots, nots  # the table read (a changed layout would read nothing)
+    allowed = {(" ".join(TICKED.findall(row[0])), w) for row in wording_rows("Exceptions")
+               for w in TICKED.findall(row[1])}
+    hits = {(where, w) for where, text in readable_texts().items() for w in nots
+            if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", text, re.I)}
+    assert sorted(hits - allowed) == [], "a word docs/wording.md rules out"
+    assert sorted(allowed - hits) == [], "an exception of docs/wording.md no longer needed: remove its row"
+
+
 # ---- The intro behind its link gives the focus back (the code review's finding 1, the design review's F2) ----------
 
 INTRO_LINK = ".s-intro .n-intro-link"
