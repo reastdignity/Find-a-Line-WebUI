@@ -3321,7 +3321,9 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["basic.access.note"] == "The result marks anchors you can walk to. No line is filtered out."
     assert texts["basic.receipt.access"] + texts["basic.receipt.access_wide"] == "access marked, no line filtered out"
     assert texts["ui.access.hard_means"].startswith("no walk reaches the anchor, even over steep ground.")
-    assert "paths, fences, private land or trees" in texts["ui.access.help"] and "amber mark" in texts["ui.access.help"]
+    # the help within R10 (the user's answer of 2026-11-21, step 3d G5): its amber sentence went into the amber row
+    assert "paths, fences, private land or trees" in texts["ui.access.help"]
+    assert texts["ui.access.cannot_tell_means"].endswith("the data end nearby: often on alpine walls.")
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue

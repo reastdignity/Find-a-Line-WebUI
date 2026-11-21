@@ -148,7 +148,7 @@
   "page.theme.light": "Light",
   "page.theme.dark": "Dark",
   "page.title": "Where Find-a-Line sees in detail",
-  "page.lead": "Find-a-Line looks for highlines in elevation data. Where a country or region publishes detailed lidar data, it sees single ledges and towers; everywhere else it uses global 30 m data, which shows only big cliffs.",
+  "page.lead": "Find-a-Line looks for highlines in elevation data. Where a country or region publishes lidar, it sees single ledges and towers; elsewhere global 30 m data show only big cliffs.",
   "page.view": "Map view",
   "page.view.flat": "Flat",
   "page.view.leaflet": "Map",

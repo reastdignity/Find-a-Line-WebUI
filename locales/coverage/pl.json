@@ -154,7 +154,7 @@
   "page.theme.light": "Jasny",
   "page.theme.dark": "Ciemny",
   "page.title": "Gdzie Find-a-Line widzi dokładnie",
-  "page.lead": "Find-a-Line szuka highline’ów w danych wysokościowych. Tam, gdzie kraj lub region udostępnia dokładne dane lidarowe, widzi pojedyncze półki skalne i turnie; wszędzie indziej korzysta z globalnych danych 30 m, na których widać tylko duże urwiska.",
+  "page.lead": "Find-a-Line szuka highline’ów w danych wysokościowych. Tam, gdzie kraj lub region udostępnia dane lidarowe, widzi pojedyncze półki skalne i turnie; gdzie indziej globalne dane 30 m pokazują tylko duże urwiska.",
   "page.view": "Widok mapy",
   "page.view.flat": "Płaska",
   "page.view.leaflet": "Mapa",
