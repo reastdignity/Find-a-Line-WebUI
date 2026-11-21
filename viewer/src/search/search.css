@@ -132,7 +132,7 @@
 .ui .s-rig-item b { font-weight: 600; }
 .ui .s-rig-item span { font-size: var(--fs-2); color: var(--ink-2); }
 .ui .s-rig-add { color: var(--accent); font-weight: 500; }
-.ui .s-rig-add:has(.u-ic) { flex-direction: row; align-items: center; gap: 8px; }  /* "Add a rig" after the kit's plus (R9) */
+.ui .s-rig-add:has(.u-ic) { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }  /* "Add a rig" after the kit's plus (R9) */
 .ui .s-rig-add:disabled { color: var(--muted); cursor: default; font-weight: 400; background: none; }
 .ui .s-rig-save { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .ui .s-rig-save .u-small { margin: 0; }
