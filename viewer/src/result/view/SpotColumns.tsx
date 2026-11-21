@@ -403,6 +403,34 @@ function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, gro
   if (now !== best) map.setView(best.centre, best.zoom, {animate: false});
 }
 
+/** No end of the line clear: each under a control (its box CLEAR_GAP px larger) or outside the part `p` leaves. */
+function noEndClear(map: L.Map, col: HTMLElement, l: Line, p: Padding): boolean {
+  const size = map.getSize(), boxes = controlBoxes(col, map);
+  return [[l.lat1, l.lon1], [l.lat2, l.lon2]].every(([lat, lon]) => {
+    const q = map.latLngToContainerPoint([lat, lon]);
+    return q.x < p.left || q.x > size.x - p.right || q.y < p.top || q.y > size.y - p.bottom ||
+      boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3]);
+  });
+}
+
+/** A phone's selected line with no end clear in the bar's room `p` (each under a control or outside it) brought so that
+ *  one is (the user's G-E a: "one anchor in view is enough"; the third design review saw the Pixel at half with A1
+ *  under the coarser chip and A2 under the scale): first both ends where endsClear finds a strictly better place
+ *  (never shorter than LINE_LEAST or than the line is); where still none is clear (a room lower than the line, as
+ *  390 x 664 at half with both chips: 97 px), the end nearer to it panned to the middle of the room's largest part free
+ *  of the controls (largestFree for a point), at the same zoom; the other may then lie under a control or outside. */
+function oneEndInView(map: L.Map, col: HTMLElement | null, l: Line, p: Padding) {
+  if (!col || !noEndClear(map, col, l, p)) return;
+  endsClear(map, col, l, p, false);
+  if (!noEndClear(map, col, l, p)) return;
+  const free = largestFree(map.getSize(), p, controlBoxes(col, map), 1, 1);
+  if (!free) return;  // no part of the room free of the controls
+  const spot = L.point((free[0] + free[2]) / 2, (free[1] + free[3]) / 2);
+  const [a, b] = [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])];
+  const end = a.distanceTo(spot) <= b.distanceTo(spot) ? a : b;
+  map.panBy([end.x - spot.x, end.y - spot.y], {animate: false});
+}
+
 /** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
  *  keepFree): the bar's room, as every fit's (a padding grown by the controls made the line shorter wherever one
  *  stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 326 -> 224 px; the planner, fix
@@ -737,7 +765,9 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the sheet moved (a drag, its
  *  glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the map shows nothing under
  *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
- *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
+ *  sight. A line in sight before and not moved by the person then gets one end clear of the controls where none is
+ *  (oneEndInView: the user's G-E a). The map column's `data-sheet-checks` counts the checks made, each once its move
+ *  ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
                        measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
@@ -863,15 +893,21 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
         count();
         return;
       }
+      /** The selected line in sight before, and no move of the person's: one end of it clear of the controls. */
+      const anEnd = () => {
+        const l = view.selected?.line, p = latest.current.padding();
+        if (l && roomy() && was && !moved) oneEndInView(map, col.current, l, p);
+      };
       if (roomy() && was && !moved && below) {
         // counted once the move ended (its moveend sets what is in sight: the effect above)
-        const done = () => { ended = null; count(); };
+        const done = () => { ended = null; anEnd(); count(); };
         ended = done;
         map.once("moveend", done);  // before the move: Leaflet may end it at once
         if (bringBack()) return;
         map.off("moveend", done);
         ended = null;
       }
+      anEnd();
       if (roomy()) seen.current = inSight();
       count();
     };
@@ -882,6 +918,29 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       if (ended) map.off("moveend", ended);
     };
   }, [snap, map]);
+}
+
+/** A phone: a line selected while the sheet rests (a press on the map or in the list, a link) gets one end clear of the
+ *  controls where none is (oneEndInView, in `padding`: the bar's room), once the selection's own fit is done (a
+ *  microtask: the press's or the link's fit is synchronous). A sheet still moving leaves it to its rest (useSheetKeeps);
+ *  at full its room has no height (endsClear moves nothing). */
+function useOneEndOnSelection(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null},
+                              sheet: () => HTMLElement | null | undefined, padding: () => Padding) {
+  const latest = useRef({sheet, padding});
+  latest.current = {sheet, padding};
+  useEffect(() => {
+    if (!map) return;
+    let row = view.selected?.row;
+    return view.subscribe(() => {
+      if (view.selected?.row === row) return;
+      row = view.selected?.row;
+      queueMicrotask(() => {
+        const l = view.selected?.line, el = latest.current.sheet(), target = el ? parseFloat(el.style.height) : NaN;
+        if (!l || !col.current || !el || !(target > 0) || Math.abs(el.getBoundingClientRect().height - target) >= 1) return;
+        oneEndInView(map, col.current, l, latest.current.padding());
+      });
+    });
+  }, [view, map]);
 }
 
 /** A phone's sheet: the px of a frame `height` px high it covers at a stop (ui/components.tsx Sheet: peek, half of
@@ -1000,6 +1059,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
                 bar, () => measured, keepMeasured,
                 () => { const due = fitDue.current; fitDue.current = false; return due; });
+  // a line selected while the sheet rests: one end of it in view (the user's G-E a)
+  useOneEndOnSelection(view, map, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), bar);
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
