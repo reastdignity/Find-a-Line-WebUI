@@ -256,7 +256,7 @@ WALKS = {
             tap("role=button[name='Understood']", NO_DIALOG, "Home"),
             screen("Home"),
             # the search's intro opens from its link "How searching works" only (the user's answer of 2026-11-21)
-            tap("role=link[name='New search']", FORM, "the search: the map, the form under it"),
+            tap("role=link[name='New search']", f"{NO_DIALOG} && {FORM}", "the search: the map, the form under it"),
             screen("New search"),
             note("the place: a tap on the map where the clip lies (the map opens near it); finding one's own place "
                  "(panning, zooming or Go to a place) is not counted"),
