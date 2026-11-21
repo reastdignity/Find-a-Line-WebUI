@@ -88,11 +88,11 @@
 .ui .u-seg button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px;
   border: 0; border-radius: var(--r-1); background: transparent; font-size: var(--fs-3); color: var(--ink-2); font-weight: 500; white-space: nowrap; cursor: pointer; padding: 0 8px; }
 @media (pointer: coarse) { .ui .u-seg button { min-height: 44px; } }
-.ui .u-seg button.u-on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.ui .u-seg button.u-on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-track); }
 /* its own shadow and the keyboard's ring together (the ring is a shadow too: one alone would replace the other) */
-.ui .u-seg button.u-on:focus-visible { box-shadow: 0 1px 3px rgb(0 0 0 / .12), var(--focus); }
+.ui .u-seg button.u-on:focus-visible { box-shadow: var(--shadow-track), var(--focus); }
 /* a focused segment's ring above the selected segment beside it (the search's tabs: the arrows move the focus only) */
-.ui .u-seg button:focus-visible { position: relative; z-index: 1; }
+.ui .u-seg button:focus-visible { position: relative; z-index: var(--z-up); }
 
 /* Panels, by R8's levels of container: .u-panel alone is "raised" (a popover, a table under a press: the surface
    and its shadow, no edge); a page's own section (components.tsx Panel: .u-ground) lies on the ground, with no box,
@@ -123,7 +123,7 @@
 .ui .u-hint:hover, .ui .u-hint:focus-visible { color: var(--accent); border-color: var(--accent); }
 .ui .u-hint-tip { display: none; position: fixed; inset: auto; margin: 0; border: 0; overflow: visible;
   width: max-content; max-width: min(280px, calc(100vw - 32px)); padding: 8px 12px; border-radius: var(--r-2);
-  background: var(--ink); color: var(--surface); box-shadow: var(--shadow); z-index: 1000;
+  background: var(--ink); color: var(--surface); box-shadow: var(--shadow); z-index: var(--z-popover);
   font: 400 var(--fs-2)/1.45 var(--font); text-align: left; white-space: normal; }
 .ui .u-hint-tip.u-hint-on { display: block; }
 .ui .u-input { min-height: var(--touch); border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); padding: 0 12px; width: 100%; }
@@ -131,13 +131,14 @@
 @media (pointer: coarse) { .ui .u-input { font-size: var(--fs-4); } }  /* 16 px: iOS does not zoom into the field */
 
 /* Range: a native input; the filled part is a gradient set through --u-fill (CSSOM). Only the thumb
-   takes the pointer (a click on the track moves nothing), as with two thumbs; the keys work as usual */
+   takes the pointer (a click on the track moves nothing), as with two thumbs; the keys work as usual. The track
+   a pill; the thumb's negative top margin centres it on the track (a drawing's place, off R7) */
 .ui .u-range { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; margin: 0; background: transparent;
   pointer-events: none; --u-fill: 50%; }
-.ui .u-range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+.ui .u-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--r-full);
   background: linear-gradient(var(--accent), var(--accent)) 0 / var(--u-fill) 100% no-repeat, var(--surface-2); }
-.ui .u-range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--surface-2); }
-.ui .u-range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.ui .u-range::-moz-range-track { height: 4px; border-radius: var(--r-full); background: var(--surface-2); }
+.ui .u-range::-moz-range-progress { height: 4px; border-radius: var(--r-full); background: var(--accent); }
 .ui .u-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -7px;
   border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); pointer-events: auto; cursor: grab; }
 .ui .u-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent);
@@ -154,8 +155,8 @@
 }
 /* Two thumbs: two native inputs over one track (only the thumbs take the pointer, as above) */
 .ui .u-range2 { position: relative; height: 24px; }
-.ui .u-range2::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: 2px; background: var(--surface-2); }
-.ui .u-range2 > i { position: absolute; top: 10px; height: 4px; border-radius: 2px; background: var(--accent); }
+.ui .u-range2::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: var(--r-full); background: var(--surface-2); }
+.ui .u-range2 > i { position: absolute; top: 10px; height: 4px; border-radius: var(--r-full); background: var(--accent); }
 .ui .u-range2 .u-range { position: absolute; inset: 0; }
 .ui .u-range2 .u-range::-webkit-slider-runnable-track { background: none; }
 .ui .u-range2 .u-range::-moz-range-track { background: none; }
@@ -164,7 +165,7 @@
 
 /* Status, progress, stats */
 /* a status chip: its word in sentence case in the text's font (the user, 2026-11-17: no capitals; R1's 12 px), the
-   pill and the fills as before */
+   pill and the fills as before; 20 px high: its 16 px line and 2 px above and under it (off R7: a pill's height) */
 .ui .u-st { display: inline-flex; align-items: center; gap: 4px; font: 500 var(--fs-1)/16px var(--font); padding: 2px 8px;
   border-radius: var(--r-full); white-space: nowrap; }
 .ui .u-st .u-ic { width: 12px; height: 12px; }
@@ -178,8 +179,8 @@
 .ui .u-st.u-failed { background: var(--bad-soft); color: var(--bad); }
 .ui .u-st.u-shared { background: var(--warn-soft); color: var(--warn); }
 .ui .u-progress { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2); color: var(--ink-2); }
-.ui .u-prog { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; position: relative; }
-.ui .u-prog i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+.ui .u-prog { height: 6px; border-radius: var(--r-full); background: var(--surface-2); overflow: hidden; position: relative; }
+.ui .u-prog i { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); transition: width .3s; }
 .ui .u-prog.u-busy i { width: 35%; position: absolute; animation: u-busy 1.4s ease-in-out infinite; }
 @keyframes u-busy { from { left: -35%; } to { left: 100%; } }
 .ui .u-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 8px; }
@@ -190,7 +191,7 @@
 
 /* Bottom navigation (phones) */
 .ui .u-bnav { position: absolute; left: 0; right: 0; bottom: 0; min-height: 64px; padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--surface); border-top: 1px solid var(--rule); display: flex; justify-content: space-around; align-items: stretch; z-index: 4; }
+  background: var(--surface); border-top: 1px solid var(--rule); display: flex; justify-content: space-around; align-items: stretch; z-index: var(--z-nav); }
 .ui .u-bnav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; border: 0;
   background: none; font-size: var(--fs-1); color: var(--muted); font-weight: 500; cursor: pointer; position: relative; }
 .ui .u-bnav-item.u-on { color: var(--accent); }
@@ -201,15 +202,16 @@
 .ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); }
 
 /* Sheet: a bottom sheet on phones (peek / half / full), a side or floating panel on desktops */
-.ui .u-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 20px 20px 0 0;
-  box-shadow: 0 -8px 30px rgb(0 0 0 / .18); display: flex; flex-direction: column; z-index: 5; transition: height .22s ease; max-height: 100%; }
+.ui .u-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: var(--r-4) var(--r-4) 0 0;
+  box-shadow: var(--shadow-up); display: flex; flex-direction: column; z-index: var(--z-sheet); transition: height .22s ease; max-height: 100%; }
 .ui .u-sheet.u-dragging { transition: none; }
 .ui .u-sheet-handle { flex: none; display: flex; justify-content: center; align-items: center; width: 100%; min-height: 28px; padding: 0;
-  border: 0; background: none; cursor: grab; touch-action: none; border-radius: 20px 20px 0 0; }
-.ui .u-sheet-handle::before { content: ""; width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
-.ui .u-sheet-head { flex: none; padding: 0 16px 8px; position: relative; z-index: 1; background: var(--surface); }
+  border: 0; background: none; cursor: grab; touch-action: none; border-radius: var(--r-4) var(--r-4) 0 0; }
+.ui .u-sheet-handle::before { content: ""; width: 40px; height: 5px; border-radius: var(--r-full); background: var(--line); }
+.ui .u-sheet-head { flex: none; padding: 0 16px 8px; position: relative; z-index: var(--z-up); background: var(--surface); }
 /* the body scrolled: a soft shadow under the head marks the edge the text passes under (the ink's colour, so it
-   reads in both themes: dark on a light sheet, light on a dark one) */
+   reads in both themes: dark on a light sheet, light on a dark one; a cue of the scroll drawn as a shadow, not a
+   level of R8: no elevation token) */
 .ui .u-sheet.u-scrolled .u-sheet-head { box-shadow: 0 6px 8px -6px color-mix(in srgb, var(--ink) 30%, transparent); }
 .ui .u-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
 .ui .u-sheet.u-peek .u-sheet-body { overflow: hidden; }
@@ -219,7 +221,7 @@
    the accent line in its middle shows on hover, while dragging and with the keyboard's focus */
 .ui { --u-split: 12px; }
 @media (pointer: coarse) { .ui { --u-split: 24px; } }
-.ui .u-split { position: absolute; z-index: 8; touch-action: none; user-select: none; -webkit-user-select: none; }
+.ui .u-split { position: absolute; z-index: var(--z-split); touch-action: none; user-select: none; -webkit-user-select: none; }
 .ui .u-split-v { top: 0; bottom: 0; width: var(--u-split); cursor: col-resize; }
 .ui .u-split-h { left: 0; right: 0; height: var(--u-split); cursor: row-resize; }
 .ui .u-split::after { content: ""; position: absolute; background: transparent; transition: background .12s; pointer-events: none; }
@@ -230,7 +232,7 @@
 /* The round tab at the middle of a column's edge (collapse ‹ ›; a rail's own tab looks the same) */
 .ui .u-split-tab { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 44px; border-radius: 11px;
   border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center;
-  padding: 0; cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / .14); z-index: 1; }
+  padding: 0; cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / .14); z-index: var(--z-up); }
 .ui .u-split-tab .u-ic { width: 14px; height: 14px; stroke-width: 2.2; }
 .ui .u-split-tab:hover { color: var(--accent); border-color: var(--accent); }
 
@@ -238,7 +240,7 @@
 
 /* Gallery (?ui=kit) */
 .ui.u-gallery { overflow: auto; display: block; }
-.ui .u-gal-top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
+.ui .u-gal-top { position: sticky; top: 0; z-index: var(--z-bar); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
   background: var(--surface); border-bottom: 1px solid var(--rule); }
 .ui .u-gal-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
 .ui .u-gal-col { padding: 16px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -260,8 +262,8 @@
 /* The Leaflet controls of the maps under .ui, in both themes (the layers icon is a dark picture) */
 .ui .leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line); }
 .ui .leaflet-bar a:hover, .ui .leaflet-bar a:focus { background: var(--hover); }
-/* Leaflet's zoom on a touch screen stays its own 30 px on the place map (under R2's 44 px: docs/known-bugs.md, "Step
-   3c, group A"): at 44 px the map's controls do not fit a phone's 34vh map one above the other */
+/* Leaflet's zoom on the place map and the result view's map: 32 px with a mouse, 44 px on every touch screen, a
+   phone or a tablet (result/view/mapbar.css; on a phone its two buttons side by side: docs/DESIGN.md row 34) */
 .ui .leaflet-bar a.leaflet-disabled { background: var(--surface); color: var(--muted); opacity: .6; }
 .ui .leaflet-bar, .ui .leaflet-control-layers { border-color: var(--line); box-shadow: var(--shadow); }
 .ui .leaflet-control-layers { background: var(--surface); color: var(--ink); }
@@ -325,7 +327,8 @@
 .ui .leaflet-control-attribution a:focus-visible { box-shadow: var(--focus-in); padding: 1px 3px 1.5px; margin: 0 -3px;
   text-decoration: none; }
 @media (forced-colors: active) { .ui .leaflet-control-attribution a:focus-visible { outline-offset: -2px; } }
-/* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */
+/* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts); 10 px:
+   R1's floor for a map's credits (off R5, its named exception) */
 @media (max-width: 767px) { .ui .leaflet-control-attribution { font-size: 10px; line-height: 1.35; } }
 /* A run's data credits (layers.ts creditsHtml): on a phone folded behind their button, the tile credits beside
    them always in sight; on a desktop no button */

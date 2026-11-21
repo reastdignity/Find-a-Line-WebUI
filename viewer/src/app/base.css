@@ -1,2 +1,4 @@
-/* The page of the app: the shells fill the window (the server-rendered pages scroll: ui/pages.css) */
-html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; font: 13px/1.5 sans-serif; color: #222; }
+/* The page of the app: the shells fill the window (the server-rendered pages scroll: ui/pages.css). Outside .ui:
+   no token reaches html and body, so the size is written out (off R5's tokens: Leaflet's rem sizes come from it);
+   no colour, as no text is drawn outside a .ui root (the app, a run's map and its disk notice are each one) */
+html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; font: 13px/1.5 sans-serif; }

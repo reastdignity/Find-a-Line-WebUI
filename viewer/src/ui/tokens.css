@@ -29,7 +29,27 @@
   /* the access mark (access.tsx): the dot of each state and the sign inside it; on the map, whose tiles stay light, the light theme's */
   --acc-easy: #1a994f; --acc-tell: #ed8c0d; --acc-hard: #2f3a45; --acc-easy-sign: #ffffff; --acc-tell-sign: #2b1a00; --acc-hard-sign: #ffffff;
   --acc-map-easy: #1a994f; --acc-map-tell: #ed8c0d; --acc-map-hard: #2f3a45; --acc-map-tell-sign: #2b1a00; --acc-map-edge: #4d4538;
+  --acc-map-easy-sign: #ffffff; --acc-map-hard-sign: #ffffff; --acc-map-ring: #ffffff;
+  /* the same in both themes: a mark's white rim over the 3D view's picture (the handles, the pin and its leader, the
+     picked point, the fan's dots), a tile of white on the accent (the start's icon), the dialogs' scrim */
+  --mark-rim: #ffffff; --accent-tile: rgb(255 255 255 / .18); --scrim: rgb(10 15 12 / .45);
+  /* the paper of the 3D view's "Edges" look (view3d/scene.ts reads it) */
+  --paper: #eceae4;
+  /* Elevation (docs/DESIGN.md "Elevation", row 88): what is raised (--shadow), a control set on a track (the selected
+     segment), the phone's sheet rising from the screen's foot; the last two the same in both themes */
   --shadow: 0 1px 2px rgb(16 32 34 / .10), 0 4px 16px rgb(16 32 34 / .12);
+  --shadow-track: 0 1px 3px rgb(0 0 0 / .12); --shadow-up: 0 -8px 30px rgb(0 0 0 / .18);
+  /* Layers (z-index; docs/DESIGN.md "Elevation", row 87): a rule names its step, never a number. A page's own parts
+     (each counted inside its own stacking box): over what is beside it (a focused control, a sticky head over its
+     rows, a box over the 3D stage), over that, over that; the phones' bottom bar, the sheet over it, a column's
+     draggable edge, a page's top and bottom bars over its content (a map's own layers stay inside the map) */
+  --z-up: 1; --z-up-2: 2; --z-up-3: 3; --z-nav: 4; --z-sheet: 5; --z-split: 8; --z-bar: 10;
+  /* Over a map (Leaflet's panes 200 to 700, its controls' corners 1000): the result view's boxes under Leaflet's
+     controls and a message over them; a popover where the browser has no top layer (the controls' level); over the
+     controls; a page's own controls over all of the map's (the coverage page's zoom, legend and status) */
+  --z-map-box: 800; --z-map-box-2: 810; --z-popover: 1000; --z-map-over: 1001; --z-map-over-2: 1002; --z-map-top: 1100;
+  /* over those: a tooltip, a card, a sticky page header (the coverage page) */
+  --z-tip: 1150; --z-card: 1200; --z-head: 1300;
   /* the keyboard's focus: a 2 px ring of the accent 2 px off the control; inside a row of a list, whose list clips */
   --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
   --focus-in: inset 0 0 0 2px var(--accent);
@@ -57,6 +77,7 @@
     --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
     --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
     --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
+    --paper: #4a504c;
     --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
     color-scheme: dark;
   }
@@ -72,6 +93,7 @@
   --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
   --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
   --acc-easy: #35b56e; --acc-tell: #f5a233; --acc-hard: #9aa7b5; --acc-easy-sign: #06170d; --acc-tell-sign: #2b1a00; --acc-hard-sign: #0e1318;
+  --paper: #4a504c;
   --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .40);
   color-scheme: dark;
 }

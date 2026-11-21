@@ -5,7 +5,7 @@
 .ui .p-page { max-width: 760px; margin: 0 auto; padding: 32px 16px 24px; display: flex; flex-direction: column; gap: 24px; }
 .ui .p-signin { max-width: 680px; }
 .ui .p-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
-.ui .p-brand .u-logo { font-size: 30px; text-decoration: none; }
+.ui .p-brand .u-logo { font-size: var(--fs-7); text-decoration: none; }
 .ui .p-doc .p-brand { align-items: flex-start; }
 .ui .p-doc .p-brand .u-logo { font-size: 22px; }  /* off R5: the logo is a drawing sized by its font size, not text */
 .ui .p-lead { margin: 0; color: var(--ink-2); font-size: var(--fs-4); }
@@ -25,7 +25,7 @@
 /* Sign-in buttons with the providers' marks. Google's follows its branding guidelines (white or dark
    fill, its grey stroke, the four-colour G unchanged, 40 px high), Microsoft's its own (white with a
    grey stroke or dark grey, the four squares unchanged, Segoe UI); GitHub's mark is monochrome. */
-/* off the scales (height, corners, gap): the providers' own button guidelines. On a touch screen the target is 44 px
+/* off the scales (height, corners, gap, the type's 14 px written out): the providers' own button guidelines. On a touch screen the target is 44 px
    (R2) without a change of the 40 px button: 2 px more above and under it */
 .ui .p-provider { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 40px; padding: 0 12px;
   border-radius: 4px; font: 500 14px/20px Roboto, var(--font); text-decoration: none; cursor: pointer; }
