@@ -163,6 +163,19 @@ Rules for every step:
      between runs, both themes from one load. A few pixels at a card's shadow on `c-home-limited` (desktop) differ
      from the old tool's pictures, cause not known. `view3d-valid` on the iPhone shows an empty scene (known
      bugs).
+5. **A slimmer command line** (asked 2026-11-21: would dropping the command line lower the cost of development?).
+   Not dropped: the search is shared with the worker, the command line's own code is small (about 150 lines in
+   `findaline.py`, `CliOptions`, the matplotlib map in `mapping.py`) and its flags come from `SearchParams` like
+   the web form. The regression set, the truth check, the studies, the `tools/perf_*` tools, `ui_shots.py` and
+   about 15 test files run searches through it, and it starts `web`, `worker`, `country`, `cache`, `osm`,
+   `sources`, `export`, `view` and `runs`. Recommended instead, a task of its own (effort low):
+   - Remove the matplotlib window (`--plot`/`no_plot`, `mapping.py`'s static map) and the matplotlib dependency;
+     the web map replaced it, and without a desktop session it blocks a search.
+   - No questions: remove `ask`/`confirmer`, so `--yes` becomes the only behaviour (the flag kept, doing nothing,
+     for the tools and scripts that pass it).
+   - The search from the command line becomes a tool for the maintainer and the tests: README and
+     setup-for-regular-folk.md document the web app only, which saves more in docs than in code.
+   - Check: the full regression set keeps every checksum (no flag that changes results is touched).
 
 ## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
 
