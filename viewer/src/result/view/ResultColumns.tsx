@@ -428,7 +428,8 @@ export function ResultColumns(props: ResultColumnsProps) {
     setProgress(null);
     setError("");
     (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
-      // The result view (SpotColumns: built beside this page, behind a flag) reads the store's spots: no grouping
+      // The result view (SpotColumns: where opensView says; a run it cannot show stays on this page, the fallback,
+      // whatever VIEW_DEFAULT is) reads the store's spots: no grouping
       .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}, ungrouped: opensView(d)}, report) : null)
       .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
