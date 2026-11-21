@@ -453,8 +453,7 @@ word's help are written out since step 3d G5 (DESIGN.md choice 92).
   and 3 at 360 px.
 - **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
   ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
-  theme "Demo" and "Done" are the same pill), for the kit's round; the heading's "Users (2 waiting)" against the badge
-  "Pending"; "Open" in Runs with its arrow before the word where "Open map" has it after; the page's title the size of
+  theme "Demo" and "Done" are the same pill), for the kit's round; "Open" in Runs with its arrow before the word where "Open map" has it after; the page's title the size of
   its section titles; a wrapped ghost "End sessions" set in by its padding.
 - **The about page shows "<year of the run>" literally**: not a credit's own text. A credit names the year of the run
   as `sources.YEAR` ("{year}"); where no run exists, the about page fills it with `sources.credit.YEAR_TEXT` (web.py

@@ -1973,7 +1973,7 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    # it scrolls too (its rows above the help: scrolled to its end, the help need not reach the title)
+    # it scrolls too; whether the help comes up under the title there is not checked (the phone's case is, above)
     assert hint["scrolls"] is True and hint["titleTop"] <= 1, hint
     assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
