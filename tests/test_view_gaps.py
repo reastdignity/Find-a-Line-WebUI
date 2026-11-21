@@ -123,7 +123,7 @@ def test_selection_at_full_drops_to_half(boxes_site, device):
 TREE = r"""() => { const v = window.FINDALINE_VIEW.view, key = v.sort;
   const value = (s) => { const x = key === 'n' ? v.passingCount(s) : v.values[key][v.shownOf(s)]; return Number.isFinite(x) ? x : null; };
   const dir = document.querySelector('.vl-tree .vl-dir'), r = dir && dir.getBoundingClientRect();
-  return {sort: key, desc: v.desc, rows: [...document.querySelectorAll('.vl-tree .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
+  return {sort: key, desc: v.desc, level: v.level, rows: [...document.querySelectorAll('.vl-tree .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
     sectors: v.sectors.map((s) => s.spots.map((p) => [p, value(p)])), order: Array.from(v.order), best: Array.from(v.inView.best),
     label: dir && dir.getAttribute('aria-label'), title: dir && dir.getAttribute('title'), size: r && [Math.round(r.width), Math.round(r.height)],
     treeAsc: !!document.querySelector('.vl-tree .vl-by.vl-asc'), topAsc: !!document.querySelector('.vl-topblock .vl-by.vl-asc'),
@@ -202,7 +202,15 @@ def test_sort_direction(site, device):
     flat = [s for sector in asc["sectors"] for s, _ in sector]
     assert asc["rows"] == [s for s in flat if s in asc["rows"]], (asc["rows"][:10], flat[:10])
     assert asc["treeAsc"] and not asc["topAsc"], asc
-    assert asc["order"] == first["order"] and asc["best"] == first["best"] and asc["topRows"] == first["topRows"]
+    # Best in view best first: in `order`'s order (the same order as before), its rows its first spots (which spots are
+    # in view may change meanwhile: a phone's sheet, as it rests, makes the canvas take its view again)
+    assert asc["order"] == first["order"], "the view's order (Best in view, the B numbers) changed with the direction"
+    if device == "desktop":  # (no sheet: the same spots in view)
+        assert asc["best"] and asc["best"] == first["best"] and asc["topRows"] == first["topRows"], (asc["best"], first["best"])
+    for state in (first, asc):
+        assert state["best"] == sorted(state["best"], key=state["order"].index), state["best"]
+        if state["level"] != "area":  # (at the Area level the top block holds the picks)
+            assert state["topRows"] == state["best"][:len(state["topRows"])], (state["topRows"], state["best"])
     assert json.loads(asc["kept"]) == {"sort": "hmean", "hint": True, "desc": False}, asc["kept"]
     # kept: a reload reads it back
     assert not reloaded["desc"] and reloaded["sectors"] == asc["sectors"] and reloaded["label"] == words["dir_asc"], reloaded
