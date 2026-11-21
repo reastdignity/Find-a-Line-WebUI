@@ -236,7 +236,8 @@ def test_list_column_and_its_heads(site):
 @BROWSER
 def test_details_rows_a1_a2_and_the_key(site):
     """A selected spot of a marked run: the head ("Spot 1.1", its lines; the details' head on a desktop, the sheet's
-    on a phone) carries the line's two dots (anchor 1, anchor 2) on the title's line, after the count; "Reaching the
+    on a phone) carries the line's two dots (anchor 1, anchor 2) on the title's line, after the count (on a 390 px
+    phone they may wrap under the title: the user's P1 A, 2026-11-21); "Reaching the
     anchors" under the tiles and above "Lines from anchor A1 / A2", a row per anchor ("A1", the dot of the line's state
     with its name, the state's words); the key's "i" (the kit's info icon, no "?") opens the three states under the
     rows and closes again; on a desktop and in a phone's sheet (today's test_details_block_and_the_phone_heads_pair)."""
@@ -248,9 +249,12 @@ def test_details_rows_a1_a2_and_the_key(site):
       const middle = (e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
       return {heads: heads.length, inSheet: !!(head && head.closest('.u-sheet')), head: pair ? [...pair.querySelectorAll('svg.ac')].map(dot) : [],
               // the pair inside the title's box, on the line of the spot's count, after it
+              // (a phone: or on the line under it at the title's left edge, the wrap the user accepted with P1's place A)
               headLine: !!pair && (() => { const t = head.getBoundingClientRect(), b = pair.getBoundingClientRect(), n = head.querySelector('.vl-spot-count');
-                return b.top >= t.top - 1 && b.bottom <= t.bottom + 1 && b.right <= t.right + 1 && Math.abs(middle(pair) - middle(n)) <= 6
-                       && b.left >= n.getBoundingClientRect().right; })(),
+                const inside = b.top >= t.top - 1 && b.bottom <= t.bottom + 1 && b.right <= t.right + 1, c = n.getBoundingClientRect();
+                const after = Math.abs(middle(pair) - middle(n)) <= 6 && b.left >= c.right;
+                const under = !!head.closest('.u-sheet') && b.top >= c.bottom - 1 && Math.abs(b.left - t.left) <= 2;
+                return inside && (after || under); })(),
               line: [sel.line.access1, sel.line.access2], title: acc && acc.querySelector('.vl-acc-h').firstChild.textContent,
               rows: acc ? [...acc.querySelectorAll('.vl-acc-row')].map((row) => [row.children[0].textContent, dot(row.querySelector('svg.ac')), row.children[2].textContent]) : [],
               placed: !!(acc && tiles && acts) && !!(tiles.compareDocumentPosition(acc) & 4) && !!(acc.compareDocumentPosition(acts) & 4),
