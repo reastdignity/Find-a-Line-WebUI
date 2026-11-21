@@ -62,6 +62,15 @@ def _errors(page) -> list:
     return [e for e in page.errors if not e.startswith("ResizeObserver loop")]
 
 
+# The CSP's violations with the element each was reported on (WebKit reports one "style-src-attr" for every <select>
+# the page creates, on today's page as in the view: measured 2026-11-21, iPhone 13 profile, today's page 1 (its sort),
+# the view 2 (its sort and Best's), Chromium none)
+CSP_TARGETS = """
+window.CSP_TARGETS = [];
+document.addEventListener("securitypolicyviolation", (e) => CSP_TARGETS.push([e.violatedDirective, e.target && e.target.tagName || null]));
+"""
+
+
 @pytest.fixture
 def pages(tmp_path, view_clip):
     """A data folder with the clip's run (BIG) and the same run again (OTHER), served by the local app; yields the
@@ -81,7 +90,7 @@ def _dl(browser, url: str, prepare=None, **context):
     """The view of a run at `url` (its Download button drawn) and the export requests it sent (heard from before the
     page loads); `prepare(page)` sets the page's routes or scripts first."""
     page = browser.new_page(**context)
-    page.add_init_script(INTRO_SEEN + FLAG + HELPERS)
+    page.add_init_script(INTRO_SEEN + FLAG + HELPERS + CSP_TARGETS)
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
     asked = []
@@ -189,9 +198,13 @@ def test_download_ready_file_is_saved(pages, kind):
                 r["after"].append(_state_of(page))
             r["requests"], r["location"] = export.requests, page.evaluate("() => location.pathname + location.hash")
             r["view"] = page.evaluate("() => !!window.FINDALINE_VIEW && !window.FINDALINE_RESULT")
+            r["csp"], r["errors"] = page.evaluate("() => window.CSP_TARGETS"), _errors(page)
         finally:
             browser.close()
+    # (WebKit's report for each <select> the page creates, today's page's too: CSP_TARGETS)
+    r["csp"] = [c for c in r["csp"] if not (kind == "iphone" and c == ["style-src-attr", "SELECT"])]
     assert r["start"]["fromStore"] is True and r["view"], ("D5", r["start"])
+    assert r["csp"] == [] and r["errors"] == [], ("X1/X2", kind, r["csp"], r["errors"])
     assert [row[2:5] for row in _rows(r["waiting"])] == [[True, False, True], [False, True, False]], ("D5", r["waiting"])
     assert len(r["saved"]) == 2 and all(saved.endswith(path) for saved, path in zip(r["saved"], files)), ("D5", r["saved"])
     for after in r["after"]:
@@ -332,7 +345,7 @@ def test_download_wait_across_the_layout_switch(pages):
             page.wait_for_function(SETTLED, timeout=WAIT)
             r["failed"] = _state_of(page)
             r["requests"] = export.requests
-            r["errors"] = _errors(page)
+            r["errors"], r["csp"] = _errors(page), page.evaluate("() => window.CSP_VIOLATIONS || []")
             page.context.close()
             # D14: a line seen in the desktop's menu
             page, asked = _dl(browser, f"{pages['app']}#run={BIG}", **DESKTOP)
@@ -349,6 +362,7 @@ def test_download_wait_across_the_layout_switch(pages):
             _menu(page)
             r["seen menu"], r["seen sent"] = _state_of(page), len(export.requests)
             r["errors"] += _errors(page)
+            r["csp"] += page.evaluate("() => window.CSP_VIOLATIONS || []")
         finally:
             browser.close()
     preparing = [["CSV", PREPARING, True, False, True, False], ["GeoJSON", WHAT[1], False, True, False, True]]
@@ -369,7 +383,7 @@ def test_download_wait_across_the_layout_switch(pages):
     found = r["seen menu"]
     assert found["open"] and found["errors"] == [] and found["allErrors"] == 0, ("D14", found)
     assert _rows(found) == IDLE_ROWS and not found["button"]["ring"] and r["seen sent"] == 1, ("D14", found, r["seen sent"])
-    assert r["errors"] == [], ("X2", r["errors"])
+    assert r["errors"] == [] and r["csp"] == [], ("X1/X2", r["errors"], r["csp"])
 
 
 def _go_view(page, run_id: str):
@@ -410,7 +424,7 @@ def test_download_wait_across_a_run_change(pages):
             r["saved"] = download.value.url
             r["other after"] = [_state_of(page), page.evaluate(ATTENTION_VIEW)]
             r["requests a"] = export.requests
-            r["errors"] = _errors(page)
+            r["errors"], r["csp"] = _errors(page), page.evaluate("() => window.CSP_VIOLATIONS || []")
             page.context.close()
             page, asked = _dl(browser, url, _marked, **DESKTOP)
             export = Export(page)
@@ -431,6 +445,7 @@ def test_download_wait_across_a_run_change(pages):
             r["again"] = _state_of(page)
             r["requests b"] = export.requests
             r["errors"] += _errors(page)
+            r["csp"] += page.evaluate("() => window.CSP_VIOLATIONS || []")
         finally:
             browser.close()
     other = r["other"]
@@ -451,7 +466,7 @@ def test_download_wait_across_a_run_change(pages):
     assert r["again"]["open"] and r["again"]["allErrors"] == 0 and _rows(r["again"]) == IDLE_ROWS, ("D10", r["again"])
     assert [(q["path"], json.loads(q["body"])) for q in r["requests b"]] == \
         [(f"/api/runs/{BIG}/export", {"format": "geojson"})], ("D10", r["requests b"])
-    assert r["errors"] == [], ("X2", r["errors"])
+    assert r["errors"] == [] and r["csp"] == [], ("X1/X2", r["errors"], r["csp"])
 
 
 def test_download_failure_waits_for_the_attention(pages):
@@ -485,7 +500,8 @@ def test_download_failure_waits_for_the_attention(pages):
                 opened = [_state_of(page), page.evaluate(ATTENTION_VIEW)]
                 _escape(page)
                 _menu(page)
-                r[way] = [before, after, opened, _state_of(page), len(export.requests), _errors(page)]
+                r[way] = [before, after, opened, _state_of(page), len(export.requests),
+                          _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")]
                 page.context.close()
         finally:
             browser.close()
@@ -495,7 +511,7 @@ def test_download_failure_waits_for_the_attention(pages):
         assert after[0]["allErrors"] == 0 and after[1] == before[1], ("D11: nothing moved", way, before[1], after[1])
         assert opened[1]["pops"] == ["Download"] and opened[0]["errors"] == [NO_WORKER_TEXT], ("D11", way, opened)
         assert _rows(opened[0]) == IDLE_ROWS and again["allErrors"] == 0 and sent == 1, ("D11", way, opened, again, sent)
-        assert errors == [], ("X2", way, errors)
+        assert errors == [], ("X1/X2", way, errors)
     attention = r["compare"][1][1]
     assert attention["pops"] == ["Compare with other runs"] and attention["pop"] == "Compare with other runs", ("D11", attention)
     attention = r["field"][1][1]
@@ -527,7 +543,7 @@ def test_download_phone_button_keeps_the_focus(pages):
             page.wait_for_function(NO_RING, timeout=WAIT)
             r["ready"] = [_state_of(page), page.evaluate(ATTENTION_VIEW)]
             r["pill"] = page.evaluate("(button) => !!document.querySelector(button).closest('.c-pill')", DOWNLOAD)
-            r["errors"] = _errors(page)
+            r["errors"] = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
         finally:
             browser.close()
     waiting, attention = r["waiting"]
@@ -539,7 +555,7 @@ def test_download_phone_button_keeps_the_focus(pages):
     assert attention["pops"] == [] and ready["allErrors"] == 0, ("D12", r["ready"])
     button = ready["button"]
     assert button["icon"] and not button["ring"] and button["label"] == "Download" and button["text"] == "", ("D12", button)
-    assert r["errors"] == [], ("X2", r["errors"])
+    assert r["errors"] == [], ("X1/X2", r["errors"])
 
 
 # ---- A: the access mark's page parts (today's: tests/test_access_page.py) -------------------------------------------
@@ -600,7 +616,7 @@ def test_access_column_at_kept_list_widths(pages, width):
             page.wait_for_selector(".v-legend [data-kind='access-2']", state="attached", timeout=WAIT)
             marked = page.evaluate("() => [[...document.querySelectorAll('.v-legend [data-kind^=access-]')].map((e) => e.dataset.kind), "
                                    "document.querySelectorAll('.vl-details .vl-acc .vl-acc-row').length]")
-            errors = _errors(page)
+            errors = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
         finally:
             browser.close()
     assert found["width"] == (width or 372), ("the kept width taken", width, found["width"])
@@ -621,7 +637,7 @@ def test_access_column_at_kept_list_widths(pages, width):
     assert found["headsCut"] == [], ("A2/A3: a column head over the next one", width, found["headsCut"])
     assert [row["cut"] for row in found["rows"] if row["cut"]] == [], ("A2/A3: a value over the next one", width)
     assert marked == [["access-2", "access-1", "access-0"], 2], ("A3: the mark in the legend and the details", width, marked)
-    assert errors == [], ("X2", width, errors)
+    assert errors == [], ("X1/X2", width, errors)
 
 
 def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
@@ -675,7 +691,7 @@ def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
                     page.wait_for_selector(".vl-details", state="attached", timeout=WAIT)
                     _state(page)
                     r[name + "-selected"] = page.evaluate(result)
-                    r[name + "-errors"] = _errors(page)
+                    r[name + "-errors"] = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
                     page.context.close()
         finally:
             browser.close()
@@ -683,7 +699,7 @@ def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
     assert line == ["Anchors' access not marked: the search area was too wide."]
     for name in ("desktop", "desktop-selected", "phone", "phone-selected"):
         assert r[name] == ["memory", True, line, 0, False], ("A13", name, r[name])
-    assert r["desktop-errors"] == r["phone-errors"] == [], ("X2", r)
+    assert r["desktop-errors"] == r["phone-errors"] == [], ("X1/X2", r)
 
 
 # ---- M: a run's own map.html (map/main.tsx; today's: test_web.py::test_run_map*, test_disk_notice.py, ...) ---------
@@ -698,6 +714,12 @@ window.fetch = (url, init) => {
   return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
     water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
 };
+"""
+
+# "Copy link"'s clipboard (test_shell_c.C_STUBS' own, for the pages without those stubs)
+CLIPBOARD = """
+window.COPIED = [];
+Object.defineProperty(navigator, "clipboard", {value: {writeText: (text) => { COPIED.push(text); return Promise.resolve(); }}});
 """
 
 # The run's credits as the map shows them (test_web.MAP_HELPERS' credits), and whether they are folded
@@ -741,20 +763,39 @@ def _empty_point(page, away=None, apart: int = 80):
 
 
 def test_map_page_in_the_view(map_pages):
-    """M4-M13, D8 on a run's own map.html in the view, a desktop (today's test_web::test_run_map and
-    test_shell_c_download::test_store_run_on_its_own_map_has_no_download): the way back "Find-a-Line" to the app's
-    #run=; the run's credits as text (no markup, http(s) links only, ATTRIBUTION.txt beside the page, the processed
+    """M4-M13, M19, D8 on a run's own map.html in the view, a desktop (today's test_web::test_run_map and
+    test_shell_c_download::test_store_run_on_its_own_map_has_no_download): a link to a line the kept filters hide at
+    the load (the note, "clear filters" opens it, the link kept); the way back "Find-a-Line" to the app's #run=; "Copy
+    link" gives this map's address with the line (map/main.tsx linkOf); the run's credits as text (no markup, http(s) links only, ATTRIBUTION.txt beside the page, the processed
     note, OSM's links), not folded while no card is shown and folded behind "Data credits" while it is; the base
     layers without the satellite key and the orthophoto's credit as text; the actions Measure and Compare, no
     Download, no export asked; the store's two files read; a favourite kept by the server; Compare's other run named
-    like an HTML tag listed and its lines added without running its name; measuring; no CSP violation, no error."""
+    like an HTML tag listed and its lines added without running its name; measuring (the measured length, the verdict
+    first in the card's facts); no CSP violation, no error."""
     from playwright.sync_api import sync_playwright
     root, run = map_pages["root"], CREDITED
     r = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, _map_url(root, run), DESKTOP, script=CSP_STUB + PROFILE_STUB)
+            # M8: a link to a line the kept filters hide (test_run_map's findaline.filters) at the page's load
+            page = _open(browser, _map_url(root, run), DESKTOP, script=CSP_STUB)
+            _state(page)
+            link = page.evaluate("() => { const v = window.FINDALINE_VIEW.view; return v.model.lineLink(v.model.lineAt(v.shownOf(v.order[3]))); }")
+            page.context.close()
+            kept = """localStorage.setItem('findaline.filters', '{"lenMin": 100000}');"""
+            page = _open(browser, _map_url(root, run) + "#line=" + urllib.parse.quote(link, safe=""), DESKTOP, script=CSP_STUB + kept)
+            page.wait_for_selector(".vl-lnote", timeout=WAIT)
+            linked = """() => { const v = window.FINDALINE_VIEW.view, m = v.model;
+                return {note: m.note && [m.note.text, m.note.action || null], shown: (document.querySelector('.vl-lnote') || {}).textContent || '',
+                        lenMin: m.filters.lenMin, hash: decodeURIComponent(location.hash), selected: v.selected ? m.lineLink(v.selected.line) : null}; }"""
+            r["linked"] = page.evaluate(linked)
+            page.click(".vl-lnote button:text-is('clear filters')")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.selected !== null", timeout=WAIT)
+            r["opened"], r["link"] = page.evaluate(linked), link
+            r["linkErrors"] = [page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)]
+            page.context.close()
+            page = _open(browser, _map_url(root, run), DESKTOP, script=CSP_STUB + PROFILE_STUB + CLIPBOARD)
             asked = []
             page.on("request", lambda request: "/export" in request.url and asked.append(request.url))
             _state(page)
@@ -777,6 +818,10 @@ def test_map_page_in_the_view(map_pages):
             page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
             page.wait_for_function("() => getComputedStyle(document.querySelector('.v-map .u-credits')).display === 'none'", timeout=WAIT)
             r["withCard"] = page.evaluate(CREDITS)
+            # "Copy link": this map's address with the line (map/main.tsx linkOf)
+            page.click(".r-copy")
+            page.wait_for_function("() => window.COPIED.length > 0", timeout=WAIT)
+            r["copied"] = page.evaluate("() => { const v = window.FINDALINE_VIEW.view; return [window.COPIED[window.COPIED.length - 1], v.model.lineLink(v.selected.line)]; }")
             page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
             page.click(".vl-dhead .r-fav")
             page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
@@ -807,7 +852,8 @@ def test_map_page_in_the_view(map_pages):
             page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
             page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
             r["measured"] = page.evaluate("() => [document.querySelector('.r-card .r-dock-bar b').textContent, window.PROFILES, "
-                                          "Math.round(window.FINDALINE_VIEW.measured.len) > 0]")
+                                          "Math.round(window.FINDALINE_VIEW.measured.len), document.querySelector('.r-card .fal-profile-title').textContent, "
+                                          "document.querySelector('.r-card .r-facts').textContent]")
             r["files"] = page.evaluate("""(folder) => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname)
                 .filter((p) => p.startsWith(folder)).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort()""",
                                        f"/runs/{urllib.parse.quote(run)}/")
@@ -820,6 +866,14 @@ def test_map_page_in_the_view(map_pages):
         finally:
             browser.close()
     assert r["view"], "the view opened map.html"
+    assert r["linked"]["note"] == ["The line of the link is hidden by the filters.", "clear filters"], ("M8", r["linked"])
+    assert r["linked"]["shown"].startswith("The line of the link is hidden by the filters.") and r["linked"]["selected"] is None, ("M8", r["linked"])
+    assert r["linked"]["lenMin"] == 100000 and r["linked"]["hash"] == "#line=" + r["link"], ("M8: the kept filter, the link kept", r["linked"])
+    assert r["opened"]["selected"] == r["link"] and r["opened"]["lenMin"] is None and r["opened"]["note"] is None, ("M8", r["opened"])
+    assert r["opened"]["hash"] == "#line=" + r["link"], ("M8", r["opened"])
+    assert r["linkErrors"] == [[], []], ("X1/X2", r["linkErrors"])
+    copied, line = r["copied"]
+    assert copied == _map_url(root, run) + "#line=" + urllib.parse.quote(line, safe="-_.!~*'()"), ("M19", copied)
     assert r["back"] == ["Find-a-Line"] and r["backTo"] == ("/", "", f"run={urllib.parse.quote(run)}"), ("M5", r["back"], r["backTo"])
     credits = r["credits"]
     assert "Data: FABDEM V1-2 © University of Bristol (CC BY-NC-SA 4.0)" in credits["text"], ("M6", credits)
@@ -839,7 +893,10 @@ def test_map_page_in_the_view(map_pages):
     assert r["favourite"], "M11"
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], ("M12", r["others"])
     assert r["compared"][0] > 0 and r["compared"][1:] == [None, 0], ("M12", r["compared"])
-    assert r["measured"] == ["Measured profile", 1, True], ("M13", r["measured"])
+    bar, asked_profiles, length, title, facts = r["measured"]
+    assert [bar, asked_profiles] == ["Measured profile", 1] and length > 0, ("M13", r["measured"])
+    assert title.startswith(f"Measured: {length} m"), ("M13: the measured length", title)
+    assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", facts), ("M13: the verdict first", facts)
     assert r["csp"] == [] and r["errors"] == [], ("X1/X2", r["csp"], r["errors"])
 
 
@@ -1104,10 +1161,20 @@ def _status(url: str) -> int:
         return e.code
 
 
+def _today(path: str) -> str:
+    """The address of today's page: `view=today` in its query (SpotColumns.tsx viewWanted), so the comparison holds
+    also once the view is the default (gate 2)."""
+    address, _, hash_ = path.partition("#")
+    return address + ("&" if "?" in address else "?") + "view=today" + ("#" + hash_ if hash_ else "")
+
+
 def _public_page(browser, site: str, path: str, context: dict, flag: bool, who: str | None = None, script: str = ""):
-    """A page of the public site (`flag`: the view asked for; signed in as `who`), once it shows a run or a load's error."""
+    """A page of the public site (`flag`: the view asked for, else today's page by its address; signed in as `who`),
+    once it shows a run or a load's error."""
     ctx = browser.new_context(**context)
-    ctx.add_init_script(HELPERS + CSP_STUB + (FLAG if flag else "") + script)
+    ctx.add_init_script(HELPERS + CSP_STUB + CLIPBOARD + (FLAG if flag else "") + script)
+    if not flag:
+        path = _today(path)
     page = ctx.new_page()
     page.errors = []
     page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
@@ -1133,12 +1200,13 @@ WHO = """() => { const v = window.FINDALINE_VIEW, t = window.FINDALINE_RESULT;
 
 @pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
 def test_share_page_in_the_view(public, device):
-    """S1, S2, S4, S7 (today's test_store_share::test_share_links_read_the_store_in_edge,
+    """S1, S2, S4, S7, S10 (today's test_store_share::test_share_links_read_the_store_in_edge,
     test_public::test_signed_in_app_and_shared_map_in_edge, test_disk_notice::test_share_link_hides_the_notice) on
     a share link's page in the view, as on today's page of the same link: the flags {profiles: false, favourites:
     false}, no Measure, Compare, Share or Download, no way back, the run's lines; the run read from its store only, the
     only list /s/runs.js (FINDALINE_RUNS undefined), nothing of /runs/ or another run asked; the disk notice never
-    shown; a shared run without a store says ui.result.store_failed after its store's two 404s; no CSP violation."""
+    shown; "Copy link" gives the share page's own address with the line; a shared run without a store says
+    ui.result.store_failed after its store's two 404s; no CSP violation. Today's page is opened by `?view=today`."""
     from playwright.sync_api import sync_playwright
     site = public["site"]
     asked = """(folder) => { const all = performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname);
@@ -1155,7 +1223,15 @@ def test_share_page_in_the_view(public, device):
                 page = _public_page(browser, site, folder + "map.html", device, flag, script=NOTICE_SEEN)
                 if name != "old":
                     page.wait_for_function("() => !document.getElementById('disk-notice')", timeout=WAIT)
-                r[name] = {**page.evaluate(WHO), **page.evaluate(asked, folder), "errors": _errors(page)}
+                r[name] = {**page.evaluate(WHO), **page.evaluate(asked, folder)}
+                if name == "view":  # "Copy link" of a selected line: this page's address with the line (linkOf)
+                    _state(page, "view.select(view.order[0]);")
+                    page.wait_for_selector(".r-copy", state="attached", timeout=WAIT)
+                    page.evaluate("() => document.querySelector('.r-copy').click()")
+                    page.wait_for_function("() => window.COPIED.length > 0", timeout=WAIT)
+                    r[name]["copied"] = page.evaluate("() => { const v = window.FINDALINE_VIEW.view; "
+                                                      "return [window.COPIED[window.COPIED.length - 1], v.model.lineLink(v.selected.line)]; }")
+                r[name]["errors"] = _errors(page)
                 page.context.close()
         finally:
             browser.close()
@@ -1167,6 +1243,8 @@ def test_share_page_in_the_view(public, device):
     assert view["files"] == ["lines.arrow", "profiles.arrow"] and view["lists"] == ["/s/runs.js"], ("S1", view)
     assert view["runs"] is True and view["others"] == [], ("S1", view)
     assert view["seen"] and set(view["seen"]) == {"none"} and view["served"], ("S7", view["seen"])
+    copied, line = view["copied"]
+    assert copied == f"{site}/s/{SHARE_A}/map.html#line=" + urllib.parse.quote(line, safe="-_.!~*'()"), ("S10", copied)
     assert old["page"] is None and old["error"] == WORDS["ui.result.store_failed"], ("S2", old)
     assert old["files"] == ["lines.arrow", "profiles.arrow"] and old["lists"] == ["/s/runs.js"] and old["others"] == [], ("S2", old)
     for name, got in r.items():
@@ -1233,7 +1311,8 @@ def test_visitor_and_another_user_in_the_view(public):
     test_exports_of_the_public_site) in the view against today's page of the same address: a visitor without a session
     on the demo run's map.html: the flags {profiles: false, favourites: false}, no Measure, Compare, Share or
     Download, the way back "Find-a-Line", the run's lines; B signed in on A's demo run in the app: no Share, and the
-    other actions today's page has (Measure, Compare, Download: a signed-in visitor of a demo may export)."""
+    other actions today's page has (Measure, Compare, Download: a signed-in visitor of a demo may export). Today's
+    page is opened by `?view=today`."""
     from playwright.sync_api import sync_playwright
     site = public["site"]
     r = {}
