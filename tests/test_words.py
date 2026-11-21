@@ -4,10 +4,13 @@ the wording review, docs/DESIGN.md choices 92 to 94).
 - R10: no catalogue text over its kind's limit (a help text 40 words, an intro paragraph 30, a hint 25, an error 30,
   words split on spaces), by its key's kind (tools/ui_metrics.py `text_group`) and, for the texts whose key does not
   say their kind, by their role (BY_ROLE); today's result page keeps its intro (LEFT).
+- R9: no character stands for a word (×, →, ≈, ≤, ≥, a "+" for "and", ...) in the catalogues, but what R9 allows or the
+  user kept (R9_KEPT).
 """
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -27,6 +30,7 @@ LIMITS = {"help": 40, "intro": 30, "hint": 25, "error": 30}
 BY_ROLE = {
     ("locales/en.json", "ui.search.draw_hint"): 25,          # a hint under the drawing tools
     ("locales/en.json", "ui.osm.intro"): 30,                  # the OSM page's intro paragraph
+    ("locales/en.json", "basic.size.factors"): 40,            # in the size word's "?"
     ("locales/en.json", "ui.access.easy_means"): 40,          # rows of the access key's "?"
     ("locales/en.json", "ui.access.cannot_tell_means"): 40,
     ("locales/en.json", "ui.access.hard_means"): 40,
@@ -57,3 +61,38 @@ def test_catalogue_texts_within_their_limit():
 def test_texts_by_role_within_their_limit(rel, key):
     text = catalogue(rel)[key]
     assert len(text.split()) <= BY_ROLE[(rel, key)], (key, len(text.split()), text)
+
+
+# ---- R9: no character stands for a word in a text the user reads ---------------------------------------------------
+
+R9_CHARS = "×→←≈≤≥‹›★▸▾↑↓Δ·"
+PLUS_WORD = re.compile(r"(^|\s)\+\s")  # "+ Add a rig", "+ 2 more": a plus standing for "and" or "more"
+# Kept, by key: {key: why} (docs/DESIGN.md row 47 and R9's allowed list; the rows of the user's answers)
+R9_KEPT = {
+    "ui.view3d.speed_value": "\"×1\": the 3D view's speed, a multiplier the user kept like a unit (row 47)",
+    "ui.view3d.zoom_factor": "\"×8\": the eyes' zoom (row 47)",
+    "ui.view.chip.length_min": "≥ in a filter's chip (R9)", "ui.view.chip.length_max": "≤ in a filter's chip (R9)",
+    "ui.view.chip.clearance_min": "≥ in a filter's chip (R9)", "ui.view.chip.height_min": "≥ in a filter's chip (R9)",
+    "intro.result.spots": "today's result page (the user, 2026-11-19)",
+    "intro.result.easy_within": "today's result page (the user, 2026-11-19)",
+    "basic.receipt.more_one": "its own commit (round 6's test holds the words)",
+    "basic.receipt.more_other": "its own commit (round 6's test holds the words)",
+}
+COVERAGE_KEPT = ("media.", "page.doc_title")  # the images' and videos' words (left for now), the page's title
+
+
+def r9_hits(text: str) -> list:
+    return [c for c in text if c in R9_CHARS] + (["+"] if PLUS_WORD.search(text) else [])
+
+
+def test_no_character_for_a_word_in_the_catalogue():
+    found = {k: r9_hits(v) for k, v in catalogue().items() if k not in R9_KEPT and r9_hits(v)}
+    assert found == {}, found
+    assert set(R9_KEPT) <= set(catalogue())  # each one named is there
+
+
+@pytest.mark.parametrize("rel", ["locales/coverage/en.json", "locales/coverage/pl.json"])
+def test_no_character_for_a_word_in_the_coverage_catalogue(rel):
+    found = {k: r9_hits(v) for k, v in catalogue(rel).items()
+             if isinstance(v, str) and not k.startswith(COVERAGE_KEPT) and r9_hits(v)}
+    assert found == {}, found

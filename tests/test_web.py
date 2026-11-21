@@ -2705,7 +2705,7 @@ def test_basic_form_rigs_tabs_and_edit(tmp_path):
             r["saved_into"] = (page.text_content(".s-rig-save .u-small"), jobs.rigs(None)[0]["values"]["pretension"],
                                page.evaluate("() => document.querySelector('.s-setting[data-field=pretension] .s-changed')"))
             page.close()
-            # Ten rigs: "+ Add a rig" disabled with its sentence, Advanced's "Save as a new rig" too
+            # Ten rigs: "Add a rig" disabled with its sentence, Advanced's "Save as a new rig" too
             for k in range(9):
                 jobs.add_rig(None, f"Spare {k}", STARTING_RIG)
             page = _basic_page(tmp_path, port, browser, viewport={"width": 1280, "height": 900})
