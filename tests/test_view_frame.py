@@ -1067,6 +1067,305 @@ def test_selected_fit_as_long_as_the_bar_fit(site):
     assert all(abs(fitted - plain) <= 2 for _, plain, _, fitted in got), got
 
 
+# The controls' boxes as SpotColumns' controlBoxes reads them (8 px larger, the map's container px), and how many of
+# a line's two ends (container px) lie in one: the frame's "under a control"
+UNDER8 = r"""
+window.U8 = {
+  boxes() { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), out = [];
+    document.querySelector('.c-col-map').querySelectorAll('[data-map-control], .leaflet-control').forEach((e) => { const r = e.getBoundingClientRect();
+      if (!r.width || !r.height || e.closest('.v-over, .v-about-all, .v-foot-off')) return;
+      out.push([r.left - at.left - 8, r.top - at.top - 8, r.right - at.left + 8, r.bottom - at.top + 8]); });
+    return out; },
+  ends(row) { const t = T.ends(row); return [[t[0], t[1]], [t[2], t[3]]]; },
+  lineEnds(l) { const m = window.FINDALINE_MAP; return [[l.lat1, l.lon1], [l.lat2, l.lon2]].map((a) => { const q = m.latLngToContainerPoint(a); return [q.x, q.y]; }); },
+  under(e) { const b = this.boxes(); return e.filter((q) => b.some((c) => q[0] >= c[0] && q[0] <= c[2] && q[1] >= c[1] && q[1] <= c[3])).length; },
+};
+"""
+CENTRE = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+
+
+def _edge_points(page, top_dy: int = 3, lower: int = 150, below: tuple = (100, 300), clear: int = 30):
+    """Two empty points for Measure (viewport px): the first `top_dy` px inside the bar's room under the switch, 4 px
+    clear of every control's box (8 px larger) and of every line; the second an empty point more than `lower` px away,
+    `below` px under the room's top and `clear` px clear of every control (the fourth code review's R4-EDGE)."""
+    return page.evaluate(r"""([dy0, lower, below, clear]) => { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), col = document.querySelector('.c-col-map');
+      const cb = col.getBoundingClientRect(), sw = col.querySelector('.v-switch').getBoundingClientRect(), top = Math.round(sw.bottom - cb.top) + 4;
+      const boxes = U8.boxes(), {map} = window.FINDALINE_VIEW, size = m.getSize();
+      const free = (x, y, r) => !boxes.some((q) => x >= q[0] - r && x <= q[2] + r && y >= q[1] - r && y <= q[3] + r) && map.pickAt(x, y, false).length === 0;
+      let first = null, second = null;
+      for (const dy of [dy0, dy0 - 1, dy0 + 1]) { for (let x = 30; x < size.x - 30 && !first; x += 4) if (free(x, top + dy, 4)) first = [x, top + dy]; if (first) break; }
+      if (!first) return null;
+      for (let y = top + below[0]; y < top + below[1] && !second; y += 7) for (let x = 40; x < size.x - 40 && !second; x += 11)
+        if (Math.hypot(x - first[0], y - first[1]) > lower && free(x, y, clear)) second = [x, y];
+      if (!second) return null;
+      return [{x: first[0] + at.left, y: first[1] + at.top}, {x: second[0] + at.left, y: second[1] + at.top}]; }""",
+                         [top_dy, lower, list(below), clear])
+
+
+def _phone_edge_points(page):
+    """A phone's two empty points for Measure (viewport px): the first 3 px inside the map's left edge, 4 px clear of
+    every control's box (8 px larger) and of every line, 64 to 170 px under the room's top; the second an empty point
+    more than 80 px away in the same band, 12 px clear of every control."""
+    return page.evaluate(r"""() => { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), col = document.querySelector('.c-col-map');
+      const cb = col.getBoundingClientRect(), sw = col.querySelector('.v-switch').getBoundingClientRect(), top = Math.round(sw.bottom - cb.top) + 4;
+      const boxes = U8.boxes(), {map} = window.FINDALINE_VIEW, size = m.getSize();
+      const free = (x, y, r) => !boxes.some((q) => x >= q[0] - r && x <= q[2] + r && y >= q[1] - r && y <= q[3] + r) && map.pickAt(x, y, false).length === 0;
+      let first = null, second = null;
+      for (let y = top + 64; y < top + 170 && !first; y += 3) if (free(3, y, 4)) first = [3, y];
+      if (!first) return null;
+      for (let y = top + 64; y < top + 170 && !second; y += 7) for (let x = 60; x < size.x - 40 && !second; x += 11)
+        if (Math.hypot(x - first[0], y - first[1]) > 80 && free(x, y, 12)) second = [x, y];
+      if (!second) return null;
+      return [{x: first[0] + at.left, y: first[1] + at.top}, {x: second[0] + at.left, y: second[1] + at.top}]; }""")
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_measure_at_the_room_edge_moves_nothing(site, device):
+    """Measure's own line with an end 3 px inside the bar's room (in the 8 px band at the room's edge, under no
+    control: under the switch on a desktop, at the map's left edge on a phone) and the other further in: when its
+    profile comes (a desktop) or the sheet rests at half (a phone, 390 x 844), the map does not move (the fourth code review's finding 1, R4-EDGE: the line jumped about
+    100 px; the planner's rule: a check moves the map only when that makes things strictly better)."""
+    from playwright.sync_api import sync_playwright
+    phone = device is PHONE
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device, script=PROFILE_STUB + UNDER8)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            # (a phone: two levels out, so that the map's top holds empty places for a finger)
+            _state(page, "view.setLevel('spots');" + ("leaflet.setZoom(leaflet.getZoom() - 2, {animate: false});" if phone else ""))
+            page.wait_for_function(STILL, timeout=WAIT)
+            if phone:
+                _tap_on(page, ".c-pill [aria-label='Measure']")
+            else:
+                page.click(".c-result-top .r-actions button:has-text('Measure')")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            # (a phone: the switch spans the map's width, so the room's top lies in its 8 px ring: the end goes 3 px
+            # inside the room's left edge instead, under no control; both points in the room at half, so that the line
+            # is not fitted)
+            pts = _phone_edge_points(page) if phone else _edge_points(page)
+            assert pts, "no two empty points"
+            before = page.evaluate(CENTRE)
+            for at in pts:
+                if phone:
+                    _tap(page, at["x"], at["y"])
+                else:
+                    page.mouse.click(at["x"], at["y"])
+                    page.evaluate("() => T.frames()")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(CENTRE)
+            ends = page.evaluate("() => U8.lineEnds(window.FINDALINE_VIEW.measured)")
+            rests = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredRests || 0)")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("measure at the room's edge:", device.get("viewport"), "points", pts, "ends", ends, "rests", rests, "moved", after != before)
+    assert after == before, (before, after)
+    if phone:
+        assert rests == 1, rests  # the rest's check ran (and moved nothing)
+
+
+# For each of `n` lines of the list's order from `start`: the line opened by its link (viewlink's showRow,
+# selectedFit and its check); the ends as the fit left them (read at its own moveend, before the check) and once the
+# map is still; how far the ends moved, and how many lay under a control each time
+SELECTIONS = r"""async ([run, start, n]) => {
+  const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, model = view.model;
+  const frame = () => new Promise((ok) => requestAnimationFrame(() => ok()));
+  const still = () => !m._animatingZoom && !(m._panAnim && m._panAnim._inProgress);
+  const out = [];
+  for (const spot of Array.from(view.order).slice(start, start + n)) {
+    const row = view.shownOf(spot);
+    if (view.selected?.row === row) continue;
+    let fit = null;
+    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); };
+    m.on('moveend', rec);
+    location.hash = '#run=' + run + '&line=' + encodeURIComponent(model.lineLink(model.lineAt(row)));
+    let k = 0;
+    for (; k < 200 && !(view.selected?.row === row && still() && fit); k++) await frame();
+    await frame(); await frame();
+    m.off('moveend', rec);
+    const now = U8.ends(row), shift = fit ? Math.max(...now.map((q, i) => Math.hypot(q[0] - fit[i][0], q[1] - fit[i][1]))) : null;
+    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(now), shift: shift === null ? null : Math.round(shift * 10) / 10});
+  }
+  return out; }"""
+
+
+@pytest.mark.parametrize("where", ["390-half", "1024-card"])
+def test_selection_check_moves_only_for_a_gain(boxes_site, where):
+    """120 lines of the list's order opened by their links, the run with both coast boxes or chips: 390 x 664 at half
+    and 1024 x 768 with a line's card open. The check after a selected line's fit moves the map only where that leaves
+    strictly fewer ends under a control than the fit did (the fourth code review's finding 2: 71 of 120 moved sideways
+    with nothing gained on 390 x 664; the planner's rule). The gains stay: the reviewer counted 48 lines with fewer
+    ends under a control on 390 x 664 and 112 on 1024 x 768 (11 + 37, 17 + 95); within a few here."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            if where == "390-half":
+                page = _open(browser, f"{boxes_site}#run={BOXES}", SMALL_PHONE, script=HELP + UNDER8)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                start = 0
+            else:
+                page = _open(browser, f"{boxes_site}#run={BOXES}", {"viewport": {"width": 1024, "height": 768}}, script=HELP + UNDER8)
+                _state(page, "view.select(view.order[0]);")
+                page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+                start = 1
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(SELECTIONS, [BOXES, start, 120])
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    moved = [g for g in got if g["shift"] is not None and g["shift"] > 0.5]
+    no_gain = [g for g in moved if not g["under"] < g["fitUnder"]]
+    gains = [g for g in got if g["fitUnder"] is not None and g["under"] < g["fitUnder"]]
+    print("selections", where, "lines", len(got), "fit with an end under", sum(1 for g in got if g["fitUnder"]),
+          "moved", len(moved), "gains", len(gains), "brought clear", sum(1 for g in gains if g["under"] == 0), "no gain", no_gain[:5])
+    assert where != "390-half" or snap == "half", snap
+    assert len(got) >= 110 and all(g["fitUnder"] is not None for g in got), got[:3]
+    assert no_gain == [], no_gain
+    assert abs(len(gains) - (48 if where == "390-half" else 112)) <= 8, len(gains)
+
+
+def test_selected_fit_during_a_glide(boxes_site):
+    """1920 x 1080, the run with both coast boxes, the card kept at 420 px: the map glides (an animated pan of 2 s, as
+    a drag's inertia or the sheet's bring-back) when a line of the run is opened by its link, whose fit with the bar's
+    padding puts an end under a coast box. The fit ends the glide (whose moveend comes first) and the check still
+    brings the line's ends clear (the fourth code review's finding 3: the check ran on the map before the fit)."""
+    from playwright.sync_api import sync_playwright
+    big = {"viewport": {"width": 1920, "height": 1080}}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", big, script=HELP + CARD_420)
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            found = page.evaluate(PICK, [page.evaluate(BAR)])
+            assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
+            spot, row, plain, link = found
+            gliding = page.evaluate("""([run, link]) => { const m = window.FINDALINE_MAP;
+              m.panBy([0, 240], {animate: true, duration: 2});
+              location.hash = '#run=' + run + '&line=' + encodeURIComponent(link);
+              return !!(m._panAnim && m._panAnim._inProgress); }""", [BOXES, link])
+            ends = _opened(page, row)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("selected fit during a glide: row", row, "ends", ends, _length(ends), "px; plain", round(plain, 1), "px; gliding", gliding)
+    assert gliding, "the pan did not glide"
+    assert all(n == 0 for _, _, n in ends), ends
+    assert _length(ends) >= min(LINE_LEAST, plain) - 1, (_length(ends), plain)
+
+
+def test_row_press_in_view_then_a_pan_moves_nothing(site):
+    """A desktop (BIG): a list row whose line is in view pressed (the list's reveal moves nothing, so its fit's check
+    has nothing to look at), then, in a later task, the map panned so that an end of the line lies under the zoom
+    buttons: nothing follows the pan (the check belongs to the fit's own moves; the fourth code review's R4-DISARM)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP, script=UNDER8)
+            _state(page, "view.setLevel('spots');")
+            page.wait_for_function(STILL, timeout=WAIT)
+            # a row of the list whose line, one level out and its middle panned to the map's upper middle, lies in view
+            # above where its card comes (its reveal and the card's keepFree move nothing)
+            _state(page, "leaflet.setZoom(leaflet.getZoom() - 1, {animate: false});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            pick = page.evaluate("""() => { const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, size = m.getSize();
+              for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = U8.ends(row);
+                const dx = Math.abs(e[0][0] - e[1][0]), dy = Math.abs(e[0][1] - e[1][1]);
+                if (!document.querySelector('.c-col-list .vl-main[data-row="' + row + '"]') || Math.hypot(dx, dy) < 60) continue;
+                if (dy > 340 || dx > size.x - 200) continue;
+                m.panBy([Math.round((e[0][0] + e[1][0]) / 2 - size.x / 2), Math.round((e[0][1] + e[1][1]) / 2 - 300)], {animate: false});
+                return row; }
+              return null; }""")
+            assert pick is not None, "no row in view"
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(f"() => !!document.querySelector('.c-col-list .vl-main[data-row=\"{pick}\"]')", timeout=WAIT)
+            before = page.evaluate(CENTRE)
+            page.evaluate(f"() => document.querySelector('.c-col-list .vl-main[data-row=\"{pick}\"]').click()")
+            page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.row === {pick}", timeout=WAIT)
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)  # its card came (above it)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            revealed = page.evaluate(CENTRE)
+            panned = page.evaluate(f"""() => {{ const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(),
+              z = document.querySelector('.leaflet-control-zoom').getBoundingClientRect(), e = U8.ends({pick})[0];
+              m.panBy([Math.round(e[0] - (z.left - at.left + z.width / 2)), Math.round(e[1] - (z.top - at.top + z.height / 2))], {{animate: false}});
+              return U8.under(U8.ends({pick})); }}""")
+            after_pan = page.evaluate(CENTRE)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            later = page.evaluate(CENTRE)
+            under = page.evaluate(f"() => U8.under(U8.ends({pick}))")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("press in view, then a pan: reveal moved", revealed != before, "under after the pan", panned, "later", under)
+    assert revealed == before and panned >= 1, (before, revealed, panned)
+    assert later == after_pan and under == panned, (after_pan, later, under)
+
+
+def test_card_appearing_keeps_the_line_clear(boxes_site):
+    """1400 x 900, the run with both coast boxes: a line selected on the map (no fit) whose anchor lies where its card
+    comes, and whose fit into the bar's room with the card has an end under a coast box (both found on the page
+    first): when the card appears it brings the line out from under it (keepFree, with the selected line's padding)
+    and its ends clear of the controls (selectedFit's check)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", DESKTOP, script=HELP + UNDER8)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            start = page.evaluate(CENTRE)
+            # the bar's room and the card's cover with a card open, read once (then the card closed, the map back)
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            bar = page.evaluate(BAR)
+            card = page.evaluate("() => { const c = document.querySelector('.c-col-map').getBoundingClientRect(), r = document.querySelector('.c-col-map > .r-card').getBoundingClientRect(); return Math.round(c.bottom - r.top); }")
+            _state(page, "view.select(null);")
+            page.wait_for_function("() => !document.querySelector('.c-col-map > .r-card')", timeout=WAIT)
+            found = page.evaluate("""([pad, card, start]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, size = m.getSize();
+              const back = () => m.setView([start[0], start[1]], start[2], {animate: false});
+              back();
+              for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = U8.ends(row);
+                if (!e.some(([x, y]) => y > size.y - card + 10 && y < size.y - 10 && x > 20 && x < size.x - 20)) continue;
+                map.zoomTo(row, pad); const under = U8.under(U8.ends(row)); back();
+                if (under > 0) return [spot, row]; }
+              return null; }""", [bar, card, start])
+            assert found is not None, "no line under the card's place whose fit has an end under a control"
+            spot, row = found
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            after = page.evaluate(CENTRE)
+            ends = page.evaluate("([row]) => ROW(row)", [row])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("card appearing: row", row, "card", card, "ends", ends, _length(ends), "px; moved", after != start)
+    assert after != start, "keepFree did not fit the line"
+    assert all(n == 0 for _, _, n in ends), ends
+
+
 def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
     """A 1024 x 768 desktop with both coast boxes and a line selected: with the card folded by the person no control
     covers another (T.boxes); the card open at that size (the map is higher than today's low threshold, LIMITS.low
