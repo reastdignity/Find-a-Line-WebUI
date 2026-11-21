@@ -60,7 +60,7 @@ CONTROLS_JS = """() => {
   const form = $('.c-form');
   if (form) {
     for (const tab of $$('.s-tabs [role=tab]')) add('tab ' + tab.dataset.tab, tab, form);
-    add('how searching works', $('.s-intro .n-intro-link'), form);
+    add('how a search works', $('.s-intro .n-intro-link'), form);
     for (const card of $$('.c-form .s-card')) add('goal ' + card.dataset.goal, card, form);
   }
   add("bar's line", $('.s-sum'));
@@ -465,7 +465,7 @@ def test_unfolded_bar_on_a_phone(tmp_path):
 def test_phone_search_controls_apart(tmp_path):
     """A small phone (390 x 664, touch) on the new search, the bar folded and unfolded, the layers' box closed and
     opened: no two controls' boxes intersect (each named by its own class: the zoom's two buttons, the layers button or
-    the box's rows, the scale and the credits, the tabs, "How searching works", the goal cards, the bar's line, the size
+    the box's rows, the scale and the credits, the tabs, "How a search works", the goal cards, the bar's line, the size
     word's "?", "Change settings", "Start search"), and the map's controls stay inside the map. The form's column
     scrolls under nothing but its own edges (it is a grid row of its own between the map and the bar): a control of
     the form counts with the part of it the column shows (clipped to the column's box), and one scrolled out of the
@@ -489,7 +489,7 @@ def test_phone_search_controls_apart(tmp_path):
                         page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
                     found = seen[bar, box] = page.evaluate(CONTROLS_JS)
                     names = {name for name, _, _ in found["controls"]}
-                    want = {"zoom in", "zoom out", "tab basic", "tab advanced", "how searching works", "bar's line", "size's ?",
+                    want = {"zoom in", "zoom out", "tab basic", "tab advanced", "how a search works", "bar's line", "size's ?",
                             "start search", "scale", "credits"}
                     want |= {"layers button"} if box == "closed" else {"row OpenTopoMap", "row OpenStreetMap", f"row {COVERAGE}"}
                     want |= {"change settings"} if bar == "unfolded" else set()

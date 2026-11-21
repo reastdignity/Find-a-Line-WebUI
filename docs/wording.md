@@ -22,11 +22,11 @@ and its `<b>`/`<i>` left out. It lets pass only what [Exceptions](#exceptions) l
 | Use | Not | Where | Source |
 | --- | --- | --- | --- |
 | athlete (the person on the line) | `walker`, `walkers`, `slackliner`, `slackliners` | UI texts and the docs' prose; names in code stay (`athlete_mass`, `walk.ts`, `walker.gltf`, the keys `ui.view3d.walker*`), and so do the docs where they quote them | the user, 2026-11-13 (main d40469e: "slackliner" first, then "athlete" by the user's later choice) |
-| chart (the layer's counts of lines by a value) | `histogram`, `histograms` | UI texts; the data and the code keep "histogram" (`/api/countries/<id>/histogram`, `LayerHistograms.tsx`), and so do the docs on them | the user, 2026-11-21: "Chart and limit (Recommended)" (user-inputs, "four wording questions after the reviews") |
+| chart (the layer's counts of lines by a value) | `histogram`, `histograms` | UI texts; the data and the code keep "histogram" (`/api/countries/<id>/histogram`, `LayerHistograms.tsx`), and so do the docs on them | the user, 2026-11-21: "Chart and limit (Recommended)" (user-inputs, "four wording questions after the reviews"); the right panel's name and its folded rail ("Charts: 62 M lines in view"): the user, 2026-11-21: "1. charts" (user-inputs, "G5's four open points after the fix round") |
 | limit (what a filter sets) | `threshold`, `thresholds` | UI texts; the option `slope_threshold` and the docs on it stay | the same answer |
 | waiting (an account the administrator has not approved yet) | `pending` | UI texts; the stored status `pending` stays | the user, 2026-11-21: "Badge "Waiting" (Recommended)" (the same section) |
 | How a search works (the search's intro: its title and its link) | `How searching works` | UI texts | the user, 2026-11-21: "Link = title (Recommended)" (the same section) |
-| About and data licences | `About / data licences` | UI texts: the footer, the about page, the account menu | G5's row left-06 (R9: "/" for "and"; one wording) |
+| About and data licences | `About / data licences` | UI texts: the footer, the about page, the account menu, the coverage page's link (Polish "O stronie i licencjach danych") | G5's row left-06 (R9: "/" for "and"; one wording); the coverage page's link: the user, 2026-11-21: "2. change" (user-inputs, "G5's four open points after the fix round"; the Polish words the planner's) |
 
 ## Words chosen for one place
 
@@ -100,11 +100,10 @@ Each rule lives where it is linked; it is not copied here.
 Texts that hold a word of the first table's "Not" column and stay for now; the test fails on a hit not listed here,
 and on a row here whose text no longer holds its word.
 
+None today (the three of the first build went by the user's answers of 2026-11-21: "1. charts", "2. change").
+
 | Text | Word | Why |
 | --- | --- | --- |
-| `locales/en.json` `ui.panel.histograms` | `histograms` | The layer's right panel's name in its collapse label: not among the texts of the user's answer of 2026-11-21 (the layer's notes and its error). Waits for the user's word. |
-| `locales/en.json` `ui.layer.rail_counts` | `histograms` | The folded right panel's rail ("Histograms: … in view"): the same. |
-| `locales/coverage/en.json` `page.about` | `About / data licences` | The coverage page's link to the about page (Polish "O stronie / licencje danych"): not in G5's row left-06, and a change needs the Polish words too. Waits for the user's word. |
 
 ## How a word is added
 

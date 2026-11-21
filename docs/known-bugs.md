@@ -573,7 +573,7 @@ layer's chart bars only (excepted by name in R2). Known and left:
   panels' collapse tab is 24 x 44 px and a rail 36 px wide there (under 44 px in one direction), as in the result
   view. On the coverage page at 844 x 390 a card opened from the map is taller than what is left of the screen and
   scrolls inside.
-- **A collapsed panel's rail**: the tab at its middle lies over a long label ("Histograms: 62 M lines in view" at
+- **A collapsed panel's rail**: the tab at its middle lies over a long label ("Charts: 62 M lines in view" at
   390 px of height), as before.
 - **On a phone's strip the small charts stand bottom-aligned beside the enlarged one**, which leaves a blank band
   above their names (the build's `align-items: flex-end`, as before).
