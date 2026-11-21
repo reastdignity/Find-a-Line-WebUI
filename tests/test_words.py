@@ -224,3 +224,66 @@ def test_one_wording_for_report_a_problem_in_the_menus():
     assert texts["ui.report.title"] == "Report a problem"
     with open(os.path.join(REPO, "viewer/src/app/c/Account.tsx"), encoding="utf-8") as f:
         assert 't("ui.account.report")' in f.read()
+
+
+# ---- The intro behind its link gives the focus back (the code review's finding 1, the design review's F2) ----------
+
+INTRO_LINK = ".s-intro .n-intro-link"
+ON_LINK = "() => document.activeElement?.matches('.s-intro .n-intro-link') === true"
+
+
+def test_intro_gives_the_focus_back_to_its_link(tmp_path):
+    """"How a search works" closed by Got it (a press), Escape, Enter on Got it, and on the iPhone's profile (WebKit,
+    where a tap focuses no button) by a tap: the focus is back on the form's link each time, never on the page
+    (`ui/Intro.tsx` `focusBack`: the opener, else the intro's own link)."""
+    from test_web import EDGE, WAIT, _playwright, _search_page, _server
+    if not os.path.exists(EDGE) or not _playwright():
+        pytest.skip("needs Microsoft Edge and Playwright (group ui)")
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="introtest")
+    found = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        url = f"http://127.0.0.1:{port}/runs/introtest/index.html?ui=c#new"
+
+        def opened(page):
+            page.wait_for_selector("dialog.n-intro[open]", timeout=WAIT)
+
+        def closed(page) -> bool:
+            page.wait_for_function("() => !document.querySelector('dialog.n-intro[open]')", timeout=WAIT)
+            return page.evaluate(ON_LINK)
+
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(url)
+            page.wait_for_selector(".s-panel .s-tabs", timeout=WAIT)
+            page.click(INTRO_LINK)  # a press: Got it by the mouse
+            opened(page)
+            page.click("dialog.n-intro[open] button.u-pri")
+            found["got it"] = closed(page)
+            page.focus(INTRO_LINK)  # the keyboard: Enter opens it, Escape closes it
+            page.keyboard.press("Enter")
+            opened(page)
+            page.keyboard.press("Escape")
+            found["escape"] = closed(page)
+            page.focus(INTRO_LINK)  # Enter on Got it
+            page.keyboard.press("Enter")
+            opened(page)
+            page.focus("dialog.n-intro[open] button.u-pri")
+            page.keyboard.press("Enter")
+            found["enter"] = closed(page)
+        finally:
+            browser.close()
+        browser = p.webkit.launch()
+        try:
+            iphone = {k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"}
+            page = browser.new_context(**iphone).new_page()
+            page.goto(url)
+            page.wait_for_selector(".s-panel .s-tabs", timeout=WAIT)
+            page.tap(INTRO_LINK)
+            opened(page)
+            page.tap("dialog.n-intro[open] button.u-pri")
+            found["tap"] = closed(page)
+        finally:
+            browser.close()
+    assert found == {"got it": True, "escape": True, "enter": True, "tap": True}, found
