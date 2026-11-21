@@ -66,10 +66,11 @@ window.Q = {
     out[th.firstChild ? th.firstChild.textContent.trim() : th.textContent.trim()] = [...tr.querySelectorAll("td")].map((td) => td.textContent.replace(/[  ]/g, " ").trim()); });
     return out; },
 };
+// every script of a run's data.js or lines.js the page adds (the document itself observed: this runs before its element)
 window.DATA_SCRIPTS = [];
 new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => {
   if (n.tagName === "SCRIPT" && /(data|lines)\.js/.test(n.src || "")) DATA_SCRIPTS.push(n.src);
-}))).observe(document.documentElement, {childList: true, subtree: true});
+}))).observe(document, {childList: true, subtree: true});
 """
 
 
@@ -331,6 +332,34 @@ def test_narrow_and_low_window(parity_site):
             browser.close()
 
 
+# A point 14 px beside a spot's shown line (in view, at Spots) that a finger's reach takes alone and a mouse's reach
+# misses, no number's shape there and clear of the controls: {x, y} in the viewport and the spot; null: none
+BESIDE_JS = """() => { const {view, map} = window.FINDALINE_VIEW, leaflet = window.FINDALINE_MAP, box = T.box(), f = T.free(), controls = T.controls();
+  for (const spot of Array.from(view.inView.spots)) { const e = T.ends(view.shownOf(spot)), len = Math.hypot(e[2] - e[0], e[3] - e[1]);
+    if (len < 60) continue;
+    for (let t = 0.3; t <= 0.7; t += 0.1) for (const side of [1, -1]) {
+      const x = Math.round(e[0] + (e[2] - e[0]) * t - side * 14 * (e[3] - e[1]) / len), y = Math.round(e[1] + (e[3] - e[1]) * t + side * 14 * (e[2] - e[0]) / len);
+      if (x < f[0] + 30 || y < f[1] + 30 || x > f[2] - 30 || y > f[3] - 30) continue;
+      const vx = x + box.left, vy = y + box.top;
+      if (controls.some((c) => vx > c.left - 24 && vx < c.right + 24 && vy > c.top - 24 && vy < c.bottom + 24)) continue;
+      const lp = leaflet.containerPointToLayerPoint([x, y]);
+      if (map.markAt(lp.x, lp.y, true) || map.markAt(lp.x, lp.y, false)) continue;
+      const finger = map.pick(lp.x, lp.y, true).found, mouse = map.pick(lp.x, lp.y, false).found;
+      if (finger.length === 1 && finger[0].spot === spot && mouse.length === 0) return {x: vx, y: vy, spot}; } }
+  return null; }"""
+# What the browser sends there for a click of the mouse, a finger's tap, and WebKit's tap (a "mouse" click after a
+# "touch" press): the spot each selects (null: none), the selection ended before each
+TAPS_JS = """(b) => { const {view} = window.FINDALINE_VIEW, el = document.elementFromPoint(b.x, b.y);
+  const init = {bubbles: true, cancelable: true, clientX: b.x, clientY: b.y, view: window}, out = {};
+  const press = (down, click) => { view.select(null); el.dispatchEvent(new PointerEvent('pointerdown', {...init, pointerType: down}));
+    el.dispatchEvent(new PointerEvent('pointerup', {...init, pointerType: down}));
+    el.dispatchEvent(click === 'mouse' && down === 'mouse' ? new MouseEvent('click', init) : new PointerEvent('click', {...init, pointerType: click}));
+    return view.selected ? view.selected.spot : null; };
+  out.mouse = press('mouse', 'mouse'); out.finger = press('touch', 'touch'); out.webkit = press('touch', 'mouse');
+  el.dispatchEvent(new PointerEvent('pointerdown', {...init, pointerType: 'mouse'})); view.select(null);
+  return out; }"""
+
+
 def _thin_point(page):
     """A point on a thin line of the selected spot (one of its other passing lines) where a mouse's press takes that
     line alone, no number's shape there; the map zoomed to the spot's lines first. None: no such point."""
@@ -352,7 +381,8 @@ def _thin_point(page):
 
 
 def test_details_and_profile(parity_site):
-    """A desktop: the card's compact form (no head row, the line's facts in its bar and its title "Profile: …", the
+    """A desktop: 14 px beside a line a finger's tap takes it and the mouse's click does not, also as WebKit sends a
+    tap (M11); the card's compact form (no head row, the line's facts in its bar and its title "Profile: …", the
     legend and the 1:1 scale under "Rigging and layers", toggled) (P3); its bar and readout show their whole text, the
     chart at least 120 px, the scale and the credits clear of the card, and the card, chart and readout steady under a
     moving cursor at the default width and at the narrowest and lowest (P9); a touch on the chart puts the point on the
@@ -365,7 +395,13 @@ def test_details_and_profile(parity_site):
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
             page = _view(browser, parity_site, WIDE)
-            _state(page, "view.setLevel('spots'); view.select(Array.from(view.order).find((s) => view.passingCount(s) >= 3));")
+            # 14 px beside a line: a finger's tap takes it, the mouse's click does not; WebKit's tap too
+            _state(page, "view.setLevel('spots');")
+            beside = page.evaluate(BESIDE_JS)
+            assert beside, "M11: no point 14 px beside a line that a finger alone reaches"
+            taps = page.evaluate(TAPS_JS, beside)
+            assert taps == {"mouse": None, "finger": beside["spot"], "webkit": beside["spot"]}, f"M11: {taps}"
+            _state(page, "view.select(Array.from(view.order).find((s) => view.passingCount(s) >= 3));")
             page.wait_for_selector(".r-card .fal-profile-chart svg", timeout=WAIT)
             page.wait_for_function("() => /FABDEM/.test(document.querySelector('.leaflet-control-attribution').textContent)", timeout=WAIT)
             compact = page.evaluate("""() => ({head: !!document.querySelector('.r-card .fal-profile-head'), title: Q.text('.r-card .fal-profile-title'),
@@ -622,8 +658,10 @@ def test_load_failures_with_the_flag(parity_site):
     too large for this browser." as an alert, no view and no model (X1); a run without a store shows that it could not
     be loaded, its store's two files asked for (X2); neither asks for a data.js or lines.js (Q4)."""
     from playwright.sync_api import sync_playwright
-    xhr = TOO_LARGE_STUBS[len(C_STUBS):]  # the null body of lines.arrow (C_STUBS is the page's own stubs.js)
-    assert TOO_LARGE_STUBS.startswith(C_STUBS) and "XMLHttpRequest" in xhr
+    # the null body of lines.arrow: today's stubs from its XMLHttpRequest on (C_STUBS is the page's own stubs.js, and
+    # its observer of the scripts is PARITY's, which observes the document: an init script runs before its element)
+    xhr = TOO_LARGE_STUBS[TOO_LARGE_STUBS.index("const realOpen"):]
+    assert TOO_LARGE_STUBS.startswith(C_STUBS) and "XMLHttpRequest.prototype.open" in xhr and "MutationObserver" not in xhr
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
