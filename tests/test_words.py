@@ -192,6 +192,12 @@ def test_examples_counts_on_the_sign_in_page():
     page = web.demo_list([{"id": "r", "name": "A run", "summary": {"spots": 1, "lines": 1}, "has_map": False,
                            "params": params}])
     assert "1 spot · 1 line</span>" in page, page
+    # a count that is no number (a summary written by hand): the text with what it has, never the bare key (the code
+    # review's finding 5)
+    odd = [{"id": "r", "name": "A run", "summary": {"spots": "3", "lines": None}, "has_map": False, "params": params},
+           {"id": "s", "name": "B run", "summary": {"spots": "a few", "lines": "1"}, "has_map": False, "params": params}]
+    page = web.demo_list(odd)
+    assert "3 spots · 0 lines</span>" in page and "a few spots · 1 line</span>" in page, page
 
 
 def test_one_wording_for_the_about_page():

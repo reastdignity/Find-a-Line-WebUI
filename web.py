@@ -2381,10 +2381,10 @@ PROVIDER_SVG = {
 def page_text(key: str, **params) -> str:
     """A text of the message catalogue (messages.text) for a server-rendered page, as HTML: the text's own &, < and >
     escaped (its quotes and apostrophes written as they are, as the pages always wrote them), then its parameters put
-    in as given: markup (a link, a bold name) or values the caller escaped. `count` picks a plural form and fills a
-    `{{count}}` of it."""
+    in as given: markup (a link, a bold name) or values the caller escaped. `count` picks a plural form."""
+    plain = {k: v for k, v in params.items() if k != "count"}
     form = messages.text(key, **({"count": params["count"]} if "count" in params else {}))
-    return messages.render({key: html.escape(form, quote=False)}, key, **params)
+    return messages.render({key: html.escape(form, quote=False)}, key, **plain)
 
 
 # The pages' footer (sign-in, privacy, about): built once, so the privacy page (its words the user's to approve, its
@@ -2591,11 +2591,22 @@ def demo_list(demos: List[Dict]) -> str:
     e = html.escape
     if not demos:
         return ""
+
+    def counted(key: str, n) -> str:
+        # a summary's count (an int, as search.save_run writes it) picks the plural form; a number written as text
+        # counts as that number, a null as none; any other value keeps the "other" form with the value as it is,
+        # never the bare key
+        try:
+            n = n if isinstance(n, (int, float)) and not isinstance(n, bool) else float(0 if n is None else n)
+        except (TypeError, ValueError):
+            return page_text(f"{key}_other", count=n)
+        return page_text(key, count=n)
+
     items = []
     for run in demos:
         summary = run.get("summary") or {}
         spots, lines = summary.get("spots", 0), summary.get("lines", 0)
-        counts = f"{page_text('page.examples.spots', count=spots)} · {page_text('page.examples.lines', count=lines)}"
+        counts = f"{counted('page.examples.spots', spots)} · {counted('page.examples.lines', lines)}"
         inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{counts}</span>"
                  f"<span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
