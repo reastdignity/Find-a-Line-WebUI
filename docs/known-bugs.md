@@ -433,8 +433,8 @@ a focused control or a card's panel scrolled into view stops above the bar (DESI
 In Playwright's WebKit (Safari's engine) a text or number field that Tab focuses at a scroll box's foot is scrolled in
 only to about 12 px above its own foot (the kit's scroll-margin aside; why is not traced: perhaps the caret's line),
 so the search form's fields at the column's foot kept 11.8 to 15.7 px and their ring below it, at every size (the
-iPhone, an iPad's 1024 px, the desktop's 1400 px); the column's `scroll-padding-bottom` of 24 px mends it (step 3d's
-fix round, DESIGN.md row 81: `test_webkit_fields_whole_at_the_column_foot`). Another scroll box with fields at its foot
+iPhone, an iPad's 1024 px, the desktop's 1400 px); 24 px of `scroll-padding-bottom` on the column while a field that
+takes text has the focus mends it, and no other scroll there moves (step 3d's fix round, DESIGN.md row 81: `test_webkit_fields_whole_at_the_column_foot`). Another scroll box with fields at its foot
 would need the same. In Advanced the goal cards' arrows move the focus only and Space or Enter chooses (the planner,
 2026-11-21, DESIGN.md row 82): before, an arrow from "Custom" applied a goal's values over the user's own; a click on a
 card still does, with no way back to the own values but to type them again (`useSearch.ts` `applyPreset`).

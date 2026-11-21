@@ -643,12 +643,18 @@ def test_webkit_fields_whole_at_the_column_foot(wsite, where, size):
     """Row 81 (the fix round, the design review's F4 and the scope review's finding 1): in WebKit (Safari's engine; its
     Tab reaches form controls) a text or number field Tab brings in at the form column's foot shows its whole ring:
     WebKit scrolls a focused field in only to about 12 px above its own foot and leaves the kit's scroll-margin aside,
-    so the column keeps 24 px of scroll-padding at its foot (before: "Go to a place" and More settings' fields 11.8 to
-    15.7 px under the edge, at every size)."""
+    so the column keeps 24 px of scroll-padding at its foot while such a field has the focus (before: "Go to a place"
+    and More settings' fields 11.8 to 15.7 px under the edge, at every size); with no field focused it has none, so
+    no other scroll in the column moves (the column-wide padding moved 19 of ui_shots' 80 form pictures)."""
     page = _open(wsite, where, {"viewport": {"width": size[0], "height": size[1]}})
     stops = _walk(page)
     assert sum(s["tag"] == "input" for s in stops) >= (1 if where == "search" else 8), stops  # the case: the fields
     cut = [(s["tag"], s["cls"][:40], s["name"], _cut(s)) for s in stops
            if s["ring"] and not s["map"] and not s["outline"] and _cut(s)]
     assert cut == [], cut
+    padding = "() => getComputedStyle(document.querySelector('.c-newsearch .c-form')).scrollPaddingBottom"
+    page.evaluate("() => document.querySelector('.c-newsearch .c-form input:not([type=checkbox], [type=radio], [type=range])').focus()")
+    assert page.evaluate(padding) == "24px"
+    page.evaluate("() => document.activeElement?.blur()")
+    assert page.evaluate(padding) in ("auto", "0px")
     page.context.close()
