@@ -127,10 +127,7 @@ def test_conftest_keeps_the_rates_for_this_module():
 # Names a mirror file may hold where a host is expected beside the data server's: examples and third parties; the
 # site's own host only where a file means the site (SITE_PLACES: the landing page's link to the site)
 SITE = "findaline.lukawski.org"
-OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com",
-               # the door's Husarnet sidecar: Husarnet's production instance (its licence) and its nightly
-               # apt repository (husarnet-sidecar.Dockerfile, README)
-               "prod.husarnet.com", "nightly.husarnet.com"}
+OTHER_HOSTS = {"findaline.example.org", "example.org", "example.com", "hub.docker.com", "github.com"}
 SITE_PLACES = {os.path.join("deploy", "mirror", "landing", "index.html")}
 # Last parts that make a dotted name a file, not a host (`compose.yaml`, `access.log`)
 FILE_ENDINGS = {"md", "yaml", "yml", "conf", "json", "log", "sh", "sqlite", "py", "txt", "html", "timer", "service",
@@ -606,3 +603,17 @@ def test_ci_installs_the_rclone_the_tool_needs():
     assert all(re.fullmatch(r"[0-9a-f]{64}", step["env"][k]) for k in ("SHA256_LINUX", "SHA256_WINDOWS"))
     assert not [k for k in step["env"] if k.startswith("RCLONE_")]   # rclone reads those as its flags
     assert 'sha256sum -c -' in step["run"] and f'>> "$GITHUB_ENV"' in step["run"] and mp.RCLONE_ENV in step["run"]
+
+
+def test_the_readmes_rclone_remote_has_what_the_tool_asks_for():
+    """The rclone remote of deploy/mirror/README.md ("The publishing account") sets the three lines
+    mirror_publish.NO_SHA256 names, written as there, so the door's sha256sum hashes on the server; and its top
+    folder is the door's mount, /mirror, as the README's commands give it to the tool."""
+    readme = _read("deploy", "mirror", "README.md")
+    (block,) = re.findall(r"```ini\n(\[findaline-mirror\]\n.*?)```", readme, re.S)
+    lines = set(block.splitlines())
+    named = re.findall(r"`([a-z0-9_]+ = [a-z0-9]+)`", mp.NO_SHA256)[:3]   # the fourth, shell_type = none, is --read-back's
+    assert named == ["shell_type = unix", "hashes = sha256", "sha256sum_command = sha256sum"]
+    assert set(named) <= lines and "type = sftp" in lines and "user = publish" in lines
+    assert "known_hosts_file = <a known_hosts file on the PC>" in lines
+    assert "--to findaline-mirror:/mirror" in readme and "--from findaline-mirror:/mirror/logs" in readme

@@ -1,89 +1,29 @@
 # The mirror's publishing door: a second compose project beside the mirror's (../compose.yaml),
-# two services: `sftp` (OpenSSH, built by Dockerfile next to this file) and `husarnet`, a Husarnet
-# sidecar whose network namespace `sftp` runs in (the user's U68). The publishing key, held on the
-# PC that publishes (never on the VPS, never in the repository), logs in here over SFTP through
-# Husarnet; tools/mirror_publish.py drives it through rclone. Its gate lets the key run only the
-# SFTP server and sha256sum of a file under /mirror (gate.sh). README.md of deploy/mirror, "The
-# publishing account": the install, the keys, the Husarnet network, the rclone remote.
+# one service `sftp` (OpenSSH, built by Dockerfile next to this file). The publishing key, held on
+# the PC that publishes (never on the VPS, never in the repository), logs in here over SFTP;
+# tools/mirror_publish.py drives it through rclone. Its gate lets the key run only the SFTP server
+# and sha256sum of a file under /mirror (gate.sh). README.md of deploy/mirror, "The publishing
+# account": the install, the keys, the way from the PC, the rclone remote.
 #
 #   docker compose up -d --build --wait          (from this folder; .env next to this file)
 #
-# - No port is published on the server at all. sshd's port 2222 is reached at the door's Husarnet
-#   address, by the peers the door's Husarnet whitelist lets in: the devices of its dedicated
-#   Husarnet network (the publishing PC) and Husarnet's own servers. HUSARNET_STATE is required
-#   (compose refuses to start without it); HUSARNET_JOIN_CODE only for the first join (husarnet.sh
-#   refuses to start when the device is neither joined nor given a code).
-# - `husarnet`: built by husarnet-sidecar.Dockerfile next to this file (Husarnet's package from
-#   Husarnet's nightly apt repository on a Debian slim base; the user's U75, U80), as root with Docker's default
-#   capabilities plus NET_ADMIN for its tun interface hnet0, IPv6 switched on in the namespace, its
-#   state folder (the device's private key, the daemon's API token) bound from HUSARNET_STATE, on
-#   the project's network `publish` for its way out to Husarnet's servers, memory and processes
-#   bounded. Its entry point and healthcheck are husarnet.sh.
-# - `sftp` starts only when `husarnet` is healthy (up, the PC on its allow list; the user's U79). If
-#   `husarnet` is restarted on its own, `sftp` is left in the old namespace, which has lost the
-#   daemon's interface hnet0; its healthcheck sees that and ends sshd, and the restart policy starts
-#   it in the new namespace (within about 30 s; at once with `docker compose restart sftp`; compose's
-#   own restart of husarnet restarts sftp: depends_on). If the sidecar is still stopped then, sftp
-#   stays Exited: `docker compose up -d` starts it.
+# - The port is published on one address of the server only (PUBLISH_ADDRESS, required: without it
+#   compose refuses to start), never on every interface: the address the publishing PC reaches, on
+#   the LAN or on a VPN or WireGuard link of the operator's own (the user's U89). An address that
+#   does not exist yet when the door starts (a link that comes up after Docker) stops its start:
+#   README, "If the door does not answer".
 # - <root> (MIRROR_ROOT, the mirror's) is one read-write mount at /mirror: staging, public and
 #   trash must be one mount, as the publish tool's swap is two renames and a rename across two
 #   mounts fails. authorized_keys and the host key are mounted read-only; nothing else of the host.
-# - The network is the project's own, never the mirror's internal one (it must not become a
-#   neighbour of the file server and SWAG).
-#
-# Both images are built here (no registry): the pinned versions and how to update them are in the
-# headers of Dockerfile and husarnet-sidecar.Dockerfile (`docker compose build --pull`).
+# - Its network is its own, never the mirror's internal one (it must not become a neighbour of the
+#   file server and SWAG).
 
 name: findaline-mirror-publish
 
 services:
-  husarnet:
-    build:
-      context: .
-      dockerfile: husarnet-sidecar.Dockerfile
-    cap_add: [NET_ADMIN]
-    devices: [/dev/net/tun]
-    sysctls:
-      net.ipv6.conf.all.disable_ipv6: 0
-    environment:
-      # for the first join only; may be removed from .env once the device is joined (husarnet.sh)
-      HUSARNET_JOIN_CODE: "${HUSARNET_JOIN_CODE:-}"
-      HUSARNET_HOSTNAME: "${HUSARNET_HOSTNAME:-findaline-mirror-door}"
-    restart: unless-stopped
-    # measured 2026-11-19 (Docker Desktop, docker stats every second over 90 s, two runs, an idle daemon
-    # at its first start with the CLI's claim, `husarnet status` and the whitelist CLI, no traffic): the
-    # nightly 2.0.349 at most 8.4 MiB and 38 processes and threads (the daemon alone 31); 2.0.180 had
-    # reached 20.6 MiB and 43. Kept with room for traffic and the Go CLI's threads
-    mem_limit: 128m
-    memswap_limit: 128m
-    pids_limit: 128
-    volumes:
-      - type: bind
-        source: "${HUSARNET_STATE:?HUSARNET_STATE missing - a folder for the Husarnet state, in .env}"
-        target: /var/lib/husarnet
-        bind: {create_host_path: false}
-    networks: [publish]
-    healthcheck:
-      # up (the daemon's health summary: base server and control plane) and a peer of the user's on its
-      # allow list, Husarnet's own servers not counting (husarnet.sh)
-      test: ["CMD", "/usr/local/bin/husarnet.sh", "health"]
-      interval: 60s
-      timeout: 10s
-      start_period: 120s
-      start_interval: 2s
-      retries: 3
-    logging:
-      driver: json-file
-      options: {max-size: "1m", max-file: "3"}
-
   sftp:
     build:
       context: .
-    network_mode: service:husarnet
-    depends_on:
-      husarnet:
-        condition: service_healthy
-        restart: true
     read_only: true
     user: "1000:1000"
     group_add: ["101"]            # the file server's group: reads <root>/logs
@@ -111,15 +51,13 @@ services:
       - type: tmpfs
         target: /tmp
         tmpfs: {size: 1048576}
+    ports:
+      - "${PUBLISH_ADDRESS:?PUBLISH_ADDRESS missing - the server's address the publishing PC reaches, in .env}:${PUBLISH_PORT:-2222}:2222"
+    networks: [publish]
     healthcheck:
-      # The namespace still the sidecar's: its daemon's tun interface hnet0 is there (the daemon's
-      # default name; a tun device goes with the process that holds it, so a namespace left behind by a
-      # restarted sidecar has lost it, while an offline daemon keeps it). Without it sshd is ended and
-      # the restart policy starts the door again in the sidecar's new namespace. Not "anything but lo":
-      # a kernel with fallback tunnel devices (tunl0, sit0, ...) puts them into every namespace, and
-      # they stay. Then sshd's banner on the loopback.
-      test: ["CMD", "sh", "-c", "grep -q '^ *hnet0:' /proc/net/dev || kill -TERM 1; sleep 1 | nc -w 3 127.0.0.1 2222 | head -c 8 | grep -q SSH-2.0"]
-      interval: 30s
+      # sshd's banner on the loopback
+      test: ["CMD", "sh", "-c", "sleep 1 | nc -w 3 127.0.0.1 2222 | head -c 8 | grep -q SSH-2.0"]
+      interval: 60s
       timeout: 10s
       start_period: 10s
       start_interval: 1s
@@ -129,6 +67,6 @@ services:
       options: {max-size: "1m", max-file: "3"}
 
 networks:
-  # An ordinary network of its own (Husarnet's way out to its servers): not the mirror's
+  # An ordinary network of its own (a published port needs one): not the mirror's
   publish:
     enable_ipv6: false
