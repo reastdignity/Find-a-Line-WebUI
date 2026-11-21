@@ -29,7 +29,7 @@ COVERAGE = "Data coverage"  # ui.coverage.layer: the button's words (a desktop),
 PHONE_RECEIPT = "30–300 m · anchors within 10 m of height · Rig: sag, no-fall zone 5 m, no A-frames · access marked"
 LONG_NAME = ("A long name for a trip to the far valley with its many walls and its two lakes over the old huts x")[:100]
 # Advanced's values that each add a part of their own to the receipt (search/basic.ts receiptParts), "clear of trees"
-# (shown on a phone too, where "trees marked" is not) and two values no part covers ("+ 2 more settings")
+# (shown on a phone too, where "trees marked" is not) and two values no part covers ("2 more settings")
 LONG_VALUES = {"min_height": 30, "min_high_share": 50, "max_wall_angle": 70, "min_drop": 40, "nmpt": "reject",
                "same_line_square": 3, "max_anchor_diff": 4}
 
