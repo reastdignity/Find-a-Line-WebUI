@@ -255,8 +255,8 @@ Found in the reviews of the line-volume task's round 3 (store waves 1-2 and the 
   `--access`, would fail its `access_ends` on a PC too short of memory for its grid (not seen).
 - **Without a test:** the disk estimate of a search whose mark was left out; Compare of a run without the mark
   (left out) with a marked run (read as correct).
-- **The search form shows an estimate's notes only as a count** ("1 warning(s)"); the note that the anchors' access
-  will not be marked reads in the receipt.
+- **The search form shows an estimate's notes only as a count** ("1 warning", by the count since step 3d G5); the
+  note that the anchors' access will not be marked reads in the receipt.
 
 ## Line volume, round 4: known and left (2026-11-17)
 
@@ -429,11 +429,10 @@ The search page's bottom bar is higher in a short mouse window, so the map is th
 are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
 and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
 
-Characters that the rules count and that stay (R9), for the planner: "+ Add a rig" and "+ 2 more settings"
-(`basic.add_rig`, `basic.receipt.more`), the multipliers in the rig's window and the size word's help ("x1.6 to
-x36 lines", `rig.fx.*`, `basic.size.factors`), the browser's own triangle of the rig window's "More", the stroke
-between a path's folders in Favourites ("Open map ›" on the sign-in page's example cards was one until group D:
-DESIGN.md choice 55).
+Characters that the rules count and that stay (R9): the browser's own triangle of the rig window's "More", the
+stroke between a path's folders in Favourites ("Open map ›" on the sign-in page's example cards was one until group
+D: DESIGN.md choice 55). "+ Add a rig", "+ 2 more settings" and the multipliers of the rig's window and the size
+word's help are written out since step 3d G5 (DESIGN.md choice 92).
 
 ## Step 3c, group D (admin, privacy, about): known and left (2026-11-19)
 
@@ -449,10 +448,9 @@ DESIGN.md choice 55).
   kit buttons). The probe also gave the pending user a session: three buttons in one row on a phone, the checkbox on
   its own line under them (DESIGN.md choice 50).
 - **The admin page's texts** moved into `locales/en.json` in step 3d (group G4, `ui.admin.*`; its plurals by the
-  catalogue's forms). A problem report's context line still joins labelled values with " · " (`AdminC.tsx`, the
-  `Reports` context: the run, "page …", "interface …", "window …"): R9 allows "·" in a one-line meta line, never
-  between values, and the line wraps to 2 lines on a 390 px phone and 3 at 360 px (the design review's count): step
-  3d's G5 (colons and commas, the plan).
+  catalogue's forms). A problem report's context line reads "page: …; interface: …; window: …" since step 3d G5
+  (labelled values, parts joined by "; " as the run's link holds a comma); it still wraps to 2 lines on a 390 px phone
+  and 3 at 360 px.
 - **Left on the admin page, inherited** (the design review's F5 and F6): the kit's solid-accent badges
   ("Administrator", "Water level", "Demo") beside the solid-accent primary button ("Done", "Approve"; in the dark
   theme "Demo" and "Done" are the same pill), for the kit's round; the heading's "Users (2 waiting)" against the badge
@@ -560,10 +558,9 @@ layer's chart bars only (excepted by name in R2). Known and left:
 - **A star not reached and a filled one are close in lightness** (1.37:1 light, 1.33:1 dark): the price of the
   grey that holds 3:1 on every ground (the user's pick, 2026-11-20; DESIGN.md, choice 63). The hue and the mark's
   name ("2/3") tell them apart.
-- **The legend's "≤ 1 m"** (`card.tsx` `LEVEL_TAGS`): R9 allows ≤ in a filter's chip only; the charts' ticks ("≥10",
-  "<2") and "0.6 × 0.9 km" are the same kind. Left for the planner.
-- **Texts over R10's limits**, listed and not rewritten: the coverage page's `page.lead` (35 words; 30); the layer's
-  `scale_fit_note` (35; 25), `hist.strip_note` (38), `search_border` (27), `search_partner` and `_any` (31, 32).
+- **The legend's "≤ 1 m", the charts' ticks, "0.6 × 0.9 km"** and the texts over R10's limits (the coverage page's
+  `page.lead`, the layer's notes): written out and shortened in step 3d G5 (DESIGN.md choices 92 and 93). The images
+  and videos keep "≤ 1 m" with their stars (`coverage/draw/layout.ts`, left for now).
 - **axe's `skip-link` on the layer's selected cell** (3 nodes): its "Search here" links are hash links
   (`#new&cell=…`), which the rule takes for skip links to a missing target. A false finding.
 - **The chart rule's range**: `c.css` holds a rule per count of bars from 1 to 24 (32 px a bar); a chart of more
@@ -602,6 +599,30 @@ layer's chart bars only (excepted by name in R2). Known and left:
 - **The scrolls of a row's press on a wide screen** (to the map, and back on closing) are eased unless the system
   asks for reduced motion; the tests run with reduced motion, so the eased scroll itself is untested.
 
+## Step 3d, group G5 (the words): what stays (2026-11-21)
+
+G5 built the words the user approved on the wording review (DESIGN.md choices 92 to 94; `local/ux-design-2026-11-16/
+3d/g5/`). Left, by the user's answers or as named:
+
+- **Today's result page** keeps its intro (`intro.result.spots` 80 words, `filters` 48, `check` 38: over R10) and its
+  "→" (`intro.result.easy_within`, `spots`), and its filter bar's ≥ and ≤ in code (`result/view/FilterBar.tsx`): the
+  page goes with line volume's round 6 (the user, 2026-11-19). `tests/test_words.py` names them.
+- **Round 6's files**: the profile's " · " between values, "→", "Δh" and "vertical ×1.6" (`Profile.tsx`), the coarser
+  box's shares of sources joined by " · " (`coarser.ts`, shown in round 6's box): step 3d's G6.
+- **The images and videos of the coverage map** keep "≤ 1 m" and the stars' character (`coverage/draw/layout.ts`):
+  rendered by hand and rarely (the user, 2026-11-19).
+- **The layer's small charts on a phone** show their title on two lines where the word the bare ticks need
+  ("(at least)", "(under)", "(up to)") does not fit one (inside the title's 44 px target: `.ui.c-narrow
+  .c-layer-hist-name`); the desktop's two-a-row charts keep one line.
+- **A browser that put the search's intro away before** keeps its `findaline.intro.search` in localStorage, unused
+  since the intro opens from its link only (no migration: nothing reads it).
+- **The coverage legend at 360 px** shows "Very detailed" and its tag "up to 1 m" on two lines (one line on 390 px and
+  wider; "≤ 1 m" fit beside the name): the legend one line taller, nothing cut.
+- **`ui_metrics.py pages` counts three more covered controls** on the iPhone's "c-layer-chart" (67 -> 70 in the
+  family): the next topic's chart titles stand under the bottom bar in that state on main too; the shorter strip note
+  moves the column's scroll by 1 px, which brings them onto the column's visible edge, where the tool counts them
+  (`local/ux-design-2026-11-16/3d/g5/build/covered-main.txt`, `covered-g5.txt`).
+
 ## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
 
 G4 moved the English of the app's pages, the kit, the side panels and web.py's sign-in, examples, area total, about
@@ -624,20 +645,16 @@ What still shows English from the code:
   `ResultColumns.tsx` and `SpotColumns.tsx` pass their side's identifier ("list", "details") as the word.
   `coarser.ts` ("under 0.001", the shares) is shown in round 6's coarser box.
 - **Formats and values**: `time.ts`' month names and the numbers' `toLocaleString("en")` (a language would format them
-  with `Intl`, not the catalogue); unit symbols; the sheet handle's state word (`peek`, `half`, `full`: the code's
-  value inside `ui.kit.sheet_handle`).
+  with `Intl`, not the catalogue); unit symbols.
 - **Names and required wording**: Find-a-Line, OpenStreetMap, OpenTopoMap, SRTM, GeoJSON, CSV; Esri's attribution and
   "Powered by Esri" (its terms); the processed-data note (`layers.ts` `PROCESSED_NOTE`, word for word with
   `sources.credit.PROCESSED_NOTE`: `tests/test_catalogue.py`).
 - **Developer diagnostics**: the store's reading errors (`result/load.ts`, `types.ts`: written to the console; the
   page shows `ui.result.store_failed`) and the vendored `view3d/martini.ts`.
-- **Words left as they were for G5** (not one word changed): one form for every number where the code wrote one
-  ("Delete “X”, 1 folders in it …", "1 warning(s)", "(1 shapes; …)", "At most 1 searches waiting or running.", the
-  examples' "1 spots · 1 lines"); "About and data licences" (account menu) against "About / data licences" (footer,
-  the about page); "Report a problem…" (a card's menu) against "Report a problem"; the same words under several keys
-  ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove", "Try again", "Auto", "All", "Done";
-  `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the older ones named for their component
-  (the planner's ruling, 2026-11-20).
+- **The same words under several keys** ("Cancel" `rig.cancel` and `ui.common.cancel`, "Close" five times, "Remove",
+  "Try again", "Auto", "All", "Done"; `local/ux-design-2026-11-16/3d/g4/same-words.md`): a key for each sense, the
+  older ones named for their component (the planner's ruling, 2026-11-20). The one-form plurals, the two about
+  wordings and "Report a problem…" in the two menus were G5's (closed: DESIGN.md choices 92 to 94, step 3d G5).
 - **The coverage page's bundle carries the app's catalogue** (before G4 too: `ui/components.tsx` imports `ui/Hint.tsx`,
   which imports `i18n.ts`), so it grows with it: `coverage.js` 435 to 452 KB with G4's 337 keys (main's
   `ui.card.cancelled` went: the kit's key says the same).
