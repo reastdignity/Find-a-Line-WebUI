@@ -1067,6 +1067,714 @@ def test_selected_fit_as_long_as_the_bar_fit(site):
     assert all(abs(fitted - plain) <= 2 for _, plain, _, fitted in got), got
 
 
+# The controls' boxes as SpotColumns' controlBoxes reads them (8 px larger, the map's container px), and how many of
+# a line's two ends (container px) lie in one: the frame's "under a control"
+UNDER8 = r"""
+window.U8 = {
+  boxes() { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), out = [];
+    document.querySelector('.c-col-map').querySelectorAll('[data-map-control], .leaflet-control').forEach((e) => { const r = e.getBoundingClientRect();
+      if (!r.width || !r.height || e.closest('.v-over, .v-about-all, .v-foot-off')) return;
+      out.push([r.left - at.left - 8, r.top - at.top - 8, r.right - at.left + 8, r.bottom - at.top + 8]); });
+    return out; },
+  ends(row) { const t = T.ends(row); return [[t[0], t[1]], [t[2], t[3]]]; },
+  lineEnds(l) { const m = window.FINDALINE_MAP; return [[l.lat1, l.lon1], [l.lat2, l.lon2]].map((a) => { const q = m.latLngToContainerPoint(a); return [q.x, q.y]; }); },
+  under(e) { const b = this.boxes(); return e.filter((q) => b.some((c) => q[0] >= c[0] && q[0] <= c[2] && q[1] >= c[1] && q[1] <= c[3])).length; },
+};
+"""
+CENTRE = "() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }"
+
+
+def _edge_points(page, top_dy: int = 3, lower: int = 150, below: tuple = (100, 300), clear: int = 30):
+    """Two empty points for Measure (viewport px): the first `top_dy` px inside the bar's room under the switch, 4 px
+    clear of every control's box (8 px larger) and of every line; the second an empty point more than `lower` px away,
+    `below` px under the room's top and `clear` px clear of every control (the fourth code review's R4-EDGE)."""
+    return page.evaluate(r"""([dy0, lower, below, clear]) => { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), col = document.querySelector('.c-col-map');
+      const cb = col.getBoundingClientRect(), sw = col.querySelector('.v-switch').getBoundingClientRect(), top = Math.round(sw.bottom - cb.top) + 4;
+      const boxes = U8.boxes(), {map} = window.FINDALINE_VIEW, size = m.getSize();
+      const free = (x, y, r) => !boxes.some((q) => x >= q[0] - r && x <= q[2] + r && y >= q[1] - r && y <= q[3] + r) && map.pickAt(x, y, false).length === 0;
+      let first = null, second = null;
+      for (const dy of [dy0, dy0 - 1, dy0 + 1]) { for (let x = 30; x < size.x - 30 && !first; x += 4) if (free(x, top + dy, 4)) first = [x, top + dy]; if (first) break; }
+      if (!first) return null;
+      for (let y = top + below[0]; y < top + below[1] && !second; y += 7) for (let x = 40; x < size.x - 40 && !second; x += 11)
+        if (Math.hypot(x - first[0], y - first[1]) > lower && free(x, y, clear)) second = [x, y];
+      if (!second) return null;
+      return [{x: first[0] + at.left, y: first[1] + at.top}, {x: second[0] + at.left, y: second[1] + at.top}]; }""",
+                         [top_dy, lower, list(below), clear])
+
+
+def _phone_edge_points(page):
+    """A phone's two empty points for Measure (viewport px): the first 3 px inside the map's left edge, 4 px clear of
+    every control's box (8 px larger) and of every line, 64 to 170 px under the room's top; the second an empty point
+    more than 80 px away in the same band, 12 px clear of every control."""
+    return page.evaluate(r"""() => { const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(), col = document.querySelector('.c-col-map');
+      const cb = col.getBoundingClientRect(), sw = col.querySelector('.v-switch').getBoundingClientRect(), top = Math.round(sw.bottom - cb.top) + 4;
+      const boxes = U8.boxes(), {map} = window.FINDALINE_VIEW, size = m.getSize();
+      const free = (x, y, r) => !boxes.some((q) => x >= q[0] - r && x <= q[2] + r && y >= q[1] - r && y <= q[3] + r) && map.pickAt(x, y, false).length === 0;
+      let first = null, second = null;
+      for (let y = top + 64; y < top + 170 && !first; y += 3) if (free(3, y, 4)) first = [3, y];
+      if (!first) return null;
+      for (let y = top + 64; y < top + 170 && !second; y += 7) for (let x = 60; x < size.x - 40 && !second; x += 11)
+        if (Math.hypot(x - first[0], y - first[1]) > 80 && free(x, y, 12)) second = [x, y];
+      if (!second) return null;
+      return [{x: first[0] + at.left, y: first[1] + at.top}, {x: second[0] + at.left, y: second[1] + at.top}]; }""")
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_measure_at_the_room_edge_moves_nothing(site, device):
+    """Measure's own line with an end 3 px inside the bar's room (in the 8 px band at the room's edge, under no
+    control: under the switch on a desktop, at the map's left edge on a phone) and the other further in: when its
+    profile comes (a desktop) or the sheet rests at half (a phone, 390 x 844), the map does not move (the fourth code review's finding 1, R4-EDGE: the line jumped about
+    100 px; the planner's rule: a check moves the map only when that makes things strictly better)."""
+    from playwright.sync_api import sync_playwright
+    phone = device is PHONE
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, device, script=PROFILE_STUB + UNDER8)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            # (a phone: two levels out, so that the map's top holds empty places for a finger)
+            _state(page, "view.setLevel('spots');" + ("leaflet.setZoom(leaflet.getZoom() - 2, {animate: false});" if phone else ""))
+            page.wait_for_function(STILL, timeout=WAIT)
+            if phone:
+                _tap_on(page, ".c-pill [aria-label='Measure']")
+            else:
+                page.click(".c-result-top .r-actions button:has-text('Measure')")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            # (a phone: the switch spans the map's width, so the room's top lies in its 8 px ring: the end goes 3 px
+            # inside the room's left edge instead, under no control; both points in the room at half, so that the line
+            # is not fitted)
+            pts = _phone_edge_points(page) if phone else _edge_points(page)
+            assert pts, "no two empty points"
+            before = page.evaluate(CENTRE)
+            for at in pts:
+                if phone:
+                    _tap(page, at["x"], at["y"])
+                else:
+                    page.mouse.click(at["x"], at["y"])
+                    page.evaluate("() => T.frames()")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            if phone:
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            after = page.evaluate(CENTRE)
+            ends = page.evaluate("() => U8.lineEnds(window.FINDALINE_VIEW.measured)")
+            rests = page.evaluate("() => Number(document.querySelector('.c-col-map').dataset.measuredRests || 0)")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("measure at the room's edge:", device.get("viewport"), "points", pts, "ends", ends, "rests", rests, "moved", after != before)
+    assert after == before, (before, after)
+    if phone:
+        assert rests == 1, rests  # the rest's check ran (and moved nothing)
+
+
+# For each of `n` lines of the list's order from `start`: the line opened by its link (viewlink's showRow,
+# selectedFit and its check); the ends as the fit left them (read at its own moveend, before the check) and once the
+# map is still; how far the ends moved, and how many lay under a control each time
+SELECTIONS = r"""async ([run, start, n]) => {
+  const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, model = view.model;
+  const frame = () => new Promise((ok) => requestAnimationFrame(() => ok()));
+  const still = () => !m._animatingZoom && !(m._panAnim && m._panAnim._inProgress);
+  const out = [];
+  for (const spot of Array.from(view.order).slice(start, start + n)) {
+    const row = view.shownOf(spot);
+    if (view.selected?.row === row) continue;
+    let fit = null;
+    // an end clear: in the bar's room (BAR) and under no control (fix round 5: one anchor in view)
+    const clear = (e) => { const pad = (""" + BAR + r""")(), size = m.getSize();
+      return e.filter(([x, y]) => x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom && U8.under([[x, y]]) === 0).length; };
+    const rec = () => { if (fit) return; fit = U8.ends(row).map((q) => q.slice()); fit.under = U8.under(fit); fit.clear = clear(fit); };
+    m.on('moveend', rec);
+    location.hash = '#run=' + run + '&line=' + encodeURIComponent(model.lineLink(model.lineAt(row)));
+    let k = 0;
+    for (; k < 200 && !(view.selected?.row === row && still() && fit); k++) await frame();
+    await frame(); await frame();
+    m.off('moveend', rec);
+    const now = U8.ends(row), shift = fit ? Math.max(...now.map((q, i) => Math.hypot(q[0] - fit[i][0], q[1] - fit[i][1]))) : null;
+    out.push({row, fitUnder: fit ? fit.under : null, under: U8.under(now), fitClear: fit ? fit.clear : null, clear: clear(now),
+              shift: shift === null ? null : Math.round(shift * 10) / 10});
+  }
+  return out; }"""
+
+
+@pytest.mark.parametrize("where", ["390-half", "1024-card"])
+def test_selection_check_moves_only_for_a_gain(boxes_site, where):
+    """120 lines of the list's order opened by their links, the run with both coast boxes or chips: 390 x 664 at half
+    and 1024 x 768 with a line's card open. The check after a selected line's fit moves the map only where that leaves
+    strictly fewer ends under a control than the fit did (the fourth code review's finding 2: 71 of 120 moved sideways
+    with nothing gained on 390 x 664; the planner's rule), or, on the phone, an end in view where the fit left none:
+    every such line gets one there (fix rounds 5 and 6: one anchor in view, by a pan after the fit's check; the fifth
+    code review: the test passed with the hook taken out). The gains stay: the reviewer counted 48 lines with fewer
+    ends under a control on 390 x 664 and 112 on 1024 x 768 (11 + 37, 17 + 95); fix round 6 counts 49 and 118 (43 and
+    15 of them with none under), within a few here."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            if where == "390-half":
+                page = _open(browser, f"{boxes_site}#run={BOXES}", SMALL_PHONE, script=HELP + UNDER8)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                start = 0
+            else:
+                page = _open(browser, f"{boxes_site}#run={BOXES}", {"viewport": {"width": 1024, "height": 768}}, script=HELP + UNDER8)
+                _state(page, "view.select(view.order[0]);")
+                page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+                start = 1
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(SELECTIONS, [BOXES, start, 120])
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    moved = [g for g in got if g["shift"] is not None and g["shift"] > 0.5]
+    # a gain: fewer ends under a control (fix round 4); on a phone also an end in view where the fit left none (fix
+    # rounds 5 and 6: the user's G-E a, one anchor in view, by a pan after the fit's check: useOneEndOnSelection)
+    covered = [g for g in got if g["fitClear"] == 0]
+    viewed = [g for g in covered if g["clear"] > 0] if where == "390-half" else []
+    no_gain = [g for g in moved if not (g["under"] < g["fitUnder"] or g in viewed)]
+    gains = [g for g in got if g["fitUnder"] is not None and g["under"] < g["fitUnder"]]
+    print("selections", where, "lines", len(got), "fit with an end under", sum(1 for g in got if g["fitUnder"]),
+          "moved", len(moved), "gains", len(gains), "brought clear", sum(1 for g in gains if g["under"] == 0),
+          "fit with no end clear", len(covered), "an end brought into view", len(viewed),
+          "none in view after", sum(1 for g in got if g["clear"] == 0), "no gain", no_gain[:5])
+    assert where != "390-half" or snap == "half", snap
+    assert len(got) >= 110 and all(g["fitUnder"] is not None for g in got), got[:3]
+    assert no_gain == [], no_gain
+    if where == "390-half":
+        # every line the fit left with no end clear gets one (the hook on a link's path: the fifth code review); the
+        # lines whose fit left an end clear keep the strict rule of fix round 4: a few
+        assert len(covered) >= 60 and len(viewed) == len(covered), [g for g in covered if g not in viewed][:5]
+        assert len(got) - len(covered) >= 3, len(got) - len(covered)
+    # (fix round 6's count, the one-end step a pan: 49 on 390 x 664, 118 on 1024 x 768)
+    assert abs(len(gains) - (49 if where == "390-half" else 118)) <= 8, len(gains)
+
+
+def test_selected_fit_during_a_glide(boxes_site):
+    """1920 x 1080, the run with both coast boxes, the card kept at 420 px: the map glides (an animated pan of 2 s, as
+    a drag's inertia or the sheet's bring-back) when a line of the run is opened by its link, whose fit with the bar's
+    padding puts an end under a coast box. The fit ends the glide (whose moveend comes first) and the check still
+    brings the line's ends clear (the fourth code review's finding 3: the check ran on the map before the fit)."""
+    from playwright.sync_api import sync_playwright
+    big = {"viewport": {"width": 1920, "height": 1080}}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", big, script=HELP + CARD_420)
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            found = page.evaluate(PICK, [page.evaluate(BAR)])
+            assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
+            spot, row, plain, link = found
+            gliding = page.evaluate("""([run, link]) => { const m = window.FINDALINE_MAP;
+              m.panBy([0, 240], {animate: true, duration: 2});
+              location.hash = '#run=' + run + '&line=' + encodeURIComponent(link);
+              return !!(m._panAnim && m._panAnim._inProgress); }""", [BOXES, link])
+            ends = _opened(page, row)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("selected fit during a glide: row", row, "ends", ends, _length(ends), "px; plain", round(plain, 1), "px; gliding", gliding)
+    assert gliding, "the pan did not glide"
+    assert all(n == 0 for _, _, n in ends), ends
+    assert _length(ends) >= min(LINE_LEAST, plain) - 1, (_length(ends), plain)
+
+
+def test_row_press_in_view_then_a_pan_moves_nothing(site):
+    """A desktop (BIG): a list row whose line is in view pressed (the list's reveal moves nothing, so its fit's check
+    has nothing to look at), then, in a later task, the map panned so that an end of the line lies under the zoom
+    buttons: nothing follows the pan (the check belongs to the fit's own moves; the fourth code review's R4-DISARM)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP, script=UNDER8)
+            _state(page, "view.setLevel('spots');")
+            page.wait_for_function(STILL, timeout=WAIT)
+            # a row of the list whose line, one level out and its middle panned to the map's upper middle, lies in view
+            # above where its card comes (its reveal and the card's keepFree move nothing)
+            _state(page, "leaflet.setZoom(leaflet.getZoom() - 1, {animate: false});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            pick = page.evaluate("""() => { const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, size = m.getSize();
+              for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = U8.ends(row);
+                const dx = Math.abs(e[0][0] - e[1][0]), dy = Math.abs(e[0][1] - e[1][1]);
+                if (!document.querySelector('.c-col-list .vl-main[data-row="' + row + '"]') || Math.hypot(dx, dy) < 60) continue;
+                if (dy > 340 || dx > size.x - 200) continue;
+                m.panBy([Math.round((e[0][0] + e[1][0]) / 2 - size.x / 2), Math.round((e[0][1] + e[1][1]) / 2 - 300)], {animate: false});
+                return row; }
+              return null; }""")
+            assert pick is not None, "no row in view"
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(f"() => !!document.querySelector('.c-col-list .vl-main[data-row=\"{pick}\"]')", timeout=WAIT)
+            before = page.evaluate(CENTRE)
+            page.evaluate(f"() => document.querySelector('.c-col-list .vl-main[data-row=\"{pick}\"]').click()")
+            page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.row === {pick}", timeout=WAIT)
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)  # its card came (above it)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            revealed = page.evaluate(CENTRE)
+            panned = page.evaluate(f"""() => {{ const m = window.FINDALINE_MAP, at = m.getContainer().getBoundingClientRect(),
+              z = document.querySelector('.leaflet-control-zoom').getBoundingClientRect(), e = U8.ends({pick})[0];
+              m.panBy([Math.round(e[0] - (z.left - at.left + z.width / 2)), Math.round(e[1] - (z.top - at.top + z.height / 2))], {{animate: false}});
+              return U8.under(U8.ends({pick})); }}""")
+            after_pan = page.evaluate(CENTRE)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            later = page.evaluate(CENTRE)
+            under = page.evaluate(f"() => U8.under(U8.ends({pick}))")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("press in view, then a pan: reveal moved", revealed != before, "under after the pan", panned, "later", under)
+    assert revealed == before and panned >= 1, (before, revealed, panned)
+    assert later == after_pan and under == panned, (after_pan, later, under)
+
+
+def test_card_appearing_keeps_the_line_clear(boxes_site):
+    """1400 x 900, the run with both coast boxes: a line selected on the map (no fit) whose anchor lies where its card
+    comes, and whose fit into the bar's room with the card has an end under a coast box (both found on the page
+    first): when the card appears it brings the line out from under it (keepFree, with the selected line's padding)
+    and its ends clear of the controls, each control's box 8 px larger as the frame counts it (selectedFit's check)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", DESKTOP, script=HELP + UNDER8)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            start = page.evaluate(CENTRE)
+            # the bar's room and the card's cover with a card open, read once (then the card closed, the map back)
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            bar = page.evaluate(BAR)
+            card = page.evaluate("() => { const c = document.querySelector('.c-col-map').getBoundingClientRect(), r = document.querySelector('.c-col-map > .r-card').getBoundingClientRect(); return Math.round(c.bottom - r.top); }")
+            _state(page, "view.select(null);")
+            page.wait_for_function("() => !document.querySelector('.c-col-map > .r-card')", timeout=WAIT)
+            found = page.evaluate("""([pad, card, start]) => { const {view, map} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP, size = m.getSize();
+              const back = () => m.setView([start[0], start[1]], start[2], {animate: false});
+              back();
+              for (const spot of Array.from(view.inView.spots)) { const row = view.shownOf(spot), e = U8.ends(row);
+                if (!e.some(([x, y]) => y > size.y - card + 10 && y < size.y - 10 && x > 20 && x < size.x - 20)) continue;
+                map.zoomTo(row, pad); const under = U8.under(U8.ends(row)); back();
+                if (under > 0) return [spot, row]; }
+              return null; }""", [bar, card, start])
+            assert found is not None, "no line under the card's place whose fit has an end under a control"
+            spot, row = found
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(".c-col-map > .r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            after = page.evaluate(CENTRE)
+            ends = page.evaluate("([row]) => ROW(row)", [row])
+            under = page.evaluate("([row]) => U8.under(U8.ends(row))", [row])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("card appearing: row", row, "card", card, "ends", ends, _length(ends), "px; under the controls' 8 px rings", under,
+          "moved", after != start)
+    assert after != start, "keepFree did not fit the line"
+    # clear as the frame counts it (each control's box 8 px larger: endsClear's), not only of the boxes themselves
+    assert under == 0 and all(n == 0 for _, _, n in ends), (under, ends)
+
+
+# A measured line of two given points (layer px of a number's box) drawn by the canvas (SpotMap.drawMeasured), its
+# calls recorded: whether the number got a clip of its own, and whether every pixel of its box stayed as it was
+# without a measured line (the frame's own line put back after). `of` 'values': a square's value at Area instead
+# (SpotMap's values: their boxes in the same px), the farthest from every other label
+RING_ON_NUMBER = r"""([where, of]) => { const {map} = window.FINDALINE_VIEW, L = window.FINDALINE_MAP, cv = document.querySelector('.v-canvas'), ctx = cv.getContext('2d');
+  // the number (or value) farthest from the others (30 px at least)
+  const values = map.values.filter((v) => !v.left), others = of === 'values' ? [...map.marks, ...values] : map.marks;
+  const gap = (a) => Math.min(...others.filter((b) => b !== a).map((b) => Math.hypot(b.x - a.x, b.y - a.y)));
+  const marks = (of === 'values' ? values : map.marks.filter((k) => k.kind === 'B')).sort((a, b) => gap(b) - gap(a)), k = marks[0];
+  if (!k || gap(k) < 30) return {none: marks.length};
+  // the end in the number's box (its middle), or 3 px right of its box at its middle; the line comes from far away and
+  // (the second) never crosses the box
+  const end = where === 'inside' ? [k.x, k.y] : [k.x + k.w + 3, k.y], from = where === 'inside' ? [k.x - 90, k.y + 60] : [k.x + k.w + 90, k.y + 60];
+  const r = cv.getBoundingClientRect(), s = cv.width / r.width, box = L.getContainer().getBoundingClientRect();
+  const toView = (x, y) => { const q = L.layerPointToContainerPoint([x, y]); return [q.x + box.left, q.y + box.top]; };
+  const [vl, vt] = toView(k.x - k.w, k.y - k.h);
+  const grab = () => Array.from(ctx.getImageData(Math.round((vl - r.left) * s), Math.round((vt - r.top) * s), Math.round(2 * k.w * s), Math.round(2 * k.h * s)).data);
+  const own = window.FINDALINE_VIEW.measured;
+  map.drawMeasured(null);
+  const before = grab();
+  const a = L.layerPointToLatLng(from), b = L.layerPointToLatLng(end);
+  const P = CanvasRenderingContext2D.prototype, keep = {}, clips = []; let path = {rects: 0, pts: []};
+  for (const name of ['beginPath', 'rect', 'roundRect', 'moveTo', 'lineTo', 'clip']) { keep[name] = P[name];
+    P[name] = function (...args) { if (this === ctx) {
+        if (name === 'beginPath') path = {rects: 0, pts: []};
+        else if (name === 'rect') { if (path.rects++ >= 1) path.pts.push([args[0] + args[2] / 2, args[1] + args[3] / 2]); }
+        else if (name === 'roundRect') path.pts.push([args[0] + args[2] / 2, args[1] + args[3] / 2]);
+        else if (name === 'moveTo' || name === 'lineTo') path.pts.push([args[0], args[1]]);
+        else if (name === 'clip' && path.pts.length) clips.push([path.pts.reduce((m, v) => m + v[0], 0) / path.pts.length, path.pts.reduce((m, v) => m + v[1], 0) / path.pts.length]); }
+      return keep[name].apply(this, args); }; }
+  try { map.drawMeasured({lat1: a.lat, lon1: a.lng, lat2: b.lat, lon2: b.lng}); } finally { for (const name of Object.keys(keep)) P[name] = keep[name]; }
+  const after = grab();
+  map.drawMeasured(own);
+  return {label: k.text, box: [k.x, k.y, k.w, k.h].map((v) => Math.round(v * 10) / 10), end, clipped: clips.some((c) => Math.abs(c[0] - k.x) < 1.5 && Math.abs(c[1] - k.y) < 1.5),
+          clips: clips.length, changed: before.filter((v, i) => v !== after[i]).length, pixels: before.length,
+          most: before.reduce((m, v, i) => Math.max(m, Math.abs(v - after[i])), 0)}; }"""
+# The frame's own measured line's ends against the numbers: the numbers whose box an end's ring reaches (layer px:
+# within its radius 5, its line's outer half and CUT_GROW), and whether each keeps every pixel of its box with the
+# line drawn and without it
+OWN_ENDS = r"""() => { const {map} = window.FINDALINE_VIEW, L = window.FINDALINE_MAP, l = window.FINDALINE_VIEW.measured;
+  const cv = document.querySelector('.v-canvas'), ctx = cv.getContext('2d'), r = cv.getBoundingClientRect(), s = cv.width / r.width, box = L.getContainer().getBoundingClientRect();
+  const ends = [[l.lat1, l.lon1], [l.lat2, l.lon2]].map(([a, o]) => L.latLngToLayerPoint([a, o]));
+  const dist = (q, k) => Math.hypot(Math.max(0, Math.abs(q.x - k.x) - k.w), Math.max(0, Math.abs(q.y - k.y) - k.h));
+  const near = map.marks.filter((k) => ends.some((q) => dist(q, k) < 7.5));
+  const grab = (k) => { const q = L.layerPointToContainerPoint([k.x - k.w, k.y - k.h]);
+    return Array.from(ctx.getImageData(Math.round((q.x + box.left - r.left) * s), Math.round((q.y + box.top - r.top) * s), Math.round(2 * k.w * s), Math.round(2 * k.h * s)).data); };
+  const withLine = near.map(grab);
+  map.drawMeasured(null);
+  const without = near.map(grab);
+  map.drawMeasured(l);
+  return {nearest: ends.map((q) => Math.round(Math.min(...map.marks.map((k) => dist(q, k))) * 10) / 10),
+          near: near.map((k, i) => ({label: k.text, changed: withLine[i].filter((v, j) => v !== without[i][j]).length}))}; }"""
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PIXEL], ids=["desktop", "412"])
+def test_measured_points_lie_under_the_numbers(boxes_site, device):
+    """A measured line's end points lie under the numbers as its dashes do (the user's M10: a measured line never
+    crosses the numbers; the third design review's T2: in G4c an end ring hid B9's digit). On the G4c state (a link's
+    line at the run with both coast boxes or chips): every number an end of the link's line reaches keeps every pixel of
+    its box; and on the number farthest from the others, a measured line ending in its box and one ending 3 px beside
+    it without its segment crossing the box: the number gets a clip of its own and keeps every pixel of its box (the
+    recorded canvas calls; the pixels with and without the line)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            line = _centre_line(browser, boxes_site, 0.0004, 0.0005)
+            page = _link_at_rest(browser, boxes_site, device, line)
+            page.evaluate("() => window.FINDALINE_VIEW.view.setLevel('spots')")
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            own = page.evaluate(OWN_ENDS)
+            got = {where: page.evaluate(RING_ON_NUMBER, [where]) for where in ("inside", "beside")}
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("measured points under the numbers:", device.get("viewport"), "the link's own ends", own, got)
+    for where, g in got.items():
+        assert not g.get("none") and g["clipped"] and g["changed"] == 0 and g["pixels"] > 0, (where, g)
+    assert all(n["changed"] == 0 for n in own["near"]), own  # (the Pixel: an end within 2 px of a number, as T2's B9)
+
+
+def test_measured_points_lie_under_the_values(site):
+    """At Area (the squares with their values), on the value farthest from every other label: a measured line ending
+    in its box, and one ending 3 px beside it whose segment never crosses the box: the value gets a clip of its own and
+    keeps every pixel of its box (fix round 5: a point's ring cuts a square's value out of the measurement's clip as it
+    cuts a number, the user's M10; the fifth code review: no test of the values' part)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP)
+            _state(page, "view.setLevel('area'); leaflet.fitBounds(map.areaBounds(), {animate: false});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = {where: page.evaluate(RING_ON_NUMBER, [where, "values"]) for where in ("inside", "beside")}
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("measured points under the values:", got)
+    for where, g in got.items():
+        # (a channel may differ by a level or two: the canvas's first clip of this shape is rasterized another way,
+        # seen once in the box's middle; the ring itself, drawn over the value, changes it by far more)
+        assert not g.get("none") and g["clipped"] and g["most"] <= 2 and g["pixels"] > 0, (where, g)
+
+
+# The phone's room and each end of the selected line: inside the bar's room (BAR) and under no control's box (8 px
+# larger: the frame's count)
+SELECTED_ENDS = r"""() => { const v = window.FINDALINE_VIEW.view, l = v.selected && v.selected.line; if (!l) return null;
+  const pad = (""" + BAR + r""")(), m = window.FINDALINE_MAP, size = m.getSize();
+  return U8.lineEnds(l).map(([x, y]) => ({at: [Math.round(x), Math.round(y)], inRoom: x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom,
+    under: U8.under([[x, y]]) > 0})); }"""
+
+
+def _one_clear(ends) -> bool:
+    return any(e["inRoom"] and not e["under"] for e in ends)
+
+
+# How many of a line's ends are clear: in the bar's room (BAR) and under no control's box 8 px larger (the frame's
+# count: noEndClear's)
+CLEAR = r"""
+window.CLEAR = (l) => { const pad = (""" + BAR + r""")(), size = window.FINDALINE_MAP.getSize();
+  return U8.lineEnds(l).filter(([x, y]) => x >= 0 && x <= size.x && y >= pad.top && y <= size.y - pad.bottom && U8.under([[x, y]]) === 0).length; };
+"""
+# The selected line's moves from RAISE.watch() on: each move's zoom and count of the line's ends clear at its start and
+# at its end, and whether it ended in the task it started in (not animated: oneEndInView's pan, not the sheet's
+# bring-back, which glides)
+RAISE = r"""
+window.RAISE = {moves: [], on: false,
+  watch() { const m = window.FINDALINE_MAP, v = window.FINDALINE_VIEW.view; this.moves = [];
+    if (this.on) return;
+    this.on = true; let pending = false;
+    m.on('movestart', () => { if (!v.selected) return; pending = true; queueMicrotask(() => { pending = false; });
+      this.moves.push({start: CLEAR(v.selected.line), z0: m.getZoom()}); });
+    m.on('moveend', () => { const r = this.moves[this.moves.length - 1]; if (!v.selected || !r || 'end' in r) return;
+      r.end = CLEAR(v.selected.line); r.z1 = m.getZoom(); r.sync = pending; }); },
+};
+"""
+# The selected line's both anchors in the part of the map above the sheet (useSheetKeeps' inSight)
+IN_SIGHT = r"""() => { const v = window.FINDALINE_VIEW.view, m = window.FINDALINE_MAP, size = m.getSize();
+  const top = document.querySelector('.u-sheet').getBoundingClientRect().top - m.getContainer().getBoundingClientRect().top;
+  return !!v.selected && U8.lineEnds(v.selected.line).every(([x, y]) => x >= 0 && x <= size.x && y >= 0 && y <= top); }"""
+
+
+@pytest.mark.parametrize("device", [PIXEL, SMALL_PHONE], ids=["412", "390"])
+def test_selected_line_keeps_one_end_in_view(boxes_site, device):
+    """A phone, the run with both coast chips: a selected line keeps at least one end in the bar's room clear of every
+    control (the user's G-E a "one anchor in view is enough"; the third design review saw the Pixel's G2 with A1
+    under the coarser chip and A2 under the scale). As G2 is made: lines selected at the low stop (a press on the map:
+    the first lines of the list's order in sight there, the map put back between them), the sheet raised to half (its
+    bring-back, then the rest's check: useSheetKeeps' anEnd); and lines selected while the sheet rests at half (the
+    first 20 of the list's order). Raised, at least one line had no end clear when the rest's check came and was
+    brought so by a pan at the same zoom in that task (the fifth code review: on 390 x 664 the test passed without
+    anEnd; the planner's rule of fix round 6: a pan only)."""
+    from playwright.sync_api import sync_playwright
+    checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8 + CLEAR + RAISE)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            page.wait_for_function(STILL, timeout=WAIT)
+            home = page.evaluate(CENTRE)
+            raised = []
+            for k in range(12):
+                page.evaluate(f"() => window.FINDALINE_MAP.setView([{home[0]}, {home[1]}], {home[2]}, {{animate: false}})")
+                _state(page, f"view.select(view.order[{k}]);")
+                page.wait_for_function(STILL, timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                if not page.evaluate(IN_SIGHT):
+                    continue  # (out of sight at the low stop: the raise leaves it as it is)
+                before = page.evaluate(checks)
+                page.evaluate("() => RAISE.watch()")
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function(f"() => ({checks})() > {before}", timeout=WAIT)
+                page.wait_for_function(STILL, timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                raised.append([k, page.evaluate(SELECTED_ENDS), page.evaluate("() => RAISE.moves")])
+                before = page.evaluate(checks)
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowDown")
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                page.wait_for_function(f"() => ({checks})() > {before}", timeout=WAIT)
+                page.wait_for_function(STILL, timeout=WAIT)
+                if len(raised) >= 6:
+                    break
+            before = page.evaluate(checks)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({checks})() > {before}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            at_half = []
+            for k in range(1, 21):
+                spot = page.evaluate(f"() => window.FINDALINE_VIEW.view.order[{k}]")
+                _state(page, f"view.select({spot});")
+                page.wait_for_function(STILL, timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                at_half.append([spot, page.evaluate(SELECTED_ENDS)])
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    stuck = [a for a in at_half if not _one_clear(a[1])]
+    # raised: a line whose ends were all covered at the rest's check, one brought clear by a pan in that check's task
+    by_check = [r[0] for r in raised if any(m.get("sync") and m["start"] == 0 and m.get("end", 0) >= 1 and m["z0"] == m.get("z1")
+                                            for m in r[2])]
+    print("one end in view:", device.get("viewport"), "raised", len(raised), "brought clear at the check", by_check,
+          [[r[0], [(e["at"], e["inRoom"], e["under"]) for e in r[1]], r[2]] for r in raised],
+          "at half: none clear for", len(stuck), "of", len(at_half), stuck[:4])
+    assert snap == "half", snap
+    assert len(raised) >= 4, raised
+    assert all(_one_clear(r[1]) for r in raised), raised
+    assert by_check, "no raised line had all its ends covered at the rest's check: the state tests nothing"
+    assert stuck == [], stuck
+
+
+# Each moveend of the map while a measured line is shown (or once WATCH_LINE is set: a link's line on its way, whose
+# first show's moves come before the frame tells its measured line): the zoom, whether the move zoomed (a zoomstart
+# since the last moveend), the line's ends (map container px) and how many are clear (CLEAR)
+MEASURED_MOVES = r"""
+window.MOVES = [];
+(() => { let m = null, zoomed = false;
+  Object.defineProperty(window, 'FINDALINE_MAP', {configurable: true, get() { return m; }, set(v) { m = v;
+    v.on('zoomstart', () => { zoomed = true; });
+    v.on('moveend', () => { const f = window.FINDALINE_VIEW, l = (f && f.measured) || window.WATCH_LINE, z = zoomed; zoomed = false;
+      if (l) MOVES.push({z: v.getZoom(), zoomed: z, ends: U8.lineEnds(l), clear: CLEAR(l)}); }); } }); })();
+"""
+# The measured line's ends as SELECTED_ENDS gives the selected line's
+MEASURED_ENDS = SELECTED_ENDS.replace("const v = window.FINDALINE_VIEW.view, l = v.selected && v.selected.line;",
+                                      "const l = window.FINDALINE_VIEW.measured;")
+
+
+def _least_clearing(ends, boxes, size, pad, margin=8):
+    """The length of the least whole-px shift that brings one of `ends` (container px) into the bar's room `margin` px
+    inside its edges and outside every one of `boxes` (8 px larger, as U8's), up to 120 px; None where none does."""
+    best = None
+    for dx in range(-120, 121):
+        for dy in range(-120, 121):
+            d = (dx * dx + dy * dy) ** 0.5
+            if best is not None and d >= best:
+                continue
+            for x, y in ends:
+                q = (x + dx, y + dy)
+                if not (margin <= q[0] <= size[0] - margin and pad["top"] + margin <= q[1] <= size[1] - pad["bottom"] - margin):
+                    continue
+                if any(b[0] <= q[0] <= b[2] and b[1] <= q[1] <= b[3] for b in boxes):
+                    continue
+                best = d
+    return best
+
+
+@pytest.mark.parametrize("device, how", [(SMALL_PHONE, "link"), (PIXEL, "link"), (SMALL_PHONE, "at-half")],
+                         ids=["390", "412", "390-at-half"])
+def test_measured_line_at_rest_keeps_one_end_clear(boxes_site, device, how):
+    """G4c's state (a link's measured line from the run's centre, both coast chips, the sheet at half and resting): at
+    least one end of the line clear of every control (the user's M2: "where both ends cannot be clear of the map's
+    buttons at that length, an end may lie under one"; the fifth code review's finding 1: on 390 x 664 both lay under
+    controls, the status line and the shore chip), brought there by the least pan at the same zoom (the planner's rule
+    of fix round 6: the last move started from no end clear, did not zoom, and no shift shorter by more than 2 px
+    clears an end) and still at least LINE_LEAST px long. `at-half`: the same line opened while the sheet rests at half
+    (its first show clears it at once: useMeasuredShown). On 412 x 839 the fit leaves an end clear: nothing to do."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            line = _centre_line(browser, boxes_site, 0.0004, 0.0005)
+            script = FRAME + PROFILE_STUB + UNDER8 + CLEAR + MEASURED_MOVES
+            if how == "link":
+                page = _open(browser, f"{boxes_site}#run={BOXES}&line={urllib.parse.quote(line, safe='')}", device, script=script)
+                page.wait_for_function("() => !!window.FINDALINE_VIEW && !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+            else:
+                page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=script)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                page.wait_for_function("() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0) > 0", timeout=WAIT)
+                page.wait_for_function(STILL, timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                page.evaluate("([t]) => { const v = t.split(',').map(Number); window.WATCH_LINE = {lat1: v[0], lon1: v[1], lat2: v[2], lon2: v[3]}; }", [line])
+                page.evaluate(OPEN_LINK, [BOXES, line])
+                page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            moves = page.evaluate("() => MOVES")
+            ends = page.evaluate(MEASURED_ENDS)
+            boxes = page.evaluate("() => U8.boxes()")
+            size = page.evaluate("() => { const s = window.FINDALINE_MAP.getSize(); return [s.x, s.y]; }")
+            pad = page.evaluate(BAR)
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    last = moves[-1] if moves else None
+    prev = moves[-2] if len(moves) > 1 else None
+    stepped = prev is not None and prev["clear"] == 0
+    shift = ((last["ends"][0][0] - prev["ends"][0][0]) ** 2 + (last["ends"][0][1] - prev["ends"][0][1]) ** 2) ** 0.5 if stepped else None
+    least = _least_clearing(prev["ends"], boxes, size, pad) if stepped else None
+    print("measured line at rest:", device.get("viewport"), how, "ends", [(e["at"], e["inRoom"], e["under"]) for e in ends],
+          "length", _length([e["at"] for e in ends]), "last moves", [{**m, "ends": [[round(v) for v in q] for q in m["ends"]]} for m in moves[-3:]],
+          "the step", shift, "least", least)
+    assert snap == "half", snap
+    assert _one_clear(ends), ends
+    assert _length([e["at"] for e in ends]) >= LINE_LEAST - 1, ends
+    if device is SMALL_PHONE:
+        assert stepped, ("the fit left an end clear: the state tests nothing", moves[-3:])
+    if stepped:
+        # the step: a pan at the fit's zoom, the least one (whole px; the bar's room as the test reads it, 2 px of slack)
+        assert not last["zoomed"] and last["z"] == prev["z"] and last["clear"] >= 1, moves[-2:]
+        assert least is not None and shift <= least + 2, (shift, least)
+
+
+# A person's pinch (the fifth code review's PINCH): for the list's first lines, the map put back, the line's middle
+# brought to the map's middle and zoomed in `levels` around it, then to the middle of the bar's room; where both its
+# ends then lie off the map, the line pressed on the map (SpotMap's press: view.select, no fit): the zoom before and
+# after, the ends clear after (CLEAR) and whether any point of the room (8 px inside its edges) lies clear of every
+# control (a pan at that zoom can bring an end clear)
+PINCH = r"""async ([levels]) => {
+  const {view} = window.FINDALINE_VIEW, m = window.FINDALINE_MAP;
+  const frame = () => new Promise((ok) => requestAnimationFrame(() => ok()));
+  const still = () => !m._animatingZoom && !(m._panAnim && m._panAnim._inProgress);
+  const wait = async () => { for (let k = 0; k < 100 && !still(); k++) await frame(); for (let k = 0; k < 4; k++) await frame(); };
+  const roomFree = () => { const p = (""" + BAR + r""")(), s = m.getSize(), b = U8.boxes();
+    for (let y = p.top + 8; y <= s.y - p.bottom - 8; y += 2) for (let x = 8; x <= s.x - 8; x += 2)
+      if (!b.some((c) => x >= c[0] && x <= c[2] && y >= c[1] && y <= c[3])) return true;
+    return false; };
+  const out = [];
+  view.select(null); await wait();
+  const home = [m.getCenter(), m.getZoom()];
+  for (const spot of Array.from(view.order).slice(0, 30)) {
+    m.setView(home[0], home[1], {animate: false}); await wait();
+    const l = view.model.lineAt(view.shownOf(spot)), e = U8.lineEnds(l), len = Math.hypot(e[0][0] - e[1][0], e[0][1] - e[1][1]);
+    if (len < 60) continue;
+    const s = m.getSize(), p = (""" + BAR + r""")(), mid = [(e[0][0] + e[1][0]) / 2, (e[0][1] + e[1][1]) / 2];
+    m.panBy([mid[0] - s.x / 2, mid[1] - s.y / 2], {animate: false});
+    m.setZoom(Math.min(m.getMaxZoom(), m.getZoom() + levels), {animate: false});
+    m.panBy([0, s.y / 2 - (p.top + s.y - p.bottom) / 2], {animate: false});
+    await wait();
+    if (!U8.lineEnds(l).every(([x, y]) => x < 0 || x > s.x || y < 0 || y > s.y)) continue;
+    const before = m.getZoom(), free = roomFree();
+    view.select(spot); await wait();
+    out.push({spot, before, after: m.getZoom(), free, clear: CLEAR(l), ends: U8.lineEnds(l).map((q) => q.map(Math.round))});
+    view.select(null); await wait();
+    if (out.length >= 6) break;
+  }
+  return out; }"""
+
+
+@pytest.mark.parametrize("device, stop", [(PIXEL, "half"), (SMALL_PHONE, "peek")], ids=["412-half", "390-peek"])
+def test_press_after_a_pinch_keeps_the_zoom(boxes_site, device, stop):
+    """The run with both coast chips, the Spots level: the map zoomed in (a pinch) on a line's middle until both its
+    ends lie off the map, then the line pressed on the map: the zoom stays as the person left it, and one end is clear
+    of every control where a pan at that zoom allows it (the fifth code review's finding 2: the press zoomed out 3.5 to 4
+    levels on 412 x 839 at half and 2.5 to 3 on 390 x 664 at the low stop; the planner's rule of fix round 6: the
+    one-end step is a pan only)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8 + CLEAR)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            if stop == "half":
+                page.focus(".u-sheet-handle")
+                page.keyboard.press("ArrowUp")
+                page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            _state(page, "view.setLevel('spots');")
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(PINCH, [3])
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("press after a pinch:", device.get("viewport"), stop, got)
+    assert snap == stop, snap
+    assert len(got) >= 3, got
+    assert all(g["after"] == g["before"] for g in got), [g for g in got if g["after"] != g["before"]]
+    assert all(g["clear"] >= 1 for g in got if g["free"]), [g for g in got if g["free"] and g["clear"] < 1]
+
+
 def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
     """A 1024 x 768 desktop with both coast boxes and a line selected: with the card folded by the person no control
     covers another (T.boxes); the card open at that size (the map is higher than today's low threshold, LIMITS.low
@@ -1101,6 +1809,56 @@ def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
 TABLET = {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
 
 
+# The desktop list's rows and heads: overlapping neighbours, values cut, heads off their values' right edges (px)
+LIST_READ = """() => { const r = (e) => e.getBoundingClientRect(), bad = [], cut = [], off = [];
+  const row = (cells) => { for (let k = 1; k < cells.length; k++) { const a = r(cells[k - 1]), b = r(cells[k]);
+      if (a.width && b.width && a.bottom > b.top + 0.5 && b.bottom > a.top + 0.5 && a.right > b.left + 0.5)
+        bad.push([cells[k - 1].textContent.trim().slice(0, 14), cells[k].textContent.trim().slice(0, 14)]); } };
+  const own = (m) => [...m.children].filter((c) => !c.classList.contains('u-sr'));
+  const heads = [...document.querySelectorAll('.c-col-list .vl-cols')], rows = [...document.querySelectorAll('.c-col-list .vl-main')];
+  heads.forEach((h) => row([...h.children]));
+  rows.forEach((m) => row(own(m)));
+  rows.forEach((m) => m.querySelectorAll('.vl-v').forEach((v) => { if (v.scrollWidth > v.clientWidth + 1) cut.push(v.textContent.trim().slice(0, 14)); }));
+  heads.forEach((h) => { const m = h.parentElement.querySelector('.vl-rows .vl-main'); if (!m) return;
+    const hc = [...h.children], mc = own(m).filter((c) => !c.classList.contains('vl-lab'));
+    for (let k = 2; k < Math.min(hc.length, mc.length); k++) { const d = Math.round(r(hc[k]).right - r(mc[k]).right); if (d) off.push([hc[k].textContent.trim(), d]); } });
+  return {list: Math.round(r(document.querySelector('.c-col-list')).width), heads: heads.length, rows: rows.length,
+          coarse: matchMedia('(pointer: coarse)').matches, star: Math.round(r(document.querySelector('.c-col-list .vl-star')).width),
+          tree: document.querySelectorAll('.c-col-list .vl-tree .vl-main').length, bad, cut, off}; }"""
+
+
+@pytest.mark.parametrize("width", [260, 280, 340])
+def test_list_kept_narrow_leaves_the_anchors_out(site, width):
+    """A desktop list kept narrow (the layout's least is 260 px; the view reads the same findaline.layout as today's
+    page): under 300 px the anchors' column is left out of the rows, the heads and the columns' help, as on today's
+    page below its ACC_MIN (C2's parity check: at 280 and 260 px the values ran over each other and the heads read
+    "LengtMeanheightClearanceAnchors Lines"); at 340 px it stays. Nothing overlaps, no value is cut, each head stands
+    over its values, sorted by length, by the highest point and by clearance."""
+    from playwright.sync_api import sync_playwright
+    kept = ("try { localStorage.setItem('findaline.layout', JSON.stringify({v: 1, list: {w: %d, open: true}, details: {w: 380, open: true}, "
+            "profile: {h: 260, folded: false, l: 12, r: 12}})); } catch (e) {}" % width)
+    anchors = """() => ({cells: [...document.querySelectorAll('.c-col-list .vl-cell-acc')].filter((e) => e.getBoundingClientRect().width > 0).length,
+      help: !!document.querySelector('#vl-help-cols .vl-help-acc') && document.querySelector('#vl-help-cols .vl-help-acc').getBoundingClientRect().height > 0})"""
+    got = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _view(browser, site, DESKTOP, script=kept)
+            page.click(".c-col-list .vl-topblock .vl-cols-info")
+            page.wait_for_selector("#vl-help-cols", timeout=WAIT)
+            for sort in ("len", "hmax", "clr"):
+                _state(page, f"view.setLevel('spots'); view.setSort('{sort}');")
+                got[sort] = {**page.evaluate(LIST_READ), **page.evaluate(anchors)}
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("a list kept at", width, "px:", {k: {n: v[n] for n in ("list", "cells", "help", "bad", "cut", "off")} for k, v in got.items()})
+    for sort, g in got.items():
+        assert abs(g["list"] - width) <= 1 and g["rows"] > 10 and g["tree"] > 0, (sort, g)
+        assert (g["cells"] == 0 and not g["help"]) if width < 300 else (g["cells"] > 10 and g["help"]), (sort, g)
+        assert g["bad"] == [] and g["cut"] == [] and g["off"] == [], (sort, g)
+
+
 @pytest.mark.parametrize("device", [{"viewport": {"width": 1024, "height": 768}}, TABLET], ids=["mouse", "touch"])
 def test_list_at_1024_keeps_heads_and_values_apart(site, device):
     """A 1024 px desktop (the list 320 px wide), with a mouse and with a touch screen (a tablet held sideways: the
@@ -1110,21 +1868,6 @@ def test_list_at_1024_keeps_heads_and_values_apart(site, device):
     from the rows' gaps and edges in a narrow list; the third code review's finding 2: on a touch screen the heads
     kept a mouse's 24 px for the star, 5 to 20 px off, and 30 values were cut)."""
     from playwright.sync_api import sync_playwright
-    read = """() => { const r = (e) => e.getBoundingClientRect(), bad = [], cut = [], off = [];
-      const row = (cells) => { for (let k = 1; k < cells.length; k++) { const a = r(cells[k - 1]), b = r(cells[k]);
-          if (a.width && b.width && a.bottom > b.top + 0.5 && b.bottom > a.top + 0.5 && a.right > b.left + 0.5)
-            bad.push([cells[k - 1].textContent.trim().slice(0, 14), cells[k].textContent.trim().slice(0, 14)]); } };
-      const own = (m) => [...m.children].filter((c) => !c.classList.contains('u-sr'));
-      const heads = [...document.querySelectorAll('.c-col-list .vl-cols')], rows = [...document.querySelectorAll('.c-col-list .vl-main')];
-      heads.forEach((h) => row([...h.children]));
-      rows.forEach((m) => row(own(m)));
-      rows.forEach((m) => m.querySelectorAll('.vl-v').forEach((v) => { if (v.scrollWidth > v.clientWidth + 1) cut.push(v.textContent.trim().slice(0, 14)); }));
-      heads.forEach((h) => { const m = h.parentElement.querySelector('.vl-rows .vl-main'); if (!m) return;
-        const hc = [...h.children], mc = own(m).filter((c) => !c.classList.contains('vl-lab'));
-        for (let k = 2; k < Math.min(hc.length, mc.length); k++) { const d = Math.round(r(hc[k]).right - r(mc[k]).right); if (d) off.push([hc[k].textContent.trim(), d]); } });
-      return {list: Math.round(r(document.querySelector('.c-col-list')).width), heads: heads.length, rows: rows.length,
-              coarse: matchMedia('(pointer: coarse)').matches, star: Math.round(r(document.querySelector('.c-col-list .vl-star')).width),
-              tree: document.querySelectorAll('.c-col-list .vl-tree .vl-main').length, bad, cut, off}; }"""
     got = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -1132,7 +1875,7 @@ def test_list_at_1024_keeps_heads_and_values_apart(site, device):
             page = _view(browser, site, device)
             for sort in ("len", "hmax", "clr"):
                 _state(page, f"view.setLevel('spots'); view.setSort('{sort}');")
-                got[sort] = page.evaluate(read)
+                got[sort] = page.evaluate(LIST_READ)
             assert page.errors == []
         finally:
             browser.close()

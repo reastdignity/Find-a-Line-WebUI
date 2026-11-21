@@ -333,3 +333,12 @@
       grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) 45px minmax(0, 28fr); }
   }
 }
+/* a desktop list kept under 300 px (the layout allows 260): the anchors' column left out of the rows, the heads and the
+   columns' help, as today's page below its ACC_MIN of 300 px (LinesTable); the map's legend keeps the access rows; the
+   value columns shared by what they hold (39 / 43 / 53 / 28 px), 1 px gaps, no right padding (C2's parity check: at
+   280 and 260 px the values ran over each other) */
+@container vl-list (max-width: 299px) {
+  .ui .vl-main > .vl-cell-acc, .ui .vl-cols > .vl-cell-acc, .ui .vl-helpt > .vl-help-acc { display: none; }
+  .ui .c-col-list .vl-body .vl-main, .ui .c-col-list .vl-body .vl-cols { column-gap: 1px; padding-right: 0;
+    grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
+}
