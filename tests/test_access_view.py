@@ -249,11 +249,12 @@ def test_details_rows_a1_a2_and_the_key(site):
       const middle = (e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
       return {heads: heads.length, inSheet: !!(head && head.closest('.u-sheet')), head: pair ? [...pair.querySelectorAll('svg.ac')].map(dot) : [],
               // the pair inside the title's box, on the line of the spot's count, after it
-              // (a phone: or on the line under it at the title's left edge, the wrap the user accepted with P1's place A)
+              // (a 390 px phone: or on the line under it at the title's left edge, the wrap the user accepted with P1's
+              // place A; a wider phone keeps the one line)
               headLine: !!pair && (() => { const t = head.getBoundingClientRect(), b = pair.getBoundingClientRect(), n = head.querySelector('.vl-spot-count');
                 const inside = b.top >= t.top - 1 && b.bottom <= t.bottom + 1 && b.right <= t.right + 1, c = n.getBoundingClientRect();
                 const after = Math.abs(middle(pair) - middle(n)) <= 6 && b.left >= c.right;
-                const under = !!head.closest('.u-sheet') && b.top >= c.bottom - 1 && Math.abs(b.left - t.left) <= 2;
+                const under = !!head.closest('.u-sheet') && innerWidth <= 390 && b.top >= c.bottom - 1 && Math.abs(b.left - t.left) <= 2;
                 return inside && (after || under); })(),
               line: [sel.line.access1, sel.line.access2], title: acc && acc.querySelector('.vl-acc-h').firstChild.textContent,
               rows: acc ? [...acc.querySelectorAll('.vl-acc-row')].map((row) => [row.children[0].textContent, dot(row.querySelector('svg.ac')), row.children[2].textContent]) : [],

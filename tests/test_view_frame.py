@@ -999,7 +999,8 @@ def test_selected_fit_at_full_drops_to_half(boxes_site, device):
     four levels out: a row of the list pressed. As on today's page (the user's P3 a, step 3d; until then this test held
     the sheet at full) the sheet drops to half, and the line is fitted as a selection made at half: once the sheet
     rests (its check made) the line is on the map above the sheet with at least one end clear of every control (B3's
-    rule), none under the top bar, at the zoom the same row's press at half reaches from the same map."""
+    rule), none under the top bar, at the zoom and the centre (within 2 px) the same row's press at half reaches from
+    the same map."""
     from playwright.sync_api import sync_playwright
     checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
     with sync_playwright() as p:
@@ -1028,6 +1029,9 @@ def test_selected_fit_at_full_drops_to_half(boxes_site, device):
             ends = page.evaluate(SELECTED_ENDS)
             switch = page.evaluate("() => F.rect('.v-map .v-switch')")
             snap = page.evaluate("() => F.snap()")
+            # the line's ends under the top bar (the pill and the run's actions over the map's top)
+            top = page.evaluate("""() => F.ends(window.FINDALINE_VIEW.view.selected.line).filter(([x, y]) => [...document.querySelectorAll('.c-phone-top > *')]
+              .map((e) => e.getBoundingClientRect()).some((r) => r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)).length""")
             # the same row pressed at half, from the same map
             _state(page, f"view.select(null); leaflet.setView([{before[0]}, {before[1]}], {before[2]}, {{animate: false}});")
             page.wait_for_function(STILL, timeout=WAIT)
@@ -1037,6 +1041,9 @@ def test_selected_fit_at_full_drops_to_half(boxes_site, device):
             page.evaluate("() => T.frames()")
             page.wait_for_function(STILL, timeout=WAIT)
             at_half = page.evaluate(CENTRE)
+            # the two centres apart on the screen, px at that zoom
+            apart = page.evaluate("""([a, b]) => { const m = window.FINDALINE_MAP, p = m.project([a[0], a[1]], a[2]), q = m.project([b[0], b[1]], a[2]);
+              return Math.hypot(p.x - q.x, p.y - q.y); }""", [after, at_half])
             assert page.errors == []
         finally:
             browser.close()
@@ -1044,7 +1051,10 @@ def test_selected_fit_at_full_drops_to_half(boxes_site, device):
           "map", before, "->", after, "; pressed at half ->", at_half)
     assert snap == "half" and after != before, (snap, before, after)  # the sheet dropped, the reveal fitted the line
     assert _one_clear(ends), ends  # (in the bar's room: under the switch, above the sheet's foot)
-    assert after[2] == at_half[2], (after, at_half)  # fitted as at half: the same zoom
+    assert top == 0, (top, ends)  # none under the top bar
+    # fitted as at half: the same zoom, the same centre within 2 px (the drop's room is predicted from the foot as it
+    # stood below full: a px may differ)
+    assert after[2] == at_half[2] and apart <= 2, (after, at_half, apart)
 
 
 def test_selected_fit_as_long_as_the_bar_fit(site):

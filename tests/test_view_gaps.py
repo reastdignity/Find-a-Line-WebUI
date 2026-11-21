@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_shell_c import BIG  # noqa: E402
 from test_shell_c_view_map import (BOXES, DESKTOP, SMALL_PHONE, WAIT, WORDS, _open, _state, _tap_on, boxes_site,  # noqa: E402,F401
                                    site, view_clip)
-from test_view_frame import HELP, OPEN_LINK, PIXEL, SELECTED_ENDS, STILL, UNDER8, _one_clear  # noqa: E402
+from test_view_frame import (BAR, CENTRE, HELP, OPEN_LINK, PICK, PIXEL, SELECTED_ENDS, STILL, UNDER8, _one_clear,  # noqa: E402
+                             _opened)
 from test_web import EDGE, _playwright  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -126,6 +127,7 @@ TREE = r"""() => { const v = window.FINDALINE_VIEW.view, key = v.sort;
   return {sort: key, desc: v.desc, level: v.level, rows: [...document.querySelectorAll('.vl-tree .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
     sectors: v.sectors.map((s) => s.spots.map((p) => [p, value(p)])), order: Array.from(v.order), best: Array.from(v.inView.best),
     label: dir && dir.getAttribute('aria-label'), title: dir && dir.getAttribute('title'), size: r && [Math.round(r.width), Math.round(r.height)],
+    edge: dir && parseFloat(getComputedStyle(dir).borderTopWidth) > 0 && getComputedStyle(dir).borderTopColor !== 'rgba(0, 0, 0, 0)',
     treeAsc: !!document.querySelector('.vl-tree .vl-by.vl-asc'), topAsc: !!document.querySelector('.vl-topblock .vl-by.vl-asc'),
     topRows: [...document.querySelectorAll('.vl-topblock .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
     kept: (() => { try { return localStorage.getItem('findaline.view.v1'); } catch (e) { return 'blocked'; } })()}; }"""
@@ -221,6 +223,7 @@ def test_sort_direction(site, device):
     assert json.loads(other["kept"]) == {"sort": "len", "hint": True}, other["kept"]
     if device == "phone":
         assert first["size"] == [44, 44] and asc["size"] == [44, 44], (first["size"], asc["size"])
+    assert first["edge"] and asc["edge"], (first, asc)  # an edge: a button, not the heads' mark (the design review's F5)
 
 
 def test_old_kept_value_reads_largest_first(site):
@@ -247,7 +250,8 @@ def test_old_kept_value_reads_largest_first(site):
 # focus is; the tree's row of the spot: pressed, drawn whole in the list's scroller, its sector open
 STEPPER = r"""() => { const v = window.FINDALINE_VIEW.view, tree = v.sectors.flatMap((s) => s.spots), sel = v.selected;
   const btn = (c) => { const b = document.querySelector('.vl-dhead .' + c + ', .vl-sheet-row .' + c), r = b && b.getBoundingClientRect();
-    return b && {off: b.disabled, label: b.getAttribute('aria-label'), size: [Math.round(r.width), Math.round(r.height)], bottom: Math.round(r.bottom)}; };
+    return b && {off: b.disabled, label: b.getAttribute('aria-label'), size: [Math.round(r.width), Math.round(r.height)], bottom: Math.round(r.bottom),
+                 left: Math.round(r.left), right: Math.round(r.right)}; };
   const row = sel && document.querySelector('#vl-row-' + sel.spot + ' > .vl-main'), box = row && row.closest('.vl-body, .u-sheet-body');
   const r = row && row.getBoundingClientRect(), b = box && box.getBoundingClientRect();
   const sec = sel && document.querySelector('#vl-sec-' + (v.sectorOf(sel.spot) + 1));
@@ -355,6 +359,232 @@ def test_spot_stepper_phone(site, device):
     print("spot stepper, phone:", device.get("viewport"), "sheet", snap, sheet, "start", {k: start[k] for k in ("prev", "next")},
           "stepped", {k: stepped[k] for k in ("spot", "k", "row", "shown", "prev")})
     assert start["prev"]["size"] == [44, 44] and start["next"]["size"] == [44, 44], start
+    assert start["next"]["left"] - start["prev"]["right"] >= 8, start  # a gap between the two targets on touch (R7's 8 px)
     assert start["prev"]["off"] and not start["next"]["off"], start
     assert start["next"]["bottom"] <= sheet[1], (start, sheet)
     assert stepped["k"] == 1 and stepped["row"] == stepped["shown"] and not stepped["prev"]["off"], stepped
+
+
+# --- fix round 1 (the code review of C4: F1-F3, the tests that did not test, the star's picker) ---
+
+def _low_at_full(page):
+    """The run with both coast chips at full, the map four levels out (a row's fit then moves it)."""
+    page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+    _stop(page, "full")
+    _state(page, "leaflet.setZoom(leaflet.getZoom() - 4, {animate: false});")
+    page.wait_for_function(STILL, timeout=WAIT)
+
+
+# A control's box (the frame's, 8 px larger) in the room the sheet at half leaves: its middle, map px
+CONTROL_MID = r"""() => { const m = window.FINDALINE_MAP, size = m.getSize(), half = Math.max(132, Math.round(document.querySelector('.c-col-map').getBoundingClientRect().height * 0.5));
+  const sw = document.querySelector('.v-map .v-switch').getBoundingClientRect(), at = m.getContainer().getBoundingClientRect(), top = sw.bottom - at.top + 4;
+  const boxes = U8.boxes().map((b) => ({x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2})).filter((c) => c.y > top + 10 && c.y < size.y - half - 70 && c.x > 10 && c.x < size.x - 10);
+  return boxes.length ? boxes[0] : null; }"""
+# A tree row pressed at full and, while the sheet glides to half, the person's move: a pan that brings the selected
+# line's first end under that control (and, with `zoom`, a pinch: half a level in around it); the map then and the
+# sheet's state at that moment
+MOVE_DURING_DROP = r"""async ([spot, control, zoom]) => {
+  const frame = () => new Promise((r) => requestAnimationFrame(r)), s = document.querySelector('.u-sheet'), full = s.getBoundingClientRect().height;
+  document.querySelector(`.vl-tree .vl-main[data-spot='${spot}']`).click();
+  for (let i = 0; i < 60 && s.getBoundingClientRect().height > full - 60; i++) await frame();
+  const m = window.FINDALINE_MAP, l = window.FINDALINE_VIEW.view.selected.line, q = m.latLngToContainerPoint([l.lat1, l.lon1]);
+  const resting = F.rest();
+  m.panBy([Math.round(q.x - control.x), Math.round(q.y - control.y)], {animate: false});
+  if (zoom) m.setZoomAround(m.containerPointToLatLng([control.x, control.y]), m.getZoom() + 0.5, {animate: false});
+  const c = m.getCenter(); return {at: [c.lat, c.lng, m.getZoom()], resting, under: U8.under(U8.lineEnds(l))}; }"""
+
+
+@pytest.mark.parametrize("zoom", [False, True], ids=["pan", "pinch"])
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_move_during_the_drop_is_kept(boxes_site, device, zoom):
+    """P3 with the rule "a move the person made is never undone" (and the user's: a pinch's zoom is kept): a tree row
+    pressed at full, and while the sheet glides to half the person pans the map so that an end of the line lies under
+    a control (and, separately, pinches half a level in). At the rest the map is where the person left it: the same
+    centre and zoom (the code review's F1: the drop's check moved it, 0307980d)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8)
+            _low_at_full(page)
+            spot = page.evaluate("() => Number(document.querySelector('.vl-tree .vl-rows .vl-main').dataset.spot)")
+            control = page.evaluate(CONTROL_MID)
+            assert control is not None, "no control in the room at half"
+            counted = page.evaluate(CHECKS)
+            moved = page.evaluate(MOVE_DURING_DROP, [spot, control, zoom])
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({CHECKS})() > {counted}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            after = page.evaluate(CENTRE)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("moved during the drop:", device.get("viewport"), "pinch" if zoom else "pan", moved, "->", after)
+    assert not moved["resting"] and moved["under"] >= 1, moved  # (the state tests something: a move before the rest)
+    assert after[2] == moved["at"][2] and abs(after[0] - moved["at"][0]) < 1e-9 and abs(after[1] - moved["at"][1]) < 1e-9, (moved, after)
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_press_during_the_rise_gets_its_check(boxes_site, device):
+    """P3, the code review's F2: the sheet at half (checked there), raised to full, and a tree row pressed while it
+    still rises: the drop to half gets its rest's check all the same; after it, a line opened by its link at half whose
+    plain fit puts an end under a chip is brought clear (selectedFit's check runs at half again: no drop left over)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "half")
+            page.wait_for_function(f"() => ({CHECKS})() > 0", timeout=WAIT)
+            _state(page, "leaflet.setZoom(leaflet.getZoom() - 4, {animate: false});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            spot = page.evaluate("() => Number(document.querySelector('.vl-tree .vl-rows .vl-main').dataset.spot)")
+            counted = page.evaluate(CHECKS)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            rising = page.evaluate(r"""async ([spot]) => { const frame = () => new Promise((r) => requestAnimationFrame(r)), s = document.querySelector('.u-sheet');
+              for (let i = 0; i < 60 && !s.classList.contains('u-full'); i++) await frame();
+              const h = Math.round(s.getBoundingClientRect().height), target = parseFloat(s.style.height);
+              document.querySelector(`.vl-tree .vl-main[data-spot='${spot}']`).click();
+              return {h, target}; }""", [spot])
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({CHECKS})() > {counted}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            found = page.evaluate(PICK, [page.evaluate(BAR)])
+            assert found is not None, "no line of the list whose fit with the bar's padding has an end under a control"
+            _, row, plain, link = found
+            page.evaluate(OPEN_LINK, [BOXES, link])
+            ends = _opened(page, row)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("pressed during the rise:", device.get("viewport"), rising, "then a link at half:", ends)
+    assert rising["h"] < rising["target"] - 1, rising  # (the press came before the rise's rest)
+    assert all(n == 0 for _, _, n in ends), ends
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_two_steps_during_the_drop(boxes_site, device):
+    """P3 with P1, the code review's F3: "Next spot" pressed at full and again two frames later (the sheet gliding to
+    half). At the rest the check is for the line selected last: one end of it clear, and no end under a control where
+    the same two steps with the second made at half at rest have none."""
+    from playwright.sync_api import sync_playwright
+    out = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for case in ("quick", "at_rest"):
+                page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8)
+                page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+                tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+                _state(page, f"view.select({tree[0]});")
+                _low_at_full(page)
+                counted = page.evaluate(CHECKS)
+                if case == "quick":
+                    page.evaluate(r"""async () => { const frame = () => new Promise((r) => requestAnimationFrame(r));
+                      const b = () => document.querySelector('.vl-sheet-row .vl-spot-next'); b().click(); await frame(); await frame(); b().click(); }""")
+                    page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                    page.wait_for_function(f"() => ({CHECKS})() > {counted}", timeout=WAIT)
+                else:
+                    page.evaluate("() => document.querySelector('.vl-sheet-row .vl-spot-next').click()")
+                    page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+                    page.wait_for_function(f"() => ({CHECKS})() > {counted}", timeout=WAIT)
+                    page.wait_for_function(STILL, timeout=WAIT)
+                    page.evaluate("() => T.frames()")
+                    page.evaluate("() => document.querySelector('.vl-sheet-row .vl-spot-next').click()")
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.spot === {tree[2]}", timeout=WAIT)
+                page.wait_for_function(STILL, timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                page.wait_for_function(STILL, timeout=WAIT)
+                out[case] = page.evaluate(SELECTED_ENDS)
+                assert page.errors == []
+                page.context.close()
+        finally:
+            browser.close()
+    print("two steps:", device.get("viewport"), out)
+    assert _one_clear(out["quick"]), out
+    if not any(e["under"] for e in out["at_rest"]):
+        assert not any(e["under"] for e in out["quick"]), out
+
+
+def test_reverse_follows_the_selected_row(site):
+    """P4 with the list's follow (its order key carries the direction): a spot in the first page of a sector of more
+    than 20 spots selected largest first, then the direction reversed: its row, now past the sector's first page, is
+    drawn (the sector paged to it, open) and pressed. (The list scrolls to the spot's row in "Best in view" where it
+    has one there: the planner's rule of 2026-11-18; not asserted here.)"""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            spot = page.evaluate("() => { const s = window.FINDALINE_VIEW.view.sectors.find((x) => x.spots.length > 24); return s ? s.spots[2] : null; }")
+            assert spot is not None, "no sector of more than 24 spots"
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            page.click(".vl-tree .vl-dir")
+            page.wait_for_function("() => !window.FINDALINE_VIEW.view.desc", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(STEPPER)
+            rank = page.evaluate(f"() => {{ const v = window.FINDALINE_VIEW.view; return v.sectors.find((s) => s.spots.includes({spot})).spots.indexOf({spot}); }}")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("reversed under a selection: spot", spot, "rank", rank, {k: got[k] for k in ("spot", "pressed", "inView", "open")})
+    assert rank >= 20, rank  # (the state tests something: past the first page)
+    assert got["spot"] == spot and got["pressed"] == "true" and got["open"] == "true", got
+
+
+def test_unknown_values_last(site):
+    """P4: a spot whose shown line has no known value of the sort's key stands last in the tree in both directions
+    (the clip has none: three spots' shown lines given NaN mean heights in the page, the tree ordered again by a
+    reverse)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            got = page.evaluate(r"""() => { const v = window.FINDALINE_VIEW.view, tree = () => v.sectors.flatMap((s) => s.spots);
+              const sector = v.sectors[0].spots, unknown = [sector[0], sector[3], sector[5]];
+              unknown.forEach((s) => { v.values.hmean[v.shownOf(s)] = NaN; });
+              v.setDesc(false); const asc = v.sectors.find((s) => s.spots.includes(unknown[0])).spots;
+              v.setDesc(true); const desc = v.sectors.find((s) => s.spots.includes(unknown[0])).spots;
+              return {unknown, asc: asc.slice(-3), desc: desc.slice(-3), ascAll: asc.length, sorted: v.sort}; }""")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("unknown values:", got)
+    assert got["sorted"] == "hmean"
+    assert got["asc"] == sorted(got["unknown"]) and got["desc"] == sorted(got["unknown"]), got  # last, by number
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_star_picker_on_a_phone_stays_in_view(site, device):
+    """The star's folder picker opened by a finger's tap (no scroll into view) at the sheet's low stop: the sheet rises
+    to full, the phone's frame does not scroll (it scrolled 328 px on 390 x 664 and the picker lay above the screen:
+    the code review of C4, item 5, the same before C4), the picker inside the window."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".vl-sheet-row .r-fav", timeout=WAIT)
+            page.wait_for_function("() => F.rest()", timeout=WAIT)
+            b = page.evaluate("() => { const r = document.querySelector('.vl-sheet-row .r-fav').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.touchscreen.tap(b[0], b[1])
+            page.wait_for_selector(".r-picker", timeout=WAIT)
+            page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.r-pop')", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            got = page.evaluate("""() => { const p = document.querySelector('.r-pop').getBoundingClientRect();
+              return {frame: document.querySelector('.c-result-phone').scrollTop, pop: [Math.round(p.top), Math.round(p.bottom)], height: innerHeight}; }""")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the star's picker:", device.get("viewport"), got)
+    assert got["frame"] == 0 and got["pop"][0] >= 0 and got["pop"][1] <= got["height"], got

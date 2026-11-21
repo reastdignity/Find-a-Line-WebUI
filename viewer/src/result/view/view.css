@@ -65,8 +65,9 @@
 .ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; min-height: 40px; }
 .ui .vl-block-head h3 { margin: 0; font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; }
 .ui .vl-sort { display: inline-flex; align-items: center; gap: 8px; }
-/* the tree's direction beside "Sort by" (step 3d's P4): the kit's "sort" icon, pointing up for smallest first (the
-   tree's heads' mark too); 44 px on a touch screen as every icon button of the view (R2) */
+/* the tree's direction beside "Sort by" (step 3d's P4): the kit's edged icon button with the "sort" icon (an edge as
+   the select beside it: it is pressed, the heads' mark under it is not), pointing up for smallest first (the tree's
+   heads' mark too); 44 px on a touch screen as every icon button of the view (R2) */
 .ui .vl-dir { flex: none; }
 .ui .vl-asc .u-ic { transform: rotate(180deg); }
 .ui .vl-note { margin: 0; padding: 4px 16px; }
@@ -152,8 +153,10 @@
   font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .vl-spot-count { font: 400 var(--fs-3)/20px var(--font); letter-spacing: 0; color: var(--muted); }
 .ui .vl-spot-title .ac-pair { gap: 4px; }
-/* "Previous spot" / "Next spot" between the star and × (step 3d's P1, the user's pick A: today's place) */
+/* "Previous spot" / "Next spot" between the star and × (step 3d's P1, the user's pick A: today's place); on a touch
+   screen a gap between their 44 px targets (today's pager's 6 px, R7's step: 8 px) */
 .ui .vl-spots { display: inline-flex; flex: none; }
+@media (pointer: coarse) { .ui .vl-spots { gap: 8px; } }
 /* the four values as tiles (R8 "inset"): the value above its label */
 .ui .vl-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .ui .vl-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border-radius: var(--r-2); background: var(--surface-2); }
@@ -256,6 +259,10 @@
    step 3d's P1, and a picker ending at the star would run past the column's or the phone's left edge) */
 .ui .v-result .vl-dhead, .ui .v-result .vl-sheet-row { position: relative; }
 .ui .v-result .vl-dhead .r-popwrap, .ui .v-result .vl-sheet-row .r-popwrap { position: static; }
+/* a phone's frame clips without being a scroller: the star's picker takes the focus while the sheet still rises from
+   its low stop, and a focus below the window scrolled the frame (hidden overflow scrolls), the picker then above the
+   screen (the code review of C4's item 5; the same before C4) */
+.ui .c-result-phone.v-result { overflow: clip; }
 @media (pointer: coarse) { .ui .v-result .r-folder { min-height: 44px; } }
 
 /* a row's star: the row button's sibling (24 px on a desktop, 44 px on a touch screen: R2), filled for a favourite;

@@ -510,7 +510,7 @@ function Tree(p: PanelProps) {
       <label class="vl-sort"><span class="u-small">{t("ui.view.sort_by")}</span>
         <select class="r-sort" value={view.sort} onChange={(e) => sortBy(view, e.currentTarget.value as ViewSort)}>
           {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label>
-      <IconButton icon="sort" label={t(view.desc ? "ui.view.dir_desc" : "ui.view.dir_asc")} plain
+      <IconButton icon="sort" label={t(view.desc ? "ui.view.dir_desc" : "ui.view.dir_asc")}
                   class={cx("vl-dir", !view.desc && "vl-asc")} onClick={() => reverse(view)} /></div>
     {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} sig={sectorSig(p, s, k)} />)}
     {tight && <TightKey lift={view.model.data.lift} drawn />}
