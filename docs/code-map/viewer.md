@@ -256,7 +256,8 @@ it, `views.ts`/`look.ts` the views Orbit, Athlete's eyes and Behind the athlete 
 athlete's, the gaze dragged or turned by the phone: `DeviceOrientationEvent`, iOS's `requestPermission` inside the
 tap; the zoom: Eyes' horizontal angle, 60° by default, from about 110° to ×8, Behind's distance 1.5-30 m),
 `edit.ts`/`interact.ts`/`screen.ts` the anchors' editing at level full (a DOM overlay over the canvas, three-mesh-bvh
-raycasts, `/api/profile` after a release), `ring.ts`/`ringmath.ts` the coarse ring of terrain (3d-tiles-renderer's
+raycasts, `/api/profile` after a release; the bar held by `holdBar`/`releaseBar` while handles are dragged and until
+the profile answers), `ring.ts`/`ringmath.ts` the coarse ring of terrain (3d-tiles-renderer's
 `TerrariumMeshPlugin`, behind `FINDALINE_3D_RING`; it clamps the plugin's private `_maxSourceLevel` of 0.5.3: check it
 on an upgrade). Round 2 (2026-11-05; docs/3d-view-contract.md, "Round 2"): `chrome.ts` the activity pill and the tool
 strip over the stage (`Scene3D.activity`, `Scene3D.tools`; the tools' ids and order in the contract), the card's slot
@@ -274,7 +275,7 @@ point's reach, its representatives the result's spots through `grouping.ts` with
 3c, group B (2026-11-19; docs/DESIGN.md rows 40 to 49): `icon.ts` the kit's icons for the plain DOM (`kitIcon`: the
 notice's dismiss, the sorted head, a favourite's star); `screen.ts` `pressedMark`/`nearestMark`, the mark a press goes to
 (the mark whose drawn box holds it; else the nearest centre of the marks whose invisible targets, 44 px on a touch
-screen, hold it: the fan's dots, the labels), `targetInside` (a dot's target kept inside the stage) and `draggable`'s
+screen, hold it: the fan's dots, the labels), `targetInside` (a mark's target kept inside the stage: the fan's dots, the anchors' handles, the other lines' labels, by their half-sizes and how far a target may move) and `draggable`'s
 `fromCentre` (a handle's drag keeps the press's offset). The
 phone's layout (rows 37 to 39): `chrome.ts` `stepAside`, the profile card's slot right of the tool strip where the
 card would reach it; `info.ts` the phone's "About this view" button and its box of the bar's notes (the credits'

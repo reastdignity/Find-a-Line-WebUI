@@ -430,15 +430,14 @@ the bar's height), before it a row lies there as on any page longer than the scr
 a focused control or a card's panel scrolled into view stops above the bar (DESIGN.md row 81). "Stay in Advanced"
 (cut at 390 px) and the rings cut at a scrolling column's edge or the map's credits were mended by step 3d
 (DESIGN.md rows 81 and 83); the map's own ring, on its right edge, waits for line volume's round 6 (`PlaceMap.ts`).
-Left after step 3d: in Playwright's WebKit with the iPhone profile a text field that Tab focuses at a scroll box's
-foot is scrolled in only to about 12 px above its own foot, so its ring and its lower part stay below the edge
-(c-basic-first's "Go to a place": 11.7 px from a fresh scroll, 15.7 px in the probe's walk; a scroll-padding of 8 px on
-the column moves it by 8 px, the kit's scroll-margin not at all; Chromium scrolls the whole box in). Perhaps WebKit
-reveals the caret's line rather than the box: not traced. A phone's keyboard is rare, a tablet's is not: for the
-planner. Also for the planner (step 3d, DESIGN.md row 82: the arrows move and choose): in Advanced the goal cards are
-a radio group, so an arrow from "Custom" applies the next goal's values over the user's own, as a click on that card
-did; an arrow back to "Custom" keeps the goal's values (`useSearch.ts` `applyPreset`: "Custom" only marks the values
-as one's own), so the user's earlier values are gone.
+In Playwright's WebKit (Safari's engine) a text or number field that Tab focuses at a scroll box's foot is scrolled in
+only to about 12 px above its own foot (the kit's scroll-margin aside; why is not traced: perhaps the caret's line),
+so the search form's fields at the column's foot kept 11.8 to 15.7 px and their ring below it, at every size (the
+iPhone, an iPad's 1024 px, the desktop's 1400 px); the column's `scroll-padding-bottom` of 24 px mends it (step 3d's
+fix round, DESIGN.md row 81: `test_webkit_fields_whole_at_the_column_foot`). Another scroll box with fields at its foot
+would need the same. In Advanced the goal cards' arrows move the focus only and Space or Enter chooses (the planner,
+2026-11-21, DESIGN.md row 82): before, an arrow from "Custom" applied a goal's values over the user's own; a click on a
+card still does, with no way back to the own values but to type them again (`useSearch.ts` `applyPreset`).
 The search page's bottom bar is higher in a short mouse window, so the map is that much lower: its receipt's lines
 are 24 px there (R2 on a desktop). Measured at 1024 x 480 with the longest receipt: 137 px where main has 115 (89
 and 77.5 px with the usual one); on touch screens the bar is within 2 px of main's.
@@ -532,13 +531,16 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
   first edit makes the bar 44 px higher ("Back to the found line" appears and the readout gains "Moved, not saved"),
   which made the stage 44 px lower under the finger and put the handle 24 px off it ((11.4, -21.1) px at anchor 1 on
   the Pixel, `local/ux-design-2026-11-16/3c-b/fixes/probe-drag-before/drag.json`; the cause measured by
-  `3c-b-review/code-review-r2.md`). The bar now keeps its height while the drag lasts (`edit.ts` `hold`): the handle
-  stays under the finger (0.1 px on the Pixel, 0.2 px in WebKit's iPhone at the first 1 px, the stage's height the
-  same through the drag; `test_view3d_handle_stays_under_the_finger`). Left, as the planner chose: at the release
-  the bar's row appears, the stage gets 44 px lower (63.5 px on the iPhone 1.5 s after the release, as before the
-  change) and the handles move with the scene, (12.3, -20.9) px on the Pixel and (20.5, -30.2) px on the iPhone
-  (`local/ux-design-2026-11-16/3d/g1/after/view3d.json`). A press on the rim of the handle's 44 px target adds no
-  offset (`test_view3d_handle_drag_keeps_its_offset`).
+  `3c-b-review/code-review-r2.md`). While handles are dragged (a count: two fingers hold it till the last release)
+  the bar gets neither higher nor lower and its new row waits for the release; after it the bar gets no lower until
+  the new profile is in (`edit.ts` `holdBar`, `releaseBar`, `settled`): the handle stays under the finger (0.1 px on
+  the Pixel, 0.2 px in WebKit's iPhone at the first 1 px), nothing of the bar leaves the window, and a later release
+  that leaves the readout as it was changes no size (`test_view3d_handle_stays_under_the_finger`,
+  `test_view3d_two_fingers_hold_the_bar`). Left, as the planner chose: at the first release the bar's row appears, the
+  stage gets 44 px lower (on the iPhone once more when the profile's line comes in) and the handles move with the
+  scene. A turn of the window during a drag keeps the bar's old height until the release; Escape does not end a drag
+  (as on main). A press on the rim of the handle's 44 px target adds no offset
+  (`test_view3d_handle_drag_keeps_its_offset`).
 - **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
   3.3 to 5.1 % of the stage (6.5 % sideways), where a press reaches a dot or a handle instead of the terrain (orbit,
   pinch, a new point). Where a fan's dot stands on an anchor's handle (the found line's other end among the
@@ -617,6 +619,37 @@ layer's chart bars only (excepted by name in R2). Known and left:
   need new points.
 - **The scrolls of a row's press on a wide screen** (to the map, and back on closing) are eased unless the system
   asks for reduced motion; the tests run with reduced motion, so the eased scroll itself is untested.
+
+## Step 3d, group G1 (keyboard, focus and touch): known and left (2026-11-21)
+
+Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mended):
+
+- **Forced colours on round 6's inside rings**: the place map's zoom buttons (`result/view/mapbar.css` l.128), the
+  phone's drawing tools (l.181) and the view's rows (`result/view/view.css` l.85) draw their ring inside
+  (`--focus-in`) with no forced-colours `outline-offset: -2px` beside it, so the kit's forced-colours outline falls 2 px
+  outside them, where their bar clips it (the zoom: cut 4 px on three sides, only an edge shows; measured on the
+  desktop and the phone, 10 stops on 5 states). Line volume's round 6's files: for G6.
+- **WebKit draws no focus on a native checkbox** (the admin page's "Without limits" and "Demo", the search's "Mark
+  anchors you can walk to"): `:focus-visible` matches, the computed shadow is `none` (as at db84edbc). G3's one checkbox
+  may mend it. The 3D view's slider had the same and was mended (its ring around its field, row 84).
+- **The layer page on a phone**: with the column scrolled to 500 px a press on the sticky map scrolls it to 222 px
+  (Leaflet focuses its container on a press, and the column's `scroll-padding-top` of the map's height brings the
+  focused map's top under itself); as on main.
+- **The 3D view on a desktop**: a Tab focus on another line's label that lies off the stage scrolls the marks' layer
+  (`.v3-overlay`, `overflow: hidden`) by 787 to 904 px, which moves every mark off its point until the next frame; as
+  on main.
+- **Today's result page takes the kit's new rules** (the focus's `scroll-margin`, the credits' inside ring and its
+  room, the forced-colours outline): keyboard only; none of its pictures changed (the whole `ui_shots` set compared).
+- **A press on a coverage outline** now leaves the focus on the map in every engine (its default prevented: WebKit as
+  on main). In Chromium it focused the outline on main (its tooltip then stayed after a tap, the arrows did not pan
+  after a click); keeping that in Chromium alone would need the engine told apart.
+- **The arrows choose in every radio group but the goal cards** (WAI-ARIA's pattern, the planner's decision): each
+  arrow on the 3D view's imagery starts that imagery's tiles (Esri's with the key), each on the layer's "Cells",
+  "Count" or "Lines across the border" a recount (30 to 46 requests in 9 to 12 presses on the sample cubes), and one on
+  the coverage page's "EN" switches the page to Polish.
+- **The coverage page's brand link on a phone**: its ring's top 4 px lie above the window (the header at the top of
+  the page); as before.
+- Firefox was not run (by the code: a coverage outline was never focusable there, and a press keeps the map's focus).
 
 ## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
 
