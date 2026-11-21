@@ -190,8 +190,10 @@ def test_rings_whole_after_the_focus_scroll(site, where, context):
                          ids=["search", "coverage", "home-phone"])
 def test_forced_colours_show_an_outline(site, where, context):
     """Row 81: in forced colours (Playwright's forced_colors="active": the shadows are not drawn) every Tab stop has an
-    outline of 2 px and its pixels change around it when it takes the focus (before: an outline nowhere, the ring a
-    shadow with `outline: none`)."""
+    outline of 2 px, whole (inside where the ring is: the bottom bar's items at the screen's edges), and its pixels
+    change around it when it takes the focus (before: an outline nowhere, the ring a shadow with `outline: none`).
+    Left out of the whole outline: the place map itself (A7) and its zoom buttons, whose inside ring lives in line
+    volume's round 6's `mapbar.css` (docs/known-bugs.md)."""
     import numpy as np
     from PIL import Image
     import io
@@ -200,6 +202,9 @@ def test_forced_colours_show_an_outline(site, where, context):
     assert stops and all(s["forced"] for s in stops), stops
     bare = [(s["tag"], s["cls"][:40], s["name"], s["ol"]) for s in stops if s["ol"][0] == "none" or s["ol"][1] < 2]
     assert bare == [], bare
+    cut = [(s["tag"], s["cls"][:40], s["name"], _cut(s)) for s in stops
+           if not s["map"] and "leaflet-control-zoom" not in s["cls"] and _cut(s)]
+    assert cut == [], cut
     # the pixels: the stop focused, then blurred (some stops, spread over the page)
     page.mouse.move(1, 1)
     page.evaluate(START)
@@ -230,7 +235,8 @@ def test_forced_colours_show_an_outline(site, where, context):
 GROUPS = r"""() => [...document.querySelectorAll('[role=radiogroup]')].filter((g) => g.getBoundingClientRect().width > 0)
   .map((g) => { const rs = [...g.querySelectorAll('[role=radio]')];
     return {label: g.getAttribute('aria-label'), n: rs.length, stops: rs.map((r) => r.tabIndex),
-            checked: rs.findIndex((r) => r.getAttribute('aria-checked') === 'true'), disabled: rs.map((r) => r.disabled)}; })"""
+            checked: rs.findIndex((r) => r.getAttribute('aria-checked') === 'true'), disabled: rs.map((r) => r.disabled),
+            cards: g.classList.contains('s-cards')}; })"""
 # The group `k` of GROUPS: the focused radio's index and the checked one's
 STATE = r"""(k) => { const g = [...document.querySelectorAll('[role=radiogroup]')].filter((g) => g.getBoundingClientRect().width > 0)[k];
   const rs = [...g.querySelectorAll('[role=radio]')];
@@ -243,7 +249,8 @@ def test_radio_groups_take_the_arrows(site, where):
     """Row 82 (the planner's decision: WAI-ARIA's radio group): each radio group is one Tab stop, its checked radio
     (or the first when none is: the goal cards of Advanced's own values); → and ↓ move the focus to the next radio and
     choose it, ← and ↑ to the one before (round the group), End and Home to the last and the first. The search page's
-    "Where" (the kit's Segmented) and the goal cards; the coverage page's language, theme and view (Segmented) and the
+    "Where" (the kit's Segmented) and the goal cards, whose arrows move the focus only (the planner, 2026-11-21:
+    test_goal_cards_arrows_move_the_focus_only); the coverage page's language, theme and view (Segmented) and the
     quality scale (card.tsx). Before: every radio a Tab stop, the arrows did nothing."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
     page = _open(site, where, DESKTOP)
@@ -254,6 +261,7 @@ def test_radio_groups_take_the_arrows(site, where):
     else:
         assert len(groups) == 4, labels
     for k, g in enumerate(groups):
+        cards = g["cards"]  # the goal cards: the choice stays where it was
         enabled = [i for i in range(g["n"]) if not g["disabled"][i]]
         stop = g["checked"] if g["checked"] >= 0 and not g["disabled"][g["checked"]] else enabled[0]
         assert g["stops"] == [0 if i == stop else -1 for i in range(g["n"])], g
@@ -264,13 +272,78 @@ def test_radio_groups_take_the_arrows(site, where):
         for key, step in (("ArrowRight", 1), ("ArrowDown", 1), ("ArrowLeft", -1), ("ArrowUp", -1), ("End", None), ("Home", None)):
             page.keyboard.press(key)
             at = (len(enabled) - 1 if key == "End" else 0) if step is None else (at + step) % len(enabled)
+            want = stop if cards else enabled[at]
             try:  # the choice's render (a group's own state, a page's language) settled on the expected radio
-                page.wait_for_function(f"([k, i]) => {{ const s = ({STATE})(k); return s[0] === i && s[1] === i; }}",
-                                       arg=[k, enabled[at]], timeout=WAIT)
+                page.wait_for_function(f"([k, i, c]) => {{ const s = ({STATE})(k); return s[0] === i && s[1] === c; }}",
+                                       arg=[k, enabled[at], want], timeout=WAIT)
             except PlaywrightTimeout:
                 pass  # the assertion below says what is there
             focused, checked, stops = page.evaluate(STATE, k)
-            assert focused == enabled[at] and checked == enabled[at] and stops == 1, (g["label"], key, focused, checked, stops)
+            assert focused == enabled[at] and checked == want and stops == 1, (g["label"], key, focused, checked, stops)
+    page.context.close()
+
+
+SETTINGS = "() => JSON.stringify([window.FINDALINE_SEARCH.request, window.FINDALINE_SEARCH.preset, window.FINDALINE_SEARCH.goal])"
+FOCUSED_CARD = "() => [document.activeElement?.dataset.goal || null, document.querySelector('.s-cards [aria-checked=true]')?.dataset.goal || null]"
+
+
+def test_goal_cards_arrows_move_the_focus_only(site):
+    """Row 82 (the planner, 2026-11-21, after the design review's answer (a)): on the search form's goal cards the
+    arrows move the focus only and Space or Enter chooses; the cards stay one Tab stop, the checked card's. In Advanced
+    with the user's own values ("Custom" checked) an arrow changes no setting (before: the first arrow applied the next
+    card's values over them, with no way back); in Basic an arrow moves the focus and Space chooses the focused card."""
+    page = _open(site, "search", DESKTOP)
+    page.wait_for_function("() => !!window.FINDALINE_SEARCH", timeout=WAIT)
+    # Basic: an arrow moves the focus, the choice stays; Space chooses
+    page.evaluate("() => document.querySelector('.s-cards [role=radio][tabindex=\"0\"]').focus()")
+    first = page.evaluate(FOCUSED_CARD)
+    page.keyboard.press("ArrowRight")
+    moved = page.evaluate(FOCUSED_CARD)
+    assert moved[0] != first[0] and moved[1] == first[1], (first, moved)
+    page.keyboard.press("Space")
+    page.wait_for_function("() => document.activeElement?.getAttribute('aria-checked') === 'true'", timeout=WAIT)
+    assert page.evaluate(FOCUSED_CARD) == [moved[0], moved[0]]
+    # Advanced with the user's own values: "Custom" checked, an arrow changes nothing but the focus
+    page.evaluate("() => document.querySelector('.s-tabs [data-tab=advanced]').click()")
+    page.evaluate("() => (window.FINDALINE_SEARCH.setValue('min_length', 45), window.FINDALINE_SEARCH.setValue('min_drop', 40))")
+    page.wait_for_function("() => document.querySelector('.s-cards [aria-checked=true]')?.dataset.goal === 'custom'", timeout=WAIT)
+    page.evaluate("() => document.querySelector('.s-cards [role=radio][tabindex=\"0\"]').focus()")
+    assert page.evaluate(FOCUSED_CARD) == ["custom", "custom"]
+    before = page.evaluate(SETTINGS)
+    for key in ("ArrowRight", "ArrowRight", "ArrowLeft", "End", "Home"):
+        page.keyboard.press(key)
+        page.evaluate(FRAMES)
+        now = page.evaluate(FOCUSED_CARD)
+        assert now[1] == "custom" and page.evaluate(SETTINGS) == before, (key, now)
+    assert page.evaluate(FOCUSED_CARD)[0] != "custom"  # the focus did move
+    # Tab out and Shift+Tab back: the stop is the checked card
+    page.keyboard.press("Tab")
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate(FOCUSED_CARD) == ["custom", "custom"]
+    page.context.close()
+
+
+def test_arrows_pass_over_a_disabled_radio(site):
+    """Row 82 (ui/radios.ts: only the radios that can be pressed): on the coverage page's theme switch with its middle
+    radio disabled, → from the first goes to the third and ← back to the first; in the goal cards (focus only) likewise.
+    The code review's F5: no test had a disabled radio."""
+    page = _open(site, "coverage", DESKTOP)
+    state = "() => { const rs = [...document.querySelectorAll('[aria-label=Theme] [role=radio]')]; return [rs.indexOf(document.activeElement), rs.findIndex((r) => r.getAttribute('aria-checked') === 'true')]; }"
+    page.evaluate("() => { const rs = document.querySelectorAll('[aria-label=Theme] [role=radio]'); rs[0].click(); }")
+    page.wait_for_function(f"() => ({state})()[1] === 0", timeout=WAIT)
+    page.evaluate("() => { const rs = document.querySelectorAll('[aria-label=Theme] [role=radio]'); rs[1].disabled = true; rs[0].focus(); }")
+    page.keyboard.press("ArrowRight")
+    page.wait_for_function(f"() => ({state})()[1] === 2", timeout=WAIT)
+    assert page.evaluate(state) == [2, 2]
+    page.keyboard.press("ArrowLeft")
+    page.wait_for_function(f"() => ({state})()[1] === 0", timeout=WAIT)
+    assert page.evaluate(state) == [0, 0]
+    page.context.close()
+    page = _open(site, "search", DESKTOP)
+    page.evaluate("() => { const cs = document.querySelectorAll('.s-cards [role=radio]'); cs[1].disabled = true; cs[0].focus(); }")
+    page.keyboard.press("ArrowRight")
+    ids = page.evaluate("() => [...document.querySelectorAll('.s-cards [role=radio]')].map((c) => c.dataset.goal)")
+    assert page.evaluate(FOCUSED_CARD)[0] == ids[2], ids
     page.context.close()
 
 
@@ -291,30 +364,97 @@ def test_focused_segment_lies_above_the_selected_one(site):
 AREAS = "() => document.querySelectorAll('.n-coverage-area').length"
 
 
+HIT = """() => { for (const p of document.querySelectorAll('.n-coverage-area')) { const r = p.getBoundingClientRect();
+  if (r.width < 30 || r.height < 30 || r.left < 0 || r.top < 0 || r.right > innerWidth - 300 || r.bottom > innerHeight) continue;
+  for (const [fx, fy] of [[.5, .5], [.4, .5], [.5, .4], [.6, .6]]) { const x = r.left + r.width * fx, y = r.top + r.height * fy;
+    if (document.elementFromPoint(x, y) === p) return [x, y]; } } return null; }"""
+EUROPE = "() => window.FINDALINE_PLACE.map.setZoom(5, {animate: false})"
+WIDE = "() => [...document.querySelectorAll('.n-coverage-area')].some((p) => p.getBoundingClientRect().width > 30)"
+PRESSED = """() => { const a = document.activeElement, c = window.FINDALINE_PLACE.map.getCenter();
+  return {map: a.classList.contains('c-placemap'), outline: a.classList.contains('n-coverage-area'),
+          centre: [c.lat, c.lng], point: JSON.stringify(window.FINDALINE_SEARCH?.point ?? null)}; }"""
+
+
 def test_coverage_outlines_are_no_tab_stops(site):
     """Row 81: with "Data coverage" on, its outlines (Leaflet's paths with a tooltip) are out of the Tab order (each
-    tabindex -1) and the coverage box's link to the coverage page is the keyboard's way; a pointer over an outline
-    still shows its tooltip. Before: 83 Tab stops before the pin and every control of the map (Chromium makes an
-    SVG shape with a focus listener focusable, and Leaflet listens for the focus on a path with a tooltip)."""
+    tabindex -1, again after the coverage is switched off and on: each drawing makes new elements) and the coverage
+    box's link to the coverage page is the keyboard's way; a pointer over an outline still shows its tooltip. Before:
+    83 Tab stops before the pin and every control of the map (Chromium makes an SVG shape with a focus listener
+    focusable, and Leaflet listens for the focus on a path with a tooltip)."""
     page = _open(site, "search", DESKTOP, coverage=True)
     page.wait_for_function(f"() => ({AREAS})() > 20", timeout=WAIT)
-    assert page.evaluate("() => [...document.querySelectorAll('.n-coverage-area')].every((p) => p.getAttribute('tabindex') === '-1')")
+    all_out = "() => [...document.querySelectorAll('.n-coverage-area')].every((p) => p.getAttribute('tabindex') === '-1')"
+    assert page.evaluate(all_out)
     stops = _walk(page)
     assert [s for s in stops if s["outline"] or s["tag"] == "path"] == []
     assert any("n-coverage-link" in s["cls"] for s in stops), [s["cls"] for s in stops]
+    # off and on: new elements, out of the Tab order again
+    page.evaluate("() => document.querySelector('.n-coverage-btn').click()")
+    page.wait_for_function(f"() => ({AREAS})() === 0", timeout=WAIT)
+    page.evaluate("() => document.querySelector('.n-coverage-btn').click()")
+    page.wait_for_function(f"() => ({AREAS})() > 20", timeout=WAIT)
+    assert page.evaluate(all_out)
+    assert [s for s in _walk(page) if s["outline"] or s["tag"] == "path"] == []
     # the tooltip: the pointer over a point of an outline, the map zoomed out to Europe (ui_shots' c-new-coverage)
-    page.evaluate("() => window.FINDALINE_PLACE.map.setZoom(5, {animate: false})")
-    page.wait_for_function("() => [...document.querySelectorAll('.n-coverage-area')].some((p) => p.getBoundingClientRect().width > 30)",
-                           timeout=WAIT)
-    hit = page.evaluate("""() => { for (const p of document.querySelectorAll('.n-coverage-area')) { const r = p.getBoundingClientRect();
-      if (r.width < 30 || r.height < 30 || r.left < 0 || r.top < 0 || r.right > innerWidth - 300 || r.bottom > innerHeight) continue;
-      for (const [fx, fy] of [[.5, .5], [.4, .5], [.5, .4], [.6, .6]]) { const x = r.left + r.width * fx, y = r.top + r.height * fy;
-        if (document.elementFromPoint(x, y) === p) return [x, y]; } } return null; }""")
+    page.evaluate(EUROPE)
+    page.wait_for_function(WIDE, timeout=WAIT)
+    hit = page.evaluate(HIT)
     assert hit, "a point on an outline"
     page.mouse.move(hit[0], hit[1])
     page.mouse.move(hit[0] + 2, hit[1] + 1)
     page.wait_for_selector(".leaflet-tooltip", timeout=WAIT)
     page.context.close()
+
+
+@pytest.mark.parametrize("engine, pointer", [("chromium", "mouse"), ("chromium", "touch"), ("webkit", "mouse"), ("webkit", "touch")])
+def test_coverage_outline_press_keeps_the_map_focused(site, engine, pointer):
+    """Row 81 (the fix round, the code review's F4): a press on a coverage outline (a click, a finger's tap) moves the
+    search's point there as any press on the map and leaves the focus on the map (Leaflet's on every press), so after
+    a click the arrow keys pan the map; in WebKit as on main, where the outline was not focusable. Before the fix
+    round its tabindex made WebKit focus the outline on a press (its tooltip kept open, the arrows dead); in Chromium a
+    press focused the outline on main already (now the map, as in WebKit)."""
+    p, edge, base, path = site
+    browser = edge if engine == "chromium" else p.webkit.launch(
+        env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
+    try:
+        if pointer == "touch" and engine == "webkit":
+            context = {**{k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"},
+                       "viewport": {"width": 1024, "height": 900}}
+        else:
+            context = {**DESKTOP, **({"has_touch": True} if pointer == "touch" else {})}
+        page = _open(site, "search", context, coverage=True) if engine == "chromium" else None
+        if page is None:  # the same page in WebKit
+            ctx = browser.new_context(reduced_motion="reduce", **context)
+            ctx.add_init_script(SEEN % "'1'")
+            page = ctx.new_page()
+            page.goto(f"{base}/{path}?ui=c#new")
+            page.wait_for_function("() => !!window.FINDALINE_PLACE && !!document.querySelector('.s-panel')", timeout=WAIT)
+            page.evaluate(POINT)
+        page.wait_for_function(f"() => ({AREAS})() > 20", timeout=WAIT)
+        page.evaluate(EUROPE)
+        page.wait_for_function(WIDE, timeout=WAIT)
+        page.evaluate(FRAMES)
+        hit = page.evaluate(HIT)
+        assert hit, "a point on an outline"
+        before = page.evaluate(PRESSED)
+        if pointer == "touch":
+            page.touchscreen.tap(*hit)
+        else:
+            page.mouse.move(*hit)
+            page.mouse.down()
+            page.mouse.up()
+        page.evaluate(FRAMES)
+        pressed = page.evaluate(PRESSED)
+        assert pressed["map"] and not pressed["outline"], (engine, pointer, pressed)
+        assert pressed["point"] != before["point"], (engine, pointer, before, pressed)  # the press moved the point
+        if pointer == "mouse":
+            for _ in range(3):
+                page.keyboard.press("ArrowRight")
+            page.wait_for_function(f"(c) => window.FINDALINE_PLACE.map.getCenter().lng !== c", arg=pressed["centre"][1], timeout=WAIT)
+        page.context.close()
+    finally:
+        if engine == "webkit":
+            browser.close()
 
 
 def _ratio(a, b) -> float:
@@ -414,4 +554,89 @@ def test_return_dialog_actions_inside(site, size):
     assert len(got["buttons"]) == 2, got
     for name, left, right in got["buttons"]:
         assert left >= got["dialog"][0] - 0.5 and right <= got["dialog"][1] + 0.5 and left >= 0 and right <= size[0], (name, got)
+    page.context.close()
+
+
+HEADER = "() => { const h = document.querySelector('.cov-top'); return getComputedStyle(h).position === 'sticky' ? h.getBoundingClientRect().bottom : 0; }"
+
+
+def test_coverage_list_shift_tab_clear_of_the_header(site):
+    """Row 81 (the fix round, the design review's F3): on a wide screen, going back up the coverage page's list with
+    Shift+Tab, every stop below the sticky header has its ring clear of it (the window's scroll-padding-top is the
+    header's height, CoveragePage.tsx --cov-top; before: 11 of 102 stops wholly under the header, out of sight)."""
+    page = _open(site, "coverage", DESKTOP)
+    forward = _walk(page)
+    assert len(forward) > 60, len(forward)  # the case: the list's rows and the footer
+    under = []
+    for _ in range(len(forward)):
+        page.keyboard.press("Shift+Tab")
+        page.evaluate(FRAMES)
+        stop = page.evaluate(RING)
+        if stop is None:
+            continue
+        if page.evaluate("() => !!document.activeElement.closest('.cov-top')"):
+            break  # back in the header itself
+        bottom = page.evaluate(HEADER)
+        if stop["box"][1] < bottom - 0.5:
+            under.append((stop["cls"][:30], stop["name"], round(bottom - stop["box"][1], 1)))
+    assert under == [], under
+    page.context.close()
+
+
+def test_credit_link_ring_clear_of_its_letters(site):
+    """Row 81 (the fix round, the design review's F1): a map credit's link focused by Tab on the desktop has 3 px of
+    room each side inside its ring (its margin gives them back: the credits' line keeps its place), as much above and
+    below as the credits and the map's edge leave (1 and 1.5 px: the ring whole inside the map) and no underline while
+    the ring stands in its place; before, the 9.75 px letters ran into the ring's sides ("Leafle", "OpenTopoMar")."""
+    page = _open(site, "search", DESKTOP)
+    page.mouse.move(1, 1)
+    page.evaluate(START)
+    for _ in range(40):
+        _tab(page)
+        if page.evaluate("() => document.activeElement?.textContent === 'OpenTopoMap'"):
+            break
+    got = page.evaluate("""() => { const a = document.activeElement, cs = getComputedStyle(a), r = a.getBoundingClientRect();
+      const c = a.closest('.leaflet-control-attribution').getBoundingClientRect(), m = a.closest('.leaflet-container').getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(a); const t = range.getBoundingClientRect();
+      return {visible: a.matches(':focus-visible'), pad: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(parseFloat),
+              decoration: cs.textDecorationLine, box: [r.left, r.top, r.right, r.bottom], text: [t.left, t.top, t.right, t.bottom],
+              credits: [c.left, c.top, c.right, c.bottom], map: m.bottom}; }""")
+    assert got["visible"] and got["decoration"] == "none", got
+    assert got["box"][0] <= got["text"][0] - 3 + 0.5 and got["box"][2] >= got["text"][2] + 3 - 0.5, got  # 3 px each side
+    assert got["box"][3] <= got["map"] + 0.5 and got["pad"][0] >= 1 and got["pad"][2] >= 1.5, got
+    page.evaluate("() => document.activeElement.blur()")
+    page.evaluate(FRAMES)
+    credits = page.evaluate("() => { const c = document.querySelector('.c-placemap .leaflet-control-attribution').getBoundingClientRect(); return [c.left, c.top, c.right, c.bottom]; }")
+    assert credits == got["credits"], (credits, got)  # the credits' line did not move with the focus
+    page.context.close()
+
+
+@pytest.fixture(scope="module")
+def wsite(site):
+    """The site's app page in Playwright's WebKit (Safari's engine), the same server and Playwright."""
+    p, edge, base, path = site
+    if not os.path.exists(p.webkit.executable_path):
+        pytest.skip("Playwright's webkit is not installed")
+    # the offline proxy of the tests' environment would also take WebKit's requests to the server
+    browser = p.webkit.launch(env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
+    try:
+        yield p, browser, base, path
+    finally:
+        browser.close()
+
+
+@pytest.mark.parametrize("where, size", [("search", (390, 664)), ("more", (390, 664)), ("more", (1024, 768)),
+                                         ("more", (1400, 900))], ids=["search-390", "more-390", "more-1024", "more-1400"])
+def test_webkit_fields_whole_at_the_column_foot(wsite, where, size):
+    """Row 81 (the fix round, the design review's F4 and the scope review's finding 1): in WebKit (Safari's engine; its
+    Tab reaches form controls) a text or number field Tab brings in at the form column's foot shows its whole ring:
+    WebKit scrolls a focused field in only to about 12 px above its own foot and leaves the kit's scroll-margin aside,
+    so the column keeps 24 px of scroll-padding at its foot (before: "Go to a place" and More settings' fields 11.8 to
+    15.7 px under the edge, at every size)."""
+    page = _open(wsite, where, {"viewport": {"width": size[0], "height": size[1]}})
+    stops = _walk(page)
+    assert sum(s["tag"] == "input" for s in stops) >= (1 if where == "search" else 8), stops  # the case: the fields
+    cut = [(s["tag"], s["cls"][:40], s["name"], _cut(s)) for s in stops
+           if s["ring"] and not s["map"] and not s["outline"] and _cut(s)]
+    assert cut == [], cut
     page.context.close()

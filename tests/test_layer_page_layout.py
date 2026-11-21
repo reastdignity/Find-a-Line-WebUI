@@ -447,18 +447,46 @@ TABS_JS = """() => [...document.querySelectorAll('.c-mappage-3 .c-col-tab')].map
   return {name: b.getAttribute('aria-label'), own, target: t, coarse: matchMedia('(pointer: coarse)').matches}; })"""
 
 
+# The controls beside a tab (within 30 px of its drawn box, at its height): each one's name and the point of its own
+# box nearest to the tab that lies on neither the drawn tab nor the splitter's strip (null when none: a control under
+# them), and what that point reaches (elementFromPoint)
+NEAR_JS = """(own) => { const [l, t, r, b] = own, split = [...document.querySelectorAll('.c-mappage-3 .c-split')].map((s) => s.getBoundingClientRect());
+  const inside = (x, y, q) => x >= q[0] && x <= q[2] && y >= q[1] && y <= q[3];
+  const blocked = (x, y) => inside(x, y, own) || split.some((s) => inside(x, y, [s.left, s.top, s.right, s.bottom]));
+  const out = [];
+  for (const e of document.querySelectorAll('button, select, input, a[href], [role=button]')) {
+    if (e.classList.contains('c-col-tab') || e.closest('.c-split')) continue;
+    const q = e.getBoundingClientRect();
+    if (!q.width || !q.height || q.right < l - 30 || q.left > r + 30 || q.bottom < t || q.top > b) continue;
+    let best = null;
+    for (let y = Math.max(q.top + 2, t); y <= Math.min(q.bottom - 2, b); y += 2)
+      for (let x = q.left + 2; x <= q.right - 2; x += 1) {
+        if (blocked(x, y)) continue;
+        const d = Math.abs(x - (l + r) / 2) + Math.abs(y - (t + b) / 2) / 4;
+        if (!best || d < best.d) best = {x, y, d}; }
+    if (!best) continue;
+    const at = document.elementFromPoint(best.x, best.y);
+    out.push({name: (e.getAttribute('aria-label') || e.textContent || e.className).trim().slice(0, 30), x: best.x, y: best.y,
+              hit: !!at && (at === e || e.contains(at))}); }
+  return out; }"""
+
+
 @pytest.mark.parametrize("size", [(1024, 768), (1180, 820)], ids=["1024x768", "1180x820"])
 def test_collapse_tabs_take_a_finger_on_a_tablet(site, size):
     """Step 3d's B1 (docs/DESIGN.md row 83; the planner's decision: invisible targets, as the user's pick for the 3D
     view's marks): a touch tablet keeps the desktop's columns, and each panel's collapse tab, 24 px wide as drawn,
     takes a finger's tap anywhere in its 44 px target, 2 px inside its left and its right edge (before: 24 x 44 px,
-    under R2's 44 px)."""
+    under R2's 44 px); its target grows towards the map only, so a tap on a control of the panel beside it (a select's
+    right end, a chart's bar: within 30 px of the tab) reaches that control (the fix round: the first build's target
+    grew 10 px into the panel too and took those taps, the code review's F2)."""
     page = _page(site, {"viewport": {"width": size[0], "height": size[1]}, "has_touch": True, "is_mobile": False})
     tabs = page.evaluate(TABS_JS)
     assert len(tabs) == 2 and all(t["coarse"] and t["own"][2] - t["own"][0] < 30 for t in tabs), tabs  # the case
     page.evaluate("""() => { window.CLICKS = []; document.addEventListener('click', (e) => {
-      const c = e.target.closest('button'); window.CLICKS.push(c ? String(c.className) : e.target.tagName);
+      const c = e.target.closest('button, select, input, a[href], [role=button]');
+      window.CLICKS.push(c ? (String(c.className) || c.tagName) + '|' + (c.getAttribute('aria-label') || c.textContent || '').trim().slice(0, 30) : e.target.tagName);
       e.preventDefault(); e.stopPropagation(); }, true); }""")
+    beside = 0
     for tab in tabs:
         t = tab["target"]
         assert t[2] - t[0] >= 43.5 and t[3] - t[1] >= 43.5, tab
@@ -467,6 +495,15 @@ def test_collapse_tabs_take_a_finger_on_a_tablet(site, size):
             _tap(page, x, (t[1] + t[3]) / 2)
             page.wait_for_function("() => window.CLICKS.length > 0", timeout=WAIT)
             assert "c-col-tab" in page.evaluate("() => window.CLICKS[0]"), (tab, x)
+        for c in page.evaluate(NEAR_JS, tab["own"]):
+            beside += 1
+            assert c["hit"], (tab["name"], c)  # the control itself at that point, no target over it
+            page.evaluate("() => { window.CLICKS = []; }")
+            _tap(page, c["x"], c["y"])
+            page.wait_for_function("() => window.CLICKS.length > 0", timeout=WAIT)
+            got = page.evaluate("() => window.CLICKS[0]")
+            assert "c-col-tab" not in got and c["name"][:12] in got, (tab["name"], c, got)
+    assert beside > 0  # the case: controls beside the tabs
     assert page.errors == [], page.errors
     page.context.close()
 
@@ -632,5 +669,31 @@ def test_charts_of_filters_that_are_off_have_no_bar_to_pick(site):
             assert chart["select"] is not True and chart["buttons"] >= chart["bars"] - 1, chart
     assert charts["length"]["buttons"] == charts["length"]["bars"], charts["length"]
     assert sum(1 for c in charts.values() if c["select"] is False) >= 10, charts  # the other charts' selects are there, enabled
+    assert page.errors == [], page.errors
+    page.context.close()
+
+
+def test_strip_brings_a_focused_chart_name_into_view(site):
+    """docs/DESIGN.md row 81 (the fix round, the design review's P4): on a phone with a keyboard, every chart's name
+    Tab reaches in the swiped strips lies wholly inside the window (LayerHistograms.tsx revealInStrip brings its chart
+    to the strip's start; before: the browser's focus scroll and the strip's snapping left 22 to 98 px of a name
+    outside the window)."""
+    page = _page(site, KEYBOARD_PHONE)
+    page.evaluate("() => { const s = document.createElement('span'); s.id = 'st'; s.tabIndex = -1; document.body.prepend(s); s.focus(); }")
+    names, out = 0, []
+    for _ in range(200):
+        page.keyboard.press("Tab")
+        page.evaluate(FRAMES_JS)
+        got = page.evaluate("""() => { const e = document.activeElement; if (!e?.classList.contains('c-layer-hist-name')) return null;
+          const r = e.getBoundingClientRect(); return {name: e.textContent.trim(), left: r.left, right: r.right, w: innerWidth}; }""")
+        if got is None:
+            if names and page.evaluate("() => !document.activeElement?.closest('.c-col-right')"):
+                break
+            continue
+        names += 1
+        if got["left"] < -0.5 or got["right"] > got["w"] + 0.5:
+            out.append(got)
+    assert names >= 10, names  # the case: the strips' names
+    assert out == [], out
     assert page.errors == [], page.errors
     page.context.close()

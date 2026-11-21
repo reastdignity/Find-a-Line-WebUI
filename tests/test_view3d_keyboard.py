@@ -188,13 +188,27 @@ HANDLE = r"""(k) => { const r = document.querySelectorAll('.v3-handle')[k].getBo
   return [r.left + r.width / 2, r.top + r.height / 2]; }"""
 
 
+# The bar: whether anything of it (the bar or a shown element inside it) reaches below the window, whether the reset
+# row and the readout's "Moved, not saved" show
+BAR = r"""() => { const bar = document.querySelector('.v3-bar'), shown = (e) => e.getClientRects().length > 0;
+  const low = [bar, ...bar.querySelectorAll('*')].filter(shown).map((e) => e.getBoundingClientRect().bottom);
+  return {below: +(Math.max(...low) - innerHeight).toFixed(1), reset: shown(document.querySelector('.v3-reset')),
+          edited: shown(document.querySelector('.v3-edited'))}; }"""
+CHECKED = "() => ['checked', 'error'].includes(document.getElementById('view3d').dataset.edit)"
+
+
 @pytest.mark.parametrize("device, engine", [("Pixel 7", "chromium"), ("iPhone 13", "webkit")])
 def test_view3d_handle_stays_under_the_finger(clip_data, monkeypatch, device, engine):
     """Row 84 (the planner's decision: the stage keeps its size while a drag lasts): on a phone at the full level an
     anchor's handle pressed at its centre and moved 1 px moves at most 2 px more than the finger, the stage keeps its
-    height through the drag, and the bar's new row ("Back to the found line") shows after the release, the stage
-    lower then (before: the first move made the bar 44 px higher and put the handle 24 px off the finger,
-    docs/known-bugs.md; measured (11.4, -21.1) px on the Pixel)."""
+    height through the drag and nothing of the bar leaves the window, the bar's new row ("Back to the found line",
+    "Moved, not saved") shows at the release. A second drag that ends where it began leaves the stage's height as it
+    was through the drag, the release and the new profile's answer (the bar gets no lower while the readout's
+    clearance waits for it). Before: the first move made the bar 44 px higher and put the handle 24 px off the finger
+    (measured (11.4, -21.1) px on the Pixel); the first fix held the bar's height while the row came at the first
+    move, so its last rows, the safety sentence among them, stood below the window for the whole drag (the code
+    review's F1), and after the first edit every release made the bar lower and higher again (the design review's
+    P2)."""
     from playwright.sync_api import sync_playwright
     data, path, line = _site(clip_data, monkeypatch, "view3ddrag1")
     with _server(data, start_scheduler=True) as port, sync_playwright() as p:
@@ -209,25 +223,164 @@ def test_view3d_handle_stays_under_the_finger(clip_data, monkeypatch, device, en
             for anchor in (0, 1):
                 page = _open(browser, f"http://127.0.0.1:{port}/{path}?level=full{line}", context)
                 x, y = page.evaluate(HANDLE, anchor)
-                stages = [page.evaluate(STAGE)]
+                stages, bars = [page.evaluate(STAGE)], [page.evaluate(BAR)]
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 1, y, steps=1)
                 page.evaluate(FRAMES)
                 during = page.evaluate(HANDLE, anchor)
                 stages.append(page.evaluate(STAGE))
+                bars.append(page.evaluate(BAR))
                 page.mouse.move(x + 12, y, steps=3)
                 page.evaluate(FRAMES)
                 stages.append(page.evaluate(STAGE))
+                bars.append(page.evaluate(BAR))
                 page.mouse.up()
                 page.wait_for_function("() => !document.querySelector('.v3-reset').classList.contains('v3-hidden')", timeout=WAIT)
                 page.evaluate(FRAMES)
-                after = page.evaluate(STAGE)
+                after, shown = page.evaluate(STAGE), page.evaluate(BAR)
                 off = ((during[0] - x - 1) ** 2 + (during[1] - y) ** 2) ** 0.5
                 assert off <= 2, (device, anchor, [x, y], during, stages)
                 assert all(s == stages[0] for s in stages), (device, anchor, stages)
+                assert all(b["below"] <= 0.5 and not b["reset"] and not b["edited"] for b in bars), (device, anchor, bars)
+                assert shown["reset"] and shown["edited"] and shown["below"] <= 0.5, (device, anchor, shown)
                 assert after[3] - after[1] < stages[0][3] - stages[0][1] - 20, (device, anchor, stages, after)  # the row came after
+                # the second drag, back to where it began: no size changes at all
+                page.wait_for_function(CHECKED, timeout=WAIT * 2)
+                page.evaluate(FRAMES)
+                x, y = page.evaluate(HANDLE, anchor)
+                again = [page.evaluate(STAGE)]
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + 12, y, steps=3)
+                page.evaluate(FRAMES)
+                again.append(page.evaluate(STAGE))
+                below = page.evaluate(BAR)["below"]
+                page.mouse.move(x, y, steps=3)
+                page.mouse.up()
+                page.evaluate(FRAMES)
+                again.append(page.evaluate(STAGE))
+                page.wait_for_function(CHECKED, timeout=WAIT * 2)
+                page.evaluate(FRAMES)
+                again.append(page.evaluate(STAGE))
+                assert below <= 0.5 and all(s == again[0] for s in again), (device, anchor, below, again)
                 assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
                 page.context.close()
+        finally:
+            browser.close()
+
+
+# Two fingers, one on each handle (synthetic touch pointers 11 and 12, as screen.ts draggable takes them)
+POINTER = r"""([kind, id, x, y, target]) => { const at = {clientX: x, clientY: y, pointerId: id, pointerType: 'touch', button: 0,
+  bubbles: true, isPrimary: id === 11};
+  (target === null ? document.querySelector('.v3-canvas') : document.querySelectorAll('.v3-handle')[target])
+    .dispatchEvent(new PointerEvent(kind, at)); }"""
+
+
+def test_view3d_two_fingers_hold_the_bar(clip_data, monkeypatch):
+    """Row 84: the bar is held while any handle is dragged: with a finger on each handle, the first release lets the bar
+    go nowhere (the stage keeps its height under the other finger and the reset row waits), the last release shows the
+    row (before: one release let the bar go and the stage got 44 px lower under the finger still dragging, the code
+    review's F7)."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3ddrag2")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}?level=full{line}", _phone(p, 412, 839))
+            (ax, ay), (bx, by) = page.evaluate(HANDLE, 0), page.evaluate(HANDLE, 1)
+            stages = [page.evaluate(STAGE)]
+            page.evaluate(POINTER, ["pointerdown", 11, ax, ay, 0])
+            page.evaluate(POINTER, ["pointerdown", 12, bx, by, 1])
+            page.evaluate(POINTER, ["pointermove", 11, ax + 10, ay, None])
+            page.evaluate(POINTER, ["pointermove", 12, bx - 10, by, None])
+            page.evaluate(FRAMES)
+            stages.append(page.evaluate(STAGE))
+            page.evaluate(POINTER, ["pointerup", 11, ax + 10, ay, None])
+            page.evaluate(FRAMES)
+            stages.append(page.evaluate(STAGE))
+            held = page.evaluate(BAR)
+            page.evaluate(POINTER, ["pointermove", 12, bx - 20, by, None])
+            page.evaluate(FRAMES)
+            stages.append(page.evaluate(STAGE))
+            assert all(s == stages[0] for s in stages) and not held["reset"], (stages, held)
+            page.evaluate(POINTER, ["pointerup", 12, bx - 20, by, None])
+            page.wait_for_function("() => !document.querySelector('.v3-reset').classList.contains('v3-hidden')", timeout=WAIT)
+            assert [e for e in page.errors if "setPointerCapture" not in e] == [], page.errors
+            page.context.close()
+        finally:
+            browser.close()
+
+
+# The bar's controls a Tab reaches (shown, tabindex >= 0): their order in the document (the Tab order) and on the
+# screen (by rows, then left to right)
+BAR_ORDER = r"""() => { const bar = document.querySelector('.v3-bar');
+  const els = [...bar.querySelectorAll('button, input, select, a[href]')].filter((e) => e.getClientRects().length && e.tabIndex >= 0 && !e.disabled);
+  const name = (e) => e.getAttribute('aria-label') || e.dataset.view || e.className || e.tagName;
+  const screen = [...els].sort((a, b) => { const p = a.getBoundingClientRect(), q = b.getBoundingClientRect();
+    return Math.abs(p.top - q.top) > 8 ? p.top - q.top : p.left - q.left; });
+  return {dom: els.map(name), screen: screen.map(name)}; }"""
+
+
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_bar_tab_order_on_a_narrow_screen(clip_data, monkeypatch, level):
+    """Row 84 (the fix round, the code review's list): under 600 px the views' switch stands on a row of its own after
+    the slider, the walk and the imagery (view3d.css, by CSS order); it is the toolbar's last child there too
+    (views.ts), so the Tab order is the order on screen; back to the toolbar's start on a wider window (before: the
+    switch came first in the Tab order and second on screen)."""
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dbarorder")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}?level={level}{line}", _phone(p, 390, 664))
+            page.wait_for_function("() => !!document.querySelector('.v3-bar .v3-select')", timeout=WAIT)  # the imagery's
+            got = page.evaluate(BAR_ORDER)
+            assert len(got["dom"]) >= 4 and got["dom"] == got["screen"], got
+            assert page.evaluate("() => document.querySelector('.v3-toolbar').lastElementChild.classList.contains('v3-viewbox')")
+            page.set_viewport_size({"width": 1024, "height": 700})
+            page.evaluate(FRAMES)
+            assert page.evaluate("() => document.querySelector('.v3-toolbar').firstElementChild.classList.contains('v3-viewbox')")
+            assert page.evaluate("() => window.ERRORS") == [] and page.errors == [], page.errors
+            page.context.close()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_view3d_slider_shows_the_focus(clip_data, monkeypatch, engine):
+    """Row 84 (the fix round, the design review's P3): the athlete's slider focused by Tab shows the keyboard's ring,
+    around its field, in WebKit too (WebKit draws no shadow on a native range input: before, nothing changed there when
+    the slider took the focus)."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+    from playwright.sync_api import sync_playwright
+    data, path, line = _site(clip_data, monkeypatch, "view3dslider")
+    with _server(data, start_scheduler=True) as port, sync_playwright() as p:
+        kind = getattr(p, engine)
+        if engine == "webkit" and not os.path.exists(kind.executable_path):
+            pytest.skip("Playwright's webkit is not installed")
+        browser = (kind.launch(env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
+                   if engine == "webkit" else kind.launch(channel="msedge", headless=True))
+        try:
+            page = _open(browser, f"http://127.0.0.1:{port}/{path}{line}", {"viewport": {"width": 1400, "height": 900}})
+            for _ in range(40):
+                page.keyboard.press("Tab")
+                if page.evaluate("() => document.activeElement?.classList.contains('v3-slider')"):
+                    break
+            page.evaluate(FRAMES)
+            box = page.evaluate("() => { const r = document.querySelector('.v3-field').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }")
+            clip = {"x": box[0] - 6, "y": box[1] - 6, "width": box[2] + 12, "height": box[3] + 12}
+            focused = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip))).convert("RGB")).astype(int)
+            assert page.evaluate("() => document.activeElement.matches('.v3-slider:focus-visible')")
+            page.evaluate("() => document.activeElement.blur()")
+            page.evaluate(FRAMES)
+            blurred = np.asarray(Image.open(io.BytesIO(page.screenshot(clip=clip))).convert("RGB")).astype(int)
+            ring = np.abs(focused - blurred).max(axis=2) > 40
+            # the ring's band outside the field: at least its top and bottom edges changed
+            assert ring[:6].any() and ring[-6:].any(), (engine, int(ring.sum()))
+            page.context.close()
         finally:
             browser.close()
