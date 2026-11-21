@@ -454,7 +454,7 @@ def test_unfolded_bar_on_a_phone(tmp_path):
         top, bottom, height, room, overflow = found["receipt"]
         s = found["start"]
         assert bottom <= s[1] + 0.5, (size, found)  # the summary never reaches over Start
-        assert "clear of trees" in found["text"] and "+ 2 more settings" in found["text"] and LONG_NAME in found["text"], (size, found)
+        assert "clear of trees" in found["text"] and "2 more settings" in found["text"] and "+ 2" not in found["text"] and LONG_NAME in found["text"], (size, found)
         assert height <= room + 1 or overflow in ("auto", "scroll"), (size, found)
         assert r[size, "sent"] == [LONG_NAME] and r[size, "errors"] == [], (size, r[size, "sent"], r[size, "errors"])
     # on its side the summary has no room for its lines: it scrolls inside its box

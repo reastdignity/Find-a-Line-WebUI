@@ -322,7 +322,7 @@ console.log(JSON.stringify(out));""")
 
 def test_basic_receipt_size_word_and_rigs(tmp_path):
     """The receipt (spec-search 1.2, the accepted mock-up's parts) of each goal with the starting and a saved rig, a
-    rig changed for one search, "+ N more settings" (the square rule at 5 covered), the name; the phone's short
+    rig changed for one search, "N more settings" (the square rule at 5 covered), the name; the phone's short
     line; the size word of every state; the rig's words, names, checks; the rig in use kept per browser; where "Sea
     cliffs" moves Where and back."""
     from settings import Limits
@@ -395,7 +395,7 @@ console.log(JSON.stringify(out));""")
     marked = "access marked[, no line filtered out]→access"
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
-    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
+    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "1 more setting"
     # too wide for the access grid: "access not marked", on a desktop ": area too wide"; with the mark off no part
     assert found["skipped"] == ["access not marked[: area too wide]→access", len(found["best"]) - 1, True, False, False,
                                 False, "access_skipped"]
@@ -408,7 +408,7 @@ console.log(JSON.stringify(out));""")
                                 "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked,
                                 "named “Il-Bahrija”→name"]
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
-    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
+    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "2 more settings→more"]  # G5: no "+ "
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")

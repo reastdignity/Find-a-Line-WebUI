@@ -77,8 +77,6 @@ R9_KEPT = {
     "ui.view.chip.clearance_min": "≥ in a filter's chip (R9)", "ui.view.chip.height_min": "≥ in a filter's chip (R9)",
     "intro.result.spots": "today's result page (the user, 2026-11-19)",
     "intro.result.easy_within": "today's result page (the user, 2026-11-19)",
-    "basic.receipt.more_one": "its own commit (round 6's test holds the words)",
-    "basic.receipt.more_other": "its own commit (round 6's test holds the words)",
 }
 COVERAGE_KEPT = ("media.", "page.doc_title")  # the images' and videos' words (left for now), the page's title
 
