@@ -27,8 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 pytest.importorskip("httpx2")  # test_public's fake providers
 
-from test_public import RUN_A, RUN_B, account_settings, copy_run, session_of  # noqa: E402,F401
-from test_shell_c import BIG, HELPERS as SCRIPT_HELPERS, copy_clip, stub_page  # noqa: E402,F401
+from test_public import RUN_A, RUN_B, account_settings, session_of  # noqa: E402,F401
+from test_shell_c import BIG, copy_clip, stub_page  # noqa: E402
 from test_shell_c_download import (BUSY, DOWNLOAD, ERROR, FAILED, FAILURES, IDLE_ROWS, INTRO_SEEN,  # noqa: E402
                                    MARK_EXPORTS, NO_RING, NO_WORKER, NO_WORKER_TEXT, PREPARING, PREPARING_LABEL, ROW,
                                    SETTLED, STATE, WHAT, Export, _browser_of, _escape, _file_routes, _listening, _menu,
@@ -684,3 +684,578 @@ def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
     for name in ("desktop", "desktop-selected", "phone", "phone-selected"):
         assert r[name] == ["memory", True, line, 0, False], ("A13", name, r[name])
     assert r["desktop-errors"] == r["phone-errors"] == [], ("X2", r)
+
+
+# ---- M: a run's own map.html (map/main.tsx; today's: test_web.py::test_run_map*, test_disk_notice.py, ...) ---------
+
+# A line outside nothing: the server's profile of two measured points, stubbed (the local app runs no worker here)
+PROFILE_STUB = """
+window.PROFILES = 0;
+const realFetchOfParity = window.fetch;
+window.fetch = (url, init) => {
+  if (!String(url).startsWith("/api/profile")) return realFetchOfParity(url, init);
+  PROFILES++;
+  return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
+    water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
+};
+"""
+
+# The run's credits as the map shows them (test_web.MAP_HELPERS' credits), and whether they are folded
+CREDITS = """() => { const control = document.querySelector('.v-map .leaflet-control-attribution');
+  const shown = (s) => { const e = control.querySelector(s); return e ? getComputedStyle(e).display : null; };
+  return {text: control.textContent, links: [...control.querySelectorAll('a')].map((a) => a.getAttribute('href')),
+          imgs: control.querySelectorAll('img').length, button: shown('.u-credits-toggle'), credits: shown('.u-credits'),
+          visibleLinks: [...control.querySelectorAll('a')].filter((a) => a.offsetParent !== null).map((a) => a.getAttribute('href')),
+          expanded: control.querySelector('.u-credits-toggle')?.getAttribute('aria-expanded') ?? null,
+          focused: document.activeElement === control.querySelector('.u-credits-toggle')}; }"""
+
+
+@pytest.fixture
+def map_pages(tmp_path, view_clip):
+    """A data folder for the map.html checks, served by the local app: the clip's run with today's credits of markup
+    (CREDITED: test_web.CREDITS_HEAD), the same run named like an HTML tag (TAGGED: Compare's other run)."""
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, CREDITED, "Credited clip")
+    store_with(folder / "runs" / CREDITED, head=CREDITS_HEAD)
+    copy_clip(view_clip, folder, TAGGED, XSS_NAME)
+    with _server(folder) as port:
+        yield {"root": f"http://127.0.0.1:{port}", "data": folder}
+
+
+def _map_url(root: str, run_id: str) -> str:
+    return f"{root}/runs/{urllib.parse.quote(run_id)}/map.html"
+
+
+def _empty_point(page, away=None, apart: int = 80):
+    """A point of the view's map a press reaches (no control, no menu, no line within reach), in the viewport; `apart`
+    px or more from `away` (a point taken before)."""
+    return page.evaluate("""([away, apart]) => { const {map} = window.FINDALINE_VIEW, box = window.FINDALINE_MAP.getContainer().getBoundingClientRect();
+      const f = T.free(), controls = T.controls();
+      for (let y = f[3] - 60; y > f[1] + 60; y -= 17) for (let x = f[0] + 60; x < f[2] - 60; x += 23) { const vx = x + box.left, vy = y + box.top;
+        if (away && Math.hypot(vx - away.x, vy - away.y) < apart) continue;
+        if (controls.some((c) => vx > c.left - 24 && vx < c.right + 24 && vy > c.top - 24 && vy < c.bottom + 24)) continue;
+        const hit = document.elementFromPoint(vx, vy);
+        if (!hit || !hit.closest('.leaflet-container') || hit.closest('.r-pop, .leaflet-control, [data-map-control]')) continue;
+        if (map.pickAt(x, y, false).length === 0) return {x: vx, y: vy}; }
+      return null; }""", [away, apart])
+
+
+def test_map_page_in_the_view(map_pages):
+    """M4-M13, D8 on a run's own map.html in the view, a desktop (today's test_web::test_run_map and
+    test_shell_c_download::test_store_run_on_its_own_map_has_no_download): the way back "Find-a-Line" to the app's
+    #run=; the run's credits as text (no markup, http(s) links only, ATTRIBUTION.txt beside the page, the processed
+    note, OSM's links), not folded while no card is shown and folded behind "Data credits" while it is; the base
+    layers without the satellite key and the orthophoto's credit as text; the actions Measure and Compare, no
+    Download, no export asked; the store's two files read; a favourite kept by the server; Compare's other run named
+    like an HTML tag listed and its lines added without running its name; measuring; no CSP violation, no error."""
+    from playwright.sync_api import sync_playwright
+    root, run = map_pages["root"], CREDITED
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, _map_url(root, run), DESKTOP, script=CSP_STUB + PROFILE_STUB)
+            asked = []
+            page.on("request", lambda request: "/export" in request.url and asked.append(request.url))
+            _state(page)
+            page.wait_for_function("() => document.querySelector('.v-map .leaflet-control-attribution').textContent.includes('FABDEM')",
+                                   timeout=WAIT)
+            r["back"] = page.evaluate("() => [...document.querySelectorAll('.c-back')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())")
+            r["credits"] = page.evaluate(CREDITS)
+            r["layers"] = page.evaluate("() => [...document.querySelectorAll('.leaflet-control-layers-base label')].map((l) => l.textContent.trim())")
+            page.evaluate("""() => [...document.querySelectorAll('.leaflet-control-layers-base label')]
+                .find((l) => l.textContent.trim() === 'Ortho test').querySelector('input').click()""")
+            page.wait_for_function("() => document.querySelector('.v-map .leaflet-control-attribution').textContent.includes('© Test')", timeout=WAIT)
+            r["ortho"] = page.evaluate(CREDITS)
+            page.evaluate("""() => [...document.querySelectorAll('.leaflet-control-layers-base label')]
+                .find((l) => l.textContent.trim() === 'OpenTopoMap').querySelector('input').click()""")
+            r["actions"] = page.evaluate("() => [...document.querySelectorAll('.c-result-top .r-actions button')].map((b) => b.textContent.trim() || b.getAttribute('aria-label'))")
+            r["download"] = page.evaluate("() => [document.querySelectorAll('.r-downloads, a[href$=\"lines.csv\"], a[href$=\"lines.geojson\"]').length, "
+                                          "!!document.querySelector('meta[name=findaline-token]')]")
+            # a selection: its card, the credits folded; a favourite kept by the server
+            _state(page, "view.select(view.order[0]);")
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.v-map .u-credits')).display === 'none'", timeout=WAIT)
+            r["withCard"] = page.evaluate(CREDITS)
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.favouritesOn", timeout=WAIT)
+            page.click(".vl-dhead .r-fav")
+            page.wait_for_selector(".r-picker .r-folder", timeout=WAIT)
+            page.click(".r-picker .r-folder")
+            link = page.evaluate("() => { const v = window.FINDALINE_VIEW.view; return v.model.lineLink(v.selected.line); }")
+            page.wait_for_function("""(link) => fetch('/api/runs/' + encodeURIComponent(window.FINDALINE_VIEW.view.model.runId) + '/favourites')
+                .then((a) => a.json()).then((b) => (Array.isArray(b) ? b : b.lines).includes(link))""", arg=link, timeout=WAIT)
+            r["favourite"] = True
+            # Compare: the other run named like a tag
+            _state(page, "view.select(null);")
+            page.click(".c-result-top .r-actions button:has-text('Compare')")
+            page.wait_for_selector(".r-other input", timeout=WAIT)
+            r["others"] = page.evaluate("() => [...document.querySelectorAll('.r-other')].map((o) => o.textContent)")
+            page.click(".r-other input")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.model.others.size === 1", timeout=WAIT)
+            r["compared"] = page.evaluate("() => [[...window.FINDALINE_VIEW.view.model.others.values()][0].count, window.XSS || null, "
+                                          "document.querySelectorAll('.r-others img').length]")
+            page.click(".c-result-top .r-actions button:has-text('Compare')")
+            page.wait_for_selector(".r-pop", state="detached", timeout=WAIT)
+            # measuring: two presses on the map, the measured profile in the card
+            page.click(".c-result-top .r-actions button:has-text('Measure')")
+            first = _empty_point(page)
+            second = _empty_point(page, first)
+            assert first and second, "no two empty points on the map"
+            for at in (first, second):
+                page.mouse.click(at["x"], at["y"])
+                page.evaluate("() => T.frames()")
+            page.wait_for_function("() => !!window.FINDALINE_VIEW.measured", timeout=WAIT)
+            page.wait_for_selector(".r-card .fal-profile-chart", timeout=WAIT)
+            r["measured"] = page.evaluate("() => [document.querySelector('.r-card .r-dock-bar b').textContent, window.PROFILES, "
+                                          "Math.round(window.FINDALINE_VIEW.measured.len) > 0]")
+            r["files"] = page.evaluate("""(folder) => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname)
+                .filter((p) => p.startsWith(folder)).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort()""",
+                                       f"/runs/{urllib.parse.quote(run)}/")
+            r["csp"], r["errors"], r["asked"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page), asked
+            r["view"] = page.evaluate("() => !!window.FINDALINE_VIEW && !window.FINDALINE_RESULT")
+            # the way back: the app at the run
+            page.click(".c-back")
+            page.wait_for_url(re.compile(r".*/#run=" + re.escape(urllib.parse.quote(run))), timeout=WAIT)
+            r["backTo"] = urllib.parse.urlsplit(page.url)[2:]
+        finally:
+            browser.close()
+    assert r["view"], "the view opened map.html"
+    assert r["back"] == ["Find-a-Line"] and r["backTo"] == ("/", "", f"run={urllib.parse.quote(run)}"), ("M5", r["back"], r["backTo"])
+    credits = r["credits"]
+    assert "Data: FABDEM V1-2 © University of Bristol (CC BY-NC-SA 4.0)" in credits["text"], ("M6", credits)
+    assert "<img src=x onerror=window.XSS=1> (<b>x</b>)" in credits["text"] and credits["imgs"] == 0, ("M6", credits)
+    assert "https://creativecommons.org/licenses/by-nc-sa/4.0/" in credits["links"] and "ATTRIBUTION.txt" in credits["links"], ("M6", credits)
+    assert not any(link.startswith("javascript") for link in credits["links"] if link), ("M6", credits)
+    assert "resampled and combined onto a working grid (changed)" in credits["text"], ("M6", credits)
+    assert {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"} <= set(credits["links"]), ("M6", credits)
+    assert credits["button"] == "none" and credits["credits"] == "inline", ("M10: not folded while no card", credits)
+    assert r["layers"] == ["OpenTopoMap", "OpenStreetMap", "Ortho test"], ("M7", r["layers"])
+    assert "<img src=x onerror=window.XSS=3> © Test" in r["ortho"]["text"] and r["ortho"]["imgs"] == 0, ("M7", r["ortho"])
+    assert "https://example.invalid/terms" in r["ortho"]["links"], ("M7", r["ortho"])
+    assert r["withCard"]["button"] != "none" and r["withCard"]["credits"] == "none", ("M10: folded while the card shows", r["withCard"])
+    assert r["actions"] == ["Measure", "Compare"], ("M4", r["actions"])
+    assert r["download"] == [0, False] and r["asked"] == [], ("D8", r["download"], r["asked"])
+    assert r["files"] == ["lines.arrow", "profiles.arrow"], ("D8", r["files"])
+    assert r["favourite"], "M11"
+    assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], ("M12", r["others"])
+    assert r["compared"][0] > 0 and r["compared"][1:] == [None, 0], ("M12", r["compared"])
+    assert r["measured"] == ["Measured profile", 1, True], ("M13", r["measured"])
+    assert r["csp"] == [] and r["errors"] == [], ("X1/X2", r["csp"], r["errors"])
+
+
+def test_map_page_phone_credits_in_the_view(map_pages):
+    """M14 without the satellite key (today's test_web::test_run_map_on_a_phone_with_the_satellite_key, its credits'
+    half; the key's layer comes from baselayers.ts, which both pages use): a run's map.html in the view on a phone of
+    390 px: the run's data credits folded behind "Data credits" (aria-expanded false, ATTRIBUTION.txt not shown), the
+    tile credits (OSM's with its fixthemap link) in sight; the button opens them (the focus kept on it) and folds them
+    again; no CSP violation."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, _map_url(map_pages["root"], CREDITED), PHONE, script=CSP_STUB)
+            _state(page)
+            toggle = ".v-map .u-credits-toggle"
+            page.wait_for_selector(toggle, state="attached", timeout=WAIT)
+            folded = page.evaluate(CREDITS)
+            page.evaluate("(t) => document.querySelector(t).click()", toggle)
+            page.wait_for_function("(t) => document.querySelector(t).getAttribute('aria-expanded') === 'true'", arg=toggle, timeout=WAIT)
+            opened = page.evaluate(CREDITS)
+            page.evaluate("(t) => document.querySelector(t).click()", toggle)
+            page.wait_for_function("(t) => document.querySelector(t).getAttribute('aria-expanded') === 'false'", arg=toggle, timeout=WAIT)
+            again = page.evaluate(CREDITS)
+            layers = page.evaluate("() => [...document.querySelectorAll('.leaflet-control-layers-base label')].map((l) => l.textContent.trim())")
+            csp, errors = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+        finally:
+            browser.close()
+    osm = {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"}
+    assert folded["button"] != "none" and folded["expanded"] == "false" and folded["credits"] == "none", ("M14", folded)
+    assert "ATTRIBUTION.txt" not in folded["visibleLinks"] and osm <= set(folded["visibleLinks"]), ("M14", folded)
+    assert opened["credits"] != "none" and opened["focused"] and "ATTRIBUTION.txt" in opened["visibleLinks"], ("M14", opened)
+    assert again["credits"] == "none" and osm <= set(again["visibleLinks"]), ("M14", again)
+    assert layers == ["OpenTopoMap", "OpenStreetMap", "Ortho test"], ("M14: no satellite layer without the key", layers)
+    assert csp == [] and errors == [], ("X1/X2", csp, errors)
+
+
+UNLISTED = "2026-11-01_100000_Unlisted_00000000000000f4"  # a run runs.js does not name
+MISSING = "2026-11-01_110000_Missing_00000000000000f5"    # a run without its store (saved before it)
+NEWER = "2026-11-01_120000_Newer_00000000000000f6"        # a store of a newer format
+BROKEN = "2026-11-01_130000_Broken_00000000000000f7"      # a store whose lines.arrow is not an Arrow file
+
+# The loading's texts a page showed (test_web.LOAD_SCRIPT's, from the page's start), the store's files it asked
+LOADING = """
+window.SEEN = [];
+new MutationObserver(() => { const e = document.querySelector('.c-loading .u-progress'), label = e && e.textContent;
+  if (label && SEEN[SEEN.length - 1] !== label) SEEN.push(label); }).observe(document, {childList: true, subtree: true, characterData: true});
+"""
+LOADED = """() => ({seen: window.SEEN, error: (document.querySelector('.c-result-wait .c-error') || {}).textContent || '',
+  alert: document.querySelector('.c-result-wait .c-error')?.getAttribute('role') ?? null,
+  view: !!window.FINDALINE_VIEW, today: !!window.FINDALINE_RESULT, count: window.FINDALINE_VIEW ? window.FINDALINE_VIEW.view.count : null,
+  files: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
+  lists: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => p.endsWith('/runs.js')),
+  measures: performance.getEntriesByType('measure').filter((m) => m.name.startsWith('fal:run:')).map((m) => [m.name, m.detail]),
+  csp: window.CSP_VIOLATIONS || []})"""
+
+
+def test_map_page_loading_and_its_failures(tmp_path, view_clip):
+    """M15-M18 with the view asked for (today's test_web::test_run_map_loads_its_store,
+    test_store_share::test_unlisted_runs_read_the_store_in_edge, test_shell_c::test_shell_c_too_large,
+    ::test_shell_c_map_says_why_a_store_failed): a run's map.html loads its store itself (its two files with their
+    bytes, the loading's texts) and the view opens with every line; a run runs.js does not name is read from its store
+    with runs.js asked once; a run without a store says ui.result.store_failed after the two 404s; a store the browser
+    cannot hold, one of a newer format, one that cannot be read: each its own words, and neither page opens. These
+    failures come before the page is chosen (map/main.tsx LoadedMap): the flag changes nothing there."""
+    from playwright.sync_api import sync_playwright
+    import old_runs
+    import runs as rn
+    from test_shell_c import TOO_LARGE_STUBS
+    from test_store_share import _unlist
+    # (an init script runs before the document has its root element: the stubs' observer watches the document)
+    too_large = TOO_LARGE_STUBS.replace("observe(document.documentElement,", "observe(document,")
+    assert too_large != TOO_LARGE_STUBS
+    data = tmp_path / "data"
+    for run_id, name in ((BIG, "Clip"), (UNLISTED, "Unlisted"), (MISSING, "Missing"), (NEWER, "Newer"), (BROKEN, "Broken")):
+        copy_clip(view_clip, data, run_id, name)
+    old_runs.drop_store(data / "runs" / MISSING)
+    path = data / "runs" / NEWER / "run.json"
+    meta = json.loads(path.read_text("utf-8"))
+    meta["store"]["format"] += 1
+    path.write_text(json.dumps(meta), "utf-8")
+    (data / "runs" / BROKEN / "lines.arrow").write_bytes(b"not an Arrow file " * 100)
+    rn.write_index(str(data / "runs"))
+    _unlist(data, UNLISTED)
+    lines = json.loads((data / "runs" / BIG / "run.json").read_text("utf-8"))["store"]["lines"]
+    sizes = sum((data / "runs" / BIG / name).stat().st_size for name in ("lines.arrow", "profiles.arrow"))
+    r = {}
+    with _server(data) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, run_id, stubs in (("store", BIG, CSP_STUB), ("unlisted", UNLISTED, CSP_STUB), ("missing", MISSING, CSP_STUB),
+                                        ("newer", NEWER, CSP_STUB), ("broken", BROKEN, CSP_STUB), ("large", BIG, too_large)):
+                ok = name in ("store", "unlisted")
+                page = _open(browser, _map_url(f"http://127.0.0.1:{port}", run_id), DESKTOP, flag=False,
+                             script=FLAG + stubs + LOADING)
+                page.wait_for_function("() => !!window.FINDALINE_VIEW || !!document.querySelector('.c-result-wait .c-error')"
+                                       " || !!window.FINDALINE_RESULT", timeout=WAIT)
+                if ok:
+                    _state(page)
+                r[name] = page.evaluate(LOADED)
+                r[name]["errors"] = _errors(page)
+                if name == "large":
+                    r[name]["scripts"] = page.evaluate("() => window.DATA_SCRIPTS")
+                page.context.close()
+        finally:
+            browser.close()
+    store = r["store"]
+    assert store["view"] and not store["today"] and store["count"] == lines and store["error"] == "", ("M15", store)
+    assert any(label.startswith("Downloading the run… ") and " of " in label for label in store["seen"]), ("M15", store["seen"])
+    assert WORDS["ui.result.loading_parse"] in store["seen"] and WORDS["ui.result.loading_groups"] in store["seen"], ("M15", store["seen"])
+    found = dict((name, detail) for name, detail in store["measures"])
+    assert found["fal:run:download"] == {"bytes": sizes, "store": True} and "fal:run:script" not in found, ("M15", found)
+    assert store["files"] == ["lines.arrow", "profiles.arrow"] and store["lists"] == ["/runs/runs.js"], ("M15", store)
+    unlisted = r["unlisted"]
+    assert unlisted["view"] and unlisted["count"] == lines and unlisted["files"] == ["lines.arrow", "profiles.arrow"], ("M16", unlisted)
+    assert unlisted["lists"] == ["/runs/runs.js"], ("M16: runs.js once", unlisted["lists"])
+    words = {"missing": WORDS["ui.result.store_failed"], "newer": WORDS["ui.result.newer_store"],
+             "broken": WORDS["ui.result.store_failed"], "large": WORDS["ui.result.too_large"]}
+    for name, text in words.items():
+        got = r[name]
+        assert got["error"] == text and not got["view"] and not got["today"] and "data.js" not in got["error"], (name, got)
+    assert r["missing"]["files"] == ["lines.arrow", "profiles.arrow"], ("M15: the store's two 404s, nothing else", r["missing"])
+    assert r["large"]["alert"] == "alert" and r["large"]["scripts"] == [], ("M17", r["large"])
+    for name, got in r.items():
+        assert got["csp"] == [] and got["errors"] == [], ("X1/X2", name, got["csp"], got["errors"])
+
+
+# Over http, from the page's start (test_disk_notice.HTTP_HEAD as an init script): the notice's style at each change
+NOTICE_SEEN = """
+window.NOTICE_SEEN = [];
+new MutationObserver(() => {
+  const notice = document.getElementById("disk-notice");
+  if (notice) NOTICE_SEEN.push(getComputedStyle(notice).display);
+}).observe(document, {childList: true, subtree: true, attributes: true});
+"""
+
+
+def test_disk_notice_with_the_view(map_pages, tmp_path):
+    """M1-M3 (today's test_disk_notice::test_disk_notice_never_shows_over_http, ::test_notice_hidden_when_a_module_fails,
+    ::test_disk_notice_from_disk) with the view asked for: over http the notice is hidden whenever observed and removed,
+    the page marked served, the run read from its store into the view, no CSP violation; a module of the bundle that
+    fails leaves the page marked served and the notice never shown; from disk the notice stands over the whole window with the run's
+    name, the sentence and the command, and nothing loads (no XHR, no script of data, an empty #map, no page)."""
+    from playwright.sync_api import sync_playwright
+    import mapping
+    from test_disk_notice import FAILING_HEAD, RECORDER, SENTENCE
+    run = CREDITED
+    folder = map_pages["data"] / "runs" / run
+    meta = json.loads((folder / "run.json").read_text("utf-8"))
+    (folder / "map.html").write_text(mapping.map_page(meta), "utf-8")  # the page as a search writes it for this run
+    assert mapping.DISK_NOTICE in (folder / "map.html").read_text("utf-8")
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, _map_url(map_pages["root"], run), DESKTOP, script=CSP_STUB + RECORDER + NOTICE_SEEN)
+            page.wait_for_function("() => !document.getElementById('disk-notice') && window.FINDALINE_VIEW.view.count > 0", timeout=WAIT)
+            r["http"] = page.evaluate("""() => ({seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served'),
+                files: performance.getEntriesByType('resource').map((e) => e.name.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
+                csp: window.CSP_VIOLATIONS || []})""")
+            r["http"]["errors"] = _errors(page)
+            page.context.close()
+            # M3: a module of the bundle that throws while it loads (Leaflet's `window.L = …` refused)
+            page = _open(browser, _map_url(map_pages["root"], run), DESKTOP, flag=False, script=FLAG + FAILING_HEAD)
+            page.wait_for_load_state("load")
+            page.wait_for_function("() => window.FAILED.length > 0 && !!document.getElementById('disk-notice')", timeout=WAIT)
+            r["failing"] = page.evaluate("""() => ({failed: window.FAILED, seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served'),
+                display: getComputedStyle(document.getElementById('disk-notice')).display})""")
+            page.context.close()
+            context = browser.new_context(viewport={"width": 1280, "height": 800})
+            context.add_init_script(INTRO_SEEN + FLAG + RECORDER)
+            page = context.new_page()
+            page.goto((folder / "map.html").as_uri())
+            page.wait_for_load_state("load")
+            page.wait_for_function("() => !!document.getElementById('disk-notice')", timeout=WAIT)
+            r["disk"] = page.evaluate("""() => { const n = document.getElementById('disk-notice'), b = n.getBoundingClientRect(), t = (s) => (document.querySelector(s) || {}).textContent || '';
+                return {display: getComputedStyle(n).display, size: [Math.round(b.width), Math.round(b.height), innerWidth, innerHeight],
+                        run: n.dataset.run, name: t('.fal-disk-name'), text: t('.fal-disk-text'), command: t('.fal-disk-command'),
+                        map: document.getElementById('map').childElementCount, loading: !!document.querySelector('.c-loading, .c-result-wait, .c-error'),
+                        page: !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT), asked: window.ASKED,
+                        flag: (() => { try { return localStorage.getItem('findaline.view'); } catch (e) { return 'blocked'; } })()}; }""")
+            context.close()
+        finally:
+            browser.close()
+    http = r["http"]
+    assert http["seen"] and set(http["seen"]) == {"none"} and http["served"], ("M2: never shown", http)
+    assert http["files"] == ["lines.arrow", "profiles.arrow"] and http["csp"] == [] and http["errors"] == [], ("M2", http)
+    failing = r["failing"]
+    assert any("a module failed to load" in m for m in failing["failed"]), ("M3: the bundle did fail", failing)
+    assert failing["served"] and failing["seen"] and set(failing["seen"]) == {"none"} and failing["display"] == "none", ("M3", failing)
+    disk = r["disk"]
+    assert disk["display"] != "none" and disk["size"][:2] == disk["size"][2:], ("M1: the whole window", disk)
+    assert disk["run"] == run and disk["name"] == "Credited clip" and disk["text"] == SENTENCE, ("M1", disk)
+    assert disk["command"] == f"findaline.py view {run}", ("M1", disk)
+    assert disk["map"] == 0 and not disk["loading"] and not disk["page"] and disk["asked"] == [], ("M1: nothing loaded", disk)
+    assert disk["flag"] in ("b", "blocked"), ("M1: the view was asked for", disk["flag"])
+
+
+# ---- S, P: a share link's page and the public site's people (today's: test_store_share.py, test_public.py) ---------
+
+SHARE_A = "ParityShare0123456789-token_abcdefXYZ0"   # RUN_A's link (token_urlsafe's alphabet)
+SHARE_B = SHARE_A[::-1]                               # RUN_B's link: a run without a store
+
+
+@pytest.fixture
+def public(tmp_path, view_clip, account_settings):
+    """The public site (uvicorn on a thread) over a data folder with A's run (the view's clip run: shared by a link and
+    a demo run) and A's second run without a store (shared too), people A and B signed in by /test-sign-in/<who>;
+    yields the site's address, the folder, the settings and the people's ids."""
+    import uvicorn
+    from fastapi.responses import RedirectResponse
+
+    import accounts as ac
+    import old_runs
+    import web
+    from jobs import Jobs
+    from settings import PublicSettings
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    site = f"http://localhost:{port}"
+    data = tmp_path / "data"
+    data.mkdir()
+    copy_clip(view_clip, data, RUN_A, "A's run")
+    copy_clip(view_clip, data, RUN_B, "B's run")
+    old_runs.drop_store(data / "runs" / RUN_B)
+    jobs = Jobs(str(data))
+    cookies, ids = {}, {}
+    for who in ("a", "b"):
+        ids[who], cookies[who], _ = session_of(data, account_settings, who)
+    for run_id, token in ((RUN_A, SHARE_A), (RUN_B, SHARE_B)):
+        jobs.add_run(run_id, ids["a"], 1)
+        jobs.set_share(run_id, ac.digest(token))
+    jobs.set_visibility(RUN_A, "demo")
+    settings = PublicSettings(public_url=site, trusted_proxy="127.0.0.1", contact="admin@example.org")
+    app = web.create_app(str(data), public=settings, accounts=account_settings)
+
+    @app.get("/test-sign-in/{who}")
+    def sign_in(who: str):  # the session's cookie as the sign-in sets it (a browser takes no __Host- cookie from a script)
+        response = RedirectResponse("/", 302)
+        response.set_cookie(ac.SESSION_COOKIE, cookies[who], secure=True, httponly=True, path="/", samesite="lax")
+        return response
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started:
+            assert time.monotonic() < deadline, "the server did not start"
+            time.sleep(0.05)
+        yield {"site": site, "data": data, "accounts": account_settings, "ids": ids}
+    finally:
+        server.should_exit = True
+        thread.join(10)
+
+
+def _status(url: str) -> int:
+    try:
+        with urllib.request.urlopen(url, timeout=30) as answer:
+            return answer.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def _public_page(browser, site: str, path: str, context: dict, flag: bool, who: str | None = None, script: str = ""):
+    """A page of the public site (`flag`: the view asked for; signed in as `who`), once it shows a run or a load's error."""
+    ctx = browser.new_context(**context)
+    ctx.add_init_script(HELPERS + CSP_STUB + (FLAG if flag else "") + script)
+    page = ctx.new_page()
+    page.errors = []
+    page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
+    if who:
+        page.goto(f"{site}/test-sign-in/{who}")
+        assert any(c["name"].startswith("__Host-") for c in ctx.cookies()), "not signed in"
+    page.goto(site + path)
+    page.wait_for_function("() => !!(window.FINDALINE_VIEW || window.FINDALINE_RESULT) || !!document.querySelector('.c-result-wait .c-error')",
+                           timeout=WAIT)
+    page.wait_for_function("() => !!document.querySelector('.r-actions') || !!document.querySelector('.c-result-wait .c-error')", timeout=WAIT)
+    page.wait_for_load_state("networkidle", timeout=WAIT)  # the list of runs answered (Share's owner check)
+    return page
+
+
+# What a page of a run shows of who may do what: the run's actions, the way back, the page's flags and lines
+WHO = """() => { const v = window.FINDALINE_VIEW, t = window.FINDALINE_RESULT;
+  return {page: v ? 'view' : t ? 'today' : null, app: window.FINDALINE_APP ?? null, runs: window.FINDALINE_RUNS === undefined,
+          actions: [...document.querySelectorAll('.r-actions button')].map((b) => b.textContent.trim() || b.getAttribute('aria-label')),
+          back: [...document.querySelectorAll('.c-back')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()),
+          lines: v ? v.view.count : t ? t.model.shown.lines : 0,
+          error: (document.querySelector('.c-result-wait .c-error') || {}).textContent || '', csp: window.CSP_VIOLATIONS || []}; }"""
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_share_page_in_the_view(public, device):
+    """S1, S2, S4, S7 (today's test_store_share::test_share_links_read_the_store_in_edge,
+    test_public::test_signed_in_app_and_shared_map_in_edge, test_disk_notice::test_share_link_hides_the_notice) on
+    a share link's page in the view, as on today's page of the same link: the flags {profiles: false, favourites:
+    false}, no Measure, Compare, Share or Download, no way back, the run's lines; the run read from its store only, the
+    only list /s/runs.js (FINDALINE_RUNS undefined), nothing of /runs/ or another run asked; the disk notice never
+    shown; a shared run without a store says ui.result.store_failed after its store's two 404s; no CSP violation."""
+    from playwright.sync_api import sync_playwright
+    site = public["site"]
+    asked = """(folder) => { const all = performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname);
+      return {files: all.filter((p) => p.startsWith(folder)).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
+              lists: all.filter((p) => p.endsWith('/runs.js')),
+              others: all.filter((p) => p.startsWith('/runs/') || (p.startsWith('/s/') && !p.startsWith(folder) && p !== '/s/runs.js' && !p.startsWith('/s/_viewer/'))),
+              seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served')}; }"""
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for name, token, flag in (("view", SHARE_A, True), ("today", SHARE_A, False), ("old", SHARE_B, True)):
+                folder = f"/s/{token}/"
+                page = _public_page(browser, site, folder + "map.html", device, flag, script=NOTICE_SEEN)
+                if name != "old":
+                    page.wait_for_function("() => !document.getElementById('disk-notice')", timeout=WAIT)
+                r[name] = {**page.evaluate(WHO), **page.evaluate(asked, folder), "errors": _errors(page)}
+                page.context.close()
+        finally:
+            browser.close()
+    view, today, old = r["view"], r["today"], r["old"]
+    assert view["page"] == "view" and today["page"] == "today", (view["page"], today["page"])
+    assert view["app"] == today["app"] == {"profiles": False, "favourites": False}, ("S4", view["app"], today["app"])
+    assert view["actions"] == today["actions"] == [] and view["back"] == today["back"] == [], ("S4", view, today)
+    assert view["lines"] > 0 and today["lines"] > 0, ("S4", view["lines"], today["lines"])
+    assert view["files"] == ["lines.arrow", "profiles.arrow"] and view["lists"] == ["/s/runs.js"], ("S1", view)
+    assert view["runs"] is True and view["others"] == [], ("S1", view)
+    assert view["seen"] and set(view["seen"]) == {"none"} and view["served"], ("S7", view["seen"])
+    assert old["page"] is None and old["error"] == WORDS["ui.result.store_failed"], ("S2", old)
+    assert old["files"] == ["lines.arrow", "profiles.arrow"] and old["lists"] == ["/s/runs.js"] and old["others"] == [], ("S2", old)
+    for name, got in r.items():
+        assert got["csp"] == [] and got["errors"] == [], ("X1/X2", name, got["csp"], got["errors"])
+
+
+def test_share_action_in_the_view(public):
+    """S8 (today's test_shell_c::test_shell_c_public, the result's Share; the server's side: test_public::test_share_links)
+    in the view's header, the owner signed in: Share's menu of a run shared already says so and offers "New link" and
+    "Stop sharing"; a new link is shown once in its field and opens the run in the view, and the old link answers 404;
+    "Stop sharing" ends it (404, the menu offers "Make a link"); a link made again stops working once its owner is
+    blocked (404)."""
+    from playwright.sync_api import sync_playwright
+    import accounts as ac
+    site = public["site"]
+    share = ".c-result-top .r-actions button:has-text('Share')"
+    menu = "() => { const s = document.querySelector('.r-share'); return s && {buttons: [...s.querySelectorAll('button')].map((b) => b.textContent.trim()), " \
+           "text: [...s.querySelectorAll('p.u-small')].map((e) => e.textContent), link: s.querySelector('.r-linkfield input')?.value ?? null}; }"
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _public_page(browser, site, f"/?ui=c#run={RUN_A}", DESKTOP, True, who="a")
+            page.wait_for_selector(share, timeout=WAIT)
+            page.click(share)
+            page.wait_for_selector(".r-share", timeout=WAIT)
+            r["shared"] = page.evaluate(menu)
+            page.click(".r-share button:has-text('New link')")
+            page.wait_for_selector(".r-share .r-linkfield input", timeout=WAIT)
+            r["renewed"] = page.evaluate(menu)
+            link = r["renewed"]["link"]
+            r["statuses"] = [_status(f"{site}/s/{SHARE_A}/map.html"), _status(link)]
+            visitor = _public_page(browser, site, link.replace(site, ""), DESKTOP, True)
+            r["opened"] = visitor.evaluate(WHO)
+            visitor.context.close()
+            page.click(".r-share button:has-text('Stop sharing')")
+            page.wait_for_function("() => [...document.querySelectorAll('.r-share button')].some((b) => b.textContent.trim() === 'Make a link')",
+                                   timeout=WAIT)
+            r["stopped"] = [page.evaluate(menu), _status(link)]
+            page.click(".r-share button:has-text('Make a link')")
+            page.wait_for_function("(old) => { const i = document.querySelector('.r-share .r-linkfield input'); return !!i && i.value !== old; }",
+                                   arg=link, timeout=WAIT)
+            again = page.evaluate(menu)["link"]
+            before = _status(again)
+            ac.Accounts(str(public["data"]), public["accounts"]).set_status(public["ids"]["a"], "blocked")
+            r["blocked"] = [before, _status(again)]
+            r["csp"], r["errors"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+        finally:
+            browser.close()
+    assert r["shared"]["buttons"] == ["New link", "Stop sharing"] and r["shared"]["link"] is None, ("S8", r["shared"])
+    assert "Shared by a link. A new link replaces the old one." in r["shared"]["text"], ("S8", r["shared"])
+    link = r["renewed"]["link"]
+    assert link.startswith(f"{site}/s/") and link.endswith("/map.html") and SHARE_A not in link, ("S8", link)
+    assert r["statuses"] == [404, 200], ("S8: the old link ends, the new opens", r["statuses"])
+    assert r["opened"]["page"] == "view" and r["opened"]["lines"] > 0 and r["opened"]["actions"] == [], ("S8", r["opened"])
+    stopped, status = r["stopped"]
+    assert stopped["buttons"] == ["Make a link"] and status == 404, ("S8: stopped", r["stopped"])
+    assert r["blocked"] == [200, 404], ("S9: a blocked owner's link", r["blocked"])
+    assert r["csp"] == [] and r["errors"] == [], ("X1/X2", r["csp"], r["errors"])
+
+
+def test_visitor_and_another_user_in_the_view(public):
+    """P2, P3, D17 (today's test_public::test_signed_in_app_and_shared_map_in_edge, the demo run's half; the server:
+    test_exports_of_the_public_site) in the view against today's page of the same address: a visitor without a session
+    on the demo run's map.html: the flags {profiles: false, favourites: false}, no Measure, Compare, Share or
+    Download, the way back "Find-a-Line", the run's lines; B signed in on A's demo run in the app: no Share, and the
+    other actions today's page has (Measure, Compare, Download: a signed-in visitor of a demo may export)."""
+    from playwright.sync_api import sync_playwright
+    site = public["site"]
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            for flag in (True, False):
+                for name, path, who in (("visitor", f"/runs/{RUN_A}/map.html", None), ("other", f"/?ui=c#run={RUN_A}", "b")):
+                    page = _public_page(browser, site, path, DESKTOP, flag, who=who)
+                    r[(name, flag)] = {**page.evaluate(WHO), "errors": _errors(page)}
+                    page.context.close()
+        finally:
+            browser.close()
+    for name in ("visitor", "other"):
+        view, today = r[(name, True)], r[(name, False)]
+        assert view["page"] == "view" and today["page"] == "today", (name, view["page"], today["page"])
+        assert view["actions"] == today["actions"] and view["back"] == today["back"], (name, view, today)
+        assert view["lines"] > 0 and today["lines"] > 0, (name, view["lines"], today["lines"])
+        for got in (view, today):
+            assert got["csp"] == [] and got["errors"] == [], ("X1/X2", name, got["csp"], got["errors"])
+    visitor = r[("visitor", True)]
+    assert visitor["app"] == {"profiles": False, "favourites": False} and visitor["actions"] == [], ("P3", visitor)
+    assert visitor["back"] == ["Find-a-Line"], ("P3", visitor["back"])
+    other = r[("other", True)]
+    assert other["actions"] == ["Measure", "Compare", "Download"], ("P2/D17", other["actions"])
