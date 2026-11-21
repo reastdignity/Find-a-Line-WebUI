@@ -69,8 +69,8 @@ def test_selection_at_full_drops_to_half(boxes_site, device):
     """P3, the other ways to select with the sheet at full (a row of the list: test_view_frame.py's
     test_selected_fit_at_full_drops_to_half). Today's page drops the sheet to half for each (probed 2026-11-21 on
     390 x 844 and 390 x 664: a row, the line stepper, the spot stepper, a link). In the view: a row of "Lines from
-    here", the line stepper ("The next line") and a link each bring the sheet to half, the new line on the map with at
-    least one end clear of every control."""
+    here", the line stepper ("The next line"), the spot stepper ("Next spot", P1) and a link each bring the sheet to
+    half, the new line on the map with at least one end clear of every control."""
     from playwright.sync_api import sync_playwright
     got = {}
     with sync_playwright() as p:
@@ -95,6 +95,13 @@ def test_selection_at_full_drops_to_half(boxes_site, device):
             assert target is not None, "no row of the fan other than the selected line"
             _tap_on(page, f".vl-fan .vl-main[data-row='{target}']")
             got["fan row"] = _dropped(page, counted, row)
+            # the spot stepper ("Next spot" in the sheet's head) at full
+            _state(page, "view.closeFan();")
+            page.wait_for_selector(".u-sheet .vl-spot-next:not([disabled])", timeout=WAIT)
+            _stop(page, "full")
+            row, counted = _selected_row(page), page.evaluate(CHECKS)
+            _tap_on(page, ".u-sheet .vl-spot-next")
+            got["spot stepper"] = _dropped(page, counted, row)
             # a link to another spot's line, opened at full
             _stop(page, "full")
             row, counted = _selected_row(page), page.evaluate(CHECKS)
@@ -225,3 +232,121 @@ def test_old_kept_value_reads_largest_first(site):
     assert got["sort"] == "clr" and got["desc"] and got["label"] == WORDS["ui.view.dir_desc"], got
     assert _ordered(got["sectors"], True), got["sectors"][:2]
     assert json.loads(got["kept"]) == {"sort": "clr", "hint": False}, got["kept"]
+
+
+# The spot stepper's state: the selected spot and line, the spot's shown line, its place in the tree (its sectors top
+# to bottom, every spot of each), the two buttons (in the details' head, else a phone's sheet head) and where the
+# focus is; the tree's row of the spot: pressed, drawn whole in the list's scroller, its sector open
+STEPPER = r"""() => { const v = window.FINDALINE_VIEW.view, tree = v.sectors.flatMap((s) => s.spots), sel = v.selected;
+  const btn = (c) => { const b = document.querySelector('.vl-dhead .' + c + ', .vl-sheet-row .' + c), r = b && b.getBoundingClientRect();
+    return b && {off: b.disabled, label: b.getAttribute('aria-label'), size: [Math.round(r.width), Math.round(r.height)], bottom: Math.round(r.bottom)}; };
+  const row = sel && document.querySelector('#vl-row-' + sel.spot + ' > .vl-main'), box = row && row.closest('.vl-body, .u-sheet-body');
+  const r = row && row.getBoundingClientRect(), b = box && box.getBoundingClientRect();
+  const sec = sel && document.querySelector('#vl-sec-' + (v.sectorOf(sel.spot) + 1));
+  return {spot: sel ? sel.spot : null, row: sel ? sel.row : null, shown: sel ? v.shownOf(sel.spot) : null, k: sel ? tree.indexOf(sel.spot) : -1,
+    tree, firsts: v.sectors.map((s) => s.spots.length), prev: btn('vl-spot-prev'), next: btn('vl-spot-next'),
+    focus: document.activeElement ? document.activeElement.className : '', pressed: row ? row.getAttribute('aria-pressed') : null,
+    inView: !!(r && b && r.top >= b.top - 1 && r.bottom <= b.bottom + 1), open: sec ? sec.getAttribute('aria-expanded') : null}; }"""
+
+
+def _stepped(page, spot: int) -> dict:
+    """The spot `spot` selected (a step), the page drawn: STEPPER."""
+    page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.spot === {spot}", timeout=WAIT)
+    page.wait_for_function(STILL, timeout=WAIT)
+    page.evaluate("() => T.frames()")
+    return page.evaluate(STEPPER)
+
+
+def test_spot_stepper_desktop(site):
+    """P1 on the desktop (1400 x 900): "Previous spot" / "Next spot" in the spot's head, between the star and × (the
+    user's pick A), step through the tree's spots top to bottom (its sectors in order, every spot of each): each step
+    selects the spot as a press on its row of the tree does (its shown line, that row pressed and kept in view, its
+    sector opened where it was closed). "Previous spot" is off at the first spot and "Next spot" at the last; a button
+    that goes off hands the focus to its twin (Enter on the keyboard). Smallest first, the steps follow the tree's new
+    order."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            _state(page, f"view.select({tree[0]});")
+            start = _stepped(page, tree[0])
+            order = page.evaluate("() => [...document.querySelectorAll('.vl-dhead > *')].map((e) => e.className.split(' ').find((c) => c.startsWith('vl-')) || e.tagName)")
+            steps = []
+            for k in (1, 2, 3):
+                page.click(".vl-dhead .vl-spot-next")
+                steps.append(_stepped(page, tree[k]))
+            # back by the keyboard: at the first spot "Previous spot" goes off, the focus to "Next spot"
+            page.focus(".vl-dhead .vl-spot-prev")
+            for k in (2, 1, 0):
+                page.keyboard.press("Enter")
+                back = _stepped(page, tree[k])
+            # from the last spot of the first sector into the second (closed until then)
+            last = page.evaluate("() => window.FINDALINE_VIEW.view.sectors[0].spots.length") - 1
+            closed = page.evaluate(f"() => document.querySelector('#vl-sec-' + (window.FINDALINE_VIEW.view.sectorOf({tree[last + 1]}) + 1)).getAttribute('aria-expanded')")
+            _state(page, f"view.select({tree[last]});")
+            _stepped(page, tree[last])
+            page.click(".vl-dhead .vl-spot-next")
+            into = _stepped(page, tree[last + 1])
+            # the last spot: "Next spot" goes off, the focus to "Previous spot"
+            _state(page, f"view.select({tree[-2]});")
+            _stepped(page, tree[-2])
+            page.focus(".vl-dhead .vl-spot-next")
+            page.keyboard.press("Enter")
+            end = _stepped(page, tree[-1])
+            # smallest first: the steps follow the tree's order
+            page.click(".vl-tree .vl-dir")
+            page.wait_for_function("() => !window.FINDALINE_VIEW.view.desc", timeout=WAIT)
+            asc = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            _state(page, f"view.select({asc[0]});")
+            _stepped(page, asc[0])
+            page.click(".vl-dhead .vl-spot-next")
+            reversed_step = _stepped(page, asc[1])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("spot stepper, desktop: head", order, "start", {k: start[k] for k in ("spot", "k", "prev", "next")},
+          "steps", [(s["spot"], s["k"], s["pressed"], s["inView"]) for s in steps], "back", {k: back[k] for k in ("k", "prev", "focus")},
+          "into", {k: into[k] for k in ("spot", "open", "pressed", "inView")}, "closed before", closed, "end", {k: end[k] for k in ("k", "next", "focus")})
+    # the title first, then the star (where the page keeps favourites), the pair, ×
+    assert order[0] == "vl-spot-title" and order[-2:] == ["vl-spots", "vl-dclose"] and len(order) <= 4, order
+    assert start["prev"]["off"] and not start["next"]["off"], start
+    assert start["prev"]["label"] == WORDS["ui.view.spot_before"] and start["next"]["label"] == WORDS["ui.view.spot_next"], start
+    for k, s in zip((1, 2, 3), steps):
+        assert s["k"] == k and s["row"] == s["shown"] and s["pressed"] == "true" and s["inView"], s
+        assert not s["prev"]["off"] and not s["next"]["off"], s
+    assert back["k"] == 0 and back["prev"]["off"] and "vl-spot-next" in back["focus"], back
+    assert closed == "false" and into["open"] == "true" and into["pressed"] == "true" and into["inView"], (closed, into)
+    assert end["k"] == len(tree) - 1 and end["next"]["off"] and "vl-spot-prev" in end["focus"], end
+    assert asc != tree and reversed_step["k"] == 1 and reversed_step["spot"] == asc[1], reversed_step
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_spot_stepper_phone(site, device):
+    """P1 on a phone: the pair in the sheet's head, beside the spot's title, 44 x 44, inside the sheet's visible part at
+    its lowest stop, where a press steps to the next spot of the tree (its shown line selected)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            _state(page, f"view.select({tree[0]});")
+            start = _stepped(page, tree[0])
+            snap = page.evaluate("() => F.snap()")
+            page.wait_for_function("() => F.rest()", timeout=WAIT)
+            sheet = page.evaluate("() => [Math.round(document.querySelector('.u-sheet').getBoundingClientRect().top), innerHeight]")
+            start = page.evaluate(STEPPER)
+            _tap_on(page, ".vl-sheet-row .vl-spot-next")
+            stepped = _stepped(page, tree[1])
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("spot stepper, phone:", device.get("viewport"), "sheet", snap, sheet, "start", {k: start[k] for k in ("prev", "next")},
+          "stepped", {k: stepped[k] for k in ("spot", "k", "row", "shown", "prev")})
+    assert start["prev"]["size"] == [44, 44] and start["next"]["size"] == [44, 44], start
+    assert start["prev"]["off"] and not start["next"]["off"], start
+    assert start["next"]["bottom"] <= sheet[1], (start, sheet)
+    assert stepped["k"] == 1 and stepped["row"] == stepped["shown"] and not stepped["prev"]["off"], stepped
