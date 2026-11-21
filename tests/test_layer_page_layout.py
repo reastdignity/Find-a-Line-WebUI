@@ -525,6 +525,9 @@ def test_counts_are_parted_by_semicolons(site):
     assert re.fullmatch(rf"{point['count']:,} lines; [\d.,]+ per km²", tip), (tip, point)
     page.mouse.click(point["x"], point["y"])
     page.wait_for_selector(".c-layer-cell", timeout=WAIT)
+    # The card shows before its spots count (a second /histogram request, about 20 ms later): wait for the count.
+    page.wait_for_function(r"() => /; [\d,]+ spots;/.test(document.querySelector('.c-layer-cell')?.innerText || '')",
+                           timeout=WAIT)
     card = page.inner_text(".c-layer-cell")
     assert re.search(rf"\n{point['count']:,} lines; [\d,]+ spots; [\d.,]+ lines per km²\n", card), (card, point)
     assert not re.search(r"(lines|spots), \d", card), card

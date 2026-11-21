@@ -103,8 +103,6 @@ export function limitText(kind: DimensionKind, dimension: string, value: number 
 
 interface Bar { value: number; pressed: boolean; pickable: boolean; title: string }
 
-/** One histogram: `title` (on phones a button enlarging it), the bars (a button each when pickable), `axis` the
- *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`. */
 /** A chart's name focused by the keyboard in a phone's swiped strip (c.css .c-layer-charts): the browser leaves a name
  *  partly outside the strip (its focus scroll, then the strip's snapping: up to 98 px of it out of the window), so its
  *  chart is brought to the strip's start, a snap position. Not for a press (no :focus-visible): the strip must not
@@ -116,6 +114,8 @@ function revealInStrip(e: FocusEvent) {
   if (r.left < s.left - 0.5 || r.right > s.right + 0.5) chart.scrollIntoView({block: "nearest", inline: "start"});
 }
 
+/** One histogram: `title` (on phones a button enlarging it), the bars (a button each when pickable), `axis` the
+ *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`. */
 export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle, children}:
                           {name: string; title: string; bars: Bar[]; axis: string[]; open: boolean; wide: boolean;
                            onPick(k: number, shift: boolean): void; onTitle(): void; children?: ComponentChildren}) {

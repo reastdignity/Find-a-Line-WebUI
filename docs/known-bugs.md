@@ -538,7 +538,7 @@ Group B brought the 3D view of a line to DESIGN.md's rules with its layout kept 
   that leaves the readout as it was changes no size (`test_view3d_handle_stays_under_the_finger`,
   `test_view3d_two_fingers_hold_the_bar`). Left, as the planner chose: at the first release the bar's row appears, the
   stage gets 44 px lower (on the iPhone once more when the profile's line comes in) and the handles move with the
-  scene. A turn of the window during a drag keeps the bar's old height until the release; Escape does not end a drag
+  scene. A turn of the window during a drag keeps the bar's old height until the new profile is in; Escape does not end a drag
   (as on main). A press on the rim of the handle's 44 px target adds no offset
   (`test_view3d_handle_drag_keeps_its_offset`).
 - **The marks' targets** (row 43) take presses from the stage: in "Lines from a point" on a phone the targets cover
@@ -642,7 +642,11 @@ Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mende
   room, the forced-colours outline): keyboard only; none of its pictures changed (the whole `ui_shots` set compared).
 - **A press on a coverage outline** now leaves the focus on the map in every engine (its default prevented: WebKit as
   on main). In Chromium it focused the outline on main (its tooltip then stayed after a tap, the arrows did not pan
-  after a click); keeping that in Chromium alone would need the engine told apart.
+  after a click); keeping that in Chromium alone would need the engine told apart. In WebKit's iPhone profile at its
+  own 390 x 664 a tap on an outline now moves the search point and keeps the outline's tooltip open, where on main it
+  did neither (at 1024 x 900 both builds behave alike): taken as an improvement, left.
+- **The layer's strip on a phone**: a chart's name focused by Tab comes into view whole; on the Pixel 7 one of the 16
+  names still has 4 px of its ring past the window's edge (none on the iPhone).
 - **The arrows choose in every radio group but the goal cards** (WAI-ARIA's pattern, the planner's decision): each
   arrow on the 3D view's imagery starts that imagery's tiles (Esri's with the key), each on the layer's "Cells",
   "Count" or "Lines across the border" a recount (30 to 46 requests in 9 to 12 presses on the sample cubes), and one on
@@ -652,7 +656,8 @@ Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mende
 - **The map credits' ring and the credits' brackets**: the ring is clear of its link's own letters (no pixel under it
   at device scale 1 and 2, light and dark), and a "p"'s descender ends on the pixel row above its bottom side (the map's
   edge leaves no more room). Where a bracket adjoins the link with no space, "(report a map issue)" and "(CC-BY-SA)",
-  the ring's side lies on that "(" or ")": a 2 px side between them needs room the line does not have without moving.
+  the ring's side lies on that "(" or ")": a 2 px side between them needs room the line does not have without moving
+  (judged acceptable by the design review; a 1 px side ring would be the cheapest remedy).
 - Firefox was not run (by the code: a coverage outline was never focusable there, and a press keeps the map's focus).
 
 ## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)
