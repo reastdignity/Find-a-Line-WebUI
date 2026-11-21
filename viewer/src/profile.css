@@ -17,6 +17,14 @@
 .ui .r-profile .fal-profile-controls label { margin-right: 10px; white-space: nowrap; }
 .ui .r-profile .fal-profile-controls input[type=number] { width: 56px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--surface); padding: 2px 4px; }
+/* the profile's controls on a touch screen: a finger's 44 px (R2; the user's "12 a"): the 1:1 scale and the head's
+   buttons, the heights' and the rigging's fields, a layer's row (its label is the checkbox's target) */
+@media (pointer: coarse) {
+  .ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { min-height: 44px; }
+  .ui .r-profile .fal-profile-head .fal-close { min-width: 44px; }  /* the head's ×: 44 x 44 (the design review's F2) */
+  .ui .r-profile .fal-profile-controls input[type=number] { min-height: 44px; }
+  .ui .r-profile .fal-profile-controls label { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; }
+}
 .ui .r-profile .fal-profile-chart { overflow: hidden; width: 100%; }
 .ui .r-profile .fal-profile-chart svg { display: block; }
 .ui .r-profile .fal-hover { touch-action: pan-y; }

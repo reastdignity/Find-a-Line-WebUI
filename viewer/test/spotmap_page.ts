@@ -150,8 +150,15 @@ async function rest(after: string) {
   view.select(view.spotOf(0));  // the made-up run's star: its lines leave the map's middle
   await rest("a change");
   const chosen = view.selected!;
+  // (`m`: the spots in view now: the profile's card that the selection opens may move the map off a line under it)
   out.selected = {drawn: picture(view, map), passing: view.passingOf(chosen.spot).length, marks: document.querySelectorAll(".v-anchor-mark").length,
-                  inView: view.inView.spots.includes(chosen.spot)};
+                  inView: view.inView.spots.includes(chosen.spot), m: view.inView.m};
+  // the profile closed: its card (and the room it takes from the canvas's moves) is tests/test_view_frame.py's; the
+  // fan below is the canvas's alone
+  view.model.closeProfile();
+  await rest("a change");
+  // the legend with the profile closed (no card, the legend unfolded): its rows with the selection
+  out.selectedOpen = picture(view, map);
   // opened through the model (as the details' buttons do): the canvas moves the map, because far ends lie outside
   const centre = leaflet.getCenter(), zoomBefore = leaflet.getZoom(), columns = view.model.data.columns;
   const outside = () => view.fan!.rows.filter((r) => {

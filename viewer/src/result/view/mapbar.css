@@ -9,13 +9,14 @@
 
 /* What lies over the map (R8 "raised"): one look, the view's --surface with its shadow, no edge */
 .ui .v-levels, .ui .v-best, .ui .v-status, .ui .v-legend, .ui .v-help, .ui .v-fold, .ui .vl-hint, .ui .vl-hint-open,
-.ui .v-result .v-help-button .ac-info.u-plain, .ui .v-result .v-map .leaflet-bar, .ui .v-result .v-map .leaflet-control-layers,
+.ui .v-result .v-help-button .ac-info.u-plain, .ui .v-result .v-map .v-info.u-plain, .ui .v-result .v-map .leaflet-bar,
+.ui .v-result .v-map .leaflet-control-layers, .ui .v-result .c-col-map > .r-card,
 .ui .v-result .u-shore, .ui .v-result .u-shore-chip, .ui .v-result .c-pill, .ui .vl-choose,
 .ui .c-placemap .leaflet-control-zoom, .ui .c-placemap .leaflet-control-layers, .ui .c-placemap .n-coverage {
   background: var(--surface); border: 0; border-radius: var(--r-2); box-shadow: var(--shadow); }
 /* the keyboard's ring beside their own shadow (the kit's ring is a shadow too: theirs would replace it) */
 .ui .v-fold:focus-visible, .ui .vl-hint-open:focus-visible, .ui .v-help-button .ac-info:focus-visible,
-.ui .v-result .u-shore-chip:focus-visible { box-shadow: var(--shadow), var(--focus); }
+.ui .v-result .v-map .v-info:focus-visible, .ui .v-result .u-shore-chip:focus-visible { box-shadow: var(--shadow), var(--focus); }
 
 /* ---- the switch and Best at the top ---- */
 .ui .v-switch { position: absolute; z-index: 800; top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; align-items: center;
@@ -63,6 +64,9 @@
 .ui .v-lay-1 { background: var(--layer-1); } .ui .v-lay-2 { background: var(--layer-2); } .ui .v-lay-3 { background: var(--layer-3); }
 .ui .v-lay-4 { background: var(--layer-4); } .ui .v-lay-5 { background: var(--layer-5); }
 .ui .v-lg-note { flex-basis: 100%; color: var(--muted); }
+/* a label and its items kept on one row of a wrapping legend ("Anchors" and the access marks), the legend's own gap:
+   the group moves to a row of its own as one item; only a legend narrower than the group wraps inside it */
+.ui .v-lg-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; max-width: 100%; }
 .ui .v-by { font-weight: 600; max-width: 100%; }
 /* the marks of the map 1:1 (40 x 24 px, their text at 12 px: R1): the map's own paper and ink in both themes */
 .ui .v-sh { width: 40px; height: 24px; flex: none; }
@@ -95,6 +99,65 @@
 .ui .v-help-button { display: inline-flex; }
 .ui .v-result .v-help-button .ac-info { width: 32px; height: 32px; }
 @media (pointer: coarse) { .ui .v-fold { min-height: 44px; } .ui .v-result .v-help-button .ac-info { width: 44px; height: 44px; } }
+
+/* The map's one "i" (the user's 7 b, the mock-up's info button): a desktop's at the switch's end, a phone's in the
+   foot's row (where the access key's was); open, the kit's on-state */
+.ui .v-about-button { display: inline-flex; }
+.ui .v-result .v-map .v-info { width: 32px; height: 32px; color: var(--ink-2); }
+.ui .v-result .v-map .v-info .u-ic { width: 16px; height: 16px; }
+.ui .v-result .v-map .v-info.u-plain.u-on { background: var(--accent-soft); color: var(--accent-ink); }
+@media (pointer: coarse) { .ui .v-result .v-map .v-info { width: 44px; height: 44px; } }
+/* its help: on a desktop both texts in a box under the switch, above the map's other controls (an opened layers list
+   lies there too); on a phone its parts in the panel above the foot (.v-over), one open at a time, the others a row */
+.ui .v-about { font-size: var(--fs-2); line-height: 18px; color: var(--ink-2); display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 8px 8px 12px; }
+.ui .v-about-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ui .v-about p { margin: 0; }
+.ui .v-about b { color: var(--ink); font-weight: 600; }
+/* its close (the mock-up's ×): 24 px on a desktop, a finger's 44 px on a touch screen */
+.ui .v-result .v-about .v-about-x { width: 24px; height: 24px; flex: none; color: var(--ink-2); }
+.ui .v-result .v-about .v-about-x .u-ic { width: 16px; height: 16px; }
+@media (pointer: coarse) { .ui .v-result .v-about .v-about-x { width: 44px; height: 44px; } }
+.ui .v-map > .v-about-all { position: absolute; z-index: 1100; top: 56px; left: 50%; transform: translateX(-50%);
+  width: min(340px, calc(100% - 16px)); max-height: calc(100% - 72px); }
+@media (pointer: coarse) { .ui .v-map > .v-about-all { top: 68px; } }
+.ui .v-about-parts { padding-block: 0; }
+.ui .v-about-parts .v-about-txt { gap: 0; }
+.ui .v-part { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0; border: 0;
+  border-top: 1px solid var(--rule); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ui .v-part:first-child { border-top: 0; }
+.ui .v-part .u-ic { width: 16px; height: 16px; flex: none; color: var(--ink-2); }
+.ui .v-part:focus-visible { box-shadow: var(--focus-in); border-radius: var(--r-1); }
+.ui .v-part-text { display: flex; flex-direction: column; gap: 8px; padding: 0 0 8px 24px; }
+.ui .v-part-text .ac-key { display: flex; flex-direction: column; gap: 8px; }
+
+/* The legend's signs of what is drawn besides the spots: a dashed outline (the search area's; another run's in its
+   colour, after the bar of its lines) on a chip of the map's own paper, in both themes (the marks' paper and ink) */
+.ui .v-dash { display: block; width: 16px; height: 12px; flex: none; }
+.ui .v-dash rect { fill: #fff; }
+.ui .v-dash path { fill: none; stroke: #1b2530; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.ui .v-runmark { display: inline-flex; align-items: center; gap: 4px; }
+/* a favourite's sign: the line (4 px, as the legend's bars) inside its gold band (12 px; MapBar FavSign's colours) */
+.ui .v-fav { display: inline-flex; align-items: center; width: 16px; height: 12px; border-radius: var(--r-1); flex: none; }
+.ui .v-fav i { display: block; width: 100%; height: 4px; }
+
+/* A phone's measuring tip: the status line's first line, as the map's message (.v-msg) */
+.ui .v-status .v-tip { font-weight: 600; }
+
+/* The profile's card over a desktop's map (ProfileCard, result.css .r-card) stands on the run's credits' line (the
+   user's 4 a: SpotColumns' --v-card-bottom, their height and a gap); the scale goes above it (corners.ts) */
+.ui .v-result .c-col-map > .r-card { bottom: var(--v-card-bottom, 12px); }
+
+/* The run's actions in a phone's pill (icons, after the caller's): plain, as the pill's other buttons */
+/* the icons side by side at their 44 px (the mock-up's pitch), the name keeping its room (the second design review's
+   N2: 133 px of the owner's run's name on a 390 px phone) */
+.ui .v-result .c-pill .r-actions { flex-wrap: nowrap; gap: 0; }
+.ui .v-result .c-pill .r-actions .u-ib { box-shadow: none; }
+/* their menus (Share, Download) open under the whole pill, as wide as it: under the button they ran off a 390 px
+   screen's left edge (fix round 1's pictures) */
+.ui .v-result .c-pill { position: relative; }
+.ui .v-result .c-pill .r-actions .r-popwrap { position: static; }
+.ui .v-result .c-pill .r-actions .r-pop { left: 0; right: 0; width: auto; }
 
 /* the map's message on a desktop: a dark box at the top, under the switch (a phone: in the status line's box) */
 .ui .v-map > .v-toast { position: absolute; z-index: 810; top: 56px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
@@ -135,26 +198,36 @@
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > span,
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-list label > div { display: flex; align-items: center; gap: 8px; }
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-separator { border-top-color: var(--rule); }
-/* the place map's layers button: the kit's "layers" icon (PlaceMap.ts puts it in), not Leaflet's grey picture; no
-   picture to turn over in the dark theme (ui.css) */
-.ui .c-placemap .leaflet-control-layers .leaflet-control-layers-toggle { display: flex; align-items: center; justify-content: center;
-  background-image: none; filter: none; color: var(--ink); }
-.ui .c-placemap .leaflet-control-layers.leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none; }
+/* the layers button of both maps: the kit's "layers" icon (layersControl.ts puts it in), not Leaflet's grey picture;
+   no picture to turn over in the dark theme (ui.css); opened, its box stands in the button's place */
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers .leaflet-control-layers-toggle { display: flex; align-items: center;
+  justify-content: center; background-image: none; filter: none; color: var(--ink); }
+.ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers.leaflet-control-layers-expanded .leaflet-control-layers-toggle { display: none; }
 /* the rows' own radio and checkbox in the accent (the browser's blue otherwise) */
 .ui :is(.v-result .v-map, .c-placemap) .leaflet-control-layers-selector { accent-color: var(--accent); }
+/* a desktop's top left boxes (the shore's, the coarser terrain's) end left of the layers button, also in a narrow map
+   column (a 1024 px window: the second design review's N4) */
+.ui .v-result:not(.c-result-phone) .v-map .leaflet-top.leaflet-left { max-width: calc(100% - 64px); }
+.ui .v-result:not(.c-result-phone) .v-map .leaflet-top.leaflet-left .u-shore { max-width: min(320px, 100%); }
 /* the uncertain shore's box (a desktop) and its chip (a phone) in the view's look */
 .ui .v-result .u-shore { padding: 8px 8px 8px 12px; font-size: var(--fs-2); line-height: 18px; }
+/* the shore's opened box scrolls under its title (ui.css .u-shore-ctl): no padding above the title, which takes the
+   box's own; a scrolled text never shows above it (A3's note) */
+.ui .v-result .u-shore-ctl .u-shore { padding-top: 0; }
+.ui .v-result .u-shore-ctl .u-shore-head { margin: 0 -8px 0 -12px; padding: 8px 8px 4px 12px; }
 .ui .v-result .u-shore-chip { min-height: 32px; padding: 0 8px; gap: 4px; font-size: var(--fs-3); }
 .ui .v-result .u-shore-chip::after { content: none; }  /* the chip is a whole target itself (44 px on a touch screen) */
 
 /* ---- a phone (the pilot's arrangement at 390 x 664, for every phone height): the top bar 44 px high; under the
    switch one row of the zoom (across), the shore's chip and the layers; the scale at the bottom right ---- */
 .ui .v-result .c-phone-top { top: 8px; left: 8px; right: 8px; }
-.ui .v-result .c-pill { min-height: 44px; padding: 0 16px 0 0; gap: 4px; border-radius: var(--r-full); }
+.ui .v-result .c-pill { min-height: 44px; padding: 0 4px 0 0; gap: 4px; border-radius: var(--r-full); }
 .ui .v-result .c-pill-name { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .c-result-phone .v-switch { top: 60px; justify-content: flex-start; }
 .ui .c-result-phone .v-map .leaflet-top { top: 112px; }
-.ui .c-result-phone .v-map .leaflet-top.leaflet-left { display: flex; align-items: flex-start; }
+/* (the row ends left of the layers button, 44 px and its 8 px each side: a box that does not fit, the coarser
+   terrain's, wraps under the zoom instead of running under the button) */
+.ui .c-result-phone .v-map .leaflet-top.leaflet-left { display: flex; flex-wrap: wrap; align-items: flex-start; max-width: calc(100% - 60px); }
 /* the zoom across, + and − side by side: on a phone, and in the columns while their foot is the phone's (MapBar's
    .v-compact: the legend folded where it would reach the top controls; the planner's decision of 2026-11-18) */
 /* the same on the place map in its phone arrangement (PlaceMap's .c-map-phone) */

@@ -240,9 +240,6 @@
    its contents on the sheet's 16 px (its x in the column of the hint's and the selection's: polish 10) */
 .ui .vl-details .vl-dock { margin: 0 -16px; padding: 4px 16px 8px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
   box-shadow: none; max-height: none; overflow: visible; z-index: auto; }
-/* the dock's bar on a phone's width: its hint on a line of its own under the title and "Rigging and layers" (else the
-   chip wraps alone; the mock-up's dock has the hint under the chart: ProfileDock's own) */
-.ui .vl-details .vl-dock .r-hint { order: 9; flex: 1 0 100%; }
 /* the star's folders open under it towards the left, as wide as their list (today's 280 px, not the menus' 340: they
    stay inside the details' column and a phone's width); 44 px rows on a touch screen (R2) */
 .ui .v-result .vl-dhead .r-pop, .ui .v-result .vl-sheet-row .r-pop { width: auto; }
@@ -308,3 +305,28 @@
 .ui .vl-none { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; color: var(--ink); }
 .ui .vl-none-text { margin: 0; }
 .ui .vl-list .vl-none { padding: 12px 0; }
+/* a narrow desktop list (a low window: 1024 px gives it 320 px): the row star's room taken from the rows' gaps and
+   edges, so the heads and values stay apart (the second design review's N3, B3's fix with the planner's leave); the
+   default width (372 px) keeps the rows above as they are */
+.ui .c-col-list .vl-body { container: vl-list / inline-size; }
+@container vl-list (max-width: 360px) {
+  .ui .vl-rows { padding-left: 4px; }
+  .ui .vl-rows.vl-starred { padding-right: 0; }
+  .ui .vl-cols { margin-left: 4px; }
+  .ui .vl-cols.vl-starred { margin-right: 24px; }
+  .ui .vl-main, .ui .vl-cols { column-gap: 2px; padding-left: 2px; padding-right: 2px; }
+}
+/* the same list on a touch screen (a tablet held sideways: 1024 px), its star 44 px: the heads keep the star's room
+   (else the rule above beats the touch one: the third code review), and the 20 px more come from the rows' edges,
+   1 px of each gap and the anchors' column at its heading's width; the value columns shared by what they hold (the
+   widest value or heading, measured: 39 / 43 / 53 / 28 px) */
+@media (pointer: coarse) {
+  @container vl-list (max-width: 360px) {
+    .ui .vl-rows.vl-starred { padding-left: 0; }
+    .ui .vl-cols.vl-starred { margin-left: 0; margin-right: 44px; }
+    .ui .vl-starred .vl-main, .ui .vl-cols.vl-starred { column-gap: 1px; padding-left: 0; padding-right: 0;
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) minmax(0, 28fr); }
+    .ui .vl-starred.vl-with-acc .vl-main, .ui .vl-cols.vl-starred.vl-with-acc {
+      grid-template-columns: 40px 12px minmax(0, 39fr) minmax(0, 43fr) minmax(0, 53fr) 45px minmax(0, 28fr); }
+  }
+}

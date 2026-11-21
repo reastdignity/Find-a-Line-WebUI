@@ -85,7 +85,7 @@ export function LineActions(p: Props) {
 export function LineDock({view, map, measured}: Props) {
   const sel = selected(view), model = view.model;
   if (!sel || model.profileClosed || measured) return null;
-  return <ProfileDock model={model} view={map} line={sel.line} onClose={() => model.closeProfile()} class="vl-dock" />;
+  return <ProfileDock model={model} view={map} line={sel.line} onClose={() => model.closeProfile()} class="vl-dock" compact />;
 }
 
 /** "Report this line" (the frame's `lineActions` slot: below the facts), where the page has the report form; nothing

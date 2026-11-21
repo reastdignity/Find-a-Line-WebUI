@@ -1,23 +1,27 @@
 // The result view's frame (docs/line-volume/spec-view.md B.2: "Today's page stays as the frame"), beside today's
 // page (ResultColumns.tsx, which opens it only behind the flag: viewWanted, opensView): a header (the caller's way
-// back, the run's name and date, the caller's actions) and three columns: the list | the map with its bar
-// (MapBar) | the details; the side panels' edges, rails and kept widths are today's (ui/SidePanel, layout.ts). On
-// phones (< 768 px) the map with a sheet holding the hint, the details and the list. The columns' contents are
-// slots (SpotPanels.tsx: PANELS), filled by the view's panels; the frame owns the Leaflet map (base layers with
-// the run's orthophoto, the shore's and the coarser terrain's overlays, the layer control, the scale, the run's
-// data credits), the canvas (SpotMap), the toast, where the table of spots stands, and Esc.
+// back, the run's name and date without the line count (the user's W8), the caller's actions, then the run's:
+// Measure, Compare, Share, Download, RunActions as on today's page) and three columns: the list | the map with its
+// bar (MapBar) and the selected line's profile in a card over the map's bottom (ProfileCard, today's) | the details;
+// the side panels' edges, rails and kept widths are today's (ui/SidePanel, layout.ts). While the card is open the
+// map's foot is the short one (MapBar `short`: the legend behind "Legend", the run's data credits behind theirs) and
+// the card stands on the credits' line, the scale above it (the user's 4 a; corners.ts), its height not "in view"
+// (the canvas's covered term). On phones (< 768 px) the map with a sheet holding the hint, the details and the list;
+// the run's actions are icons in the top bar's pill (no Compare, as today). The columns' contents are slots
+// (SpotPanels.tsx: PANELS), filled by the view's panels; the frame owns the Leaflet map (base layers with the run's
+// orthophoto, the shore's and the coarser terrain's overlays, the layers button with the kit's icon, the scale, the
+// run's data credits), the canvas (SpotMap), the toast, the run's actions, the profile's card, where the table of
+// spots stands, and Esc.
 //
-// The route's line (`line`, `nav`) opens in the view and the selection goes into the hash (`hashOf`): viewlink.ts.
-// A line outside the run that a link names is measured and kept here (SpotColumns' `measured`, across the phone's
-// width); nothing draws it yet. On a phone a selected line that the sheet (or the data credits band above it) covers
-// when it moves is brought back into sight (useSheetKeeps), and a link that ends in a note raises the sheet to half.
-//
-// Not here yet (they join with today's other features, step 3c): the run's actions (Download, Measure, Share,
-// Compare), the profile card and a line's links. Their places are empty slots, each marked in the JSX below: the
-// run's actions (the header; a phone's pill), the profile card over the map (the columns), the profile's dock (a
-// phone's sheet) and the selected line's actions (SpotPanels `lineActions`, after the details). The props they need
-// reach Desktop and Phone (`show`, the measured line; not read yet), and the caller's `linkOf` and `view3dOf` go on
-// to the panels (PanelProps).
+// Measuring (RunActions' Measure on the canvas): on a desktop the tip stands beside "Cancel"; on a phone the sheet
+// goes low and the tip is the status line's first line (MapBar `tip`) while the canvas holds the map still. The
+// measured line, Measure's or a link's outside the run (viewlink.ts), is kept here across the phone's width
+// (SpotColumns' `measured`), drawn on the canvas, its profile in the card (a desktop) or first in the sheet's body at
+// half (a phone); a link's measured line is fitted into the map, Measure's only where it is not in sight; its close
+// clears it (and model.measuredLink). The route's line (`line`, `nav`) opens in the view and the selection goes into
+// the hash (`hashOf`): viewlink.ts. On a phone a selected line that the sheet (or the data credits band above it)
+// covers when it moves is brought back into sight (useSheetKeeps), and a link that ends in a note raises the sheet to
+// half (also when the window crossed the phone's width while the link's line was measured).
 //
 // For tests and the console: window.FINDALINE_MAP is the Leaflet map (as on today's page) and
 // window.FINDALINE_VIEW = {view, map} (the SpotView and the SpotMap) is set once the view was drawn for the first
@@ -31,6 +35,7 @@ import { Button, IconButton, Sheet, type Snap } from "../../ui/components";
 import { SidePanel, useWidthOf } from "../../ui/SidePanel";
 import { ICONS, type IconName } from "../../ui/icons";
 import { baseLayers } from "../../baselayers";
+import { Layers } from "../../layersControl";
 import { addShore } from "../../shoreLayer";
 import { addCoarser } from "../../coarserLayer";
 import { t } from "../../i18n";
@@ -41,13 +46,16 @@ import type { ResultModel } from "../model";
 import type { Padding } from "../ResultMap";
 import { SpotMap } from "../SpotMap";
 import { createSpotView, viewOf, type SpotChoice, type SpotView } from "../spots";
-import { count } from "./common";
-import { keepScaleAboveAttribution, useCornersAboveSheet } from "./corners";
+import { count, cx } from "./common";
+import { useCornersAboveCard, useCornersAboveSheet } from "./corners";
 import { useRunCredits } from "./credits";
 import type { Area } from "./LineChooser";
 import { DEFAULT_LAYOUT, LIMITS, fitColumns, maxColumnWidth, type Column, type Layout } from "./layout";
 import { MapBar } from "./MapBar";
+import { ProfileCard, cardHeightAhead } from "./ProfileCard";
+import { ProfileDock } from "./ProfileDock";
 import type { BackAction, ResultColumnsProps } from "./ResultColumns";
+import { RunActions, useMeasureTip } from "./RunActions";
 import { PANELS, useSpotView, type PanelProps, type SpotPanels } from "./SpotPanels";
 import { useLayout, type LayoutState } from "./useLayout";
 import { useViewLink } from "./viewlink";
@@ -102,9 +110,18 @@ export interface SpotColumnsProps extends ResultColumnsProps {
 interface FrameProps extends SpotColumnsProps {
   view: SpotView;
   panels: SpotPanels;
-  /** A line outside the run that a link named, measured (viewlink.ts); null: none. Nothing draws it yet. */
+  /** The measured line: Measure's, or a line outside the run that a link named (viewlink.ts); null: none. */
   measured: Line | null;
-  onMeasured(l: Line | null): void;
+  /** A measured line given (`link`: a link's, viewlink.ts; else Measure's), or none (null). */
+  onMeasured(l: Line | null, link?: boolean): void;
+  /** The measured line was shown for the first time (fitted, a phone's sheet raised): kept across the phone's width,
+   *  so a frame drawn anew does not move the map again; false: not yet (also an answer that came after the crossing). */
+  firstShow(): boolean;
+  /** Whether the measured line is a link's (fitted always) or Measure's (only where it is not in sight). */
+  measuredLink: boolean;
+  /** The count of new selections so far (SpotColumns', across the phone's width): Measure drops an answer that comes
+   *  after a new selection (the selection ends a measured line: viewlink.ts). */
+  selections(): number;
 }
 
 /** A press's choice of the spots it reached about as near, at its point in the viewport. */
@@ -114,8 +131,9 @@ const TOAST_MS = 3200;  // how long a message of the map stays
 
 /** The map of the view: base layers (with the run's orthophoto), zoom in quarter steps (half a step for one notch
  *  of the wheel: measured in Edge on Windows, where Leaflet reads a notch as 50 px, 90 px per level give 0.5; 150
- *  gave a quarter, Leaflet's own 60 three quarters), the layer control with the shore's and the coarser terrain's overlays, the scale, and the
- *  canvas (SpotMap) fitted to the run's lines. */
+ *  gave a quarter, Leaflet's own 60 three quarters), the layers button (the kit's icon, as the place map's:
+ *  layersControl.ts) with the shore's and the coarser terrain's overlays, the scale, and the canvas (SpotMap) fitted
+ *  to the run's lines. */
 function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["ortho"], frame: {
   padding(): Padding; free(): Padding; obstacles(): DOMRect[]; onChoose(choice: ChoiceAt): void; onToast(text: string): void;
   phone?: boolean;
@@ -139,7 +157,7 @@ function useSpotMap(view: SpotView, data: RunData, ortho: ResultColumnsProps["or
     const overlays: Record<string, L.Layer> = {};
     addShore(leaflet, data.shore, overlays);  // the uncertain shore: its overlay, its metres in view
     model.setCoarserFit(addCoarser(leaflet, data.terrain_sources, overlays)?.fit ?? null);
-    L.control.layers(layers, Object.keys(overlays).length ? overlays : undefined, {position: "topright"}).addTo(leaflet);
+    new Layers(layers, overlays, {position: "topright"}).addTo(leaflet);
     // on a phone at the right, above the credits: the bar's foot stands beside it at the left (MapBar)
     L.control.scale({position: frame.phone ? "bottomright" : "bottomleft"}).addTo(leaflet);
     let made: SpotMap | null = null, drawn = false;
@@ -217,11 +235,11 @@ function useToast(): [string, (text: string) => void] {
   }];
 }
 
+/** The run's name and date: no line count (the user's W8: the list's headline counts the spots and lines). */
 function Title({data}: {data: RunData}) {
-  const n = data.columns.length;
   return <div class="c-run-title">
     <b class="c-run-name">{data.run.name}</b>
-    <span class="u-small">{when(data.run.created)} · {t("ui.view.map.title_lines", {count: n, n: count(n)})}</span>
+    <span class="u-small">{when(data.run.created)}</span>
   </div>;
 }
 
@@ -273,6 +291,130 @@ function barPadding(col: HTMLElement | null, top: number, bottom: number): Paddi
           bottom: box && foot && foot.height ? Math.max(bottom, Math.round(box.bottom - foot.top) + 4) : bottom};
 }
 
+const CLEAR_GAP = 8;   // px between a control over the map and a line's end brought clear of it
+
+/** The boxes of the controls over the map (the boxes the canvas keeps its numbers clear of: [data-map-control] and
+ *  Leaflet's controls; the zoom, the layers button, the shore's and the coarser terrain's boxes or chips, the status
+ *  line, the scale; not a panel the person opened, nor the foot unseen at full), in the map's container px, each
+ *  CLEAR_GAP px larger. Only a line's ends are kept clear of them (endsClear): every fit of the map goes into the
+ *  bar's room (the planner, fix round 3: the padding grown by the controls of fix round 2 drew the run and its lines
+ *  smaller wherever a control stood in the upper half). */
+function controlBoxes(col: HTMLElement | null, map: L.Map): [number, number, number, number][] {
+  const at = map.getContainer().getBoundingClientRect(), out: [number, number, number, number][] = [];
+  col?.querySelectorAll<HTMLElement>("[data-map-control], .leaflet-control").forEach((e) => {
+    const r = e.getBoundingClientRect();
+    if (!r.width || !r.height || e.closest(".v-over, .v-about-all, .v-foot-off")) return;
+    out.push([r.left - at.left - CLEAR_GAP, r.top - at.top - CLEAR_GAP, r.right - at.left + CLEAR_GAP, r.bottom - at.top + CLEAR_GAP]);
+  });
+  return out;
+}
+
+/** The rectangle of the part `p` leaves of a map of `size` that none of `boxes` crosses and that holds a line of
+ *  extent `dx` x `dy` px at the largest scale (the least of its width and its height over the line's, each less
+ *  END_MARGIN on both sides: a steep line goes to a tall gap, a flat one to a wide one; the third code review):
+ *  [x0, y0, x1, y1] in the map's container px, or null (the candidates' edges are the part's and the boxes'). */
+function largestFree(size: L.Point, p: Padding, boxes: [number, number, number, number][], dx: number,
+                     dy: number): [number, number, number, number] | null {
+  const x0 = p.left, y0 = p.top, x1 = size.x - p.right, y1 = size.y - p.bottom;
+  if (x1 <= x0 || y1 <= y0) return null;
+  const inX = (v: number) => Math.min(x1, Math.max(x0, v)), inY = (v: number) => Math.min(y1, Math.max(y0, v));
+  const xs = [...new Set([x0, x1, ...boxes.flatMap((b) => [inX(b[0]), inX(b[2])])])].sort((a, b) => a - b);
+  const ys = [...new Set([y0, y1, ...boxes.flatMap((b) => [inY(b[1]), inY(b[3])])])].sort((a, b) => a - b);
+  const fit = (w: number, h: number) => Math.min((w - 2 * END_MARGIN) / Math.max(dx, 1), (h - 2 * END_MARGIN) / Math.max(dy, 1));
+  let best: [number, number, number, number] | null = null, scale = 0;
+  for (let i = 0; i < xs.length; i++) for (let j = i + 1; j < xs.length; j++) {
+    for (let k = 0; k < ys.length; k++) for (let m = k + 1; m < ys.length; m++) {
+      const s = fit(xs[j] - xs[i], ys[m] - ys[k]);
+      if (s <= scale) continue;
+      if (boxes.some((b) => b[0] < xs[j] && b[2] > xs[i] && b[1] < ys[m] && b[3] > ys[k])) continue;
+      best = [xs[i], ys[k], xs[j], ys[m]];
+      scale = s;
+    }
+  }
+  return best;
+}
+
+const ENDS_STEP = 0.25;  // a level: the map's zoom step (zoomSnap), so a line comes as close to LINE_LEAST as it can
+const ENDS_STEPS = 16;   // steps a measured line's map is zoomed in (to LINE_LEAST) or out (its ends clear) at most
+const END_MARGIN = 8;  // px a measured end keeps inside the free part (its point's circle)
+const LINE_LEAST = 120;  // px: endsClear never makes a line shorter on the screen (the planner's floor)
+
+/** Does an end of the line lie under one of the map's controls (their boxes CLEAR_GAP px larger)? */
+function endsUnder(map: L.Map, col: HTMLElement | null, l: Line): boolean {
+  const boxes = controlBoxes(col, map);
+  return [[l.lat1, l.lon1], [l.lat2, l.lon2]].some(([lat, lon]) => {
+    const q = map.latLngToContainerPoint([lat, lon]);
+    return boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3]);
+  });
+}
+
+/** A measured line's ends brought clear of the map's controls (the second design review's N1: an end could lie under
+ *  the zoom, a box or chip, the status line), in the part `p` leaves (the bar's room at the stop the sheet rests at).
+ *  Nothing moves where both ends are clear and the line is at least LINE_LEAST px long, or (`grow` false: the person's
+ *  own measurement) as long as it is. Else: a fitted line shorter than LINE_LEAST (`grow`) is zoomed in around its
+ *  middle ENDS_STEP at a time to that length (at most ENDS_STEPS times, not past the run's last zoom, the map's
+ *  greatest); its middle goes to the middle of the free rectangle that holds it at the largest scale (largestFree);
+ *  while an end lies under a control or outside `p`'s part the map zooms out around that point ENDS_STEP at a time,
+ *  at most ENDS_STEPS times, and not where the line would become shorter than LINE_LEAST px (or than it is, for the
+ *  person's own) nor below the map's least zoom. Ends still not clear: the state with the fewest such ends,
+ *  then the longest line, is kept (never the most zoomed-out one): an end may then lie under a control (the
+ *  planner's floor for a crowded small phone). Where `p` leaves no part of the map (a phone's sheet at full) nothing
+ *  moves. No animation. */
+function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, grow: boolean) {
+  const size = map.getSize(), boxes = controlBoxes(col, map);
+  // no part of the map to bring them into (a phone's sheet at full: the bar's room has no height): nothing moves
+  if (size.y - p.top - p.bottom <= 2 * END_MARGIN || size.x - p.left - p.right <= 2 * END_MARGIN) return;
+  const ends = () => [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])];
+  const length = () => { const [a, b] = ends(); return a.distanceTo(b); };
+  const bad = () => ends().filter((q) => q.x < p.left + END_MARGIN || q.x > size.x - p.right - END_MARGIN ||
+    q.y < p.top + END_MARGIN || q.y > size.y - p.bottom - END_MARGIN ||
+    boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3])).length;
+  const least = grow ? LINE_LEAST : Math.min(LINE_LEAST, length());
+  if (!bad() && length() >= least) return;
+  const middle = () => { const [a, b] = ends(); return L.point((a.x + b.x) / 2, (a.y + b.y) / 2); };
+  for (let k = 0; k < ENDS_STEPS && grow && length() < LINE_LEAST && map.getZoom() < map.getMaxZoom(); k++) {
+    map.setZoomAround(middle(), Math.min(map.getMaxZoom(), map.getZoom() + ENDS_STEP), {animate: false});
+  }
+  const [a, b] = ends();
+  const free = largestFree(size, p, boxes, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+  const room = free ?? [p.left, p.top, size.x - p.right, size.y - p.bottom];
+  const target = L.point((room[0] + room[2]) / 2, (room[1] + room[3]) / 2);
+  const place = () => { const m = middle(); map.panBy([m.x - target.x, m.y - target.y], {animate: false}); };
+  place();
+  const state = () => ({bad: bad(), length: length(), centre: map.getCenter(), zoom: map.getZoom()});
+  let best = state();
+  for (let step = 0; step < ENDS_STEPS && best.bad > 0 && bad() > 0; step++) {
+    if (length() * 2 ** -ENDS_STEP < least || map.getZoom() <= map.getMinZoom()) break;  // the floor
+    map.setZoomAround(target, map.getZoom() - ENDS_STEP, {animate: false});
+    place();
+    const now = state();
+    if (now.bad < best.bad) best = now;
+  }
+  if (bad() > best.bad || (bad() === best.bad && length() < best.length)) map.setView(best.centre, best.zoom, {animate: false});
+}
+
+/** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
+ *  keepFree): the bar's room, as every fit's (a padding grown by the controls made the line shorter wherever one
+ *  stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 326 -> 224 px; the planner, fix
+ *  round 3). Asked for just before the fit, it also arms a check of the map's move that follows at once
+ *  (the canvas's fits are not animated: SpotMap fitOptions): where an end of the selected line then lies under a
+ *  control, its ends are brought clear (endsClear: the same floor, never shorter than LINE_LEAST or than it is, the
+ *  same state kept when they cannot be). A fit that does not move the map (a reveal of a line in view) disarms it at
+ *  the next microtask: a later move of the person's is never followed. */
+function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null}, bar: () => Padding): () => Padding {
+  return () => {
+    const p = bar();
+    if (!map) return p;
+    const check = () => {
+      const l = view.selected?.line;
+      if (l && endsUnder(map, col.current, l)) endsClear(map, col.current, l, bar(), false);
+    };
+    map.once("moveend", check);
+    queueMicrotask(() => map.off("moveend", check));
+    return p;
+  };
+}
+
 /** Keeps the bar's foot clear of what lies at the map's bottom: `covered` px of a phone's sheet (--v-covered) and,
  *  above that, Leaflet's own bottom corners where they reach under the foot (the scale; the credits when they run
  *  across the map: --v-corner). When one of them changed its size the canvas takes the view's rectangle again
@@ -307,8 +449,122 @@ function useFootClear(col: {current: HTMLElement | null}, canvas: SpotMap | null
   }, deps);
 }
 
+const CARD_GAP = 8;  // px between the profile's card and the run's credits under it (the mock-up's 4 a)
+
+/** The px of the map's column a desktop's profile card covers, from the column's bottom up to the card's top; 0:
+ *  none. */
+function cardCovers(col: HTMLElement | null): number {
+  const card = col?.querySelector(":scope > .r-card")?.getBoundingClientRect();
+  return col && card && card.height ? Math.max(0, Math.round(col.getBoundingClientRect().bottom - card.top)) : 0;
+}
+
+/** The profile's card over a desktop's map: it stands on the run's credits' line (--v-card-bottom: their height and
+ *  CARD_GAP), and what it covers of the map's bottom (returned, for the foot) is not "in view" (the canvas's covered
+ *  term), followed as the card comes, goes, is dragged or folded and as the credits fold or unfold. */
+function useCardCover(col: {current: HTMLElement | null}, canvas: SpotMap | null): number {
+  const [cover, setCover] = useState(0);
+  useEffect(() => {
+    const el = col.current;
+    if (!el) return;
+    let card: HTMLElement | null = null, credits: HTMLElement | null = null;
+    const update = () => {
+      const now = el.querySelector<HTMLElement>(":scope > .r-card");
+      if (now !== card) {
+        if (card) sizes.unobserve(card);
+        card = now;
+        if (card) sizes.observe(card);
+      }
+      const shown = el.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right .leaflet-control-attribution");
+      if (shown !== credits) {
+        if (credits) sizes.unobserve(credits);
+        credits = shown;
+        if (credits) sizes.observe(credits);
+      }
+      el.style.setProperty("--v-card-bottom", `${(credits?.offsetHeight ?? 0) + CARD_GAP}px`);
+      const px = cardCovers(el);
+      setCover(px);
+      canvas?.setCovered(px);
+    };
+    const sizes = new ResizeObserver(update), children = new MutationObserver(update);
+    sizes.observe(el);
+    children.observe(el, {childList: true});
+    update();
+    return () => { sizes.disconnect(); children.disconnect(); };
+  }, [canvas]);
+  return cover;
+}
+
+/** The height of the short foot that stands above a desktop's card (MapBar `short`): the scale, "Legend" and the
+ *  status line's row with their gaps, as drawn where they are (the fold's row and the scale: their least before). */
+function shortFoot(col: HTMLElement | null): number {
+  const height = (sel: string, least: number) => {
+    const r = col?.querySelector(sel)?.getBoundingClientRect();
+    return r && r.height ? r.height : least;
+  };
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  return height(".leaflet-bottom.leaflet-left .leaflet-control-scale", 24) + 8 + height(".v-fold", touch ? 44 : 32) + 8 +
+    height(".v-foot .v-row:not(.v-buttons)", 28) + 8 + 4;
+}
+
+/** A line's anchors both in the part of the map `padding` leaves free (with `slack` px to spare): today's page's. */
+function lineFree(map: L.Map, l: Line, padding: Padding, slack = 16): boolean {
+  const size = map.getSize();
+  return [[l.lat1, l.lon1], [l.lat2, l.lon2]].every(([lat, lon]) => {
+    const q = map.latLngToContainerPoint([lat, lon]);
+    return q.x >= padding.left - slack && q.x <= size.x - padding.right + slack &&
+      q.y >= padding.top - slack && q.y <= size.y - padding.bottom + slack;
+  });
+}
+
+/** The map moves now (a pan's or a zoom's animation). */
+const moving = (map: L.Map) => !!((map as any)._panAnim?._inProgress || (map as any)._animatingZoom);
+
+/** A measured line shown for the first time in this view (`firstShow`: a new Measure answer or a link's measurement,
+ *  also one that came after the window crossed the phone's width), once the frame was drawn with it: `onFirst` (a
+ *  phone raises its sheet to half), and the line fitted into the map, a link's always (`link`: the person has not seen
+ *  it), Measure's only where it is not in sight (`inRoom`: the person pressed its points there). A line kept across
+ *  the crossing was shown already: nothing moves. `padding`: the fit's, the bar's room as it will be (a phone's sheet
+ *  at half; its check at rest fits it again there: useSheetKeeps). Its ends are brought clear of the map's controls
+ *  (endsClear in `room`, the bar's room as it is) where `clearNow` says the frame is as it stays (a desktop; a phone
+ *  whose sheet is at half already); else at the sheet's rest (`onFirst(fitted)`: a phone; the third code review: the
+ *  rest's padding, not one predicted from the low stop). */
+function useMeasuredShown(measured: Line | null, link: boolean, firstShow: () => boolean, canvas: SpotMap | null,
+                          map: L.Map | null, padding: () => Padding, inRoom: (l: Line) => boolean,
+                          col: {current: HTMLElement | null}, room: () => Padding, clearNow: () => boolean,
+                          onFirst?: (fitted: boolean) => void) {
+  useLayoutEffect(() => {
+    if (!measured || !canvas || !map || !firstShow()) return;
+    const fit = link || !inRoom(measured), now = clearNow();
+    onFirst?.(fit);
+    if (fit) canvas.zoomToLine(measured, padding());
+    if (now) endsClear(map, col.current, measured, room(), fit);
+  }, [measured, canvas, map]);
+}
+
+/** The count of new selections of a view (a line selected that was not selected before; a deselection is none), as
+ *  viewlink.ts counts the selection that ends a measured line: read when Measure's answer comes. */
+function useNewSelections(view: SpotView): () => number {
+  const count = useRef(0);
+  useEffect(() => {
+    let last = view.selected?.row ?? -1;
+    return view.subscribe(() => {
+      const row = view.selected?.row ?? -1;
+      if (row === last) return;
+      last = row;
+      if (row >= 0) count.current++;
+    });
+  }, [view]);
+  return () => count.current;
+}
+
+/** The frame's measured line drawn on the canvas (a link's; Measure's own again on a canvas made anew when the window
+ *  crossed the phone's width), nothing when there is none. */
+function useMeasuredDrawn(canvas: SpotMap | null, measured: Line | null) {
+  useEffect(() => { canvas?.drawMeasured(measured); }, [canvas, measured]);
+}
+
 function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
-                  panels, onMeasured}: FrameProps) {
+                  panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
   const layout = useLayout();
   const colsRef = useRef<HTMLDivElement>(null), colRef = useRef<HTMLDivElement>(null), hintRef = useRef<HTMLSpanElement>(null);
@@ -317,23 +573,68 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   const fit = width ? fitColumns(layout.layout, width, prefer)
     : {list: {open: layout.layout.list.open, width: layout.layout.list.w, forced: false},
        details: {open: layout.layout.details.open, width: layout.layout.details.w, forced: false}};
-  const padding = (): Padding => barPadding(colRef.current, BAR_TOP, BAR_BOTTOM);
+  /** The map's bottom the profile's card covers: as drawn, or as it will be when it is about to appear (a selection
+   *  or a measured line moves the map before the card is drawn, as on today's page: cardHeightAhead), on the credits'
+   *  line. */
+  const cardBottom = (): number => {
+    const col = colRef.current, drawn = cardCovers(col);
+    if (drawn || !col || !(measured || (view.selected && !view.model.profileClosed))) return drawn;
+    const credits = col.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right .leaflet-control-attribution")?.offsetHeight ?? 0;
+    return cardHeightAhead(layout.latest.current, col.clientHeight) + credits + CARD_GAP;
+  };
+  /** The bar's room; with the card, the short foot above it (also before the foot was moved there): the padding of
+   *  every move of the map (the canvas's own, as on the base; a line's fit, its ends then brought clear of the
+   *  controls: endsClear). */
+  const bar = (): Padding => {
+    const p = barPadding(colRef.current, BAR_TOP, BAR_BOTTOM), card = cardBottom();
+    return card ? {...p, bottom: Math.max(p.bottom, card + shortFoot(colRef.current))} : p;
+  };
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
   const closeChoice = () => setChoice(null);
   const [toast, say] = useToast();
+  // the canvas's own moves (the first fit, a sector's, the area square) go into the bar's room, as on the base
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding, free: () => ({top: 0, right: 0, bottom: 0, left: 0}), obstacles: () => slotBoxes(hintRef.current),
+    padding: bar, free: () => ({top: 0, right: 0, bottom: 0, left: 0}), obstacles: () => slotBoxes(hintRef.current),
     onChoose: setChoice, onToast: say});
+  /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
+  const fitPadding = selectedFit(view, map, colRef, bar);
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
-  useViewLink(view, canvas, line, nav, hashOf, padding, onMeasured);
+  // a measured line (Measure's, a link's): its profile in the card, fitted into the map (Measure's where it is hidden)
+  const onMeasure = (l: Line | null) => onMeasured(l, false);
+  useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true));
+  // (fitted into the bar's room, its ends then brought clear of the controls: endsClear; not into the room clear of
+  // every control, where a tall box over the map would leave the line a thin band: the third code review)
+  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, bar, (l) => !!map && lineFree(map, l, bar()), colRef,
+                   bar, () => true);
+  useMeasuredDrawn(canvas, measured);
   useRunCredits(map, data, base, folder);
-  // the scale above the credits where they run under it (no sheet or card raises this map's corners: corners.ts)
-  useEffect(() => { if (map) keepScaleAboveAttribution(map.getContainer()); }, [map]);
-  useFootClear(colRef, canvas, () => 0, () => [], [canvas, map]);
+  // the profile's card: the selected line's (until it is closed: model.profileClosed) or a measured line's
+  const sel = view.selected, profileLine = sel && !view.model.profileClosed ? sel.line : null;
+  const cardOn = !!(measured || profileLine);
+  const cover = useCardCover(colRef, canvas);
+  // the scale above the credits where they run under it, and above the card where the card covers it; the credits
+  // stay at the map's bottom, the card stands on them (the user's 4 a; corners.ts)
+  useCornersAboveCard(ref, colRef, !!map, true);
+  useFootClear(colRef, canvas, () => cover, () => [], [canvas, map, cover]);
   // The map's size follows the panels at once (also where no frame is drawn, so no ResizeObserver reports)
   useLayoutEffect(() => { map?.invalidateSize(); },
                   [map, fit.list.open, fit.list.width, fit.details.open, fit.details.width]);
+  /** The card appeared or was resized: the selected line is brought out from under it (today's page's keepFree: a
+   *  fit, only where an anchor lies under the card; the bar's foot above the card does not count, nor the margins). */
+  const keepFree = () => {
+    const now = view.selected;
+    if (!now || measured || !map || !canvas) return;
+    const check = () => {
+      const card = cardCovers(colRef.current);
+      if (view.selected?.row === now.row && card && !lineFree(map, now.line, {top: -Infinity, right: -Infinity, left: -Infinity, bottom: card}, 0)) {
+        canvas.zoomTo(now.row, fitPadding());
+      }
+    };
+    if (moving(map)) map.once("moveend", check);
+    else check();
+  };
+  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
 
   // The panels: collapsed to a rail and expanded (kept); the focus to the rail, or to the edge
   const focus = useRef<string | null>(null);
@@ -349,21 +650,22 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     focus.current = null;
   });
 
-  /** The part of the viewport the map shows. */
+  /** The part of the viewport the map shows free of the profile's card. */
   const freeArea = (): Area => {
     const box = ref.current!.getBoundingClientRect();
-    return {left: box.left, top: box.top, right: box.right, bottom: box.bottom};
+    return {left: box.left, top: box.top, right: box.right, bottom: box.bottom - cover};
   };
-  const p: PanelProps = {view, map: canvas, wide: true, padding, linkOf, view3dOf};
-  const sel = view.selected;
+  // (the panels' padding serves only their reveal of a selected line: SpotList, FanPanel)
+  const p: PanelProps = {view, map: canvas, wide: true, padding: fitPadding, linkOf, view3dOf, measured};
   return <div class="c-result v-result">
     <header class="c-subtop c-result-top">
       <Back back={back} />
       <Title data={data} />
       <span class="u-grow" />
       {actions?.(false)}
-      {/* slot, empty: the run's actions (Download, Measure, Share, Compare; `show`), after the caller's as on today's
-          page; step 3c's frame fills it */}
+      {/* the run's actions after the caller's, as on today's page (Measure's tip beside its button) */}
+      <RunActions model={view.model} view={canvas} onMeasured={onMeasure} selections={selections} show={show} base={base}
+                  tip="beside" />
     </header>
     <div class="c-cols" ref={colsRef}>
       <FramePanel side="list" class="c-col-list" label={t("ui.view.map.panel_list")} column={fit.list}
@@ -371,13 +673,15 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
                   rail={{icon: "list", text: t("ui.view.map.rail_list", {n: count(view.counts.lines)})}}>
         {panels.list(p)}
       </FramePanel>
-      <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
+      {/* c-card-on: while the card is shown the run's data credits fold behind their button (columns.css) */}
+      <div class={cx("c-col-map v-map", cardOn && "c-card-on")} ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
         <div class="c-leaflet" ref={ref} />
-        <MapBar view={view} map={canvas} wide
+        <MapBar view={view} map={canvas} wide short={cardOn}
                 hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
         {toast && <div class="v-toast" role="status">{toast}</div>}
-        {/* slot, empty: the selected line's profile as a card over the map's bottom (today's ProfileCard); how it
-            shares the room with the bar's foot is open; step 3c's frame fills it */}
+        <ProfileCard model={view.model} view={canvas} line={profileLine} measured={measured} onCloseMeasured={closeMeasured}
+                     onClose={() => view.model.closeProfile()} layout={layout.layout} onLayout={layout.change}
+                     onSettle={keepFree} />
       </div>
       <FramePanel side="details" class="c-col-details" label={t("ui.view.map.panel_details")} column={fit.details}
                   max={maxColumnWidth("details", width, fit)} layout={layout} onOpen={setOpen}
@@ -417,9 +721,10 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
  *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
-                       sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding) {
-  const latest = useRef({sheet, covered, padding});
-  latest.current = {sheet, covered, padding};
+                       sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
+                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
+  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue, snap});
+  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue, snap};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -517,12 +822,29 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       return Math.abs(bottom - top) < 1.5 || Math.abs(bottom - box.getBoundingClientRect().bottom) < 1.5;
     };
     const check = () => {
+      // the frame was left (the window crossed the phone's width, another run opened) before this frame's cleanup:
+      // its map is not touched any more (the second code review of A1's work); the sheet sent to another stop before
+      // this effect's cleanup (its effects come after the next paint, this frame's check before them): that stop's
+      // check is the one (B3's fix round 3: else the sheet, back at its old height, counted as resting here)
+      if (!col.current || !latest.current.sheet() || latest.current.snap !== snap) return;
       const el = latest.current.sheet(), target = el ? parseFloat(el.style.height) : NaN;
       const resting = !el || !(target > 0) || (Math.abs(el.getBoundingClientRect().height - target) < 1 && placed(el));
       if (!resting && performance.now() - started < SHEET_REST_MS) { frame = requestAnimationFrame(check); return; }
       map.off("movestart move zoomstart", onMove);
       stop.current = snap;
       const r = room(), below = ends()?.some((q) => q.y > r.bottom) ?? false;
+      // a measured line shown (its profile is the one in the sheet): it, not the selected line, is kept in sight (the
+      // desktop's keepFree too; the code review of B3's catch-up, finding 1): fitted at the rest that follows its
+      // first show only (`fitDue`), and not over a move of the person's meanwhile; later stops leave the map as they
+      // left it
+      const kept = latest.current.measured();
+      if (kept) {
+        // (fitMeasured: fitted where it is not in the part clear of the bar and the controls, its ends clear of them)
+        if (latest.current.fitDue() && !moved && roomy()) latest.current.fitMeasured(kept);
+        if (roomy()) seen.current = inSight();
+        count();
+        return;
+      }
       if (roomy() && was && !moved && below) {
         // counted once the move ended (its moveend sets what is in sight: the effect above)
         const done = () => { ended = null; count(); };
@@ -544,8 +866,33 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
   }, [snap, map]);
 }
 
+/** A phone's sheet: the px of a frame `height` px high it covers at a stop (ui/components.tsx Sheet: peek, half of
+ *  the frame, or all but the top bar). */
+function sheetAt(snap: Snap, height: number): number {
+  return Math.round(snap === "peek" ? Math.min(SHEET_PEEK, height) : snap === "half" ? Math.max(SHEET_PEEK, height * 0.5)
+    : height - SHEET_TOP);
+}
+
+/** A link's line measured outside the run while this phone's frame was made (the window crossed the phone's width
+ *  meanwhile: viewlink.ts waits for the outcome in the frame that opened the link only): a failure is a note too, and
+ *  `onNote` is told (the sheet rises to show it). A line measured already (`measured`) waits for nothing. */
+function useNoteAfterCrossing(view: SpotView, measured: Line | null, onNote: () => void) {
+  const latest = useRef(onNote);
+  latest.current = onNote;
+  useEffect(() => {
+    const model = view.model, measuring = model.measuredLink;
+    if (!measuring || measured) return;
+    const stop = view.subscribe(() => {
+      if (model.measuredLink === measuring) return;
+      stop();
+      if (model.note) latest.current();
+    });
+    return stop;
+  }, [view]);  // once, when the frame is made
+}
+
 function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, ortho, base, folder, show,
-                panels, onMeasured}: FrameProps) {
+                panels, measured, onMeasured, firstShow, measuredLink, selections}: FrameProps) {
   useSpotView(view);
   // the view opens with the sheet low (the user's decision of 2026-11-17: the map first)
   const [snap, setSnap] = useState<Snap>("peek");
@@ -556,27 +903,75 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     const box = colRef.current?.getBoundingClientRect(), sheet = phoneRef.current?.querySelector<HTMLElement>(".u-sheet");
     if (!box) return 0;
     // the sheet as drawn once it has taken its height; before that (the first fit of the map) the height its state
-    // will give it (ui/components.tsx Sheet: peek, half of the frame, or all but the top bar)
+    // will give it
     if (sheet && sheet.style.height) return Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top));
-    return Math.round(snap === "peek" ? Math.min(SHEET_PEEK, box.height) : snap === "half" ? Math.max(SHEET_PEEK, box.height * 0.5)
-      : box.height - SHEET_TOP);
+    return sheetAt(snap, box.height);
   };
-  const padding = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
+  /** The bar's room: the padding of every move of the map (the canvas's own, as on the base; a line's fit, its ends
+   *  then brought clear of the controls: endsClear) and the sheet's room. */
+  const bar = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
+  /** A padding as it will be with the sheet at a stop (the foot rides on the sheet; its height stays as it is now). */
+  const shifted = (p: Padding, at: Snap): Padding => {
+    const box = colRef.current?.getBoundingClientRect();
+    return box ? {...p, bottom: p.bottom - covered() + sheetAt(at, box.height)} : p;
+  };
+  /** A measured line in the bar's room (with the sheet at `at`). */
+  const measuredInRoom = (l: Line, at?: Snap): boolean => !!map && lineFree(map, l, at ? shifted(bar(), at) : bar(), 0);
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
   const closeChoice = () => setChoice(null);
   const [toast, say] = useToast();
   // On a phone a spot is in view when its shown line crosses the part of the map a person sees: not under the sheet
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
+    padding: bar, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
     // the top bar lies over the map: no number under it
     obstacles: () => [...Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
                       ...slotBoxes(hintRef.current)],
     onChoose: setChoice, onToast: say});
+  /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
+  const fitPadding = selectedFit(view, map, colRef, bar);
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
+  // Measuring: the sheet goes low (today's page; the canvas holds the map still), the tip is the status line's first
+  // line; a measured line's profile first in the sheet's body at half (today's measuredNow), the line fitted into the
+  // map above the sheet at half (a link's always, Measure's where it is not in sight), and kept in sight there once the
+  // sheet rests (useSheetKeeps: not the selected line while a measured one is shown)
+  const [measuring, setMeasuring] = useState(false);
+  useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
+  const tip = useMeasureTip();
+  const fitDue = useRef(false);  // a measured line just shown: kept in sight at the rest of the sheet's rise (only)
+  // the sheet sent elsewhere before that rest (the person's): no fit left for a later stop (the second code review)
+  useEffect(() => { if (snap !== "half") fitDue.current = false; }, [snap]);
+  const fitted = useRef(false);  // that line was fitted at its first show (fitted again at the rest, with its padding)
+  // a phone's first show only fits, into the bar's room predicted for half (the foot's height is still the low stop's);
+  // at the rest it is fitted again into the room as it is and its ends brought clear (keepMeasured); a sheet at half
+  // already has no rest to come: its ends at once
+  useMeasuredShown(measured, measuredLink, firstShow, canvas, map, () => shifted(bar(), "half"), (l) => measuredInRoom(l, "half"),
+                   colRef, bar, () => snap === "half",
+                   (fit) => { fitDue.current = snap !== "half"; fitted.current = fit; setSnap("half"); });
+  /** The measured line in sight at the sheet's rest: fitted into the bar's room as it is where it was fitted at its
+   *  first show or is not in that room, its ends brought clear of the controls (endsClear, never shorter than
+   *  LINE_LEAST where it was fitted). The map column's `data-measured-rests` counts these rests and
+   *  `data-measured-fits` those that moved the map (tests read them). */
+  const keepMeasured = (l: Line) => {
+    if (!map || !canvas) return;
+    const before = `${map.getCenter().lat},${map.getCenter().lng},${map.getZoom()}`;
+    const fit = fitted.current || !measuredInRoom(l);
+    if (fit) canvas.zoomToLine(l, bar());
+    endsClear(map, colRef.current, l, bar(), fit);
+    const col = colRef.current;
+    if (!col) return;
+    col.dataset.measuredRests = String(Number(col.dataset.measuredRests || 0) + 1);
+    if (`${map.getCenter().lat},${map.getCenter().lng},${map.getZoom()}` !== before) {
+      col.dataset.measuredFits = String(Number(col.dataset.measuredFits || 0) + 1);
+    }
+  };
+  useMeasuredDrawn(canvas, measured);
+  const closeMeasured = () => { view.model.measuredLink = null; onMeasured(null); canvas?.clearMeasure(); };
   // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
   // today's page opens (the planner, fix round 1); a link that opens its line keeps the view's low start
-  useViewLink(view, canvas, line, nav, hashOf, padding, onMeasured, () => setSnap((s) => s === "peek" ? "half" : s));
+  const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
+  useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true), toNote);
+  useNoteAfterCrossing(view, measured, toNote);
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
   // The sheet moved: the bar's foot stays above it, and once it rests the view's rectangle is taken again (the
@@ -584,19 +979,23 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                padding);
+                bar, () => measured, keepMeasured,
+                () => { const due = fitDue.current; fitDue.current = false; return due; });
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top + 64, right: box.right, bottom: box.bottom - covered()};
   };
-  const p: PanelProps = {view, map: canvas, wide: false, padding, sheet: {snap, setSnap}, linkOf, view3dOf};
+  const p: PanelProps = {view, map: canvas, wide: false, padding: fitPadding, sheet: {snap, setSnap}, linkOf, view3dOf, measured};
+  // Compare needs room the phone's top bar does not have (as today's page)
+  const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
     <div class="c-col-map v-map" ref={colRef} data-choosing={choice ? choice.choices.length : undefined}>
       <div class="c-leaflet" ref={ref} />
-      {/* the map's message: the first line of the status line's box while it lasts (the pilot's arrangement) */}
-      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap} message={toast}
+      {/* the measuring tip or the map's message: the first line of the status line's box while it lasts (the pilot's
+          arrangement; the user's 11 a) */}
+      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap} message={toast} tip={measuring ? tip : undefined}
               hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
     </div>
     <div class="c-phone-top">
@@ -604,17 +1003,20 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
         {back && <IconButton icon="back" label={back.label} plain round class="c-back" onClick={back.onClick} />}
         <span class="u-grow c-pill-name">{data.run.name}</span>
         {actions?.(true)}
-        {/* slot, empty: the run's actions with icons only (`show`; a phone has no Compare), after the caller's;
-            today's page draws them beside the pill, in .c-phone-top; step 3c's frame fills it */}
+        {/* the run's actions after the caller's, icons in the pill (today's page draws them beside it) */}
+        <RunActions model={view.model} view={canvas} onMeasured={(l) => onMeasured(l, false)} selections={selections} compact plain tip="none"
+                    show={phoneShow} base={base} />
       </div>
     </div>
-    {/* the sheet from its top: the handle, the hint (its first line, B.2 item 12), the head's row, then the body */}
+    {/* the sheet from its top: the handle, the hint (its first line, B.2 item 12), the head's row, then the body: a
+        measured line's profile first (the mock-up), the details (with the selected line's dock: SpotDetails), the
+        line's actions, the list */}
     <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP}
            header={<>{panels.hint({...p, place: "sheet"})}{panels.sheetHead(p)}</>}>
+      {measured && <ProfileDock model={view.model} view={canvas} line={null} measured={measured} onCloseMeasured={closeMeasured}
+                                compact class="r-dock-sheet vl-dock" />}
       {panels.details(p)}
       {panels.lineActions?.(p)}
-      {/* slot, empty: the profile's dock (today's ProfileDock in the sheet, under the line's actions as there);
-          step 3c's frame fills it */}
       {panels.list(p)}
     </Sheet>
     {choice && canvas && panels.chooser?.({...p, choices: choice.choices, at: choice.at, area: freeArea(), onClose: closeChoice})}
@@ -626,14 +1028,23 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
 export function SpotColumns(props: SpotColumnsProps) {
   const view = useMemo(() => createSpotView(props.model), [props.model]);
   useEffect(() => () => view.destroy(), [view]);
-  // a measured line of a link (viewlink.ts), kept here across the phone's width, of this view only
-  const [measured, setMeasured] = useState<{view: SpotView; line: Line} | null>(null);
+  // the measured line (Measure's, or a link's: viewlink.ts), kept here across the phone's width, of this view only;
+  // the lines shown once (fitted, a phone's sheet raised: not again in a frame drawn anew after the crossing)
+  const [measured, setMeasured] = useState<{view: SpotView; line: Line; link: boolean} | null>(null);
   const measuredLine = measured?.view === view ? measured.line : null;
-  const onMeasured = (l: Line | null) => setMeasured(l ? {view, line: l} : null);
+  const onMeasured = (l: Line | null, link = false) => setMeasured(l ? {view, line: l, link} : null);
+  const shownOnce = useMemo(() => new WeakSet<Line>(), [view]);
+  const firstShow = () => {
+    if (!measuredLine || shownOnce.has(measuredLine)) return false;
+    shownOnce.add(measuredLine);
+    return true;
+  };
+  const selections = useNewSelections(view);
   useEffect(() => {  // for tests and the console
     const shown = (window as any).FINDALINE_VIEW;
     if (shown?.view === view) shown.measured = measuredLine;
   });
-  const frame = {...props, view, panels: props.panels ?? PANELS, measured: measuredLine, onMeasured};
+  const frame = {...props, view, panels: props.panels ?? PANELS, measured: measuredLine, onMeasured, firstShow,
+                 measuredLink: !!measured?.link, selections};
   return props.wide ? <Desktop key="wide" {...frame} /> : <Phone key="phone" {...frame} />;
 }
