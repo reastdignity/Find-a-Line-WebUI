@@ -540,3 +540,147 @@ def test_download_phone_button_keeps_the_focus(pages):
     button = ready["button"]
     assert button["icon"] and not button["ring"] and button["label"] == "Download" and button["text"] == "", ("D12", button)
     assert r["errors"] == [], ("X2", r["errors"])
+
+
+# ---- A: the access mark's page parts (today's: tests/test_access_page.py) -------------------------------------------
+
+def _kept_list(width: int) -> str:
+    """A kept layout (localStorage "findaline.layout", the view's and today's) with the list `width` px wide
+    (test_access_page._layout's)."""
+    return json.dumps({"v": 1, "list": {"w": width, "open": True}, "details": {"w": 380, "open": True},
+                       "profile": {"h": 260, "folded": False, "l": 12, "r": 12}})
+
+
+# The view's lists as drawn at a kept width: the list's width, its rows' cells of the mark (the dots inside the cell)
+# and whether a row's parts overlap or a value is cut (its text wider than its cell)
+NARROW = """() => { const list = document.querySelector('.c-col-list'), c = window.FINDALINE_VIEW.view.model.data.columns;
+  const parts = (b) => [...b.children].filter((e) => !e.classList.contains('u-sr') && e.getClientRects().length && !e.classList.contains('vl-over-words'));
+  const overlap = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+  const rows = [...document.querySelectorAll('.vl-tree .vl-main, .vl-topblock .vl-main')].slice(0, 16).map((b) => {
+    const row = +b.dataset.row, cell = b.querySelector('.vl-cell-acc'), box = cell && cell.getBoundingClientRect();
+    const boxes = parts(b).map((e) => e.getBoundingClientRect());
+    return {row, line: [c.access1.at(row), c.access2.at(row)],
+            dots: cell ? [...cell.querySelectorAll('svg.ac')].map((d) => d.getAttribute('class')) : null,
+            inside: cell ? [...cell.querySelectorAll('svg.ac')].every((d) => { const r = d.getBoundingClientRect();
+              return r.left >= box.left - 1 && r.right <= box.right + 1; }) : null,
+            overlaps: boxes.some((a, i) => boxes.some((x, k) => k > i && overlap(a, x))),
+            cut: [...b.querySelectorAll('.vl-v')].filter((v) => v.scrollWidth > v.clientWidth + 1).map((v) => v.textContent),
+            within: boxes.every((r) => r.right <= b.getBoundingClientRect().right + 1)}; });
+  return {width: list ? Math.round(list.getBoundingClientRect().width) : null, rows,
+          heads: [...document.querySelectorAll('.vl-tree .vl-cols > span')].map((s) => s.textContent).filter(Boolean),
+          headsCut: [...document.querySelectorAll('.vl-tree .vl-cols > span')].filter((h) => h.scrollWidth > h.clientWidth + 1).map((h) => h.textContent),
+          classes: [...document.querySelectorAll('.vl-tree .vl-rows')].map((u) => u.classList.contains('vl-with-acc'))}; }"""
+
+
+GAP_G1 = "gap G1: fixed by B3 fix round 5"  # parity.md A2/A3; the planner removes the mark when B3's fix is merged
+
+
+@pytest.mark.parametrize("width", [None, 340, pytest.param(280, marks=pytest.mark.xfail(strict=True, reason=GAP_G1)),
+                                   pytest.param(260, marks=pytest.mark.xfail(strict=True, reason=GAP_G1))],
+                         ids=["default", "340", "280", "260"])
+def test_access_column_at_kept_list_widths(pages, width):
+    """A1-A3 (today's test_list_column_and_its_widths): the view's list of a marked run at its default width and kept
+    at 340 px draws the column "Anchors" (before "Lines"), every row's two dots inside their cell; kept under 300 px
+    (280, 260: layout.ts LIMITS lets a list be 260 px) the column is left out, as on today's page (the planner, gap G1:
+    B3's fix round 5), and the mark stays in the map's legend and the details of a selected line. At every width no
+    part of a row over another, no value and no column head wider than its cell (its text drawn over the next)."""
+    from playwright.sync_api import sync_playwright
+    narrow = width is not None and width < 300
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            script = "" if width is None else                 f"try {{ localStorage.setItem('findaline.layout', {json.dumps(_kept_list(width))}); }} catch (e) {{}}"
+            page = _open(browser, f"{pages['app']}#run={BIG}", DESKTOP, script=script)
+            page.wait_for_selector(".vl-tree .vl-main", state="attached", timeout=WAIT)
+            _state(page)
+            found = page.evaluate(NARROW)
+            # a line selected whose anchors are in view, the profile's card closed (it folds the legend: 4 a)
+            _state(page, "view.select(view.inView.best[0] ?? view.order[0]); view.model.closeProfile();")
+            page.wait_for_selector(".vl-details .vl-acc", state="attached", timeout=WAIT)
+            page.wait_for_selector(".v-legend [data-kind='access-2']", state="attached", timeout=WAIT)
+            marked = page.evaluate("() => [[...document.querySelectorAll('.v-legend [data-kind^=access-]')].map((e) => e.dataset.kind), "
+                                   "document.querySelectorAll('.vl-details .vl-acc .vl-acc-row').length]")
+            errors = _errors(page)
+        finally:
+            browser.close()
+    assert found["width"] == (width or 372), ("the kept width taken", width, found["width"])
+    assert len(found["rows"]) >= 8, ("A1", width, len(found["rows"]))
+    heads = found["heads"]
+    if narrow:
+        assert found["classes"] and not any(found["classes"]), ("A3: the column left out", width, found["classes"])
+        assert heads[-1] == WORDS["ui.list.col.lines"] and WORDS["ui.list.col.anchors"] not in heads, ("A3", width, heads)
+        assert all(row["dots"] is None for row in found["rows"]), ("A3: no row's cell of the mark", width)
+    else:
+        assert found["classes"] and all(found["classes"]), ("A1/A2: the column", width, found["classes"])
+        assert heads[-2:] == [WORDS["ui.list.col.anchors"], WORDS["ui.list.col.lines"]], ("A1/A2", width, heads)
+        for row in found["rows"]:
+            a1, a2 = row["line"]
+            assert row["dots"] == [f"ac ac-{a1}", f"ac ac-{a2}"] and row["inside"], ("A1/A2: the dots inside their cell", width, row)
+    for row in found["rows"]:
+        assert not row["overlaps"] and row["within"], ("A1-A3: no part over its neighbour", width, row)
+    assert found["headsCut"] == [], ("A2/A3: a column head over the next one", width, found["headsCut"])
+    assert [row["cut"] for row in found["rows"] if row["cut"]] == [], ("A2/A3: a value over the next one", width)
+    assert marked == [["access-2", "access-1", "access-0"], 2], ("A3: the mark in the legend and the details", width, marked)
+    assert errors == [], ("X2", width, errors)
+
+
+def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
+    """A13 (today's test_a_real_search_too_wide_for_the_mark_on_the_page, the run's half): a search with --access whose
+    memory cannot hold the access grid, made and saved for real (search.plan_search, search_lines, save_run): its
+    store's head carries `access_skipped`, and the view (not today's page) opens it with today's muted line "Anchors'
+    access not marked: the search area was too wide." once and nothing else of the mark, on a desktop and a phone,
+    with nothing selected and with a spot selected. (The estimate's half is the search form: today's test.)"""
+    from datetime import datetime
+    from playwright.sync_api import sync_playwright
+    import runs as rn
+    import search
+    from params import SearchParams
+    from test_access_search import LEFT, SIZE, TOP, scene
+    from test_offline import OFFLINE_ENV, write_raster
+    for key, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, value)
+    write_raster(tmp_path / "wide.tif", scene(), LEFT, TOP)
+    values = dict(elevation_file=str(tmp_path / "wide.tif"), northing=TOP - SIZE / 2, easting=LEFT + SIZE / 2, radius=135,
+                  resolution=1, nmpt="off", water="off", fill_gaps="off", min_length=10, max_length=80,
+                  slope_threshold=60, prominence_span=10, drop_radius=10, ortho="never")
+    monkeypatch.setattr(search, "available_memory", lambda: 10_000)
+    data = tmp_path / "data"
+    paths = search.Paths(str(data), str(data / "work"))
+    os.makedirs(paths.work)
+    plan = search.plan_search(SearchParams(**values, access=True, name="Too wide"), paths, lambda kind, text: None)
+    assert plan.access_skipped == "memory"
+    lines, _ = search.search_lines(plan)
+    run_id = "2026-11-16_120000_Too-wide_00000000000000d1"
+    folder = data / "runs" / run_id
+    folder.mkdir(parents=True)
+    search.save_run(plan, lines, {"id": run_id, "path": str(folder), "created": datetime(2026, 11, 16, 12), "name": "Too wide"})
+    rn.write_index(str(data / "runs"))
+    page_path = stub_page(data, "accesswide")
+    mark = ("svg.ac, .ac-none, .ac-hint, .ac-info, .ac-help, .vl-cell-acc, .vl-acc, .v-anchor-mark, .ac-map-icon, "
+            "[data-kind^='access-'], .r-legend-acc, .r-acc, .r-cell-acc")
+    result = """() => { const lines = [...document.querySelectorAll('.r-acc-skipped')].filter((e) => e.getClientRects().length);
+        const v = window.FINDALINE_VIEW && window.FINDALINE_VIEW.view;
+        return [v ? v.model.data.access_skipped : null, v ? v.count > 20 : null, lines.map((e) => e.textContent),
+                document.querySelectorAll(%s).length, !!window.FINDALINE_RESULT]; }""" % json.dumps(mark)
+    r = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            with _server(data) as port:
+                for name, context in (("desktop", DESKTOP), ("phone", PHONE)):
+                    page = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={run_id}", context)
+                    page.wait_for_selector(".r-acc-skipped", state="attached", timeout=WAIT)
+                    r[name] = page.evaluate(result)
+                    page.evaluate("() => { const v = window.FINDALINE_VIEW.view; v.select(v.order[0]); }")
+                    page.wait_for_selector(".vl-details", state="attached", timeout=WAIT)
+                    _state(page)
+                    r[name + "-selected"] = page.evaluate(result)
+                    r[name + "-errors"] = _errors(page)
+                    page.context.close()
+        finally:
+            browser.close()
+    line = [WORDS["ui.access.skipped"]]
+    assert line == ["Anchors' access not marked: the search area was too wide."]
+    for name in ("desktop", "desktop-selected", "phone", "phone-selected"):
+        assert r[name] == ["memory", True, line, 0, False], ("A13", name, r[name])
+    assert r["desktop-errors"] == r["phone-errors"] == [], ("X2", r)
