@@ -649,6 +649,10 @@ Found by the reviews of G1 and left (DESIGN.md rows 81 to 84 hold what was mende
   the coverage page's "EN" switches the page to Polish.
 - **The coverage page's brand link on a phone**: its ring's top 4 px lie above the window (the header at the top of
   the page); as before.
+- **The map credits' ring and the credits' brackets**: the ring is clear of its link's own letters (no pixel under it
+  at device scale 1 and 2, light and dark), and a "p"'s descender ends on the pixel row above its bottom side (the map's
+  edge leaves no more room). Where a bracket adjoins the link with no space, "(report a map issue)" and "(CC-BY-SA)",
+  the ring's side lies on that "(" or ")": a 2 px side between them needs room the line does not have without moving.
 - Firefox was not run (by the code: a coverage outline was never focusable there, and a press keeps the map's focus).
 
 ## Step 3d, group G4 (the texts into the catalogue): what stays in code, and why (2026-11-20)

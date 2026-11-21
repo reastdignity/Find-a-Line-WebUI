@@ -80,7 +80,8 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     }
     settled();  // the readout as it will stay: the bar may take its own height again
   });
-  const cancelProfile = () => { queue.cancel(); valid?.hold(false); };
+  // a profile no longer asked for ends the bar's wait for it (a drag under way still holds the bar)
+  const cancelProfile = () => { queue.cancel(); valid?.hold(false); settled(); };
   const askProfile = () => {
     const [a, b] = line.anchors;
     valid?.hold(true);

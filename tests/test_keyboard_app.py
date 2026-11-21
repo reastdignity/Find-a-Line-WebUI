@@ -410,9 +410,10 @@ def test_coverage_outlines_are_no_tab_stops(site):
 def test_coverage_outline_press_keeps_the_map_focused(site, engine, pointer):
     """Row 81 (the fix round, the code review's F4): a press on a coverage outline (a click, a finger's tap) moves the
     search's point there as any press on the map and leaves the focus on the map (Leaflet's on every press), so after
-    a click the arrow keys pan the map; in WebKit as on main, where the outline was not focusable. Before the fix
-    round its tabindex made WebKit focus the outline on a press (its tooltip kept open, the arrows dead); in Chromium a
-    press focused the outline on main already (now the map, as in WebKit)."""
+    a click the arrow keys pan the map, and a drag begun on an outline pans it; in WebKit as on main (measured with
+    main's bundles: the same focus, tooltip and point), where the outline was not focusable. Before the fix round its
+    tabindex made WebKit focus the outline on a press (the arrows dead); in Chromium a press focused the outline on
+    main already (now the map, as in WebKit: a deviation from main, docs/known-bugs.md)."""
     p, edge, base, path = site
     browser = edge if engine == "chromium" else p.webkit.launch(
         env={k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY")})
@@ -451,6 +452,17 @@ def test_coverage_outline_press_keeps_the_map_focused(site, engine, pointer):
             for _ in range(3):
                 page.keyboard.press("ArrowRight")
             page.wait_for_function(f"(c) => window.FINDALINE_PLACE.map.getCenter().lng !== c", arg=pressed["centre"][1], timeout=WAIT)
+            # a drag begun on an outline pans the map (the press's default prevented does not stop Leaflet's dragging)
+            page.evaluate(FRAMES)
+            start = page.evaluate(HIT)
+            assert start, "a point on an outline to drag from"
+            centre = page.evaluate("() => window.FINDALINE_PLACE.map.getCenter().lng")
+            page.mouse.move(*start)
+            page.mouse.down()
+            page.mouse.move(start[0] - 60, start[1] + 20, steps=6)
+            page.mouse.move(start[0] - 120, start[1] + 40, steps=6)
+            page.mouse.up()
+            page.wait_for_function("(c) => window.FINDALINE_PLACE.map.getCenter().lng !== c", arg=centre, timeout=WAIT)
         page.context.close()
     finally:
         if engine == "webkit":
