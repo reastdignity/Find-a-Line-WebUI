@@ -198,17 +198,22 @@ What the door is:
 - its port published on `PUBLISH_ADDRESS` only (`PUBLISH_PORT`, 2222 by default), on a network of its own, never
   the mirror's internal one. sshd listens on every address of its container, so also on the container's address
   on that network (`findaline-mirror-publish_publish`); that address is reached from the home server itself, not
-  from the LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker
+  from the LAN or the link. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker
   host", and "By default, remote hosts are not allowed direct access to container IP addresses in Docker's Linux
   bridge networks. They can only access ports published to host IP addresses."
-  (docs.docker.com/engine/network/port-publishing/, read 2026-11-21); the daemon option `allow-direct-routing`
-  and the network option `com.docker.network.bridge.trusted_host_interfaces` lift that: set neither. Docker
-  Engine 28.0 blocked "Direct routed access to container ports that are not exposed using `p`/`-publish`"
-  (docs.docker.com/engine/release-notes/28/, 28.0.0, moby/moby#48724, read 2026-11-19), and 28.2.0 added
-  `allow-direct-routing` "to disable filtering of packets from outside the host addressed directly to
-  containers" (the same page, 28.2.0, moby/moby#49832, read 2026-11-21): the filtering of a published port's
-  container address is there by then (not tried). An older engine may let a LAN host with a route to that
-  network reach sshd there (the key is still required). Check the engine:
+  (docs.docker.com/engine/network/port-publishing/, read 2026-11-21); the daemon option `allow-direct-routing`,
+  the network option `com.docker.network.bridge.trusted_host_interfaces` and the daemon's environment variable
+  `DOCKER_INSECURE_NO_IPTABLES_RAW` lift that: set none of them. Docker Engine 28.0.0 fixed "a security issue
+  that was allowing remote hosts to connect directly to a container on its published ports" (moby/moby#49325)
+  and blocked "Direct routed access to container ports that are not exposed using `p`/`-publish`"
+  (moby/moby#48724); 28.0.3 added `DOCKER_INSECURE_NO_IPTABLES_RAW=1`, which allows "other hosts on the local
+  network to route to ports published to host addresses" (moby/moby#49621); 28.2.0 added `allow-direct-routing`
+  "to disable filtering of packets from outside the host addressed directly to containers" (moby/moby#49832)
+  (docs.docker.com/engine/release-notes/28/, read 2026-11-21). Tried on Engine 29.10 with its defaults: a LAN
+  host with a route to the `publish` network got no answer from the container's address on port 2222, and the
+  published address answered it; with `allow-direct-routing` set, the same direct request got through. An older
+  engine may let a LAN host with a route to that network reach sshd there (the key is still required). Check the
+  engine:
   `docker version --format '{{.Server.Version}}'` (28.2 or newer);
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
   mounts fails: tried with `public` as a mount of its own in the check script's self-test, the rename fails; the
@@ -223,7 +228,9 @@ What the door is:
 
 The door's own log (Docker's json-file log of `findaline-mirror-publish-sftp-1`, `docker compose logs` in
 `publish/`) is kept: sshd writes there the publishing PC's address (on the LAN or on your link) and the key's
-fingerprint at each login, and refused attempts. It is the record of when the publishing key was used. It is
+fingerprint at each login, and refused attempts. That holds for an IPv4 `PUBLISH_ADDRESS`; with an IPv6 one,
+Docker passes the connection on through its proxy (the door's network is IPv4 only), and the log names the
+network's gateway instead of the PC (seen in the build's review). It is the record of when the publishing key was used. It is
 bounded by the json-file size cap of `publish/compose.yaml` (3 files of 1 MB) and goes with the container when it
 is removed.
 
@@ -306,8 +313,10 @@ sha1sum_command = none
   IPv6 address ("dial tcp: address ::1:2299: too many colons in address"; `[::1]` dials).
 - `known_hosts_file` holds one line, `[<address>]:<port> ssh-ed25519 AAAA...`, the content of the server's
   `$KEYS/ssh_host_ed25519_key.pub` after the address (public; bring it to the PC as you brought the other key the
-  other way, or copy its text from the server's screen); the address written exactly as in `host`, inside the
-  brackets. Before using it, on the PC: `ssh-keygen -l -f <a known_hosts file on the PC>` must show the
+  other way, or copy its text from the server's screen); the address as in `host`, without brackets of its own,
+  inside the line's brackets: `[192.0.2.10]:2222`, `[fd00::1]:2222` (rclone 1.76 cannot parse
+  `[[fd00::1]]:2222`), and in the same written form (an expanded IPv6 address in one and a compressed one in the
+  other do not match). Before using it, on the PC: `ssh-keygen -l -f <a known_hosts file on the PC>` must show the
   fingerprint noted at the install (`SHA256:...`, the line printed after the host key was made); a different one
   means it is not the door's key. Without the file rclone checks no host key at all.
 - `shell_type`, `hashes` and `sha256sum_command` must be set: rclone's detection would set the hashes to `none`

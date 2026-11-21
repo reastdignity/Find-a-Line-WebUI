@@ -34,7 +34,7 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 
 ## 2. What was decided
 
-### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68-U80 2026-11-18/19; U86-U89 2026-11-21)
+### 2.1 By the user (2026-11-15; U27-U57 during the build, 2026-11-15 to 17; U68 and U75-U80 2026-11-18/19; U86-U89 2026-11-21)
 | Id | Question | The user's answer |
 | --- | --- | --- |
 | U1 | Who may download | "Any installation, anonymous" |
@@ -99,10 +99,10 @@ Slovak `index.json` about 1.2 MB. Whole datasets: Slovakia 201.2 GB in 76 956 ti
 | U78 | The stable repository serves only 2.0.180 (statically linked, October 2023) | "look for Husarnet 3": Husarnet 3.0 moved its control plane on 2025-12-08; its daemon is the nightly line only; 2.0.180 works through a compatibility layer to be shut down (history: the sidecar dropped by U89) |
 | U79 | The sidecar's health after a restart with the join done once | "Drop 'joined'": health = a connection to Husarnet's base and control servers, and a peer other than Husarnet's own on the allow list (history: the sidecar dropped by U89) |
 | U80 | The door's Husarnet daemon line | "Nightly 2.0.349": the 3.0-protocol daemon from Husarnet's nightly apt repository on the own Debian image, its version pinned; the PC's client a nightly too (history: the sidecar dropped by U89) |
-| U86 | The door at all (2026-11-21) | "lets change how we do it - it is too complicated. Scrap door idea." The user makes a WireGuard link of their own between the PC and the home server; then "SSH straight to box": no door container; the publish tool's rclone SFTP remote aimed at the home server's own sshd at its address on that link; the home server hashes (`sha256sum`); the WireGuard sidecar (U81-U85) dropped (history: superseded by U89) |
+| U86 | The door at all (2026-11-21) | "lets change how we do it - it is too complicated. Scrap door idea." The user makes a VPN link of their own between the PC and the home server; then "SSH straight to box": no door container; the publish tool's rclone SFTP remote aimed at the home server's own sshd at its address on that link; the home server hashes (`sha256sum`); the WireGuard sidecar (U81-U85) dropped (history: superseded by U89) |
 | U87 | The door code already built | the sidecar removed, not `publish/` (as revised by U89): Husarnet's sidecar (`husarnet.sh`, `husarnet-sidecar.Dockerfile`, its compose service and settings), its checks, CI steps and README text removed from the build; `publish/`'s `sftp` kept; the WireGuard door's branch kept unmerged; the Husarnet door removed from the home server |
 | U88 | Claude's use of the home server's address over the link | "Publishing only": rclone only (publishing and its checks); commands on the home server stay with the user |
-| U89 | The door, revised (2026-11-21) | the user: "keep docker with sftp, but no door": the sftp container stays (gate, read-only, one mount), its port published on PUBLISH_ADDRESS, reached over the user's own WireGuard link; no sidecar (Husarnet's U68/U75-U80 and the WireGuard U81-U85 dropped) |
+| U89 | The door, revised (2026-11-21) | the user: "keep docker with sftp, but no door": the sftp container stays (gate, read-only, one mount), its port published on PUBLISH_ADDRESS, reached over the user's own VPN link; no sidecar (Husarnet's U68/U75-U80 and the WireGuard U81-U85 dropped) |
 
 History, not in this branch: U81-U85 (2026-11-20/21), a WireGuard sidecar in place of Husarnet's for the door, was built and dropped (U86, U89).
 

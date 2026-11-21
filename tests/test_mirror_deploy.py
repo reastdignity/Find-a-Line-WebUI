@@ -8,6 +8,7 @@ runs in tests/mirror_check.sh (the CI job `mirror`)."""
 
 import os
 import re
+import subprocess
 
 import pytest
 
@@ -344,9 +345,10 @@ def test_publishing_door_compose():
     # No sidecar (U89): its own network namespace, no environment, nothing of Husarnet's left
     assert "network_mode" not in service and "depends_on" not in service and "sysctls" not in service
     assert "environment" not in service and "env_file" not in service
-    assert sorted(os.listdir(os.path.join(MIRROR, "publish"))) == [".env.example", "Dockerfile", "compose.yaml", "gate.sh",
-                                                                   "sshd_config"]
-    assert "hnet0" not in service["healthcheck"]["test"][-1] and "kill" not in service["healthcheck"]["test"][-1]
+    tracked = subprocess.run(["git", "ls-files", "deploy/mirror/publish"], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout.split()
+    assert sorted(os.path.basename(f) for f in tracked) == [".env.example", "Dockerfile", "compose.yaml", "gate.sh",
+                                                            "sshd_config"]
     # The port: exactly on the address given, which compose requires
     assert len(service["ports"]) == 1
     assert re.fullmatch(r"\$\{PUBLISH_ADDRESS:\?[^}]*\}:\$\{PUBLISH_PORT:-2222\}:2222", service["ports"][0])

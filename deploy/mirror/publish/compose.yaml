@@ -11,7 +11,7 @@
 #   compose refuses to start), never on every interface: the address the publishing PC reaches, on
 #   the LAN or on a VPN or WireGuard link of the operator's own (the user's U89). An address that
 #   does not exist yet when the door starts (a link that comes up after Docker) stops its start:
-#   README, "If the door does not answer".
+#   README, "An address that comes up after Docker".
 # - <root> (MIRROR_ROOT, the mirror's) is one read-write mount at /mirror: staging, public and
 #   trash must be one mount, as the publish tool's swap is two renames and a rename across two
 #   mounts fails. authorized_keys and the host key are mounted read-only; nothing else of the host.

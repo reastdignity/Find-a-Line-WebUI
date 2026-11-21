@@ -57,7 +57,7 @@ loads with `deploy/monitoring/` too.
   user's yes; the `$mirror_version` map, `mirror_publish.CLIENT_VERSION` and pyproject's version form; the door's
   rclone settings in `deploy/mirror/README.md` (`shell_type`, `hashes`, `sha256sum_command`, `known_hosts_file`, the
   top `/mirror`) and `mirror_publish.NO_SHA256`'s text.
-- The door (`publish/`, U89): one service, no sidecar (Husarnet's U68 and the WireGuard sidecar dropped); its port
+- The door (`publish/`, U89): one service, no sidecar (U68's and the later sidecar dropped); its port
   published on `PUBLISH_ADDRESS` only (required; never `0.0.0.0` or `::`), the address the PC reaches on the LAN or
   over the operator's own link, outside the repository. D29 reads exactly that one TCP binding (inspect and `docker
   port`), D39 sshd's banner through it; their controls are the self-test's port variants. A port bound on an address

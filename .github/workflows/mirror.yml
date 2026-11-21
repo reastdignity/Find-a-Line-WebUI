@@ -59,6 +59,10 @@ jobs:
           grep -v '^PUBLISH_ADDRESS=' publish/ci.env > publish/ci-noaddr.env
           if docker compose -f publish/compose.yaml --env-file publish/ci-noaddr.env config --quiet 2> noaddr.txt; then exit 1; fi
           grep -q 'PUBLISH_ADDRESS missing' noaddr.txt
+          # and with PUBLISH_ADDRESS empty
+          sed 's/^PUBLISH_ADDRESS=.*/PUBLISH_ADDRESS=/' publish/ci.env > publish/ci-emptyaddr.env
+          if docker compose -f publish/compose.yaml --env-file publish/ci-emptyaddr.env config --quiet 2> emptyaddr.txt; then exit 1; fi
+          grep -q 'PUBLISH_ADDRESS missing' emptyaddr.txt
 
       - name: The checks and their self-test
         run: bash tests/mirror_check.sh --self-test
