@@ -1429,8 +1429,8 @@ run({
     if (ADMIN) return next();
     // Report a problem: from the account menu, then from a line of the run (its run and line sent with it)
     later(() => $(".c-account-btn").click());  // (after the menu closed by the step before was drawn)
-    wait(() => button("Report a problem"), () => {
-      button("Report a problem").click();
+    wait(() => button("Report a problem…"), () => {  // "…": it opens a dialog (step 3d G5, the user's answer of 2026-11-21)
+      button("Report a problem…").click();
       report("Interface", "The map does not move.", (fromMenu) => {
         result.fromMenu = fromMenu;
         location.hash = "#run=" + RUN;

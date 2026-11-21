@@ -389,6 +389,9 @@
 .ui .c-layer-hist-axis span:nth-child(even) { visibility: hidden; }
 .ui .c-layer-hist-edges { display: flex; justify-content: space-between; }
 .ui .c-layer-hist-edges span { flex: 0 0 auto; }
+/* an at-most chart's last known tick, "over 2" (the user's answer of 2026-11-21): 33 px at 12 px, 0.03 em tighter
+   31 px, within the 32 px a bar has where every tick shows (measured on the desktop at 224 px, both phones) */
+.ui .c-layer-hist[data-kind="at_most"] .c-layer-hist-axis span:nth-last-child(2) { letter-spacing: -0.03em; }
 /* 32 px a bar: a chart of n bars shows its counts and every tick from 32 n px, and then no bar shows a count of
    its own on focus (1 to 24 bars: a container query takes no variable, so one rule per count;
    tests/test_layer_page_layout.py reads them; .claude/rules/country-layer.md) */
@@ -472,7 +475,8 @@
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-bars { height: 108px; }
 .ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: var(--fs-1); margin-bottom: 0; }
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-title { font-size: var(--fs-2); color: var(--ink); }
-.ui.c-narrow .c-layer-hist-name { width: 100%; height: 44px; line-height: 44px; }
+/* the title's word ("(at least)": the bare ticks' meaning) wraps to a second line inside the 44 px target, never cut */
+.ui.c-narrow .c-layer-hist-name { width: 100%; height: 44px; line-height: 1.2; white-space: normal; display: flex; align-items: center; }
 
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

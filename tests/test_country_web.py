@@ -1075,7 +1075,8 @@ def test_layer_page_in_edge(sample, tmp_path):
     assert ("on the border with Poland" if cut["partner"][1] == 1 else "on its border") in cut["selected"], cut
     assert cut["hint"].startswith("On the border with Poland") or cut["hint"].startswith("On the border:"), cut
     assert "Poland" in cut["hint"] if cut["partner"][1] == 1 else True, cut
-    assert "around the cell (300 m, 1000 m or 5000 m)" in cut["hint"], cut  # the sample's layer bands S, M, L
+    # the sample's layer bands S, M, L (the hint's words of step 3d G5, the user's answer of 2026-11-21)
+    assert "within one longest line (300 m, 1000 m or 5000 m) of the cell" in cut["hint"], cut
     assert "beyond Slovakia's border" in cut["beyond"] and "Only lines across the border" in cut["beyond"], cut
     assert cut["beyondHint"].startswith("Counted from Slovakia's data"), cut
     _card_density(cut["selected"]), _card_density(cut["beyond"])  # the same look on both parts' cards

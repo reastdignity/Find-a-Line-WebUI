@@ -137,7 +137,7 @@ function Reports({reports, onChange, onError}: {reports: AdminReport[]; onChange
           c.page && <span>{parts("ui.admin.context_page", {page: c.page})}</span>,
           c.ui && <span>{parts("ui.admin.context_ui", {ui: c.ui})}</span>,
           c.viewport && <span>{parts("ui.admin.context_window", {viewport: c.viewport})}</span>]
-          .filter(Boolean).map((part, i) => <Fragment key={i}>{i > 0 && " · "}{part}</Fragment>)}
+          .filter(Boolean).map((part, i) => <Fragment key={i}>{i > 0 && "; "}{part}</Fragment>)}
         {c.user_agent && <div class="u-mono c-report-agent">{c.user_agent}</div>}
       </div>
       <div class="c-admin-tools">
@@ -186,7 +186,7 @@ export function AdminC({jobs}: {jobs: Job[]}) {
         </Stats>
         {(status.free_gb_min !== null || status.queue_max !== null) && <p class="u-small c-admin-limits">
           {[status.free_gb_min !== null && t("ui.admin.limit_disk", {gb: status.free_gb_min}),
-            status.queue_max !== null && t("ui.admin.limit_queue", {n: status.queue_max})]
+            status.queue_max !== null && t("ui.admin.limit_queue", {count: status.queue_max})]
             .filter(Boolean).join(" ")}</p>}
         {status.workers.length ? <ul class="c-admin-workers u-small">{status.workers.map((w) =>
             <li key={w.id}>{parts("ui.admin.worker", {id: w.id, time: at(w.started)})}</li>)}</ul>

@@ -9,6 +9,7 @@
 // densities.
 
 import type { CountryCube, DimensionKind } from "../api";
+import { t } from "../../i18n";
 import type { LayerMode } from "./cellsLayer";
 
 export type LayerLevel = "auto" | "1" | "2" | "4" | "8";
@@ -272,11 +273,11 @@ export function levelName(deg: number): string {
   return seconds < 60 ? `${seconds}″` : `${+(seconds / 60).toFixed(2)}′`;
 }
 
-/** A cell's size as text: "0.6 × 0.9 km". */
+/** A cell's size as text: "0.6 by 0.9 km" (R9 written out: the user's answer of 2026-11-21). */
 export function sizeText(deg: number, lat: number): string {
   const [w, h] = cellSizeKm(deg, lat);
   const f = (v: number) => v >= 10 ? v.toFixed(0) : v.toFixed(1);
-  return `${f(w)} × ${f(h)} km`;
+  return t("ui.layer.size_km", {width: f(w), height: f(h)});
 }
 
 /** Four breaks evenly spaced in log10 between the 2nd and 98th percentile of the densities (one hot cell does

@@ -4,7 +4,7 @@
 // and, in "Clearance model", the rigging saved as a rig. Where (Point · Area · Along cliffs · File) is one block
 // shown in either tab. The bar with the size word, the receipt and the start is a bar of its own (EstimateBar),
 // which the page places under the panel (NewSearch's bottom bar). UsageMeters shows the user's quotas;
-// SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
+// SearchIntro, "How a search works", opens from its link. Styles in search.css (s-*), under the kit's .ui root.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
@@ -83,7 +83,7 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
     {t("ui.search.areas", {count: s.areas})}
-    {s.shapes !== s.areas && ` ${t("ui.search.shapes", {n: s.shapes})}`}</p>;
+    {s.shapes !== s.areas && ` ${t("ui.search.shapes", {count: s.shapes})}`}</p>;
   return <div class="s-where" ref={where}>
     {s.mode !== "file" && <PlaceBox place={s.place} />}
     <Segmented label={t("basic.where")} options={modes(phone)} value={s.mode} onChange={s.setMode} />
@@ -173,7 +173,7 @@ function KeyFields({s}: {s: SearchState}) {
     {byName.max_anchor_diff_m && <div data-field="max_anchor_diff_m"><Field
       label={<Dotted on={s.differs("max_anchor_diff_m")}>{label("max_anchor_diff_m")}</Dotted>}
       hintLabel={label("max_anchor_diff_m")} hint={hintOf(byName.max_anchor_diff_m)}
-      value={<>{`≤ ${diff} m`} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
+      value={<>{t("basic.diff_value", {diff})} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
       <Range label={label("max_anchor_diff_m")} value={diff} min={0} max={diffMax} step={1}
              onInput={(v) => s.setValue("max_anchor_diff_m", v)} />
     </Field></div>}
@@ -464,7 +464,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {t("basic.receipt.change")}<Icon name="next" /></button>}
     {(line || warnings.length > 0) &&
       <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
-        {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {n: warnings.length})}`}
+        {line}{warnings.length > 0 && `${line ? "; " : ""}${t("ui.search.warnings", {count: warnings.length})}`}
         {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
           <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>{t("ui.search.retry")}</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
@@ -513,7 +513,7 @@ const TABS = ["basic", "advanced"] as const;
 
 /** The panel of the state `search`. */
 export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
-  const intro = useIntro("search");
+  const intro = useIntro("search", false);  // from its link only (the user's answer of 2026-11-21: Q-F1 b)
   const [ask, setAsk] = useState<ReturnAsk | null>(null);
   const [rig, setRig] = useState<RigAsk | null>(null);
   const tabs = useRef<HTMLDivElement>(null);

@@ -3,8 +3,11 @@
   "level.2": "Detailed",
   "level.3": "Rough",
   "level.1.desc": "Sees single boulders and ledges.",
+  "level.1.tag": "up to 1 m",
   "level.2.desc": "Sees walls and towers; small details are smoothed.",
+  "level.2.tag": "2–5 m",
   "level.3.desc": "Only big cliffs: good for long lines.",
+  "level.3.tag": "30 m",
   "level.of": "Level",
   "life.head": "One height point covers about",
   "life.1": "A doormat",
@@ -148,7 +151,7 @@
   "page.theme.light": "Light",
   "page.theme.dark": "Dark",
   "page.title": "Where Find-a-Line sees in detail",
-  "page.lead": "Find-a-Line looks for highlines in elevation data. Where a country or region publishes detailed lidar data, it sees single ledges and towers; everywhere else it uses global 30 m data, which shows only big cliffs.",
+  "page.lead": "Find-a-Line looks for highlines in elevation data. Where a country or region publishes lidar, it sees single ledges and towers; elsewhere global 30 m data show only big cliffs.",
   "page.view": "Map view",
   "page.view.flat": "Flat",
   "page.view.leaflet": "Map",
@@ -171,6 +174,6 @@
   "page.trees.rough": "Roughly",
   "page.trees.surface": "In the heights",
   "page.cta": "Find your next line",
-  "page.about": "About / data licences",
+  "page.about": "About and data licences",
   "page.privacy": "Privacy"
 }

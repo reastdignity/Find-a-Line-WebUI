@@ -19,5 +19,7 @@ paths:
   scales where a rule in force names one (R5 to R7); a value off them needs a reason in a comment.
 - The anchors stay: the logo, Barlow Condensed headings, the magenta line, the accepted layouts. The rest of the
   look changes only through a mock-up the user accepted; its decisions go into DESIGN.md in the same branch.
+- Words: docs/wording.md (the words to use and not to use, the characters written out, the style rules by link);
+  a word changes only with the user's yes, as a row with its source; `tests/test_words.py` reads its "Not" column.
 - A screen's change goes to the design reviewer with the numbers of tools/ui_metrics.py and tools/ui_walks.py
   before and after and its screenshots on the desktop and both phones, light and dark (DESIGN.md, R12).

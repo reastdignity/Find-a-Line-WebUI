@@ -29,7 +29,7 @@ COVERAGE = "Data coverage"  # ui.coverage.layer: the button's words (a desktop),
 PHONE_RECEIPT = "30–300 m · anchors within 10 m of height · Rig: sag, no-fall zone 5 m, no A-frames · access marked"
 LONG_NAME = ("A long name for a trip to the far valley with its many walls and its two lakes over the old huts x")[:100]
 # Advanced's values that each add a part of their own to the receipt (search/basic.ts receiptParts), "clear of trees"
-# (shown on a phone too, where "trees marked" is not) and two values no part covers ("+ 2 more settings")
+# (shown on a phone too, where "trees marked" is not) and two values no part covers ("2 more settings")
 LONG_VALUES = {"min_height": 30, "min_high_share": 50, "max_wall_angle": 70, "min_drop": 40, "nmpt": "reject",
                "same_line_square": 3, "max_anchor_diff": 4}
 
@@ -60,7 +60,7 @@ CONTROLS_JS = """() => {
   const form = $('.c-form');
   if (form) {
     for (const tab of $$('.s-tabs [role=tab]')) add('tab ' + tab.dataset.tab, tab, form);
-    add('how searching works', $('.s-intro .n-intro-link'), form);
+    add('how a search works', $('.s-intro .n-intro-link'), form);
     for (const card of $$('.c-form .s-card')) add('goal ' + card.dataset.goal, card, form);
   }
   add("bar's line", $('.s-sum'));
@@ -454,7 +454,7 @@ def test_unfolded_bar_on_a_phone(tmp_path):
         top, bottom, height, room, overflow = found["receipt"]
         s = found["start"]
         assert bottom <= s[1] + 0.5, (size, found)  # the summary never reaches over Start
-        assert "clear of trees" in found["text"] and "+ 2 more settings" in found["text"] and LONG_NAME in found["text"], (size, found)
+        assert "clear of trees" in found["text"] and "2 more settings" in found["text"] and "+ 2" not in found["text"] and LONG_NAME in found["text"], (size, found)
         assert height <= room + 1 or overflow in ("auto", "scroll"), (size, found)
         assert r[size, "sent"] == [LONG_NAME] and r[size, "errors"] == [], (size, r[size, "sent"], r[size, "errors"])
     # on its side the summary has no room for its lines: it scrolls inside its box
@@ -465,7 +465,7 @@ def test_unfolded_bar_on_a_phone(tmp_path):
 def test_phone_search_controls_apart(tmp_path):
     """A small phone (390 x 664, touch) on the new search, the bar folded and unfolded, the layers' box closed and
     opened: no two controls' boxes intersect (each named by its own class: the zoom's two buttons, the layers button or
-    the box's rows, the scale and the credits, the tabs, "How searching works", the goal cards, the bar's line, the size
+    the box's rows, the scale and the credits, the tabs, "How a search works", the goal cards, the bar's line, the size
     word's "?", "Change settings", "Start search"), and the map's controls stay inside the map. The form's column
     scrolls under nothing but its own edges (it is a grid row of its own between the map and the bar): a control of
     the form counts with the part of it the column shows (clipped to the column's box), and one scrolled out of the
@@ -489,7 +489,7 @@ def test_phone_search_controls_apart(tmp_path):
                         page.wait_for_selector(".leaflet-control-layers-expanded", timeout=WAIT)
                     found = seen[bar, box] = page.evaluate(CONTROLS_JS)
                     names = {name for name, _, _ in found["controls"]}
-                    want = {"zoom in", "zoom out", "tab basic", "tab advanced", "how searching works", "bar's line", "size's ?",
+                    want = {"zoom in", "zoom out", "tab basic", "tab advanced", "how a search works", "bar's line", "size's ?",
                             "start search", "scale", "credits"}
                     want |= {"layers button"} if box == "closed" else {"row OpenTopoMap", "row OpenStreetMap", f"row {COVERAGE}"}
                     want |= {"change settings"} if bar == "unfolded" else set()

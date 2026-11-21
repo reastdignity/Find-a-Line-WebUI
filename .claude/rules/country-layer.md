@@ -102,6 +102,9 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
   `remove_stale` (the builder at its end, `web.Countries` once it dropped an old build's maps) removes only build
   folders older than the named one and a cube built before's `ARRAY_FILES`, never a link; `deploy/push-cube.sh` copies
   the named build by the same pattern (`tests/test_deploy.py::test_push_cube_copies_the_named_build`).
+- A dimension's kind (`floor`, `below`, `at_most` of `api.ts` `DimensionKind`) has its words: a new kind needs its
+  limit (`LayerHistograms.tsx` `limitWords`, `ui.layer.limit.*`) and its chart title's word (`chartTitle`,
+  `ui.layer.hist.title_<kind>`): the ticks are bare values (R9 written out, step 3d G5).
 - The explorer's charts (`viewer/src/app/c/c.css`): one `@container layer-hist` rule per count of bars, 1 to 24, each at
   32 px a bar (`tests/test_layer_page_layout.py::test_one_container_rule_per_count_of_bars`): a cube with a dimension
   of more bins needs more rules (`LayerHistograms.tsx` `data-bars`, `--bars`). The `@container layer-right` threshold

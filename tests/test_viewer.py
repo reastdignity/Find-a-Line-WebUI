@@ -322,7 +322,7 @@ console.log(JSON.stringify(out));""")
 
 def test_basic_receipt_size_word_and_rigs(tmp_path):
     """The receipt (spec-search 1.2, the accepted mock-up's parts) of each goal with the starting and a saved rig, a
-    rig changed for one search, "+ N more settings" (the square rule at 5 covered), the name; the phone's short
+    rig changed for one search, "N more settings" (the square rule at 5 covered), the name; the phone's short
     line; the size word of every state; the rig's words, names, checks; the rig in use kept per browser; where "Sea
     cliffs" moves Where and back."""
     from settings import Limits
@@ -395,7 +395,7 @@ console.log(JSON.stringify(out));""")
     marked = "access marked[, no line filtered out]→access"
     assert found["best"] == ["30–300 m→min_length", "anchors within 10 m of height→max_anchor_diff_m",
                              "trees marked*→nmpt", "Rig: sag, no-fall zone 5 m, no A-frames→end_zone", marked]
-    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "+ 1 more setting"
+    assert found["unmarked"] == found["best"][:-1]  # the mark off (Advanced): no part, and no "1 more setting"
     # too wide for the access grid: "access not marked", on a desktop ": area too wide"; with the mark off no part
     assert found["skipped"] == ["access not marked[: area too wide]→access", len(found["best"]) - 1, True, False, False,
                                 False, "access_skipped"]
@@ -408,7 +408,7 @@ console.log(JSON.stringify(out));""")
                                 "My rig: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked,
                                 "named “Il-Bahrija”→name"]
     assert found["forOne"][-2:] == ["Rig for this search: sag, no-fall zone 3 m, A-frames 2 m→end_zone", marked]
-    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "+ 2 more settings→more"]
+    assert found["more"][2] == "trees not checked→nmpt" and found["more"][-2:] == [marked, "2 more settings→more"]  # G5: no "+ "
     assert found["formula"][-2] == "Rig: simple formula, no-fall zone 5 m, no A-frames→model"
     assert found["short"] == ["Long and exposed · 100–600 m · My rig", "Custom · 30–300 m · Rig for this search"]
     # (3: the word, the level and the causes; the "Lighter" hint is gone, the user's 2026-11-15 "2. ok c")
@@ -1953,9 +1953,11 @@ def test_shore_chip_in_edge(tmp_path):
     assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
     assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
-    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    # the scale's corner raised 180 px (shore_page.ts): the box too short for the help, which scrolls inside, up under
+    # the title (shoreLayer.ts `fit` and the help's onclick)
+    assert hint["open"] is True and hint["overflow"] == "auto"
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    assert hint["scrolls"] is True and hint["textUp"] is True and hint["titleTop"] <= 1, hint
     # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
     assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
@@ -1971,6 +1973,8 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    # it scrolls too; whether the help comes up under the title there is not checked (the phone's case is, above)
+    assert hint["scrolls"] is True and hint["titleTop"] <= 1, hint
     assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
 
@@ -3321,7 +3325,9 @@ def test_access_marks_from_rows_and_store(tmp_path):
     assert texts["basic.access.note"] == "The result marks anchors you can walk to. No line is filtered out."
     assert texts["basic.receipt.access"] + texts["basic.receipt.access_wide"] == "access marked, no line filtered out"
     assert texts["ui.access.hard_means"].startswith("no walk reaches the anchor, even over steep ground.")
-    assert "paths, fences, private land or trees" in texts["ui.access.help"] and "amber mark" in texts["ui.access.help"]
+    # the help within R10 (the user's answer of 2026-11-21, step 3d G5): its amber sentence went into the amber row
+    assert "paths, fences, private land or trees" in texts["ui.access.help"]
+    assert texts["ui.access.cannot_tell_means"].endswith("the data end nearby: often on alpine walls.")
     assert texts["anchor"] == "Anchor 2" and texts["anchor_state"] == "Anchor 1: cannot tell"
     assert not any(word in text.lower() for text in texts.values() for word in ("walker", "slackliner"))
     assert all(text and not text.startswith(("ui.", "basic.")) for text in texts.values())  # every key is in the catalogue

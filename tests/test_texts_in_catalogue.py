@@ -2,9 +2,11 @@
 
 - The server-rendered pages whose texts moved into the catalogue (the sign-in page with its examples and the area
   total, the about page, the pages' footer) render byte for byte as before the move: main's rendering at db84edbc is
-  kept here as the reference (`old_*`), over every variant (signed in or not, the account's state, providers, notes,
-  examples or none, totals, the satellite map and the 3D view's ring or not). The privacy page is not moved (its
-  words are the user's to approve): its footer, the one part it shares, keeps its bytes.
+  kept here as the reference (`old_*`), with the words the user changed since (step 3d G5, the answers of 2026-11-21:
+  "About and data licences" for "About / data licences", the examples' "1 spot" and "1 line"), over every variant
+  (signed in or not, the account's state, providers, notes, examples or none, totals, the satellite map and the 3D
+  view's ring or not). The privacy page is not moved (its words are the user's to approve): its footer, the one part
+  it shares, keeps its bytes but for G5's link.
 - The files whose texts moved hold no user-visible English literal but a named list of exceptions (brands, format
   names, a provider's required wording, values), so a later change does not put a sentence back into the code: the
   viewer's files (MOVED; JSX text, and literals that read as words: a phrase, a capitalised word, the words of
@@ -33,7 +35,7 @@ import web  # noqa: E402
 # ---- main's rendering at db84edbc (web.py), the reference -------------------------------------------------------
 
 OLD_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/coverage">Data coverage</a>'
-              '<a href="/privacy">Privacy</a><a href="/about">About / data licences</a></footer>')
+              '<a href="/privacy">Privacy</a><a href="/about">About and data licences</a></footer>')  # G5: one wording
 OLD_SIGNIN_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Find-a-Line</title>
@@ -102,7 +104,7 @@ def old_about_page(contact: str, esri: bool = False, ring: bool = False) -> str:
         f"<a href='/app/{web.THIRD_PARTY_LICENCES}'>{web.THIRD_PARTY_LICENCES}</a>.</p>",
         f"<p>Contact: {e(contact)}.</p>",
     ]
-    return web.PAGE_HTML.format(title="About / data licences", body="\n".join(body), logo=web.LOGO_SVG,
+    return web.PAGE_HTML.format(title="About and data licences", body="\n".join(body), logo=web.LOGO_SVG,
                                 footer=OLD_FOOTER)
 
 
@@ -115,8 +117,10 @@ def old_demo_list(demos) -> str:
     items = []
     for run in demos:
         summary = run.get("summary") or {}
-        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{summary.get('spots', 0)} spots · "
-                 f"{summary.get('lines', 0)} lines</span><span class='u-small'>{e(rn.params_summary(run))}</span>")
+        spots, lines = summary.get("spots", 0), summary.get("lines", 0)  # G5: a plural by the count
+        counts = f"{spots} spot{'' if spots == 1 else 's'} · {lines} line{'' if lines == 1 else 's'}"
+        inner = (f"<b>{e(run.get('name') or run['id'])}</b><span class='u-small'>{counts}</span>"
+                 f"<span class='u-small'>{e(rn.params_summary(run))}</span>")
         items.append(f"<li><a class='p-ex' href='/runs/{e(quote(run['id'], safe=''))}/map.html'>{inner}"
                      f"<span class='p-open'>Open map{web.NEXT_ICON}</span></a></li>" if run.get("has_map")
                      else f"<li><div class='p-ex'>{inner}</div></li>")
@@ -176,20 +180,22 @@ def test_footer_unchanged():
     assert web.PAGE_FOOTER == OLD_FOOTER
 
 
-# The privacy page's rendering on main at db84edbc (sha256 of web.privacy_page(contact, keep_events_days, ring=ring))
+# The privacy page's rendering on main at db84edbc (sha256 of web.privacy_page(contact, keep_events_days, ring=ring)),
+# its footer's link "About and data licences" since G5 (the user's answer of 2026-11-21; the page's own words unchanged:
+# each page with that link put back as "About / data licences" gave the digest of before)
 PRIVACY = {
-    ("admin@example.org", None, False): "0948e26a862abb35559fbfcf39a975b09906ec81cb6255502e34f5b9461459d9",
-    ("admin@example.org", None, True): "88c97979ecc8c101ca10983f7036a5af46ff76c99dff84704f13aae774ddb97f",
-    ("admin@example.org", 30, False): "a66038b7348080e3ed01c192b29c6fbda653d4cd1547065aef4563ad7788b4be",
-    ("admin@example.org", 30, True): "c4123a64f5c39c89ff3d583e2094182a94b5c4d01a3cd9484213ad00194832ff",
-    ("admin@example.org", 7.5, False): "719ee0c317d789807ccc0017a3d7bc862ee2a3da016a31ec88f1e6ca62553f63",
-    ("admin@example.org", 7.5, True): "2108a1d69e36769b3b6e577eaf6655f31a3ececabe439fea6c41eb6c19148372",
-    ("<Ann & Bob>", None, False): "80b4fa1b5b46cc4627ae51ffecaefb42ed89f156b2cc0f7ace032a23bb195e6e",
-    ("<Ann & Bob>", None, True): "e2f8195c2d612a65ffba7ed625e41986798b8d024e1571d11ca0f138ef324c28",
-    ("<Ann & Bob>", 30, False): "a3b944fe52f1823e7a6b8765062c12488bdf3396f843f6d72de56cec5acf664b",
-    ("<Ann & Bob>", 30, True): "dc89471797365bfc0b3c46dca317725076e1ddda42b80359c9a78e55a281d2c6",
-    ("<Ann & Bob>", 7.5, False): "497d267b2f266f0b1cb5a8bd157cfcd3a042fee789b299651bd6b3ec3b34edf3",
-    ("<Ann & Bob>", 7.5, True): "8610c126e5f653795ccdcda9181d1bd8f18e34e5a94541ed4d068724984b4c0c",
+    ("admin@example.org", None, False): "7e839ee9814cfbad4c69972cd1d2d9116255a682e2659c6287b18d30866f435b",
+    ("admin@example.org", None, True): "8395d53a42cd3acc4428972e630ca9d25c9703df63cd4667748f20f70ed347d3",
+    ("admin@example.org", 30, False): "00d4af315220962f94e41bd97bd49db710b969c457ffeb51e238587d0101fc07",
+    ("admin@example.org", 30, True): "5165848d5f4e226582287b8bd877d6a7f272e088861b034dcba5e16239ca3466",
+    ("admin@example.org", 7.5, False): "9b13df288b2011c0b3901c3e0f8b152c84a3fe99c877db9c2bb0dcbbf1ec1bc4",
+    ("admin@example.org", 7.5, True): "9465cdcec67b18079fa6f0a77318a53cd2767ad27336e2183de60c8abf73a819",
+    ("<Ann & Bob>", None, False): "e426c3f65962985b3b9a6ceb864cc9543df46c4f2a6ce4c871033065432b7239",
+    ("<Ann & Bob>", None, True): "57c747459ecf147dd327f3e8dd8e8ee02b8ace3c44a1cd43d99616ae7cb3a046",
+    ("<Ann & Bob>", 30, False): "905d3aef55107dfa7dfbbf98ccd5b2fb24cd38a088b46dcf3a5015503f55cae6",
+    ("<Ann & Bob>", 30, True): "19e0ba5ba96863308a9a829b493cdc915ad0c0d06aba14558b32513ce9bdd0d1",
+    ("<Ann & Bob>", 7.5, False): "f2a587c2724512719fdbba2f76250e1e1fcc87abb028f451c304ba4d67b8aa49",
+    ("<Ann & Bob>", 7.5, True): "2986e607f229a46ecbd6a66d363773c3154299af5f59d33c2c9d6eadcf38817a",
 }
 
 
@@ -751,7 +757,7 @@ console.log(JSON.stringify([
   m.parts("ui.result.lines", {n: 1}, 1), m.parts("ui.result.lines", {n: "1,234"}, 1234),
   m.parts("ui.osm.meta", {mb: 9, data: "2026-11-01", checked: "2026-11-19"}),
   m.parts("basic.rigs", {count: 1}), m.parts("basic.rigs", {count: 3}), m.parts("basic.rigs", {}, 2),
-  m.parts("ui.favourites.delete_folders", {count: "N"}),
+  m.parts("ui.favourites.delete_folders", {count: 1}), m.parts("ui.favourites.delete_folders", {count: 4}),
   m.parts("ui.search.centre", {lat: "1", lon: "2", context: "male", lng: "pl", defaultValue: "x"}),
   m.parts("ui.favourites.export", {what: "this folder"})]));""", encoding="utf-8")
     result = subprocess.run(["node", str(script)], capture_output=True, text=True, encoding="utf-8", check=True)
@@ -759,5 +765,6 @@ console.log(JSON.stringify([
         ["Centre ", "50.15595", ", ", "19.75627"], [5, " m grid"],
         ["No favourite lines yet: mark them with ", {"icon": "star"}, " in a result."],
         [1, " line"], ["1,234", " lines"], [9, " MB, data of ", "2026-11-01", ", checked ", "2026-11-19"],
-        [1, " rig"], [3, " rigs"], ["2 rigs"], [", ", "N", " folders in it"], ["Centre ", "1", ", ", "2"],
+        [1, " rig"], [3, " rigs"], ["2 rigs"], [", ", 1, " folder in it"], [", ", 4, " folders in it"],  # G5: by the count
+        ["Centre ", "1", ", ", "2"],
         ["Export ", "this folder"]]

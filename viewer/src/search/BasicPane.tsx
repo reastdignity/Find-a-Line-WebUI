@@ -107,7 +107,7 @@ function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
           <b>{rig.name}</b><span>{rigSummary(rig.values)}</span></button>)}
         <button type="button" class="s-rig-item s-rig-add" disabled={full}
                 onClick={() => { setOpen(false); onOpen({mode: "new", values: null}); }}>
-          {full ? t("basic.rigs_ten", {max: r.max}) : t("basic.add_rig")}</button>
+          {full ? t("basic.rigs_ten", {max: r.max}) : <><Icon name="plus" />{t("basic.add_rig")}</>}</button>
       </div>}
       <div><div class="s-rig-sum">{rigSummary(r.values)}</div><div class="u-small s-rig-detail">{rigDetail(r.values)}</div></div>
     </div> : <div class="s-rig-box">

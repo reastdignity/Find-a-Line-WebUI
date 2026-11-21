@@ -44,9 +44,9 @@ export const Stars = ({level, small}: {level: Level; small?: boolean}) =>
   <span class={small ? "cov-stars cov-stars-s" : "cov-stars"} role="img" aria-label={`${4 - level}/3`}>
     {[1, 2, 3].map(n => <Icon key={n} name="star" class={n <= 4 - level ? "cov-star" : "cov-star cov-off"} />)}</span>;
 
-/** The resolutions of a level as the legend tags them. */
-export const LEVEL_TAGS: Record<Level, string> = {1: "≤ 1 m", 2: "2–5 m", 3: "30 m"};
-const tagOf = (level: Level, lang: Lang) => (lang === "pl" ? LEVEL_TAGS[level].replace(".", ",") : LEVEL_TAGS[level]);
+/** The resolutions of a level as the legend tags them: "up to 1 m", "2–5 m", "30 m" (R9 written out, the user's
+ *  answer of 2026-11-21; the images and videos keep "≤ 1 m": coverage/draw/layout.ts). */
+const tagOf = (level: Level, lang: Lang) => ct(lang, `level.${level}.tag`);
 
 /** The level's name in a scale (the stars' own words, the everyday sizes, or the words). */
 export function levelName(level: Level, scale: Scale, lang: Lang): string {

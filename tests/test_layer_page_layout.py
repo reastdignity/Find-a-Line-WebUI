@@ -537,12 +537,12 @@ def test_counts_are_parted_by_semicolons(site):
 
 def test_rails_lead_their_counts_with_a_colon(site):
     """The fix round's point 5 on a desktop, the panels collapsed by the kept layout: the left rail reads "Filters:
-    N set" and the right one "Histograms: N lines in view"; a rail's accessible name is its visible label, then
-    ". Expand the filters" (". Expand the histograms"): the rail is found by its role and that name."""
+    N set" and the right one "Charts: N lines in view"; a rail's accessible name is its visible label, then
+    ". Expand the filters" (". Expand the charts"): the rail is found by its role and that name."""
     for side, kept, words, name in (
             ("left", {"v": 2, "left": {"w": 340, "open": False}, "right": {"w": 485, "open": True}}, r"Filters: \d+ set", "filters"),
             ("right", {"v": 2, "left": {"w": 340, "open": False}, "right": {"w": 485, "open": False}},
-             r"Histograms: \d[\d.,]*( [kM])? lines in view", "histograms")):
+             r"Charts: \d[\d.,]*( [kM])? lines in view", "charts")):
         page = _page(site, DESKTOP, kept)
         rails = page.evaluate("() => [...document.querySelectorAll('.c-mappage-3 .c-rail')].length")
         assert rails == (1 if side == "left" else 2), rails

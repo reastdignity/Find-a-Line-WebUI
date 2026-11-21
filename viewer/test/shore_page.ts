@@ -61,10 +61,14 @@ const shown = (e: Element | null | undefined) => !!e && (e as HTMLElement).offse
   map.setView([lat, lon + 0.0006], 20, {animate: false});
   out.moved = {...state(), text: box.textContent, chipText: chip.textContent, swatches: swatches()};
   map.setView([lat, lon], 17, {animate: false});
-  // The "?" text opened: the box keeps above the scale and within the map, its text scrolls inside
+  // The "?" text opened: the box keeps above the scale and within the map, its text scrolls inside. The scale's
+  // corner raised 180 px first (as above a phone's sheet), so the box is too short for its text and scrolls: the
+  // help within R10 (step 3d G5) fits the box at the scale's own place
+  const corner = div.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left")!;
+  corner.style.bottom = "180px";
   help.click();
   const mapRect = div.getBoundingClientRect(), boxRect = box.getBoundingClientRect();
-  const scale = div.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left")!.getBoundingClientRect();
+  const scale = corner.getBoundingClientRect();
   out.help = {open: !more.hidden, bottom: Math.round(boxRect.bottom), scaleTop: Math.round(scale.top),
               mapBottom: Math.round(mapRect.bottom), scrolls: box.scrollHeight > box.clientHeight,
               overflow: getComputedStyle(box).overflowY,
@@ -73,7 +77,6 @@ const shown = (e: Element | null | undefined) => !!e && (e as HTMLElement).offse
               titleTop: Math.round(box.querySelector(".u-shore-head")!.getBoundingClientRect().top - boxRect.top)};
   // The scale's corner raised as result/view/corners.ts does above a sheet or a card (its style, no map event):
   // the opened box follows, still ending above it, once the page's pending callbacks ran
-  const corner = div.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left")!;
   corner.style.bottom = "200px";
   await new Promise((done) => setTimeout(done, 0));
   out.raised = {bottom: Math.round(box.getBoundingClientRect().bottom), cornerTop: Math.round(corner.getBoundingClientRect().top)};
