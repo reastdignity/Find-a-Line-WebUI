@@ -1953,10 +1953,11 @@ def test_shore_chip_in_edge(tmp_path):
     assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
     assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
-    # the help within R10 since step 3d G5 (the user's answer of 2026-11-21) fits the box; a longer one scrolls inside
+    # the scale's corner raised 180 px (shore_page.ts): the box too short for the help, which scrolls inside, up under
+    # the title (shoreLayer.ts `fit` and the help's onclick)
     assert hint["open"] is True and hint["overflow"] == "auto"
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    assert (hint["textUp"] is True or not hint["scrolls"]) and hint["titleTop"] <= 1  # scrolled up when it does not fit
+    assert hint["scrolls"] is True and hint["textUp"] is True and hint["titleTop"] <= 1, hint
     # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
     assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
@@ -1972,6 +1973,8 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    # it scrolls too (its rows above the help: scrolled to its end, the help need not reach the title)
+    assert hint["scrolls"] is True and hint["titleTop"] <= 1, hint
     assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
 
