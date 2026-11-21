@@ -1,5 +1,5 @@
-"""The three parity gaps of the result view the user wanted closed in step 3d (local planning P1 a, P3 a, P4 a;
-viewer/src/result/view/SpotColumns.tsx, SpotList.tsx, SpotDetails.tsx, viewstate.ts, spots.ts):
+"""The three parity gaps of the result view the user wanted closed in step 3d (the user's answers P1 a, P3 a, P4 a of
+2026-11-21; viewer/src/result/view/SpotColumns.tsx, SpotList.tsx, SpotDetails.tsx, viewstate.ts, spots.ts):
 
 - P3: a new selection made while a phone's sheet is at full drops the sheet to half, as on today's page (ResultColumns.tsx
   Phone: useMeasureEnds' setSnap full -> half, for every new selected line): a row of the list (test_view_frame.py's
@@ -14,6 +14,7 @@ Playwright's Edge over the app's server, offline, on the result view's clip runs
 deadline (the one exception is test_shell_c_view_map's _tap, said there). Run from PowerShell
 (.claude/rules/browser-tests.md)."""
 
+import json
 import os
 import sys
 
@@ -21,7 +22,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_shell_c_view_map import (BOXES, SMALL_PHONE, WAIT, _open, _state, _tap_on, boxes_site, view_clip)  # noqa: E402,F401
+from test_shell_c import BIG  # noqa: E402
+from test_shell_c_view_map import (BOXES, DESKTOP, SMALL_PHONE, WAIT, WORDS, _open, _state, _tap_on, boxes_site,  # noqa: E402,F401
+                                   site, view_clip)
 from test_view_frame import HELP, OPEN_LINK, PIXEL, SELECTED_ENDS, STILL, UNDER8, _one_clear  # noqa: E402
 from test_web import EDGE, _playwright  # noqa: E402
 
@@ -105,3 +108,120 @@ def test_selection_at_full_drops_to_half(boxes_site, device):
     for how, state in got.items():
         assert state["snap"] == "half", (how, state)
         assert _one_clear(state["ends"]), (how, state)
+
+
+# The tree as drawn and as the view holds it: the rows' spots of the open sectors in their order, each sector's spots
+# with the sort key's value of its shown line (null: not known), the direction's button and the heads' marks, what is
+# kept
+TREE = r"""() => { const v = window.FINDALINE_VIEW.view, key = v.sort;
+  const value = (s) => { const x = key === 'n' ? v.passingCount(s) : v.values[key][v.shownOf(s)]; return Number.isFinite(x) ? x : null; };
+  const dir = document.querySelector('.vl-tree .vl-dir'), r = dir && dir.getBoundingClientRect();
+  return {sort: key, desc: v.desc, rows: [...document.querySelectorAll('.vl-tree .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
+    sectors: v.sectors.map((s) => s.spots.map((p) => [p, value(p)])), order: Array.from(v.order), best: Array.from(v.inView.best),
+    label: dir && dir.getAttribute('aria-label'), title: dir && dir.getAttribute('title'), size: r && [Math.round(r.width), Math.round(r.height)],
+    treeAsc: !!document.querySelector('.vl-tree .vl-by.vl-asc'), topAsc: !!document.querySelector('.vl-topblock .vl-by.vl-asc'),
+    topRows: [...document.querySelectorAll('.vl-topblock .vl-rows .vl-main')].map((b) => Number(b.dataset.spot)),
+    kept: (() => { try { return localStorage.getItem('findaline.view.v1'); } catch (e) { return 'blocked'; } })()}; }"""
+
+
+def _ordered(sectors, desc: bool) -> bool:
+    """Each sector's spots in the direction (an unknown value last, equal values the lower number first), and the
+    sectors by their first spot in it."""
+    def key(item):
+        spot, v = item
+        return (v is None, (-v if desc else v) if v is not None else 0, spot)
+    if any(s != sorted(s, key=key) for s in sectors):
+        return False
+    firsts = [s[0] for s in sectors]
+    return firsts == sorted(firsts, key=key)
+
+
+@pytest.mark.parametrize("device", ["desktop", "phone"])
+def test_sort_direction(site, device):
+    """P4: the direction beside "Sort by" ("Largest first", today's words) pressed: the tree's rows smallest first (each
+    sector's spots and the sectors' order; the rows drawn are the view's), the tree's head mark points up, the button
+    says "Smallest first"; "Best in view", its rows and B numbers and its head's mark stay best first. Kept with the
+    sort (findaline.view.v1, the direction written only when it is not the key's first) and read back on a reload.
+    Pressed again: largest first. Another key starts largest first. On a touch phone (390 x 664, the sheet at full)
+    the button is 44 x 44."""
+    from playwright.sync_api import sync_playwright
+    context = DESKTOP if device == "desktop" else SMALL_PHONE
+    words = {k: WORDS[f"ui.view.{k}"] for k in ("dir_desc", "dir_asc")}
+
+    def ready(page):
+        page.wait_for_selector(".vl-tree .vl-dir", timeout=WAIT)
+        if device == "phone":
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "full")
+
+    def press(page, desc: bool):
+        if device == "phone":
+            _tap_on(page, ".vl-tree .vl-dir")
+        else:
+            page.click(".vl-tree .vl-dir")
+        page.wait_for_function(f"() => window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+        page.evaluate("() => T.frames()")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", context, script=HELP)
+            ready(page)
+            first = page.evaluate(TREE)
+            press(page, False)
+            asc = page.evaluate(TREE)
+            page.reload()
+            page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT)
+            ready(page)
+            reloaded = page.evaluate(TREE)
+            press(page, True)
+            back = page.evaluate(TREE)
+            press(page, False)
+            page.select_option(".vl-tree select.r-sort", "len")
+            page.wait_for_function("() => window.FINDALINE_VIEW.view.sort === 'len'", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            other = page.evaluate(TREE)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("direction:", device, {k: {x: v[x] for x in ("sort", "desc", "label", "size", "treeAsc", "topAsc", "kept")}
+                                 for k, v in (("first", first), ("asc", asc), ("reloaded", reloaded), ("back", back), ("other", other))})
+    assert first["desc"] and first["label"] == words["dir_desc"] and first["title"] == words["dir_desc"], first
+    assert _ordered(first["sectors"], True) and not first["treeAsc"], first["sectors"][:2]
+    # smallest first: the tree reversed, drawn as the view holds it; Best in view as it was
+    assert not asc["desc"] and asc["label"] == words["dir_asc"] and asc["title"] == words["dir_asc"], asc
+    assert _ordered(asc["sectors"], False) and asc["sectors"] != first["sectors"], asc["sectors"][:2]
+    assert asc["rows"][:5] == [s for s, _ in asc["sectors"][0][:5]], (asc["rows"][:5], asc["sectors"][0][:5])
+    flat = [s for sector in asc["sectors"] for s, _ in sector]
+    assert asc["rows"] == [s for s in flat if s in asc["rows"]], (asc["rows"][:10], flat[:10])
+    assert asc["treeAsc"] and not asc["topAsc"], asc
+    assert asc["order"] == first["order"] and asc["best"] == first["best"] and asc["topRows"] == first["topRows"]
+    assert json.loads(asc["kept"]) == {"sort": "hmean", "hint": True, "desc": False}, asc["kept"]
+    # kept: a reload reads it back
+    assert not reloaded["desc"] and reloaded["sectors"] == asc["sectors"] and reloaded["label"] == words["dir_asc"], reloaded
+    # pressed again: largest first, as at the start; another key starts largest first
+    assert back["desc"] and back["sectors"] == first["sectors"] and back["label"] == words["dir_desc"], back
+    assert json.loads(back["kept"]) == {"sort": "hmean", "hint": True}, back["kept"]
+    assert other["sort"] == "len" and other["desc"] and other["label"] == words["dir_desc"] and _ordered(other["sectors"], True), other
+    assert json.loads(other["kept"]) == {"sort": "len", "hint": True}, other["kept"]
+    if device == "phone":
+        assert first["size"] == [44, 44] and asc["size"] == [44, 44], (first["size"], asc["size"])
+
+
+def test_old_kept_value_reads_largest_first(site):
+    """A value of findaline.view.v1 kept before the direction (no `desc`) reads as its key's first direction: largest
+    first ("Largest first" on the button, the tree as before), and reading it writes nothing."""
+    from playwright.sync_api import sync_playwright
+    old = "try { localStorage.setItem('findaline.view.v1', JSON.stringify({sort: 'clr', hint: false})); } catch (e) {}"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP + old)
+            page.wait_for_selector(".vl-tree .vl-dir", timeout=WAIT)
+            got = page.evaluate(TREE)
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got["sort"] == "clr" and got["desc"] and got["label"] == WORDS["ui.view.dir_desc"], got
+    assert _ordered(got["sectors"], True), got["sectors"][:2]
+    assert json.loads(got["kept"]) == {"sort": "clr", "hint": False}, got["kept"]

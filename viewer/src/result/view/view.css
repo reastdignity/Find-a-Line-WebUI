@@ -65,6 +65,11 @@
 .ui .vl-block-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; min-height: 40px; }
 .ui .vl-block-head h3 { margin: 0; font: 600 var(--fs-4)/20px var(--display); letter-spacing: .01em; }
 .ui .vl-sort { display: inline-flex; align-items: center; gap: 8px; }
+/* the tree's direction beside "Sort by" (step 3d's P4): the kit's "sort" icon, pointing up for smallest first (the
+   tree's heads' mark too); 44 px on a touch screen (R2) */
+.ui .vl-dir { flex: none; }
+.ui .vl-asc .u-ic { transform: rotate(180deg); }
+@media (pointer: coarse) { .ui .v-result .vl-dir { width: 44px; height: 44px; } }
 .ui .vl-note { margin: 0; padding: 4px 16px; }
 /* the key of the tight mark under a list */
 .ui .vl-key { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 16px 0; color: var(--ink-2); }

@@ -102,9 +102,9 @@ out.finger = [[true, "", false], [true, "", true], [true, "mouse", true], [true,
               [false, "mouse", false], [false, "", false]].map(([w, p, c]) => m.byFinger(w, p, c));
 done();
 """)
-    default = {"sort": "hmean", "hint": True}
-    assert found["parse"] == [default, default, default, default, {"sort": "len", "hint": True},
-                              {"sort": "n", "hint": False}, default, {"sort": "hmax", "hint": True}]
+    default = {"sort": "hmean", "hint": True, "desc": True}  # (a value kept before step 3d's direction: largest first)
+    assert found["parse"] == [default, default, default, default, {"sort": "len", "hint": True, "desc": True},
+                              {"sort": "n", "hint": False, "desc": True}, default, {"sort": "hmax", "hint": True, "desc": True}]
     assert found["sorts"] == ["hmean", "clr", "len", "hmax", "n"]  # B.2 item 13's order: mean height first
     assert found["pages"] == [20, 20, 40, 40, 60, 60, 60, 60, 80, 100]
     assert found["consts"] == [PAGE, MORE, "findaline.view.v1", 6]
@@ -159,7 +159,7 @@ done();
     assert "findaline.view.v1" in found["shown"][2] and not [k for k in found["shown"][2] if "top" in k.lower()]
     assert found["drawn"] == 2
     assert found["second"] == [False, "n", True, False]
-    assert found["blocked"] == [{"sort": "hmean", "hint": True}, "clr", False]
+    assert found["blocked"] == [{"sort": "hmean", "hint": True, "desc": True}, "clr", False]
 
 
 def test_the_list_follows_a_selection(tmp_path, bundle, made_path, run):

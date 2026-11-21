@@ -2,8 +2,9 @@
 // (SpotSummary, ViewFilters), then two blocks. The top block follows the map: at the Area level "Start here" (the
 // picks P1 …, a pick's name on a line of its own above its numbers); else "Best in view: 10 of 283" with the rows
 // B1 … and a button that raises Best ("Show 30", "Show 100", "Show all"), with All "In view: 95 spots" and at most
-// 100 rows. Below, "All spots": a tree of the sectors in the list's order ("Sort by": five keys, kept in the
-// browser), the first open, 20 rows a page and 40 more per "Show more", "Show on the map" per sector.
+// 100 rows. Below, "All spots": a tree of the sectors in the list's order ("Sort by": five keys, and beside it the
+// direction, "Largest first" / "Smallest first", step 3d's P4: it orders the tree only; both kept in the browser), the
+// first open, 20 rows a page and 40 more per "Show more", "Show on the map" per sector.
 //
 // A row (the UX session's requirement 13): a list item that is no control itself; its main part is ONE button that
 // selects the row's spot (pressed again: ends the selection; `aria-pressed` says it); any other control of a row
@@ -37,7 +38,7 @@ import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
 import { clearAll, ViewFilters, ViewMoreFilters } from "./ViewFilters";
-import { changePanels, follow, isOpen, limitOf, panelState, showMore, sortBy, SORTS, watchPanels } from "./viewstate";
+import { changePanels, follow, isOpen, limitOf, panelState, reverse, showMore, sortBy, SORTS, watchPanels } from "./viewstate";
 import "./view.css";
 
 /** The door "›" of a row ("Open spot"): off until a spot's cards exist (spec-view.md B-5: hidden). */
@@ -325,9 +326,9 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
 }
 
 /** A heading of a list's column, hidden from a screen reader (a row's values carry their names); `by`: the list is
- *  sorted by it (the kit's "sort" icon before its words). */
-export function Head({by, text}: {by: boolean; text: string}) {
-  return <span class={by ? "vl-by" : undefined} aria-hidden="true">{by && <Icon name="sort" />}{text}</span>;
+ *  sorted by it (the kit's "sort" icon before its words, pointing up for smallest first: `asc`). */
+export function Head({by, text, asc}: {by: boolean; text: string; asc?: boolean}) {
+  return <span class={by ? cx("vl-by", asc && "vl-asc") : undefined} aria-hidden="true">{by && <Icon name="sort" />}{text}</span>;
 }
 
 /** The columns' names and their help texts (today's titles of the list's columns: LinesTable), in a row's order. */
@@ -344,11 +345,13 @@ const COL_HELP = "vl-help-cols";  // the id of the columns' help text
 
 /** The headings of the rows (each hidden from a screen reader: a row's values carry their names); sorted by the
  *  highest point, that value stands in the mean height's column; `ranked`: the column the list is sorted by is marked
- *  with the sort icon (not for the picks, which are not ranked); `help`: the columns' info button in the first cell,
- *  above the marks (the top block's heads only; a screen reader reaches it); `stars`: the rows end with a star. */
-function Heads({view, ranked, help, stars}: {view: SpotView; ranked: boolean; help?: {open: boolean; toggle(): void}; stars: boolean}) {
+ *  with the sort icon (not for the picks, which are not ranked); `tree`: the tree's heads, whose mark follows the
+ *  direction (the top block's stays best first); `help`: the columns' info button in the first cell, above the marks
+ *  (the top block's heads only; a screen reader reaches it); `stars`: the rows end with a star. */
+function Heads({view, ranked, tree, help, stars}: {view: SpotView; ranked: boolean; tree?: boolean; help?: {open: boolean; toggle(): void};
+                                                   stars: boolean}) {
   const by = !ranked ? "" : view.sort === "len" ? "len" : view.sort === "clr" ? "clr" : view.sort === "n" ? "n" : "h";
-  const head = (key: string, text: string) => <Head by={by === key} text={text} />;
+  const head = (key: string, text: string) => <Head by={by === key} text={text} asc={tree && !view.desc} />;
   return <div class={cx("vl-cols", withAccess(view) && "vl-with-acc", stars && "vl-starred")}>
     {help ? <IconButton icon="info" label={t("ui.view.col.about")} plain expanded={help.open} aria-controls={COL_HELP}
                         class="vl-info vl-cols-info" onClick={help.toggle} />
@@ -455,7 +458,7 @@ function SectorRows({p, sector, k}: SectorProps) {
               onClick={() => map?.showSector(n)}><Icon name="locate" /></button>
     </div>
     {open && <>
-      <Heads view={view} ranked stars={stars} />
+      <Heads view={view} ranked tree stars={stars} />
       <Rows view={view} label={name} stars={stars}>
         {shown.map((spot, r) => <Row key={spot} {...p} spot={spot} row={view.shownOf(spot)} id={`vl-row-${spot}`}
                                      tab={r === stop} height={height} />)}
@@ -474,14 +477,14 @@ function SectorRows({p, sector, k}: SectorProps) {
 
 interface SectorProps { p: PanelProps; sector: SectorRow; k: number; sig?: string }
 
-/** Everything a sector's picture depends on: the lines that pass and their order (the view's version, the sort; a
- *  change of the favourites counts in the version), whether it is open and how many rows, the selected spot when it is
- *  one of its own, the canvas, and whether the page keeps favourites (the rows' stars: known after the first draw, and
- *  with none saved the version stays). */
+/** Everything a sector's picture depends on: the lines that pass and their order (the view's version, the sort and
+ *  its direction; a change of the favourites counts in the version), whether it is open and how many rows, the
+ *  selected spot when it is one of its own, the canvas, and whether the page keeps favourites (the rows' stars: known
+ *  after the first draw, and with none saved the version stays). */
 function sectorSig({view, map, wide}: PanelProps, sector: SectorRow, k: number): string {
   const ui = panelState(view), sel = view.selected;
   const mine = sel && view.sectorOf(sel.spot) === sector.n ? sel.spot : -1;
-  return [view.version, view.sort, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0,
+  return [view.version, view.sort, view.desc ? 1 : 0, k, isOpen(ui, sector.n, k), limitOf(ui, sector.n), mine, map ? 1 : 0, wide ? 1 : 0,
           view.model.favouritesOn ? 1 : 0].join("|");
 }
 
@@ -496,7 +499,8 @@ class Sector extends Component<SectorProps> {
   }
 }
 
-/** "All spots": the sort and the tree of sectors. */
+/** "All spots": the sort, its direction (the button says the order as today's LinesTable: "Largest first" /
+ *  "Smallest first"; a press reverses it, another key starts largest first) and the tree of sectors. */
 function Tree(p: PanelProps) {
   const {view} = p, ui = panelState(view), sectors = view.sectors;
   const tight = sectors.some((s, k) => isOpen(ui, s.n, k) &&
@@ -505,7 +509,9 @@ function Tree(p: PanelProps) {
     <div class="vl-block-head"><h3 id="vl-tree-title">{t("ui.view.all_spots")}</h3><span class="u-grow" />
       <label class="vl-sort"><span class="u-small">{t("ui.view.sort_by")}</span>
         <select class="r-sort" value={view.sort} onChange={(e) => sortBy(view, e.currentTarget.value as ViewSort)}>
-          {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label></div>
+          {SORTS.map((s) => <option key={s} value={s}>{t(`ui.view.sort.${s}`)}</option>)}</select></label>
+      <IconButton icon="sort" label={t(view.desc ? "ui.view.dir_desc" : "ui.view.dir_asc")} plain
+                  class={cx("vl-dir", !view.desc && "vl-asc")} onClick={() => reverse(view)} /></div>
     {sectors.map((s, k) => <Sector key={s.n} p={p} sector={s} k={k} sig={sectorSig(p, s, k)} />)}
     {tight && <TightKey lift={view.model.data.lift} drawn />}
   </section>;
