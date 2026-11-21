@@ -422,13 +422,14 @@ function clearingPan(map: L.Map, col: HTMLElement, l: Line, p: Padding): [number
   const size = map.getSize(), boxes = controlBoxes(col, map);
   const x0 = p.left + END_MARGIN, x1 = size.x - p.right - END_MARGIN, y0 = p.top + END_MARGIN, y1 = size.y - p.bottom - END_MARGIN;
   if (x1 < x0 || y1 < y0) return null;
-  const clear = (x: number, y: number) => x >= x0 - 0.5 && x <= x1 + 0.5 && y >= y0 - 0.5 && y <= y1 + 0.5 &&
+  const clear = (x: number, y: number) => x >= x0 && x <= x1 && y >= y0 && y <= y1 &&
     !boxes.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
   const within = (lo: number, hi: number) => (v: number) => v >= lo && v <= hi;
   let best: [number, number] | null = null, least = Infinity;
   for (const end of [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])]) {
-    const xs = [end.x, x0, x1, ...boxes.flatMap((b) => [b[0] - 1, b[2] + 1])].filter(within(x0, x1));
-    const ys = [end.y, y0, y1, ...boxes.flatMap((b) => [b[1] - 1, b[3] + 1])].filter(within(y0, y1));
+    // (the part's edges half a px inside, a box's 1 px outside: a whole-px pan lands within a px of each, never past)
+    const xs = [end.x, x0 + 0.5, x1 - 0.5, ...boxes.flatMap((b) => [b[0] - 1, b[2] + 1])].filter(within(x0, x1));
+    const ys = [end.y, y0 + 0.5, y1 - 0.5, ...boxes.flatMap((b) => [b[1] - 1, b[3] + 1])].filter(within(y0, y1));
     for (const x of xs) for (const y of ys) {
       // (panBy moves by whole px: the point the end lands on is checked, not the candidate)
       const by: [number, number] = [Math.round(end.x - x), Math.round(end.y - y)], d = Math.hypot(by[0], by[1]);
