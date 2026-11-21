@@ -386,7 +386,7 @@ def test_details_and_profile(parity_site):
     legend and the 1:1 scale under "Rigging and layers", toggled) (P3); its bar and readout show their whole text, the
     chart at least 120 px, the scale and the credits clear of the card, and the card, chart and readout steady under a
     moving cursor at the default width and at the narrowest and lowest (P9); a touch on the chart puts the point on the
-    map, gone with the next line (P12, M23); a thin line of the selected spot pressed selects that line (M8); the facts'
+    map, gone with the next line (P12, M23); a thin line of the selected spot pressed selects that line (M8b); the facts'
     values are today's for the same line (D15); a tight line's card writes its clearance rounded down as the rows do
     (P10); the star's "New folder" makes a folder and saves the line into it (F2); a measurement the server refuses
     shows "Not computed: …" (E4)."""
@@ -450,9 +450,11 @@ def test_details_and_profile(parity_site):
             assert touch["gone"] and touch["stepped"], f"M23: {touch}"
             # a thin line of the selected spot, pressed: that line selected
             thin = _thin_point(page)
-            assert thin, "M8: no point on a thin line of the selected spot takes it alone"
+            assert thin, "M8b: no point on a thin line of the selected spot takes it alone"
+            spot = page.evaluate("() => Q.v().selected.spot")
             page.mouse.click(thin["x"], thin["y"])
             page.wait_for_function(f"() => Q.v().selected && Q.v().selected.row === {thin['row']}", timeout=WAIT)
+            assert page.evaluate("() => [Q.v().selected.spot, Q.v().selected.row]") == [spot, thin["row"]], f"M8b: {thin}"
             # the facts of the selected line against today's page's for the same line
             link = page.evaluate("() => Q.m().lineLink(Q.v().selected.line)")
             page.wait_for_selector(".vl-facts", timeout=WAIT)
@@ -646,8 +648,11 @@ def test_phone_frame(parity_site):
             assert top["head"] == scrolled["head"] == back["head"] and top["body"] == scrolled["body"] == back["body"], f"Ph4: {top}, {scrolled}, {back}"
             assert not page.evaluate("() => document.documentElement.scrollWidth > innerWidth"), "Q3: wider than the window with a spot selected"
             _clean(page, "W6")
+            back = page.evaluate("() => [...document.querySelectorAll('.c-phone-top .c-back')].map((b) => b.getAttribute('aria-label'))")
+            assert back == ["Home"], f"H2: {back}"
             page.click(".c-phone-top .c-back")
             page.wait_for_function("() => location.hash === '#home' && !!document.querySelector('.u-bnav')", timeout=WAIT)
+            assert page.evaluate("() => [location.hash, !!document.querySelector('.u-sheet')]") == ["#home", False], "H2: Home left the result"
             _clean(page, "W6, Home")
         finally:
             browser.close()
