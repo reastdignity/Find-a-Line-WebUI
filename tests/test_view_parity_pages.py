@@ -34,6 +34,7 @@ from test_shell_c_download import (BUSY, DOWNLOAD, ERROR, FAILED, FAILURES, IDLE
                                    SETTLED, STATE, WHAT, Export, _browser_of, _escape, _file_routes, _listening, _menu,
                                    _press, _rows)
 from test_shell_c_view_map import DESKTOP, FLAG, HELPERS, PHONE, WAIT, WORDS, _open, _state, view_clip  # noqa: E402,F401
+from test_access_page import _layout  # noqa: E402
 from test_web import CREDITS_HEAD, CSP_STUB, EDGE, TOKEN, XSS_NAME, _playwright, _server, store_with  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -138,7 +139,7 @@ def test_download_request_and_the_preparing_state(pages):
                 page.wait_for_function(SETTLED, timeout=WAIT)
                 found["ended"] = _state_of(page)
                 found["requests"], found["asked"] = export.requests, asked
-                found["csp"], found["errors"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+                found["csp"], found["errors"] = page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page)
                 page.context.close()
         finally:
             browser.close()
@@ -284,7 +285,7 @@ def test_download_failures_and_the_closed_menu(pages):
                 r[way] = [closed, failed, again]
             r["requests"], r["asked"] = export.requests, asked
             r["where"] = page.evaluate("() => location.pathname + location.hash")
-            r["csp"], r["errors"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+            r["csp"], r["errors"] = page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page)
         finally:
             browser.close()
     for k, (name, answer, text) in enumerate(FAILURES):
@@ -345,7 +346,7 @@ def test_download_wait_across_the_layout_switch(pages):
             page.wait_for_function(SETTLED, timeout=WAIT)
             r["failed"] = _state_of(page)
             r["requests"] = export.requests
-            r["errors"], r["csp"] = _errors(page), page.evaluate("() => window.CSP_VIOLATIONS || []")
+            r["errors"], r["csp"] = _errors(page), page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
             page.context.close()
             # D14: a line seen in the desktop's menu
             page, asked = _dl(browser, f"{pages['app']}#run={BIG}", **DESKTOP)
@@ -362,7 +363,7 @@ def test_download_wait_across_the_layout_switch(pages):
             _menu(page)
             r["seen menu"], r["seen sent"] = _state_of(page), len(export.requests)
             r["errors"] += _errors(page)
-            r["csp"] += page.evaluate("() => window.CSP_VIOLATIONS || []")
+            r["csp"] += page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
         finally:
             browser.close()
     preparing = [["CSV", PREPARING, True, False, True, False], ["GeoJSON", WHAT[1], False, True, False, True]]
@@ -424,7 +425,7 @@ def test_download_wait_across_a_run_change(pages):
             r["saved"] = download.value.url
             r["other after"] = [_state_of(page), page.evaluate(ATTENTION_VIEW)]
             r["requests a"] = export.requests
-            r["errors"], r["csp"] = _errors(page), page.evaluate("() => window.CSP_VIOLATIONS || []")
+            r["errors"], r["csp"] = _errors(page), page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
             page.context.close()
             page, asked = _dl(browser, url, _marked, **DESKTOP)
             export = Export(page)
@@ -445,7 +446,7 @@ def test_download_wait_across_a_run_change(pages):
             r["again"] = _state_of(page)
             r["requests b"] = export.requests
             r["errors"] += _errors(page)
-            r["csp"] += page.evaluate("() => window.CSP_VIOLATIONS || []")
+            r["csp"] += page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
         finally:
             browser.close()
     other = r["other"]
@@ -501,7 +502,7 @@ def test_download_failure_waits_for_the_attention(pages):
                 _escape(page)
                 _menu(page)
                 r[way] = [before, after, opened, _state_of(page), len(export.requests),
-                          _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")]
+                          _errors(page) + page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")]
                 page.context.close()
         finally:
             browser.close()
@@ -543,7 +544,7 @@ def test_download_phone_button_keeps_the_focus(pages):
             page.wait_for_function(NO_RING, timeout=WAIT)
             r["ready"] = [_state_of(page), page.evaluate(ATTENTION_VIEW)]
             r["pill"] = page.evaluate("(button) => !!document.querySelector(button).closest('.c-pill')", DOWNLOAD)
-            r["errors"] = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
+            r["errors"] = _errors(page) + page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
         finally:
             browser.close()
     waiting, attention = r["waiting"]
@@ -560,20 +561,15 @@ def test_download_phone_button_keeps_the_focus(pages):
 
 # ---- A: the access mark's page parts (today's: tests/test_access_page.py) -------------------------------------------
 
-def _kept_list(width: int) -> str:
-    """A kept layout (localStorage "findaline.layout", the view's and today's) with the list `width` px wide
-    (test_access_page._layout's)."""
-    return json.dumps({"v": 1, "list": {"w": width, "open": True}, "details": {"w": 380, "open": True},
-                       "profile": {"h": 260, "folded": False, "l": 12, "r": 12}})
-
-
-# The view's lists as drawn at a kept width: the list's width, its rows' cells of the mark (the dots inside the cell)
-# and whether a row's parts overlap or a value is cut (its text wider than its cell)
+# The view's lists as drawn at a kept width: the list's width, its rows' cells of the mark as shown (a cell or head not
+# drawn counts as none: the column may be left out by CSS) with the dots inside the cell, whether a row's parts overlap
+# or a value is cut (its text wider than its cell)
 NARROW = """() => { const list = document.querySelector('.c-col-list'), c = window.FINDALINE_VIEW.view.model.data.columns;
   const parts = (b) => [...b.children].filter((e) => !e.classList.contains('u-sr') && e.getClientRects().length && !e.classList.contains('vl-over-words'));
   const overlap = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
   const rows = [...document.querySelectorAll('.vl-tree .vl-main, .vl-topblock .vl-main')].slice(0, 16).map((b) => {
-    const row = +b.dataset.row, cell = b.querySelector('.vl-cell-acc'), box = cell && cell.getBoundingClientRect();
+    const row = +b.dataset.row, found = b.querySelector('.vl-cell-acc'), cell = found && found.getClientRects().length ? found : null;
+    const box = cell && cell.getBoundingClientRect();
     const boxes = parts(b).map((e) => e.getBoundingClientRect());
     return {row, line: [c.access1.at(row), c.access2.at(row)],
             dots: cell ? [...cell.querySelectorAll('svg.ac')].map((d) => d.getAttribute('class')) : null,
@@ -583,29 +579,25 @@ NARROW = """() => { const list = document.querySelector('.c-col-list'), c = wind
             cut: [...b.querySelectorAll('.vl-v')].filter((v) => v.scrollWidth > v.clientWidth + 1).map((v) => v.textContent),
             within: boxes.every((r) => r.right <= b.getBoundingClientRect().right + 1)}; });
   return {width: list ? Math.round(list.getBoundingClientRect().width) : null, rows,
-          heads: [...document.querySelectorAll('.vl-tree .vl-cols > span')].map((s) => s.textContent).filter(Boolean),
+          heads: [...document.querySelectorAll('.vl-tree .vl-cols > span')].filter((s) => s.getClientRects().length).map((s) => s.textContent).filter(Boolean),
           headsCut: [...document.querySelectorAll('.vl-tree .vl-cols > span')].filter((h) => h.scrollWidth > h.clientWidth + 1).map((h) => h.textContent),
           classes: [...document.querySelectorAll('.vl-tree .vl-rows')].map((u) => u.classList.contains('vl-with-acc'))}; }"""
 
 
-GAP_G1 = "gap G1: fixed by B3 fix round 5"  # parity.md A2/A3; the planner removes the mark when B3's fix is merged
-
-
-@pytest.mark.parametrize("width", [None, 340, pytest.param(280, marks=pytest.mark.xfail(strict=True, reason=GAP_G1)),
-                                   pytest.param(260, marks=pytest.mark.xfail(strict=True, reason=GAP_G1))],
-                         ids=["default", "340", "280", "260"])
+@pytest.mark.parametrize("width", [None, 340, 280, 260], ids=["default", "340", "280", "260"])
 def test_access_column_at_kept_list_widths(pages, width):
     """A1-A3 (today's test_list_column_and_its_widths): the view's list of a marked run at its default width and kept
     at 340 px draws the column "Anchors" (before "Lines"), every row's two dots inside their cell; kept under 300 px
-    (280, 260: layout.ts LIMITS lets a list be 260 px) the column is left out, as on today's page (the planner, gap G1:
-    B3's fix round 5), and the mark stays in the map's legend and the details of a selected line. At every width no
+    (280, 260: layout.ts LIMITS lets a list be 260 px) the column is left out, as on today's page (gap G1, fixed by
+    B3's fix round 5 in view-3c), and the mark stays in the map's legend and the details of a selected line. At every width no
     part of a row over another, no value and no column head wider than its cell (its text drawn over the next)."""
     from playwright.sync_api import sync_playwright
     narrow = width is not None and width < 300
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            script = "" if width is None else                 f"try {{ localStorage.setItem('findaline.layout', {json.dumps(_kept_list(width))}); }} catch (e) {{}}"
+            script = "" if width is None else \
+                f"try {{ localStorage.setItem('findaline.layout', {json.dumps(_layout(width))}); }} catch (e) {{}}"
             page = _open(browser, f"{pages['app']}#run={BIG}", DESKTOP, script=script)
             page.wait_for_selector(".vl-tree .vl-main", state="attached", timeout=WAIT)
             _state(page)
@@ -616,16 +608,15 @@ def test_access_column_at_kept_list_widths(pages, width):
             page.wait_for_selector(".v-legend [data-kind='access-2']", state="attached", timeout=WAIT)
             marked = page.evaluate("() => [[...document.querySelectorAll('.v-legend [data-kind^=access-]')].map((e) => e.dataset.kind), "
                                    "document.querySelectorAll('.vl-details .vl-acc .vl-acc-row').length]")
-            errors = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
+            errors = _errors(page) + page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
         finally:
             browser.close()
     assert found["width"] == (width or 372), ("the kept width taken", width, found["width"])
     assert len(found["rows"]) >= 8, ("A1", width, len(found["rows"]))
     heads = found["heads"]
     if narrow:
-        assert found["classes"] and not any(found["classes"]), ("A3: the column left out", width, found["classes"])
-        assert heads[-1] == WORDS["ui.list.col.lines"] and WORDS["ui.list.col.anchors"] not in heads, ("A3", width, heads)
-        assert all(row["dots"] is None for row in found["rows"]), ("A3: no row's cell of the mark", width)
+        assert heads[-1] == WORDS["ui.list.col.lines"] and WORDS["ui.list.col.anchors"] not in heads, ("A3: the column left out", width, heads)
+        assert all(row["dots"] is None for row in found["rows"]), ("A3: no row's cell of the mark shown", width)
     else:
         assert found["classes"] and all(found["classes"]), ("A1/A2: the column", width, found["classes"])
         assert heads[-2:] == [WORDS["ui.list.col.anchors"], WORDS["ui.list.col.lines"]], ("A1/A2", width, heads)
@@ -691,7 +682,7 @@ def test_access_a_real_search_too_wide_in_the_view(tmp_path, monkeypatch):
                     page.wait_for_selector(".vl-details", state="attached", timeout=WAIT)
                     _state(page)
                     r[name + "-selected"] = page.evaluate(result)
-                    r[name + "-errors"] = _errors(page) + page.evaluate("() => window.CSP_VIOLATIONS || []")
+                    r[name + "-errors"] = _errors(page) + page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
                     page.context.close()
         finally:
             browser.close()
@@ -740,8 +731,9 @@ def map_pages(tmp_path, view_clip):
     copy_clip(view_clip, folder, CREDITED, "Credited clip")
     store_with(folder / "runs" / CREDITED, head=CREDITS_HEAD)
     copy_clip(view_clip, folder, TAGGED, XSS_NAME)
+    page_path = stub_page(folder, "mapapp")
     with _server(folder) as port:
-        yield {"root": f"http://127.0.0.1:{port}", "data": folder}
+        yield {"root": f"http://127.0.0.1:{port}", "data": folder, "app": f"http://127.0.0.1:{port}/{page_path}?ui=c"}
 
 
 def _map_url(root: str, run_id: str) -> str:
@@ -762,16 +754,27 @@ def _empty_point(page, away=None, apart: int = 80):
       return null; }""", [away, apart])
 
 
+SHOWN = """(id) => { const v = window.FINDALINE_VIEW.view, m = v.model;
+  return {files: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname)
+            .filter((p) => p.startsWith('/runs/' + encodeURIComponent(id) + '/')).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
+          lines: v.count, spots: v.order.length, first: m.lineLink(m.lineAt(0)),
+          credits: document.querySelector('.v-map .leaflet-control-attribution').textContent,
+          downloads: performance.getEntriesByName('fal:run:download').map((e) => e.detail && e.detail.store === true)}; }"""
+
+
 def test_map_page_in_the_view(map_pages):
     """M4-M13, M19, D8 on a run's own map.html in the view, a desktop (today's test_web::test_run_map and
     test_shell_c_download::test_store_run_on_its_own_map_has_no_download): a link to a line the kept filters hide at
     the load (the note, "clear filters" opens it, the link kept); the way back "Find-a-Line" to the app's #run=; "Copy
-    link" gives this map's address with the line (map/main.tsx linkOf); the run's credits as text (no markup, http(s) links only, ATTRIBUTION.txt beside the page, the processed
+    link" gives this map's address with the line (map/main.tsx linkOf); the same lines, spots, first line and credits as
+    the app's page of the run, both read from the store (the map.html half of test_shell_c::test_shell_c_store_or_none);
+    the run's credits as text (no markup, http(s) links only, ATTRIBUTION.txt beside the page, the processed
     note, OSM's links), not folded while no card is shown and folded behind "Data credits" while it is; the base
     layers without the satellite key and the orthophoto's credit as text; the actions Measure and Compare, no
     Download, no export asked; the store's two files read; a favourite kept by the server; Compare's other run named
-    like an HTML tag listed and its lines added without running its name; measuring (the measured length, the verdict
-    first in the card's facts); no CSP violation, no error."""
+    like an HTML tag listed and its lines added without running its name; measuring (the stubbed profile's 80 m, the
+    verdict first in the card's facts), and with nothing selected then the details' "Select a line on the map or in the
+    list." beside the measured card (today's measuringHint); no CSP violation, no error."""
     from playwright.sync_api import sync_playwright
     root, run = map_pages["root"], CREDITED
     r = {}
@@ -793,7 +796,15 @@ def test_map_page_in_the_view(map_pages):
             page.click(".vl-lnote button:text-is('clear filters')")
             page.wait_for_function("() => window.FINDALINE_VIEW.view.selected !== null", timeout=WAIT)
             r["opened"], r["link"] = page.evaluate(linked), link
-            r["linkErrors"] = [page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)]
+            r["linkErrors"] = [page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page)]
+            page.context.close()
+            # M21: the app's page of the same run (the store's files, the lines, spots, first line, credits)
+            page = _open(browser, f"{map_pages['app']}#run={run}", DESKTOP)
+            _state(page)
+            page.wait_for_function("() => document.querySelector('.v-map .leaflet-control-attribution').textContent.includes('FABDEM')",
+                                   timeout=WAIT)
+            r["app"] = page.evaluate(SHOWN, run)
+            r["appErrors"] = [page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page)]
             page.context.close()
             page = _open(browser, _map_url(root, run), DESKTOP, script=CSP_STUB + PROFILE_STUB + CLIPBOARD)
             asked = []
@@ -802,6 +813,7 @@ def test_map_page_in_the_view(map_pages):
             page.wait_for_function("() => document.querySelector('.v-map .leaflet-control-attribution').textContent.includes('FABDEM')",
                                    timeout=WAIT)
             r["back"] = page.evaluate("() => [...document.querySelectorAll('.c-back')].map((b) => b.getAttribute('aria-label') || b.textContent.trim())")
+            r["map"] = page.evaluate(SHOWN, run)
             r["credits"] = page.evaluate(CREDITS)
             r["layers"] = page.evaluate("() => [...document.querySelectorAll('.leaflet-control-layers-base label')].map((l) => l.textContent.trim())")
             page.evaluate("""() => [...document.querySelectorAll('.leaflet-control-layers-base label')]
@@ -854,10 +866,15 @@ def test_map_page_in_the_view(map_pages):
             r["measured"] = page.evaluate("() => [document.querySelector('.r-card .r-dock-bar b').textContent, window.PROFILES, "
                                           "Math.round(window.FINDALINE_VIEW.measured.len), document.querySelector('.r-card .fal-profile-title').textContent, "
                                           "document.querySelector('.r-card .r-facts').textContent]")
+            # nothing selected after measuring: the details say what to do, the measured card stays (today's measuringHint)
+            _state(page, "view.select(null);")
+            page.wait_for_selector(".c-col-details .c-pick", timeout=WAIT)
+            r["hint"] = page.evaluate("() => [document.querySelector('.c-col-details .c-pick').textContent, "
+                                      "document.querySelector('.r-card .fal-profile-title').textContent.startsWith('Measured'), !!window.FINDALINE_VIEW.measured]")
             r["files"] = page.evaluate("""(folder) => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname)
                 .filter((p) => p.startsWith(folder)).map((p) => p.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort()""",
                                        f"/runs/{urllib.parse.quote(run)}/")
-            r["csp"], r["errors"], r["asked"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page), asked
+            r["csp"], r["errors"], r["asked"] = page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page), asked
             r["view"] = page.evaluate("() => !!window.FINDALINE_VIEW && !window.FINDALINE_RESULT")
             # the way back: the app at the run
             page.click(".c-back")
@@ -894,44 +911,108 @@ def test_map_page_in_the_view(map_pages):
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], ("M12", r["others"])
     assert r["compared"][0] > 0 and r["compared"][1:] == [None, 0], ("M12", r["compared"])
     bar, asked_profiles, length, title, facts = r["measured"]
-    assert [bar, asked_profiles] == ["Measured profile", 1] and length > 0, ("M13", r["measured"])
-    assert title.startswith(f"Measured: {length} m"), ("M13: the measured length", title)
+    # the length known apart from the page: the stubbed profile's 80 m (PROFILE_STUB), as C1's P13
+    assert [bar, asked_profiles, length] == ["Measured profile", 1, 80], ("M13", r["measured"])
+    assert title.startswith("Measured: 80 m"), ("M13: the measured length", title)
     assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", facts), ("M13: the verdict first", facts)
+    assert r["hint"] == [WORDS["ui.view.empty"], True, True], ("M22: today's measuringHint", r["hint"])
+    assert WORDS["ui.view.empty"] == "Select a line on the map or in the list."
+    for name in ("app", "map"):
+        got = r[name]
+        assert got["files"] == ["lines.arrow", "profiles.arrow"] and got["downloads"] == [True], ("M21", name, got)
+        assert "FABDEM V1-2 © University of Bristol" in got["credits"], ("M21", name, got["credits"])
+    assert [r["app"][k] for k in ("lines", "spots", "first")] == [r["map"][k] for k in ("lines", "spots", "first")], ("M21", r["app"], r["map"])
+    assert r["appErrors"] == [[], []], ("X1/X2", r["appErrors"])
     assert r["csp"] == [] and r["errors"] == [], ("X1/X2", r["csp"], r["errors"])
 
 
-def test_map_page_phone_credits_in_the_view(map_pages):
-    """M14 without the satellite key (today's test_web::test_run_map_on_a_phone_with_the_satellite_key, its credits'
-    half; the key's layer comes from baselayers.ts, which both pages use): a run's map.html in the view on a phone of
-    390 px: the run's data credits folded behind "Data credits" (aria-expanded false, ATTRIBUTION.txt not shown), the
-    tile credits (OSM's with its fixthemap link) in sight; the button opens them (the focus kept on it) and folds them
-    again; no CSP violation."""
+FAKE_ESRI_KEY = "AAPTfake-esri-key_0123456789"  # made up, as today's test's; never the user's key
+# A 1 x 1 PNG: the answer to every tile request (no network)
+TILE = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                     "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+
+
+@pytest.fixture
+def esri_pages(tmp_path, view_clip, monkeypatch):
+    """The local app with a made-up satellite key in its environment (ESRI_API_KEY, read when the app is made: its
+    runs.js then gives the page FINDALINE_APP.esri_key), over the clip's run with today's credits (CREDITED)."""
+    monkeypatch.setenv("ESRI_API_KEY", FAKE_ESRI_KEY)
+    monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
+    folder = tmp_path / "data"
+    copy_clip(view_clip, folder, CREDITED, "Credited clip")
+    store_with(folder / "runs" / CREDITED, head=CREDITS_HEAD)
+    with _server(folder) as port:
+        yield {"root": f"http://127.0.0.1:{port}", "data": folder}
+
+
+def test_map_page_phone_credits_and_satellite_in_the_view(esri_pages):
+    """M14 (today's test_web::test_run_map_on_a_phone_with_the_satellite_key) on a run's map.html in the view, a phone
+    of 390 px, the app with a made-up satellite key and every request off the app's server answered by the test (no
+    network): the run's data credits folded behind "Data credits" (aria-expanded false, ATTRIBUTION.txt not in sight),
+    the tile credits (OSM's with its fixthemap link) in sight; the button opens them (the focus kept on it); the layer
+    "Esri World Imagery" asks ibasemaps-api.arcgis.com with the key, its credit ("Powered by Esri", its source line) as
+    text; folded again, Esri's link stays in sight; no CSP violation, no error; the key in no file of the runs' folder."""
     from playwright.sync_api import sync_playwright
+    root, key = esri_pages["root"], FAKE_ESRI_KEY
+    outside = []
+
+    def answer(route):
+        url = route.request.url
+        if url.startswith(root + "/"):
+            return route.continue_()
+        outside.append(url)
+        route.fulfill(status=200, body=TILE, content_type="image/png")
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, _map_url(map_pages["root"], CREDITED), PHONE, script=CSP_STUB)
+            ctx = browser.new_context(**PHONE)
+            ctx.add_init_script(HELPERS + FLAG + CSP_STUB)
+            ctx.route("**/*", answer)
+            page = ctx.new_page()
+            page.errors = []
+            page.on("pageerror", lambda e: page.errors.append(str(e)[:300]))
+            page.goto(_map_url(root, CREDITED))
+            page.wait_for_function("() => !!window.FINDALINE_VIEW", timeout=WAIT)
             _state(page)
             toggle = ".v-map .u-credits-toggle"
             page.wait_for_selector(toggle, state="attached", timeout=WAIT)
+            layers = page.evaluate("() => [...document.querySelectorAll('.leaflet-control-layers-base label')].map((l) => l.textContent.trim())")
             folded = page.evaluate(CREDITS)
+            folded["label"] = page.evaluate("(t) => document.querySelector(t).textContent", toggle)
             page.evaluate("(t) => document.querySelector(t).click()", toggle)
             page.wait_for_function("(t) => document.querySelector(t).getAttribute('aria-expanded') === 'true'", arg=toggle, timeout=WAIT)
             opened = page.evaluate(CREDITS)
+            page.evaluate("""() => [...document.querySelectorAll('.leaflet-control-layers-base label')]
+                .find((l) => l.textContent.trim() === 'Esri World Imagery').querySelector('input').click()""")
+            page.wait_for_function("() => document.querySelector('.v-map .leaflet-control-attribution').textContent.includes('Powered by Esri')",
+                                   timeout=WAIT)
+            page.wait_for_function("() => [...document.querySelectorAll('.leaflet-tile')].some((t) => t.src.includes('arcgis'))", timeout=WAIT)
+            tiles = page.evaluate("() => [...document.querySelectorAll('.leaflet-tile')].map((t) => t.src).filter((s) => s.includes('arcgis')).slice(0, 1)")
+            esri = page.evaluate(CREDITS)
             page.evaluate("(t) => document.querySelector(t).click()", toggle)
             page.wait_for_function("(t) => document.querySelector(t).getAttribute('aria-expanded') === 'false'", arg=toggle, timeout=WAIT)
             again = page.evaluate(CREDITS)
-            layers = page.evaluate("() => [...document.querySelectorAll('.leaflet-control-layers-base label')].map((l) => l.textContent.trim())")
-            csp, errors = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+            csp = page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])")
+            errors = _errors(page)
+            ctx.close()
         finally:
             browser.close()
     osm = {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"}
-    assert folded["button"] != "none" and folded["expanded"] == "false" and folded["credits"] == "none", ("M14", folded)
-    assert "ATTRIBUTION.txt" not in folded["visibleLinks"] and osm <= set(folded["visibleLinks"]), ("M14", folded)
+    assert layers == ["OpenTopoMap", "OpenStreetMap", "Esri World Imagery", "Ortho test"], ("M14", layers)
+    assert folded["button"] != "none" and folded["expanded"] == "false" and folded["label"] == "Data credits", ("M14", folded)
+    assert folded["credits"] == "none" and "ATTRIBUTION.txt" not in folded["visibleLinks"] and osm <= set(folded["visibleLinks"]), ("M14", folded)
     assert opened["credits"] != "none" and opened["focused"] and "ATTRIBUTION.txt" in opened["visibleLinks"], ("M14", opened)
-    assert again["credits"] == "none" and osm <= set(again["visibleLinks"]), ("M14", again)
-    assert layers == ["OpenTopoMap", "OpenStreetMap", "Ortho test"], ("M14: no satellite layer without the key", layers)
+    assert tiles and tiles[0].startswith("https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/"), ("M14", tiles)
+    assert tiles[0].endswith("?token=" + key), ("M14: the key in the tiles' address", tiles)
+    assert any(url.startswith("https://ibasemaps-api.arcgis.com/") for url in outside), ("M14: the tiles routed, no network", outside[:3])
+    assert "Powered by Esri" in esri["text"] and "https://www.esri.com" in esri["visibleLinks"], ("M14", esri)
+    assert "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community" in esri["text"] and esri["imgs"] == 0, ("M14", esri)
+    assert again["credits"] == "none" and "https://www.esri.com" in again["visibleLinks"], ("M14: Esri's credit in sight, folded", again)
     assert csp == [] and errors == [], ("X1/X2", csp, errors)
+    for top, _, names in os.walk(esri_pages["data"] / "runs"):  # the key in no file of the runs' folder
+        for name in names:
+            with open(os.path.join(top, name), "rb") as f:
+                assert key.encode() not in f.read(), ("M14: the key in a run's file", name)
 
 
 UNLISTED = "2026-11-01_100000_Unlisted_00000000000000f4"  # a run runs.js does not name
@@ -951,11 +1032,12 @@ LOADED = """() => ({seen: window.SEEN, error: (document.querySelector('.c-result
   files: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
   lists: performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => p.endsWith('/runs.js')),
   measures: performance.getEntriesByType('measure').filter((m) => m.name.startsWith('fal:run:')).map((m) => [m.name, m.detail]),
-  csp: window.CSP_VIOLATIONS || []})"""
+  listed: (window.FINDALINE_RUNS || []).map((r) => r.id),
+  csp: (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])})"""
 
 
 def test_map_page_loading_and_its_failures(tmp_path, view_clip):
-    """M15-M18 with the view asked for (today's test_web::test_run_map_loads_its_store,
+    """M15-M18 with the view asked for (and M16's app half: the unlisted run in the app's page) (today's test_web::test_run_map_loads_its_store,
     test_store_share::test_unlisted_runs_read_the_store_in_edge, test_shell_c::test_shell_c_too_large,
     ::test_shell_c_map_says_why_a_store_failed): a run's map.html loads its store itself (its two files with their
     bytes, the loading's texts) and the view opens with every line; a run runs.js does not name is read from its store
@@ -981,6 +1063,7 @@ def test_map_page_loading_and_its_failures(tmp_path, view_clip):
     (data / "runs" / BROKEN / "lines.arrow").write_bytes(b"not an Arrow file " * 100)
     rn.write_index(str(data / "runs"))
     _unlist(data, UNLISTED)
+    page_path = stub_page(data, "loadingapp")
     lines = json.loads((data / "runs" / BIG / "run.json").read_text("utf-8"))["store"]["lines"]
     sizes = sum((data / "runs" / BIG / name).stat().st_size for name in ("lines.arrow", "profiles.arrow"))
     r = {}
@@ -1001,6 +1084,12 @@ def test_map_page_loading_and_its_failures(tmp_path, view_clip):
                 if name == "large":
                     r[name]["scripts"] = page.evaluate("() => window.DATA_SCRIPTS")
                 page.context.close()
+            # M16's app half: the unlisted run opened in the app (#run=), in the view
+            page = _open(browser, f"http://127.0.0.1:{port}/{page_path}?ui=c#run={UNLISTED}", DESKTOP, script=LOADING)
+            _state(page)
+            r["app"] = page.evaluate(LOADED)
+            r["app"]["errors"] = _errors(page)
+            page.context.close()
         finally:
             browser.close()
     store = r["store"]
@@ -1013,11 +1102,16 @@ def test_map_page_loading_and_its_failures(tmp_path, view_clip):
     unlisted = r["unlisted"]
     assert unlisted["view"] and unlisted["count"] == lines and unlisted["files"] == ["lines.arrow", "profiles.arrow"], ("M16", unlisted)
     assert unlisted["lists"] == ["/runs/runs.js"], ("M16: runs.js once", unlisted["lists"])
+    assert UNLISTED not in unlisted["listed"] and BIG in store["listed"], ("M16: really outside the list", unlisted["listed"])
+    app = r["app"]
+    assert app["view"] and app["count"] == lines and app["files"] == ["lines.arrow", "profiles.arrow"], ("M16 (the app)", app)
+    assert len(app["lists"]) <= 1 and UNLISTED not in app["listed"], ("M16 (the app): runs.js at most once", app)
     words = {"missing": WORDS["ui.result.store_failed"], "newer": WORDS["ui.result.newer_store"],
              "broken": WORDS["ui.result.store_failed"], "large": WORDS["ui.result.too_large"]}
+    rows = {"missing": "M15", "newer": "M18", "broken": "M18", "large": "M17"}
     for name, text in words.items():
         got = r[name]
-        assert got["error"] == text and not got["view"] and not got["today"] and "data.js" not in got["error"], (name, got)
+        assert got["error"] == text and not got["view"] and not got["today"] and "data.js" not in got["error"], (rows[name], name, got)
     assert r["missing"]["files"] == ["lines.arrow", "profiles.arrow"], ("M15: the store's two 404s, nothing else", r["missing"])
     assert r["large"]["alert"] == "alert" and r["large"]["scripts"] == [], ("M17", r["large"])
     for name, got in r.items():
@@ -1056,7 +1150,7 @@ def test_disk_notice_with_the_view(map_pages, tmp_path):
             page.wait_for_function("() => !document.getElementById('disk-notice') && window.FINDALINE_VIEW.view.count > 0", timeout=WAIT)
             r["http"] = page.evaluate("""() => ({seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served'),
                 files: performance.getEntriesByType('resource').map((e) => e.name.split('/').pop()).filter((f) => /\\.arrow$|^data\\.js$|^lines\\.js$/.test(f)).sort(),
-                csp: window.CSP_VIOLATIONS || []})""")
+                csp: (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])})""")
             r["http"]["errors"] = _errors(page)
             page.context.close()
             # M3: a module of the bundle that throws while it loads (Leaflet's `window.L = …` refused)
@@ -1064,7 +1158,9 @@ def test_disk_notice_with_the_view(map_pages, tmp_path):
             page.wait_for_load_state("load")
             page.wait_for_function("() => window.FAILED.length > 0 && !!document.getElementById('disk-notice')", timeout=WAIT)
             r["failing"] = page.evaluate("""() => ({failed: window.FAILED, seen: window.NOTICE_SEEN, served: document.documentElement.classList.contains('fal-served'),
-                display: getComputedStyle(document.getElementById('disk-notice')).display})""")
+                display: getComputedStyle(document.getElementById('disk-notice')).display,
+                csp: Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run']})""")
+            r["failing"]["errors"] = page.errors
             page.context.close()
             context = browser.new_context(viewport={"width": 1280, "height": 800})
             context.add_init_script(INTRO_SEEN + FLAG + RECORDER)
@@ -1087,6 +1183,7 @@ def test_disk_notice_with_the_view(map_pages, tmp_path):
     failing = r["failing"]
     assert any("a module failed to load" in m for m in failing["failed"]), ("M3: the bundle did fail", failing)
     assert failing["served"] and failing["seen"] and set(failing["seen"]) == {"none"} and failing["display"] == "none", ("M3", failing)
+    assert failing["csp"] == [] and all("a module failed to load" in e for e in failing["errors"]), ("X1/X2 (M3)", failing)
     disk = r["disk"]
     assert disk["display"] != "none" and disk["size"][:2] == disk["size"][2:], ("M1: the whole window", disk)
     assert disk["run"] == run and disk["name"] == "Credited clip" and disk["text"] == SENTENCE, ("M1", disk)
@@ -1195,7 +1292,7 @@ WHO = """() => { const v = window.FINDALINE_VIEW, t = window.FINDALINE_RESULT;
           actions: [...document.querySelectorAll('.r-actions button')].map((b) => b.textContent.trim() || b.getAttribute('aria-label')),
           back: [...document.querySelectorAll('.c-back')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()),
           lines: v ? v.view.count : t ? t.model.shown.lines : 0,
-          error: (document.querySelector('.c-result-wait .c-error') || {}).textContent || '', csp: window.CSP_VIOLATIONS || []}; }"""
+          error: (document.querySelector('.c-result-wait .c-error') || {}).textContent || '', csp: (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])}; }"""
 
 
 @pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
@@ -1279,6 +1376,7 @@ def test_share_action_in_the_view(public):
             r["statuses"] = [_status(f"{site}/s/{SHARE_A}/map.html"), _status(link)]
             visitor = _public_page(browser, site, link.replace(site, ""), DESKTOP, True)
             r["opened"] = visitor.evaluate(WHO)
+            r["openedErrors"] = _errors(visitor)
             visitor.context.close()
             page.click(".r-share button:has-text('Stop sharing')")
             page.wait_for_function("() => [...document.querySelectorAll('.r-share button')].some((b) => b.textContent.trim() === 'Make a link')",
@@ -1291,7 +1389,7 @@ def test_share_action_in_the_view(public):
             before = _status(again)
             ac.Accounts(str(public["data"]), public["accounts"]).set_status(public["ids"]["a"], "blocked")
             r["blocked"] = [before, _status(again)]
-            r["csp"], r["errors"] = page.evaluate("() => window.CSP_VIOLATIONS || []"), _errors(page)
+            r["csp"], r["errors"] = page.evaluate("() => (Array.isArray(window.CSP_VIOLATIONS) ? window.CSP_VIOLATIONS : ['the CSP stub did not run'])"), _errors(page)
         finally:
             browser.close()
     assert r["shared"]["buttons"] == ["New link", "Stop sharing"] and r["shared"]["link"] is None, ("S8", r["shared"])
@@ -1300,6 +1398,7 @@ def test_share_action_in_the_view(public):
     assert link.startswith(f"{site}/s/") and link.endswith("/map.html") and SHARE_A not in link, ("S8", link)
     assert r["statuses"] == [404, 200], ("S8: the old link ends, the new opens", r["statuses"])
     assert r["opened"]["page"] == "view" and r["opened"]["lines"] > 0 and r["opened"]["actions"] == [], ("S8", r["opened"])
+    assert r["opened"]["csp"] == [] and r["openedErrors"] == [], ("X1/X2 (S8's new link)", r["opened"]["csp"], r["openedErrors"])
     stopped, status = r["stopped"]
     assert stopped["buttons"] == ["Make a link"] and status == 404, ("S8: stopped", r["stopped"])
     assert r["blocked"] == [200, 404], ("S9: a blocked owner's link", r["blocked"])
