@@ -1323,7 +1323,7 @@ def test_card_appearing_keeps_the_line_clear(boxes_site):
     """1400 x 900, the run with both coast boxes: a line selected on the map (no fit) whose anchor lies where its card
     comes, and whose fit into the bar's room with the card has an end under a coast box (both found on the page
     first): when the card appears it brings the line out from under it (keepFree, with the selected line's padding)
-    and its ends clear of the controls (selectedFit's check)."""
+    and its ends clear of the controls, each control's box 8 px larger as the frame counts it (selectedFit's check)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -1358,12 +1358,15 @@ def test_card_appearing_keeps_the_line_clear(boxes_site):
             page.wait_for_function(STILL, timeout=WAIT)
             after = page.evaluate(CENTRE)
             ends = page.evaluate("([row]) => ROW(row)", [row])
+            under = page.evaluate("([row]) => U8.under(U8.ends(row))", [row])
             assert page.errors == []
         finally:
             browser.close()
-    print("card appearing: row", row, "card", card, "ends", ends, _length(ends), "px; moved", after != start)
+    print("card appearing: row", row, "card", card, "ends", ends, _length(ends), "px; under the controls' 8 px rings", under,
+          "moved", after != start)
     assert after != start, "keepFree did not fit the line"
-    assert all(n == 0 for _, _, n in ends), ends
+    # clear as the frame counts it (each control's box 8 px larger: endsClear's), not only of the boxes themselves
+    assert under == 0 and all(n == 0 for _, _, n in ends), (under, ends)
 
 
 def test_low_desktop_card_folded_keeps_controls_apart(boxes_site):
