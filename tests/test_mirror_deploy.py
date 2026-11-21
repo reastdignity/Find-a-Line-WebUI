@@ -455,7 +455,8 @@ def test_publishing_door_readme_checks_the_binding():
     flat = " ".join(readme.split())
     for words in ["**The way from the PC.**", "a VPN or WireGuard link of your own", "**Never `0.0.0.0` or `::`**",
                   "SSH is not opened to the internet", "Docker Engine 28.0", "docker version --format",
-                  "docs.docker.com/engine/network/port-publishing/, read 2026-11-19",
+                  "docs.docker.com/engine/network/port-publishing/, read 2026-11-21",
+                  "They can only access ports published to host IP addresses.", "allow-direct-routing", "28.2 or newer",
                   "**An address that comes up after Docker.**", "cannot assign requested address",
                   "A restart policy only takes effect after a container starts successfully.",
                   "docs.docker.com/engine/containers/start-containers-automatically/, read 2026-11-21",

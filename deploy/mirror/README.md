@@ -200,11 +200,16 @@ What the door is:
   on that network (`findaline-mirror-publish_publish`); that address is reached from the home server itself, not
   from the LAN. Docker's documentation: "all ports of containers on bridge networks are accessible from the Docker
   host", and "By default, remote hosts are not allowed direct access to container IP addresses in Docker's Linux
-  bridge networks" (docs.docker.com/engine/network/port-publishing/, read 2026-11-19). That holds from Docker
-  Engine 28.0: "Direct routed access to container ports that are not exposed using `p`/`-publish` is now blocked"
-  (docs.docker.com/engine/release-notes/28/, 28.0.0, moby/moby#48724, read 2026-11-19); an older engine lets a LAN
-  host with a route to that network reach sshd there (the key is still required). Check the engine:
-  `docker version --format '{{.Server.Version}}'` (28.0 or newer);
+  bridge networks. They can only access ports published to host IP addresses."
+  (docs.docker.com/engine/network/port-publishing/, read 2026-11-21); the daemon option `allow-direct-routing`
+  and the network option `com.docker.network.bridge.trusted_host_interfaces` lift that: set neither. Docker
+  Engine 28.0 blocked "Direct routed access to container ports that are not exposed using `p`/`-publish`"
+  (docs.docker.com/engine/release-notes/28/, 28.0.0, moby/moby#48724, read 2026-11-19), and 28.2.0 added
+  `allow-direct-routing` "to disable filtering of packets from outside the host addressed directly to
+  containers" (the same page, 28.2.0, moby/moby#49832, read 2026-11-21): the filtering of a published port's
+  container address is there by then (not tried). An older engine may let a LAN host with a route to that
+  network reach sshd there (the key is still required). Check the engine:
+  `docker version --format '{{.Server.Version}}'` (28.2 or newer);
 - `<root>` mounted whole at `/mirror` (one mount: the publish tool's swap is two renames, and a rename across two
   mounts fails: tried with `public` as a mount of its own in the check script's self-test, the rename fails; the
   research for this door saw rclone 1.76 then exit 1 with "Failure" and leave the files in `staging`),
@@ -255,7 +260,7 @@ install -m 0644 findaline-publish.pub "$KEYS/authorized_keys"
 chown -R 1000:1000 "$ROOT/staging" "$ROOT/public" "$ROOT/trash"       # logs/ stays 101:101, 0750
 docker compose up -d --wait
 docker compose port sftp 2222        # must show PUBLISH_ADDRESS (<address>:<port>)
-docker version --format '{{.Server.Version}}'                         # 28.0 or newer (above)
+docker version --format '{{.Server.Version}}'                         # 28.2 or newer (above)
 ```
 If `docker compose port sftp 2222` shows `0.0.0.0:<port>` or `[::]:<port>`, the door listens on every address:
 stop it at once (`docker compose down`), put the address the PC reaches into `PUBLISH_ADDRESS` and start it again.
