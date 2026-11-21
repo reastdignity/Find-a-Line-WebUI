@@ -237,9 +237,12 @@
 .ui .vl-report { align-self: flex-start; color: var(--ink-2); }
 .ui .u-sheet-body > .vl-report { margin-top: 16px; }
 /* a phone's profile dock right under the four values (4 d): rules above and below from the sheet's edge to its edge,
-   its contents on the sheet's 16 px (its x in the column of the hint's and the selection's: polish 10) */
-.ui .vl-details .vl-dock { margin: 0 -16px; padding: 4px 16px 8px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+   its contents on the sheet's 16 px (its x in the column of the hint's and the selection's: polish 10); placed as the
+   mock-up's 4 d (measured there: its rule 12 px under the tiles, 237 px under the sheet's top at half; the chart right
+   under the bar, the words on reading it 4 px under the chart: the user's G-B b at the screenshot gate) */
+.ui .vl-details .vl-dock { margin: -4px -16px 0; padding: 4px 16px 8px; row-gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
   box-shadow: none; max-height: none; overflow: visible; z-index: auto; }
+.ui .vl-details .vl-dock .r-hint-under { margin-top: 4px; }
 /* the star's folders open under it towards the left, as wide as their list (today's 280 px, not the menus' 340: they
    stay inside the details' column and a phone's width); 44 px rows on a touch screen (R2) */
 .ui .v-result .vl-dhead .r-pop, .ui .v-result .vl-sheet-row .r-pop { width: auto; }

@@ -160,13 +160,13 @@ export function favouriteRows(view: SpotView): Set<number> {
   return known.rows;
 }
 
-/** A row's star (LinesTable's: today's names and titles): a press adds the row's line to the folder used last, or
- *  removes it (ResultModel.toggleFavourite: its Line made at the press only). Out of the tab order: the list's arrows
- *  reach it (rowKeys). */
-function RowStar({view, row}: {view: SpotView; row: number}) {
+/** A row's star (LinesTable's titles): a press adds the row's line to the folder used last, or removes it
+ *  (ResultModel.toggleFavourite: its Line made at the press only); its name names the row's spot as the row shows it
+ *  (`label`: "Add B3 to favourites", the user's G-G a). Out of the tab order: the list's arrows reach it (rowKeys). */
+function RowStar({view, row, label}: {view: SpotView; row: number; label: string}) {
   const on = favouriteRows(view).has(row), model = view.model;
   return <button type="button" class={cx("vl-star", on && "vl-on")} tabIndex={-1} data-row={row}
-                 aria-label={on ? "Remove from favourites" : "Add to favourites"} aria-pressed={on}
+                 aria-label={t(on ? "ui.view.star_remove" : "ui.view.star_add", {label})} aria-pressed={on}
                  title={on ? "favourite" : "add to favourites"} onClick={() => model.toggleFavourite(model.lineAt(row))}>
     <Icon name="star" fav={on} /></button>;
 }
@@ -319,7 +319,7 @@ function Row({view, map, padding, spot, row, id, tab, mark, pick, height}: RowPr
       <Value name={t("ui.list.col.lines")} class="vl-n">{count(view.passingCount(spot))}</Value>
       {over && <OverWords />}
     </button>
-    {stars && <RowStar view={view} row={row} />}
+    {stars && <RowStar view={view} row={row} label={mark ?? label} />}
     {DOOR && <button type="button" class="vl-door" aria-label={t("ui.view.door_label", {label})} title={t("ui.view.door")}>›</button>}
   </li>;
 }
@@ -336,7 +336,7 @@ function columnHelp(view: SpotView): [string, string][] {
     view.sort === "hmax" ? [t("ui.list.col.highest"), t("ui.list.col.highest_title")] : [t("ui.list.col.mean"), t("ui.list.col.mean_title")],
     [t("ui.view.col.clear"), t("ui.list.col.clear_title")]];
   if (withAccess(view)) out.push([t("ui.list.col.anchors"), t("ui.list.col.anchors_title")]);
-  out.push([t("ui.list.col.lines"), t("ui.list.col.lines_title")]);
+  out.push([t("ui.list.col.lines"), t("ui.view.col.lines_title")]);  // the view's own words (the user's G-F a)
   return out;
 }
 

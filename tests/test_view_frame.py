@@ -1773,13 +1773,16 @@ def test_profile_text_and_touch_sizes(site):
             browser.close()
 
 
-@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+@pytest.mark.parametrize("device", [SMALL_PHONE, PHONE, PIXEL], ids=["390", "390x844", "412"])
 def test_phone_dock_compact(site, device):
     """A phone's docks in the view are compact (ProfileDock `compact`: B2's design review F1 and F2, the mock-up's 4 d
     and polish 10 and 13): the selected line's dock in the details at half has no head row (the full title for screen
     readers only), its bar holds the title, "Rigging and layers" and the close ("Close the profile", 44 px) in the
     column of the selection's close, the words on reading the chart stand under it, and the chart's top is on the
-    screen at half (it was below the fold); the measured line's dock likewise, its facts on a row under the bar."""
+    screen at half (it was below the fold); the measured line's dock likewise, its facts on a row under the bar.
+    The selected line's dock stands where the mock-up's 4 d has it (measured on the mock-up, B3's mockup_dock.py):
+    its rule 237 px under the sheet's top, its bar 5 px under the rule, the chart right under the bar; on 390 x 664
+    at half at least 46 px of the chart show (the user's G-B b at the screenshot gate: 38 px before)."""
     from playwright.sync_api import sync_playwright
     read = """() => { const d = document.querySelector('.u-sheet-body .r-dock'), r = (e) => e && e.getBoundingClientRect();
       const x = d.querySelector('.r-dock-bar [aria-label="Close the profile"]'), sel = document.querySelector('.vl-dclose');
@@ -1789,7 +1792,9 @@ def test_phone_dock_compact(site, device):
               under: d.lastElementChild.classList.contains('r-hint-under') && r(d.querySelector('.r-hint-under')).top >= r(d.querySelector('.fal-profile-chart')).bottom,
               // the need row ("no A-frame needed" ...) under the chart too, where the line has one (the design review's F1)
               need: d.querySelector('.fal-need') ? r(d.querySelector('.fal-need')).top >= r(d.querySelector('.fal-profile-chart')).bottom : null,
-              facts: d.querySelector('.r-facts')?.textContent ?? null, chartTop: Math.round(r(d.querySelector('.fal-profile-chart')).top), height: innerHeight}; }"""
+              facts: d.querySelector('.r-facts')?.textContent ?? null, chartTop: Math.round(r(d.querySelector('.fal-profile-chart')).top), height: innerHeight,
+              sheetTop: Math.round(r(document.querySelector('.u-sheet')).top), dockTop: Math.round(r(d).top),
+              barTop: Math.round(r(d.querySelector('.r-dock-bar')).top), barBottom: Math.round(r(d.querySelector('.r-dock-bar')).bottom)}; }"""
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
@@ -1800,6 +1805,9 @@ def test_phone_dock_compact(site, device):
                 page.keyboard.press("ArrowUp")
             page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
             page.wait_for_selector(".u-sheet-body .vl-details .r-dock .fal-profile-chart", timeout=WAIT)
+            # the sheet at its stop to the last fraction of a px (F.rest allows 1 px of its glide)
+            page.wait_for_function("() => { const s = document.querySelector('.u-sheet'); "
+                                   "return Math.abs(s.getBoundingClientRect().height - parseFloat(s.style.height)) < 0.05; }", timeout=WAIT)
             line = page.evaluate(read)
             page.context.close()
             page = _view(browser, site, device, line=OUTSIDE, script=PROFILE_STUB)
@@ -1809,7 +1817,13 @@ def test_phone_dock_compact(site, device):
             assert page.errors == []
         finally:
             browser.close()
-    print("chart tops at half", device["viewport"], "line", line["chartTop"], "measured", measured["chartTop"])
+    print("chart tops at half", device["viewport"], "line", line["chartTop"], "measured", measured["chartTop"], "the line's dock under the sheet's top",
+          line["dockTop"] - line["sheetTop"], "bar", line["barTop"] - line["dockTop"], line["barBottom"] - line["dockTop"],
+          "chart", line["chartTop"] - line["dockTop"], "shown", line["height"] - line["chartTop"])
+    assert line["dockTop"] - line["sheetTop"] == 237 and line["barTop"] - line["dockTop"] == 5, line  # the mock-up's 4 d
+    assert line["chartTop"] == line["barBottom"], line  # the chart right under the bar
+    if device is SMALL_PHONE:
+        assert line["height"] - line["chartTop"] >= 46, line
     assert line["need"] is True, line  # BIG's first line has a need row
     for got in (line, measured):
         assert got["head"] is False and got["sr"].strip() and got["under"] is True and got["need"] in (True, None), got

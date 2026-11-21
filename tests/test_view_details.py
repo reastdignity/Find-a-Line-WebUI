@@ -85,7 +85,9 @@ window.D = {
   stars(sel) { return [...document.querySelectorAll(sel + ' .vl-rows > li')].map((li) => { const s = li.querySelector(':scope > .vl-star');
     return {kids: [...li.children].map((c) => c.className.split(' ')[0]), row: +li.querySelector('.vl-main').dataset.row,
             star: s && {name: s.getAttribute('aria-label'), title: s.title, pressed: s.getAttribute('aria-pressed'), tab: s.tabIndex, size: this.size(s),
-                        filled: !!s.querySelector('svg.u-fav')}, halo: !!li.querySelector('.vl-sw.vl-sw-fav')}; }); },
+                        filled: !!s.querySelector('svg.u-fav')}, halo: !!li.querySelector('.vl-sw.vl-sw-fav'),
+            // the row's label as it shows it: its mark's text (B3, P1) or its number (a tree row)
+            label: (li.querySelector('.vl-main .v-sh text') || li.querySelector('.vl-main .vl-num'))?.textContent ?? null}; }); },
   focus() { const a = document.activeElement; return !a || a === document.body ? '' : a.className; },
   snap() { const s = document.querySelector('.u-sheet'); return s ? ['peek', 'half', 'full'].find((k) => s.classList.contains('u-' + k)) : null; },
   // a box's middle, px
@@ -480,7 +482,8 @@ def test_phone_dock_gives_way_to_a_measured_line(site):
 def test_list_stars(site, device):
     """A star at each row's end in "Best in view", "Start here" and the tree (B-3, 11 a; a phone keeps them: 10 a), also
     on a run with no favourite yet: the row button's sibling (a row stays one button), out of the tab order, 24 px on a
-    desktop and 44 px on a phone, today's names and titles; the heads stand over the row's button. A press adds to the
+    desktop and 44 px on a phone, today's titles and names that name the row's spot as the row shows it ("Add B3 to
+    favourites": the user's G-G a); the heads stand over the row's button. A press adds to the
     folder used last, or removes (today's rule; on the server); a favourite's dash wears the halo. The arrows: right
     from a row to its star, left back, up, down, Home and End from a star along the stars' column; Tab (Shift+Tab)
     leaves the list from a star in one press, also when the list's tab stop lies after (before) it; a star pressed by
@@ -501,9 +504,12 @@ def test_list_stars(site, device):
                 rows = page.evaluate(f"() => D.stars('{block}')")
                 assert rows, block
                 for r in rows:
-                    assert r["kids"] == ["vl-main", "vl-star"] and r["star"] == {"name": "Add to favourites", "title": "add to favourites",
+                    name = WORDS["ui.view.star_add"].replace("{{label}}", r["label"] or "?")
+                    assert r["kids"] == ["vl-main", "vl-star"] and r["star"] == {"name": name, "title": "add to favourites",
                                                                                  "pressed": "false", "tab": -1, "size": side, "filled": False}, (block, r)
-                    assert not r["halo"]
+                    assert not r["halo"] and r["label"], r
+                assert len({r["star"]["name"] for r in rows}) == len(rows), rows  # each star's name its own
+            assert page.evaluate("() => D.stars('.vl-topblock')[0].star.name") == "Add B1 to favourites"
             # the heads over the row's button: "Lines" ends where the rows' counts end
             ends = page.evaluate("() => { const h = [...document.querySelectorAll('.vl-topblock .vl-cols > span')].pop().getBoundingClientRect(), "
                                  "n = document.querySelector('.vl-topblock .vl-n').getBoundingClientRect(); return [h.right, n.right]; }")
@@ -515,7 +521,8 @@ def test_list_stars(site, device):
             page.wait_for_function(f"() => D.saved().then((s) => s.lines.includes({link!r}))", timeout=WAIT)
             page.wait_for_function("() => D.stars('.vl-topblock')[0].star.pressed === 'true'", timeout=WAIT)
             row = page.evaluate("() => D.stars('.vl-topblock')[0]")
-            assert row["star"]["name"] == "Remove from favourites" and row["star"]["title"] == "favourite" and row["star"]["filled"] and row["halo"], row
+            assert row["star"]["name"] == WORDS["ui.view.star_remove"].replace("{{label}}", row["label"]) == f"Remove {row['label']} from favourites"
+            assert row["star"]["title"] == "favourite" and row["star"]["filled"] and row["halo"], row
             page.click(".vl-topblock .vl-rows > li:first-child > .vl-star")
             page.wait_for_function(f"() => D.saved().then((s) => !s.lines.includes({link!r}))", timeout=WAIT)
             page.wait_for_function("() => D.stars('.vl-topblock')[0].star.pressed === 'false' && !D.stars('.vl-topblock')[0].halo", timeout=WAIT)
@@ -636,8 +643,10 @@ def test_list_help(site, device):
             want_dt = [WORDS["ui.list.col.length"], WORDS["ui.list.col.mean"], WORDS["ui.view.col.clear"]] + \
                 ([WORDS["ui.list.col.anchors"]] if shown[2] else []) + [WORDS["ui.list.col.lines"]]
             want_dd = [WORDS[f"ui.list.col.{k}_title"] for k in ("length", "mean", "clear")] + \
-                ([WORDS["ui.list.col.anchors_title"]] if shown[2] else []) + [WORDS["ui.list.col.lines_title"]]
+                ([WORDS["ui.list.col.anchors_title"]] if shown[2] else []) + [WORDS["ui.view.col.lines_title"]]
             assert shown[0] == want_dt and shown[1] == want_dd and shown[3] and shown[4] == "0px", (shown, names)
+            # the Lines column in the view's own words (the user's G-F a); today's page keeps its own column title
+            assert WORDS["ui.view.col.lines_title"] == "lines this spot stands for" != WORDS["ui.list.col.lines_title"]
             assert page.evaluate("() => document.querySelector('.vl-topblock .vl-cols-info').getAttribute('aria-expanded')") == "true"
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []
         finally:

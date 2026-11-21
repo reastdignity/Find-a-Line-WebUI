@@ -343,11 +343,14 @@ def test_list_ranking_sorts_sectors_and_chips(site):
                 notes: document.querySelectorAll('.vl-note').length})""")
             assert none == {"text": WORDS["ui.view.none_pass"], "button": WORDS["ui.view.chip.clear"], "first": "vl-none", "blocks": 0, "notes": 0}, none
             assert WORDS["ui.view.none_pass"] == "No line passes the filters. Loosen one, or clear all."
+            # "Top level only"'s sentence ("… of 0 lines …") is not shown while no line passes (the user's G-F a)
+            assert not page.evaluate("() => !!document.querySelector('.vl-top-text')"), page.evaluate("() => P.text('.vl-top-text')")
             page.focus(".vl-none-clear")
             page.keyboard.press("Enter")
             page.wait_for_selector(".vl-tree .vl-main", timeout=WAIT)
             back = _list(page)
             assert back["counts"] == first["counts"] and back["chip"] == "true" and not page.evaluate("() => !!document.querySelector('.vl-none')")
+            assert back["sentence"] == first["sentence"] and back["sentence"], back  # the sentence back with the lines
             # the focus did not fall to the page's body with the button: the list's tab stop has it
             page.wait_for_function("() => document.activeElement === document.querySelector('.vl-topblock .vl-main[tabindex=\"0\"]')", timeout=WAIT)
             assert page.evaluate("() => window.CSP_VIOLATIONS") == [] and page.errors == []

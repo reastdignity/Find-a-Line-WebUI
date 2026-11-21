@@ -4,7 +4,8 @@
 // held to it (step 3c: its help opens under the chips), "More filters" (today's other filters, without the grouping:
 // the view's spots are fixed) and "Clear all" (which leaves "Top level only": clearAll, also the empty list's);
 // under the chips the editor of a main filter (today's MainEditor) and the sentence that says what "Top level only"
-// hides or shows. "Only clear" is in More filters only, and "How to read the result" is not in the view. The
+// hides or shows (not while no line passes: the list says so). "Only clear" is in More filters only, and "How to read
+// the result" is not in the view. The
 // filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -114,7 +115,9 @@ export function ViewFilters({view}: {view: SpotView}) {
       <MainEditor model={model} which={editing} />
       <button type="button" class="r-note-x r-editor-x" aria-label={t("ui.view.chip.editor_close")} onClick={closeEditor}>
         <Icon name="close" /></button></div>}
-    <p class="u-small vl-top-text">{topSentence(view)}</p>
+    {/* not while no line passes the filters: the list's "No line passes the filters" with "Clear all" says it (the
+        user's G-F a at the screenshot gate) */}
+    {view.counts.lines > 0 && <p class="u-small vl-top-text">{topSentence(view)}</p>}
   </div>;
 }
 
