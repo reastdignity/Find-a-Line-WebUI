@@ -83,7 +83,7 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   };
   const areas = s.shapes > 0 && <p class="s-hint s-areas">
     {t("ui.search.areas", {count: s.areas})}
-    {s.shapes !== s.areas && ` ${t("ui.search.shapes", {n: s.shapes})}`}</p>;
+    {s.shapes !== s.areas && ` ${t("ui.search.shapes", {count: s.shapes})}`}</p>;
   return <div class="s-where" ref={where}>
     {s.mode !== "file" && <PlaceBox place={s.place} />}
     <Segmented label={t("basic.where")} options={modes(phone)} value={s.mode} onChange={s.setMode} />

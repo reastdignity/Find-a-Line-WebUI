@@ -229,6 +229,11 @@ function snapHeight(snap: Snap, height: number, peek: number, top: number): numb
   return Math.max(Math.min(peek, height), height - top);
 }
 
+/** A sheet's height in words for its handle's name (a screen reader's): low, half height, full height (the user's
+ *  answer of 2026-11-21: not the code's "peek"). */
+const stateWord = (snap: Snap) => snap === "peek" ? t("ui.kit.sheet_state.peek")
+  : snap === "half" ? t("ui.kit.sheet_state.half") : t("ui.kit.sheet_state.full");
+
 /** A bottom sheet (the phones' result, the kit's demos): peek, half or full height, dragged by its handle
  *  (pointer events, so touch too), or moved one state with a click or the arrow keys. Its position is
  *  absolute in the nearest positioned ancestor (the map's container), whose height the states divide; at full it
@@ -288,7 +293,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
   return <section ref={ref} class={cx("u-sheet", `u-${current}`, drag && "u-dragging", scrolled && "u-scrolled")}
                   aria-label={label}
                   style={box ? {height: `${height}px`} : undefined}>
-    <button type="button" class="u-sheet-handle" aria-label={t("ui.kit.sheet_handle", {label, state: current})}
+    <button type="button" class="u-sheet-handle" aria-label={t("ui.kit.sheet_handle", {label, state: stateWord(current)})}
             aria-expanded={current !== "peek"}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
             onKeyDown={(e) => {

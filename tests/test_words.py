@@ -5,7 +5,9 @@ the wording review, docs/DESIGN.md choices 92 to 94).
   words split on spaces), by its key's kind (tools/ui_metrics.py `text_group`) and, for the texts whose key does not
   say their kind, by their role (BY_ROLE); today's result page keeps its intro (LEFT).
 - R9: no character stands for a word (×, →, ≈, ≤, ≥, a "+" for "and", ...) in the catalogues, but what R9 allows or the
-  user kept (R9_KEPT).
+  user kept (R9_KEPT); none of ≤, ≥, × in the code that wrote them before (WRITTEN_OUT).
+- G4's leftovers: plurals by the count, one wording for the about page, the report context's joints, the sheet's
+  height in words.
 """
 
 import json
@@ -153,3 +155,62 @@ console.log(JSON.stringify([m.limitText("floor", "clearance", 5, true), m.limitT
                      "Wall angle (under)", "A-frame, with zone, m (up\u00a0to)"]
     size = node(tmp_path, "src/app/c/layerState.ts", "console.log(JSON.stringify(m.sizeText(30 / 3600, 49.4)));")
     assert re.fullmatch(r"\d+\.\d by \d+\.\d km", size), size
+
+
+# ---- G4's leftovers: plurals by the catalogue's rules, one wording, joints, the sheet's words ----------------------
+
+PLURALS = [  # (key, the call that passes the count (its file and the code), {count: the text})
+    ("ui.favourites.delete_folders", "viewer/src/app/c/FavouritesPage.tsx", 't("ui.favourites.delete_folders", {count:',
+     {1: ", 1 folder in it", 3: ", 3 folders in it"}),
+    ("ui.search.shapes", "viewer/src/search/SearchPanel.tsx", 't("ui.search.shapes", {count:',
+     {1: "(1 shape)", 4: "(4 shapes; those that overlap or touch are one area)"}),
+    ("ui.admin.limit_queue", "viewer/src/app/c/AdminC.tsx", 't("ui.admin.limit_queue", {count:',
+     {1: "At most 1 search waiting or running.", 2: "At most 2 searches waiting or running."}),
+    ("page.examples.spots", "web.py", "page_text('page.examples.spots', count=", {1: "1 spot", 12: "12 spots"}),
+    ("page.examples.lines", "web.py", "page_text('page.examples.lines', count=", {1: "1 line", 2: "2 lines"}),
+]
+
+
+@pytest.mark.parametrize("key,rel,call,forms", PLURALS, ids=[p[0] for p in PLURALS])
+def test_plurals_by_the_count(key, rel, call, forms):
+    """One form for every number no more ("1 folders", "1 spots"): the catalogue's plural forms, the callers giving
+    the count (the user's answers of 2026-11-21, left-01 to left-05)."""
+    import messages
+    assert {n: messages.text(key, count=n) for n in forms} == forms
+    assert key not in catalogue()  # no bare key with one form beside the plural ones
+    with open(os.path.join(REPO, rel), encoding="utf-8") as f:
+        assert call in f.read(), call
+
+
+def test_examples_counts_on_the_sign_in_page():
+    sys.path.insert(0, REPO)
+    import web
+    params = {"nmpt": None, "radius": 300, "resolution": 1, "slope_threshold": 60, "min_length": 20, "max_length": 200}
+    page = web.demo_list([{"id": "r", "name": "A run", "summary": {"spots": 1, "lines": 1}, "has_map": False,
+                           "params": params}])
+    assert "1 spot · 1 line</span>" in page, page
+
+
+def test_one_wording_for_the_about_page():
+    texts = catalogue()
+    assert texts["page.about.title"] == texts["ui.account.about"] == "About and data licences"
+
+
+def test_report_context_with_colons_and_semicolons():
+    """A problem report's context on the admin page: labelled values ("page: result"), parts joined by "; " (the run's
+    link holds a comma), never " · " between values (R9)."""
+    texts = catalogue()
+    assert [texts[f"ui.admin.context_{k}"] for k in ("page", "ui", "window")] == [
+        "page: {{page}}", "interface: {{ui}}", "window: {{viewport}}"]
+    with open(os.path.join(REPO, "viewer/src/app/c/AdminC.tsx"), encoding="utf-8") as f:
+        code = f.read()
+    context = code[code.index('class="u-small c-report-context"'):code.index("c-report-agent")]
+    assert '{i > 0 && "; "}' in context and "·" not in context
+
+
+def test_sheet_handle_says_its_height_in_words():
+    texts = catalogue()
+    assert [texts[f"ui.kit.sheet_state.{s}"] for s in ("peek", "half", "full")] == ["low", "half height", "full height"]
+    with open(os.path.join(REPO, "viewer/src/ui/components.tsx"), encoding="utf-8") as f:
+        code = f.read()
+    assert 'state: stateWord(current)' in code and "state: current" not in code
