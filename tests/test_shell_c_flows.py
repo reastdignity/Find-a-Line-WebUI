@@ -479,7 +479,12 @@ run({
       later(() => {
         result.result.closed = [!dialog(), seen("result")];
         $(".r-filters .n-intro-link").click();
-        later(() => { result.result.link = text(".n-intro[open] h2"); button("Got it").click(); later(next); });
+        later(() => {
+          result.result.link = text(".n-intro[open] h2");
+          $(".n-intro[open] .n-again input").click();  // "Do not show again" unchecked: it opens again next time
+          button("Got it").click();
+          later(() => { result.result.unchecked = [!dialog(), seen("result")]; next(); });
+        });
       });
     });
   },
@@ -491,7 +496,8 @@ run({
 def test_shell_c_intros(data, tmp_path):
     """The intro of a new search ("How a search works") opens from its link in the panel only, without "Do not show
     again" (the user's answer of 2026-11-21, step 3d G5), and remembers nothing. The local app has no limits. A result
-    opens "How to read the result" once (the colours' swatches), and its link in the filters opens it again."""
+    opens "How to read the result" once (the colours' swatches), and its link in the filters opens it again; closed
+    with "Do not show again" unchecked, it is no longer remembered."""
     from test_shell_c import C_STUBS
     from test_web import INTROS_SEEN
     stubs = C_STUBS.replace(INTROS_SEEN, "") + 'try { localStorage.removeItem("findaline.intro.search"); localStorage.removeItem("findaline.intro.result"); } catch (e) {}\n'
@@ -505,5 +511,5 @@ def test_shell_c_intros(data, tmp_path):
     assert search["limits"] == "This computer has no limits." and search["examples"] >= 10, r
     assert search["closed"] == [True, None], r
     assert r["result"] == {"title": "How to read the result", "swatches": 3, "spot": "spot", "closed": [True, "seen"],
-                           "link": "How to read the result"}, r
+                           "link": "How to read the result", "unchecked": [True, None]}, r
     assert r["csp"] == []
