@@ -409,6 +409,28 @@ function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, gro
   if (bad() > best.bad || (bad() === best.bad && length() < best.length)) map.setView(best.centre, best.zoom, {animate: false});
 }
 
+/** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
+ *  keepFree): the bar's room, as before fix round 3 (the frame's padding with the controls made the line shorter
+ *  wherever one stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 328 -> 224 px; the
+ *  planner, fix round 3). Asked for just before the fit, it also arms a check of the map's move that follows at once
+ *  (the canvas's fits are not animated: SpotMap fitOptions): where an end of the selected line then lies under a
+ *  control, its ends are brought clear (endsClear: the same floor, never shorter than LINE_LEAST or than it is, the
+ *  same state kept when they cannot be). A fit that does not move the map (a reveal of a line in view) disarms it at
+ *  the next microtask: a later move of the person's is never followed. */
+function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null}, bar: () => Padding): () => Padding {
+  return () => {
+    const p = bar();
+    if (!map) return p;
+    const check = () => {
+      const l = view.selected?.line;
+      if (l && endsUnder(map, col.current, l)) endsClear(map, col.current, l, bar(), false);
+    };
+    map.once("moveend", check);
+    queueMicrotask(() => map.off("moveend", check));
+    return p;
+  };
+}
+
 /** Keeps the bar's foot clear of what lies at the map's bottom: `covered` px of a phone's sheet (--v-covered) and,
  *  above that, Leaflet's own bottom corners where they reach under the foot (the scale; the credits when they run
  *  across the map: --v-corner). When one of them changed its size the canvas takes the view's rectangle again
@@ -581,7 +603,8 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     const p = barPadding(colRef.current, BAR_TOP, BAR_BOTTOM), card = cardBottom();
     return card ? {...p, bottom: Math.max(p.bottom, card + shortFoot(colRef.current))} : p;
   };
-  /** A move's padding: the bar's room, clear of the controls over the map too (N1). */
+  /** The canvas's own moves' padding (the first fit, a sector's, the area square): the bar's room, clear of the
+   *  controls over the map too (N1). */
   const padding = (): Padding => clearOfControls(colRef.current, bar(), cardBottom());
   const [choice, setChoice] = useState<ChoiceAt | null>(null);
   const closeChoice = () => setChoice(null);
@@ -589,11 +612,13 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
     padding, free: () => ({top: 0, right: 0, bottom: 0, left: 0}), obstacles: () => slotBoxes(hintRef.current),
     onChoose: setChoice, onToast: say});
+  /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
+  const fitPadding = selectedFit(view, map, colRef, bar);
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
   // a measured line (Measure's, a link's): its profile in the card, fitted into the map (Measure's where it is hidden)
   const onMeasure = (l: Line | null) => onMeasured(l, false);
-  useViewLink(view, canvas, line, nav, hashOf, padding, (l) => onMeasured(l, true));
+  useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true));
   // (fitted into the bar's room, its ends then brought clear of the controls: endsClear; not into the room clear of
   // every control, where a tall box over the map would leave the line a thin band: the third code review)
   useMeasuredShown(measured, measuredLink, firstShow, canvas, map, bar, (l) => !!map && lineFree(map, l, bar()), colRef,
@@ -619,7 +644,7 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     const check = () => {
       const card = cardCovers(colRef.current);
       if (view.selected?.row === now.row && card && !lineFree(map, now.line, {top: -Infinity, right: -Infinity, left: -Infinity, bottom: card}, 0)) {
-        canvas.zoomTo(now.row, padding());
+        canvas.zoomTo(now.row, fitPadding());
       }
     };
     if (moving(map)) map.once("moveend", check);
@@ -646,7 +671,8 @@ function Desktop({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top, right: box.right, bottom: box.bottom - cover};
   };
-  const p: PanelProps = {view, map: canvas, wide: true, padding, linkOf, view3dOf, measured};
+  // (the panels' padding serves only their reveal of a selected line: SpotList, FanPanel)
+  const p: PanelProps = {view, map: canvas, wide: true, padding: fitPadding, linkOf, view3dOf, measured};
   return <div class="c-result v-result">
     <header class="c-subtop c-result-top">
       <Back back={back} />
@@ -901,7 +927,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     return sheetAt(snap, box.height);
   };
   const bar = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
-  /** A move's padding: the bar's room, clear of the controls over the map too (N1). */
+  /** The canvas's own moves' padding (the first fit, a sector's, the area square) and the sheet's clear target: the
+   *  bar's room, clear of the controls over the map too (N1). */
   const padding = (): Padding => clearOfControls(colRef.current, bar(), covered());
   /** A padding as it will be with the sheet at a stop (the foot rides on the sheet; its height stays as it is now). */
   const shifted = (p: Padding, at: Snap): Padding => {
@@ -920,6 +947,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     obstacles: () => [...Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
                       ...slotBoxes(hintRef.current)],
     onChoose: setChoice, onToast: say});
+  /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
+  const fitPadding = selectedFit(view, map, colRef, bar);
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
   // Measuring: the sheet goes low (today's page; the canvas holds the map still), the tip is the status line's first
@@ -961,7 +990,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // a link that ends in a note (hidden by the filters, not in the run, not measured): the sheet at half shows it, as
   // today's page opens (the planner, fix round 1); a link that opens its line keeps the view's low start
   const toNote = () => setSnap((s) => s === "peek" ? "half" : s);
-  useViewLink(view, canvas, line, nav, hashOf, padding, (l) => onMeasured(l, true), toNote);
+  useViewLink(view, canvas, line, nav, hashOf, fitPadding, (l) => onMeasured(l, true), toNote);
   useNoteAfterCrossing(view, measured, toNote);
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useRunCredits(map, data, base, folder);
@@ -978,7 +1007,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top + 64, right: box.right, bottom: box.bottom - covered()};
   };
-  const p: PanelProps = {view, map: canvas, wide: false, padding, sheet: {snap, setSnap}, linkOf, view3dOf, measured};
+  const p: PanelProps = {view, map: canvas, wide: false, padding: fitPadding, sheet: {snap, setSnap}, linkOf, view3dOf, measured};
   // Compare needs room the phone's top bar does not have (as today's page)
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
