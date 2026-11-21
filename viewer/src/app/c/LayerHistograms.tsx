@@ -117,15 +117,17 @@ export function limitText(kind: DimensionKind, dimension: string, value: number 
 interface Bar { value: number; pressed: boolean; pickable: boolean; title: string }
 
 /** One histogram: `title` (on phones a button enlarging it), the bars (a button each when pickable), `axis` the
- *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`. */
-export function Histogram({name, title, bars, axis, open, wide, onPick, onTitle, children}:
+ *  labels under the bars (one per bar, or one more for the bins' edges), `onPick(k, shift)`, `kind` the dimension's
+ *  (data-kind: an at-most chart's "over 2" tick is drawn tighter, c.css). */
+export function Histogram({name, title, bars, axis, open, wide, kind, onPick, onTitle, children}:
                           {name: string; title: string; bars: Bar[]; axis: string[]; open: boolean; wide: boolean;
-                           onPick(k: number, shift: boolean): void; onTitle(): void; children?: ComponentChildren}) {
+                           kind?: DimensionKind; onPick(k: number, shift: boolean): void; onTitle(): void;
+                           children?: ComponentChildren}) {
   const max = Math.max(1, ...bars.map((b) => b.value));
   const height = (v: number) => `${Math.round(100 * Math.log10(1 + v) / Math.log10(1 + max))}%`;
   const edges = axis.length === bars.length + 1;
   return <section class={`c-layer-hist${open ? " c-layer-hist-open" : ""}`} data-hist={name} data-bars={bars.length}
-                  style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
+                  data-kind={kind} style={{"--bars": bars.length} as Record<string, number>} aria-label={title}>
     <h3 class="c-layer-hist-title">{wide ? title
       : <button type="button" class="c-layer-hist-name" aria-expanded={open} title={title} onClick={onTitle}>{title}</button>}</h3>
     <div class="c-layer-hist-bars" role="group" aria-label={title}>
@@ -200,12 +202,14 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
       return {value: count, pressed, pickable: !unknown && !off(d), title: `${title}: ${n(count)}`};
     });
   };
-  // the ticks: the values a pick sets, bare (the chart's title says "at least", "under" or "up to": chartTitle)
+  // the ticks: the values a pick sets, bare (the chart's title says "at least", "under" or "up to": chartTitle);
+  // an at-most chart's last known bin "over 2", as its bar's title says it (the user's answer of 2026-11-21)
   const axisOf = (d: string): string[] => {
     const e = edges[d], kind = cube.kinds[d];
     if (kind === "floor") return [...e.map(axisEdge), "?"];
     if (kind === "below") return [...e.slice(1).map(axisEdge), t("ui.layer.any"), "?"];
-    return [e[0] === 0 ? t("ui.layer.hist.none") : axisEdge(e[0]), ...e.slice(1).map(axisEdge), t("ui.layer.hist.more"), "?"];
+    return [e[0] === 0 ? t("ui.layer.hist.none") : axisEdge(e[0]), ...e.slice(1).map(axisEdge),
+            t("ui.layer.limit.over", {value: axisEdge(e[e.length - 1])}), "?"];
   };
   const pick = (d: string) => (k: number) => {
     const e = edges[d], kind = cube.kinds[d];
@@ -244,7 +248,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
         {wide && <p class="u-small c-layer-note">{touch ? t("ui.layer.hist.length_note_touch") : t("ui.layer.hist.length_note")}{mode === "spots" ? ` ${t("ui.layer.hist.spots_note")}` : ""}</p>}
       </Histogram>;
     }
-    return <Histogram key={d} {...props} bars={bars(d)} axis={axisOf(d)} onPick={pick(d)} />;
+    return <Histogram key={d} {...props} bars={bars(d)} axis={axisOf(d)} kind={cube.kinds[d]} onPick={pick(d)} />;
   };
 
   const other = mode === "lines" ? h.totals?.spots : h.totals?.lines;

@@ -235,6 +235,28 @@ def test_one_wording_for_report_a_problem_in_the_menus():
         assert 't("ui.account.report")' in f.read()
 
 
+def test_the_users_words_after_the_reviews():
+    """The user's four answers of 2026-11-21 after G5's reviews: the form's link says the dialog's title; the layer's
+    notes and error say "chart" and "limit"; the admin's badge "waiting" (shown "Waiting" by c.css's ::first-letter)
+    beside the heading's "waiting"; an at-most chart's last tick "over 2", "over" and its last value as its bar's title
+    says it (`ui.layer.limit.over`), drawn 0.03 em tighter so it fits the 32 px of a bar (c.css)."""
+    texts = catalogue()
+    assert texts["intro.search.link"] == texts["intro.search.title"] == "How a search works"
+    assert texts["ui.layer.hist.dimensions_note"] == ('Each chart applies every filter but its own. Click a bar to set '
+                                                      'its limit ("?": the value is not known for the line).')
+    assert texts["ui.layer.hist.dimensions_note_touch"] == texts["ui.layer.hist.dimensions_note"].replace("Click", "Tap")
+    assert texts["ui.layer.hist.failed"] == "The charts could not be loaded."
+    assert texts["ui.admin.user.pending"] == "waiting" and texts["ui.admin.users_waiting"] == "Users ({{n}} waiting)"
+    assert texts["ui.layer.limit.over"] == "over {{value}}" and "ui.layer.hist.more" not in texts
+    with open(os.path.join(REPO, "viewer/src/app/c/LayerHistograms.tsx"), encoding="utf-8") as f:
+        assert 't("ui.layer.limit.over", {value: axisEdge(e[e.length - 1])}), "?"];' in f.read()
+    with open(os.path.join(REPO, "viewer/src/app/c/c.css"), encoding="utf-8") as f:
+        css = f.read()
+    assert ".ui .c-admin .u-badge::first-letter { text-transform: uppercase; }" in css
+    assert ('.ui .c-layer-hist[data-kind="at_most"] .c-layer-hist-axis span:nth-last-child(2) '
+            '{ letter-spacing: -0.03em; }') in css
+
+
 # ---- The intro behind its link gives the focus back (the code review's finding 1, the design review's F2) ----------
 
 INTRO_LINK = ".s-intro .n-intro-link"
