@@ -838,6 +838,8 @@ def test_phone_sheet_hint_and_fan(site, device):
             row.tap()
             page.wait_for_function(f"() => P.view().selected && P.view().selected.spot === {spot} && document.querySelector('.u-sheet-body').scrollTop === 0",
                                    timeout=WAIT)
+            # a selection made at full brings the sheet to half (step 3d's P3, as today's page)
+            page.wait_for_function("() => document.querySelector('.u-sheet').classList.contains('u-half')", timeout=WAIT)
             d = page.evaluate("() => P.details()")
             assert d["shown"] and d["title"] is not None and d["step"].startswith("Line 1 of")
             assert page.evaluate("() => [!!document.querySelector('.u-sheet-head .vl-spot-title'), !!document.querySelector('.u-sheet-body .vl-spot-title'), "
@@ -867,8 +869,7 @@ def test_phone_sheet_hint_and_fan(site, device):
             page.wait_for_function("() => document.activeElement === document.querySelector('.vl-fan .vl-main')", timeout=WAIT)
             assert page.evaluate("() => document.querySelectorAll('.vl-fan .vl-main[tabindex=\"0\"]').length") == 1
             # with the sheet low the head's buttons still work and are whole: "Close", then the spot's ×
-            _sheet(page, "ArrowDown", "half")
-            _sheet(page, "ArrowDown", "peek")
+            _sheet(page, "ArrowDown", "peek")  # (from half: P3)
             page.wait_for_function("() => Math.round(document.querySelector('.u-sheet').getBoundingClientRect().height) === 132", timeout=WAIT)
             fan_head = page.evaluate(fits)
             assert fan_head["whole"], fan_head
