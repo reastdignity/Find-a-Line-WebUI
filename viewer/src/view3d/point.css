@@ -46,6 +46,7 @@
                padding: 4px 8px; cursor: pointer; color: var(--ink-2); font-size: var(--fs-1); line-height: 1.25; }
 .v3-opt-sort:hover, .v3-opt-sort:focus-visible { color: var(--ink); background: var(--accent-soft); }
 .v3-opt-sort:focus-visible { box-shadow: var(--focus-in); }
+@media (forced-colors: active) { .ui .v3-opt-sort:focus-visible { outline-offset: -2px; } }
 .v3-optlist-table th[aria-sort] .v3-opt-sort { color: var(--ink); font-weight: 600; }
 .v3-opt-sort-icon { display: none; flex: none; width: 12px; height: 12px; margin-right: 4px; stroke-width: 2.4; }
 .v3-optlist-table th[aria-sort] .v3-opt-sort-icon { display: block; }

@@ -65,7 +65,12 @@ docs/3d-view-contract.md. Its server side lives in `search.py` (`patch_of_line`,
 - **Sizes on a touch screen** (DESIGN.md rows 43, 45): keyed on `@media (pointer: coarse)`, never on `.v3-phone` (the
   desktop's `?level=phone` has a mouse, a phone's `?level=full` a finger). A mark over the stage (fan dot, label, handle)
   grows its target with a positioned `::after`, never its own size or margins: those place it on its point
-  (`screen.ts` `place`; `tests/test_view3d_touch.py`).
+  (`screen.ts` `place`; `tests/test_view3d_touch.py`); near the stage's edge `targetInside` moves the target inside
+  (`--v3-tx`/`--v3-ty`, the mark's half-sizes and how far it may move; `tests/test_view3d_keyboard.py`).
+- **The tool strip** holds its tools in the DOM in their order (`chrome.ts` `createTools`, `data-order`), so the Tab
+  order is the order on screen: never a CSS `order` (the bar's switch under 600 px: `views.ts` keeps it the toolbar's
+  last child). While handles are dragged the bar gets neither higher nor lower, and no lower until the profile answers
+  (`edit.ts` `holdBar`, a count): a row the drag adds to the bar shows at the release, never during it.
 - **A new note in the bar** (DESIGN.md row 39): one that explains goes behind the phone's "About this view" button by
   itself (`info.ts` `INFO_NOTES`); one that says what failed or answers a tap gets the class `v3-alert` and stays in
   sight, as the safety sentence does (`.v3-check`, `INFO_KEPT`: the user's word, never into the box). The button and

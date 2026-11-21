@@ -186,7 +186,7 @@ PROFILE_SCRIPT = _with_until("""
       out.stored = localStorage.getItem("findaline.view3d.profile");
       out.pressed = tool("profile").getAttribute("aria-pressed");
       out.legend = !!document.querySelector(".v3-card .fal-key");
-      out.order = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, getComputedStyle(b).order]);
+      out.order = [...document.querySelectorAll(".v3-tool")].map((b) => [b.dataset.tool, b.dataset.order]);
       const span = Number(slider().max), hover = document.querySelector(".v3-card .fal-hover");
       const r = hover.getBoundingClientRect();
       out.span = span;
@@ -359,7 +359,8 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, r)
     assert r["ready"] and r["settled"] and "error" not in r, r
-    # the two tools of this file among the strip's (the others of round 2 have tests of their own)
+    # the two tools of this file among the strip's (the others of round 2 have tests of their own), in the DOM in their
+    # order (chrome.ts createTools: the Tab order is the order on screen)
     assert [t for t in r["tools"] if t in ("profile", "save")] == ["profile", "save"], r
     assert [o for o in r["order"] if o[0] in ("profile", "save")] == [["profile", "5"], ["save", "6"]], r
     assert r["cardEmpty"], r  # folded by default

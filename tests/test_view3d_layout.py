@@ -78,8 +78,10 @@ CARD = r"""() => {
 }"""
 CHART = "() => !!document.querySelector('.v3-pcard .r-profile svg')"
 # One tool more, as a run with a surface model has ("Trees and buildings": five tools at the full level, three at
-# the phone level; the clip's run has four and two): a copy of the first tool added to the strip
-FIFTH = """() => { const tool = document.querySelector('.v3-tool'), copy = tool.cloneNode(true);
+# the phone level; the clip's run has four and two): a copy of the first shown tool added to the strip (the strip
+# holds its tools in their order since step 3d: "Other saved lines", order 4 and hidden while the run has no other
+# favourite, can stand before the profile's)
+FIFTH = """() => { const tool = document.querySelector('.v3-tool:not(.v3-hidden)'), copy = tool.cloneNode(true);
   copy.dataset.tool = 'copy'; tool.parentElement.append(copy); }"""
 # "About this view": the button, the box, its lines that show, the focus, the bar
 INFO = r"""() => {

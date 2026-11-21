@@ -13,6 +13,15 @@
 .n-coverage-btn:hover { background: var(--hover, #e8eeee); }
 /* the keyboard's ring inside the button: its box clips what is outside */
 .n-coverage .n-coverage-btn:focus-visible { box-shadow: var(--focus-in, inset 0 0 0 2px currentColor); }
+@media (forced-colors: active) { .n-coverage .n-coverage-btn:focus-visible { outline-offset: -2px; } }
+/* A touch tablet keeps the desktop's box: an invisible 44 px target on the 32 px button (R2; docs/DESIGN.md row 83, as
+   the 3D view's marks), 6 px over the box's top and into the legend under it; the box keeps its corners by the
+   button's own and clips nothing there */
+@media (pointer: coarse) {
+  .n-coverage { overflow: visible; }
+  .n-coverage .n-coverage-btn { position: relative; border-radius: inherit; }
+  .n-coverage-btn::after { content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+}
 .n-coverage-legend { padding: 4px 12px 8px; border-top: 1px solid var(--rule, #d3dcdc); font-size: var(--fs-1, 12px); line-height: 1.35; }
 .n-coverage-legend[hidden] { display: none; }
 .n-coverage-legend ul { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }

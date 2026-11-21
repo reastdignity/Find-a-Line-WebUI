@@ -16,6 +16,8 @@
 
 import { Vector3 } from "three";
 import { t } from "../i18n";
+import { radioKeys } from "../ui/radios";
+import { ROW_MEDIA } from "./chrome";
 import type { LineView } from "./line";
 import {
   BEHIND_CLEARANCE, behindDistance, cameraFov, cameraPose, clampGaze, clampZoom, deviceLook, dragGaze, gazeMoved,
@@ -84,6 +86,7 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
   seg.className = "u-seg v3-views";
   seg.setAttribute("role", "radiogroup");
   seg.setAttribute("aria-label", t("ui.view3d.view"));
+  seg.onkeydown = radioKeys;  // one Tab stop (mark()), the arrows move and choose
   const buttons = new Map<ViewName, HTMLButtonElement>();
   for (const name of VIEWS) {
     const b = document.createElement("button");
@@ -131,7 +134,22 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
   motionNote.textContent = t("ui.view3d.motion_denied");
   if (Orientation && coarse) box.append(motionButton);
   box.append(motionNote);
-  scene.toolbar.prepend(box);
+  // First in the toolbar; under 600 px the switch stands on a row of its own after the toolbar's other controls
+  // (view3d.css, by CSS order), so there it is the toolbar's last child too and the Tab order is the order on screen
+  // (a control added later, the imagery's at the first frame, goes before it); the focus stays where it was
+  const toolbar = scene.toolbar, narrow = typeof matchMedia === "function" ? matchMedia(ROW_MEDIA.narrow) : null;
+  const placeBox = () => {
+    const last = !!narrow?.matches;
+    if ((last ? toolbar.lastElementChild : toolbar.firstElementChild) === box) return;
+    const focused = box.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+    if (last) toolbar.append(box); else toolbar.prepend(box);
+    focused?.focus({preventScroll: true});
+  };
+  placeBox();
+  narrow?.addEventListener?.("change", placeBox);
+  const added = typeof MutationObserver === "function" ? new MutationObserver(placeBox) : null;
+  added?.observe(toolbar, {childList: true});
+  scene.onDispose(() => { added?.disconnect(); narrow?.removeEventListener?.("change", placeBox); });
 
   // the look hint names the zoom of the pointer: the wheel, or a pinch where the pointer is coarse (the test of
   // the page's level, page.ts currentPage); in the walker's views it takes the place of the orbit's own line (the
@@ -300,6 +318,7 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
     buttons.forEach((b, k) => {
       b.className = k === view ? "u-on" : "";
       b.setAttribute("aria-checked", String(k === view));
+      b.tabIndex = k === view ? 0 : -1;
     });
     root.dataset.view = view;
     line.walker.group.visible = view !== "eyes";

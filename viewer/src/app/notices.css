@@ -12,7 +12,8 @@
 .ui .n-ways { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .ui .n-ways a, .ui .n-ways span, .ui .n-ways button { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; }
 @media (pointer: coarse) { .ui .n-ways a, .ui .n-ways button { min-height: 44px; } }
-.ui .n-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 0 !important; }
+/* the actions wrap onto a second row where one row is too narrow for them ("Stay in Advanced" was cut at 390 px) */
+.ui .n-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 0 !important; }
 .ui .n-field { display: flex; flex-direction: column; gap: 8px; }
 .ui .n-text { min-height: 140px; padding: 8px 12px; resize: vertical; font: inherit; line-height: 1.45; }
 .ui .n-count { align-self: flex-end; }
