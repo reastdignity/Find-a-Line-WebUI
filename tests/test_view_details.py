@@ -67,11 +67,14 @@ window.D = {
   m() { return this.v().model; },
   size(el) { if (!el) return null; const b = el.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; },
   box(sel) { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; },
-  // the star of the line's head (desktop: the details' head; phone: the sheet's head)
-  star() { const b = document.querySelector('.vl-dhead .r-fav, .vl-sheet-row .r-fav');
+  // the star of the line's head (desktop: the details' head; phone: the sheet's head); `beforeClose`: the head's order
+  // title, star, Previous / Next spot (step 3d's P1, the user's pick A), ×
+  star() { const b = document.querySelector('.vl-dhead .r-fav, .vl-sheet-row .r-fav'), wrap = b && b.closest('.r-popwrap');
+    const pair = wrap && wrap.nextElementSibling;
     return b && {name: b.getAttribute('aria-label'), title: b.title, expanded: b.getAttribute('aria-expanded'), filled: !!b.querySelector('svg.u-fav'),
                  size: this.size(b), icon: b.classList.contains('u-ib'), text: b.textContent.trim(), head: !!b.closest('.vl-dhead, .vl-sheet-row'),
-                 beforeClose: b.closest('.r-popwrap')?.nextElementSibling?.classList.contains('vl-dclose') ?? false}; },
+                 beforeClose: !!wrap && !!wrap.previousElementSibling?.classList.contains('vl-spot-title') && !!pair?.classList.contains('vl-spots')
+                   && !!pair.nextElementSibling?.classList.contains('vl-dclose')}; },
   // the server's favourites of the run
   saved() { return fetch('/api/runs/' + encodeURIComponent(this.m().runId) + '/favourites').then((r) => r.json())
     .then((b) => Array.isArray(b) ? {lines: b, in: {}} : b); },
@@ -135,8 +138,8 @@ def _sheet(page, stop: str):
 
 @pytest.mark.parametrize("device", DEVICES, ids=IDS)
 def test_star_in_the_head_opens_the_picker(site, device):
-    """The star (11 a) is an icon in the line's head, before its x (desktop: the details' head; a phone: the sheet's head,
-    in reach at the low stop), with today's names ("Add to favourites", once a favourite "Favourite" titled "In
+    """The star (11 a) is an icon in the line's head, before Previous/Next spot and its x (desktop: the details' head; a
+    phone: the sheet's head, in reach at the low stop), with today's names ("Add to favourites", once a favourite "Favourite" titled "In
     Favourites"); it opens today's folder picker (a phone's sheet rises to full for it), inside the page's width and the
     details' column; Esc closes the picker, not the selection; a folder saves the line on the server, the star fills and
     the list's row of the spot shows it; "Remove from favourites" ends it."""

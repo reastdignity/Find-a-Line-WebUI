@@ -26,6 +26,7 @@ import { dh } from "../../filters";
 import { t } from "../../i18n";
 import { clearanceText, isTight } from "../../tight";
 import type { Line } from "../../types";
+import type { SpotView } from "../spots";
 import { count, cx, num, TightIcon } from "./common";
 import { FanHead, FanPanel } from "./FanPanel";
 import { Hint } from "./Hint";
@@ -37,17 +38,66 @@ import { panelState } from "./viewstate";
 import type { ChooserProps, PanelProps } from "./SpotPanels";
 import { SpotCount } from "./SpotSummary";
 
+/** The tree's spots top to bottom (its sectors in their order, every spot of each, in the list's sort and direction:
+ *  SpotView.sectors) and each spot's place among them, made again only when the tree's order changes. */
+const treeOf = new WeakMap<SpotView, {key: string; spots: number[]; at: Map<number, number>}>();
+export function treeSpots(view: SpotView): {spots: number[]; at: Map<number, number>} {
+  const key = `${view.version}|${view.sort}|${view.desc}`;
+  let known = treeOf.get(view);
+  if (!known || known.key !== key) {
+    const spots = view.sectors.flatMap((s) => s.spots);
+    known = {key, spots, at: new Map(spots.map((s, k) => [s, k]))};
+    treeOf.set(view, known);
+  }
+  return known;
+}
+
+/** Select the spot `by` places from the selected one in the tree's order (step 3d's P1, today's Previous / Next spot)
+ *  as a press on its row of the tree does (SpotList's Row: its shown line, the list keeping that row in view, the
+ *  map's reveal; a phone's sheet at full drops to half: SpotColumns' P3); false at an end. */
+export function stepSpot(p: PanelProps, by: 1 | -1): boolean {
+  const {view, map, padding} = p, sel = view.selected;
+  if (!sel) return false;
+  const tree = treeSpots(view), k = tree.at.get(sel.spot), spot = k === undefined ? undefined : tree.spots[k + by];
+  if (spot === undefined) return false;
+  panelState(view).pressed = {id: `vl-row-${spot}`, spot};
+  view.select(spot);
+  const now = view.selected;
+  if (now) map?.reveal(now.row, padding());
+  return true;
+}
+
 /** "Spot 7.1" with "104 lines" beside it (the spot's passing lines), the selected line's two access marks, its star
- *  (where the page keeps favourites: SpotActions.tsx LineStar) and ×. */
+ *  (where the page keeps favourites: SpotActions.tsx LineStar), "Previous spot" / "Next spot" (the user's pick A of
+ *  step 3d: today's place, between the star and ×; off at the tree's ends, a button gone off hands the focus to its
+ *  twin, as today's PAIRS) and ×. */
 export function SpotHead(p: PanelProps) {
   const {view} = p, sel = view.selected;
+  const head = useRef<HTMLSpanElement>(null), pressed = useRef<1 | -1 | 0>(0);
+  useEffect(() => {
+    const by = pressed.current;
+    pressed.current = 0;
+    const box = head.current?.parentElement;
+    if (!by || !box) return;
+    const button = (dir: number) => box.querySelector<HTMLButtonElement>(dir > 0 ? ".vl-spot-next" : ".vl-spot-prev");
+    const same = button(by), pair = button(-by);
+    if (same?.disabled && pair && !pair.disabled) pair.focus();
+  }, [sel?.spot]);
   if (!sel) return null;
-  const n = view.passingCount(sel.spot);
+  const n = view.passingCount(sel.spot), tree = treeSpots(view), k = tree.at.get(sel.spot) ?? -1;
+  const step = (by: 1 | -1) => {
+    pressed.current = by;
+    stepSpot(p, by);
+  };
   return <>
     <h3 class="vl-spot-title">{t("ui.view.spot", {label: view.label(sel.spot)})}
       {" "}<span class="vl-spot-count">{t("ui.view.spot_lines", {count: n, n: count(n)})}</span>
       {hasAccess(sel.line) && <>{" "}<AccessPair line={sel.line} /></>}</h3>
     <LineStar {...p} />
+    <span class="vl-spots" ref={head}>
+      <IconButton icon="back" label={t("ui.view.spot_before")} plain class="vl-spot-prev" disabled={k <= 0} onClick={() => step(-1)} />
+      <IconButton icon="next" label={t("ui.view.spot_next")} plain class="vl-spot-next" disabled={k < 0 || k >= tree.spots.length - 1}
+                  onClick={() => step(1)} /></span>
     <IconButton icon="close" label={t("ui.view.close")} plain class="vl-dclose" onClick={() => view.select(null)} />
   </>;
 }

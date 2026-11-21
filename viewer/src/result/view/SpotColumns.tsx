@@ -467,6 +467,12 @@ function oneEndInView(map: L.Map, col: HTMLElement | null, l: Line, room: () => 
   });
 }
 
+/** A phone's selection made while the sheet was at full (P3: the sheet drops to half), until the sheet rests: the row
+ *  of the line selected last (another selection during the drop takes its place), whether a selection's fit moved the
+ *  map (selectedFit notes it; the check of its ends waits for the rest), and whether the person moved the map since
+ *  the line selected last (a drag, its glide, a pinch: then the rest moves nothing). */
+interface Drop { row: number; moved: boolean; person: boolean }
+
 /** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
  *  keepFree): the bar's room, as every fit's (a padding grown by the controls made the line shorter wherever one
  *  stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 326 -> 224 px; the planner, fix
@@ -477,8 +483,10 @@ function oneEndInView(map: L.Map, col: HTMLElement | null, l: Line, room: () => 
  *  better). A fit that started while the map glided (a drag's inertia, the sheet's bring-back) ends the glide first,
  *  whose moveend comes before the fit's own: the check waits for the fit all the same (the fourth code review). A fit
  *  that does not move the map (a reveal of a line in view) checks nothing: a later move of the person's is never
- *  followed. */
-function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null}, bar: () => Padding): () => Padding {
+ *  followed. A phone's selection made at full (`drop`: the sheet on its way to half, P3) leaves that check to the
+ *  sheet's rest at half, where the controls stand as they stay: it only notes whether the fit moved the map. */
+function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null}, bar: () => Padding,
+                     drop?: () => Drop | null): () => Padding {
   return () => {
     const p = bar();
     if (!map) return p;
@@ -487,6 +495,8 @@ function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLEleme
     map.on("moveend", note);
     queueMicrotask(() => {
       map.off("moveend", note);
+      const d = drop?.();
+      if (d) { d.moved = d.moved || moved; return; }
       const l = view.selected?.line;
       // (no column: the frame was left meanwhile, its map removed)
       if (moved && l && col.current && endsUnder(map, col.current, l)) endsClear(map, col.current, l, bar(), false);
@@ -806,12 +816,16 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
  *  sight. A line in sight before and not moved by the person then gets one end clear of the controls where none is
  *  (oneEndInView: the user's G-E a). The map column's `data-sheet-checks` counts the checks made, each once its move
- *  ended (tests wait for it). */
+ *  ended (tests wait for it). A selection made at full (P3: `drop`, the sheet on its way to half) counts as in sight,
+ *  is checked at the next rest also where the sheet was already checked at half (it rose and dropped before resting),
+ *  and there the person's moves are the drop's own count (since the line selected last; a selection's fit is not one):
+ *  `atRest` (its fit's check) is called first at that rest, before the bring-back and the one-end step. */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
-                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
-  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue, snap});
-  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue, snap};
+                       measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean,
+                       drop?: () => Drop | null, atRest?: () => void) {
+  const latest = useRef({sheet, covered, padding, measured, fitMeasured, fitDue, snap, drop, atRest});
+  latest.current = {sheet, covered, padding, measured, fitMeasured, fitDue, snap, drop, atRest};
   const seen = useRef(false);  // the selected line in sight at the last move of the map, selection or rest
   const stop = useRef(snap);   // the stop the last check was made for
   const own = useRef(false);   // a move of this hook is under way (not the person's)
@@ -849,7 +863,7 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
     const selected = () => {
       if (view.selected?.row === row) return;
       row = view.selected?.row;
-      seen.current = roomy() ? inSight() : !!view.selected;
+      seen.current = latest.current.drop?.() ? true : roomy() ? inSight() : !!view.selected;
     };
     map.on("moveend", note);
     const unsubscribe = view.subscribe(selected);
@@ -857,7 +871,7 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
     return () => { map.off("moveend", note); unsubscribe(); };
   }, [view, map]);
   useEffect(() => {
-    if (!map || stop.current === snap) return;
+    if (!map || (stop.current === snap && !latest.current.drop?.())) return;
     const leaflet = map as any;
     const was = seen.current, started = performance.now();
     // a drag under way, or its glide (Leaflet's panBy without movestart), or a zoom: the person moves the map
@@ -919,6 +933,10 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       if (!resting && performance.now() - started < SHEET_REST_MS) { frame = requestAnimationFrame(check); return; }
       map.off("movestart move zoomstart", onMove);
       stop.current = snap;
+      // a drop's rest: the person's moves since the line selected last (the drop's count: not a selection's fit)
+      const dropped = latest.current.drop?.();
+      if (dropped) moved = dropped.person;
+      latest.current.atRest?.();  // (its moves are not the person's: the listener above is off)
       const r = room(), below = ends()?.some((q) => q.y > r.bottom) ?? false;
       // a measured line shown (its profile is the one in the sheet): it, not the selected line, is kept in sight (the
       // desktop's keepFree too; the code review of B3's catch-up, finding 1): fitted at the rest that follows its
@@ -1024,13 +1042,73 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     if (sheet && sheet.style.height) return Math.max(0, Math.round(box.bottom - sheet.getBoundingClientRect().top));
     return sheetAt(snap, box.height);
   };
-  /** The bar's room: the padding of every move of the map (the canvas's own, as on the base; a line's fit, its ends
-   *  then brought clear of the controls: endsClear) and the sheet's room. */
-  const bar = (): Padding => barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
+  const snapNow = useRef(snap);
+  snapNow.current = snap;
+  // the px the bar's room keeps above the sheet (the foot and its gap), as last read with the sheet below full (at
+  // full the foot is off: P3's drop predicts the room at half from it)
+  const footAbove = useRef<number | null>(null);
+  /** The bar's room as the sheet stands now (the sheet's own checks: useSheetKeeps, useOneEndOnSelection). */
+  const barNow = (): Padding => {
+    const p = barPadding(colRef.current, PHONE_TOP, covered() + BAR_BOTTOM);
+    if (snapNow.current !== "full") footAbove.current = p.bottom - covered();
+    return p;
+  };
   /** A padding as it will be with the sheet at a stop (the foot rides on the sheet; its height stays as it is now). */
   const shifted = (p: Padding, at: Snap): Padding => {
     const box = colRef.current?.getBoundingClientRect();
     return box ? {...p, bottom: p.bottom - covered() + sheetAt(at, box.height)} : p;
+  };
+  // P3 (the user's "a", as today's page: ResultColumns.tsx Phone's useMeasureEnds): a new selection made while the
+  // sheet is at full (a row of the list or of "Lines from here", the line stepper, the spot stepper, a link) drops
+  // the sheet to half; until it rests there the selection's fit and the canvas's free part count the sheet at half
+  // (the foot above it as it stood there before), so the line is fitted as a selection made at half (the fit's check
+  // of its ends then waits for the rest: atRest)
+  const drop = useRef<Drop | null>(null);
+  const selecting = useRef(false);  // a selection's own fit under way (in the task of the selection: not the person's)
+  useEffect(() => {
+    let row = view.selected?.row;
+    return view.subscribe(() => {
+      const now = view.selected?.row;
+      if (now === row) return;
+      row = now;
+      if (now === undefined) { drop.current = null; return; }
+      if (drop.current) Object.assign(drop.current, {row: now, person: false});  // during the drop: the line selected last
+      else if (snapNow.current === "full") {
+        drop.current = {row: now, moved: false, person: false};
+        setSnap("half");
+      } else return;
+      selecting.current = true;
+      queueMicrotask(() => { selecting.current = false; });
+    });
+  }, [view]);
+  /** The sheet sent to a stop by anything but the drop (the person's handle or drag, the bar's button, measuring, the
+   *  star's picker): a drop under way ends unless that stop is half (its rest's check then still comes). (Not an
+   *  effect on `snap`: an effect of an earlier render, run after a press that made a drop, would end that drop.) */
+  const moveSheet = (to: Snap) => {
+    if (to !== "half") drop.current = null;
+    setSnap(to);
+  };
+  /** The px of the map's bottom under the sheet as the map's moves count it: at half while a drop is under way. */
+  const coveredFor = (): number => {
+    const box = colRef.current?.getBoundingClientRect();
+    return drop.current && box ? sheetAt("half", box.height) : covered();
+  };
+  /** The bar's room: the padding of every move of the map (the canvas's own, as on the base; a line's fit, its ends
+   *  then brought clear of the controls: endsClear) and the sheet's room (at half while a drop is under way). */
+  const bar = (): Padding => {
+    const p = barNow(), box = colRef.current?.getBoundingClientRect();
+    if (!drop.current || !box) return p;
+    return footAbove.current === null ? shifted(p, "half") : {...p, bottom: sheetAt("half", box.height) + footAbove.current};
+  };
+  /** The drop's sheet rests at half: the check its fits left (selectedFit's, with the controls as they stand now) for
+   *  the line selected last, only where the person has not moved the map since that selection (their move is never
+   *  undone); the drop ends. */
+  const dropRests = () => {
+    const d = drop.current, l = view.selected?.line;
+    drop.current = null;
+    if (d && !d.person && l && map && colRef.current && view.selected?.row === d.row && d.moved && endsUnder(map, colRef.current, l)) {
+      endsClear(map, colRef.current, l, barNow(), false);
+    }
   };
   /** A measured line in the bar's room (with the sheet at `at`). */
   const measuredInRoom = (l: Line, at?: Snap): boolean => !!map && lineFree(map, l, at ? shifted(bar(), at) : bar(), 0);
@@ -1039,13 +1117,13 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   const [toast, say] = useToast();
   // On a phone a spot is in view when its shown line crosses the part of the map a person sees: not under the sheet
   const {ref, map, canvas} = useSpotMap(view, data, ortho, {
-    padding: bar, free: () => ({top: 0, right: 0, bottom: covered(), left: 0}), phone: true,
+    padding: bar, free: () => ({top: 0, right: 0, bottom: coveredFor(), left: 0}), phone: true,
     // the top bar lies over the map: no number under it
     obstacles: () => [...Array.from(phoneRef.current?.querySelectorAll(".c-phone-top > *") ?? [], (e) => e.getBoundingClientRect()),
                       ...slotBoxes(hintRef.current)],
     onChoose: setChoice, onToast: say});
   /** A selected line's fit: the bar's room, its ends brought clear where one lies under a control. */
-  const fitPadding = selectedFit(view, map, colRef, bar);
+  const fitPadding = selectedFit(view, map, colRef, bar, () => drop.current);
   useChoiceCloses(view, map, closeChoice);
   useEscape(view, choice, closeChoice);
   // Measuring: the sheet goes low (today's page; the canvas holds the map still), the tip is the status line's first
@@ -1053,7 +1131,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // map above the sheet at half (a link's always, Measure's where it is not in sight), and kept in sight there once the
   // sheet rests (useSheetKeeps: not the selected line while a measured one is shown)
   const [measuring, setMeasuring] = useState(false);
-  useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) setSnap("peek"); }), [canvas]);
+  useEffect(() => canvas?.onMeasuring((on) => { setMeasuring(on); if (on) moveSheet("peek"); }), [canvas]);
   const tip = useMeasureTip();
   const fitDue = useRef(false);  // a measured line just shown: kept in sight at the rest of the sheet's rise (only)
   // the sheet sent elsewhere before that rest (the person's): no fit left for a later stop (the second code review)
@@ -1099,17 +1177,25 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useFootClear(colRef, canvas, covered, () => [phoneRef.current?.querySelector(".u-sheet")], [canvas, map, snap], setPlaced);
   // The sheet rose over the selected line: the line back in sight
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
-                bar, () => measured, keepMeasured,
-                () => { const due = fitDue.current; fitDue.current = false; return due; });
+                barNow, () => measured, keepMeasured,
+                () => { const due = fitDue.current; fitDue.current = false; return due; }, () => drop.current, dropRests);
   // a line selected while the sheet rests: one end of it in view (the user's G-E a)
-  useOneEndOnSelection(view, map, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), bar);
+  useOneEndOnSelection(view, map, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), barNow);
+  // during a drop, any move of the map but a selection's own fit is the person's (a drag, its glide, a pinch): the
+  // drop's rest then moves nothing (dropRests, useSheetKeeps)
+  useEffect(() => {
+    if (!map) return;
+    const onMove = () => { if (drop.current && !selecting.current) drop.current.person = true; };
+    map.on("movestart move zoomstart", onMove);
+    return () => { map.off("movestart move zoomstart", onMove); };
+  }, [map]);
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
     const box = ref.current!.getBoundingClientRect();
     return {left: box.left, top: box.top + 64, right: box.right, bottom: box.bottom - covered()};
   };
-  const p: PanelProps = {view, map: canvas, wide: false, padding: fitPadding, sheet: {snap, setSnap}, linkOf, view3dOf, measured};
+  const p: PanelProps = {view, map: canvas, wide: false, padding: fitPadding, sheet: {snap, setSnap: moveSheet}, linkOf, view3dOf, measured};
   // Compare needs room the phone's top bar does not have (as today's page)
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   return <div class="c-result c-result-phone v-result" ref={phoneRef}>
@@ -1117,7 +1203,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
       <div class="c-leaflet" ref={ref} />
       {/* the measuring tip or the map's message: the first line of the status line's box while it lasts (the pilot's
           arrangement; the user's 11 a) */}
-      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={setSnap} message={toast} tip={measuring ? tip : undefined}
+      <MapBar view={view} map={canvas} wide={false} sheet={snap} onSheet={moveSheet} message={toast} tip={measuring ? tip : undefined}
               hint={<span class="v-hint-slot" ref={hintRef}>{panels.hint({...p, place: "map"})}</span>} />
     </div>
     <div class="c-phone-top">
@@ -1133,7 +1219,7 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     {/* the sheet from its top: the handle, the hint (its first line, B.2 item 12), the head's row, then the body: a
         measured line's profile first (the mock-up), the details (with the selected line's dock: SpotDetails), the
         line's actions, the list */}
-    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={setSnap} peek={SHEET_PEEK} top={SHEET_TOP}
+    <Sheet label={t("ui.view.map.sheet")} snap={snap} onSnap={moveSheet} peek={SHEET_PEEK} top={SHEET_TOP}
            header={<>{panels.hint({...p, place: "sheet"})}{panels.sheetHead(p)}</>}>
       {measured && <ProfileDock model={view.model} view={canvas} line={null} measured={measured} onCloseMeasured={closeMeasured}
                                 compact class="r-dock-sheet vl-dock" />}

@@ -994,17 +994,19 @@ def test_first_view_is_the_bar_fit(site, device):
 
 
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
-def test_selected_fit_at_full_moves_nothing_more(boxes_site, device):
+def test_selected_fit_at_full_drops_to_half(boxes_site, device):
     """A phone with the sheet at full (the map shows nothing under the switch), the run with both coast chips, the map
-    four levels out: a row of the list pressed. The list's reveal fits its line into the bar's room, which has no
-    height there (the fit keeps its least band under the switch), and the ends' check moves nothing more: endsClear
-    has no room to bring the ends into. Without that guard it put the line's middle in the middle of an inverted room,
-    under the top bar (the advisor's probe of the follow-up). Both ends lie under the switch."""
+    four levels out: a row of the list pressed. As on today's page (the user's P3 a, step 3d; until then this test held
+    the sheet at full) the sheet drops to half, and the line is fitted as a selection made at half: once the sheet
+    rests (its check made) the line is on the map above the sheet with at least one end clear of every control (B3's
+    rule), none under the top bar, at the zoom and the centre (within 2 px) the same row's press at half reaches from
+    the same map."""
     from playwright.sync_api import sync_playwright
+    checks = "() => Number(document.querySelector('.c-col-map').dataset.sheetChecks || 0)"
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         try:
-            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP)
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP + UNDER8)
             page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
             page.focus(".u-sheet-handle")
             page.keyboard.press("ArrowUp")
@@ -1013,25 +1015,46 @@ def test_selected_fit_at_full_moves_nothing_more(boxes_site, device):
             page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
             _state(page, "leaflet.setZoom(leaflet.getZoom() - 4, {animate: false});")
             page.wait_for_function(STILL, timeout=WAIT)
-            row = page.evaluate("() => Number(document.querySelector('.vl-list .vl-rows .vl-main').dataset.row)")
-            before = page.evaluate("() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }")
-            _tap_on(page, ".vl-list .vl-rows .vl-main >> nth=0")
-            ends = _opened(page, row)
-            after = page.evaluate("() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }")
-            # the same reveal with the bar's padding alone, from the map as it was before the press
-            plain = page.evaluate("""([b, row, pad]) => { const m = window.FINDALINE_MAP; m.setView([b[0], b[1]], b[2], {animate: false});
-              window.FINDALINE_VIEW.map.reveal(row, pad); const c = m.getCenter(); return [c.lat, c.lng, m.getZoom()]; }""",
-                                  [before, row, page.evaluate(BAR)])
+            spot = page.evaluate("() => Number(document.querySelector('.vl-list .vl-rows .vl-main').dataset.spot)")
+            row_of = f".vl-list .vl-rows .vl-main[data-spot='{spot}'] >> nth=0"
+            before = page.evaluate(CENTRE)
+            counted = page.evaluate(checks)
+            _tap_on(page, row_of)
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.wait_for_function(f"() => ({checks})() > {counted}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            after = page.evaluate(CENTRE)
+            ends = page.evaluate(SELECTED_ENDS)
             switch = page.evaluate("() => F.rect('.v-map .v-switch')")
             snap = page.evaluate("() => F.snap()")
+            # the line's ends under the top bar (the pill and the run's actions over the map's top)
+            top = page.evaluate("""() => F.ends(window.FINDALINE_VIEW.view.selected.line).filter(([x, y]) => [...document.querySelectorAll('.c-phone-top > *')]
+              .map((e) => e.getBoundingClientRect()).some((r) => r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)).length""")
+            # the same row pressed at half, from the same map
+            _state(page, f"view.select(null); leaflet.setView([{before[0]}, {before[1]}], {before[2]}, {{animate: false}});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            _tap_on(page, row_of)
+            page.wait_for_function(f"() => window.FINDALINE_VIEW.view.selected?.spot === {spot}", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.wait_for_function(STILL, timeout=WAIT)
+            at_half = page.evaluate(CENTRE)
+            # the two centres apart on the screen, px at that zoom
+            apart = page.evaluate("""([a, b]) => { const m = window.FINDALINE_MAP, p = m.project([a[0], a[1]], a[2]), q = m.project([b[0], b[1]], a[2]);
+              return Math.hypot(p.x - q.x, p.y - q.y); }""", [after, at_half])
             assert page.errors == []
         finally:
             browser.close()
-    print("selected fit at full:", device.get("viewport"), "row", row, "ends", ends, _length(ends), "px; switch", switch, "sheet", snap,
-          "map", before, "->", after, "plain reveal", plain)
-    assert snap == "full" and after != before, (snap, before, after)  # the reveal fitted the line
-    assert after[2] == plain[2] and abs(after[0] - plain[0]) < 1e-7 and abs(after[1] - plain[1]) < 1e-7, (after, plain)
-    assert all(y > switch[1] for _, y, _ in ends), (ends, switch)  # not under the top bar
+    print("selected at full:", device.get("viewport"), "spot", spot, "sheet", snap, "ends", ends, "switch", switch,
+          "map", before, "->", after, "; pressed at half ->", at_half)
+    assert snap == "half" and after != before, (snap, before, after)  # the sheet dropped, the reveal fitted the line
+    assert _one_clear(ends), ends  # (in the bar's room: under the switch, above the sheet's foot)
+    assert top == 0, (top, ends)  # none under the top bar
+    # fitted as at half: the same zoom, the same centre within 2 px (the drop's room is predicted from the foot as it
+    # stood below full: a px may differ)
+    assert after[2] == at_half[2] and apart <= 2, (after, at_half, apart)
 
 
 def test_selected_fit_as_long_as_the_bar_fit(site):
