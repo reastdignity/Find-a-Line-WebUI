@@ -456,7 +456,8 @@
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-bars { height: 108px; }
 .ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: var(--fs-1); margin-bottom: 0; }
 .ui.c-narrow .c-layer-hist-open .c-layer-hist-title { font-size: var(--fs-2); color: var(--ink); }
-.ui.c-narrow .c-layer-hist-name { width: 100%; height: 44px; line-height: 44px; }
+/* the title's word ("(at least)": the bare ticks' meaning) wraps to a second line inside the 44 px target, never cut */
+.ui.c-narrow .c-layer-hist-name { width: 100%; height: 44px; line-height: 1.2; white-space: normal; display: flex; align-items: center; }
 
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

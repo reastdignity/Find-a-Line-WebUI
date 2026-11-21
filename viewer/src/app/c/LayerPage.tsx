@@ -31,7 +31,7 @@ import { cellHash, go, layerHash } from "./route";
 import { CLASS_BREAKS, CellsLayer, cellKm2, cellShape, densityText, rowBounds, rowSide, short, wholeKm2, type DrawnCells,
          type LayerMode, type OutlineShape, type PickedCell } from "./cellsLayer";
 import { LayerHistograms, addHistogram, dimensionContext, dimensionLabel, dimensionShort, emptyHistogram, limitText,
-         unitOf, type DimensionContext, type SummedHistogram } from "./LayerHistograms";
+         limitWords, unitOf, type DimensionContext, type SummedHistogram } from "./LayerHistograms";
 import { OUTLINE_MPP, REQUEST_CELLS_MAX, SEVEN, activeCubes, autoLevel, cellDeg, cellsAt, countriesFirst, cubesIn,
          easedBreaks, filtersQuery, filtersSet, largestRequest, levelName, limitEdges, limitOn, metresPerDegree, metresPerPixel,
          offLimit, parseState, quantileBreaks, replacedPartners, sizeText, stateParams, summedWith, topicsOf,
@@ -58,10 +58,12 @@ export const EASE_MS = 500;           // a refit of the colour scale eases over 
 
 type Status = "waiting" | "loading" | "ready" | "too-many" | "error";
 
-/** The legend's label of each class, compact ("10k–300k": five fit the panel's width on one line each). */
+/** The legend's label of each class, compact ("10k–300k", "under 8", "from 22k": five fit the panel's width on one
+ *  line each; R9 written out, the user's answer of 2026-11-21). */
 function classLabels(b: number[]): string[] {
   const s = (n: number) => short(n).replace(" ", "");
-  return [`< ${s(b[0])}`, ...b.slice(1).map((x, k) => `${s(b[k])}–${s(x)}`), `≥ ${s(b[b.length - 1])}`];
+  return [t("ui.layer.limit.under", {value: s(b[0])}), ...b.slice(1).map((x, k) => `${s(b[k])}–${s(x)}`),
+          t("ui.layer.limit.from", {value: s(b[b.length - 1])})];
 }
 
 /** A select of [value, text] options. */
@@ -543,9 +545,9 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   const control = (d: string, label?: string, any?: string) => {
     const kind = cube0.kinds[d], e = edges[d], value = limit(d), u = unitOf(d);
     const withUnit = (v: number) => u === "m" ? `${v} m` : `${v}${u}`;
-    const options: [string, string][] = kind === "floor" ? e.map((v, k) => [String(v), k === 0 ? any || t("ui.layer.any") : `≥ ${withUnit(v)}`])
-      : kind === "below" ? [["", any || t("ui.layer.any")], ...limitEdges(cube0, d).map((v) => [String(v), `< ${withUnit(v)}`] as [string, string])]
-      : [["", any || t("ui.layer.any")], ...e.map((v) => [String(v), v === 0 ? t("ui.layer.none_needed") : `≤ ${withUnit(v)}`] as [string, string])];
+    const options: [string, string][] = kind === "floor" ? e.map((v, k) => [String(v), k === 0 ? any || t("ui.layer.any") : limitWords(kind, withUnit(v))])
+      : kind === "below" ? [["", any || t("ui.layer.any")], ...limitEdges(cube0, d).map((v) => [String(v), limitWords(kind, withUnit(v))] as [string, string])]
+      : [["", any || t("ui.layer.any")], ...e.map((v) => [String(v), v === 0 ? t("ui.layer.none_needed") : limitWords(kind, withUnit(v))] as [string, string])];
     const shownValue = kind === "floor" ? String(value ?? e[0]) : value === null || !limitOn(cube0, d, value) ? "" : String(value);
     return <NumberSelect id={`layer-${d}`} label={label} value={shownValue} options={options} disabled={filterOff(d)}
                          onChange={(v) => onLimit(d, v === "" ? null : +v)} />;
@@ -575,7 +577,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     if (d !== "elevation") return limitText(cube0.kinds[d], d, limit(d), true);
     const lo = foldOn("elevation") && limitOn(cube0, "elevation_low", limit("elevation_low")) ? limit("elevation_low") : null;
     const hi = limitOn(cube0, "elevation_high", limit("elevation_high")) ? limit("elevation_high") : null;
-    return lo !== null && hi !== null ? `${lo}–${hi} m` : lo !== null ? `≥ ${lo} m` : `< ${hi} m`;
+    return lo !== null && hi !== null ? `${lo}–${hi} m` : lo !== null ? limitWords("floor", `${lo} m`) : limitWords("below", `${hi} m`);
   };
   const foldSet = fold.flatMap((topic) => topic.dims).filter(foldOn);
   const foldCount = fold.reduce((s, topic) => s + topic.dims.length, 0);
@@ -589,7 +591,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
   }) : [];
   const clusterM = (() => {
     const [east, north] = metresPerDegree(centreLat), deg = cube0.cell_deg / (cube0.clusters_per_cell || 20);
-    return `${Math.round(east * deg)} × ${Math.round(north * deg)} m`;
+    return t("ui.layer.size_m", {width: Math.round(east * deg), height: Math.round(north * deg)});
   })();
   // a picked cell the border cuts: its neighbour named from another row of the cell, a partner row
   const cutNeighbour = (() => {

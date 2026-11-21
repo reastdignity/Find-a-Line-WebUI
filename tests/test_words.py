@@ -96,3 +96,58 @@ def test_no_character_for_a_word_in_the_coverage_catalogue(rel):
     found = {k: r9_hits(v) for k, v in catalogue(rel).items()
              if isinstance(v, str) and not k.startswith(COVERAGE_KEPT) and r9_hits(v)}
     assert found == {}, found
+
+
+# The free code that wrote ≤, ≥ or × before the user's answers (the layer's filters, ticks, bar titles, legend and
+# sizes): none of the three in its code (comments aside)
+WRITTEN_OUT = ["viewer/src/app/c/LayerHistograms.tsx", "viewer/src/app/c/LayerPage.tsx", "viewer/src/app/c/layerState.ts"]
+
+
+@pytest.mark.parametrize("rel", WRITTEN_OUT)
+def test_no_comparison_or_times_sign_in_the_code(rel):
+    with open(os.path.join(REPO, rel), encoding="utf-8") as f:
+        code = ui_metrics.strip_comments(f.read())
+    found = [(n, line.strip()) for n, line in enumerate(code.splitlines(), 1) if any(c in line for c in "≤≥×")]
+    assert found == [], found
+
+
+# esbuild for Node with the page's assets as nothing and Leaflet as a stand-in that answers every use with itself
+# (Leaflet reads the DOM when loaded; the modules extend its classes when loaded)
+BUNDLE = """require('esbuild').build({entryPoints: [%s], bundle: true, format: 'cjs', platform: 'node', outfile: %s,
+  loader: {'.css': 'empty', '.png': 'empty', '.svg': 'text', '.woff': 'empty', '.woff2': 'empty'},
+  plugins: [{name: 'no-leaflet', setup(b) {
+    b.onResolve({filter: /^leaflet$/}, () => ({path: 'leaflet', namespace: 'stub'}));
+    b.onLoad({filter: /.*/, namespace: 'stub'}, () => ({loader: 'js', contents: 'const f = function () { return p; }; '
+      + 'const p = new Proxy(f, {get: (t, k) => typeof k === "symbol" || k === "__esModule" ? undefined : p, '
+      + 'apply: () => p, construct: () => p}); module.exports = p;'}));
+  }}]}).catch(() => process.exit(1));"""
+
+
+def node(tmp_path, entry: str, script: str):
+    """viewer/<entry> bundled for Node (esbuild) and `script` run with it as `m`: its JSON output."""
+    import shutil
+    import subprocess
+    if not shutil.which("node") or not os.path.isdir(os.path.join(REPO, "viewer", "node_modules")):
+        pytest.skip("needs Node and viewer/node_modules")
+    out = tmp_path / (os.path.basename(entry).split(".")[0] + ".cjs")
+    subprocess.run(["node", "-e", BUNDLE % (json.dumps(entry), json.dumps(str(out)))],
+                   cwd=os.path.join(REPO, "viewer"), check=True)
+    path = tmp_path / "test.cjs"
+    path.write_text("globalThis.document = {querySelector: () => null};  // app/api.ts reads the page's token\n"
+                    f"const m = require({json.dumps(str(out))});\n{script}", encoding="utf-8")
+    result = subprocess.run(["node", str(path)], capture_output=True, text=True, encoding="utf-8", check=True)
+    return json.loads(result.stdout)
+
+
+def test_layer_limits_titles_and_sizes_in_words(tmp_path):
+    """The layer's filters and chips say "at least", "under", "up to"; a chart's title carries the word its bare ticks
+    need; a cell's size reads "by" (the user's answers of 2026-11-21, char-15 to char-21)."""
+    found = node(tmp_path, "src/app/c/LayerHistograms.tsx", """
+console.log(JSON.stringify([m.limitText("floor", "clearance", 5, true), m.limitText("below", "wall", 45, true),
+  m.limitText("at_most", "lift_needed", 1, true), m.limitText("at_most", "lift_needed", 0, true),
+  m.limitText("floor", "clearance", null, true), m.chartTitle("floor", "Clearance, m"), m.chartTitle("below", "Wall angle"),
+  m.chartTitle("at_most", "A-frame, with zone, m")]));""")
+    assert found == ["at least 5 m", "under 45°", "up to 1 m", "None needed", "Any", "Clearance, m (at\u00a0least)",
+                     "Wall angle (under)", "A-frame, with zone, m (up\u00a0to)"]
+    size = node(tmp_path, "src/app/c/layerState.ts", "console.log(JSON.stringify(m.sizeText(30 / 3600, 49.4)));")
+    assert re.fullmatch(r"\d+\.\d by \d+\.\d km", size), size
