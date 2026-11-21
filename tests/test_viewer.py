@@ -1953,9 +1953,10 @@ def test_shore_chip_in_edge(tmp_path):
     assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
     assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
-    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    # the help within R10 since step 3d G5 (the user's answer of 2026-11-21) fits the box; a longer one scrolls inside
+    assert hint["open"] is True and hint["overflow"] == "auto"
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
-    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    assert (hint["textUp"] is True or not hint["scrolls"]) and hint["titleTop"] <= 1  # scrolled up when it does not fit
     # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
     assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
