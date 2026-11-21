@@ -10,7 +10,7 @@ import { ApiError, user } from "../app/api";
 import { errorText, label, t } from "../i18n";
 import { Button } from "../ui/components";
 import { Icon } from "../ui/icons";
-import { radioKeys, radioStop } from "../ui/radios";
+import { radioFocusKeys, radioStop } from "../ui/radios";
 import { useAccessHelp } from "../access";
 import {
   BASIC_ACCESS, cleanName, nameTaken, nextRigName, RIG_FIELDS, rigDetail, rigMax, rigProblem, rigSummary, STARTING_RIG,
@@ -30,9 +30,10 @@ export function GoalCards({s, basic}: {s: SearchState; basic?: boolean}) {
   const title = basic ? t("basic.goals") : t("hint.presets.label");
   const chosen = basic ? s.goal : s.preset;
   const cards = s.schema.presets.filter((p) => !basic || p.values);
-  // one Tab stop, the arrows move and choose (ui/radios.ts); none chosen ("Custom" values): the first card
+  // one Tab stop (none chosen, "Custom" values: the first card); the arrows move the focus only, Space or Enter
+  // chooses (ui/radios.ts: a card applies its values, reading the next one must not)
   const stop = radioStop(cards.length, cards.findIndex((p) => p.id === chosen), (i) => cards[i].available);
-  return <div class="s-cards" role="radiogroup" aria-label={title} onKeyDown={radioKeys}>
+  return <div class="s-cards" role="radiogroup" aria-label={title} onKeyDown={radioFocusKeys}>
     {cards.map((p, i) => {
       const everything = p.id === "everything";
       const text = !p.available ? p.reason : t(`goal.${p.id}.text`);
