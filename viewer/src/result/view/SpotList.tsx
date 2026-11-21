@@ -365,8 +365,10 @@ function Heads({view, ranked, help, stars}: {view: SpotView; ranked: boolean; he
 /** The columns' help, opened in place under the heads by their info button: each column's name and today's words
  *  for it (no box: R8). */
 function ColumnHelp({view}: {view: SpotView}) {
+  const anchors = t("ui.list.col.anchors");  // (its entry goes with its column in a list under 300 px: view.css)
   return <dl class="vl-helpt" id={COL_HELP}>
-    {columnHelp(view).map(([name, text]) => <div key={name}><dt>{name}</dt><dd>{text}</dd></div>)}
+    {columnHelp(view).map(([name, text]) => <div key={name} class={name === anchors ? "vl-help-acc" : undefined}>
+      <dt>{name}</dt><dd>{text}</dd></div>)}
   </dl>;
 }
 

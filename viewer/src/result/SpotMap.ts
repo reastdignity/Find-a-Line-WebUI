@@ -884,37 +884,46 @@ export class SpotMap {
     // squares' values (PRODUCT.md principle 9: no label is crossed; the design review's F1, the code review's F2): each
     // label the segment crosses (its box grown by CUT_GROW and half the dashes' width; usually none to three) is cut
     // out of the dashes' clip, a clip each, so overlapping labels stay cut, and no clip for a label it misses (a clip
-    // per label cost a paint about 3.5 times its time: the second code review's F1); its two points on top, the
-    // profile's point above them
+    // per label cost a paint about 3.5 times its time: the second code review's F1); its two points drawn in the same
+    // clip, which also cuts out a label a point's ring reaches without the segment crossing it: a point lies under the
+    // numbers too, the rest of its ring in sight around the label (the user's M10; the third design review's T2: an end
+    // ring hid B9's digit); the profile's point above them
     if (this.measured.length) {
       const pts = this.measured.map((at): [number, number] => [mercX(at.lng) * this.scale - this.ox, mercY(at.lat) * this.scale - this.oy]);
       ctx.globalAlpha = 1;
+      ctx.save();
+      const g = CUT_GROW + MEASURE_PX / 2, reach = MEASURE_R + 1;  // a point's ring: its radius and its 2 px line's outer half
+      const crosses = (x: number, y: number, w: number, h: number) => pts.length > 1 &&
+        clipT(pts[0][0], pts[0][1], pts[1][0], pts[1][1], x - w - g, y - h - g, x + w + g, y + h + g) !== null;
+      /** A point's ring on the label's box grown by CUT_GROW (the distance from the point to the box). */
+      const ringOn = (x: number, y: number, w: number, h: number) => pts.some(([px, py]) =>
+        Math.hypot(Math.max(0, Math.abs(px - x) - w - CUT_GROW), Math.max(0, Math.abs(py - y) - h - CUT_GROW)) < reach);
+      for (const k of this.marks) {
+        const ring = ringOn(k.x, k.y, k.w, k.h);
+        if (!ring && !crosses(k.x, k.y, k.w, k.h)) continue;
+        ctx.beginPath();
+        ctx.rect(min.x, min.y, size.x, size.y);
+        // a ring reaching the number: its whole box (a ring at a rounded shape's corner kept off the box's corners too)
+        if (ring) ctx.rect(k.x - k.w - CUT_GROW, k.y - k.h - CUT_GROW, 2 * (k.w + CUT_GROW), 2 * (k.h + CUT_GROW));
+        else shapePath(ctx, k.kind, k.x, k.y, k.text, false, CUT_GROW);
+        ctx.clip("evenodd");
+      }
+      for (const v of this.values) {  // a value's box holds its halo; one left out is not drawn
+        if (v.left || (!crosses(v.x, v.y, v.w, v.h) && !ringOn(v.x, v.y, v.w, v.h))) continue;
+        ctx.beginPath();
+        ctx.rect(min.x, min.y, size.x, size.y);
+        ctx.rect(v.x - v.w - CUT_GROW, v.y - v.h - CUT_GROW, 2 * (v.w + CUT_GROW), 2 * (v.h + CUT_GROW));
+        ctx.clip("evenodd");
+      }
       if (pts.length > 1) {
-        ctx.save();
-        const [ax, ay] = pts[0], [bx, by] = pts[1], g = CUT_GROW + MEASURE_PX / 2;
-        const crosses = (x: number, y: number, w: number, h: number) => clipT(ax, ay, bx, by, x - w - g, y - h - g, x + w + g, y + h + g) !== null;
-        for (const k of this.marks) {
-          if (!crosses(k.x, k.y, k.w, k.h)) continue;
-          ctx.beginPath();
-          ctx.rect(min.x, min.y, size.x, size.y);
-          shapePath(ctx, k.kind, k.x, k.y, k.text, false, CUT_GROW);
-          ctx.clip("evenodd");
-        }
-        for (const v of this.values) {  // a value's box holds its halo; one left out is not drawn
-          if (v.left || !crosses(v.x, v.y, v.w, v.h)) continue;
-          ctx.beginPath();
-          ctx.rect(min.x, min.y, size.x, size.y);
-          ctx.rect(v.x - v.w - CUT_GROW, v.y - v.h - CUT_GROW, 2 * (v.w + CUT_GROW), 2 * (v.h + CUT_GROW));
-          ctx.clip("evenodd");
-        }
         ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]);
         ctx.lineWidth = MEASURE_PX; ctx.strokeStyle = "#000"; ctx.setLineDash(MEASURE_DASH); ctx.stroke(); ctx.setLineDash([]);
-        ctx.restore();
       }
       for (const [x, y] of pts) {
         ctx.beginPath(); ctx.arc(x, y, MEASURE_R, 0, 2 * Math.PI);
         ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#000"; ctx.stroke();
       }
+      ctx.restore();
       shapes.measure = true;
     }
     if (this.marker) {

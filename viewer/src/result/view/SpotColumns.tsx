@@ -356,61 +356,134 @@ function endsUnder(map: L.Map, col: HTMLElement | null, l: Line): boolean {
  *  greatest); its middle goes to the middle of the free rectangle that holds it at the largest scale (largestFree);
  *  while an end lies under a control or outside `p`'s part the map zooms out around that point ENDS_STEP at a time,
  *  at most ENDS_STEPS times, and not where the line would become shorter than LINE_LEAST px (or than it is, for the
- *  person's own) nor below the map's least zoom. Ends still not clear: the state with the fewest such ends,
- *  then the longest line, is kept (never the most zoomed-out one): an end may then lie under a control (the
- *  planner's floor for a crowded small phone). Where `p` leaves no part of the map (a phone's sheet at full) nothing
- *  moves. No animation. */
+ *  person's own) nor below the map's least zoom. Of the states met, the line as the fit (and the floor's zoom-in) left
+ *  it stays unless one is strictly better: fewer ends under a control, then fewer outside `p`'s part, then a longer
+ *  line (the planner's rule of fix round 4: a check moves the map only when that makes things strictly better; the
+ *  fourth code review saw the line moved sideways with nothing gained). An end may then still lie under a control
+ *  (the planner's floor for a crowded small phone). Where `p` leaves no part of the map (a phone's sheet at full)
+ *  nothing moves. No animation. */
 function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, grow: boolean) {
   const size = map.getSize(), boxes = controlBoxes(col, map);
   // no part of the map to bring them into (a phone's sheet at full: the bar's room has no height): nothing moves
   if (size.y - p.top - p.bottom <= 2 * END_MARGIN || size.x - p.left - p.right <= 2 * END_MARGIN) return;
   const ends = () => [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])];
   const length = () => { const [a, b] = ends(); return a.distanceTo(b); };
-  const bad = () => ends().filter((q) => q.x < p.left + END_MARGIN || q.x > size.x - p.right - END_MARGIN ||
-    q.y < p.top + END_MARGIN || q.y > size.y - p.bottom - END_MARGIN ||
-    boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3])).length;
+  const under = () => ends().filter((q) => boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3])).length;
+  const outside = () => ends().filter((q) => q.x < p.left + END_MARGIN || q.x > size.x - p.right - END_MARGIN ||
+    q.y < p.top + END_MARGIN || q.y > size.y - p.bottom - END_MARGIN).length;
   const least = grow ? LINE_LEAST : Math.min(LINE_LEAST, length());
-  if (!bad() && length() >= least) return;
+  if (!under() && !outside() && length() >= least) return;
   const middle = () => { const [a, b] = ends(); return L.point((a.x + b.x) / 2, (a.y + b.y) / 2); };
   for (let k = 0; k < ENDS_STEPS && grow && length() < LINE_LEAST && map.getZoom() < map.getMaxZoom(); k++) {
     map.setZoomAround(middle(), Math.min(map.getMaxZoom(), map.getZoom() + ENDS_STEP), {animate: false});
   }
+  type State = {under: number; outside: number; length: number; centre: L.LatLng; zoom: number};
+  const state = (): State => ({under: under(), outside: outside(), length: length(), centre: map.getCenter(), zoom: map.getZoom()});
+  /** `a` strictly better than `b`: fewer ends under a control, then fewer outside the part, then a longer line. */
+  const better = (a: State, b: State) => a.under !== b.under ? a.under < b.under
+    : a.outside !== b.outside ? a.outside < b.outside : a.length > b.length + 0.5;
+  let best = state();  // the line as the fit left it (grown to the floor): kept unless a state is strictly better
   const [a, b] = ends();
   const free = largestFree(size, p, boxes, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
   const room = free ?? [p.left, p.top, size.x - p.right, size.y - p.bottom];
   const target = L.point((room[0] + room[2]) / 2, (room[1] + room[3]) / 2);
   const place = () => { const m = middle(); map.panBy([m.x - target.x, m.y - target.y], {animate: false}); };
   place();
-  const state = () => ({bad: bad(), length: length(), centre: map.getCenter(), zoom: map.getZoom()});
-  let best = state();
-  for (let step = 0; step < ENDS_STEPS && best.bad > 0 && bad() > 0; step++) {
+  let now = state();
+  if (better(now, best)) best = now;
+  for (let step = 0; step < ENDS_STEPS && (best.under > 0 || best.outside > 0); step++) {
     if (length() * 2 ** -ENDS_STEP < least || map.getZoom() <= map.getMinZoom()) break;  // the floor
     map.setZoomAround(target, map.getZoom() - ENDS_STEP, {animate: false});
     place();
-    const now = state();
-    if (now.bad < best.bad) best = now;
+    now = state();
+    if (better(now, best)) best = now;
   }
-  if (bad() > best.bad || (bad() === best.bad && length() < best.length)) map.setView(best.centre, best.zoom, {animate: false});
+  // back to the best state met (the fit's own where none was strictly better): the moves above happen in one task, so
+  // nothing of them is drawn
+  if (now !== best) map.setView(best.centre, best.zoom, {animate: false});
+}
+
+/** No end of the line clear: each under a control (its box CLEAR_GAP px larger) or outside the part `p` leaves. */
+function noEndClear(map: L.Map, col: HTMLElement, l: Line, p: Padding): boolean {
+  const size = map.getSize(), boxes = controlBoxes(col, map);
+  return [[l.lat1, l.lon1], [l.lat2, l.lon2]].every(([lat, lon]) => {
+    const q = map.latLngToContainerPoint([lat, lon]);
+    return q.x < p.left || q.x > size.x - p.right || q.y < p.top || q.y > size.y - p.bottom ||
+      boxes.some((b) => q.x >= b[0] && q.x <= b[2] && q.y >= b[1] && q.y <= b[3]);
+  });
+}
+
+/** The least pan at the same zoom that brings one end of the line clear (noEndClear's count: in the part `p` leaves,
+ *  outside every control's box CLEAR_GAP px larger), whole px [dx, dy] for map.panBy, or null where none does (no
+ *  part of the room free of the controls). The end goes at least END_MARGIN px inside the part's edges (its point
+ *  drawn whole) and 1 px outside a box. The nearest clear point to an end lies at the end's own x or y, or at an edge
+ *  of the part or of a box, so those are the candidates: each end's, the least pan of the two. */
+function clearingPan(map: L.Map, col: HTMLElement, l: Line, p: Padding): [number, number] | null {
+  const size = map.getSize(), boxes = controlBoxes(col, map);
+  const x0 = p.left + END_MARGIN, x1 = size.x - p.right - END_MARGIN, y0 = p.top + END_MARGIN, y1 = size.y - p.bottom - END_MARGIN;
+  if (x1 < x0 || y1 < y0) return null;
+  const clear = (x: number, y: number) => x >= x0 && x <= x1 && y >= y0 && y <= y1 &&
+    !boxes.some((b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
+  const within = (lo: number, hi: number) => (v: number) => v >= lo && v <= hi;
+  let best: [number, number] | null = null, least = Infinity;
+  for (const end of [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])]) {
+    // (the part's edges half a px inside, a box's 1 px outside: a whole-px pan lands within a px of each, never past)
+    const xs = [end.x, x0 + 0.5, x1 - 0.5, ...boxes.flatMap((b) => [b[0] - 1, b[2] + 1])].filter(within(x0, x1));
+    const ys = [end.y, y0 + 0.5, y1 - 0.5, ...boxes.flatMap((b) => [b[1] - 1, b[3] + 1])].filter(within(y0, y1));
+    for (const x of xs) for (const y of ys) {
+      // (panBy moves by whole px: the point the end lands on is checked, not the candidate)
+      const by: [number, number] = [Math.round(end.x - x), Math.round(end.y - y)], d = Math.hypot(by[0], by[1]);
+      if (d < least && clear(end.x - by[0], end.y - by[1])) { least = d; best = by; }
+    }
+  }
+  return best;
+}
+
+/** A phone's selected line (after its selection: its fit and that fit's check) or measured line (at the sheet's rest,
+ *  after its fit) with no end clear in the bar's room `p` (each under a control or outside it) gets one end clear by
+ *  the least pan at the same zoom (clearingPan; the user's G-E a "one anchor in view is enough" and M2; the planner's
+ *  rule of fix round 6: a pan only, never a zoom, so a person's pinch is kept); the other end may then lie under a
+ *  control or outside. Where an end is clear, or no pan at that zoom clears one, nothing moves. The controls may answer
+ *  the pan before the next paint (a phone's legend shows the access marks' rows once an anchor of the selected line is
+ *  in view, and the foot grows over the room's bottom, where the end may have gone): at the next frame, the map not
+ *  moved meanwhile and the line still the one (`still`), the step is made once more in the room as it is then. */
+function oneEndInView(map: L.Map, col: HTMLElement | null, l: Line, room: () => Padding, still: () => boolean = () => true,
+                      again = true) {
+  if (!col || !noEndClear(map, col, l, room())) return;
+  const by = clearingPan(map, col, l, room());
+  if (!by || (!by[0] && !by[1])) return;
+  map.panBy(by, {animate: false});
+  if (!again) return;
+  const at = map.getCenter(), zoom = map.getZoom();
+  requestAnimationFrame(() => {
+    if (col.isConnected && still() && map.getZoom() === zoom && map.getCenter().equals(at)) oneEndInView(map, col, l, room, still, false);
+  });
 }
 
 /** The padding of a selected line's fit (a link's selection: viewlink's showRow; the list's and the fan's reveal;
  *  keepFree): the bar's room, as every fit's (a padding grown by the controls made the line shorter wherever one
  *  stands in the upper half: 1400 x 900 with the card open, the median of 120 lines 326 -> 224 px; the planner, fix
- *  round 3). Asked for just before the fit, it also arms a check of the map's move that follows at once
- *  (the canvas's fits are not animated: SpotMap fitOptions): where an end of the selected line then lies under a
- *  control, its ends are brought clear (endsClear: the same floor, never shorter than LINE_LEAST or than it is, the
- *  same state kept when they cannot be). A fit that does not move the map (a reveal of a line in view) disarms it at
- *  the next microtask: a later move of the person's is never followed. */
+ *  round 3). Asked for just before the fit, it also notes the map's moves that follow at once (the canvas's fits are
+ *  not animated: SpotMap fitOptions) and checks the line at the next microtask, once the whole fit is done: where it
+ *  moved the map and an end of the selected line then lies under a control, its ends are brought clear (endsClear:
+ *  the same floor, never shorter than LINE_LEAST or than it is, the fit's own state kept unless one is strictly
+ *  better). A fit that started while the map glided (a drag's inertia, the sheet's bring-back) ends the glide first,
+ *  whose moveend comes before the fit's own: the check waits for the fit all the same (the fourth code review). A fit
+ *  that does not move the map (a reveal of a line in view) checks nothing: a later move of the person's is never
+ *  followed. */
 function selectedFit(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null}, bar: () => Padding): () => Padding {
   return () => {
     const p = bar();
     if (!map) return p;
-    const check = () => {
+    let moved = false;
+    const note = () => { moved = true; };
+    map.on("moveend", note);
+    queueMicrotask(() => {
+      map.off("moveend", note);
       const l = view.selected?.line;
-      if (l && endsUnder(map, col.current, l)) endsClear(map, col.current, l, bar(), false);
-    };
-    map.once("moveend", check);
-    queueMicrotask(() => map.off("moveend", check));
+      // (no column: the frame was left meanwhile, its map removed)
+      if (moved && l && col.current && endsUnder(map, col.current, l)) endsClear(map, col.current, l, bar(), false);
+    });
     return p;
   };
 }
@@ -524,20 +597,25 @@ const moving = (map: L.Map) => !!((map as any)._panAnim?._inProgress || (map as 
  *  phone raises its sheet to half), and the line fitted into the map, a link's always (`link`: the person has not seen
  *  it), Measure's only where it is not in sight (`inRoom`: the person pressed its points there). A line kept across
  *  the crossing was shown already: nothing moves. `padding`: the fit's, the bar's room as it will be (a phone's sheet
- *  at half; its check at rest fits it again there: useSheetKeeps). Its ends are brought clear of the map's controls
- *  (endsClear in `room`, the bar's room as it is) where `clearNow` says the frame is as it stays (a desktop; a phone
- *  whose sheet is at half already); else at the sheet's rest (`onFirst(fitted)`: a phone; the third code review: the
- *  rest's padding, not one predicted from the low stop). */
+ *  at half; its check at rest fits it again there: useSheetKeeps). A fitted line's ends, and a line in sight with an
+ *  end under a control, are brought clear of the map's controls (endsClear in `room`, the bar's room as it is) where
+ *  `clearNow` says the frame is as it stays (a desktop; a phone whose sheet is at half already); else at the sheet's
+ *  rest (`onFirst(fitted)`: a phone; the third code review: the rest's padding, not one predicted from the low stop).
+ *  `oneEnd` (a phone): where it is cleared now and no end is clear, one end by the least pan (oneEndInView: M2, as
+ *  at the sheet's rest). */
 function useMeasuredShown(measured: Line | null, link: boolean, firstShow: () => boolean, canvas: SpotMap | null,
                           map: L.Map | null, padding: () => Padding, inRoom: (l: Line) => boolean,
                           col: {current: HTMLElement | null}, room: () => Padding, clearNow: () => boolean,
-                          onFirst?: (fitted: boolean) => void) {
+                          onFirst?: (fitted: boolean) => void, oneEnd = false) {
   useLayoutEffect(() => {
     if (!measured || !canvas || !map || !firstShow()) return;
     const fit = link || !inRoom(measured), now = clearNow();
     onFirst?.(fit);
     if (fit) canvas.zoomToLine(measured, padding());
-    if (now) endsClear(map, col.current, measured, room(), fit);
+    // a line not fitted (the person's own, in sight) moves only for an end under a control: not for one in the 8 px
+    // band at the room's edge (the fourth code review's finding 1)
+    if (now && (fit || endsUnder(map, col.current, measured))) endsClear(map, col.current, measured, room(), fit);
+    if (now && oneEnd) oneEndInView(map, col.current, measured, room);
   }, [measured, canvas, map]);
 }
 
@@ -719,7 +797,9 @@ function shiftInto(a0: number, a1: number, r0: number, r1: number, m: number): n
  *  (shiftInto, the SHEET_* constants). A line out of sight before, or a map moved while the sheet moved (a drag, its
  *  glide, a zoom), is left as the person left it: a move of theirs is never undone. Where the map shows nothing under
  *  the switch (full) nothing moves and what was in sight is kept for the next stop; a line selected there counts as in
- *  sight. The map column's `data-sheet-checks` counts the checks made, each once its move ended (tests wait for it). */
+ *  sight. A line in sight before and not moved by the person then gets one end clear of the controls where none is
+ *  (oneEndInView: the user's G-E a). The map column's `data-sheet-checks` counts the checks made, each once its move
+ *  ended (tests wait for it). */
 function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {current: HTMLElement | null},
                        sheet: () => HTMLElement | null | undefined, covered: () => number, padding: () => Padding,
                        measured: () => Line | null, fitMeasured: (l: Line) => void, fitDue: () => boolean) {
@@ -839,21 +919,27 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       // left it
       const kept = latest.current.measured();
       if (kept) {
-        // (fitMeasured: fitted where it is not in the part clear of the bar and the controls, its ends clear of them)
+        // (fitMeasured: fitted again where it was fitted or is not in the bar's room, its ends clear of the controls)
         if (latest.current.fitDue() && !moved && roomy()) latest.current.fitMeasured(kept);
         if (roomy()) seen.current = inSight();
         count();
         return;
       }
+      /** The selected line in sight before, and no move of the person's: one end of it clear of the controls. */
+      const anEnd = () => {
+        const l = view.selected?.line;
+        if (l && roomy() && was && !moved) oneEndInView(map, col.current, l, () => latest.current.padding(), () => view.selected?.line === l);
+      };
       if (roomy() && was && !moved && below) {
         // counted once the move ended (its moveend sets what is in sight: the effect above)
-        const done = () => { ended = null; count(); };
+        const done = () => { ended = null; anEnd(); count(); };
         ended = done;
         map.once("moveend", done);  // before the move: Leaflet may end it at once
         if (bringBack()) return;
         map.off("moveend", done);
         ended = null;
       }
+      anEnd();
       if (roomy()) seen.current = inSight();
       count();
     };
@@ -864,6 +950,30 @@ function useSheetKeeps(view: SpotView, map: L.Map | null, snap: Snap, col: {curr
       if (ended) map.off("moveend", ended);
     };
   }, [snap, map]);
+}
+
+/** A phone: a line selected while the sheet rests (a press on the map or in the list, a link) gets one end clear of the
+ *  controls where none is (oneEndInView, in `padding`: the bar's room), once the selection's own fit and that fit's
+ *  check are done (the press's or the link's fit is synchronous and comes after the selection; selectedFit's check is
+ *  a microtask queued in it: this step a microtask queued in a microtask, so it comes last). A sheet still moving
+ *  leaves it to its rest (useSheetKeeps); at full its room has no height (nothing moves). */
+function useOneEndOnSelection(view: SpotView, map: L.Map | null, col: {current: HTMLElement | null},
+                              sheet: () => HTMLElement | null | undefined, padding: () => Padding) {
+  const latest = useRef({sheet, padding});
+  latest.current = {sheet, padding};
+  useEffect(() => {
+    if (!map) return;
+    let row = view.selected?.row;
+    return view.subscribe(() => {
+      if (view.selected?.row === row) return;
+      row = view.selected?.row;
+      queueMicrotask(() => queueMicrotask(() => {
+        const l = view.selected?.line, el = latest.current.sheet(), target = el ? parseFloat(el.style.height) : NaN;
+        if (!l || !col.current || !el || !(target > 0) || Math.abs(el.getBoundingClientRect().height - target) >= 1) return;
+        oneEndInView(map, col.current, l, () => latest.current.padding(), () => view.selected?.line === l);
+      }));
+    });
+  }, [view, map]);
 }
 
 /** A phone's sheet: the px of a frame `height` px high it covers at a stop (ui/components.tsx Sheet: peek, half of
@@ -947,17 +1057,20 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   // already has no rest to come: its ends at once
   useMeasuredShown(measured, measuredLink, firstShow, canvas, map, () => shifted(bar(), "half"), (l) => measuredInRoom(l, "half"),
                    colRef, bar, () => snap === "half",
-                   (fit) => { fitDue.current = snap !== "half"; fitted.current = fit; setSnap("half"); });
+                   (fit) => { fitDue.current = snap !== "half"; fitted.current = fit; setSnap("half"); }, true);
   /** The measured line in sight at the sheet's rest: fitted into the bar's room as it is where it was fitted at its
    *  first show or is not in that room, its ends brought clear of the controls (endsClear, never shorter than
-   *  LINE_LEAST where it was fitted). The map column's `data-measured-rests` counts these rests and
-   *  `data-measured-fits` those that moved the map (tests read them). */
+   *  LINE_LEAST where it was fitted; a line not fitted only for an end under a control); then, where no end is clear,
+   *  one end by the least pan at that zoom (oneEndInView: M2). The map column's `data-measured-rests` counts these
+   *  rests and `data-measured-fits` those that moved the map (tests read them). */
   const keepMeasured = (l: Line) => {
     if (!map || !canvas) return;
     const before = `${map.getCenter().lat},${map.getCenter().lng},${map.getZoom()}`;
     const fit = fitted.current || !measuredInRoom(l);
     if (fit) canvas.zoomToLine(l, bar());
-    endsClear(map, colRef.current, l, bar(), fit);
+    // (a measurement not fitted moves only for an end under a control, as at its first show)
+    if (fit || endsUnder(map, colRef.current, l)) endsClear(map, colRef.current, l, bar(), fit);
+    oneEndInView(map, colRef.current, l, bar);
     const col = colRef.current;
     if (!col) return;
     col.dataset.measuredRests = String(Number(col.dataset.measuredRests || 0) + 1);
@@ -981,6 +1094,8 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   useSheetKeeps(view, map, snap, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), covered,
                 bar, () => measured, keepMeasured,
                 () => { const due = fitDue.current; fitDue.current = false; return due; });
+  // a line selected while the sheet rests: one end of it in view (the user's G-E a)
+  useOneEndOnSelection(view, map, colRef, () => phoneRef.current?.querySelector<HTMLElement>(".u-sheet"), bar);
 
   /** The part of the viewport the map shows free of the top bar and the sheet. */
   const freeArea = (): Area => {
