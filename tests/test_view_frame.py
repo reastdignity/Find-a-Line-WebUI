@@ -972,6 +972,47 @@ def test_selected_fit_clear_of_controls_phone_half(site, boxes_site):
     assert _length(ends) >= min(LINE_LEAST, plain) - 1, (_length(ends), plain)
 
 
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_selected_fit_at_full_moves_nothing_more(boxes_site, device):
+    """A phone with the sheet at full (the map shows nothing under the switch), the run with both coast chips, the map
+    four levels out: a row of the list pressed. The list's reveal fits its line into the bar's room, which has no
+    height there (the fit keeps its least band under the switch), and the ends' check moves nothing more: endsClear
+    has no room to bring the ends into. Without that guard it put the line's middle in the middle of an inverted room,
+    under the top bar (the advisor's probe of the follow-up). Both ends lie under the switch."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{boxes_site}#run={BOXES}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.focus(".u-sheet-handle")
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'half' && F.rest()", timeout=WAIT)
+            page.keyboard.press("ArrowUp")
+            page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+            _state(page, "leaflet.setZoom(leaflet.getZoom() - 4, {animate: false});")
+            page.wait_for_function(STILL, timeout=WAIT)
+            row = page.evaluate("() => Number(document.querySelector('.vl-list .vl-rows .vl-main').dataset.row)")
+            before = page.evaluate("() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }")
+            _tap_on(page, ".vl-list .vl-rows .vl-main >> nth=0")
+            ends = _opened(page, row)
+            after = page.evaluate("() => { const c = window.FINDALINE_MAP.getCenter(); return [c.lat, c.lng, window.FINDALINE_MAP.getZoom()]; }")
+            # the same reveal with the bar's padding alone, from the map as it was before the press
+            plain = page.evaluate("""([b, row, pad]) => { const m = window.FINDALINE_MAP; m.setView([b[0], b[1]], b[2], {animate: false});
+              window.FINDALINE_VIEW.map.reveal(row, pad); const c = m.getCenter(); return [c.lat, c.lng, m.getZoom()]; }""",
+                                  [before, row, page.evaluate(BAR)])
+            switch = page.evaluate("() => F.rect('.v-map .v-switch')")
+            snap = page.evaluate("() => F.snap()")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("selected fit at full:", device.get("viewport"), "row", row, "ends", ends, _length(ends), "px; switch", switch, "sheet", snap,
+          "map", before, "->", after, "plain reveal", plain)
+    assert snap == "full" and after != before, (snap, before, after)  # the reveal fitted the line
+    assert after[2] == plain[2] and abs(after[0] - plain[0]) < 1e-7 and abs(after[1] - plain[1]) < 1e-7, (after, plain)
+    assert all(y > switch[1] for _, y, _ in ends), (ends, switch)  # not under the top bar
+
+
 def test_selected_fit_as_long_as_the_bar_fit(site):
     """1400 x 900, the view clip's run (no coast boxes), a line's card open: a line opened by its link is fitted into
     the bar's room, as long on the screen as a fit with the bar's padding alone (within 2 px): the controls do not

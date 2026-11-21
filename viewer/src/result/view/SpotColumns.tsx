@@ -377,9 +377,12 @@ function endsUnder(map: L.Map, col: HTMLElement | null, l: Line): boolean {
  *  at most ENDS_STEPS times, and not where the line would become shorter than LINE_LEAST px (or than it is, for the
  *  person's own) nor below the map's least zoom. Ends still not clear: the state with the fewest such ends,
  *  then the longest line, is kept (never the most zoomed-out one): an end may then lie under a control (the
- *  planner's floor for a crowded small phone). No animation. */
+ *  planner's floor for a crowded small phone). Where `p` leaves no part of the map (a phone's sheet at full) nothing
+ *  moves. No animation. */
 function endsClear(map: L.Map, col: HTMLElement | null, l: Line, p: Padding, grow: boolean) {
   const size = map.getSize(), boxes = controlBoxes(col, map);
+  // no part of the map to bring them into (a phone's sheet at full: the bar's room has no height): nothing moves
+  if (size.y - p.top - p.bottom <= 2 * END_MARGIN || size.x - p.left - p.right <= 2 * END_MARGIN) return;
   const ends = () => [map.latLngToContainerPoint([l.lat1, l.lon1]), map.latLngToContainerPoint([l.lat2, l.lon2])];
   const length = () => { const [a, b] = ends(); return a.distanceTo(b); };
   const bad = () => ends().filter((q) => q.x < p.left + END_MARGIN || q.x > size.x - p.right - END_MARGIN ||
