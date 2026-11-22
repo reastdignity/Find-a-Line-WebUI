@@ -228,6 +228,10 @@
 /* ---- a phone (the pilot's arrangement at 390 x 664, for every phone height): the top bar 44 px high; under the
    switch one row of the zoom (across), the shore's chip and the layers; the scale at the bottom right ---- */
 .ui .v-result .c-phone-top { top: 8px; left: 8px; right: 8px; }
+/* the top bar over the sheet (columns.css: the sheet 7, the bar 6): the pill's menus (Share, Download) open under it,
+   where the sheet at full stands (from 64 px), and lay under the sheet (L's walk on the merged tree). The sheet never
+   reaches the bar (its highest top is 64 px, the bar ends at 52), so nothing else changes */
+.ui .v-result.c-result-phone .c-phone-top { z-index: 8; }
 .ui .v-result .c-pill { min-height: 44px; padding: 0 4px 0 0; gap: 4px; border-radius: var(--r-full); }
 .ui .v-result .c-pill-name { font: 600 var(--fs-5)/24px var(--display); letter-spacing: .01em; }
 .ui .c-result-phone .v-switch { top: 60px; justify-content: flex-start; }

@@ -835,3 +835,40 @@ def test_list_info_closes_on_escape(site, which):
         finally:
             browser.close()
     assert got == ["false", True], got
+
+
+# Is a press at an element's middle that element (or inside it)?
+HIT = """(sel) => [...document.querySelectorAll(sel)].map((e) => { const r = e.getBoundingClientRect(), hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+  return {name: (e.getAttribute('aria-label') || e.textContent.trim()).slice(0, 24), y: [Math.round(r.top), Math.round(r.bottom)], on: !!hit && e.contains(hit),
+          hit: hit && hit.className.toString().slice(0, 30)}; })"""
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_pill_menus_over_the_sheet_at_full(site, device):
+    """The pill's menus (Share, Download: the run's actions that open one) are drawn over the sheet at its full stop:
+    a press at each item's middle is that item (they lay under the sheet, a press reached the hint's text: L's walk on
+    the merged tree); the pill's own buttons and the sheet's handle stay pressable (neither covers the other)."""
+    from playwright.sync_api import sync_playwright
+    got = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            _stop(page, "full")
+            menus = page.evaluate("() => [...document.querySelectorAll('.c-pill .r-actions button[aria-expanded]')].map((b) => b.getAttribute('aria-label'))")
+            for k, name in enumerate(menus):
+                page.evaluate(f"() => document.querySelectorAll('.c-pill .r-actions button[aria-expanded]')[{k}].click()")
+                page.wait_for_selector(".c-pill .r-pop button, .c-pill .r-pop a", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                got[name] = page.evaluate(HIT, ".c-pill .r-pop button, .c-pill .r-pop a")
+                page.keyboard.press("Escape")
+                page.wait_for_selector(".c-pill .r-pop", state="detached", timeout=WAIT)
+            got["pill"] = page.evaluate(HIT, ".c-pill .r-actions > * > button, .c-pill .r-actions > button")
+            got["handle"] = page.evaluate(HIT, ".u-sheet-handle")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the pill's menus at full:", device.get("viewport"), got)
+    assert menus and all(got[m] and all(i["on"] for i in got[m]) for m in menus), got
+    assert got["pill"] and all(i["on"] for i in got["pill"]) and got["handle"][0]["on"], got
