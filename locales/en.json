@@ -1124,6 +1124,7 @@
   "ui.view.spot_next": "Next spot",
   "ui.view.dir_desc": "Largest first",
   "ui.view.dir_asc": "Smallest first",
+  "ui.view.upright": "Turn your phone upright to use this page.",
   "ui.view.stands_for": "Stands for: {{text}}",
   "ui.view.stands_for_n_one": "Stands for this line only",
   "ui.view.stands_for_n_other": "Stands for {{n}} lines found a few metres apart",
