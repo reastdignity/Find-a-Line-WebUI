@@ -274,8 +274,8 @@ def test_spot_stepper_desktop(site):
     user's pick A), step through the tree's spots top to bottom (its sectors in order, every spot of each): each step
     selects the spot as a press on its row of the tree does (its shown line, that row pressed and kept in view, its
     sector opened where it was closed). "Previous spot" is off at the first spot and "Next spot" at the last; a button
-    that goes off hands the focus to its twin (Enter on the keyboard). Smallest first, the steps follow the tree's new
-    order."""
+    that goes off hands the focus to its twin (Enter on the keyboard); in the middle of the list "Next spot" pressed by
+    the keyboard keeps the focus (today's flows test, C1's D2). Smallest first, the steps follow the tree's new order."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -289,9 +289,13 @@ def test_spot_stepper_desktop(site):
             for k in (1, 2, 3):
                 page.click(".vl-dhead .vl-spot-next")
                 steps.append(_stepped(page, tree[k]))
+            # by the keyboard in the middle of the list: "Next spot" keeps the focus (today's flows: "focus: Next spot")
+            page.focus(".vl-dhead .vl-spot-next")
+            page.keyboard.press("Enter")
+            kept = _stepped(page, tree[4])
             # back by the keyboard: at the first spot "Previous spot" goes off, the focus to "Next spot"
             page.focus(".vl-dhead .vl-spot-prev")
-            for k in (2, 1, 0):
+            for k in (3, 2, 1, 0):
                 page.keyboard.press("Enter")
                 back = _stepped(page, tree[k])
             # from the last spot of the first sector into the second (closed until then)
@@ -328,6 +332,7 @@ def test_spot_stepper_desktop(site):
     for k, s in zip((1, 2, 3), steps):
         assert s["k"] == k and s["row"] == s["shown"] and s["pressed"] == "true" and s["inView"], s
         assert not s["prev"]["off"] and not s["next"]["off"], s
+    assert kept["k"] == 4 and "vl-spot-next" in kept["focus"], kept
     assert back["k"] == 0 and back["prev"]["off"] and "vl-spot-next" in back["focus"], back
     assert closed == "false" and into["open"] == "true" and into["pressed"] == "true" and into["inView"], (closed, into)
     assert end["k"] == len(tree) - 1 and end["next"]["off"] and "vl-spot-prev" in end["focus"], end
@@ -337,7 +342,8 @@ def test_spot_stepper_desktop(site):
 @pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
 def test_spot_stepper_phone(site, device):
     """P1 on a phone: the pair in the sheet's head, beside the spot's title, 44 x 44, inside the sheet's visible part at
-    its lowest stop, where a press steps to the next spot of the tree (its shown line selected)."""
+    its lowest stop, where a press steps to the next spot of the tree (its shown line selected); "Next spot" pressed by
+    the keyboard in the middle of the list keeps the focus (C1's D2)."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -353,6 +359,10 @@ def test_spot_stepper_phone(site, device):
             start = page.evaluate(STEPPER)
             _tap_on(page, ".vl-sheet-row .vl-spot-next")
             stepped = _stepped(page, tree[1])
+            # by the keyboard in the middle of the list: "Next spot" keeps the focus (today's flows, C1's D2)
+            page.focus(".vl-sheet-row .vl-spot-next")
+            page.keyboard.press("Enter")
+            kept = _stepped(page, tree[2])
             assert page.errors == []
         finally:
             browser.close()
@@ -362,6 +372,7 @@ def test_spot_stepper_phone(site, device):
     assert start["next"]["left"] - start["prev"]["right"] >= 8, start  # a gap between the two targets on touch (R7's 8 px)
     assert start["prev"]["off"] and not start["next"]["off"], start
     assert start["next"]["bottom"] <= sheet[1], (start, sheet)
+    assert kept["k"] == 2 and "vl-spot-next" in kept["focus"], kept
     assert stepped["k"] == 1 and stepped["row"] == stepped["shown"] and not stepped["prev"]["off"], stepped
 
 
