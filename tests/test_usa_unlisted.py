@@ -308,6 +308,10 @@ def test_header_zone(http_server, tmp_path):
     http_server.add("/h/busy.tif", b"busy", "text/plain", status=403)  # (GDAL asks a 503 again itself, slowly)
     with pytest.raises(IndexUnavailable, match="busy.tif"):
         tb.header_zone(http_server.url("/h/busy.tif"), extent, None)
+    # a refusal of a file whose name holds "404" (a northing of 4,040 km) is no "not there"
+    http_server.add("/h/USGS_1m_x40y404_P.tif", b"no", "text/plain", status=403)
+    with pytest.raises(IndexUnavailable, match="x40y404"):
+        tb.header_zone(http_server.url("/h/USGS_1m_x40y404_P.tif"), [400000, 4030000, 410000, 4040000], None)
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 
 
@@ -341,6 +345,7 @@ def test_merge_when_an_answer_is_read(tmp_path, monkeypatch):
     before = sorted(os.listdir(tmp_path / "cache" / "usa" / "test1m" / "epsg26913" / "47_442"))
     answers = sorted((tmp_path / "cache" / "usa" / "sheet-index" / "test1m").glob("*.json"))
     written = [a.read_bytes() for a in answers]
+    asked = list(tnm.asked)
 
     # The list gains a newer file over the tile, and one already listed (same URL)
     newer = _tile_1m(FakeTnm(), files, "CO_New_2025", 1025, name="USGS_one_meter_x47y443_CO_New_2025.tif")
@@ -363,6 +368,7 @@ def test_merge_when_an_answer_is_read(tmp_path, monkeypatch):
     assert len(after) == 4 and not set(after) & set(before) and all(n.startswith("2025_") for n in after)
     mosaic = src.build_mosaic(fresh.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
     assert (mosaic == 1025).all()
+    assert tnm.asked == asked  # a search with cached answers asks the index nothing, the list or not
     assert [a.read_bytes() for a in answers] == written  # the cached answers as the index gave them
     assert tb.READS == reads + 1  # once for every tile and layer of this process and data folder
 
@@ -432,7 +438,7 @@ def test_shipped_copy():
         document = json.load(f)
     items = tb.read_list(tb.SHIPPED)
     assert items and len(items) == len(document["items"]) == document["counts"]["files"]
-    assert isinstance(document["left_out"], list) and document["made_at"][:4] == "2026"
+    assert isinstance(document["left_out"], list) and re.match(r"20\d\d-\d\d-\d\dT", document["made_at"])
     assert len({i["url"] for i in items}) == len(items)
     for item in items:
         assert set(item) == set(tb.ITEM_KEYS)
@@ -443,7 +449,7 @@ def test_shipped_copy():
         assert right - left == 10000 and top - bottom == 10000 and item["extent"] == tile_extent(item["name"])
         named = tb.TILE_ZONE.match(item["name"])
         assert not named or int(named.group(1)) == zone
-        assert 1990 < item["year"] <= 2030 and re.match(r"\d{4}-\d\d-\d\dT", item["published"])
+        assert 1990 < item["year"] <= int(item["published"][:4]) and re.match(r"\d{4}-\d\d-\d\dT", item["published"])
 
 
 def test_shipped_copy_used_without_a_cached_list(tmp_path, monkeypatch):
@@ -461,6 +467,24 @@ def test_shipped_copy_used_without_a_cached_list(tmp_path, monkeypatch):
     assert tb.unlisted_age_days(cache_dir) == float("inf")
     _unlisted(cache_dir, [])
     assert tb.unlisted_in_tile(cache_dir, "usa", 40.5, -111.75) == []
+
+
+def test_web_process_never_imports_the_list(tmp_path):
+    """The web process builds the catalogue (the 1 m layer's UnlistedIndex) and serves its pages without
+    importing tnmbucket: nothing of the list is read there."""
+    import subprocess
+    repo = os.path.dirname(HERE)
+    code = (f"import sys; sys.path.insert(0, {repo!r}); import web\n"
+            "from fastapi.testclient import TestClient\n"
+            f"c = TestClient(web.create_app({str(tmp_path)!r}, token='t', start_scheduler=False), "
+            "base_url='http://127.0.0.1:8765')\n"
+            "c.get('/?token=t'); import sources\n"
+            "print(type(sources.SOURCES['usa'].nmt.index).__name__, 'sources.layers.tnmbucket' in sys.modules)")
+    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, env=env)
+    assert result.returncode == 0, result.stderr
+    index, imported = result.stdout.strip().splitlines()[-1].split()
+    assert (index, imported) == ("UnlistedIndex", "False")
 
 
 # 8. The recorded answers (tools/record_answers.py, recipe bucket1m-usgs)

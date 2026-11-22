@@ -25,6 +25,7 @@ import collections
 import contextlib
 import json
 import os
+import re
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -195,7 +196,7 @@ def header_zone(url: str, extent: Sequence[float], cache_dir: Optional[str]) -> 
                     break
                 except rio.errors.RasterioIOError as e:
                     _forget(url)
-                    if "404" in str(e) or "No such file" in str(e):
+                    if re.search(r"\b404\b|No such file", str(e)):  # as windows._read_block
                         counted.outcome = "not_found"
                         return None
                     counted.outcome = "other"
