@@ -14,8 +14,8 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_shell_c import BIG, copy_clip  # noqa: E402
-from test_shell_c_view_map import DESKTOP, WAIT, _open, site, view_clip  # noqa: E402,F401
-from test_view_details import SCRIPT, _select, _view  # noqa: E402
+from test_shell_c_view_map import DESKTOP, PHONE, WAIT, _open, site, view_clip  # noqa: E402,F401
+from test_view_details import SCRIPT, _select, _sheet, _view  # noqa: E402
 from test_web import EDGE, _playwright, _server  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(),
@@ -169,5 +169,50 @@ def test_no_style_refused_in_webkit(clip_app):
                     assert found == [["style-src-attr", "inline", ""]] * allowed, (name, device, made, found)
                     ctx.close()
             print("the engine's bug present:", bool(bug), "| selects made and violations:", seen)
+        finally:
+            browser.close()
+
+
+# One step to the spot's next line, its work counted: the map's draws (SpotMap.paint wrapped: `full` true is a full
+# draw with the presses' targets measured, false a draw of the picture alone, as a hover asks) and the Lines the model
+# made, from the press until two frames and a task after it
+COUNT_DRAWS = r"""() => { const m = window.FINDALINE_VIEW.map, paint = m.paint.bind(m); window.DRAWS = [];
+  m.paint = (full, pass = 0) => { DRAWS.push(full ? 'full' : 'picture'); return paint(full, pass); }; }"""
+STEP_WORK = r"""async () => { window.DRAWS = []; const made = D.m().madeLines;
+  document.querySelector('.vl-next').click();
+  await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0))));
+  return {full: DRAWS.filter((d) => d === 'full').length, picture: DRAWS.filter((d) => d === 'picture').length,
+          made: D.m().madeLines - made, row: D.v().selected.row}; }"""
+
+
+@pytest.mark.parametrize("device", [DESKTOP, PHONE], ids=["desktop", "phone"])
+def test_a_step_draws_the_map_once(site, device):
+    """A step through a spot's lines (Next line) draws the map in full once (a second full draw may follow when the
+    profile's card changes its height: the map's covered part), never again for the picture alone, and makes one Line
+    (gate 2's item 2, the user's "stepping through a big spot's lines is laggy"; SESSION/M/speed.md): the profile's
+    card or dock clears its point under the finger at every new line (ProfileDock's effect), which drew the whole map
+    once more though no point was shown (SpotMap.hoverAt; on Gozo's spot 1.409 a full canvas at the phone's pixel
+    ratio). Counted, not timed."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, f"{site}#run={BIG}", device, script=SCRIPT)
+            _view(page)
+            many = page.evaluate("() => { const v = D.v(); return Array.from(v.order).find((s) => v.passingCount(s) > 4); }")
+            _select(page, str(many))
+            if device is PHONE:
+                _sheet(page, "half")
+                page.wait_for_selector(".vl-dock", timeout=WAIT)
+            else:
+                page.wait_for_selector(".r-card", timeout=WAIT)
+            page.evaluate("() => T.frames()")
+            page.evaluate(COUNT_DRAWS)
+            rows = []
+            for _ in range(3):
+                work = page.evaluate(STEP_WORK)
+                rows.append(work["row"])
+                assert work["picture"] == 0 and 1 <= work["full"] <= 2 and work["made"] == 1, work
+            assert len(set(rows)) == 3 and page.errors == []
         finally:
             browser.close()
