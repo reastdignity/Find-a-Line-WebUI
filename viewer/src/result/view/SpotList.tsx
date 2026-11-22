@@ -37,7 +37,7 @@ import { count, cx, Swatch, TightIcon, TightKey } from "./common";
 import { Shape } from "./Shape";
 import type { PanelProps } from "./SpotPanels";  // types only: SpotPanels.tsx imports the slots, which import this file
 import { SpotSummary } from "./SpotSummary";
-import { clearAll, ViewFilters, ViewMoreFilters } from "./ViewFilters";
+import { clearAll, useEscCloses, ViewFilters, ViewMoreFilters } from "./ViewFilters";
 import { changePanels, follow, isOpen, limitOf, panelState, reverse, showMore, sortBy, SORTS, watchPanels } from "./viewstate";
 import "./view.css";
 
@@ -397,6 +397,7 @@ function TopBlock(p: PanelProps) {
   const {view} = p, area = view.level === "area", all = view.best === "all", v = view.inView;
   const height = view.sort === "hmax" ? "hmax" : "hmean", stars = view.model.favouritesOn;
   const [help, setHelp] = useState(false);
+  useEscCloses(help, COL_HELP, () => setHelp(false));
   let title: string, rows: ComponentChildren[] = [], note = "", more: {best: Best; text: string} | null = null, tight = false;
   if (area) {
     title = t("ui.view.start");

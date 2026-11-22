@@ -153,6 +153,13 @@
    N2: 133 px of the owner's run's name on a 390 px phone) */
 .ui .v-result .c-pill .r-actions { flex-wrap: nowrap; gap: 0; }
 .ui .v-result .c-pill .r-actions .u-ib { box-shadow: none; }
+/* ... but the kit's ring when focused by the keyboard (DESIGN rows 81-82; the final design review's F2), and the ruler
+   in the accent while Measure is on (its F3: the mock-up's pressed ruler, as the map's "i" above) */
+.ui .v-result .c-pill .r-actions .u-ib:focus-visible { box-shadow: var(--focus); }
+.ui .v-result .c-pill .r-actions .u-ib.u-plain.u-on { background: var(--accent-soft); color: var(--accent-ink); }
+/* the desktop header's run actions and their menus: today's page draws them without a shadow (columns.css), which also
+   took the ring away; the view gives the ring back, today's page keeps its look (the final design review's F2) */
+.ui .v-result .c-result-top .r-actions .u-btn:focus-visible, .ui .v-result .c-result-top .r-actions .u-ib:focus-visible { box-shadow: var(--focus); }
 /* their menus (Share, Download) open under the whole pill, as wide as it: under the button they ran off a 390 px
    screen's left edge (fix round 1's pictures) */
 .ui .v-result .c-pill { position: relative; }

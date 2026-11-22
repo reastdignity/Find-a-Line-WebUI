@@ -8,7 +8,7 @@
 // the result" is not in the view. The
 // filters themselves are the ResultModel's (filters, state, ranges): the view follows them.
 
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Chip, Chips, IconButton } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { active, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
@@ -54,11 +54,31 @@ export function clearAll(view: SpotView) {
 
 const TOP_HELP = "vl-help-top";  // the id of "Top level only"'s help text
 
+/** Esc closes a help text opened in place by its "i" while the focus is on that button (`id`: the text's, the
+ *  button's aria-controls), as the access key's help does (access.tsx useAccessHelp; the final design review's F8). */
+export function useEscCloses(open: boolean, id: string, close: () => void) {
+  const latest = useRef(close);
+  latest.current = close;
+  // (a layout effect: the listener is there when the text is drawn, not a frame later; an Esc pressed at once closes it)
+  useLayoutEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || (document.activeElement as HTMLElement | null)?.getAttribute("aria-controls") !== id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      latest.current();
+    };
+    document.addEventListener("keydown", key, true);
+    return () => document.removeEventListener("keydown", key, true);
+  }, [open]);
+}
+
 /** The chips, the editor and the sentence; "Top level only" with its info button beside it (the two wrap together),
  *  whose help opens in place under the chips. The caller follows the view (SpotList's useViewPanels). */
 export function ViewFilters({view}: {view: SpotView}) {
   const model = view.model, f = model.filters, r = model.ranges, s = model.state, ui = panelState(view);
   const [help, setHelp] = useState(false);
+  useEscCloses(help, TOP_HELP, () => setHelp(false));
   const edit = (editing: PanelState["editing"]) => changePanels(view, (p) => { p.editing = editing; });
   const change = (part: Partial<Filters>) => model.setFilters({...model.filters, ...part});
   const toggle = (which: PanelState["editing"]) => edit(ui.editing === which ? null : which);

@@ -1044,6 +1044,10 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
   };
   const snapNow = useRef(snap);
   snapNow.current = snap;
+  // the last stop below full the sheet stood at (F1's "in view" at full); none yet, a sheet opened straight to full
+  // (the view opens low, so only a frame made at full): the half stop's cover is taken then
+  const below = useRef<Snap | null>(null);
+  if (snap !== "full") below.current = snap;
   // the px the bar's room keeps above the sheet (the foot and its gap), as last read with the sheet below full (at
   // full the foot is off: P3's drop predicts the room at half from it)
   const footAbove = useRef<number | null>(null);
@@ -1088,10 +1092,16 @@ function Phone({view, data, line, nav, back, hashOf, linkOf, view3dOf, actions, 
     if (to !== "half") drop.current = null;
     setSnap(to);
   };
-  /** The px of the map's bottom under the sheet as the map's moves count it: at half while a drop is under way. */
+  /** The px of the map's bottom under the sheet as the canvas counts it (what is "in view", the spots and numbers): at
+   *  half while a drop is under way; at the full stop the cover of the last stop below it (the final design review's
+   *  F1, the planner's (b): raised to read the list, the list stays what it was; at full the sheet covers the whole
+   *  map and "in view" would be empty); else the sheet as drawn. */
   const coveredFor = (): number => {
     const box = colRef.current?.getBoundingClientRect();
-    return drop.current && box ? sheetAt("half", box.height) : covered();
+    if (!box) return covered();
+    if (drop.current) return sheetAt("half", box.height);
+    if (snapNow.current === "full") return sheetAt(below.current ?? "half", box.height);
+    return covered();
   };
   /** The bar's room: the padding of every move of the map (the canvas's own, as on the base; a line's fit, its ends
    *  then brought clear of the controls: endsClear) and the sheet's room (at half while a drop is under way). */

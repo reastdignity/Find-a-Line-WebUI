@@ -96,6 +96,9 @@ export interface PanelState {
    *  list keeps that row in view, not the spot's "Best in view" row (the planner's decision of 2026-11-18); a
    *  selection's end forgets it. */
   pressed: {id: string; spot: number} | null;
+  /** The next follow of a new order pages the selected spot's sector but does not scroll the list: the direction's
+   *  press keeps its button where it is (the final design review's F4). */
+  still: boolean;
 }
 
 interface Held { state: PanelState; listeners: Set<() => void> }
@@ -106,7 +109,7 @@ function holdOf(view: SpotView): Held {
   if (!h) {
     const k = kept();
     h = {state: {open: new Map(), limit: new Map(), paged: new Map(), fanFrom: null, hint: k.hint, why: false, editing: null,
-                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false, pressed: null},
+                 pressedBy: "", followed: null, followedOrder: "", scroll: false, scrollNew: false, pressed: null, still: false},
          listeners: new Set()};
     held.set(view, h);
     // the kept sort and direction, once per view and before anything is drawn from its order (the B numbers follow
@@ -146,9 +149,11 @@ export function sortBy(view: SpotView, sort: ViewSort) {
   keep({sort, hint, desc: view.desc});
 }
 
-/** Reverse the tree's direction ("Largest first" / "Smallest first") and keep it. */
+/** Reverse the tree's direction ("Largest first" / "Smallest first") and keep it; the list follows a selection into
+ *  the new order without scrolling (`still`: the button stays under the pointer). */
 export function reverse(view: SpotView) {
-  const hint = holdOf(view).state.hint;  // first: the view's kept sort and direction
+  const state = holdOf(view).state, hint = state.hint;  // first: the view's kept sort and direction
+  state.still = !!view.selected;
   view.setDesc(!view.desc);
   keep({sort: view.sort, hint, desc: view.desc});
 }
@@ -199,10 +204,11 @@ export function follow(s: PanelState, view: SpotView): boolean {
   if (!same && s.pressed?.spot !== sel.spot) s.pressed = null;  // another spot, not by that row's press
   s.followed = sel.spot;
   s.followedOrder = order;
-  s.scroll = true;
+  s.scroll = !(same && s.still);
+  s.still = false;
   s.scrollNew = !same;
   s.paged.clear();
   const mine = s.limit.get(n) ?? PAGE, needed = sector ? pageFor(sector.spots.indexOf(sel.spot), mine) : mine;
   if (needed > mine) s.paged.set(n, needed);
-  return true;
+  return s.scroll;
 }

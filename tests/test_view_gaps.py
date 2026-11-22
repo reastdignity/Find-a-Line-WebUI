@@ -640,3 +640,198 @@ def test_star_picker_over_a_measured_profile(site, device):
     print("the star's picker over a measured profile:", device.get("viewport"), got)
     assert got["dock"], got  # (the state tests something: the measured profile's dock in the sheet's body)
     assert got["middle"]["inside"] and got["newFolder"] and got["newFolder"]["inside"], got
+
+
+# --- the final design review's fixes (2026-11-22: F1-F4, F8) ---
+
+# The list's top block as the view holds it after the canvas took the map's view again (its refresh), and as drawn
+IN_VIEW = """() => { const {view, map} = window.FINDALINE_VIEW; map.refresh();
+  return {m: view.inView.m, best: Array.from(view.inView.best), level: view.level, snap: F.snap()}; }"""
+
+
+def _tap_handle(page, to: str):
+    """A finger's tap on the sheet's handle (a tap steps it up a stop: low, half, full), awaited at rest at `to`."""
+    _tap_on(page, ".u-sheet-handle")
+    page.wait_for_function(f"() => F.snap() === '{to}' && F.rest()", timeout=WAIT)
+    page.wait_for_function(STILL, timeout=WAIT)
+
+
+@pytest.mark.parametrize("device", [SMALL_PHONE, PIXEL], ids=["390", "412"])
+def test_list_at_full_keeps_the_view(site, device):
+    """F1 (the planner's (b)): at the sheet's full stop the list's "in view" is the one of the last stop below full
+    over the same map view (the sheet's cover there), not empty ("Best in view: 0 of 0" before): raised by real taps on
+    the handle from the low stop to half and to full, Best in view at full equals the list at half; from the low stop
+    straight to full (a drag), the list at the low stop. Half and low are as before."""
+    from playwright.sync_api import sync_playwright
+    got = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", device, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            got["low"] = page.evaluate(IN_VIEW)
+            _tap_handle(page, "half")
+            got["half"] = page.evaluate(IN_VIEW)
+            _tap_handle(page, "full")
+            got["full"] = page.evaluate(IN_VIEW)
+            got["title"] = page.evaluate("() => document.querySelector('#vl-top-title').textContent")
+            _tap_handle(page, "peek")
+            got["low again"] = page.evaluate(IN_VIEW)
+            # straight from the low stop to full: the handle dragged up past half
+            h = page.evaluate("() => { const r = document.querySelector('.u-sheet-handle').getBoundingClientRect(); return [(r.left + r.right) / 2, (r.top + r.bottom) / 2]; }")
+            page.mouse.move(h[0], h[1])
+            page.mouse.down()
+            page.mouse.move(h[0], 80, steps=8)
+            page.mouse.up()
+            page.wait_for_function("() => F.snap() === 'full' && F.rest()", timeout=WAIT)
+            page.wait_for_function(STILL, timeout=WAIT)
+            got["low to full"] = page.evaluate(IN_VIEW)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("in view by stop:", device.get("viewport"), {k: (v if isinstance(v, str) else (v["m"], v["best"][:4])) for k, v in got.items()})
+    assert got["low"]["level"] != "area" and got["half"]["m"] > 0 and got["low"]["m"] > 0, got
+    assert got["full"]["m"] == got["half"]["m"] and got["full"]["best"] == got["half"]["best"], got
+    assert "0 of 0" not in got["title"], got["title"]
+    assert got["low again"]["m"] == got["low"]["m"] and got["low again"]["best"] == got["low"]["best"], got
+    assert got["low to full"]["m"] == got["low"]["m"] and got["low to full"]["best"] == got["low"]["best"], got
+
+
+# The focused element's ring: its box-shadow and outline as drawn (none: no ring)
+RING = """() => { const e = document.activeElement, s = getComputedStyle(e);
+  return {label: e.getAttribute('aria-label') || e.textContent.trim().slice(0, 20), shadow: s.boxShadow, outline: s.outlineStyle, visible: e.matches(':focus-visible')}; }"""
+
+
+def _tab_to(page, selector: str, k: int, limit: int = 120) -> bool:
+    """Tab from where the focus is until the `k`-th element matching `selector` has it."""
+    for _ in range(limit):
+        if page.evaluate(f"() => document.activeElement === document.querySelectorAll({json.dumps(selector)})[{k}]"):
+            return True
+        page.keyboard.press("Tab")
+    return False
+
+
+def _ringed(r: dict) -> bool:
+    return r["visible"] and (r["shadow"] not in ("none", "") or r["outline"] not in ("none", ""))
+
+
+def test_run_actions_focus_rings(site):
+    """F2: every run action focused by the keyboard shows the kit's ring: the phone pill's (their shadow was taken
+    away by mapbar.css), and the desktop header's with a menu's button, in the view (today's page keeps its look:
+    columns.css)."""
+    from playwright.sync_api import sync_playwright
+    phone, desk = [], []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", SMALL_PHONE, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            pill = ".c-pill .r-actions button"
+            names = page.evaluate(f"() => [...document.querySelectorAll('{pill}')].map((b) => b.getAttribute('aria-label'))")
+            page.focus(".c-pill .c-back")
+            for k, name in enumerate(names):
+                assert _tab_to(page, pill, k), name
+                phone.append(page.evaluate(RING))
+            page.context.close()
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            head = ".c-result-top .r-actions button"
+            n = page.evaluate(f"() => document.querySelectorAll('{head}').length")
+            page.focus(".c-result-top .c-back")
+            for k in range(n):
+                assert _tab_to(page, head, k), k
+                desk.append(page.evaluate(RING))
+            # a menu's button: Download's menu opened by the keyboard (its button the last of the header's), Tab into it
+            page.keyboard.press("Enter")
+            page.wait_for_selector(".c-result-top .r-pop", timeout=WAIT)
+            page.wait_for_function("() => !!document.activeElement.closest('.c-result-top .r-pop')", timeout=WAIT)
+            if not page.evaluate("() => document.activeElement.matches('button, a')"):
+                page.keyboard.press("Tab")
+            desk.append(page.evaluate(RING))
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("rings: phone", phone, "desktop", desk)
+    # (the test page's run shows Measure and Download in the pill, Measure, Compare and Download in the header)
+    assert len(phone) >= 2 and all(_ringed(r) for r in phone), phone
+    assert len(desk) >= 4 and all(_ringed(r) for r in desk), desk
+
+
+def test_measure_ruler_pressed_on_a_phone(site):
+    """F3: on a phone the pill's ruler takes the accent while Measure is on (aria-pressed true; the mock-up's pressed
+    ruler, as the map's "i" when open), and the pill's grey on a transparent ground when off."""
+    from playwright.sync_api import sync_playwright
+    read = """() => { const b = document.querySelector(".c-pill [aria-label='Measure'], .c-pill .r-actions button[aria-pressed]"), s = getComputedStyle(b);
+      const probe = document.createElement('span'); probe.style.background = 'var(--accent-soft)'; probe.style.color = 'var(--accent-ink)';
+      b.parentElement.appendChild(probe); const want = [getComputedStyle(probe).backgroundColor, getComputedStyle(probe).color]; probe.remove();
+      return {pressed: b.getAttribute('aria-pressed'), bg: s.backgroundColor, color: s.color, want}; }"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", SMALL_PHONE, script=HELP)
+            page.wait_for_function("() => F.snap() === 'peek' && F.rest()", timeout=WAIT)
+            off = page.evaluate(read)
+            page.evaluate("() => document.querySelector(\".c-pill [aria-label='Measure']\").click()")
+            page.wait_for_function("() => window.FINDALINE_VIEW.map.isMeasuring", timeout=WAIT)
+            page.mouse.move(5, 300)  # (no hover on the button)
+            page.evaluate("() => T.frames()")
+            on = page.evaluate(read)
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the ruler: off", off, "on", on)
+    assert on["pressed"] == "true" and [on["bg"], on["color"]] == on["want"], on
+    assert off["pressed"] in (None, "false") and off["bg"] == "rgba(0, 0, 0, 0)" and off["color"] != on["color"], off
+
+
+def test_direction_press_keeps_its_place(site):
+    """F4: with a spot selected (the tree's second-last), the direction pressed three times: the button stays where it
+    was under the pointer (it ran to y -95 before: the list scrolled to the selected row), and the selected row is
+    still drawn in the new order (the list's follow pages it)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            tree = page.evaluate("() => window.FINDALINE_VIEW.view.sectors.flatMap((s) => s.spots)")
+            spot = tree[-2]
+            _state(page, f"view.select({spot});")
+            page.wait_for_selector(f"#vl-row-{spot} > .vl-main", timeout=WAIT)
+            page.evaluate("() => { const h = document.querySelector('.vl-tree'), box = h.closest('.vl-body'); box.scrollTop += h.getBoundingClientRect().top - box.getBoundingClientRect().top - 120; }")
+            page.evaluate("() => T.frames()")
+            top = lambda: page.evaluate("() => Math.round(document.querySelector('.vl-tree .vl-dir').getBoundingClientRect().top)")
+            places = [top()]
+            for desc in (False, True, False):
+                page.click(".vl-tree .vl-dir")
+                page.wait_for_function(f"() => window.FINDALINE_VIEW.view.desc === {str(desc).lower()}", timeout=WAIT)
+                page.evaluate("() => T.frames()")
+                places.append(top())
+            drawn = page.evaluate(f"() => !!document.querySelector('#vl-row-{spot} > .vl-main[aria-pressed=\"true\"]')")
+            assert page.errors == []
+        finally:
+            browser.close()
+    print("the direction's place:", places, "row drawn", drawn)
+    assert max(places) - min(places) <= 1, places
+    assert drawn
+
+
+@pytest.mark.parametrize("which", ["vl-cols-info", "vl-top-info"])
+def test_list_info_closes_on_escape(site, which):
+    """F8: the list's two "i" (the columns', "Top level only"'s) close their text on Esc while the focus is on them, as
+    the access key's help does; the selection and the page stay."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _open(browser, site + f"#run={BIG}", DESKTOP, script=HELP)
+            _state(page, "view.select(view.order[0]);")
+            page.focus(f".{which}")
+            page.keyboard.press("Enter")
+            page.wait_for_function(f"() => document.querySelector('.{which}').getAttribute('aria-expanded') === 'true'", timeout=WAIT)
+            page.keyboard.press("Escape")
+            page.evaluate("() => T.frames()")
+            got = page.evaluate(f"() => [document.querySelector('.{which}').getAttribute('aria-expanded'), !!window.FINDALINE_VIEW.view.selected]")
+            assert page.errors == []
+        finally:
+            browser.close()
+    assert got == ["false", True], got
